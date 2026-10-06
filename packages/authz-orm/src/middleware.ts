@@ -1,6 +1,6 @@
 import { AccessDenied, AuthzConfigError, AuthzDomains, DecisionAudit, DefaultAuthzDomains, SYSTEM, UNATTENDED, authz, authzStorage, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Permission, Principal, ResourceFilter } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { DI, Injectable, ResolveType, isFactory } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
@@ -78,13 +78,6 @@ function assertBuiltFor(scope: QueryScope | undefined, principal: Principal): vo
   if (scope === undefined || sameData(scope.principal, principal, 0)) return;
   throw new Forbidden(`authz-orm: a ${scope.kind} query of ${scope.entry.type} was built for another principal than the one running it`);
 }
-
-const domainName = (): string => {
-  const configuration = DI.get(Configuration) as Configuration | undefined;
-  const name: unknown = configuration?.get(['authz', 'orm', 'domain']) ?? 'root';
-  if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: authz.orm.domain must be a domain name, got ${JSON.stringify(name)}`);
-  return name;
-};
 
 function kindOf(builder: QueryBuilder): QueryKind {
   if (builder instanceof SelectQueryBuilder) return 'read';
@@ -239,17 +232,23 @@ function recordUnscoped(service: AuthzService, principal: Principal, reason: str
 export class AuthzQueryMiddleware extends QueryMiddleware {
   public order = 100;
 
+  @Config('authz.orm.domain')
+  protected Domain: string;
+
+  // Read when a scoped model needs it, not on every query.
+  private readonly domain = (): string => this.Domain;
+
   afterQueryCreation(builder: QueryBuilder): void {
     guard(builder);
-    scopeFor(builder, builder.Model as ModelClass | undefined);
+    scopeFor(builder, builder.Model as ModelClass | undefined, this.domain);
   }
 
   async beforeQueryExecution(builder: QueryBuilder): Promise<void> {
     // Builders the orm makes without afterQueryCreation (a many-to-many junction query) are shielded here.
     guard(builder);
-    if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder));
+    if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder), this.domain);
     const scope = scopes.get(builder);
-    await gate(builder, scope);
+    await gate(builder, scope, this.domain);
     if (scope?.slot && !scope.slot.resolved) await fill(scope.slot, builder, scope);
     // Relation queries and sub-queries compile into this query without an execution hook of their own.
     for (const slot of pendingSlots(builder)) {
@@ -268,7 +267,7 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
 }
 
 /** Puts `model`'s scope on the builder (conventions §6); `model` is the builder's model, or the junction a many-to-many query reads. */
-function scopeFor(builder: QueryBuilder, model: ModelClass | undefined): void {
+function scopeFor(builder: QueryBuilder, model: ModelClass | undefined, domain: () => string): void {
   const entry = entryOf(model);
   if (!entry || !model) return;
   const kind = kindOf(builder);
@@ -276,12 +275,12 @@ function scopeFor(builder: QueryBuilder, model: ModelClass | undefined): void {
   const principal = currentPrincipal();
   const unscoped = unscopedReason();
   if (unscoped !== undefined) {
-    recordUnscoped(authz(domainName()), principal, unscoped, permission, entry);
+    recordUnscoped(authz(domain()), principal, unscoped, permission, entry);
     return;
   }
   if (principal === SYSTEM) return;
 
-  const service = authz(domainName());
+  const service = authz(domain());
   const base: QueryScope = { service, model, entry, kind, permission, principal };
   if (kind === 'create') {
     scopes.set(builder, base);
@@ -481,13 +480,13 @@ function relationJoin(builder: SelectQueryBuilder, join: JoinStatement, table: s
  * principal is SYSTEM or the query is unscoped. Truncate and a deep clone pass with delete (read)
  * TRUE on every class of the table.
  */
-async function gate(builder: QueryBuilder, scope: QueryScope | undefined): Promise<void> {
+async function gate(builder: QueryBuilder, scope: QueryScope | undefined, domain: () => string): Promise<void> {
   const principal = currentPrincipal();
   if (principal === SYSTEM || unscopedReason() !== undefined) return;
   assertBuiltFor(scope, principal);
   const index = tables();
   if (index.size === 0) return;
-  const service = (): AuthzService => authz(domainName());
+  const service = (): AuthzService => authz(domain());
 
   if (builder instanceof TruncateTableQueryBuilder || builder instanceof CloneTableQueryBuilder) {
     const truncate = builder instanceof TruncateTableQueryBuilder;

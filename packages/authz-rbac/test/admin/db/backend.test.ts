@@ -59,6 +59,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     await installHost();
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
+    config().set(['authz', 'admin', 'connection'], 'default');
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
@@ -86,7 +87,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
 
   beforeEach(async () => {
     for (const t of [IDEM, ATTRS, POLICIES]) await db.del().from(t);
-    config().set(['authz', 'admin', 'connection'], undefined);
+    config().set(['authz', 'admin', 'connection'], 'default');
     dom = `d${++n}`;
     other = `e${n}`;
   });

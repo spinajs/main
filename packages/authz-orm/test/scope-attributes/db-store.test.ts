@@ -92,7 +92,7 @@ describe('DbScopeAttributeStore on SQLite', function () {
 
   beforeEach(async () => {
     await db.del().from(TABLE);
-    config.set(['authz', 'admin', 'connection'], undefined);
+    config.set(['authz', 'admin', 'connection'], 'default');
   });
 
   it('the migration registers through @Migration and creates the table at startup', async () => {

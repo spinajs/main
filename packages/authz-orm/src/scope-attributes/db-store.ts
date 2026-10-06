@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, parseAttributeLeaf, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
@@ -32,7 +32,7 @@ interface Row {
 }
 
 export interface DbScopeAttributeStoreOptions {
-  /** The ORM connection reads use; default: config authz.admin.connection, else the ORM default connection. */
+  /** The ORM connection reads use; default: config authz.admin.connection. */
   readonly connection?: string;
   /** Where Configuration and Orm are resolved; default the DI root. */
   readonly container?: IContainer;
@@ -46,8 +46,13 @@ const isLeaf = (v: unknown): v is ScopeAttributeLeaf => typeof v === 'string' ||
  * Writes run only inside the ORM transaction of an AuthzAdmin batch (AuthzTx.driver).
  */
 export class DbScopeAttributeStore extends WritableScopeAttributeStore {
+  @Config(CONNECTION_KEY)
+  protected Connection: string;
+
   constructor(private readonly opts: DbScopeAttributeStoreOptions = {}) {
     super();
+    // Built with `new` for a container, it reads that container's Configuration, as when DI builds it there.
+    if (opts.container) (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = opts.container;
   }
 
   async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
@@ -135,13 +140,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
 
   private async reader(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
-    let name = this.opts.connection;
-    if (name === undefined) {
-      const configuration = (await container.resolve(Configuration)) as Configuration;
-      const configured = configuration.get<unknown>(['authz', 'admin', 'connection']);
-      if (configured !== undefined && (typeof configured !== 'string' || configured === '')) throw new AuthzConfigError(`configuration key ${CONNECTION_KEY} must be a connection name, got ${JSON.stringify(configured)}`);
-      name = (configured as string | undefined) ?? 'default';
-    }
+    const name = this.opts.connection ?? this.Connection;
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
     if (!driver) throw new AuthzConfigError(`DbScopeAttributeStore: ${CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
