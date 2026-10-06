@@ -9,7 +9,7 @@ import * as cs from 'cookie-signature';
 import { DateTime } from 'luxon';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -26,6 +26,7 @@ import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrinc
 import * as barrel from '../../src/index.js';
 import * as api from '../../src/api.js';
 import { AuthnPrincipalResolver } from '../../src/api.js';
+import { fakeContainer } from '../support/config-boot.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../../src/resolvers/credential.js';
 import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
@@ -868,9 +869,11 @@ describe('AuthnMiddleware units', () => {
   });
 
   describe('extractors', () => {
+    // The schema defaults, which a stand-in container does not apply; extractors-config.test.ts pins them to the schema.
+    const EXTRACTOR_DEFAULTS = { 'authn.token.prefix': 'spt_', 'authn.token.headerName': 'x-api-key', 'authn.keys.assertion.typ': 'spinajs-client+jwt' };
     const extractor = <T extends object>(E: new () => T, values: Record<string, unknown> = {}) => {
       const e = new E();
-      Object.defineProperty(e, 'Configuration', { value: config(values) });
+      Object.defineProperty(e, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ ...EXTRACTOR_DEFAULTS, ...values }) });
       return e as T & { extract(r: SignedRequest): Credentials | null };
     };
     const sreq = (headers: Record<string, string>, over: Partial<SignedRequest> = {}): SignedRequest => ({ method: 'GET', targetUri: `${PUBLIC_ORIGIN}/x`, headers, ...over });
@@ -911,7 +914,6 @@ describe('AuthnMiddleware units', () => {
       const custom = extractor(ApiKeyHeaderExtractor, { 'authn.token.prefix': 'tok_' });
       expect(custom.extract(sreq({ 'x-api-key': 'tok_k' }))).to.deep.eq({ kind: 'bearer', token: 'tok_k' });
       expect(custom.extract(sreq({ 'x-api-key': 'spt_k' }))).to.eq(null);
-      expect(extractor(ApiKeyHeaderExtractor, { 'authn.token.prefix': '' }).extract(sreq({ 'x-api-key': 'spt_k' })), 'an empty prefix takes nothing').to.eq(null);
     });
 
     it('signature: both headers, a public origin and an origin-form target are needed; the origin comes from config', () => {

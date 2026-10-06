@@ -1,5 +1,5 @@
-import { Autoinject, PerChildInstance } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { PerChildInstance } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { CredentialExtractor } from '@spinajs/authn/contracts';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
@@ -7,9 +7,6 @@ import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 const TOKEN = /^[A-Za-z0-9\-._~+/]+=*$/;
 const BEARER = /^Bearer +([A-Za-z0-9\-._~+/]+=*)$/i;
 const MALFORMED_BEARER = /^Bearer +(.+)$/is;
-
-const DEFAULT_TOKEN_PREFIX = 'spt_';
-const DEFAULT_ASSERTION_TYP = 'spinajs-client+jwt';
 
 function jwsTyp(header: string): unknown {
   try {
@@ -30,14 +27,17 @@ function jwsTyp(header: string): unknown {
 export class AuthorizationBearerExtractor extends CredentialExtractor {
   public readonly order: number = 20;
 
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('authn.token.prefix')
+  protected Prefix: string;
+
+  @Config('authn.keys.assertion.typ')
+  protected AssertionTyp: string;
 
   public extract(req: SignedRequest): Credentials | null {
     const header = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : undefined;
     if (header === undefined) return null;
-    const prefix = this.Configuration.get<string>('authn.token.prefix', DEFAULT_TOKEN_PREFIX);
-    const ours = (value: string) => typeof prefix === 'string' && prefix !== '' && value.startsWith(prefix);
+    // Floor: a runtime set can bypass the schema's minLength, and an empty prefix would claim every value.
+    const ours = (value: string) => this.Prefix !== '' && value.startsWith(this.Prefix);
 
     const token = BEARER.exec(header)?.[1];
     if (token === undefined) {
@@ -48,7 +48,7 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
 
     const parts = token.split('.');
     if (parts.length !== 3 || parts.some((p) => p === '')) return null;
-    return jwsTyp(parts[0]) === this.Configuration.get<string>('authn.keys.assertion.typ', DEFAULT_ASSERTION_TYP) ? { kind: 'jws-assertion', jws: token } : { kind: 'bearer', token };
+    return jwsTyp(parts[0]) === this.AssertionTyp ? { kind: 'jws-assertion', jws: token } : { kind: 'bearer', token };
   }
 }
 
@@ -61,14 +61,15 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
 export class ApiKeyHeaderExtractor extends CredentialExtractor {
   public readonly order: number = 30;
 
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('authn.token.headerName')
+  protected HeaderName: string;
+
+  @Config('authn.token.prefix')
+  protected Prefix: string;
 
   public extract(req: SignedRequest): Credentials | null {
-    const name = this.Configuration.get<string>('authn.token.headerName', 'x-api-key');
-    const value = typeof name === 'string' && name !== '' ? req.headers[name.toLowerCase()] : undefined;
+    const value = req.headers[this.HeaderName.toLowerCase()];
     const token = typeof value === 'string' ? value.trim() : '';
-    const prefix = this.Configuration.get<string>('authn.token.prefix', DEFAULT_TOKEN_PREFIX);
-    return TOKEN.test(token) && typeof prefix === 'string' && prefix !== '' && token.startsWith(prefix) ? { kind: 'bearer', token } : null;
+    return TOKEN.test(token) && this.Prefix !== '' && token.startsWith(this.Prefix) ? { kind: 'bearer', token } : null;
   }
 }

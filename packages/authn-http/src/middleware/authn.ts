@@ -13,7 +13,7 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import type * as express from 'express';
 
 import { AuthnPrincipalResolver } from '../api.js';
-import { signaturePublicOrigin } from '../extractors/signature.js';
+import { publicOriginOf } from '../extractors/signature.js';
 
 type Restored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 
@@ -80,7 +80,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     if (secret === PUBLIC_DEFAULT_COOKIE_SECRET) {
       this.Log.warn('http.cookie.secret is the public default shipped with @spinajs/http; session cookies can be forged. Set a secret of your own');
     }
-    if (signaturePublicOrigin(this.Configuration) === undefined) {
+    if (publicOriginOf(this.Configuration.get<string | null | undefined>('authn.http.publicOrigin')) === undefined) {
       this.Log.warn('authn.http.publicOrigin is not set: requests signed with HTTP message signatures get no principal');
     }
     this.CookieSecret = secret;

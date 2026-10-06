@@ -4,6 +4,10 @@ interface BackoffParams {
   maxDelayMs: number;
 }
 
+// Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. Consumers still normalise it with
+// @spinajs/http's parseOrigin, which also refuses a port above 65535 and a broken IPv6 literal.
+const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
+
 // Asymmetric JWS algorithms only: never 'none', never HMAC (design §22.9).
 const JWT_ALGORITHMS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA'];
 
@@ -368,9 +372,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['sinks', 'sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
+      propertyNames: { enum: ['sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
-        sinks: stringList,
         sampleUse: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
         hashIdentifiers: { type: 'boolean', default: true },
         hashKey: {
@@ -384,6 +387,11 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     http: {
       type: 'object',
       properties: {
+        publicOrigin: {
+          type: 'string',
+          pattern: ORIGIN_PATTERN,
+          description: "The origin clients put in an HTTP message signature's @target-uri (scheme://host[:port]); never taken from Host. Unset: signed requests get no principal.",
+        },
         // Not a type union: with coerceTypes, 0 (trust no proxy) would become null (fall back).
         trustProxy: {
           anyOf: [
