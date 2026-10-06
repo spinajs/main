@@ -2,7 +2,8 @@ import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink
 import type { Assignment, AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HarnessSession, HostSetup, WorldLink } from '@spinajs/authz-testing';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import type { IContainer } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
 
 import adminConfig from '../../src/config/admin.js';
@@ -131,7 +132,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
       const roles = c.resolve(RoleStore) as ConfigRoleStore;
       const stores: DbHarnessStores = { roles, assignments: c.resolve(AdminAssignmentStore) as DbAssignmentStore, rules: c.resolve(AdminRuleStore) as DbRuleStore, links: c.resolve(AdminLinkStore) as DbLinkStore };
       // Each runBehaviour group installs its own TestConfiguration; a store holding an older one would read stale roles.
-      if ((roles as unknown as { configuration: Configuration }).configuration !== configuration) throw new Error("dbHarness: the RoleStore does not read this case's Configuration");
+      if ((roles as unknown as Record<string, IContainer>)[CONFIGURATION_CONTAINER_KEY].get(Configuration) !== configuration) throw new Error("dbHarness: the RoleStore does not read this case's Configuration");
 
       for (const a of rbac.assignments ?? []) await insertAssignment(test, a);
       for (const l of rbac.links ?? []) await insertLink(test, l);

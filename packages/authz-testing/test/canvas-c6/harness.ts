@@ -5,8 +5,8 @@ import type { AuthzService } from '@spinajs/authz';
 import { AbacContributor, AbacModel } from '@spinajs/authz-abac';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAuthzAdminBackend, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RbacContributor, RbacModel, RbacService, RoleStore, RuleStore, registerRbac } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
-import type { Class } from '@spinajs/di';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import type { Class, IContainer } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -142,8 +142,8 @@ async function registerSqliteRbac(host: HostSetup, configuration: Configuration,
   c.register(instance(db.orm)).as(Orm);
   const { service } = await registerRbac(c, configuration, { clock: host.kit.clock });
   // A role store holding an earlier group's TestConfiguration would read stale roles.
-  const roles = (await c.resolve(RoleStore)) as unknown as { configuration?: unknown };
-  if (roles.configuration !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
+  const roles = (await c.resolve(RoleStore)) as unknown as Record<string, IContainer>;
+  if (roles[CONFIGURATION_CONTAINER_KEY].get(Configuration) !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
   return { service, attributes: new DbScopeAttributeStore({ container: db.container }) };
 }
 

@@ -65,11 +65,20 @@ describe('authz:check-config', () => {
     expect(calls[0].reason).to.equal('cli');
   });
 
-  it('prints the config error and exits 1 when the role configuration is refused', async () => {
-    const { cmd } = command({ roles: { viewer: { grants: 'doc:read' } } });
+  it('prints the config error and exits 1 when a role store refuses its configuration', async () => {
+    const { cmd } = command(GOOD);
+    cmd.Roles = new (class extends RoleStore {
+      readonly name = 'RefusingRoleStore';
+      async load(): Promise<never> {
+        throw new AuthzConfigError('authz.rbac.roles.viewer: role ghost is not defined');
+      }
+      async version(): Promise<string> {
+        return 'v';
+      }
+    })();
     await cmd.execute({});
     expect(io.err).to.have.length(1);
-    expect(io.err[0]).to.contain('authz.rbac.roles.viewer.grants');
+    expect(io.err[0]).to.contain('authz.rbac.roles.viewer');
     expect(io.exitCode()).to.equal(1);
     expect(io.out).to.deep.equal([]);
   });

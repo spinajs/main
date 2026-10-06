@@ -1,4 +1,5 @@
-import { AuthzConfigError, AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
+import { AuthzConfigError, AUTHZ_CONFIGURATION_SCHEMA, PermissionRegistryImpl } from '@spinajs/authz';
+import { bootConfiguration } from '@spinajs/authz-testing';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -13,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { RoleStore } from '../../src/index.js';
+import { RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 import rbacStores from '../../src/config/rbac-stores.js';
@@ -279,14 +280,16 @@ describe('authz-rbac stores: ConfigRoleStore', function () {
     });
   });
 
-  describe('malformed shapes', () => {
+  // The schema refuses every malformed shape at boot. A value it never saw (Configuration.set, the constructor seam)
+  // must still never read as a broader role: the store refuses what would widen one, the model compile the rest.
+  describe('values the schema never saw', () => {
     const refuses = async (rbac: unknown, path: string) => {
       const e = await rejection(storeFor(rbac).load());
-      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(e, JSON.stringify(rbac)).to.be.instanceOf(AuthzConfigError);
       expect((e as Error).message).to.contain(path);
     };
 
-    it('refuses wrong containers', async () => {
+    it('refuses roles and ladders that are not maps of objects', async () => {
       await refuses({ roles: [] }, 'authz.rbac.roles');
       await refuses({ roles: 'admin' }, 'authz.rbac.roles');
       await refuses({ ladders: [] }, 'authz.rbac.ladders');
@@ -295,35 +298,68 @@ describe('authz-rbac stores: ConfigRoleStore', function () {
       await refuses({ ladders: { l: null } }, 'authz.rbac.ladders.l');
     });
 
-    it('refuses bad role fields, naming the key path', async () => {
-      await refuses({ roles: { a: { grants: 'x:read' } } }, 'authz.rbac.roles.a.grants');
-      await refuses({ roles: { a: { grants: ['x', 42] } } }, 'authz.rbac.roles.a.grants[1]');
-      await refuses({ roles: { a: { grants: [['x']] } } }, 'authz.rbac.roles.a.grants[0]');
-      await refuses({ roles: { a: { grants: [''] } } }, 'authz.rbac.roles.a.grants[0]');
-      await refuses({ roles: { a: { grants: [{ relation: 'self' }] } } }, 'authz.rbac.roles.a.grants[0].permission');
-      await refuses({ roles: { a: { grants: [{ permission: 'x', on: [{ id: 'y' }] }] } } }, 'authz.rbac.roles.a.grants[0].on[0].type');
-      await refuses({ roles: { a: { grants: [{ permission: 'x', relation: 5 }] } } }, 'authz.rbac.roles.a.grants[0].relation');
-      await refuses({ roles: { a: { grants: [{ permission: 'x', fields: { read: 'a' } }] } } }, 'authz.rbac.roles.a.grants[0].fields.read');
-      await refuses({ roles: { a: { assignable: 'yes' } } }, 'authz.rbac.roles.a.assignable');
-      await refuses({ roles: { a: { subjectSet: 1 } } }, 'authz.rbac.roles.a.subjectSet');
-      await refuses({ roles: { a: { extends: 'b' } } }, 'authz.rbac.roles.a.extends');
-      await refuses({ roles: { a: { revoke: [1] } } }, 'authz.rbac.roles.a.revoke[0]');
-      await refuses({ roles: { a: { implies: [{ role: 'b', at: 'everywhere' }] } } }, 'authz.rbac.roles.a.implies[0].at');
-      await refuses({ roles: { a: { implies: [{ role: 'b', at: 'descendants', bypass: ['ceiling'] }] } } }, 'authz.rbac.roles.a.implies[0].bypass[0]');
-      await refuses({ roles: { 'org.admin': { description: 7 } } }, 'authz.rbac.roles["org.admin"].description');
-    });
-
-    it('refuses unknown keys, which the configuration would keep silently', async () => {
-      await refuses({ roles: { a: { grant: ['x'] } } }, 'authz.rbac.roles.a.grant');
+    it('refuses an unknown key, which would drop the restriction it misspells', async () => {
+      await refuses({ roles: { a: { grants: ['x:read'], revok: ['x:read'] } } }, 'authz.rbac.roles.a.revok');
+      await refuses({ roles: { a: { scopeType: ['org'] } } }, 'authz.rbac.roles.a.scopeType');
       await refuses({ roles: { a: { name: 'b' } } }, 'authz.rbac.roles.a.name');
-      await refuses({ roles: { a: { grants: [{ permission: 'x', relations: 'self' }] } } }, 'authz.rbac.roles.a.grants[0].relations');
-      await refuses({ ladders: { l: { roles: [], name: 'm' } } }, 'authz.rbac.ladders.l.name');
+      await refuses({ roles: { a: { grants: [{ permission: 'x:read', relations: 'self' }] } } }, 'authz.rbac.roles.a.grants[0].relations');
+      await refuses({ roles: { a: { grants: [{ permission: 'x:read', onn: [{ type: 'doc', id: 'd1' }] }] } } }, 'authz.rbac.roles.a.grants[0].onn');
+      await refuses({ roles: { a: { grants: [{ permission: 'x:read', requiresTags: 'pro' }] } } }, 'authz.rbac.roles.a.grants[0].requiresTags');
+      await refuses({ ladders: { l: { roles: ['a'], resourceType: ['project'] } } }, 'authz.rbac.ladders.l.resourceType');
     });
 
-    it('refuses bad ladders', async () => {
-      await refuses({ ladders: { project: { roles: 'viewer' } } }, 'authz.rbac.ladders.project.roles');
-      await refuses({ ladders: { project: {} } }, 'authz.rbac.ladders.project.roles');
-      await refuses({ ladders: { project: { roles: ['a'], resourceTypes: [1] } } }, 'authz.rbac.ladders.project.resourceTypes[0]');
+    it('refuses a revoke that is not a list of permissions, which would revoke nothing', async () => {
+      for (const revoke of ['x:read', null, [1], { 'x:read': true }]) await refuses({ roles: { a: { grants: ['x:read'], revoke } } }, 'authz.rbac.roles.a.revoke');
+    });
+
+    it('refuses grants that are not a list of permissions and grant objects', async () => {
+      await refuses({ roles: { a: { grants: 'x:read' } } }, 'authz.rbac.roles.a.grants');
+      await refuses({ roles: { a: { grants: null } } }, 'authz.rbac.roles.a.grants');
+      await refuses({ roles: { a: { grants: ['x:read', 42] } } }, 'authz.rbac.roles.a.grants[1]');
+      await refuses({ roles: { a: { grants: ['x:read', null] } } }, 'authz.rbac.roles.a.grants[1]');
+      await refuses({ roles: { a: { grants: [['x:read']] } } }, 'authz.rbac.roles.a.grants[0]');
+    });
+
+    it('refuses a grantedAt that is not a list of scope types, which the model reads as no check or as a substring match', async () => {
+      for (const grantedAt of ['project', null, [1]]) await refuses({ roles: { a: { grants: [{ permission: 'x:read', grantedAt }] } } }, 'authz.rbac.roles.a.grants[0].grantedAt');
+    });
+
+    it('hands the other malformed values to the model compile, which refuses them', async () => {
+      const registry = new PermissionRegistryImpl();
+      registry.register([{ name: 'x:read' }, { name: 'x:write', fields: true }], 'test');
+      registry.freeze();
+      const compiles = async (rbac: unknown) => {
+        const { roles, ladders } = await storeFor(rbac).load();
+        const graph = compileRoles(roles, ladders, { extraEdges: ladderEdges });
+        compileLadders(graph, compileGrants(graph, registry));
+        compileImplies(graph);
+      };
+      const malformed: unknown[] = [
+        { roles: { a: { grants: [''] } } },
+        { roles: { a: { grants: [{ relation: 'self' }] } } },
+        { roles: { a: { grants: [{ permission: 5 }] } } },
+        { roles: { a: { grants: [{ permission: 'x:read', on: [{ id: 'y' }] }] } } },
+        { roles: { a: { grants: [{ permission: 'x:read', on: [{ type: 'doc', idd: 'y' }] }] } } },
+        { roles: { a: { grants: [{ permission: 'x:read', on: [] }] } } },
+        { roles: { a: { grants: [{ permission: 'x:read', relation: 5 }] } } },
+        { roles: { a: { grants: [{ permission: 'x:write', fields: { read: 'a' } }] } } },
+        { roles: { a: { grants: [{ permission: 'x:write', fields: { reed: ['a'] } }] } } },
+        { roles: { a: { assignable: 'yes' } } },
+        { roles: { a: { assignable: null } } },
+        { roles: { a: { extends: 'b' } } },
+        { roles: { a: { extends: null } } },
+        { roles: { a: { scopeTypes: [1] } } },
+        { roles: { a: { ladder: 5 } } },
+        { roles: { a: { implies: [{ role: 'b', at: 'everywhere' }] }, b: {} } },
+        { roles: { a: { implies: [{ role: 'b', at: 'descendants', bypass: ['ceiling'] }] }, b: {} } },
+        { roles: { a: { implies: [{ role: 'b', at: 'descendants', tags: [1] }] }, b: {} } },
+        { roles: { a: { implies: { role: 'b', at: 'descendants' } }, b: {} } },
+        { roles: { a: { ladder: 'l' } }, ladders: { l: { roles: 'a' } } },
+        { roles: { a: { ladder: 'l' } }, ladders: { l: {} } },
+        { roles: { a: { ladder: 'l' } }, ladders: { l: { roles: ['a'], resourceTypes: [1] } } },
+      ];
+      for (const rbac of malformed) expect(await rejection(compiles(rbac)), JSON.stringify(rbac)).to.be.instanceOf(AuthzConfigError);
+      await compiles({ roles: { a: { ladder: 'l', grants: ['x:read'] }, b: { implies: [{ role: 'a', at: 'descendants' }] } }, ladders: { l: { roles: ['a'] } } });
     });
   });
 });
@@ -348,10 +384,27 @@ describe('authz-rbac stores: ConfigRoleStore in DI', function () {
           },
         )
         .as(Configuration);
+      await child.resolve(Configuration);
       child.register(ConfigRoleStore).as(RoleStore);
       const store = (await child.resolve(RoleStore)) as RoleStore;
       expect(store).to.be.instanceOf(ConfigRoleStore);
       expect((await store.load()).roles.map((r) => r.name)).to.deep.equal(['a']);
+    } finally {
+      await child.dispose();
+    }
+  });
+
+  it('reads authz.rbac.roles and ladders through @Config of its container', async () => {
+    const { child } = await bootConfiguration({ authz: { rbac: { roles: { a: { grants: ['x:read'] } }, ladders: { l: { roles: ['a'] } } } } }, [AUTHZ_RBAC_CONFIGURATION_SCHEMA]);
+    try {
+      child.register(ConfigRoleStore).as(RoleStore);
+      const store = (await child.resolve(RoleStore)) as ConfigRoleStore;
+
+      expect((store as unknown as { Roles: unknown }).Roles).to.deep.equal({ a: { grants: ['x:read'] } });
+      expect(await store.load()).to.deep.equal({
+        roles: [{ name: 'a', extends: [], grants: [{ permission: 'x:read' }], assignable: true, source: 'config' }],
+        ladders: [{ name: 'l', roles: ['a'] }],
+      });
     } finally {
       await child.dispose();
     }

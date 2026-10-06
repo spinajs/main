@@ -1,119 +1,85 @@
 import { createHash } from 'node:crypto';
 import { AuthzConfigError } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
-import { Inject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import type { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
-import type { GrantDef, ImpliedRole, LadderDef, ResourcePattern, RoleDef } from '../contracts.js';
+import type { GrantDef, LadderDef, RoleDef } from '../contracts.js';
 
-const ROOT = 'authz.rbac';
-const ROLE_KEYS = ['ladder', 'extends', 'grants', 'revoke', 'implies', 'subjectSet', 'assignable', 'scopeTypes', 'description'];
-const GRANT_KEYS = ['permission', 'relation', 'on', 'fields', 'requiresTag', 'grantedAt'];
-const IMPLIES_KEYS = ['role', 'at', 'tags', 'bypass'];
-const LADDER_KEYS = ['roles', 'resourceTypes'];
-const IMPLIES_AT: readonly string[] = ['self-and-descendants', 'descendants'];
-const BYPASS: readonly string[] = ['restrict', 'cap'];
+/** One `authz.rbac.roles.<name>` entry as configured; AUTHZ_RBAC_CONFIGURATION_SCHEMA checks it. */
+interface RoleEntry extends Partial<Omit<RoleDef, 'name' | 'grants' | 'source'>> {
+  readonly grants?: readonly (string | GrantDef)[];
+  readonly revoke?: readonly string[];
+}
 
+type LadderEntry = Omit<LadderDef, 'name'>;
 type Raw = Record<string, unknown>;
 
-const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
-const key = (path: string, k: string) => (/^[A-Za-z_$][\w$]*$/.test(k) ? `${path}.${k}` : `${path}[${JSON.stringify(k)}]`);
-const fail = (path: string, what: string): never => {
-  throw new AuthzConfigError(`${path}: ${what}`);
-};
+const ROLE_KEYS = ['ladder', 'extends', 'grants', 'revoke', 'implies', 'subjectSet', 'assignable', 'scopeTypes', 'description'];
+const GRANT_KEYS = ['permission', 'relation', 'on', 'fields', 'requiresTag', 'grantedAt'];
+const LADDER_KEYS = ['roles', 'resourceTypes'];
 
-function object(v: unknown, path: string, allowed?: readonly string[]): Raw {
-  if (!isPlain(v)) fail(path, 'must be an object');
-  if (allowed) for (const k of Object.keys(v as Raw)) if (!allowed.includes(k)) fail(key(path, k), 'is not a known key');
-  return v as Raw;
+const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
+const isNames = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
+
+/*
+ * Floors for values the schema never saw (Configuration.set, the constructor seam). Each refuses a shape that would read
+ * as a broader role: a misspelt key drops the restriction it names, a `revoke` string revokes nothing, a `grantedAt`
+ * string is matched by substring. The model compile refuses the other malformed values.
+ */
+function refuse(bad: boolean, path: string, what: string): void {
+  if (bad) throw new AuthzConfigError(`${path}: ${what}`);
 }
 
-function text(v: unknown, path: string, nonEmpty = true): string {
-  if (typeof v !== 'string' || (nonEmpty && v === '')) fail(path, nonEmpty ? 'must be a non-empty string' : 'must be a string');
-  return v as string;
+function closed(v: unknown, keys: readonly string[], path: string): void {
+  refuse(!isPlain(v), path, 'must be an object');
+  const unknown = Object.keys(v as Raw).find((k) => !keys.includes(k));
+  refuse(unknown !== undefined, `${path}.${unknown}`, 'is not a known key');
 }
 
-function list(v: unknown, path: string): unknown[] {
-  if (!Array.isArray(v)) fail(path, 'must be a list');
-  return v as unknown[];
+// A plain copy: the result is frozen and must not alias the configuration.
+function copy<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(copy) as unknown as T;
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, copy(v)])) as T;
+  return value;
 }
 
-const texts = (v: unknown, path: string, allowed?: readonly string[]): string[] =>
-  list(v, path).map((s, i) => {
-    const t = text(s, `${path}[${i}]`);
-    if (allowed && !allowed.includes(t)) fail(`${path}[${i}]`, `must be one of ${allowed.join(', ')}`);
-    return t;
-  });
-
-function flag(v: unknown, path: string): boolean {
-  if (typeof v !== 'boolean') fail(path, 'must be true or false');
-  return v as boolean;
-}
-
-/** Copies into `out` the keys of `src` that are set, so absent optional fields stay absent. */
-function optional<T>(out: Raw, src: Raw, k: string, read: (v: unknown) => T): void {
-  if (src[k] !== undefined) out[k] = read(src[k]);
-}
-
-function grant(v: unknown, path: string): GrantDef {
-  if (typeof v === 'string') return { permission: text(v, path) };
-  const g = object(v, path, GRANT_KEYS);
-  const out: Raw = { permission: text(g.permission, `${path}.permission`) };
-  optional(out, g, 'relation', (r) => (typeof r === 'string' ? text(r, `${path}.relation`) : Array.isArray(r) ? texts(r, `${path}.relation`) : fail(`${path}.relation`, 'must be a string or a list')));
-  optional(out, g, 'on', (on) =>
-    list(on, `${path}.on`).map((p, i): ResourcePattern => {
-      const at = `${path}.on[${i}]`;
-      const o = object(p, at, ['type', 'id']);
-      return { type: text(o.type, `${at}.type`), ...(o.id === undefined ? {} : { id: text(o.id, `${at}.id`, false) }) };
-    }),
-  );
-  optional(out, g, 'fields', (f) => {
-    const o = object(f, `${path}.fields`, ['read', 'write', 'hide']);
-    const fields: Raw = {};
-    for (const k of ['read', 'write', 'hide']) optional(fields, o, k, (x) => texts(x, `${path}.fields.${k}`));
-    return fields;
-  });
-  optional(out, g, 'requiresTag', (t) => text(t, `${path}.requiresTag`));
-  optional(out, g, 'grantedAt', (t) => texts(t, `${path}.grantedAt`));
-  return out as unknown as GrantDef;
-}
-
-function implied(v: unknown, path: string): ImpliedRole {
-  const o = object(v, path, IMPLIES_KEYS);
-  const at = text(o.at, `${path}.at`);
-  if (!IMPLIES_AT.includes(at)) fail(`${path}.at`, `must be one of ${IMPLIES_AT.join(', ')}`);
-  const out: Raw = { role: text(o.role, `${path}.role`), at };
-  optional(out, o, 'tags', (t) => texts(t, `${path}.tags`));
-  optional(out, o, 'bypass', (b) => texts(b, `${path}.bypass`, BYPASS));
-  return out as unknown as ImpliedRole;
+function grant(g: string | GrantDef, path: string): GrantDef {
+  if (typeof g === 'string') return { permission: g };
+  closed(g, GRANT_KEYS, path);
+  refuse(g.grantedAt !== undefined && !isNames(g.grantedAt), `${path}.grantedAt`, 'must be a list of scope types');
+  return g;
 }
 
 /**
  * `revoke` removes, after the configuration merged every fragment, each grant of this role whose permission equals a
  * listed string exactly (no globs); a string grant counts, as it reads `{ permission }`. Inherited grants are untouched.
  */
-function role(name: string, v: unknown, path: string): RoleDef {
-  const r = object(v, path, ROLE_KEYS);
-  const revoked = new Set(r.revoke === undefined ? [] : texts(r.revoke, `${path}.revoke`));
-  const grants = (r.grants === undefined ? [] : list(r.grants, `${path}.grants`)).map((g, i) => grant(g, `${path}.grants[${i}]`)).filter((g) => !revoked.has(g.permission));
-  const out: Raw = { name };
-  optional(out, r, 'ladder', (l) => text(l, `${path}.ladder`));
-  out.extends = r.extends === undefined ? [] : texts(r.extends, `${path}.extends`);
-  out.grants = grants;
-  optional(out, r, 'implies', (i) => list(i, `${path}.implies`).map((x, n) => implied(x, `${path}.implies[${n}]`)));
-  optional(out, r, 'subjectSet', (s) => flag(s, `${path}.subjectSet`));
-  out.assignable = r.assignable === undefined ? true : flag(r.assignable, `${path}.assignable`);
-  optional(out, r, 'scopeTypes', (s) => texts(s, `${path}.scopeTypes`));
-  optional(out, r, 'description', (d) => text(d, `${path}.description`, false));
-  out.source = 'config';
-  return out as unknown as RoleDef;
+function role(name: string, entry: RoleEntry, path: string): RoleDef {
+  closed(entry, ROLE_KEYS, path);
+  const { revoke = [], grants = [], extends: parents = [], assignable = true, ...rest } = copy(entry);
+  refuse(!isNames(revoke), `${path}.revoke`, 'must be a list of permissions');
+  refuse(!Array.isArray(grants), `${path}.grants`, 'must be a list');
+  const revoked = new Set(revoke);
+  return {
+    name,
+    ...rest,
+    extends: parents,
+    grants: grants.map((g, i) => grant(g, `${path}.grants[${i}]`)).filter((g) => !revoked.has(g.permission)),
+    assignable,
+    source: 'config',
+  };
 }
 
-function ladder(name: string, v: unknown, path: string): LadderDef {
-  const l = object(v, path, LADDER_KEYS);
-  const out: Raw = { name, roles: texts(l.roles, `${path}.roles`) };
-  optional(out, l, 'resourceTypes', (t) => texts(t, `${path}.resourceTypes`));
-  return out as unknown as LadderDef;
+function ladder(name: string, entry: LadderEntry, path: string): LadderDef {
+  closed(entry, LADDER_KEYS, path);
+  return { name, ...copy(entry) };
+}
+
+function entries<T>(map: Readonly<Record<string, T>> | undefined, path: string): [string, T][] {
+  refuse(map !== undefined && !isPlain(map), path, 'must be an object');
+  return Object.entries(map ?? {});
 }
 
 function deepFreeze<T>(value: T): T {
@@ -138,30 +104,32 @@ function canonical(v: unknown): string {
 }
 
 /**
- * Roles and ladders from `authz.rbac.roles` and `authz.rbac.ladders`. It checks shapes only: the `extends` graph,
- * unknown roles, ladders and permissions are the model's compile step.
+ * Roles and ladders from `authz.rbac.roles` and `authz.rbac.ladders`. AUTHZ_RBAC_CONFIGURATION_SCHEMA checks their
+ * shape at boot; the `extends` graph, unknown roles, ladders and permissions are the model's compile step.
  *
  * Registered by class name only: AuthzAdmin reads every `RoleStore` a domain registers, so one
  * registered as `RoleStore` at import would join every domain.
  */
 @Injectable()
-@Inject(Configuration)
 export class ConfigRoleStore extends RoleStore {
   readonly name = 'ConfigRoleStore';
 
-  constructor(protected readonly configuration: Configuration) {
+  @Config('authz.rbac.roles')
+  protected Roles: Readonly<Record<string, RoleEntry>> | undefined;
+
+  @Config('authz.rbac.ladders')
+  protected Ladders: Readonly<Record<string, LadderEntry>> | undefined;
+
+  /** `configuration`: read in place of the Configuration of the store's container (tests, a host that builds the model itself). */
+  constructor(protected readonly configuration?: Pick<Configuration, 'get'>) {
     super();
   }
 
   async load(): Promise<{ roles: readonly RoleDef[]; ladders: readonly LadderDef[] }> {
     const { roles, ladders } = this.raw();
-    const rolesPath = `${ROOT}.roles`;
-    const laddersPath = `${ROOT}.ladders`;
-    const roleMap = roles === undefined ? {} : object(roles, rolesPath);
-    const ladderMap = ladders === undefined ? {} : object(ladders, laddersPath);
     return deepFreeze({
-      roles: Object.entries(roleMap).map(([n, r]) => role(n, r, key(rolesPath, n))),
-      ladders: Object.entries(ladderMap).map(([n, l]) => ladder(n, l, key(laddersPath, n))),
+      roles: entries(roles, 'authz.rbac.roles').map(([n, r]) => role(n, r, `authz.rbac.roles.${n}`)),
+      ladders: entries(ladders, 'authz.rbac.ladders').map(([n, l]) => ladder(n, l, `authz.rbac.ladders.${n}`)),
     });
   }
 
@@ -172,7 +140,13 @@ export class ConfigRoleStore extends RoleStore {
       .digest('hex');
   }
 
-  private raw(): { roles: unknown; ladders: unknown } {
-    return { roles: this.configuration.get<unknown>(['authz', 'rbac', 'roles']), ladders: this.configuration.get<unknown>(['authz', 'rbac', 'ladders']) };
+  private raw(): { roles?: Readonly<Record<string, RoleEntry>>; ladders?: Readonly<Record<string, LadderEntry>> } {
+    if (this.configuration) {
+      return {
+        roles: this.configuration.get<Readonly<Record<string, RoleEntry>> | undefined>(['authz', 'rbac', 'roles']),
+        ladders: this.configuration.get<Readonly<Record<string, LadderEntry>> | undefined>(['authz', 'rbac', 'ladders']),
+      };
+    }
+    return { roles: this.Roles, ladders: this.Ladders };
   }
 }
