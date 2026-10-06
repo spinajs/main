@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { AuthzConfigError, AuthzService, SYSTEM } from '@spinajs/authz';
+import { AuthzService, SYSTEM } from '@spinajs/authz';
 import { User, ban } from '@spinajs/users';
 
 import { passwordCalls, resetPasswordCalls } from '../support/password-service.js';
@@ -153,14 +153,6 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     const result = await world.security.deactivateUser(await admin2(), await admin());
 
     expect(result).to.be.instanceOf(Ok);
-  });
-
-  it('fails closed when a check is on but no privilegedPermission is configured', async () => {
-    config().set('authz.admin.guard.privilegedPermission', undefined);
-
-    await expect(world.security.deactivateUser(await admin(), await admin2())).to.be.rejectedWith(AuthzConfigError, /privilegedPermission/);
-
-    expect((await admin2()).IsActive).to.eq(true);
   });
 
   it('expires the password for the caller, not as SYSTEM', async () => {

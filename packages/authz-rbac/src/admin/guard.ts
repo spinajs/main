@@ -1,6 +1,6 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, principalKey, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
@@ -10,8 +10,9 @@ import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
 
+/** `authz.admin.guard` as AUTHZ_CONFIGURATION_SCHEMA leaves it: every switch set (default on). */
 export interface AdminGuardConfig {
-  /** Required while preventSelfLockout or preventLastPrivilegedRemoval is on. */
+  /** Set while preventSelfLockout or preventLastPrivilegedRemoval is on: the schema requires it then. */
   readonly privilegedPermission?: Permission;
   readonly protectSystemRole: boolean;
   readonly preventEscalation: boolean;
@@ -19,27 +20,15 @@ export interface AdminGuardConfig {
   readonly preventLastPrivilegedRemoval: boolean;
 }
 
-const KEY = 'authz.admin.guard';
-const SWITCHES = ['protectSystemRole', 'preventEscalation', 'preventSelfLockout', 'preventLastPrivilegedRemoval'] as const;
-
-/** The `authz.admin.guard` section; an absent switch is on (fail closed). */
-export function readGuardConfig(section: unknown, where: string): AdminGuardConfig {
-  const fail = (key: string, expected: string, got: unknown): never => {
-    throw new AuthzConfigError(`${where}: configuration key ${KEY}${key} must be ${expected}, got ${quote(got)}`);
+/** A switch that is unset or null is on, also under a Configuration no schema validated. */
+function switchesOn(guard: Partial<AdminGuardConfig> | null | undefined): AdminGuardConfig {
+  return {
+    privilegedPermission: guard?.privilegedPermission,
+    protectSystemRole: guard?.protectSystemRole ?? true,
+    preventEscalation: guard?.preventEscalation ?? true,
+    preventSelfLockout: guard?.preventSelfLockout ?? true,
+    preventLastPrivilegedRemoval: guard?.preventLastPrivilegedRemoval ?? true,
   };
-  if (section !== undefined && !isPlainObject(section)) fail('', 'an object', section);
-  const s = (section ?? {}) as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const name of SWITCHES) {
-    const v = s[name] ?? true;
-    if (typeof v !== 'boolean') fail(`.${name}`, 'a boolean', v);
-    out[name] = v;
-  }
-  if (out.preventSelfLockout || out.preventLastPrivilegedRemoval) {
-    if (!isPermission(s.privilegedPermission)) fail('.privilegedPermission', 'a permission name (the self-lockout and last-holder checks need it)', s.privilegedPermission);
-    out.privilegedPermission = s.privilegedPermission;
-  }
-  return out as unknown as AdminGuardConfig;
 }
 
 type Kind = AuthzCommand['kind'];
@@ -114,14 +103,14 @@ export class DefaultAdminGuard extends AdminGuard {
   protected log: HostLog = engineLog('authz-rbac');
   private warnedNoAccountStatus = false;
 
+  @Config('authz.admin.guard')
+  protected Guard: AdminGuardConfig;
+
   async check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
     const kind: unknown = isPlainObject(c) ? c.kind : undefined;
     // Unknown kinds reach no handler (not_found); the handler owns validation.
     if (typeof kind !== 'string' || !Object.hasOwn(GUARDED, kind) || !GUARDED[kind as Kind]) return;
-    const container = adminContainer(ctx);
-    const where = `Authz domain ${quote(ctx.domain)}`;
-    const configuration = (await container.resolve(Configuration)) as unknown as Configuration;
-    const cfg = readGuardConfig(configuration.get(['authz', 'admin', 'guard']), where);
+    const cfg = switchesOn(this.Guard);
     const roles = await roleIndex(ctx);
     const setMemo = new Map<string, readonly string[]>();
     const sets = (role: string): readonly string[] => {

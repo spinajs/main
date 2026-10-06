@@ -150,23 +150,14 @@ describe('DefaultAdminGuard', function () {
       await refused(p('root'), [revoke('a-root')], 'self_lockout');
     });
 
-    it('a missing or malformed privilegedPermission rejects the call; with both checks that need it off it is not needed', async () => {
+    it('with both checks that read it off, privilegedPermission is not needed', async () => {
       const { privilegedPermission: _, ...noPrivileged } = GUARD;
-      await world({ guard: noPrivileged });
-      const e = await rejection(run(p('ops'), [revoke('a-root2')]));
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e.message).to.include('authz.admin.guard.privilegedPermission');
-      await world({ guard: { ...GUARD, privilegedPermission: 'users' } });
-      expect(await rejection(run(p('ops'), [revoke('a-root2')]))).to.be.instanceOf(AuthzConfigError);
       await world({ guard: { ...noPrivileged, preventSelfLockout: false, preventLastPrivilegedRemoval: false } });
       await passes(p('ops'), [revoke('a-root'), revoke('a-root2')]);
     });
 
-    it('a switch that is not a boolean rejects the call; an absent switch is on', async () => {
-      await world({ guard: { ...GUARD, preventEscalation: 'no' } });
-      const e = await rejection(run(p('bob'), [grant('viewer')]));
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e.message).to.include('authz.admin.guard.preventEscalation');
+    // The malformed values are the schema's: guard-config.test.ts. A Configuration no schema validated still leaves an absent switch on.
+    it('an absent switch is on', async () => {
       await world({ guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } });
       await refused(p('bob'), [grant('maintainer')], 'escalation');
       await refused(p('root'), [revoke('a-root')], 'self_lockout');

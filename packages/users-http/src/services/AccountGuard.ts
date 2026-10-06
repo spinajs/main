@@ -1,7 +1,8 @@
 import { AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { Permission, Principal } from '@spinajs/authz';
-import { AssignmentStore, readGuardConfig } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
+import { AssignmentStore } from '@spinajs/authz-rbac';
+import type { AdminGuardConfig } from '@spinajs/authz-rbac';
+import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
@@ -42,8 +43,11 @@ export abstract class AccountGuard {
  */
 @Injectable(AccountGuard)
 export class DefaultAccountGuard extends AccountGuard {
+  @Config('authz.admin.guard')
+  protected Guard: AdminGuardConfig;
+
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
-    const cfg = await guardConfig();
+    const cfg = switchesOn(this.Guard);
     const verb = VERB[action];
 
     if (cfg.preventSelfLockout && isSelf(actor, target)) {
@@ -61,7 +65,7 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 
   public async assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void> {
-    const cfg = await guardConfig();
+    const cfg = switchesOn(this.Guard);
     const permission = cfg.privilegedPermission;
 
     if (permission === undefined || (!cfg.preventSelfLockout && !cfg.preventLastPrivilegedRemoval)) {
@@ -161,9 +165,15 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 }
 
-async function guardConfig(): Promise<ReturnType<typeof readGuardConfig>> {
-  const configuration = (await DI.resolve(Configuration)) as Configuration;
-  return readGuardConfig(configuration.get(['authz', 'admin', 'guard']), 'users-http AccountGuard');
+/** A switch that is unset or null is on, also under a Configuration no schema validated. */
+function switchesOn(guard: Partial<AdminGuardConfig> | null | undefined): AdminGuardConfig {
+  return {
+    privilegedPermission: guard?.privilegedPermission,
+    protectSystemRole: guard?.protectSystemRole ?? true,
+    preventEscalation: guard?.preventEscalation ?? true,
+    preventSelfLockout: guard?.preventSelfLockout ?? true,
+    preventLastPrivilegedRemoval: guard?.preventLastPrivilegedRemoval ?? true,
+  };
 }
 
 function isSelf(actor: Principal, target: User): boolean {
