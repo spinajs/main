@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthzAdminFailure, AuthzAdminReader, AuthzConfigError, AuthzDomains, AuthzService, AuthzWriteHandler, GLOBAL } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzAdminReader, AuthzDomains, AuthzService, AuthzWriteHandler, GLOBAL } from '@spinajs/authz';
 import type { AuthzAdminQuery, AuthzCommand, Principal } from '@spinajs/authz';
 import { anonymousPrincipal, fixtureDsl, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { BehaviourHarness, BehaviourId, HarnessSession, World } from '@spinajs/authz-testing';
@@ -12,7 +12,7 @@ import type { IControllerDescriptor } from '@spinajs/http';
 import { FrameworkLogger } from '@spinajs/log';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
-import { adminDomain, domainAdmin } from '../src/routes/index.js';
+import { domainAdmin } from '../src/routes/index.js';
 import { DOMAIN, adminHttpHarness, send } from './support/admin-http.js';
 import type { RawRequest, RawResponse } from './support/admin-http.js';
 
@@ -686,23 +686,15 @@ describe('authz-http-admin routes', function () {
   });
 
   describe('domain', () => {
-    it('reads authz.http.admin.domain on each call: root when absent, else that domain', async () => {
+    it('runs the routes on the domain authz.http.admin.domain names, read on each call', async () => {
       const cfg = testHost.config();
       const before = cfg.get<unknown>(['authz', 'http', 'admin', 'domain']);
       try {
-        expect(adminDomain()).to.equal(DOMAIN);
         const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-        expect(await domainAdmin()).to.equal((await domains.service(DOMAIN)).admin());
+        expect(await domainAdmin(DOMAIN)).to.equal((await domains.service(DOMAIN)).admin());
+        expect(await domainAdmin('root')).to.equal(((await DI.resolve(AuthzService)) as AuthzService).admin());
 
-        cfg.unset(['authz', 'http', 'admin', 'domain']);
-        expect(adminDomain()).to.equal('root');
-        expect(await domainAdmin()).to.equal(((await DI.resolve(AuthzService)) as AuthzService).admin());
-
-        for (const bad of ['', 7, null]) {
-          cfg.set(['authz', 'http', 'admin', 'domain'], bad);
-          expect(() => adminDomain(), String(bad)).to.throw(AuthzConfigError);
-        }
-        cfg.set(['authz', 'http', 'admin', 'domain'], '');
+        cfg.set(['authz', 'http', 'admin', 'domain'], 'no-such-domain');
         const failed = await commands(root, { commands: [grant('carol')] });
         expect(failed.status).to.equal(500);
         expect(failed.headers['cache-control'], 'a 500 of POST /authz/commands').to.equal('no-store');

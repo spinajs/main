@@ -1,4 +1,5 @@
 import { AuthzAdminFailure } from '@spinajs/authz';
+import { Config } from '@spinajs/configuration';
 import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
 import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
@@ -86,6 +87,32 @@ const scopeOf = (req: Request): ResourceRef => ({ type: param(req, 'type'), id: 
 @Policy(IsAuthenticated)
 @BasePath('authz')
 export class AuthzAdminController extends BaseController {
+  @Config('authz.http.admin.domain')
+  protected AdminDomain: string;
+
+  /** Runs a route on the domain's AuthzAdmin; an AuthzAdminFailure becomes its status with `{ error }`, anything else propagates. */
+  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>): Promise<Response> {
+    const admin = await domainAdmin(this.AdminDomain);
+    try {
+      return await fn(admin);
+    } catch (e) {
+      if (e instanceof AuthzAdminFailure) return refused(e);
+      throw e;
+    }
+  }
+
+  /** One batch built from the route, with the options of the query string. */
+  protected single(req: Request, build: () => AuthzCommand[]) {
+    return this.guarded(async (admin) => {
+      const opts = readWriteOptions(query(req));
+      return results(await admin.execute(actorOf(req), build(), opts));
+    });
+  }
+
+  protected list(req: Request, build: () => AuthzAdminQuery) {
+    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())));
+  }
+
   /**
    * Run a batch of commands
    * Runs the commands in order in one transaction on the configured domain; the first failure rolls the batch back and its status is the answer.
@@ -101,7 +128,7 @@ export class AuthzAdminController extends BaseController {
   @Post('commands')
   public async commands(@Req() req: Request) {
     noStore(req);
-    return guarded(async (admin) => {
+    return this.guarded(async (admin) => {
       const body = objectBody(req.body, 'an object { commands, reason?, idempotencyKey?, dryRun? }');
       const opts: Record<string, unknown> = {};
       for (const key of ['reason', 'idempotencyKey', 'dryRun'] as const) if (key in body) opts[key] = body[key];
@@ -120,7 +147,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Get('assignments')
   public async listAssignments(@Req() req: Request) {
-    return list(req, () => readAssignmentsQuery(query(req)));
+    return this.list(req, () => readAssignmentsQuery(query(req)));
   }
 
   /**
@@ -137,7 +164,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Post('assignments')
   public async grant(@Req() req: Request) {
-    return single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of assignment.grant'), kind: 'assignment.grant' }) as AuthzCommand]);
+    return this.single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of assignment.grant'), kind: 'assignment.grant' }) as AuthzCommand]);
   }
 
   /**
@@ -154,7 +181,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Patch('assignments/:id')
   public async patchAssignment(@Req() req: Request) {
-    return single(req, () => {
+    return this.single(req, () => {
       const body = objectBody(req.body, 'an object { tags?, addTags?, removeTags?, expiresAt? }');
       const unknown = Object.keys(body).find((k) => !(PATCH_KEYS as readonly string[]).includes(k));
       if (unknown !== undefined) badRequest(`an assignment patch takes ${PATCH_KEYS.join(', ')}, not ${JSON.stringify(unknown)}`, unknown);
@@ -180,7 +207,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('assignments/:id')
   public async revoke(@Req() req: Request) {
-    return single(req, () => [{ kind: 'assignment.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [{ kind: 'assignment.revoke', id: param(req, 'id') }]);
   }
 
   /**
@@ -194,7 +221,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Get('links')
   public async listLinks(@Req() req: Request) {
-    return list(req, () => readPageQuery('links', query(req)));
+    return this.list(req, () => readPageQuery('links', query(req)));
   }
 
   /**
@@ -212,7 +239,7 @@ export class AuthzAdminController extends BaseController {
   @Post('links')
   public async createLink(@Req() req: Request) {
     noStore(req);
-    return single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of link.create'), kind: 'link.create' }) as AuthzCommand]);
+    return this.single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of link.create'), kind: 'link.create' }) as AuthzCommand]);
   }
 
   /**
@@ -229,7 +256,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Patch('links/:id')
   public async patchLink(@Req() req: Request) {
-    return single(req, () => [linkUpdate(req.body, param(req, 'id'))]);
+    return this.single(req, () => [linkUpdate(req.body, param(req, 'id'))]);
   }
 
   /**
@@ -245,7 +272,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('links/:id')
   public async revokeLink(@Req() req: Request) {
-    return single(req, () => [{ kind: 'link.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [{ kind: 'link.revoke', id: param(req, 'id') }]);
   }
 
   /**
@@ -259,7 +286,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Get('rules')
   public async listRules(@Req() req: Request) {
-    return list(req, () => readPageQuery('rules', query(req)));
+    return this.list(req, () => readPageQuery('rules', query(req)));
   }
 
   /**
@@ -276,7 +303,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Put('rules/:id')
   public async putRule(@Req() req: Request) {
-    return single(req, () => [decodeCommand({ kind: 'rule.put', rule: withPathId(req.body, param(req, 'id'), 'a rule') }) as AuthzCommand]);
+    return this.single(req, () => [decodeCommand({ kind: 'rule.put', rule: withPathId(req.body, param(req, 'id'), 'a rule') }) as AuthzCommand]);
   }
 
   /**
@@ -292,7 +319,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('rules/:id')
   public async deleteRule(@Req() req: Request) {
-    return single(req, () => [{ kind: 'rule.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [{ kind: 'rule.delete', id: param(req, 'id') }]);
   }
 
   /**
@@ -306,7 +333,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Get('policies')
   public async listPolicies(@Req() req: Request) {
-    return list(req, () => readPageQuery('policies', query(req)));
+    return this.list(req, () => readPageQuery('policies', query(req)));
   }
 
   /**
@@ -323,7 +350,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Put('policies/:id')
   public async putPolicy(@Req() req: Request) {
-    return single(req, () => [decodeCommand({ kind: 'policy.put', policy: withPathId(req.body, param(req, 'id'), 'a policy') }) as AuthzCommand]);
+    return this.single(req, () => [decodeCommand({ kind: 'policy.put', policy: withPathId(req.body, param(req, 'id'), 'a policy') }) as AuthzCommand]);
   }
 
   /**
@@ -339,7 +366,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('policies/:id')
   public async deletePolicy(@Req() req: Request) {
-    return single(req, () => [{ kind: 'policy.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [{ kind: 'policy.delete', id: param(req, 'id') }]);
   }
 
   /**
@@ -352,7 +379,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Get('scopes/:type/:id/attributes')
   public async attributes(@Req() req: Request) {
-    return list(req, () => ({ kind: 'attributes', scope: scopeOf(req) }));
+    return this.list(req, () => ({ kind: 'attributes', scope: scopeOf(req) }));
   }
 
   /**
@@ -369,7 +396,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Patch('scopes/:type/:id/attributes')
   public async patchAttributes(@Req() req: Request) {
-    return single(req, () => [{ kind: 'scope.setAttributes', scope: scopeOf(req), patch: req.body }]);
+    return this.single(req, () => [{ kind: 'scope.setAttributes', scope: scopeOf(req), patch: req.body }]);
   }
 
   /**
@@ -386,33 +413,10 @@ export class AuthzAdminController extends BaseController {
    */
   @Put('scopes/:type/:id/attributes')
   public async replaceAttributes(@Req() req: Request) {
-    return single(req, () => [{ kind: 'scope.replaceAttributes', scope: scopeOf(req), attributes: req.body }]);
-  }
-}
-
-/** Runs a route on the domain's AuthzAdmin; an AuthzAdminFailure becomes its status with `{ error }`, anything else propagates. */
-async function guarded(fn: (admin: AuthzAdmin) => Promise<Response>): Promise<Response> {
-  const admin = await domainAdmin();
-  try {
-    return await fn(admin);
-  } catch (e) {
-    if (e instanceof AuthzAdminFailure) return refused(e);
-    throw e;
+    return this.single(req, () => [{ kind: 'scope.replaceAttributes', scope: scopeOf(req), attributes: req.body }]);
   }
 }
 
 function results(r: Awaited<ReturnType<AuthzAdmin['execute']>>): Response {
   return respond(resultsStatus(r), { results: r });
-}
-
-/** One batch built from the route, with the options of the query string. */
-function single(req: Request, build: () => AuthzCommand[]) {
-  return guarded(async (admin) => {
-    const opts = readWriteOptions(query(req));
-    return results(await admin.execute(actorOf(req), build(), opts));
-  });
-}
-
-function list(req: Request, build: () => AuthzAdminQuery) {
-  return guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())));
 }
