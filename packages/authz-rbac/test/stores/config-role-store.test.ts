@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
+import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 import rbacStores from '../../src/config/rbac-stores.js';
@@ -429,14 +429,19 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     expect(AUTHZ_RBAC_CONFIGURATION_SCHEMA.$id).to.not.equal(AUTHZ_CONFIGURATION_SCHEMA.$id);
   });
 
-  it('has no default keywords', () => {
-    const hasDefault = (v: unknown): boolean => v !== null && typeof v === 'object' && (Object.hasOwn(v, 'default') || Object.values(v).some(hasDefault));
-    expect(hasDefault(AUTHZ_RBAC_CONFIGURATION_SCHEMA)).to.equal(false);
+  it('defaults what the RBAC model reads to the code defaults', async () => {
+    expect(await configured({})).to.deep.equal({
+      groupPrincipal: DEFAULT_GROUP_PRINCIPAL,
+      anonymousRoles: [],
+      serviceRoles: {},
+      cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
+    });
   });
 
-  it('accepts the §8.2 and §8.5 samples unchanged', async () => {
+  it('accepts the §8.2 and §8.5 samples and adds only the model defaults', async () => {
     for (const sample of [SAMPLE_8_2(), SAMPLE_8_5(), {}]) {
-      expect(await configured(sample)).to.deep.equal(sample);
+      const defaulted = ['groupPrincipal', 'anonymousRoles', 'serviceRoles', 'cache'];
+      expect(_.omit(await configured(sample), defaulted)).to.deep.equal(_.omit(sample, defaulted));
     }
   });
 
@@ -464,13 +469,15 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     await fails({ ladders: { project: {} } }, 'ladders.project.roles');
     await fails({ rules: [1] }, 'rules.0');
     await fails({ rules: {} }, 'rules');
-    await fails({ groupPrincipal: { role: 'g' } }, 'groupPrincipal.scopeType');
+    await fails({ groupPrincipal: { role: '' } }, 'groupPrincipal.role');
     await fails({ defaultRoles: 'user' }, 'defaultRoles');
     await fails({ anonymousRoles: [['guest']] }, 'anonymousRoles.0');
     await fails({ serviceRoles: { 'service:x': 'a' } }, 'serviceRoles.service:x');
     await fails({ stores: { roles: 'ConfigRoleStore' } }, 'stores.roles');
     await fails({ stores: { links: [''] } }, 'stores.links.0');
     await fails({ cache: { assignmentsTtlSeconds: -1 } }, 'cache.assignmentsTtlSeconds');
+    await fails({ cache: { maxSubjects: 1.5 } }, 'cache.maxSubjects');
+    await fails({ cache: { rolesCheckSeconds: -1 } }, 'cache.rolesCheckSeconds');
     await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
     await fails({ connection: '' }, 'connection');
   });
@@ -489,7 +496,7 @@ describe('authz-rbac stores: config fragment', function () {
   });
 
   it('passes the schema', async () => {
-    expect(await configured(rbacStores.authz.rbac)).to.deep.equal(rbacStores.authz.rbac);
+    expect((await configured(rbacStores.authz.rbac)).cache).to.deep.equal({ ...rbacStores.authz.rbac.cache, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS });
   });
 
   it('compiles to a file the configuration loads (lib/<mode>/config, no dot in the base name)', () => {
@@ -584,7 +591,7 @@ describe('authz-rbac stores: store names', function () {
   });
 
   it('the schema takes a links secret of at least 32 characters', async () => {
-    expect(await configured({ links: { secret: 'x'.repeat(32) } })).to.deep.equal({ links: { secret: 'x'.repeat(32) } });
+    expect((await configured({ links: { secret: 'x'.repeat(32) } })).links).to.deep.equal({ secret: 'x'.repeat(32) });
     expect(await violationPaths(bootRbac({ links: { secret: 'short' } }))).to.include('authz.rbac.links.secret');
   });
 });

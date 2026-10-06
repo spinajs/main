@@ -75,14 +75,18 @@ describe('authz-rbac subject sets (B33)', () => {
       expect(new RbacSubjectResolver({ groupPrincipal: null }).subjects(g1)).to.deep.equal([to(g1)]);
     });
 
-    it('groupPrincipalConfig reads the config and refuses a malformed value', () => {
+    it('groupPrincipalConfig reads the config: absent or partial keeps the defaults, null turns it off', () => {
       const config = (groupPrincipal: unknown) => groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: groupPrincipal === undefined ? {} : { groupPrincipal } }));
       expect(config(undefined)).to.deep.equal(DEFAULT_GROUP_PRINCIPAL);
       expect(config(null)).to.equal(null);
       expect(config({ role: 'team', scopeType: 'team' })).to.deep.equal({ role: 'team', scopeType: 'team' });
       expect(config({ role: 'team' })).to.deep.equal({ role: 'team', scopeType: 'group' });
-      expect(() => config({ role: '' })).to.throw(AuthzConfigError, 'groupPrincipal');
-      expect(() => config('group.member')).to.throw(AuthzConfigError, 'groupPrincipal');
+    });
+
+    it('groupPrincipalConfig turns the mapping off for a non-object an unvalidated configuration holds, never on with the defaults', () => {
+      for (const groupPrincipal of ['group.member', '', false, 0, ['group.member']]) {
+        expect(groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal } })), JSON.stringify(groupPrincipal)).to.equal(null);
+      }
     });
 
     describe('memberships', () => {

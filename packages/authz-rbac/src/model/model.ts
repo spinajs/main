@@ -2,7 +2,7 @@ import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLo
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
-import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS } from './cache.js';
+import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
 import { ruleStoreParts } from './rules/extension.js';
@@ -40,8 +40,6 @@ interface Loaded {
   readonly assignments: AssignmentCache;
   readonly rolesCheckMs: number;
 }
-
-export const DEFAULT_ROLES_CHECK_SECONDS = 60;
 
 const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
   unknown_role: 'is not defined',
@@ -437,19 +435,20 @@ export class RbacModel extends AuthorizationModel {
   }
 }
 
+// The configuration schema checks the shapes; whether a role exists and is assignable needs the role graph.
+// An unvalidated configuration still gets here, and a string would be read as one role name per character.
 function anonymousRoles(ctx: ModelInitContext, graph: RoleGraph): readonly string[] {
-  const value = ctx.config<unknown>('anonymousRoles', []);
-  if (!isNameList(value)) throw new AuthzConfigError('authz.rbac.anonymousRoles must be an array of role names');
+  const value = ctx.config<readonly string[]>('anonymousRoles', []);
+  if (!Array.isArray(value)) throw new AuthzConfigError('authz.rbac.anonymousRoles must be an array of role names');
   for (const role of value) refuseConfigRole(graph, role, 'authz.rbac.anonymousRoles');
   return Object.freeze([...value]);
 }
 
 function serviceRoles(ctx: ModelInitContext, graph: RoleGraph): ReadonlyMap<string, readonly string[]> {
-  const value = ctx.config<unknown>('serviceRoles', {});
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new AuthzConfigError("authz.rbac.serviceRoles must map principal keys ('service:<id>') to arrays of role names");
+  const value = ctx.config<Readonly<Record<string, readonly string[]>>>('serviceRoles', {});
   const out = new Map<string, readonly string[]>();
   for (const [key, roles] of Object.entries(value)) {
-    if (!isNameList(roles)) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] must be an array of role names`);
+    if (!Array.isArray(roles)) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] must be an array of role names`);
     for (const role of roles) refuseConfigRole(graph, role, `authz.rbac.serviceRoles['${key}']`);
     out.set(key, Object.freeze([...roles]));
   }
@@ -492,16 +491,13 @@ function configAssignments(loaded: Loaded, subjects: readonly AssignmentSubject[
 const SYSTEM_CLOCK = { now: () => new Date() };
 
 function cacheConfig(ctx: ModelInitContext): { ttlMs: number; maxEntries: number; rolesCheckMs: number } {
-  const ttl = ctx.config<unknown>('cache.assignmentsTtlSeconds', DEFAULT_ASSIGNMENTS_TTL_SECONDS);
-  if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl < 0) throw new AuthzConfigError('authz.rbac.cache.assignmentsTtlSeconds must be a finite number of seconds, 0 or more');
-  const max = ctx.config<unknown>('cache.maxSubjects', DEFAULT_MAX_CACHED_SUBJECTS);
-  if (typeof max !== 'number' || !Number.isInteger(max) || max < 0) throw new AuthzConfigError('authz.rbac.cache.maxSubjects must be an integer, 0 or more');
-  const check = ctx.config<unknown>('cache.rolesCheckSeconds', DEFAULT_ROLES_CHECK_SECONDS);
-  if (typeof check !== 'number' || !Number.isFinite(check) || check < 0) throw new AuthzConfigError('authz.rbac.cache.rolesCheckSeconds must be a finite number of seconds, 0 or more');
+  const ttl = ctx.config<number>('cache.assignmentsTtlSeconds', DEFAULT_ASSIGNMENTS_TTL_SECONDS);
+  const max = ctx.config<number>('cache.maxSubjects', DEFAULT_MAX_CACHED_SUBJECTS);
+  const check = ctx.config<number>('cache.rolesCheckSeconds', DEFAULT_ROLES_CHECK_SECONDS);
+  // An unvalidated configuration still gets here: NaN, Infinity or a string would keep assignments, or roles, unchecked forever.
+  for (const [key, v] of Object.entries({ assignmentsTtlSeconds: ttl, rolesCheckSeconds: check })) if (!Number.isFinite(v)) throw new AuthzConfigError(`authz.rbac.cache.${key} must be a finite number of seconds`);
   return { ttlMs: ttl * 1000, maxEntries: max, rolesCheckMs: check * 1000 };
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> => typeof (v as { then?: unknown } | null | undefined)?.then === 'function';
 

@@ -1,3 +1,6 @@
+import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
+import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
+
 const name = { type: 'string', minLength: 1 };
 const stringList = { type: 'array', items: name };
 
@@ -120,8 +123,8 @@ const rule = {
 };
 
 // Validates the `authz.rbac` subtree: the configuration reads `$configurationModule` with lodash get, so a dotted path
-// works and this schema runs next to the core one (`authz`), which leaves `rbac` open.
-// The root stays open for keys of other lanes; no `default` keywords: defaults live in code and in config/rbac-stores.
+// works and this schema runs next to the core one (`authz`), which leaves `rbac` open. The root stays open for keys of
+// other lanes. Store names and migration columns have no default here: they live in code (RBAC_STORE_DEFAULTS, the migrations).
 export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-rbac.configuration.schema.json',
   $configurationModule: 'authz.rbac',
@@ -131,12 +134,26 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     roles: { type: 'object', propertyNames: name, additionalProperties: role },
     ladders: { type: 'object', propertyNames: name, additionalProperties: closed({ roles: stringList, resourceTypes: stringList }, ['roles']) },
     rules: { type: 'array', items: rule, uniqueItemProperties: ['id'] },
-    groupPrincipal: closed({ role: name, scopeType: name }, ['role', 'scopeType']),
+    // null turns the group member set off; a key left out keeps its default.
+    groupPrincipal: {
+      type: ['object', 'null'],
+      default: {},
+      properties: { role: { ...name, default: DEFAULT_GROUP_PRINCIPAL.role }, scopeType: { ...name, default: DEFAULT_GROUP_PRINCIPAL.scopeType } },
+      propertyNames: { enum: ['role', 'scopeType'] },
+    },
     defaultRoles: stringList,
-    anonymousRoles: stringList,
-    serviceRoles: { type: 'object', additionalProperties: stringList },
+    anonymousRoles: { ...stringList, default: [] },
+    serviceRoles: { type: 'object', additionalProperties: stringList, default: {} },
     stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList } },
-    cache: { type: 'object', properties: { assignmentsTtlSeconds: { type: 'number', minimum: 0 } } },
+    cache: {
+      type: 'object',
+      default: {},
+      properties: {
+        assignmentsTtlSeconds: { type: 'number', minimum: 0, default: DEFAULT_ASSIGNMENTS_TTL_SECONDS },
+        maxSubjects: { type: 'integer', minimum: 0, default: DEFAULT_MAX_CACHED_SUBJECTS },
+        rolesCheckSeconds: { type: 'number', minimum: 0, default: DEFAULT_ROLES_CHECK_SECONDS },
+      },
+    },
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: 32 } } },
     connection: name,

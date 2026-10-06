@@ -7,6 +7,7 @@ type Rows = readonly Assignment[];
 
 export const DEFAULT_ASSIGNMENTS_TTL_SECONDS = 60;
 export const DEFAULT_MAX_CACHED_SUBJECTS = 10_000;
+export const DEFAULT_ROLES_CHECK_SECONDS = 60;
 
 export interface AssignmentCacheOptions {
   /** How long a subject's rows serve later requests; 0 keeps nothing across requests. */

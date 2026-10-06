@@ -1,4 +1,4 @@
-import { AuthzConfigError, principalKey } from '@spinajs/authz';
+import { principalKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, ModelInitContext, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import { SubjectResolver } from '../../contracts.js';
@@ -87,20 +87,12 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
   }
 }
 
-/**
- * `authz.rbac.groupPrincipal`: absent gives the default, `null` turns the mapping off, and a key left
- * out of the object keeps its default.
- * @throws AuthzConfigError for any other value that is not `{ role?, scopeType? }` with non-empty names
- */
+/** `authz.rbac.groupPrincipal`: `null` turns the mapping off; an absent value, or a key left out of it, keeps its default. */
 export function groupPrincipalConfig(ctx: ModelInitContext): GroupPrincipalConfig | null {
-  const value = ctx.config<unknown>('groupPrincipal', undefined);
-  if (value === undefined) return DEFAULT_GROUP_PRINCIPAL;
-  if (value === null) return null;
-  const v = { ...DEFAULT_GROUP_PRINCIPAL, ...(value as object) } as Record<keyof GroupPrincipalConfig, unknown>;
-  if (typeof value !== 'object' || Array.isArray(value) || typeof v.role !== 'string' || v.role === '' || typeof v.scopeType !== 'string' || v.scopeType === '') {
-    throw new AuthzConfigError('authz.rbac.groupPrincipal must be { role, scopeType } (role and resource type names), or null to turn it off');
-  }
-  return Object.freeze({ role: v.role, scopeType: v.scopeType });
+  const value = ctx.config<Partial<GroupPrincipalConfig> | null | undefined>('groupPrincipal', undefined);
+  // An unvalidated configuration still gets here: a non-object (false, '', a string) turns the mapping off, never on with the defaults.
+  if (value !== undefined && (typeof value !== 'object' || Array.isArray(value))) return null;
+  return value === null ? null : Object.freeze({ ...DEFAULT_GROUP_PRINCIPAL, ...value });
 }
 
 const copyRef = (ref: ResourceRef): ResourceRef => (ref.id == null ? { type: ref.type } : { type: ref.type, id: ref.id });
