@@ -87,17 +87,22 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
   const e = entry as Record<string, unknown>;
   const out: Record<string, unknown> = { ...e, domain: e.domain ?? 'root' };
   if (e.inherit !== undefined) out.inherit = Object.freeze(Object.assign(Object.create(null) as Record<string, string>, e.inherit));
-  if (e.signedUrl !== undefined) out.signedUrl = signedUrlOf(e.signedUrl as FsSignedUrlConfig, `${at}.signedUrl`);
+  // The schema's if/then sees the value before coercion, so only this floor catches stampOwner: 'true' without a store.
+  if ((e.stampOwner === true || e.stampOwner === 'true' || e.stampOwner === 1) && e.metadata === undefined) throw new AuthzConfigError(`${at}.metadata is required when stampOwner is set`);
+  if (e.list !== undefined && e.list !== 'dir' && e.list !== 'each') throw new AuthzConfigError(`${at}.list must be 'dir' or 'each', got ${show(e.list)}`);
+  if (e.signedUrl !== undefined) out.signedUrl = signedUrlOf(e.signedUrl, `${at}.signedUrl`);
   if (e.operations !== undefined) out.operations = operationsOf(e.operations as Readonly<Record<string, Permission | readonly Permission[]>>, `${at}.operations`);
   if (e.policies !== undefined) out.policies = scopedPolicies(e.policies as readonly unknown[], fsName);
   return Object.freeze(out) as unknown as FsAccessConfig;
 }
 
-function signedUrlOf(value: FsSignedUrlConfig, at: string): FsSignedUrlConfig {
+function signedUrlOf(value: unknown, at: string): FsSignedUrlConfig {
+  if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object, got ${show(value)}`);
   for (const [key, ttl] of Object.entries(value)) {
+    if (key !== 'maxTtlSeconds' && key !== 'defaultTtlSeconds') throw new AuthzConfigError(`${at}.${key} is not a signedUrl option`);
     if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) throw new AuthzConfigError(`${at}.${key} must be a positive finite number, got ${show(ttl)}`);
   }
-  return Object.freeze({ ...value });
+  return Object.freeze({ ...value }) as FsSignedUrlConfig;
 }
 
 function operationsOf(value: Readonly<Record<string, Permission | readonly Permission[]>>, at: string): Readonly<Record<string, Permission | readonly Permission[]>> {

@@ -88,6 +88,10 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     ['an infinite defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
     ['a NaN maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: NaN } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
     ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
+    ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.metadata'],
+    ['a signedUrl that is not an object', { mode: 'enforce', signedUrl: 900 }, 'authz.fs.uploads.signedUrl'],
+    ['an unknown signedUrl key', { mode: 'enforce', signedUrl: { maxTtl: 5 } }, 'authz.fs.uploads.signedUrl.maxTtl'],
+    ['an unknown list mode', { mode: 'enforce', list: 'all' }, 'authz.fs.uploads.list'],
   ];
   for (const [what, entry, key] of unchecked) {
     it(`fails closed on ${what} that no schema checked, naming ${key}`, () => {
@@ -209,6 +213,8 @@ describe('authz-fs config: the authz.fs and authz.fsMetadata schemas', () => {
     ['an object metadata', { mode: 'enforce', metadata: {} }, 'authz.fs.uploads.metadata'],
     ['a non-boolean stampOwner', { mode: 'enforce', stampOwner: 'yes' }, 'authz.fs.uploads.stampOwner'],
     ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.metadata'],
+    ['stampOwner as the string true without a metadata store', { mode: 'enforce', stampOwner: 'true' }, 'authz.fs.uploads.metadata'],
+    ['stampOwner as 1 without a metadata store', { mode: 'enforce', stampOwner: 1 }, 'authz.fs.uploads.metadata'],
     ['an empty resolver', { mode: 'enforce', resolver: '' }, 'authz.fs.uploads.resolver'],
     ['an inherit list', { mode: 'enforce', inherit: ['fs:read'] }, 'authz.fs.uploads.inherit'],
     ['an inherit key that is no permission', { mode: 'enforce', inherit: { read: 'read' } }, 'authz.fs.uploads.inherit.read'],

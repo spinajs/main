@@ -1,3 +1,4 @@
+import { PERMISSION_PATTERN } from '@spinajs/authz';
 import { registerConfigurationSchema } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
@@ -5,9 +6,9 @@ import { FS_METADATA_DEFAULT_CONNECTION } from '../metadata/connection.js';
 import { FS_RESOURCE_TYPES } from '../refs/index.js';
 
 const name = { type: 'string', minLength: 1 };
-// The name part of isPermission's pattern; a permission is two of them around ':'.
-const ACTION = '[A-Za-z][A-Za-z0-9_.-]*';
-const permission = { type: 'string', pattern: `^${ACTION}:${ACTION}$` };
+// The name part of PERMISSION_PATTERN (^name:name$).
+const ACTION = PERMISSION_PATTERN.source.slice(1, -1).split(':')[0];
+const permission = { type: 'string', pattern: PERMISSION_PATTERN.source };
 
 // propertyNames refuses an unknown key; additionalProperties: false would let removeAdditional drop a typo silently.
 const closed = (properties: Record<string, unknown>, required?: string[]) => ({ type: 'object', properties, propertyNames: { enum: Object.keys(properties) }, ...(required ? { required } : {}) });
@@ -41,7 +42,7 @@ const entry = {
     ['mode'],
   ),
   // The owners live in the FileMetadataStore that `metadata` names.
-  if: { properties: { stampOwner: { const: true } }, required: ['stampOwner'] },
+  if: { properties: { stampOwner: { enum: [true, 'true', 1] } }, required: ['stampOwner'] },
   then: { required: ['metadata'] },
 };
 
