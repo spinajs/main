@@ -495,7 +495,8 @@ function cacheConfig(ctx: ModelInitContext): { ttlMs: number; maxEntries: number
   const max = ctx.config<number>('cache.maxSubjects', DEFAULT_MAX_CACHED_SUBJECTS);
   const check = ctx.config<number>('cache.rolesCheckSeconds', DEFAULT_ROLES_CHECK_SECONDS);
   // An unvalidated configuration still gets here: NaN, Infinity or a string would keep assignments, or roles, unchecked forever.
-  for (const [key, v] of Object.entries({ assignmentsTtlSeconds: ttl, rolesCheckSeconds: check })) if (!Number.isFinite(v)) throw new AuthzConfigError(`authz.rbac.cache.${key} must be a finite number of seconds`);
+  if (!Number.isFinite(ttl)) throw new AuthzConfigError('authz.rbac.cache.assignmentsTtlSeconds must be a finite number of seconds');
+  if (!Number.isFinite(check)) throw new AuthzConfigError('authz.rbac.cache.rolesCheckSeconds must be a finite number of seconds');
   return { ttlMs: ttl * 1000, maxEntries: max, rolesCheckMs: check * 1000 };
 }
 

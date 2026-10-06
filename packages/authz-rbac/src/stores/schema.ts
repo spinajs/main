@@ -153,6 +153,10 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
         maxSubjects: { type: 'integer', minimum: 0, default: DEFAULT_MAX_CACHED_SUBJECTS },
         rolesCheckSeconds: { type: 'number', minimum: 0, default: DEFAULT_ROLES_CHECK_SECONDS },
       },
+      // coerceTypes would read a null as 0, which turns the role version check off. `if` sees the raw value; `const`, unlike
+      // `type: 'null'`, coerces nothing (that would turn a 0 into null).
+      if: { properties: { rolesCheckSeconds: { const: null } }, required: ['rolesCheckSeconds'] },
+      then: { properties: { rolesCheckSeconds: false } },
     },
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: 32 } } },

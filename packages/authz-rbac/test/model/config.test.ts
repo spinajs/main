@@ -39,12 +39,18 @@ describe('authz-rbac model configuration through the schema', () => {
     expect(groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal: off } }))).to.equal(null);
   });
 
+  it('takes a rolesCheckSeconds of 0 (no periodic role check), but not a null that coercion would turn into 0', async () => {
+    expect((await boot({ cache: { rolesCheckSeconds: 0 } })).get('authz.rbac.cache.rolesCheckSeconds')).to.equal(0);
+    expect(await refused({ cache: { rolesCheckSeconds: null } })).to.include('authz.rbac.cache.rolesCheckSeconds');
+  });
+
   it('refuses at boot what the model refused at init', async () => {
     expect(await refused({ anonymousRoles: 'guest' })).to.include('authz.rbac.anonymousRoles');
     expect(await refused({ serviceRoles: { 'service:x': 'telemetry' } })).to.include('authz.rbac.serviceRoles.service:x');
     expect(await refused({ cache: { assignmentsTtlSeconds: -1 } })).to.include('authz.rbac.cache.assignmentsTtlSeconds');
     expect(await refused({ cache: { maxSubjects: 1.5 } })).to.include('authz.rbac.cache.maxSubjects');
     expect(await refused({ cache: { rolesCheckSeconds: -1 } })).to.include('authz.rbac.cache.rolesCheckSeconds');
+    expect(await refused({ cache: { rolesCheckSeconds: null } })).to.include('authz.rbac.cache.rolesCheckSeconds');
     expect(await refused({ groupPrincipal: { role: '' } })).to.include('authz.rbac.groupPrincipal.role');
     expect(await refused({ groupPrincipal: 'group.member' })).to.include('authz.rbac.groupPrincipal');
     expect(await refused({ groupPrincipal: { name: 'x' } })).to.include('authz.rbac.groupPrincipal.name');
