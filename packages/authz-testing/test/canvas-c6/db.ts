@@ -1,3 +1,4 @@
+import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -42,6 +43,8 @@ export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [
 export async function bootCanvasDb(): Promise<CanvasDb> {
   DI.setESMModuleSupport();
   const container = DI.child();
+  // The test database boots as an app does: the core schema gives authz.admin.connection its default.
+  container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
   container.register(CanvasDbConfiguration).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   await container.resolve(Configuration);

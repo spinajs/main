@@ -396,7 +396,7 @@ describe('authz configuration through a child Configuration', function () {
 describe('authz.admin through a child Configuration', function () {
   this.timeout(30000);
   const children: IContainer[] = [];
-  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
+  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend', connection: 'default' };
   const adminSchema = (AUTHZ_CONFIGURATION_SCHEMA.properties.admin as any).properties;
 
   afterEach(async () => {

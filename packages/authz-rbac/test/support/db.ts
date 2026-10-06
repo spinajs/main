@@ -1,4 +1,5 @@
 /** Test DB fixture: boots an Orm in a child DI container on sqlite `:memory:` or on a throwaway Postgres database. */
+import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
@@ -122,6 +123,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   const container: IContainer = DI.child();
   const second = options.second ? [{ Name: `l2-${suite}-second`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }] : [];
+  // The test database boots as an app does: the core schema gives authz.admin.connection its default.
+  container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
   container.register(configurationFor(connection, second)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');

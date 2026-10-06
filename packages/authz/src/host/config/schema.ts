@@ -117,7 +117,7 @@ const admin = {
   properties: {
     maxBatch: { type: 'integer', minimum: 1, default: ADMIN_DEFAULTS.maxBatch },
     backend: { ...className, default: ADMIN_DEFAULTS.backend },
-    connection: { type: 'string', minLength: 1 },
+    connection: { type: 'string', minLength: 1, default: 'default' },
     // { [kind or 'family.*']: permission | { [scopeType or '*']: permission } }
     permissions: {
       type: 'object',

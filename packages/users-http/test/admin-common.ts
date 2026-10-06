@@ -139,6 +139,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         admin: {
           backend: 'DbAuthzAdminBackend',
+          // These suites may resolve their Configuration before authz's bootstrapper registers the core schema.
+          connection: 'default',
           guard: {
             service: 'DefaultAdminGuard',
             privilegedPermission: 'users:update',
