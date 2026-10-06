@@ -164,7 +164,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
         const declared = new Set(host.world.permissions.map((p) => (typeof p === 'string' ? p : p.name)));
         for (const p of ADMIN_PERMISSIONS) if (!declared.has(p)) host.setConfig(['authz', 'domains', host.domain, 'permissions', p], {});
         // As L9's harness: the world's config.admin over the authz-rbac guard defaults.
-        host.setConfig(['authz', 'admin'], { ...adminConfig.authz.admin, ...(host.world.config?.admin as object | undefined), guard: { ...adminConfig.authz.admin.guard, ...((host.world.config?.admin as { guard?: object } | undefined)?.guard ?? {}) }, backend: 'DbHarnessBackend' });
+        host.setConfig(['authz', 'admin'], { connection: 'default', ...adminConfig.authz.admin, ...(host.world.config?.admin as object | undefined), guard: { ...adminConfig.authz.admin.guard, ...((host.world.config?.admin as { guard?: object } | undefined)?.guard ?? {}) }, backend: 'DbHarnessBackend' });
       }
 
       const model = models.get(host);

@@ -1,6 +1,6 @@
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
@@ -17,7 +17,7 @@ const KEY_MAX = 160;
 const DATE_TAG = '$authzDate';
 
 export interface DbAuthzAdminBackendOptions {
-  /** The ORM connection; default: config authz.admin.connection, else the ORM default connection. */
+  /** The ORM connection; default: config authz.admin.connection. */
   readonly connection?: string;
   /** Where Configuration and Orm are resolved; default the DI root. */
   readonly container?: IContainer;
@@ -129,8 +129,13 @@ async function lockRow(d: OrmDriver, domain: string): Promise<boolean> {
 @Singleton()
 @Injectable(AuthzAdminBackend)
 export class DbAuthzAdminBackend extends AuthzAdminBackend {
+  @Config(CONNECTION_KEY)
+  protected Connection: string;
+
   constructor(private readonly opts: DbAuthzAdminBackendOptions = {}) {
     super();
+    // Built with `new` for a container, it reads that container's Configuration, as when DI builds it there.
+    if (opts.container) (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = opts.container;
   }
 
   async transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T> {
@@ -238,13 +243,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
 
   private async connection(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
-    let name = this.opts.connection;
-    if (name === undefined) {
-      const configuration = (await container.resolve(Configuration)) as Configuration;
-      const configured = configuration.get<unknown>(['authz', 'admin', 'connection']);
-      if (configured !== undefined && (typeof configured !== 'string' || configured === '')) throw new AuthzConfigError(`configuration key ${CONNECTION_KEY} must be a connection name, got ${JSON.stringify(configured)}`);
-      name = (configured as string | undefined) ?? 'default';
-    }
+    const name = this.opts.connection ?? this.Connection;
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
     if (!driver) throw new AuthzConfigError(`DbAuthzAdminBackend: ${CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);

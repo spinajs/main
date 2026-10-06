@@ -110,7 +110,7 @@ export interface RbacDomainOptions {
 
 export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): Promise<RbacDomain> {
   config().set(['authz', 'domains', name], { permissions: { ...PERMISSIONS, ...opts.permissions }, cache: { maxEntries: 0 } });
-  config().set(['authz', 'admin'], opts.admin ?? { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' });
+  config().set(['authz', 'admin'], { connection: 'default', ...(opts.admin ?? { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' }) });
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);

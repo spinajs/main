@@ -99,7 +99,7 @@ export function canvasWorld(store: CanvasStoreKind): World {
     config: {
       rbac: store === 'memory' ? rbac : { ...rbac, stores, links: { secret: CANVAS_LINK_SECRET } },
       abac: config.abac,
-      admin: { guard: { ...ADMIN_GUARD }, backend: CANVAS_ADMIN_BACKENDS[store].name, permissions: CANVAS_ADMIN_PERMISSIONS },
+      admin: { connection: 'default', guard: { ...ADMIN_GUARD }, backend: CANVAS_ADMIN_BACKENDS[store].name, permissions: CANVAS_ADMIN_PERMISSIONS },
     },
   };
 }

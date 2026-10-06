@@ -323,10 +323,10 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend on one connection (sqlite
   beforeEach(async () => {
     for (const d of [db.driver, db.second!]) for (const t of ['authz_assignment', 'authz_version']) await rawQuery(d, `DELETE FROM ${t}`, [], QueryContext.Delete);
     configuration.set('authz.rbac.connection', undefined);
-    configuration.set('authz.admin.connection', undefined);
+    configuration.set('authz.admin.connection', 'default');
   });
 
-  it('with neither key, both use the default connection', async () => {
+  it('with neither key named by the app, both use the default connection (the schema default of authz.admin.connection)', async () => {
     const a = await grant();
     expect(await rows(db.driver)).to.deep.eq([a.id]);
     expect(await readVersion(db.driver, 'root')).to.eq('1');
