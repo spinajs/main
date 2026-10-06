@@ -1,122 +1,71 @@
 import { createHash } from 'node:crypto';
 import { AuthzConfigError, GLOBAL, resourceKey } from '@spinajs/authz';
 import type { ResourceRef, RuleDef } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
-import { Inject, Injectable } from '@spinajs/di';
-import Ajv from 'ajv';
+import { Config } from '@spinajs/configuration';
+import type { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
 
 import { RuleStore } from '../contracts.js';
 
-const name = { type: 'string', minLength: 1 };
-const names = { type: 'array', items: name, minItems: 1 };
-const ref = { type: 'object', properties: { type: name, id: { type: 'string' } }, required: ['type'], additionalProperties: false };
-const principalRef = { type: 'object', properties: { type: name, id: { type: 'string' } }, required: ['type', 'id'], additionalProperties: false };
-const valueRef = { type: 'object', properties: { ref: name }, required: ['ref'], additionalProperties: false };
-// Conditions are checked by the condition parser, which knows the registered functions.
-const condition = { type: 'object' };
+type Raw = Record<string, unknown>;
 
-const subjects = {
-  type: 'object',
-  properties: {
-    principalTypes: names,
-    actorTypes: names,
-    refs: { type: 'array', items: principalRef, minItems: 1 },
-    rank: {
-      type: 'object',
-      properties: { ladder: name, at: name, lt: name, eq: name, gte: name },
-      required: ['ladder', 'at'],
-      oneOf: [{ required: ['lt'] }, { required: ['eq'] }, { required: ['gte'] }],
-      additionalProperties: false,
-    },
-    when: condition,
-  },
-  additionalProperties: false,
-};
+const COMMON_KEYS = ['id', 'kind', 'scope', 'resourceTypes', 'subjects', 'when', 'expiresAt', 'source'];
+const RULE_KEYS: ReadonlyMap<unknown, readonly string[]> = new Map([
+  ['restrict', [...COMMON_KEYS, 'allow']],
+  ['cap', [...COMMON_KEYS, 'ladder', 'maxRole', 'stripTags', 'assignments']],
+  ['threshold', [...COMMON_KEYS, 'permissions', 'resource', 'minRole', 'ladder', 'at', 'reason']],
+]);
 
-const COMMON = { id: name, kind: { enum: ['restrict', 'cap', 'threshold'] }, scope: ref, resourceTypes: names, subjects, when: condition, expiresAt: {}, source: { type: 'string' } };
+const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
+const isNames = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string' && s !== '');
 
-/** JSON schema (draft-07, AJV 8) of a config RuleDef (design §5.8): closed objects, one key set per kind. */
-export const RULE_SCHEMA = deepFreeze({
-  $id: 'https://spinajs.com/schemas/authz/rbac-rule.json',
-  type: 'object',
-  properties: { id: name, kind: { enum: ['restrict', 'cap', 'threshold'] }, scope: ref },
-  required: ['id', 'kind', 'scope'],
-  allOf: [
-    { if: { properties: { kind: { const: 'restrict' } } }, then: { properties: { ...COMMON, allow: { type: 'array', items: { anyOf: [principalRef, { type: 'object', properties: { set: { type: 'object', properties: { role: name, scope: ref }, required: ['role', 'scope'], additionalProperties: false } }, required: ['set'], additionalProperties: false }] } } }, required: ['allow'], additionalProperties: false } },
-    {
-      if: { properties: { kind: { const: 'cap' } } },
-      then: {
-        properties: { ...COMMON, ladder: name, maxRole: { anyOf: [name, valueRef, { type: 'null' }] }, stripTags: { type: 'boolean' }, assignments: { type: 'object', properties: { scopeTypes: names, subjectTypes: names }, additionalProperties: false } },
-        anyOf: [{ required: ['ladder', 'maxRole'] }, { required: ['stripTags'], properties: { stripTags: { const: true } } }],
-        dependencies: { maxRole: ['ladder'] },
-        additionalProperties: false,
-      },
-    },
-    {
-      if: { properties: { kind: { const: 'threshold' } } },
-      then: {
-        properties: { ...COMMON, permissions: names, resource: condition, minRole: { anyOf: [name, valueRef] }, ladder: name, at: name, reason: { type: 'object', properties: { code: name, priority: { type: 'number' }, sortKey: { type: 'string' }, model: false }, required: ['code'] } },
-        required: ['permissions', 'minRole'],
-        dependencies: { at: ['ladder'] },
-        additionalProperties: false,
-      },
-    },
-  ],
-});
-
-interface AjvError {
-  readonly instancePath: string;
-  readonly message?: string;
-  readonly params: Record<string, unknown>;
+function refuse(bad: boolean, at: string, what: string): void {
+  if (bad) throw new AuthzConfigError(`${at}: ${what}`);
 }
-type Validate = ((v: unknown) => boolean) & { errors?: readonly AjvError[] | null };
 
-let compiled: Validate | undefined;
-
-function validator(): Validate {
-  if (compiled) return compiled;
-  // ajv's CJS default export is the class itself; under ESM interop it sits on `.default`.
-  const AjvClass = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as new (opts: object) => { compile(schema: object): Validate };
-  compiled = new AjvClass({ allErrors: false, strict: false }).compile(RULE_SCHEMA);
-  return compiled;
+/*
+ * Floors for rules the schema never saw (Configuration.set, the constructor seam). Each refuses a rule that would apply
+ * to fewer requests than it says, which reads as broader access: a kind no step runs, a misspelt key, a bare-type scope
+ * (on no check path), a selector that selects nothing, a rank without exactly one bound, a cap that does nothing.
+ * The model compile refuses the other malformed values.
+ */
+function floor(r: Raw, scope: unknown, at: string): void {
+  const keys = RULE_KEYS.get(r.kind);
+  refuse(keys === undefined, at, `kind must be one of ${[...RULE_KEYS.keys()].join(', ')}`);
+  const unknown = Object.keys(r).find((k) => !keys!.includes(k));
+  refuse(unknown !== undefined, at, `'${unknown}' is not a key of a ${r.kind as string} rule`);
+  refuse(!isPlain(scope) || typeof scope.type !== 'string' || (scope.id == null && scope.type !== GLOBAL.type), at, 'scope must be $global or a node with an id');
+  const subjects = isPlain(r.subjects) ? r.subjects : {};
+  const assignments = isPlain(r.assignments) ? r.assignments : {};
+  const lists = { resourceTypes: r.resourceTypes, permissions: r.permissions, 'subjects.principalTypes': subjects.principalTypes, 'subjects.actorTypes': subjects.actorTypes, 'assignments.scopeTypes': assignments.scopeTypes, 'assignments.subjectTypes': assignments.subjectTypes };
+  for (const [key, v] of Object.entries(lists)) refuse(v !== undefined && !isNames(v), at, `${key} must be a non-empty list of names`);
+  refuse(r.kind === 'threshold' && r.permissions === undefined, at, 'a threshold needs permissions');
+  const refs = subjects.refs;
+  refuse(refs !== undefined && !(Array.isArray(refs) && refs.length > 0 && refs.every((p) => isPlain(p) && typeof p.type === 'string' && typeof p.id === 'string')), at, 'subjects.refs must be a non-empty list of { type, id }');
+  const rank = subjects.rank;
+  refuse(rank !== undefined && (!isPlain(rank) || ['lt', 'eq', 'gte'].filter((k) => rank[k] !== undefined).length !== 1), at, 'subjects.rank needs exactly one of lt, eq, gte');
+  refuse(r.kind === 'cap' && r.maxRole === undefined && r.stripTags !== true, at, 'a cap needs maxRole or stripTags: true');
 }
 
 /**
- * Reads config rules into frozen RuleDefs.
- * @throws AuthzConfigError naming the rule (index and id) and the path inside it
+ * Rules as frozen RuleDefs: a rule without a scope applies at GLOBAL (design §5.8; §8.5 writes none), `source` is
+ * filled and an ISO `expiresAt` becomes a Date. AUTHZ_RBAC_CONFIGURATION_SCHEMA checks the shape of
+ * `authz.rbac.rules`; the RBAC model checks ladders, roles, permissions and conditions when it compiles them.
+ * @throws AuthzConfigError for a rule the schema would refuse that would read as broader access, or an `expiresAt`
+ *   that is not a date (a list given to ConfigRuleStore skips the schema)
  */
-export function readRuleDefs(rules: unknown, where = 'authz.rbac.rules', source = 'config'): readonly RuleDef[] {
-  if (!Array.isArray(rules)) throw new AuthzConfigError(`${where} must be a list of rules`);
-  const seen = new Set<string>();
+export function readRuleDefs(rules: readonly unknown[], source = 'config'): readonly RuleDef[] {
+  refuse(!Array.isArray(rules), 'authz.rbac.rules', 'must be a list of rules');
   return Object.freeze(
-    rules.map((given: unknown, i) => {
-      // Config rules apply at GLOBAL unless they say otherwise (design §5.8; §8.5 writes none).
-      const raw = given !== null && typeof given === 'object' && !Array.isArray(given) && (given as { scope?: unknown }).scope === undefined ? { ...given, scope: GLOBAL } : given;
-      const id = typeof (raw as { id?: unknown } | null)?.id === 'string' ? ` (id '${(raw as { id: string }).id}')` : '';
-      const at = `${where}[${i}]${id}`;
-      const validate = validator();
-      if (!validate(raw)) {
-        const e = validate.errors?.[0];
-        const extra = typeof e?.params?.additionalProperty === 'string' ? ` '${e.params.additionalProperty as string}'` : '';
-        throw new AuthzConfigError(`${at}${e?.instancePath ? ` at ${e.instancePath}` : ''}: ${e?.message ?? 'is not a valid rule'}${extra}`);
-      }
-      const r = raw as RuleDef;
-      // A bare type is on the path of a list only, never of a check, so lists and checks would disagree.
-      if (r.scope.id == null && r.scope.type !== GLOBAL.type) throw new AuthzConfigError(`${at}: scope must be $global or a node with an id, not the bare type '${r.scope.type}'`);
-      if (seen.has(r.id)) throw new AuthzConfigError(`${at}: the id is used by another rule`);
-      if (readsResource(r.subjects?.when)) throw new AuthzConfigError(`${at}: subjects.when reads resource.*, but it selects principals before any row is read`);
-      if (r.kind !== 'threshold' && readsResource(r.when)) throw new AuthzConfigError(`${at}: its when reads resource.*, which a ${r.kind} rule cannot follow per row (a threshold's resource can)`);
-      seen.add(r.id);
-      return deepFreeze({ ...r, source: r.source ?? source, ...expiry(r.expiresAt, at) });
+    rules.map((given, i) => {
+      const r = given as RuleDef;
+      const at = `authz.rbac.rules[${i}]${typeof r?.id === 'string' ? ` (id '${r.id}')` : ''}`;
+      refuse(!isPlain(given), at, 'must be an object');
+      const scope = r.scope === undefined ? GLOBAL : r.scope;
+      floor(given as Raw, scope, at);
+      return deepFreeze({ ...r, scope, source: r.source ?? source, ...expiry(r.expiresAt, at) });
     }),
   );
-}
-
-/** A condition names `resource.*` in an attr or a ref, function args included (the model's parser says the same at boot). */
-function readsResource(c: unknown): boolean {
-  if (Array.isArray(c)) return c.some(readsResource);
-  if (c === null || typeof c !== 'object') return false;
-  return Object.entries(c as Record<string, unknown>).some(([k, x]) => ((k === 'attr' || k === 'ref') && typeof x === 'string' && x.split('.')[0] === 'resource') || readsResource(x));
 }
 
 function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
@@ -127,25 +76,27 @@ function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
 }
 
 /**
- * Rules from config (design §8.2 `authz.rbac.rules`): from the configuration under DI, or from a
- * list (tests, a host that builds the model itself). It checks shapes only; ladders, roles,
- * permissions and conditions are checked by the RBAC model at boot. Registered by its class name;
- * `registerRbacStores` binds it to `RuleStore` when `authz.rbac.stores.rules` names it (the default).
+ * Rules from config (design §8.2 `authz.rbac.rules`) through @Config, or from a list or a Configuration given to the
+ * constructor (tests, a host that builds the model itself). Registered by its class name; `registerRbacStores` binds
+ * it to `RuleStore` when `authz.rbac.stores.rules` names it (the default).
  */
 @Injectable()
-@Inject(Configuration)
 export class ConfigRuleStore extends RuleStore {
   readonly name = 'ConfigRuleStore';
+
+  @Config('authz.rbac.rules')
+  protected Rules: readonly unknown[] | undefined;
+
   private loaded?: readonly RuleDef[];
   private hash?: string;
 
-  constructor(private readonly source: Configuration | readonly RuleDef[] = []) {
+  constructor(private readonly source?: Pick<Configuration, 'get'> | readonly RuleDef[]) {
     super();
   }
 
   /** Every rule, expired ones included; the model reads them without IO. */
   all(): readonly RuleDef[] {
-    this.loaded ??= Array.isArray(this.source) ? readRuleDefs(this.source, 'rules', 'config') : readRuleDefs((this.source as Configuration).get<unknown>(['authz', 'rbac', 'rules'], []));
+    this.loaded ??= readRuleDefs(this.configured() ?? []);
     return this.loaded;
   }
 
@@ -162,6 +113,12 @@ export class ConfigRuleStore extends RuleStore {
   async version(): Promise<string> {
     this.hash ??= createHash('sha256').update(JSON.stringify(this.all())).digest('hex');
     return this.hash;
+  }
+
+  private configured(): readonly unknown[] | undefined {
+    if (Array.isArray(this.source)) return this.source as readonly RuleDef[];
+    const configuration = this.source as Pick<Configuration, 'get'> | undefined;
+    return configuration ? configuration.get<readonly unknown[] | undefined>(['authz', 'rbac', 'rules']) : this.Rules;
   }
 }
 

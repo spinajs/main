@@ -49,6 +49,75 @@ const role = closed({
   description: { type: 'string' },
 });
 
+const ruleNames = { type: 'array', items: name, minItems: 1 };
+const ref = closed({ type: name, id: { type: 'string' } }, ['type']);
+const principalRef = closed({ type: name, id: { type: 'string' } }, ['type', 'id']);
+const valueRef = closed({ ref: name }, ['ref']);
+// Conditions are checked by the condition parser, which knows the registered functions.
+const condition = { type: 'object' };
+const RULE_KINDS = ['restrict', 'cap', 'threshold'];
+
+// A rule without a scope applies at $global (ConfigRuleStore fills it in). A bare type is on the path of a list only,
+// never of a check, so lists and checks would disagree.
+const ruleScope = { ...ref, if: { not: { required: ['id'] } }, then: { properties: { type: { const: '$global' } } } };
+
+const ruleSubjects = closed({
+  principalTypes: ruleNames,
+  actorTypes: ruleNames,
+  refs: { type: 'array', items: principalRef, minItems: 1 },
+  rank: { ...closed({ ladder: name, at: name, lt: name, eq: name, gte: name }, ['ladder', 'at']), oneOf: [{ required: ['lt'] }, { required: ['eq'] }, { required: ['gte'] }] },
+  when: condition,
+});
+
+const ruleCommon = {
+  id: name,
+  kind: { type: 'string', enum: RULE_KINDS },
+  scope: ruleScope,
+  resourceTypes: ruleNames,
+  subjects: ruleSubjects,
+  when: condition,
+  expiresAt: { type: ['string', 'null'], format: 'date-time' },
+  source: { type: 'string' },
+};
+
+// One key set per kind (design §5.8).
+const ruleOf = (kind: string, properties: Record<string, unknown>, extra: Record<string, unknown>) => ({
+  if: { properties: { kind: { const: kind } } },
+  then: { ...closed({ ...ruleCommon, ...properties }), ...extra },
+});
+
+/** A config RuleDef (design §5.8), the former RULE_SCHEMA of ConfigRuleStore. */
+const rule = {
+  type: 'object',
+  properties: { id: name, kind: { type: 'string', enum: RULE_KINDS }, scope: ruleScope },
+  required: ['id', 'kind'],
+  allOf: [
+    ruleOf('restrict', { allow: { type: 'array', items: { anyOf: [principalRef, closed({ set: closed({ role: name, scope: ref }, ['role', 'scope']) }, ['set'])] } } }, { required: ['allow'] }),
+    ruleOf(
+      'cap',
+      {
+        ladder: name,
+        maxRole: { anyOf: [{ type: ['string', 'null'], minLength: 1 }, valueRef] },
+        stripTags: { type: 'boolean' },
+        assignments: closed({ scopeTypes: ruleNames, subjectTypes: ruleNames }),
+      },
+      { anyOf: [{ required: ['ladder', 'maxRole'] }, { required: ['stripTags'], properties: { stripTags: { const: true } } }], dependencies: { maxRole: ['ladder'] } },
+    ),
+    ruleOf(
+      'threshold',
+      {
+        permissions: ruleNames,
+        resource: condition,
+        minRole: { anyOf: [name, valueRef] },
+        ladder: name,
+        at: name,
+        reason: { type: 'object', properties: { code: name, priority: { type: 'number' }, sortKey: { type: 'string' }, model: false }, required: ['code'] },
+      },
+      { required: ['permissions', 'minRole'], dependencies: { at: ['ladder'] } },
+    ),
+  ],
+};
+
 // Validates the `authz.rbac` subtree: the configuration reads `$configurationModule` with lodash get, so a dotted path
 // works and this schema runs next to the core one (`authz`), which leaves `rbac` open.
 // The root stays open for keys of other lanes; no `default` keywords: defaults live in code and in config/rbac-stores.
@@ -60,8 +129,7 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
   properties: {
     roles: { type: 'object', propertyNames: name, additionalProperties: role },
     ladders: { type: 'object', propertyNames: name, additionalProperties: closed({ roles: stringList, resourceTypes: stringList }, ['roles']) },
-    // L1b owns the rule schema
-    rules: { type: 'array', items: { type: 'object' } },
+    rules: { type: 'array', items: rule, uniqueItemProperties: ['id'] },
     groupPrincipal: closed({ role: name, scopeType: name }, ['role', 'scopeType']),
     defaultRoles: stringList,
     anonymousRoles: stringList,
