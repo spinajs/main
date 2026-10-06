@@ -1,4 +1,5 @@
 import { NewInstance } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import type { Constructor } from '@spinajs/di';
 import { AuthzConfigError, parsePermission } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
@@ -93,6 +94,9 @@ export function UnfilteredInput(reason: string): ClassDecorator & MethodDecorato
  */
 @NewInstance()
 export class UnscopedMiddleware extends RouteMiddleware {
+  @Config('authz')
+  protected Authz: unknown;
+
   constructor(public readonly reason: string) {
     super();
   }
@@ -110,7 +114,7 @@ export class UnscopedMiddleware extends RouteMiddleware {
     const r = req as Request;
     r.storage.Unscoped = this.reason;
     const principal = r.storage.Principal;
-    await auditUnscoped(routeDomain(routeAccess(controller, route.Method)), {
+    await auditUnscoped(this.Authz, routeDomain(routeAccess(controller, route.Method)), {
       kind: 'unscoped',
       principal: principal ? { type: principal.type, id: principal.id } : { type: 'unattended', id: 'unattended' },
       reason: this.reason,

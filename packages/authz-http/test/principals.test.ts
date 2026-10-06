@@ -167,7 +167,7 @@ describe('PrincipalMiddleware', function () {
       expect(res.body.current).to.deep.include({ type: 'unattended' });
       expect(preload.callCount).to.eq(0);
     } finally {
-      testHost.config().unset(['authz', 'principals', 'anonymous', 'enabled']);
+      testHost.config().set(['authz', 'principals', 'anonymous', 'enabled'], true);
     }
   });
 

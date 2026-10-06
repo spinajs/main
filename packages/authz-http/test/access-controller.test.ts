@@ -61,7 +61,7 @@ describe('AccessController (B25)', function () {
       try {
         expect((await app.request().get('/user/access')).status).to.eq(401);
       } finally {
-        testHost.config().unset(['authz', 'principals', 'anonymous', 'enabled']);
+        testHost.config().set(['authz', 'principals', 'anonymous', 'enabled'], true);
       }
     });
   });

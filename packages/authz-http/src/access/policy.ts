@@ -1,12 +1,12 @@
 import { DI, NewInstance } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
-import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, readDomainConfig, DefaultAuthzDomains } from '@spinajs/authz';
+import { Config } from '@spinajs/configuration';
+import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
-import { domainService } from '../domains.js';
+import { domainConfig, domainService } from '../domains.js';
 import { routeAccess, routeDomain } from './descriptor.js';
 import { isUnloadedModel } from './extractors.js';
 import type { IAccessRule } from './descriptor.js';
@@ -49,6 +49,9 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
 export class AccessPolicy extends BasePolicy {
   @Config('authz.http.explainRoute.permission')
   protected ExplainPermission: Permission;
+
+  @Config('authz')
+  protected Authz: unknown;
 
   @Config('configuration.isProduction')
   protected IsProduction: boolean | undefined;
@@ -152,8 +155,7 @@ export class AccessPolicy extends BasePolicy {
 
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
     if (!(domains instanceof DefaultAuthzDomains)) return undefined;
-    const configuration = DI.get(Configuration);
-    if (!readDomainConfig(configuration?.get(['authz']), domains.lineage(domain)).engine.explain) return undefined;
+    if (!domainConfig(this.Authz, domains, domain).engine.explain) return undefined;
 
     const permission = this.ExplainPermission;
     // Only an unconditional grant: a residual on the explain permission would not be enforced here.

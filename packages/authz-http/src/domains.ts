@@ -1,7 +1,7 @@
 import { DI, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { AuthzConfigError, AuthzDomains, AuthzService, DecisionAudit, DefaultAuthzDomains, readDomainConfig } from '@spinajs/authz';
+import type { DomainConfig } from '@spinajs/authz';
 
 /** The booted AuthzService of a domain; `authz()` would throw before the domain's first resolve. */
 export async function domainService(domain: string): Promise<AuthzService> {
@@ -10,6 +10,11 @@ export async function domainService(domain: string): Promise<AuthzService> {
   }
   const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
   return domains.service(domain);
+}
+
+/** `domain`'s configuration merged over its lineage as the host merges it, from `authz`, the caller's `authz` section. */
+export function domainConfig(authz: unknown, domains: DefaultAuthzDomains, domain: string): DomainConfig {
+  return readDomainConfig(authz, domains.lineage(domain));
 }
 
 type AuditEntry = Parameters<DecisionAudit['record']>[0];
@@ -27,14 +32,13 @@ async function pickAudit(container: IContainer, service: string | undefined): Pr
 
 /**
  * Records an `unscoped` bypass with the domain's DecisionAudit when the domain's
- * `audit.unscoped` is on. The host keeps its audit to itself, so this reads the same config.
+ * `audit.unscoped` is on. The host keeps its audit to itself, so this merges the same `authz` section.
  */
-export async function auditUnscoped(domain: string, entry: AuditEntry): Promise<void> {
+export async function auditUnscoped(authz: unknown, domain: string, entry: AuditEntry): Promise<void> {
   const domains = await DI.resolve(AuthzDomains);
   // A bypass must not go unaudited, and only the host's AuthzDomains tells a domain's config lineage.
   if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('@Unscoped needs the host AuthzDomains to audit the bypass');
-  const configuration = DI.get(Configuration);
-  const cfg = readDomainConfig(configuration?.get(['authz']), domains.lineage(domain));
+  const cfg = domainConfig(authz, domains, domain);
   if (!cfg.audit.unscoped) return;
   const audit = await pickAudit(domains.container(domain), cfg.audit.service);
   await audit?.record(entry);

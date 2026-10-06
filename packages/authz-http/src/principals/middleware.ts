@@ -1,5 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { ServerMiddleware } from '@spinajs/http';
@@ -34,6 +34,9 @@ export const PRINCIPAL_MIDDLEWARE_ORDER = 10;
 export class PrincipalMiddleware extends ServerMiddleware {
   @Logger('authz-http')
   protected Log: Log;
+
+  @Config('authz.principals.anonymous.enabled', { defaultValue: true })
+  protected AnonymousEnabled: boolean;
 
   private authz: Promise<AuthzService> | undefined;
 
@@ -114,7 +117,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
       }
     }
 
-    return principal ?? (this.anonymousEnabled() ? ANONYMOUS : null);
+    return principal ?? (this.AnonymousEnabled !== false ? ANONYMOUS : null);
   }
 
   protected async ask(source: PrincipalSource, req: Request): Promise<Principal | null> {
@@ -129,10 +132,5 @@ export class PrincipalMiddleware extends ServerMiddleware {
   protected async sources(): Promise<PrincipalSource[]> {
     const sources = (await DI.resolve(Array.ofType(PrincipalSource))) as PrincipalSource[];
     return [...sources].sort((a, b) => a.order - b.order);
-  }
-
-  protected anonymousEnabled(): boolean {
-    const enabled = DI.get(Configuration)?.get<unknown>(['authz', 'principals', 'anonymous', 'enabled']);
-    return enabled !== false;
   }
 }
