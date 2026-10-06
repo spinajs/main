@@ -20,7 +20,7 @@ const isPlain = (v: unknown): boolean => v !== null && typeof v === 'object' && 
 @Injectable(QueueMessageHook)
 export class AuthzQueueHook extends QueueMessageHook {
   /** The authz domain whose principal is stamped and whose `runAs` the handler uses. */
-  @Config('authz.queue.domain', { defaultValue: 'root' })
+  @Config('authz.queue.domain')
   protected Domain: string;
 
   async beforeEmit(message: IQueueMessage): Promise<void> {
