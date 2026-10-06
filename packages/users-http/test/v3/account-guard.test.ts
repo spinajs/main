@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { AuthzService, SYSTEM } from '@spinajs/authz';
+import { AuthzConfigError, AuthzService, SYSTEM } from '@spinajs/authz';
 import { User, ban } from '@spinajs/users';
 
 import { passwordCalls, resetPasswordCalls } from '../support/password-service.js';
@@ -92,6 +92,16 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
       });
     });
   }
+
+  it('fails closed when a check is on but no privilegedPermission is configured', async () => {
+    config().set('authz.admin.guard', { service: 'DefaultAdminGuard' });
+    await expect(world.security.deactivateUser(await admin2(), await admin())).to.be.rejectedWith(AuthzConfigError, /authz.admin.guard.privilegedPermission/);
+  });
+
+  it('keeps a check on for a non-boolean switch value', async () => {
+    config().set('authz.admin.guard.preventSelfLockout', 0);
+    await expect(world.security.deactivateUser(await admin(), await admin())).to.be.rejectedWith(Forbidden, /your own account/);
+  });
 
   it('does not count an inactive administrator as the remaining one', async () => {
     await User.update({ IsActive: false }).where({ Uuid: ADMIN2_UUID });

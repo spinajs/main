@@ -1,7 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
-import type { AdminGuardConfig } from '@spinajs/authz-rbac';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -47,7 +46,7 @@ describe('users-http v3: DefaultAccountGuard reads authz.admin.guard through @Co
     const guard = new DefaultAccountGuard();
     (guard as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
 
-    expect((guard as unknown as { Guard: AdminGuardConfig }).Guard).to.deep.include({ privilegedPermission: 'users:update', preventSelfLockout: false, preventLastPrivilegedRemoval: true });
+    expect((guard as unknown as { Guard: unknown }).Guard).to.deep.include({ privilegedPermission: 'users:update', preventSelfLockout: false, preventLastPrivilegedRemoval: true });
   });
 
   it('a check that is on without privilegedPermission fails the boot, not the first lifecycle call', async () => {

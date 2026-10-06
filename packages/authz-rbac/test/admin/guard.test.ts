@@ -156,6 +156,21 @@ describe('DefaultAdminGuard', function () {
       await passes(p('ops'), [revoke('a-root'), revoke('a-root2')]);
     });
 
+    it('fails closed with AuthzConfigError when a check is on and privilegedPermission is missing or malformed', async () => {
+      const { privilegedPermission: _, ...noPrivileged } = GUARD;
+      for (const guard of [noPrivileged, { ...GUARD, privilegedPermission: 'users' }, { ...GUARD, privilegedPermission: 5 }]) {
+        config().set(['authz', 'admin', 'guard'], guard);
+        const e = await rejection(run(p('root'), [revoke('a-root')]));
+        expect(e).to.be.instanceOf(AuthzConfigError);
+        expect((e as Error).message).to.match(/authz.admin.guard.privilegedPermission/);
+      }
+    });
+
+    it('keeps a check on for a non-boolean switch value', async () => {
+      config().set(['authz', 'admin', 'guard'], { ...GUARD, preventSelfLockout: 0 });
+      await refused(p('root'), [revoke('a-root')], 'self_lockout');
+    });
+
     // The malformed values are the schema's: guard-config.test.ts. A Configuration no schema validated still leaves an absent switch on.
     it('an absent switch is on', async () => {
       await world({ guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } });

@@ -1,7 +1,6 @@
 import { AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { Permission, Principal } from '@spinajs/authz';
-import { AssignmentStore } from '@spinajs/authz-rbac';
-import type { AdminGuardConfig } from '@spinajs/authz-rbac';
+import { AssignmentStore, guardSwitches } from '@spinajs/authz-rbac';
 import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
@@ -44,10 +43,10 @@ export abstract class AccountGuard {
 @Injectable(AccountGuard)
 export class DefaultAccountGuard extends AccountGuard {
   @Config('authz.admin.guard')
-  protected Guard: AdminGuardConfig;
+  protected Guard: unknown;
 
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
-    const cfg = switchesOn(this.Guard);
+    const cfg = guardSwitches(this.Guard, 'users');
     const verb = VERB[action];
 
     if (cfg.preventSelfLockout && isSelf(actor, target)) {
@@ -65,7 +64,7 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 
   public async assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void> {
-    const cfg = switchesOn(this.Guard);
+    const cfg = guardSwitches(this.Guard, 'users');
     const permission = cfg.privilegedPermission;
 
     if (permission === undefined || (!cfg.preventSelfLockout && !cfg.preventLastPrivilegedRemoval)) {
@@ -163,17 +162,6 @@ export class DefaultAccountGuard extends AccountGuard {
     const authz = (await DI.resolve(AuthzService)) as AuthzService;
     return authz.runAs(SYSTEM, 'users-http-account-guard', work);
   }
-}
-
-/** A switch that is unset or null is on, also under a Configuration no schema validated. */
-function switchesOn(guard: Partial<AdminGuardConfig> | null | undefined): AdminGuardConfig {
-  return {
-    privilegedPermission: guard?.privilegedPermission,
-    protectSystemRole: guard?.protectSystemRole ?? true,
-    preventEscalation: guard?.preventEscalation ?? true,
-    preventSelfLockout: guard?.preventSelfLockout ?? true,
-    preventLastPrivilegedRemoval: guard?.preventLastPrivilegedRemoval ?? true,
-  };
 }
 
 function isSelf(actor: Principal, target: User): boolean {

@@ -1,4 +1,4 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, principalKey, resourceKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
@@ -10,9 +10,9 @@ import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
 
-/** `authz.admin.guard` as AUTHZ_CONFIGURATION_SCHEMA leaves it: every switch set (default on). */
+/** The guard section as AUTHZ_CONFIGURATION_SCHEMA leaves it: every switch set (default on). */
 export interface AdminGuardConfig {
-  /** Set while preventSelfLockout or preventLastPrivilegedRemoval is on: the schema requires it then. */
+  /** Set while preventSelfLockout or preventLastPrivilegedRemoval is on. */
   readonly privilegedPermission?: Permission;
   readonly protectSystemRole: boolean;
   readonly preventEscalation: boolean;
@@ -20,15 +20,20 @@ export interface AdminGuardConfig {
   readonly preventLastPrivilegedRemoval: boolean;
 }
 
-/** A switch that is unset or null is on, also under a Configuration no schema validated. */
-function switchesOn(guard: Partial<AdminGuardConfig> | null | undefined): AdminGuardConfig {
-  return {
-    privilegedPermission: guard?.privilegedPermission,
-    protectSystemRole: guard?.protectSystemRole ?? true,
-    preventEscalation: guard?.preventEscalation ?? true,
-    preventSelfLockout: guard?.preventSelfLockout ?? true,
-    preventLastPrivilegedRemoval: guard?.preventLastPrivilegedRemoval ?? true,
+// The schema is the gate; this floor holds for values that never went through it (runtime Configuration.set, unvalidated configs).
+export function guardSwitches(section: unknown, where: string): AdminGuardConfig {
+  const raw: Record<string, unknown> = isPlainObject(section) ? section : {};
+  const cfg = {
+    protectSystemRole: raw.protectSystemRole !== false,
+    preventEscalation: raw.preventEscalation !== false,
+    preventSelfLockout: raw.preventSelfLockout !== false,
+    preventLastPrivilegedRemoval: raw.preventLastPrivilegedRemoval !== false,
   };
+  const needsPermission = cfg.preventSelfLockout || cfg.preventLastPrivilegedRemoval;
+  if (needsPermission && !isPermission(raw.privilegedPermission)) {
+    throw new AuthzConfigError(`Authz domain ${quote(where)}: authz.admin.guard.privilegedPermission must name a permission while preventSelfLockout or preventLastPrivilegedRemoval is on`);
+  }
+  return { ...cfg, privilegedPermission: isPermission(raw.privilegedPermission) ? raw.privilegedPermission : undefined };
 }
 
 type Kind = AuthzCommand['kind'];
@@ -104,13 +109,13 @@ export class DefaultAdminGuard extends AdminGuard {
   private warnedNoAccountStatus = false;
 
   @Config('authz.admin.guard')
-  protected Guard: AdminGuardConfig;
+  protected Guard: unknown;
 
   async check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
     const kind: unknown = isPlainObject(c) ? c.kind : undefined;
     // Unknown kinds reach no handler (not_found); the handler owns validation.
     if (typeof kind !== 'string' || !Object.hasOwn(GUARDED, kind) || !GUARDED[kind as Kind]) return;
-    const cfg = switchesOn(this.Guard);
+    const cfg = guardSwitches(this.Guard, ctx.domain);
     const roles = await roleIndex(ctx);
     const setMemo = new Map<string, readonly string[]>();
     const sets = (role: string): readonly string[] => {
