@@ -1,4 +1,5 @@
 /** Test DB fixture: boots an Orm in a child DI container on sqlite `:memory:` or on a throwaway Postgres database. */
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, ClassInfo, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
@@ -151,6 +152,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   }
 
   const container: IContainer = DI.child();
+  container.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
   container.register(configurationFor(connection, options.config ?? {})).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');

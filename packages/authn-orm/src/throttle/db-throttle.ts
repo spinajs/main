@@ -1,18 +1,16 @@
 import { createHmac } from 'node:crypto';
 
-import { AuthnThrottle } from '@spinajs/authn/contracts';
-import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
-import { Configuration } from '@spinajs/configuration';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
+import type { AuthnContext, BackoffParams, ThrottleFlow, ThrottleFlowParams, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
+import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { RawQuery, WhereBuilder } from '@spinajs/orm';
 
 import { checkedMs, columnText, driverDialect, isDuplicate, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
 import type { Dialect } from '../support/sql.js';
-import { THROTTLE_FLOWS, backoffDelayMs, checkThrottleParams, readThrottleConfig } from './params.js';
-import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from './params.js';
 
 const TABLE = 'authn_throttle';
 /** Each miss means another attempt won that key, so this bounds the parallel attempts one call waits behind. */
@@ -78,7 +76,14 @@ export interface DbThrottleOptions {
 @Singleton()
 @Injectable(AuthnThrottle)
 export class DbAuthnThrottle extends AuthnThrottle {
-  private readonly explicitParams: ThrottleParams | undefined;
+  @Config('authn.throttle')
+  protected ConfiguredParams: ThrottleParams;
+
+  @Config('authn.audit.hashKey.secret')
+  protected ConfiguredHashSecret: string | null | undefined;
+
+  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
+  private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
   private hmacKey: Buffer | undefined;
   private dialect: Dialect = 'other';
@@ -92,9 +97,13 @@ export class DbAuthnThrottle extends AuthnThrottle {
    */
   constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
-    this.explicitParams = params === undefined ? undefined : checkThrottleParams(params);
+    if (options.container) {
+      // An instance built with `new` has no injected container, so @Config would read the root Configuration.
+      Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
+    }
+    this.fixedParams = params ?? (this.usesConfiguration() ? undefined : DEFAULT_THROTTLE_PARAMS);
     if (!this.usesConfiguration()) {
-      this.loadedParams = this.explicitParams ?? readThrottleConfig(undefined);
+      this.loadedParams = this.fixedParams;
       this.hmacKey = hashKeyOf(this.options.hashKey);
     }
   }
@@ -373,6 +382,13 @@ export class DbAuthnThrottle extends AuthnThrottle {
     return undefined;
   }
 
+  // Read once and frozen: Configuration hands out live objects, and the rows assume fixed limits.
+  private snapshotConfigured(): ThrottleParams {
+    if (!this.ConfiguredParams) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
+    const { service: _service, maxRows: _maxRows, ...params } = structuredClone(this.ConfiguredParams) as ThrottleParams & { service?: string; maxRows?: number };
+    return deepFreeze(params);
+  }
+
   private usesConfiguration(): boolean {
     return this.driver === undefined || this.options.container !== undefined;
   }
@@ -380,9 +396,10 @@ export class DbAuthnThrottle extends AuthnThrottle {
   private async load(): Promise<void> {
     const container = this.options.container ?? DI.RootContainer;
     if (this.usesConfiguration()) {
-      const config = await container.resolve(Configuration);
-      this.loadedParams = this.explicitParams ?? readThrottleConfig(config.get('authn.throttle'));
-      const secret = this.options.hashKey !== undefined ? this.options.hashKey : config.get<string | null>('authn.audit.hashKey.secret');
+      // A @Config read needs the container's Configuration resolved.
+      await container.resolve(Configuration);
+      this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
+      const secret = this.options.hashKey !== undefined ? this.options.hashKey : this.ConfiguredHashSecret;
       this.hmacKey = hashKeyOf(secret);
       if (typeof secret !== 'string' || secret.length === 0) {
         warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle row keys are hashed under a public constant; anyone reading authn_throttle can test guessed logins and IPs against them');
@@ -412,6 +429,11 @@ function warnOnce(message: string): void {
     // no usable Log: fall back to the console
   }
   console.warn(message);
+}
+
+function deepFreeze<T extends object>(o: T): T {
+  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
+  return Object.freeze(o);
 }
 
 function hashKeyOf(secret: unknown): Buffer {

@@ -8,8 +8,10 @@ import { Log } from '@spinajs/log-common';
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
 import type { AuthnContext } from '../contracts/credentials.js';
-import { DEFAULT_THROTTLE_MAX_ROWS, THROTTLE_FLOWS, backoffDelayMs } from './params.js';
-import type { BackoffParams, ThrottleConfig, ThrottleFlowParams, ThrottleParams } from './params.js';
+import { THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
+import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from '../contracts/throttle.js';
+import { DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
+import type { ThrottleConfig } from './params.js';
 import type { PeekableThrottle } from './peek.js';
 
 export interface ThrottleRow {

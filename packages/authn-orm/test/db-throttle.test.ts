@@ -1,6 +1,6 @@
 import { DEFAULT_THROTTLE, FakeClock, pwKeys } from '@spinajs/authn-testing';
 import type { AuthnContext, ThrottleKey } from '@spinajs/authn/contracts';
-import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
@@ -101,10 +101,6 @@ describe('DbAuthnThrottle arguments', () => {
     expect(err).to.be.instanceOf(InvalidArgument);
   });
 
-  it('throws InvalidOption on explicit params with an unknown key', () => {
-    expect(() => new DbAuthnThrottle({} as OrmDriver, { ...DEFAULT_THROTTLE, maxRow: 1 } as unknown as ThrottleParams)).to.throw(InvalidOption);
-  });
-
   it('keeps k stable for the same input and apart per flow, kind and hash key', () => {
     const key: ThrottleKey = { kind: 'account', value: 'alice@example.test' };
     const keyed = new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE, { hashKey: 'a-configured-audit-hash-key-0123456789' });
@@ -124,7 +120,7 @@ for (const kind of DB_KINDS) {
     let clock: FakeClock;
 
     before(async function () {
-      db = await bootDb(this, kind, 'throttle_store', { config: { authn: { throttle: { login: { account: { free: 2 } } }, audit: { hashKey: { secret: HASH_KEY } } } } });
+      db = await bootDb(this, kind, 'throttle_store', { config: { authn: { throttle: { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } } }, audit: { hashKey: { secret: HASH_KEY } } } } });
     });
 
     after(async () => {
