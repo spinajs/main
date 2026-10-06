@@ -18,8 +18,9 @@ describe('authz-http floors for values the schema never saw', () => {
 
   it('does not mount the explain route for a non-boolean switch', async () => {
     for (const enabled of ['false', '0', 1]) {
-      const booted = await bootConfiguration({ authz: { http: { explainRoute: { enabled } } }, configuration: { isProduction: false } });
+      const booted = await bootConfiguration({ configuration: { isProduction: false } });
       child = booted.child;
+      booted.configuration.set(['authz', 'http', 'explainRoute', 'enabled'], enabled);
       const source = bindConfiguration(new ExplainControllerSource(), child);
 
       expect(await source.getControllers(), String(enabled)).to.deep.eq([]);

@@ -12,7 +12,7 @@ export async function domainService(domain: string): Promise<AuthzService> {
   return domains.service(domain);
 }
 
-/** `domain`'s configuration merged over its lineage as the host merges it, from `authz`, the caller's `authz` section. */
+/** `domain`'s configuration merged over its lineage, from `authz`, the caller's `authz` section. */
 export function domainConfig(authz: unknown, domains: DefaultAuthzDomains, domain: string): DomainConfig {
   return readDomainConfig(authz, domains.lineage(domain));
 }
