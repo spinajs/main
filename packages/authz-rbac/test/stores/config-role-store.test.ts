@@ -324,6 +324,13 @@ describe('authz-rbac stores: ConfigRoleStore', function () {
       for (const grantedAt of ['project', null, [1]]) await refuses({ roles: { a: { grants: [{ permission: 'x:read', grantedAt }] } } }, 'authz.rbac.roles.a.grants[0].grantedAt');
     });
 
+    it('refuses the role and ladder fields AuthzAdmin reads without the model compile, where they would read broader', async () => {
+      for (const assignable of ['false', 'yes', null, 0]) await refuses({ roles: { a: { assignable } } }, 'authz.rbac.roles.a.assignable');
+      for (const scopeTypes of ['project', null, [1]]) await refuses({ roles: { a: { scopeTypes } } }, 'authz.rbac.roles.a.scopeTypes');
+      for (const l of [{}, { roles: 'viewer' }, { roles: null }, { roles: [1] }]) await refuses({ ladders: { l } }, 'authz.rbac.ladders.l.roles');
+      for (const resourceTypes of ['project', null, [1]]) await refuses({ ladders: { l: { roles: ['a'], resourceTypes } } }, 'authz.rbac.ladders.l.resourceTypes');
+    });
+
     it('hands the other malformed values to the model compile, which refuses them', async () => {
       const registry = new PermissionRegistryImpl();
       registry.register([{ name: 'x:read' }, { name: 'x:write', fields: true }], 'test');
@@ -344,19 +351,13 @@ describe('authz-rbac stores: ConfigRoleStore', function () {
         { roles: { a: { grants: [{ permission: 'x:read', relation: 5 }] } } },
         { roles: { a: { grants: [{ permission: 'x:write', fields: { read: 'a' } }] } } },
         { roles: { a: { grants: [{ permission: 'x:write', fields: { reed: ['a'] } }] } } },
-        { roles: { a: { assignable: 'yes' } } },
-        { roles: { a: { assignable: null } } },
         { roles: { a: { extends: 'b' } } },
         { roles: { a: { extends: null } } },
-        { roles: { a: { scopeTypes: [1] } } },
         { roles: { a: { ladder: 5 } } },
         { roles: { a: { implies: [{ role: 'b', at: 'everywhere' }] }, b: {} } },
         { roles: { a: { implies: [{ role: 'b', at: 'descendants', bypass: ['ceiling'] }] }, b: {} } },
         { roles: { a: { implies: [{ role: 'b', at: 'descendants', tags: [1] }] }, b: {} } },
         { roles: { a: { implies: { role: 'b', at: 'descendants' } }, b: {} } },
-        { roles: { a: { ladder: 'l' } }, ladders: { l: { roles: 'a' } } },
-        { roles: { a: { ladder: 'l' } }, ladders: { l: {} } },
-        { roles: { a: { ladder: 'l' } }, ladders: { l: { roles: ['a'], resourceTypes: [1] } } },
       ];
       for (const rbac of malformed) expect(await rejection(compiles(rbac)), JSON.stringify(rbac)).to.be.instanceOf(AuthzConfigError);
       await compiles({ roles: { a: { ladder: 'l', grants: ['x:read'] }, b: { implies: [{ role: 'a', at: 'descendants' }] } }, ladders: { l: { roles: ['a'] } } });

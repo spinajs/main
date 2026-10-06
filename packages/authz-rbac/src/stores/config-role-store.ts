@@ -25,8 +25,9 @@ const isNames = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) =
 
 /*
  * Floors for values the schema never saw (Configuration.set, the constructor seam). Each refuses a shape that would read
- * as a broader role: a misspelt key drops the restriction it names, a `revoke` string revokes nothing, a `grantedAt`
- * string is matched by substring. The model compile refuses the other malformed values.
+ * as a broader role or crash before the compile: a misspelt key drops the restriction it names, a `revoke` string
+ * revokes nothing, a string list is matched by substring. The model compile refuses the other malformed values, but
+ * AuthzAdmin reads `assignable`, `scopeTypes` and the ladders without it.
  */
 function refuse(bad: boolean, path: string, what: string): void {
   if (bad) throw new AuthzConfigError(`${path}: ${what}`);
@@ -61,6 +62,8 @@ function role(name: string, entry: RoleEntry, path: string): RoleDef {
   const { revoke = [], grants = [], extends: parents = [], assignable = true, ...rest } = copy(entry);
   refuse(!isNames(revoke), `${path}.revoke`, 'must be a list of permissions');
   refuse(!Array.isArray(grants), `${path}.grants`, 'must be a list');
+  refuse(typeof assignable !== 'boolean', `${path}.assignable`, 'must be true or false');
+  refuse(rest.scopeTypes !== undefined && !isNames(rest.scopeTypes), `${path}.scopeTypes`, 'must be a list of scope types');
   const revoked = new Set(revoke);
   return {
     name,
@@ -74,6 +77,8 @@ function role(name: string, entry: RoleEntry, path: string): RoleDef {
 
 function ladder(name: string, entry: LadderEntry, path: string): LadderDef {
   closed(entry, LADDER_KEYS, path);
+  refuse(!isNames(entry.roles), `${path}.roles`, 'must be a list of roles');
+  refuse(entry.resourceTypes !== undefined && !isNames(entry.resourceTypes), `${path}.resourceTypes`, 'must be a list of resource types');
   return { name, ...copy(entry) };
 }
 
