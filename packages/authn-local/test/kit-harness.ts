@@ -75,7 +75,7 @@ type SchemaNode = { default?: unknown; properties?: Record<string, SchemaNode> }
 /** What the schema would fill for this node: the defaults of its members over its own default. */
 function schemaDefaults(node: SchemaNode | undefined): unknown {
   if (!node) return undefined;
-  if (!node.properties) return node.default;
+  if (!node.properties || node.default === undefined) return node.default;
   const out: Record<string, unknown> = { ...((node.default as object | undefined) ?? {}) };
   for (const [key, member] of Object.entries(node.properties)) {
     const value = schemaDefaults(member);
@@ -99,11 +99,7 @@ function schemaDefaultAt(parts: string[]): unknown {
   return schemaDefaults(node);
 }
 
-/**
- * The case's values over this package's own `authn` config, then the code defaults. A FrameworkConfiguration would also merge
- * every installed package's config, and @spinajs/users still ships 2.x `authn.local` keys (a policy rule,
- * `expiration.enabled: true`) that are not §22.5 defaults.
- */
+/** The case's values over this package's own `authn` config, then the schema defaults, without merging every installed package's config. */
 class HarnessConfiguration extends Configuration {
   public get RootConfig() {
     return { ...current.values, onConfigLoad: () => undefined };

@@ -19,11 +19,8 @@ const authnLocal = {
   },
   authn: {
     local: {
-      // `service` is left out while @spinajs/users still ships the 2.x
-      // `authn.local.hasher.service: 'BasicPasswordProvider'`: package configs
-      // merge in glob order, and either value would break the other package.
-      // No code reads `hasher.service` yet: `@Injectable(PasswordHasher)` selects
-      // Argon2PasswordHasher until C1 drops the 2.x key.
+      // No code reads `hasher.service`: `@Injectable(PasswordHasher)` selects
+      // Argon2PasswordHasher.
       hasher: {
         /**
          * Argon2 operations at once (hash and verify); the rest queue. Each
@@ -45,10 +42,9 @@ const authnLocal = {
         previous: [] as { secret: string; version: number }[],
       },
 
-      // `rule`, `description` and `generator` keep code defaults (no rule;
-      // 16 letters and digits) while @spinajs/users ships its 2.x values
-      // under the same keys: a null here would override its rule, and the
-      // `generator.characters` arrays would be concatenated.
+      // `rule`, `description` and `generator` ship no value here: the schema
+      // fills the defaults, and a shipped `generator.characters` array would
+      // be concatenated with the schema's by the config merge.
       policy: {
         /** Code points; both within 8–128 (A04). Login always uses 8–128. */
         minLength: 8,
@@ -58,8 +54,7 @@ const authnLocal = {
         blocklist: null as string | null,
       },
 
-      // `expiration.enabled` (false) and `expiration.maxAgeDays` (31) keep code defaults while @spinajs/users ships its 2.x
-      // `expiration: { enabled: true, passwordExpirationTime }`.
+      // `expiration` ships no value here: the schema defaults are `enabled: false`, `maxAgeDays: 31`.
 
       reset: {
         /**

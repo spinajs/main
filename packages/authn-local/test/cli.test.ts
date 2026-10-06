@@ -48,7 +48,8 @@ class CliTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      authn: { local: { hasher: { maxConcurrent: 2 }, expiration: { enabled: true, maxAgeDays: 10 } } },
+      // This configuration is not booted through the schema, so the generator default is repeated here.
+      authn: { local: { hasher: { maxConcurrent: 2 }, expiration: { enabled: true, maxAgeDays: 10 }, generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', '0123456789'] } } },
     };
   }
 }

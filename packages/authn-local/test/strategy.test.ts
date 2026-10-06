@@ -554,9 +554,9 @@ describe('LocalPasswordStrategy DI wiring', function () {
   });
 });
 
-/** Holds only a policy rule that strict ajv refuses (no ajv-formats), so nothing else in the config can fail first. */
+/** Holds a policy rule that strict ajv refuses (no ajv-formats) and the hasher limit the strategy needs first, so nothing else can fail before it. */
 class StrategyBadPolicyConfiguration extends Configuration {
-  private readonly values = { authn: { local: { policy: { rule: { type: 'string', format: 'email' } } } } };
+  private readonly values = { authn: { local: { hasher: { maxConcurrent: 2 }, policy: { rule: { type: 'string', format: 'email' } } } } };
   public get RootConfig() {
     return { ...this.values, onConfigLoad: () => undefined };
   }

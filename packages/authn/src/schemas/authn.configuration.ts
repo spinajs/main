@@ -79,7 +79,7 @@ const PUBLIC_JWK = {
   not: { anyOf: PRIVATE_JWK_MEMBERS.map((member) => ({ required: [member] })) },
 };
 
-// Defaults: the throttle is filled in whole, other objects only get their security floors, and only when present.
+// Defaults: the throttle is filled in whole, other objects only get their defaults and floors when present (no `authn.local` tree for an app without authn-local).
 export const AUTHN_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authn.configuration.schema.json',
   $configurationModule: 'authn',
@@ -96,7 +96,6 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },
     local: {
       type: 'object',
-      default: {},
       properties: {
         hasher: {
           type: 'object',
@@ -110,21 +109,21 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
         pepper: {
           ...secretRef('HMAC-SHA256 pepper applied before argon2.', {
-          version: { type: 'integer', minimum: 1, maximum: 999999999, default: 1, description: 'Stored in the hash prefix so the pepper can rotate.' },
-          previous: {
-            type: 'array',
-            description: 'Older peppers, so a hash made under one still verifies and is rehashed (A03). Each version differs from the others and from `version`.',
-            uniqueItemProperties: ['version'],
-            items: {
-              type: 'object',
-              properties: {
-                secret: { type: 'string', minLength: 1 },
-                // 3/version: up from the item's version (1), the item (2) and the previous list (3) to the pepper's own version.
-                version: { type: 'integer', minimum: 1, maximum: 999999999, not: { const: { $data: '3/version' } } },
+            version: { type: 'integer', minimum: 1, maximum: 999999999, default: 1, description: 'Stored in the hash prefix so the pepper can rotate.' },
+            previous: {
+              type: 'array',
+              description: 'Older peppers, so a hash made under one still verifies and is rehashed (A03). Each version differs from the others and from `version`.',
+              uniqueItemProperties: ['version'],
+              items: {
+                type: 'object',
+                properties: {
+                  secret: { type: 'string', minLength: 1 },
+                  // 3/version: up from the item's version (1), the item (2) and the previous list (3) to the pepper's own version.
+                  version: { type: 'integer', minimum: 1, maximum: 999999999, not: { const: { $data: '3/version' } } },
+                },
+                required: ['secret', 'version'],
               },
-              required: ['secret', 'version'],
             },
-          },
           }),
           default: { secret: null, version: 1 },
         },

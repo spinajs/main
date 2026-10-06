@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { AsyncService, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOption } from '@spinajs/exceptions';
 
 import { ConcurrencyLimiter } from './limiter.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
@@ -49,7 +48,7 @@ interface HasherSettings {
   readonly peppers: ReadonlyMap<number, PepperEntry>;
 }
 
-const DEFAULT_MAX_CONCURRENT = 8; // The Options seam's fallback; equals the schema default.
+const DEFAULT_MAX_CONCURRENT = 8; // The Options seam's own fallback; the configured path takes the schema default.
 
 /**
  * argon2id at the argon2 library defaults (H30, SR-13): no option and no config key sets a cost, so the stored hash starts with
@@ -133,7 +132,9 @@ export class Argon2PasswordHasher extends PasswordHasher {
   }
 
   protected get settings(): HasherSettings {
-    return (this._settings ??= this.buildSettings(this.Options ?? { maxConcurrent: this.MaxConcurrent, pepper: this.Pepper }));
+    return (this._settings ??= this.buildSettings(
+      this.Options ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT } : { maxConcurrent: this.MaxConcurrent, pepper: this.Pepper },
+    ));
   }
 
   /** undefined: no pepper of that version is known; null: the hash has no pepper. */
@@ -155,45 +156,19 @@ export class Argon2PasswordHasher extends PasswordHasher {
     await argon2.verify(parsed.argon2, pepper ? pepperInput(password, pepper.secret) : password);
   }
 
-  private buildSettings(options: Argon2PasswordHasherOptions): HasherSettings {
-    const maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
-    if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1) {
-      throw new InvalidOption(`authn.local.hasher.maxConcurrent must be a positive integer, got ${maxConcurrent}`);
-    }
-
-    const pepper = options.pepper;
+  private buildSettings(options: Argon2PasswordHasherOptions & { readonly maxConcurrent: number }): HasherSettings {
     const peppers = new Map<number, PepperEntry>();
     let current: PepperEntry | null = null;
 
-    const secret: unknown = pepper?.secret;
-    if (secret !== null && secret !== undefined && typeof secret !== 'string') {
-      throw new InvalidOption('authn.local.pepper.secret must be a string or null');
-    }
-
-    if (pepper?.secret) {
-      current = { secret: pepper.secret, version: checkVersion(pepper.version, 'authn.local.pepper.version') };
+    if (options.pepper?.secret) {
+      current = { secret: options.pepper.secret, version: options.pepper.version };
       peppers.set(current.version, current);
     }
 
-    for (const [i, entry] of (pepper?.previous ?? []).entries()) {
-      const path = `authn.local.pepper.previous[${i}]`;
-      if (typeof entry?.secret !== 'string' || entry.secret === '') {
-        throw new InvalidOption(`${path}.secret must be a non-empty string`);
-      }
-      const version = checkVersion(entry.version, `${path}.version`);
-      if (peppers.has(version)) {
-        throw new InvalidOption(`${path}.version ${version} is already used by another pepper`);
-      }
-      peppers.set(version, { secret: entry.secret, version });
+    for (const entry of options.pepper?.previous ?? []) {
+      peppers.set(entry.version, { secret: entry.secret, version: entry.version });
     }
 
-    return { maxConcurrent, current, peppers };
+    return { maxConcurrent: options.maxConcurrent, current, peppers };
   }
-}
-
-function checkVersion(version: unknown, path: string): number {
-  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1 || version > 999_999_999) {
-    throw new InvalidOption(`${path} must be an integer from 1 to 999999999, got ${String(version)}`);
-  }
-  return version;
 }

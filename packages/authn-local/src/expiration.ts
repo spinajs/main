@@ -58,6 +58,7 @@ export class PasswordExpirationJob {
       return { idle: 'disabled', expired: 0, skipped: 0, failed: 0 };
     }
     const maxAgeDays = this.Deps ? (this.Deps.maxAgeDays ?? 31) : this.MaxAgeDays;
+    // A zero or negative age would expire every password at once (and NaN none), so it must stop the run, not pass the schema's word.
     if (typeof maxAgeDays !== 'number' || !Number.isFinite(maxAgeDays) || maxAgeDays <= 0) {
       throw new InvalidOption(`authn.local.expiration.maxAgeDays must be a positive number of days, got ${String(maxAgeDays)}`);
     }

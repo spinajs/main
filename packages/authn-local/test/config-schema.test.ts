@@ -5,10 +5,13 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import authnLocal from '../src/config/authn-local.js';
 import { Argon2PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
+import { LocalPasswordService } from '../src/service.js';
 import { PasswordExpirationJob } from '../src/expiration.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+// authn.local has no schema default of its own: an app that installs authn-local names it.
+const LOCAL = { authn: { local: {} } };
 const bad = (local: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { local } });
 
 describe('authn.local through the schema', function () {
@@ -16,8 +19,13 @@ describe('authn.local through the schema', function () {
   afterEach(disposeBooted);
 
   describe('defaults', () => {
-    it('fills every key the classes used to default in code', async () => {
+    it('fills no authn.local tree for an app that does not name it', async () => {
       const { configuration } = await boot(SCHEMAS, {});
+      expect(configuration.get('authn.local')).to.eq(undefined);
+    });
+
+    it('fills every key the classes used to default in code', async () => {
+      const { configuration } = await boot(SCHEMAS, LOCAL);
       expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(8);
       expect(configuration.get('authn.local.pepper')).to.deep.eq({ secret: null, version: 1 });
       expect(configuration.get('authn.local.policy')).to.deep.eq({ minLength: 8, maxLength: 128, rule: null, blocklist: null });
@@ -29,7 +37,7 @@ describe('authn.local through the schema', function () {
     });
 
     it('keeps the shipped package config equal to the schema defaults it repeats', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
+      const { configuration } = await boot(SCHEMAS, LOCAL);
       const shipped = authnLocal.authn.local;
       expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(shipped.hasher.maxConcurrent);
       expect(configuration.get('authn.local.pepper.version')).to.eq(shipped.pepper.version);
@@ -96,22 +104,14 @@ describe('authn.local through the schema', function () {
     });
 
     it('LocalPasswordPolicy generates within the policy bounds and refuses a generator outside them', async () => {
-      const ok = await boot(SCHEMAS, {});
+      const ok = await boot(SCHEMAS, LOCAL);
       expect(readingFrom(new LocalPasswordPolicy(), ok.child).generate()).to.have.length(16);
       const outside = await boot(SCHEMAS, { authn: { local: { policy: { minLength: 20 }, generator: { length: 16 } } } });
       expect(() => readingFrom(new LocalPasswordPolicy(), outside.child).generate()).to.throw(/outside authn.local.policy bounds/);
     });
 
-    it('Argon2PasswordHasher refuses a previous pepper that reuses the current version, in the schema and at use', async () => {
-      const local = { pepper: { secret: 'current', version: 2, previous: [{ secret: 'old', version: 2 }] } };
-      expect(await bad(local)).to.include('authn.local.pepper.previous.0.version');
-      let error: unknown;
-      try {
-        await new Argon2PasswordHasher({ pepper: local.pepper }).resolve();
-      } catch (e) {
-        error = e;
-      }
-      expect(String(error)).to.match(/previous\[0\]\.version 2 is already used by another pepper/);
+    it('the schema refuses a previous pepper that reuses the current version', async () => {
+      expect(await bad({ pepper: { secret: 'current', version: 2, previous: [{ secret: 'old', version: 2 }] } })).to.include('authn.local.pepper.previous.0.version');
     });
 
     it('Argon2PasswordHasher hashes under the configured pepper and verifies a hash made under a previous one', async () => {
@@ -128,12 +128,30 @@ describe('authn.local through the schema', function () {
       expect(hasher.needsRehash(stored)).to.eq(true);
     });
 
+    it('LocalPasswordService revokes tokens unless authn.local.reset.revokeTokens is exactly false', async () => {
+      class Probe extends LocalPasswordService {
+        public revoked = 0;
+        protected async tokens(): Promise<never> {
+          return { revokeAllFor: async () => void this.revoked++ } as never;
+        }
+        public revoke(): Promise<void> {
+          return this.revokeTokensOf({ type: 'user', id: 'u-1' } as never, {} as never);
+        }
+      }
+      for (const [value, revoked] of [[true, 1], [undefined, 1], ['false', 1], [false, 0]] as const) {
+        const probe = new Probe();
+        Object.defineProperty(probe, 'RevokeTokens', { value });
+        await probe.revoke();
+        expect(probe.revoked, String(value)).to.eq(revoked);
+      }
+    });
+
     it('PasswordExpirationJob reads enabled and maxAgeDays; the Deps seam keeps its own literals equal to the schema defaults', async () => {
       const { child, configuration } = await boot(SCHEMAS, { authn: { local: { expiration: { enabled: true, maxAgeDays: 7 } } } });
       const job = readingFrom(new PasswordExpirationJob(), child) as unknown as { Enabled: boolean; MaxAgeDays: number };
       expect([job.Enabled, job.MaxAgeDays]).to.deep.eq([true, 7]);
       expect(configuration.get('authn.local.expiration.maxAgeDays')).to.eq(7);
-      const defaults = (await boot(SCHEMAS, {})).configuration;
+      const defaults = (await boot(SCHEMAS, LOCAL)).configuration;
       expect([defaults.get('authn.local.expiration.enabled'), defaults.get('authn.local.expiration.maxAgeDays')]).to.deep.eq([false, 31]);
     });
   });

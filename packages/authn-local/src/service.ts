@@ -346,6 +346,7 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected async revokeTokensOf(id: IdentityRef, ctx: AuthnContext, actor?: PrincipalRef): Promise<void> {
+    // Only an explicit false switches revocation off: a missing or malformed value must not leave a reset's tokens alive.
     const enabled = this.Deps ? (this.Deps.revokeTokens ?? true) : this.RevokeTokens !== false;
     const tokens = enabled ? await this.tokens() : null;
     if (tokens) {
