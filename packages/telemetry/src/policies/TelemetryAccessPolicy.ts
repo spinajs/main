@@ -1,4 +1,4 @@
-import { DI, Injectable, NewInstance, Singleton, isFactory } from '@spinajs/di';
+import { DI, Injectable, NewInstance, Singleton, SyncService, isFactory } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz';
@@ -9,7 +9,7 @@ import { BasePolicy, Policy, RouteRegistrationException } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
-import { telemetrySkipsAuth } from './development.js';
+import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
 
 /** The slot value that checks `telemetry.auth.permissions.<endpoint>` through authz. */
 export const TELEMETRY_ACCESS_SLOT = 'AccessPolicy';
@@ -36,13 +36,17 @@ type Guard = { kind: 'access'; policy: AccessPolicy; holder: IController } | { k
 
 /**
  * Guards one telemetry endpoint by its slot `telemetry.auth.policies.<endpoint>`, read once when
- * http registers the route: `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
+ * http registers the route, from the Configuration of the container that resolves the policy:
+ * `'AccessPolicy'` checks any of `telemetry.auth.permissions.<endpoint>`
  * on the permission's type-level resource in `telemetry.auth.domain` (default root), with
  * AccessPolicy's 401/403 answers; any other value names a registered BasePolicy that decides
  * instead. A slot that cannot be honoured throws, so the route never registers.
+ *
+ * A SyncService rather than a BasePolicy subclass: DI calls resolve() only on a service, and a constructor runs
+ * before DI hands the instance its container.
  */
 @NewInstance()
-export class TelemetryAccessPolicy extends BasePolicy {
+export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
   @Logger('Security')
   protected Log: Log;
 
@@ -55,11 +59,26 @@ export class TelemetryAccessPolicy extends BasePolicy {
   @Config('telemetry.auth.domain', { defaultValue: 'root' })
   protected Domain: string;
 
-  protected readonly guard: Guard;
+  @Config('telemetry.auth.skipInDevelopment')
+  protected SkipInDevelopment: unknown;
+
+  @Config('configuration.isProduction')
+  protected IsProduction: unknown;
+
+  private resolvedGuard?: Guard;
 
   constructor(public readonly endpoint: string) {
     super();
-    this.guard = this.read();
+  }
+
+  public resolve(): void {
+    super.resolve();
+    this.resolvedGuard = this.read();
+  }
+
+  // An instance built with `new` gets no resolve(); it reads the root Configuration on first use.
+  protected get guard(): Guard {
+    return (this.resolvedGuard ??= this.read());
   }
 
   public isEnabled(route: IRoute, controller: IController): boolean {
@@ -92,7 +111,7 @@ export class TelemetryAccessPolicy extends BasePolicy {
       if (raw === undefined) throw fail(`${permissionsKey} must be a permission name or a non-empty list of them, but it is not set`);
       const permissions = (typeof raw === 'string' ? [raw] : raw) as Permission[];
 
-      if (telemetrySkipsAuth()) {
+      if (telemetrySkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
         this.Log.warn(`telemetry endpoint ${endpoint}: authorization skipped (telemetry.auth.skipInDevelopment in a development env)`);
         return { kind: 'skip' };
       }

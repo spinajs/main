@@ -6,7 +6,7 @@ import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Injectable } from '@spinajs/di';
 
-import { telemetrySkipsAuth } from './development.js';
+import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
 
@@ -31,6 +31,12 @@ export class TelemetryTokenPolicy extends BasePolicy {
   @Config('telemetry.auth.token')
   protected Token: string;
 
+  @Config('telemetry.auth.skipInDevelopment')
+  protected SkipInDevelopment: unknown;
+
+  @Config('configuration.isProduction')
+  protected IsProduction: unknown;
+
   protected HEADER_TOKEN_FIELD = 'x-metrics-token';
 
   public isEnabled(_action: IRoute, _instance: IController): boolean {
@@ -38,7 +44,7 @@ export class TelemetryTokenPolicy extends BasePolicy {
   }
 
   public async execute(req: Request): Promise<void> {
-    if (telemetrySkipsAuth()) {
+    if (telemetrySkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
       return;
     }
 

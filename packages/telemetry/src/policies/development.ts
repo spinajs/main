@@ -1,6 +1,7 @@
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { normalizeEnvironment } from '@spinajs/configuration-common';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 
 export type EnvLike = Readonly<Record<string, string | undefined>>;
 
@@ -13,15 +14,29 @@ export function isExplicitDevelopment(env: EnvLike = process.env, configuredEnv?
   return normalizeEnvironment(configured ?? env.APP_ENV ?? env.NODE_ENV) === 'dev';
 }
 
+export interface TelemetrySkipSettings {
+  /** `telemetry.auth.skipInDevelopment` */
+  readonly skipInDevelopment: unknown;
+  /** `configuration.isProduction` */
+  readonly isProduction: unknown;
+  /** The env the Configuration loaded its files for ({@link configuredEnvOf}). */
+  readonly configuredEnv?: unknown;
+}
+
 /**
- * The opt-in development skip of the telemetry checks: `telemetry.auth.skipInDevelopment` is exactly
- * `true`, the env names development, and `configuration.isProduction` is not `true`.
+ * The opt-in development skip of the telemetry checks: `skipInDevelopment` is exactly `true`, the env
+ * names development, and `isProduction` is not `true`.
  */
-export function telemetrySkipsAuth(env: EnvLike = process.env): boolean {
-  const cfg = DI.get(Configuration);
-  if (!cfg) return false;
-  // FrameworkConfiguration keeps the env whose files it loaded (`--env`, else APP_ENV) in `Env`. The
-  // tree's `process.env.APP_ENV` is no substitute: it defaults to 'development'.
-  const configuredEnv = (cfg as { Env?: unknown }).Env;
-  return cfg.get<unknown>('telemetry.auth.skipInDevelopment') === true && cfg.get<unknown>('configuration.isProduction') !== true && isExplicitDevelopment(env, configuredEnv);
+export function telemetrySkipsAuth(settings: TelemetrySkipSettings, env: EnvLike = process.env): boolean {
+  return settings.skipInDevelopment === true && settings.isProduction !== true && isExplicitDevelopment(env, settings.configuredEnv);
+}
+
+/**
+ * The env the Configuration that `instance`'s @Config properties read loaded its files for. FrameworkConfiguration
+ * keeps it (`--env`, else APP_ENV) in `Env`; the tree's `process.env.APP_ENV` is no substitute: it defaults to
+ * 'development'.
+ */
+export function configuredEnvOf(instance: object): unknown {
+  const container = (instance as Record<string, IContainer | undefined>)[CONFIGURATION_CONTAINER_KEY] ?? DI.RootContainer;
+  return (container.get(Configuration) as { Env?: unknown } | undefined)?.Env;
 }

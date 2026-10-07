@@ -15,6 +15,7 @@ import { TelemetryAccess, TelemetryAccessPolicy, isExplicitDevelopment, telemetr
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
+import { bootChild, disposeChildren } from './support/child-config.js';
 
 class RefusingTestPolicy extends BasePolicy {
   public isEnabled() {
@@ -168,7 +169,7 @@ describe('TelemetryAccessPolicy', function () {
       for (const path of touched.splice(0)) testHost.config().unset(path);
     });
 
-    const refuses = (endpoint: string, message: RegExp) => expect(() => new TelemetryAccessPolicy(endpoint)).to.throw(message);
+    const refuses = (endpoint: string, message: RegExp) => expect(() => DI.resolve(TelemetryAccessPolicy, [endpoint])).to.throw(message);
 
     it('when the slot is missing', () => {
       refuses('nothing', /telemetry\.auth\.policies\.nothing/);
@@ -193,7 +194,8 @@ describe('TelemetryAccessPolicy', function () {
       set('telemetry.auth.policies.broken', 'AccessPolicy');
       set('telemetry.auth.skipInDevelopment', true);
       await withEnv({ APP_ENV: 'development' }, async () => {
-        expect(telemetrySkipsAuth(), 'the skip is active').to.eq(true);
+        const cfg = testHost.config();
+        expect(telemetrySkipsAuth({ skipInDevelopment: cfg.get('telemetry.auth.skipInDevelopment'), isProduction: cfg.get('configuration.isProduction') }), 'the skip is active').to.eq(true);
         refuses('broken', /telemetry\.auth\.permissions\.broken/);
       });
     });
@@ -209,6 +211,20 @@ describe('TelemetryAccessPolicy', function () {
       expect(thrown, 'the controller must not register').to.be.instanceOf(Error);
       expect((thrown as Error).message).to.match(/NoSuchPolicy/);
       expect((await get('/tel-broken/x', 'bob')).status).to.eq(404);
+    });
+  });
+
+  describe('the configuration it reads', () => {
+    afterEach(disposeChildren);
+
+    it('is that of the container that resolves it, read once it is resolved', async () => {
+      const { child } = await bootChild({ telemetry: { auth: { policies: { childonly: 'RefusingTestPolicy' } } } });
+
+      const policy = child.resolve(TelemetryAccessPolicy, ['childonly']) as TelemetryAccessPolicy;
+      expect(policy.isEnabled({} as IRoute, {} as IController)).to.eq(true);
+      const refused = await policy.execute({} as Request, {} as IRoute, {} as IController).then(() => undefined, (e: unknown) => e);
+      expect(refused).to.be.instanceOf(Forbidden);
+      expect(() => DI.resolve(TelemetryAccessPolicy, ['childonly']), 'the root has no such slot').to.throw(/telemetry\.auth\.policies\.childonly/);
     });
   });
 
@@ -298,45 +314,36 @@ describe('TelemetryAccessPolicy', function () {
       expect(isExplicitDevelopment({ APP_ENV: 'development' }, undefined)).to.eq(true);
     });
 
+    const ON = { skipInDevelopment: true, isProduction: false };
+
     it('flag on, APP_ENV=development, configuration Env prod: checked', () => {
-      testHost.config().set(FLAG, true);
-      const cfg = testHost.config() as unknown as { Env?: string };
-      cfg.Env = 'prod';
-      try {
-        expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
-      } finally {
-        delete cfg.Env;
-      }
+      expect(telemetrySkipsAuth({ ...ON, configuredEnv: 'prod' }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag off, development env: checked', () => {
-      expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
+      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: false }, { APP_ENV: 'development' })).to.eq(false);
+      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: undefined }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag not exactly true, development env: checked', () => {
-      testHost.config().set(FLAG, 'true');
-      expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
+      expect(telemetrySkipsAuth({ ...ON, skipInDevelopment: 'true' }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('flag on, env missing: checked', () => {
-      testHost.config().set(FLAG, true);
-      expect(telemetrySkipsAuth({})).to.eq(false);
+      expect(telemetrySkipsAuth(ON, {})).to.eq(false);
     });
 
     it('flag on, NODE_ENV=production: checked', () => {
-      testHost.config().set(FLAG, true);
-      expect(telemetrySkipsAuth({ NODE_ENV: 'production' })).to.eq(false);
+      expect(telemetrySkipsAuth(ON, { NODE_ENV: 'production' })).to.eq(false);
     });
 
     it('flag on, APP_ENV=development: skipped', () => {
-      testHost.config().set(FLAG, true);
-      expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(true);
+      expect(telemetrySkipsAuth(ON, { APP_ENV: 'development' })).to.eq(true);
+      expect(telemetrySkipsAuth({ ...ON, isProduction: undefined }, { APP_ENV: 'development' })).to.eq(true);
     });
 
     it('flag on, development env, configuration.isProduction true: checked', () => {
-      testHost.config().set(FLAG, true);
-      testHost.config().set(PRODUCTION, true);
-      expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
+      expect(telemetrySkipsAuth({ ...ON, isProduction: true }, { APP_ENV: 'development' })).to.eq(false);
     });
 
     it('is decided when the route registers: such a route skips the check, logs a warning, and named slots still run', async () => {

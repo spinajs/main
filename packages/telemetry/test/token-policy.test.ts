@@ -96,6 +96,18 @@ describe('TelemetryTokenPolicy (deprecated)', function () {
     expect(await refusal(tokenPolicy(TOKEN), {})).to.be.instanceOf(Forbidden);
   });
 
+  it('does not skip the check with the opt-in flag while the env the configuration loaded is production', async () => {
+    process.env.APP_ENV = 'development';
+    testHost.config().set(FLAG, true);
+    const cfg = testHost.config() as unknown as { Env?: string };
+    cfg.Env = 'prod';
+    try {
+      expect(await refusal(tokenPolicy(TOKEN), {})).to.be.instanceOf(Forbidden);
+    } finally {
+      delete cfg.Env;
+    }
+  });
+
   it('skips the check with the opt-in flag in an explicit development env', async () => {
     process.env.APP_ENV = 'development';
     testHost.config().set(FLAG, true);
