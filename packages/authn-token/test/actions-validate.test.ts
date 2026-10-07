@@ -4,10 +4,11 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, create } from '@spinajs/users';
+import { AuthProvider, BasicPasswordProvider, NO_PASSWORD, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 import { AccessTokenNotFound } from '../src/legacy/exceptions.js';
 import { FakeIdentityStore } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
+import { v4 as uuidv4 } from 'uuid';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
@@ -43,12 +44,13 @@ describe('access token actions - validate & cleanup', function () {
   });
 
   /**
-   * `create` leaves the account inactive - validation refuses inactive owners,
-   * so every fixture user here has to be activated first.
+   * A bare active `users` row rather than users' `create()`, which needs an authz host, a session issuer and a mailer
+   * this suite does not boot. The roles go on the instance, where the 2.x token role policy reads them (`User.Role`).
    */
   async function activeUser(mail: string, login: string, roles: string[]) {
-    const { User: u } = await create(mail, login, roles, { password: 'password123' });
-    await activate(u.Id);
+    const u = new User({ Email: mail, Login: login, Password: NO_PASSWORD, Uuid: uuidv4(), IsActive: true, CreatedAt: DateTime.now() });
+    await u.insert();
+    u.Role = roles;
     return u;
   }
 

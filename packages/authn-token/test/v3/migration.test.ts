@@ -132,7 +132,7 @@ describe('AuthnTokenScope migration', function () {
   it('the test users table refuses a duplicate Uuid or Login, as RBACInitial does', async () => {
     const uuid = uuidv4();
     await insertUserRow(uuid);
-    const values = (over: Record<string, unknown>) => ({ Uuid: uuidv4(), Email: `${uuidv4()}@spinajs.test`, Password: 'x', Login: uuidv4(), Role: 'user', IsActive: 1, ...over });
+    const values = (over: Record<string, unknown>) => ({ Uuid: uuidv4(), Email: `${uuidv4()}@spinajs.test`, Password: 'x', Login: uuidv4(), IsActive: 1, ...over });
 
     const sameUuid = await connection
       .insert()

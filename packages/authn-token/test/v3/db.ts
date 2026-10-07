@@ -1,7 +1,9 @@
 import { DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { IdentityStore, RoleSource } from '@spinajs/authn/contracts';
 
 import { dir, dropOwnCompiledDirs, registerAuthnSchema } from '../db-common.js';
 
@@ -10,7 +12,8 @@ const CONNECTION = 'sqlite';
 /**
  * In-memory sqlite with this package's migrations, for the 3.0 suites. Never
  * imports `@spinajs/users`: its migrations only run when a legacy suite in
- * the same mocha process has imported it.
+ * the same mocha process has imported it (`.mocharc.json` loads every spec,
+ * so in `npm test` they always do).
  */
 export class V3DbConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -56,6 +59,32 @@ function uncacheOwn(): void {
   DI.uncache(SqliteOrmDriver);
 }
 
+// `@spinajs/users`, imported by the legacy suites, registers its RoleSource and IdentityStore at import; the 3.0
+// suites register their own or assert there is none. Unregistering alone leaves an empty entry, which DI resolves
+// differently from an unregistered port, so the port is registered as itself: what DI records when it resolves one.
+const FOREIGN_PORTS = [RoleSource, IdentityStore] as Class<unknown>[];
+let restoreForeign: (() => void) | undefined;
+
+function hideForeignRegistrations(): void {
+  if (restoreForeign) {
+    return;
+  }
+  const hidden = FOREIGN_PORTS.map((port) => ({ port, types: (DI.getRegisteredTypes(port) ?? []).filter((type) => type !== port) })).filter((h) => h.types.length > 0);
+  for (const { port, types } of hidden) {
+    types.forEach((type) => DI.unregister(type));
+    DI.register(port).as(port);
+    DI.uncache(port);
+  }
+  restoreForeign = () => {
+    for (const { port, types } of hidden) {
+      DI.unregister(port);
+      types.forEach((type) => DI.register(type).as(port));
+      DI.uncache(port);
+    }
+    restoreForeign = undefined;
+  };
+}
+
 /**
  * Boots a fresh database; anything a previous suite left cached under these
  * types is dropped first.
@@ -63,6 +92,7 @@ function uncacheOwn(): void {
 export async function bootV3Db(): Promise<OrmDriver> {
   DI.setESMModuleSupport();
   uncacheOwn();
+  hideForeignRegistrations();
 
   DI.register(V3DbConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -78,6 +108,7 @@ export async function shutdownV3Db(): Promise<void> {
   await DI.get(Orm)?.dispose();
   uncacheOwn();
   DI.unregister(V3DbConfiguration);
+  restoreForeign?.();
 }
 
 export function v3Connection(): OrmDriver {
@@ -91,8 +122,9 @@ export function v3Connection(): OrmDriver {
 
 /**
  * Inserts a `users` row and returns its `Id`. Creates the table when missing,
- * with the columns of `@spinajs/users`' `RBACInitial_2022_06_28_01_13_00`,
- * because that migration only runs when some suite imported the package.
+ * with the columns `@spinajs/users`' `RBACInitial_2022_06_28_01_13_00` leaves
+ * after authz-rbac's `AuthzRbacDropUserRole` (no `Role`), because those
+ * migrations only run when some suite imported the package.
  */
 export async function insertUserRow(uuid: string): Promise<number> {
   const connection = v3Connection();
@@ -104,7 +136,6 @@ export async function insertUserRow(uuid: string): Promise<number> {
       table.string('Email', 64).unique().notNull();
       table.string('Password', 128).notNull();
       table.string('Login', 64).notNull();
-      table.string('Role', 256).notNull();
       table.boolean('IsActive').notNull().default().value(0);
       table.dateTime('CreatedAt').notNull().default().dateTime();
       table.dateTime('DeletedAt');
@@ -117,7 +148,7 @@ export async function insertUserRow(uuid: string): Promise<number> {
   const result = await connection
     .insert()
     .into('users')
-    .values({ Uuid: uuid, Email: `${uuid}@spinajs.test`, Password: 'not-a-hash', Login: uuid, Role: 'user', IsActive: 1 });
+    .values({ Uuid: uuid, Email: `${uuid}@spinajs.test`, Password: 'not-a-hash', Login: uuid, IsActive: 1 });
 
   return result.LastInsertId;
 }
