@@ -17,7 +17,7 @@ export interface Argon2Cost {
 
 /** `authn.local.pepper`. */
 export interface PepperConfig {
-  /** Null or empty: no pepper. */
+  /** Null: no pepper. The schema refuses an empty one; only the Options seam can pass '', which also means none. */
   readonly secret: string | null;
   readonly version: number;
   /** Older peppers that stored hashes may still carry; such hashes verify and need a rehash. */

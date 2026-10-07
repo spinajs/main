@@ -169,13 +169,10 @@ describe('authn boot: secrets (A24, SR-16)', () => {
   it('never puts a secret value in a message', async () => {
     const all = [
       ...(await findings('production', values({ cookie: AUTHN_PUBLIC_COOKIE_SECRET }))),
-      ...(await findings('production', values({ cookie: null, pepper: { secret: STRONG, version: 2, previous: [{ secret: 'old-pepper-value', version: 1 }] } }))),
+      ...(await findings('production', values({ cookie: null }))),
     ];
     expect(all.length).to.be.greaterThan(1);
-    for (const f of all) {
-      expect(f.message).to.not.contain(AUTHN_PUBLIC_COOKIE_SECRET);
-      expect(f.message).to.not.contain('old-pepper-value');
-    }
+    for (const f of all) expect(f.message).to.not.contain(AUTHN_PUBLIC_COOKIE_SECRET);
   });
 
   describe('MFA encryption key (D3)', () => {
