@@ -1,6 +1,6 @@
 import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
-import { Config } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
@@ -21,7 +21,7 @@ export interface AdminGuardConfig {
 }
 
 // The schema is the gate; this floor holds for values that never went through it (runtime Configuration.set, unvalidated configs).
-export function guardSwitches(section: unknown, where: string): AdminGuardConfig {
+export function guardSwitches(section: unknown, reader: string): AdminGuardConfig {
   const raw: Record<string, unknown> = isPlainObject(section) ? section : {};
   const cfg = {
     protectSystemRole: raw.protectSystemRole !== false,
@@ -31,7 +31,7 @@ export function guardSwitches(section: unknown, where: string): AdminGuardConfig
   };
   const needsPermission = cfg.preventSelfLockout || cfg.preventLastPrivilegedRemoval;
   if (needsPermission && !isPermission(raw.privilegedPermission)) {
-    throw new AuthzConfigError(`Authz domain ${quote(where)}: authz.admin.guard.privilegedPermission must name a permission while preventSelfLockout or preventLastPrivilegedRemoval is on`);
+    throw new AuthzConfigError(`${reader}: authz.admin.guard.privilegedPermission must name a permission while preventSelfLockout or preventLastPrivilegedRemoval is on`);
   }
   return { ...cfg, privilegedPermission: isPermission(raw.privilegedPermission) ? raw.privilegedPermission : undefined };
 }
@@ -100,7 +100,8 @@ const sameSubject = (s: AssignmentSubject, p: PrincipalRef): boolean => !isSetSu
  * The AdminGuard of authz.admin.guard.service (design §6.6.2, lane design §4.3). Runs inside the batch
  * transaction, so it reads the batch's own earlier writes. Never injects AuthzService: it checks through
  * ctx.authz and RbacAdminFacts, reads the permission registry through ctx.authz's models or the container
- * (grantingPermissions), and reads authz.admin.guard on every call.
+ * (grantingPermissions), and reads authz.admin.guard on every call from the Configuration of the admin call's
+ * container (adminContainer), as the rest of the call does.
  */
 @Singleton()
 @Injectable(AdminGuard)
@@ -108,14 +109,12 @@ export class DefaultAdminGuard extends AdminGuard {
   protected log: HostLog = engineLog('authz-rbac');
   private warnedNoAccountStatus = false;
 
-  @Config('authz.admin.guard')
-  protected Guard: unknown;
-
   async check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
     const kind: unknown = isPlainObject(c) ? c.kind : undefined;
     // Unknown kinds reach no handler (not_found); the handler owns validation.
     if (typeof kind !== 'string' || !Object.hasOwn(GUARDED, kind) || !GUARDED[kind as Kind]) return;
-    const cfg = guardSwitches(this.Guard, ctx.domain);
+    const configuration = (await adminContainer(ctx).resolve(Configuration)) as Configuration;
+    const cfg = guardSwitches(configuration.get(['authz', 'admin', 'guard']), `Authz domain ${quote(ctx.domain)}`);
     const roles = await roleIndex(ctx);
     const setMemo = new Map<string, readonly string[]>();
     const sets = (role: string): readonly string[] => {
