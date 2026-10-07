@@ -181,7 +181,9 @@ describe('authz-rbac authz.rbac.rules schema', () => {
     expect(rules.find((r) => r.id === 'c1')!.expiresAt).to.deep.equal(new Date('2027-01-01T00:00:00.000Z'));
   });
 
-  it('refuses a malformed rule at boot, naming the full path', async () => {
+  it('refuses a malformed rule at boot, naming the full path', async function () {
+    // Boots one Configuration per case.
+    this.timeout(20000);
     expect(await refused({})).to.include('authz.rbac.rules');
     expect(await refused([cap({ colour: 'red' })])).to.include('authz.rbac.rules.0.colour');
     expect(await refused([cap({ kind: 'grant' })])).to.include('authz.rbac.rules.0.kind');

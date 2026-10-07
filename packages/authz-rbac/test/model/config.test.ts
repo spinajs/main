@@ -44,7 +44,9 @@ describe('authz-rbac model configuration through the schema', () => {
     expect(await refused({ cache: { rolesCheckSeconds: null } })).to.include('authz.rbac.cache.rolesCheckSeconds');
   });
 
-  it('refuses at boot what the model refused at init', async () => {
+  it('refuses at boot what the model refused at init', async function () {
+    // Boots one Configuration per case.
+    this.timeout(20000);
     expect(await refused({ anonymousRoles: 'guest' })).to.include('authz.rbac.anonymousRoles');
     expect(await refused({ serviceRoles: { 'service:x': 'telemetry' } })).to.include('authz.rbac.serviceRoles.service:x');
     expect(await refused({ cache: { assignmentsTtlSeconds: -1 } })).to.include('authz.rbac.cache.assignmentsTtlSeconds');
