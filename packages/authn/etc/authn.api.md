@@ -166,6 +166,17 @@ export declare abstract class CredentialExtractor {
 }
 ```
 
+## src/contracts/fresh.ts
+
+```ts
+import type { AuthnFacts } from "./principal.js";
+/**
+ * True when `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary included. A time after `now` or
+ * an invalid one is not fresh, nor is an impersonation: the impersonator must not act on the target's credentials (M6).
+ */
+export declare function isFresh(facts: Pick<AuthnFacts, "authenticatedAt" | "impersonator">, now: Date, maxAgeSeconds: number): boolean;
+```
+
 ## src/contracts/hooks.ts
 
 ```ts
@@ -277,6 +288,7 @@ export * from "./keys.js";
 export * from "./jws.js";
 export * from "./extractor.js";
 export * from "./hooks.js";
+export * from "./fresh.js";
 ```
 
 ## src/contracts/jws.ts
@@ -514,6 +526,7 @@ export declare abstract class IdentityLinkStore {
 ## src/contracts/mfa.ts
 
 ```ts
+import { SyncService } from "@spinajs/di";
 import type { IdentityRef } from "./credentials.js";
 import type { AuthnFacts } from "./principal.js";
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
@@ -541,8 +554,8 @@ export declare abstract class MfaStep {
      */
     abstract disable(id: IdentityRef): Promise<void>;
 }
-/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. */
-export declare abstract class MfaPolicy {
+/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. A SyncService so an implementation can check its setup in `resolve()`. */
+export declare abstract class MfaPolicy extends SyncService {
     /** Names of the steps still to pass; empty: no MFA for this login. */
     abstract required(id: IdentityRef, facts: Pick<AuthnFacts, "method" | "strategy">): Promise<readonly string[]>;
 }
@@ -911,7 +924,62 @@ export declare abstract class AuthnThrottle {
     }>;
     /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). */
     abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
+    /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
+    checkConfiguration?(configuration: {
+        get<T>(path: string | string[]): T;
+    }): void | Promise<void>;
 }
+export interface BackoffParams {
+    readonly free: number;
+    readonly baseDelayMs: number;
+    readonly maxDelayMs: number;
+}
+/** A key kind without params does not gate in that flow. */
+export interface ThrottleFlowParams {
+    readonly account?: BackoffParams;
+    readonly ip?: BackoffParams;
+}
+export interface ThrottleParams {
+    readonly login: ThrottleFlowParams;
+    readonly mfa: ThrottleFlowParams;
+    readonly reset: ThrottleFlowParams;
+    readonly reauth: ThrottleFlowParams;
+    readonly resetAfterSeconds: number;
+    /** Off (null) unless configured: one attacker could slow every login. */
+    readonly global?: BackoffParams | null;
+}
+export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
+/** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
+export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
+/** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
+export declare function backoffDelayMs(p: BackoffParams, n: number): number;
+
+// values
+const THROTTLE_FLOWS = Object.freeze([
+    "login",
+    "mfa",
+    "reset",
+    "reauth"
+]);
+const DEFAULT_THROTTLE_PARAMS = Object.freeze({
+    login: Object.freeze({
+        account: backoff(5, 1000, 60000),
+        ip: backoff(20, 1000, 300000)
+    }),
+    mfa: Object.freeze({
+        account: backoff(3, 1000, 300000),
+        ip: backoff(20, 1000, 300000)
+    }),
+    reset: Object.freeze({
+        account: backoff(1, 60000, 3600000),
+        ip: backoff(5, 10000, 900000)
+    }),
+    reauth: Object.freeze({
+        account: backoff(3, 1000, 300000)
+    }),
+    resetAfterSeconds: 86400,
+    global: null
+});
 ```
 
 ## src/contracts/token.ts
