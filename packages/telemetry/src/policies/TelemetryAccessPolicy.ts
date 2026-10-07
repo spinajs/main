@@ -1,4 +1,4 @@
-import { DI, Injectable, NewInstance, PerChildInstance, isFactory } from '@spinajs/di';
+import { DI, Injectable, NewInstance, Singleton, isFactory } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz';
@@ -117,9 +117,10 @@ export function TelemetryAccess(endpoint: string) {
 /**
  * Feeds the permissions of every `'AccessPolicy'` slot to boot rule 7 of `telemetry.auth.domain`
  * (default root), so an unregistered one fails that domain's boot (B02) instead of the first request.
+ * A root singleton, so a domain container that resolves it still reads the slots TelemetryAccessPolicy enforces.
  */
 @Injectable(AuthzContributor)
-@PerChildInstance()
+@Singleton()
 export class TelemetryAccessContributor extends AuthzContributor {
   @Config('telemetry.auth.domain', { defaultValue: 'root' })
   protected Domain: string;

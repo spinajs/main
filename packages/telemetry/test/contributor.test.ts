@@ -4,7 +4,8 @@ import { DI } from '@spinajs/di';
 import { AuthzConfigError, AuthzContributor, AuthzService } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 
-import { TelemetryAccessContributor } from '../src/index.js';
+import { TELEMETRY_CONFIGURATION_SCHEMA, TelemetryAccessContributor } from '../src/index.js';
+import { bootChild, disposeChildren } from './support/child-config.js';
 
 const SLOTS = { a: 'AccessPolicy', b: 'PublicPolicy', c: 'AccessPolicy' };
 
@@ -28,6 +29,7 @@ describe('TelemetryAccessContributor', function () {
   });
 
   afterEach(async () => {
+    await disposeChildren();
     await testHost.resetRoot();
     for (const path of touched.splice(0)) testHost.config().unset(path);
   });
@@ -56,6 +58,17 @@ describe('TelemetryAccessContributor', function () {
     set('telemetry.auth.permissions', { a: 'telemetry:read' });
 
     expect(contribute('root')).to.deep.eq([{ permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.a' }]);
+  });
+
+  it('reads the root configuration when a domain container resolves it, as TelemetryAccessPolicy does', async () => {
+    set('telemetry.auth.policies', { a: 'AccessPolicy' });
+    set('telemetry.auth.permissions', { a: 'telemetry:read' });
+    const { child } = await bootChild({ telemetry: { auth: { domain: 'tel', policies: { b: 'AccessPolicy' }, permissions: { b: 'logs:read' } } } }, TELEMETRY_CONFIGURATION_SCHEMA);
+
+    const contributor = (await child.resolve(Array.chainOf(AuthzContributor))).find((c): c is TelemetryAccessContributor => c instanceof TelemetryAccessContributor)!;
+
+    expect(contributor.contribute('root').permissionRefs).to.deep.eq([{ permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.a' }]);
+    expect(contributor.contribute('tel').permissionRefs).to.deep.eq([]);
   });
 
   it('is registered as an AuthzContributor by loading the policy module', () => {

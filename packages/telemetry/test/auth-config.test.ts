@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import fragment from '../src/config/telemetry.js';
-import { TELEMETRY_CONFIGURATION_SCHEMA, TelemetryAccessContributor } from '../src/index.js';
+import { TELEMETRY_CONFIGURATION_SCHEMA } from '../src/index.js';
 import { bootChild, disposeChildren, violationPaths } from './support/child-config.js';
 
 const auth = (value: Record<string, unknown>) => ({ telemetry: { auth: value } });
@@ -45,28 +45,5 @@ describe('telemetry.auth configuration', () => {
         expect(await violationPaths(auth(value), TELEMETRY_CONFIGURATION_SCHEMA)).to.include(path);
       });
     }
-  });
-
-  describe('TelemetryAccessContributor reads the configuration of the container that builds it', () => {
-    const values = auth({ domain: 'tel', policies: { a: 'AccessPolicy', b: 'PublicPolicy', c: 'AccessPolicy' }, permissions: { a: 'telemetry:read', b: 'telemetry:read', c: ['telemetry:write', 'logs:read'] } });
-
-    it("emits the permissions of each 'AccessPolicy' slot for the domain the slots check in", async () => {
-      const { child } = await bootChild(values, TELEMETRY_CONFIGURATION_SCHEMA);
-      const contributor = await child.resolve(TelemetryAccessContributor);
-
-      expect(contributor.contribute('tel').permissionRefs).to.deep.eq([
-        { permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.a' },
-        { permission: 'telemetry:write', type: 'telemetry', source: 'telemetry.auth.permissions.c' },
-        { permission: 'logs:read', type: 'logs', source: 'telemetry.auth.permissions.c' },
-      ]);
-      expect(contributor.contribute('root').permissionRefs).to.deep.eq([]);
-    });
-
-    it('checks in root when telemetry.auth.domain is not configured', async () => {
-      const { child } = await bootChild(auth({ policies: { a: 'AccessPolicy' }, permissions: { a: 'telemetry:read' } }), TELEMETRY_CONFIGURATION_SCHEMA);
-      const contributor = await child.resolve(TelemetryAccessContributor);
-
-      expect(contributor.contribute('root').permissionRefs).to.deep.eq([{ permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.a' }]);
-    });
   });
 });
