@@ -46,7 +46,7 @@ export class DefaultAccountGuard extends AccountGuard {
   protected Guard: unknown;
 
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
-    const cfg = guardSwitches(this.Guard, 'users');
+    const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
     const verb = VERB[action];
 
     if (cfg.preventSelfLockout && isSelf(actor, target)) {
@@ -64,7 +64,7 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 
   public async assertCanDemote(actor: Principal, target: User, kept: readonly string[]): Promise<void> {
-    const cfg = guardSwitches(this.Guard, 'users');
+    const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
     const permission = cfg.privilegedPermission;
 
     if (permission === undefined || (!cfg.preventSelfLockout && !cfg.preventLastPrivilegedRemoval)) {
