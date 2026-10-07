@@ -20,8 +20,9 @@ function registerOnce(schema: IConfigurationSchema, container: IContainer): ICon
 function resolvedConfigurationOf(container: IContainer): FrameworkConfiguration | undefined {
   let owner: IContainer | undefined = container;
   while (owner && !owner.Registry.ownsRegistration(Configuration)) owner = owner.Parent;
-  const resolved = owner?.get(Configuration, false);
-  return resolved instanceof FrameworkConfiguration ? resolved : undefined;
+  if (!owner) return undefined;
+  const resolved = owner.get(Configuration, false);
+  return resolved instanceof FrameworkConfiguration ? resolved : FrameworkConfiguration.checkedIn(owner);
 }
 
 /**
@@ -40,7 +41,9 @@ export function registerConfigurationSchema(schema: IConfigurationSchema, contai
  * resolved (a directory scan, a CLI command) still gets its values checked and defaulted. A refused value does not
  * fail the import, which would take down every module loaded with it: the violations are logged, and each read of
  * the module throws InvalidConfiguration until it validates. A Bootstrapper that registers the same schema keeps doing
- * so: DI.clearCache() drops this registration, and a module's top level runs once per process.
+ * so: DI.clearCache() drops this registration, and a module's top level runs once per process. Registered in the root
+ * container, the schema applies to the root Configuration and to a child one resolved later; a child Configuration
+ * resolved before the registration does not see it.
  */
 export function registerConfigurationSchemaAtImport(schema: IConfigurationSchema, container: IContainer = DI.RootContainer): void {
   try {

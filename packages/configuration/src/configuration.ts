@@ -34,6 +34,9 @@ import { default as ajvKeywords } from 'ajv-keywords';
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
 
+// A Configuration whose check ran but which DI has not cached yet (the microtasks after resolve() returns), by container.
+const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
+
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
 // Ajv tags the sub-errors of a propertyNames check with `propertyName`; the check itself reports the key in `params`.
@@ -417,6 +420,17 @@ export class FrameworkConfiguration extends Configuration {
       violations.push(...r.violations);
     }
     this.throwIfInvalid(errors, violations);
+
+    const container = this.Container;
+    CHECKED.set(container, this);
+    container.once('di.resolved.Configuration', () => {
+      if (CHECKED.get(container) === this) CHECKED.delete(container);
+    });
+  }
+
+  /** The Configuration of `container` that has run its check but is not resolved (cached) yet. */
+  public static checkedIn(container: IContainer): FrameworkConfiguration | undefined {
+    return CHECKED.get(container);
   }
 
   /** Validates one module after boot; a refused module stays refused for reads until a later check passes. */
@@ -453,7 +467,10 @@ export class FrameworkConfiguration extends Configuration {
       return { errors: [], violations: [] };
     }
 
-    if (this.Validator.validate(s, config)) {
+    // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
+    // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
+    // value whose copy passes gets its defaults and coercion.
+    if (this.Validator.validate(s, _.cloneDeep(config)) && this.Validator.validate(s, config)) {
       return { errors: [], violations: [] };
     }
 

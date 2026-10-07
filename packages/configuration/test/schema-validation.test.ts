@@ -308,4 +308,75 @@ describe('configuration schema validation', () => {
       expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
     });
   });
+
+  describe('a failing check leaves the stored value as it was', () => {
+    // Ajv runs `if` before `properties` coerces: a refused null would otherwise be stored as 0, and pass the next check.
+    const NULL_GUARD = {
+      $id: 'test-null-guard',
+      $configurationModule: 'guard',
+      type: 'object',
+      properties: { seconds: { type: 'number', minimum: 0, default: 30 } },
+      if: { properties: { seconds: { const: null } }, required: ['seconds'] },
+      then: { properties: { seconds: false } },
+    };
+
+    const raw = (config: Configuration) => (config as FrameworkConfiguration).RootConfig.guard as Record<string, unknown>;
+
+    it('stays refused when the schema is registered again (a copy, a Bootstrapper, a re-check)', async () => {
+      const { child, config } = await boot({ guard: { seconds: null } });
+      registerConfigurationSchemaAtImport(NULL_GUARD, child);
+      expect(() => config.get('guard.seconds')).to.throw(InvalidConfiguration);
+
+      expect(() => registerConfigurationSchema({ ...NULL_GUARD }, child)).to.throw(InvalidConfiguration);
+      expect(() => registerConfigurationSchema(NULL_GUARD, child)).to.throw(InvalidConfiguration);
+      expect(() => (config as FrameworkConfiguration).validateModule(NULL_GUARD)).to.throw(InvalidConfiguration);
+      expect(() => config.get('guard.seconds')).to.throw(InvalidConfiguration);
+      expect(raw(config)).to.deep.equal({ seconds: null });
+    });
+
+    it('refuses the boot without changing the stored value', async () => {
+      let instance: FrameworkConfiguration | undefined;
+      const Base = configurationOf({ guard: { seconds: null } });
+      const child = DI.child();
+      booted.push(child);
+      child.register(NoSource).as(ConfigurationSource);
+      child.register(class extends Base {
+        constructor() {
+          super();
+          instance = this;
+        }
+      }).as(Configuration);
+      child.register(NULL_GUARD).asValue('__configurationSchema__');
+
+      await expect(child.resolve(Configuration)).to.be.rejectedWith(InvalidConfiguration);
+      expect(raw(instance!)).to.deep.equal({ seconds: null });
+    });
+
+    it('checking a valid section again changes nothing', async () => {
+      const { child, config } = await boot({ guard: { seconds: 5 }, withDefaults: { timeoutMs: '7' } }, NULL_GUARD, WITH_DEFAULTS);
+      const guard = config.get('guard');
+      const before = JSON.stringify((config as FrameworkConfiguration).RootConfig);
+      registerConfigurationSchema(NULL_GUARD, child);
+      registerConfigurationSchema(WITH_DEFAULTS, child);
+      expect(JSON.stringify((config as FrameworkConfiguration).RootConfig)).to.equal(before);
+      expect(config.get('guard')).to.equal(guard);
+      expect(config.get('withDefaults.timeoutMs')).to.equal(7);
+    });
+  });
+
+  it('applies a schema registered after the check ran but before the Configuration is cached', async () => {
+    const child = DI.child();
+    booted.push(child);
+    child.register(NoSource).as(ConfigurationSource);
+    const Base = configurationOf({});
+    child.register(class extends Base {
+      protected configure(): void {
+        super.configure();
+        registerConfigurationSchema(WITH_DEFAULTS, child);
+      }
+    }).as(Configuration);
+
+    const config = await child.resolve(Configuration);
+    expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
+  });
 });
