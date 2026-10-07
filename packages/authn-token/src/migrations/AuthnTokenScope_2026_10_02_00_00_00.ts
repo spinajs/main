@@ -17,6 +17,10 @@ export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
 
   public async up(connection: OrmDriver): Promise<void> {
     const maxTtlDays = this.MaxTtlDays;
+    // Before any ALTER: the schema is the gate; this floor holds for a value that never went through it.
+    if (!(Number.isFinite(maxTtlDays) && maxTtlDays > 0)) {
+      throw new Error(`authn.token.maxTtlDays must be a finite positive number to back-fill the expiry of 2.x tokens, got ${String(maxTtlDays)}`);
+    }
 
     // One ALTER per call: the builder runs the statements of a single call concurrently.
     // The builder rather than raw SQL, because DATETIME is not a postgres type.

@@ -201,6 +201,33 @@ describe('AuthnTokenScope migration', function () {
     const row = await AccessToken.where('Uuid', uuid).firstOrFail();
     expect(row.ExpiresAt!.toMillis()).to.equal(createdAt.plus({ days: 7 }).toMillis());
   });
+
+  it('refuses to run, changing nothing, when authn.token.maxTtlDays is not a finite positive number', async () => {
+    for (const bad of [Infinity, Number.NaN, 0, -1]) {
+      await migration.down(connection);
+      const uuid = await insert2xRow(DateTime.fromISO('2026-05-10T12:00:00.000'));
+
+      setMaxTtlDays(bad);
+      let err: unknown;
+      try {
+        err = await migration.up(connection).catch((e: unknown) => e);
+      } finally {
+        setMaxTtlDays(undefined);
+      }
+
+      try {
+        expect(err, String(bad)).to.be.instanceOf(Error);
+        expect((err as Error).message, String(bad)).to.match(/authn\.token\.maxTtlDays/);
+        expect(await columns(), String(bad)).to.not.include.any.members(NEW_COLUMNS);
+      } finally {
+        if (!(await columns()).includes('Scope')) {
+          await migration.up(connection);
+        }
+      }
+      const row = await AccessToken.where('Uuid', uuid).firstOrFail();
+      expect(row.ExpiresAt, String(bad)).to.not.equal(null);
+    }
+  });
 });
 
 describe('v3 test database', () => {
