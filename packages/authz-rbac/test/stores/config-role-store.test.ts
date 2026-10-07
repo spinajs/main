@@ -486,6 +486,41 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
     await fails({ connection: '' }, 'connection');
   });
+
+  describe('role names follow ROLE_NAME_PATTERN, the one authz and users read too', () => {
+    const paths = async (rbac: unknown) => violationPaths(bootRbac(rbac));
+
+    it('refuses a leading digit, true/false, edge whitespace and values coercion would turn into a name', async () => {
+      const cases: Array<[unknown, string]> = [
+        [{ roles: { '7up': {} } }, 'roles.7up'],
+        [{ roles: { true: {} } }, 'roles.true'],
+        [{ roles: { ' admin': {} } }, 'roles. admin'],
+        [{ roles: { a: { extends: [5] } } }, 'roles.a.extends.0'],
+        [{ roles: { a: { implies: [{ role: 'false', at: 'descendants' }] } } }, 'roles.a.implies.0.role'],
+        [{ ladders: { project: { roles: ['viewer', 'admin '] } } }, 'ladders.project.roles.1'],
+        [{ groupPrincipal: { role: '1group' } }, 'groupPrincipal.role'],
+        [{ defaultRoles: [7] }, 'defaultRoles.0'],
+        [{ anonymousRoles: [false] }, 'anonymousRoles.0'],
+        [{ serviceRoles: { 'service:x': [' x'] } }, 'serviceRoles.service:x.0'],
+      ];
+      for (const [rbac, path] of cases) expect(await paths(rbac), JSON.stringify(rbac)).to.include(`authz.rbac.${path}`);
+
+      const rule = (extra: Record<string, unknown>) => ({ rules: [{ id: 'r1', scope: { type: 'org', id: 'o1' }, ...extra }] });
+      for (const rbac of [
+        rule({ kind: 'cap', ladder: 'org', maxRole: 'true' }),
+        rule({ kind: 'threshold', permissions: ['x:y'], minRole: '2nd' }),
+        rule({ kind: 'restrict', allow: [{ set: { role: ' member', scope: { type: 'org', id: 'o1' } } }] }),
+        rule({ kind: 'cap', ladder: 'org', maxRole: 'org.viewer', subjects: { rank: { ladder: 'org', at: 'org', lt: '0' } } }),
+      ]) {
+        expect((await paths(rbac)).some((p) => p.startsWith('authz.rbac.rules.0.')), JSON.stringify(rbac)).to.equal(true);
+      }
+    });
+
+    it('accepts a 2.x role name with an inner space, as the converter writes it', async () => {
+      const rbac = { roles: { 'Stock editor': {}, 'acme.salesman': { extends: ['Stock editor'] } }, ladders: { desk: { roles: ['Stock editor'] } }, defaultRoles: ['Stock editor'], anonymousRoles: ['acme.salesman'] };
+      expect(await configured(rbac)).to.deep.include(rbac);
+    });
+  });
 });
 
 describe('authz-rbac stores: config fragment', function () {

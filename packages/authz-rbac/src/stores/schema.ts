@@ -1,8 +1,12 @@
+import { ROLE_NAME_PATTERN } from '@spinajs/authz';
+
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
 
 const name = { type: 'string', minLength: 1 };
 const stringList = { type: 'array', items: name };
+const roleName = { type: 'string', pattern: ROLE_NAME_PATTERN };
+const roleList = { type: 'array', items: roleName };
 
 // propertyNames rejects an unknown key; additionalProperties: false would let the configuration's removeAdditional drop a typo silently.
 const closed = (properties: Record<string, unknown>, required?: string[]) => ({
@@ -31,14 +35,14 @@ const grant = {
 
 const role = closed({
   ladder: name,
-  extends: stringList,
+  extends: roleList,
   grants: { type: 'array', items: grant },
   revoke: stringList,
   implies: {
     type: 'array',
     items: closed(
       {
-        role: name,
+        role: roleName,
         at: { type: 'string', enum: ['self-and-descendants', 'descendants'] },
         tags: stringList,
         bypass: { type: 'array', items: { type: 'string', enum: ['restrict', 'cap'] } },
@@ -68,7 +72,7 @@ const ruleSubjects = closed({
   principalTypes: ruleNames,
   actorTypes: ruleNames,
   refs: { type: 'array', items: principalRef, minItems: 1 },
-  rank: { ...closed({ ladder: name, at: name, lt: name, eq: name, gte: name }, ['ladder', 'at']), oneOf: [{ required: ['lt'] }, { required: ['eq'] }, { required: ['gte'] }] },
+  rank: { ...closed({ ladder: name, at: name, lt: roleName, eq: roleName, gte: roleName }, ['ladder', 'at']), oneOf: [{ required: ['lt'] }, { required: ['eq'] }, { required: ['gte'] }] },
   when: condition,
 });
 
@@ -96,12 +100,12 @@ const rule = {
   properties: { id: name, kind: { type: 'string', enum: RULE_KINDS }, scope: ruleScope },
   required: ['id', 'kind'],
   allOf: [
-    ruleOf('restrict', { allow: { type: 'array', items: { anyOf: [principalRef, closed({ set: closed({ role: name, scope: ref }, ['role', 'scope']) }, ['set'])] } } }, { required: ['allow'] }),
+    ruleOf('restrict', { allow: { type: 'array', items: { anyOf: [principalRef, closed({ set: closed({ role: roleName, scope: ref }, ['role', 'scope']) }, ['set'])] } } }, { required: ['allow'] }),
     ruleOf(
       'cap',
       {
         ladder: name,
-        maxRole: { anyOf: [{ type: ['string', 'null'], minLength: 1 }, valueRef] },
+        maxRole: { anyOf: [{ type: ['string', 'null'], pattern: ROLE_NAME_PATTERN }, valueRef] },
         stripTags: { type: 'boolean' },
         assignments: closed({ scopeTypes: ruleNames, subjectTypes: ruleNames }),
       },
@@ -112,7 +116,7 @@ const rule = {
       {
         permissions: ruleNames,
         resource: condition,
-        minRole: { anyOf: [name, valueRef] },
+        minRole: { anyOf: [roleName, valueRef] },
         ladder: name,
         at: name,
         reason: { type: 'object', properties: { code: name, priority: { type: 'number' }, sortKey: { type: 'string' }, model: false }, required: ['code'] },
@@ -131,20 +135,20 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
   description: 'RBAC configuration (authz.rbac.*)',
   type: 'object',
   properties: {
-    roles: { type: 'object', propertyNames: name, additionalProperties: role },
-    ladders: { type: 'object', propertyNames: name, additionalProperties: closed({ roles: stringList, resourceTypes: stringList }, ['roles']) },
+    roles: { type: 'object', propertyNames: roleName, additionalProperties: role },
+    ladders: { type: 'object', propertyNames: name, additionalProperties: closed({ roles: roleList, resourceTypes: stringList }, ['roles']) },
     rules: { type: 'array', items: rule, uniqueItemProperties: ['id'] },
     // null turns the group member set off; a key left out keeps its default.
     groupPrincipal: {
       type: ['object', 'null'],
       default: {},
-      properties: { role: { ...name, default: DEFAULT_GROUP_PRINCIPAL.role }, scopeType: { ...name, default: DEFAULT_GROUP_PRINCIPAL.scopeType } },
+      properties: { role: { ...roleName, default: DEFAULT_GROUP_PRINCIPAL.role }, scopeType: { ...name, default: DEFAULT_GROUP_PRINCIPAL.scopeType } },
       propertyNames: { enum: ['role', 'scopeType'] },
     },
-    // Non-blank, no edge whitespace: create() used to trim, a padded name now fails the boot instead.
-    defaultRoles: { type: 'array', items: { type: 'string', pattern: '^\\S(?:.*\\S)?$' } },
-    anonymousRoles: { ...stringList, default: [] },
-    serviceRoles: { type: 'object', additionalProperties: stringList, default: {} },
+    // create() used to trim; a padded name now fails the boot instead.
+    defaultRoles: roleList,
+    anonymousRoles: { ...roleList, default: [] },
+    serviceRoles: { type: 'object', additionalProperties: roleList, default: {} },
     stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList } },
     cache: {
       type: 'object',

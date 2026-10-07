@@ -93,6 +93,14 @@ describe('create(user, roles?)', function () {
       expect(await globalRolesOf(u.Uuid)).to.deep.eq([]);
     });
 
+    it('grants no roles for a defaultRoles string set at runtime past the schema, never one-letter roles', async () => {
+      DI.get(Configuration)!.set('authz.rbac.defaultRoles', 'user');
+
+      const { User: u } = await create({ Email: 'string@spinajs.pl', Login: 'string', Password: 'passw0rd123' });
+
+      expect(await globalRolesOf(u.Uuid)).to.deep.eq([]);
+    });
+
     it('refuses a role AuthzAdmin would refuse before anything is written', async () => {
       const err = await rejection(create({ Email: 'refused@spinajs.pl', Login: 'refused' }, ['admin.users']));
 

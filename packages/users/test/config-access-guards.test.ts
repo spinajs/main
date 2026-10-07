@@ -26,6 +26,12 @@ describe('users access domain and impersonation configuration', () => {
 
       expect(config.get('authz.impersonation.protectedRoles')).to.deep.equal([]);
     });
+
+    it('protects a 2.x role name that holds an inner space, as authz.rbac.roles accepts it', async () => {
+      const { config } = await bootChild({ authz: { impersonation: { protectedRoles: ['Stock editor'] } } }, ...SCHEMAS);
+
+      expect(config.get('authz.impersonation.protectedRoles')).to.deep.equal(['Stock editor']);
+    });
   });
 
   describe('a bad value fails the boot with the full path of the bad key', () => {
@@ -37,6 +43,8 @@ describe('users access domain and impersonation configuration', () => {
       ['a role name that is not a string', { authz: { impersonation: { protectedRoles: [{}] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a number that coerces to a role name', { authz: { impersonation: { protectedRoles: [5] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a boolean that coerces to a role name', { authz: { impersonation: { protectedRoles: [true] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a role name with edge whitespace', { authz: { impersonation: { protectedRoles: ['admin '] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a role name of true', { authz: { impersonation: { protectedRoles: ['true'] } } }, 'authz.impersonation.protectedRoles.0'],
       ['protectedRoles set to null', { authz: { impersonation: { protectedRoles: null } } }, 'authz.impersonation.protectedRoles'],
       ['impersonation set to null', { authz: { impersonation: null } }, 'authz.impersonation'],
       ['an empty access domain', { authz: { http: { access: { domain: '' } } } }, 'authz.http.access.domain'],
