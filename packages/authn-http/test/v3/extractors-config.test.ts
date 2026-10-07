@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { TokenStrategy } from '@spinajs/authn-token';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../../src/extractors/bearer.js';
@@ -59,6 +60,14 @@ describe('credential extractors through @Config', () => {
       expect(e.extract(sreq({ authorization: 'Bearer spt_x' }))).to.eq(null);
       expect(e.extract(sreq({ authorization: `Bearer ${jwsOf('custom+jwt')}` }))?.kind).to.eq('jws-assertion');
       expect(e.extract(sreq({ authorization: `Bearer ${jwsOf('spinajs-client+jwt')}` }))?.kind).to.eq('bearer');
+    });
+
+    it('an empty prefix set at runtime reaches the strategy as a value it does not accept: no principal, nothing thrown', async () => {
+      const { child, configuration } = await boot(SCHEMAS, {});
+      configuration.set('authn.token.prefix', '');
+      const credentials = readingFrom(new AuthorizationBearerExtractor(), child).extract(sreq({ authorization: 'Bearer opaque' }));
+      expect(credentials).to.deep.eq({ kind: 'bearer', token: 'opaque' });
+      expect(readingFrom(new TokenStrategy({} as never), child).accepts(credentials!)).to.eq(false);
     });
 
     it('reads the prefix at call time', async () => {

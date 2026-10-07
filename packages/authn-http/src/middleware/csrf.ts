@@ -3,6 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '@spinajs/http';
 import type { ProxyTrust, Request } from '@spinajs/http';
+import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
@@ -113,11 +114,11 @@ export class CsrfOriginGuard extends ServerMiddleware {
     // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
     const allowed = normalisedOrigins(this.AllowedOrigins);
     const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    if (!this.Enabled) return null;
+    if (this.Enabled === false) return null;
 
     // Until AuthnMiddleware replaces the 2.x session code, that code and authn-session can disagree on the
     // __Host- prefix, so both forms count as the session cookie.
-    const base = this.SessionCookie.name as string;
+    const base = this.SessionCookie?.name ?? SESSION_COOKIE_BASE_NAME;
     const sessionCookies = [base, `__Host-${base}`];
     const warnings = new RefusalWarnings(() => this.Log);
 

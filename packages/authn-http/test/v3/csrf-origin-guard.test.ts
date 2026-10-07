@@ -202,8 +202,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expectPass(await send('POST', { Origin: EVIL }));
     });
 
-    it('A22 the guard is on with the schema defaults', async () => {
-      await restartWith({ ...DEFAULTS, 'authn.http.csrf.allowedOrigins': [] });
+    it('A22 an absent authn.http.csrf.enabled means on', async () => {
+      await restartWith({ ...DEFAULTS, 'authn.http.csrf.enabled': undefined, 'authn.http.csrf.allowedOrigins': [] });
       expectRefused(await send('POST', { Origin: EVIL }));
       expectRefused(await send('POST', { Origin: PARTNER }));
       expectPass(await send('POST', { Origin: OWN }));
@@ -298,7 +298,14 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     it('is off only for enabled: false', () => {
       expect(unitGuard({ 'authn.http.csrf.enabled': false }).before()).to.eq(null);
       expect(unitGuard({ 'authn.http.csrf.enabled': true }).before()).to.be.a('function');
+      expect(unitGuard({ 'authn.http.csrf.enabled': null }).before(), 'null').to.be.a('function');
+      expect(unitGuard({ 'authn.http.csrf.enabled': undefined }).before(), 'undefined').to.be.a('function');
       expect(unitGuard({}).after()).to.eq(null);
+    });
+
+    it('a cookie block without a name still watches ssid', () => {
+      const guard = unitGuard({ 'authn.session.cookie': {} });
+      expect(run(guard, 'POST', { origin: EVIL, cookie: 'ssid=x' }), 'ssid').to.deep.eq({ passed: false, status: 403 });
     });
 
     it('checks the configured cookie name, bare and with __Host-', () => {
