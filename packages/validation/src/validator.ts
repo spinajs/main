@@ -9,6 +9,8 @@ import { Logger, Log } from '@spinajs/log-common';
 
 // import default souces
 import './sources.js';
+// The package index loads no Bootstrapper: the schema module registers itself.
+import './schemas/validation.js';
 
 
 import { default as ajvMergePath } from 'ajv-merge-patch';

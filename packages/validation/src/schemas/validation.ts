@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+
 const CONFIGURATION_SCHEMA = {
   $id: 'spinajs/validation.configuration.schema.json',
   $configurationModule: 'validation',
@@ -11,5 +13,7 @@ const CONFIGURATION_SCHEMA = {
     messages: { type: 'boolean' },
   },
 };
+
+registerConfigurationSchemaAtImport(CONFIGURATION_SCHEMA);
 
 export default CONFIGURATION_SCHEMA;
