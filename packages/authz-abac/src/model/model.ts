@@ -498,6 +498,9 @@ async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
 export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
   const names = ctx.config<readonly string[]>('stores', ABAC_DEFAULT_STORES);
   const policies = ctx.config<readonly unknown[]>('policies', []);
+  // A runtime Configuration.set skips the schema: a string would be spread into one policy per character.
+  if (!Array.isArray(names)) throw new AuthzConfigError(`authz.${model}.stores must be a list of policy store names`);
+  if (!Array.isArray(policies)) throw new AuthzConfigError(`authz.${model}.policies must be a list of policies`);
   return names.map((name) => {
     if (name === 'ConfigPolicyStore') return new ConfigPolicyStore(policies);
     if (name === 'DbPolicyStore') {

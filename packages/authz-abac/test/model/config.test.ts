@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AuthzConfigError } from '@spinajs/authz';
 import { bootConfiguration, fakeModelInitContext, violationPaths } from '@spinajs/authz-testing';
 import type { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -39,6 +40,17 @@ describe('authz.abac configuration schema', () => {
     expect(await refused({ policies: {} })).to.include('authz.abac.policies');
     expect(await refused({ policies: ['x'] })).to.include('authz.abac.policies.0');
     expect(await refused({ connection: '' })).to.include('authz.abac.connection');
+  });
+
+  it('fails closed with a named error for stores or policies an unvalidated configuration holds as no list', () => {
+    for (const [config, path] of [
+      [{ stores: 'ConfigPolicyStore' }, 'authz.abac.stores'],
+      [{ stores: null }, 'authz.abac.stores'],
+      [{ policies: 'p' }, 'authz.abac.policies'],
+      [{ policies: {} }, 'authz.abac.policies'],
+    ] as const) {
+      expect(() => storesFromConfig('abac', fakeModelInitContext({ config })), JSON.stringify(config)).to.throw(AuthzConfigError, path);
+    }
   });
 
   it('the bootstrapper registers the schema', () => {
