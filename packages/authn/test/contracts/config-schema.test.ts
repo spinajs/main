@@ -82,7 +82,7 @@ const THROTTLE_DEFAULTS = {
   maxRows: 1_000_000,
 };
 
-// Design §22.5, with authn.oidc.providers holding one generic provider (discovery by issuer).
+// Design §22.5; authn.oidc has a schema of its own in @spinajs/authn-oidc.
 function example(): Json {
   return {
     strategies: [
@@ -128,12 +128,6 @@ function example(): Json {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
       routes: { prefix: 'auth' },
-    },
-    oidc: {
-      providers: {
-        corp: { issuer: 'https://id.example.com', clientId: 'spinajs-app', clientSecret: { secret: 'aws-parameters://authn/oidc/corp' } },
-      },
-      redirects: { success: '/', failure: '/login' },
     },
   };
 }
@@ -198,15 +192,13 @@ describe('authn.* configuration schema', () => {
     expect(warnings, JSON.stringify(warnings)).to.deep.eq([]);
   });
 
-  it('declares every key of the design §22.5 example and authn.oidc', () => {
+  it('declares every key of the design §22.5 example', () => {
     const missing = leaves(example())
       .map(([p]) => p)
-      .filter((p) => !p.startsWith('oidc.providers.'))
       .filter((p) => !declared(p));
     expect(missing).to.deep.eq([]);
-    expect(declared('oidc.providers')).to.eq(true);
-    expect(declared('oidc.redirects.success')).to.eq(true);
-    expect(declared('oidc.redirects.failure')).to.eq(true);
+    // Two schemas on authn.oidc would report every violation twice; @spinajs/authn-oidc owns it.
+    expect(declared('oidc')).to.eq(false);
     expect(declared('config.rejectLegacyKeys')).to.eq(true);
     expect(declared('token.generation.service')).to.eq(true);
   });
@@ -428,19 +420,6 @@ describe('authn.* configuration schema', () => {
       refused({ local: { policy: { maxLength: 7 } } }, '/local/policy/maxLength');
       refused({ local: { policy: { maxLength: 129 } } }, '/local/policy/maxLength');
       expect(check({ local: { policy: { minLength: 12, maxLength: 64 } } }).ok).to.eq(true);
-    });
-
-    it('keeps oidc providers open but limits their names, as task 10 does', () => {
-      expect(check({ oidc: { providers: { 'a_b-9': { preset: 'google', anything: { nested: true } } } } }).ok).to.eq(true);
-      refused({ oidc: { providers: { 'Corp IdP': { issuer: 'https://id.example.com' } } } }, '/oidc/providers');
-      refused({ oidc: { providers: { ['a'.repeat(60)]: { issuer: 'https://id.example.com' } } } }, '/oidc/providers');
-      refused({ oidc: { providers: { corp: 'https://id.example.com' } } }, '/oidc/providers/corp');
-    });
-
-    it('refuses an oidc redirect that is not an app-relative path', () => {
-      refused({ oidc: { redirects: { success: '//evil.example.com' } } }, '/oidc/redirects/success');
-      refused({ oidc: { redirects: { failure: '/\\evil.example.com' } } }, '/oidc/redirects/failure');
-      refused({ oidc: { redirects: { failure: 'https://evil.example.com' } } }, '/oidc/redirects/failure');
     });
   });
 });

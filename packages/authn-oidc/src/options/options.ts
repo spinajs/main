@@ -1,14 +1,9 @@
-import AjvModule from 'ajv';
-import type { ErrorObject, ValidateFunction } from 'ajv';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { OIDC_SIGNING_ALGORITHMS } from '../contracts.js';
-import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcEndpoints, OidcPresetId, OidcProviderSource, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../contracts.js';
+import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcEndpoints, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../contracts.js';
 import { DEFAULT_CLAIMS, OIDC_PRESETS, resolveEndpoints, resolveIssuer } from '../presets.js';
-import { checkedUrl, deepFreeze, isPlainObject, isRelaxedEnv } from '../support.js';
-import { AUTHN_OIDC_PROVIDER_SCHEMA, OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from './schema.js';
-
-const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ValidateFunction };
+import { checkedUrl, deepFreeze, isRelaxedEnv } from '../support.js';
+import { OIDC_APP_PATH_PATTERN } from './schema.js';
 
 /** One configured provider after defaults and presets; deep frozen. */
 export interface OidcProviderOptions {
@@ -44,7 +39,22 @@ export interface OidcOptions {
   readonly redirects: { readonly success: OidcAppPath; readonly failure: OidcAppPath };
 }
 
-export interface ReadOidcOptionsExtra {
+/** A provider as the schema leaves it: the defaults are filled in. */
+export type ConfiguredProvider = OidcProviderConfig & {
+  readonly clockSkewSeconds: number;
+  readonly algorithms: readonly OidcSigningAlgorithm[];
+  readonly requiredClaims: Readonly<Record<string, string | number | boolean>>;
+  readonly authorizationParams: Readonly<Record<string, string>>;
+  readonly linking: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
+};
+
+/** `authn.oidc` as the schema validates and defaults it. */
+export interface ConfiguredOidc {
+  readonly providers: Readonly<Record<string, ConfiguredProvider>>;
+  readonly redirects: { readonly success: OidcAppPath; readonly failure: OidcAppPath };
+}
+
+export interface BuildOidcOptionsExtra {
   /** The global authn.linking switches (default off); a provider switch without its global one only earns a warning. */
   readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
   readonly log?: { warn(message: string): void };
@@ -54,8 +64,7 @@ const ROOT = 'authn.oidc';
 const SOURCE_KEYS = ['preset', 'issuer', 'tenant', 'baseUrl', 'realm', 'domain', 'authorizationServer', 'host'] as const;
 /** nOAuth: claims a user or a tenant admin can change, so they never identify an account. */
 const MUTABLE_SUBJECT_CLAIMS = new Set(['email', 'upn', 'preferred_username', 'login', 'name']);
-
-let validateProvider: ValidateFunction | undefined;
+const APP_PATH = new RegExp(OIDC_APP_PATH_PATTERN);
 
 /** The secret stays readable, but JSON and util.inspect show it redacted, so a dump of the options never leaks it. */
 function redacted(secret: string): OidcSecretRef {
@@ -70,35 +79,12 @@ const fail = (message: string): never => {
   throw new InvalidOption(message);
 };
 
-/** Members set to undefined count as absent (config files and spreads leave them behind). */
-function withoutUndefined(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(withoutUndefined);
-  if (!isPlainObject(v)) return v;
-  return Object.fromEntries(
-    Object.entries(v)
-      .filter(([, x]) => x !== undefined)
-      .map(([k, x]) => [k, withoutUndefined(x)]),
-  );
-}
-
-/** Paths and keywords only: AJV is not in verbose mode, so no value (and no secret) reaches the message. */
-function describe(e: ErrorObject): string {
-  const path = e.instancePath.split('/').filter(Boolean).join('.');
-  const params = e.params as Record<string, unknown>;
-  const extra = (params.additionalProperty ?? params.missingProperty ?? params.propertyName) as string | undefined;
-  const at = [path, extra].filter(Boolean).join('.');
-  return `${at || '(provider)'} ${e.message ?? e.keyword}`;
-}
-
-function checkProviderShape(at: string, raw: Record<string, unknown>): void {
-  validateProvider ??= new Ajv({ strict: true, strictRequired: false, allowUnionTypes: true, allErrors: true }).compile(AUTHN_OIDC_PROVIDER_SCHEMA);
-  if (validateProvider(raw)) return;
-  const errors = (validateProvider.errors ?? []).filter((e) => e.keyword !== 'if');
-  fail(`${at}: ${[...new Set(errors.map(describe))].join('; ')}`);
-}
-
 const lastSegment = (p: OidcClaimPath): string => (typeof p === 'string' ? p : p[p.length - 1]);
 
+/** Members a JS config file set to undefined count as absent, so they never override a preset or default. */
+const defined = <T extends object>(o: T | undefined): Partial<T> => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined)) as Partial<T>;
+
+// What the schema cannot judge: the scheme rule depends on the app env, which it cannot read.
 function checkUrls(at: string, raw: Record<string, unknown>, relaxed: boolean): void {
   const scheme = relaxed ? 'an http or https URL' : 'an https URL';
   if (raw.issuer !== undefined && !checkedUrl(raw.issuer, { relaxed })) {
@@ -112,43 +98,34 @@ function checkUrls(at: string, raw: Record<string, unknown>, relaxed: boolean): 
   }
 }
 
-function checkFinite(at: string, required: Record<string, unknown>): void {
-  for (const [k, v] of Object.entries(required)) {
-    if (typeof v === 'number' && !Number.isFinite(v)) {
-      fail(`${at}.requiredClaims.${k} must be a finite number`);
-    }
-  }
-}
-
 function sourceOf(raw: Record<string, unknown>): OidcProviderSource {
   return Object.fromEntries(SOURCE_KEYS.filter((k) => raw[k] !== undefined).map((k) => [k, raw[k]])) as unknown as OidcProviderSource;
 }
 
-function readProvider(name: string, input: unknown, env: string | undefined, extra: ReadOidcOptionsExtra): OidcProviderOptions {
+function buildProvider(name: string, provider: ConfiguredProvider, env: string | undefined, extra: BuildOidcOptionsExtra): OidcProviderOptions {
   const at = `${ROOT}.providers.${name}`;
-  if (!isPlainObject(input)) {
-    return fail(`${at} must be an object`);
-  }
-  const raw = withoutUndefined(input) as Record<string, unknown>;
-  checkProviderShape(at, raw);
-  const relaxed = isRelaxedEnv(env);
-  checkUrls(at, raw, relaxed);
-  checkFinite(at, (raw.requiredClaims ?? {}) as Record<string, unknown>);
+  const raw = provider as unknown as Record<string, unknown>;
+  checkUrls(at, raw, isRelaxedEnv(env));
+
+  // Floor (see buildOidcOptions): a missing, NaN, string or huge skew switches the exp, iat and nbf checks off.
+  const skew = provider.clockSkewSeconds;
+  if (!Number.isInteger(skew) || skew < 0 || skew > 300) fail(`${at}.clockSkewSeconds must be an integer from 0 to 300`);
 
   const source = sourceOf(raw);
-  const presetId = (raw.preset as OidcPresetId | undefined) ?? null;
+  const presetId = provider.preset ?? null;
   const preset = presetId ? OIDC_PRESETS[presetId] : null;
   const idToken = preset ? preset.idToken : true;
 
-  const claims: OidcClaimsMapping = { ...(preset?.claims ?? DEFAULT_CLAIMS), ...((raw.claims ?? {}) as Partial<OidcClaimsMapping>) };
+  const claims: OidcClaimsMapping = { ...(preset?.claims ?? DEFAULT_CLAIMS), ...defined(provider.claims) };
   if (MUTABLE_SUBJECT_CLAIMS.has(lastSegment(claims.subject).toLowerCase())) {
     fail(`${at}.claims.subject must be an immutable subject, never email, upn, preferred_username, login or name`);
   }
 
-  const configuredScopes = (raw.scopes as string[] | undefined) ?? preset?.scopes ?? ['openid', 'email', 'profile'];
+  const configuredScopes = provider.scopes ?? preset?.scopes ?? ['openid', 'email', 'profile'];
   const scopes = idToken && !configuredScopes.includes('openid') ? ['openid', ...configuredScopes] : [...configuredScopes];
 
-  const linking = { jit: false, byVerifiedEmail: false, ...((raw.linking ?? {}) as { jit?: boolean; byVerifiedEmail?: boolean }) };
+  // Floor (see buildOidcOptions): the strategy reads these switches as truthy, so only true may turn one on.
+  const linking = { jit: provider.linking?.jit === true, byVerifiedEmail: provider.linking?.byVerifiedEmail === true };
   if (extra.log) {
     const global = extra.linking ?? { jit: false, byVerifiedEmail: false };
     for (const k of ['jit', 'byVerifiedEmail'] as const) {
@@ -167,62 +144,35 @@ function readProvider(name: string, input: unknown, env: string | undefined, ext
     issuer: idToken ? resolveIssuer(source) : null,
     issuerAliases: preset?.issuerAliases ? [...preset.issuerAliases] : [],
     endpoints: idToken ? null : { ...resolveEndpoints(source) },
-    clientId: raw.clientId as string,
-    clientSecret: redacted((raw.clientSecret as OidcSecretRef).secret),
-    tokenEndpointAuth: (raw.tokenEndpointAuth as OidcTokenEndpointAuth | undefined) ?? preset?.tokenEndpointAuth ?? 'client_secret_basic',
-    redirectUri: (raw.redirectUri as string | undefined) ?? null,
+    clientId: provider.clientId,
+    clientSecret: redacted(provider.clientSecret.secret),
+    tokenEndpointAuth: provider.tokenEndpointAuth ?? preset?.tokenEndpointAuth ?? 'client_secret_basic',
+    redirectUri: provider.redirectUri ?? null,
     scopes,
     claims,
-    algorithms: [...((raw.algorithms as OidcSigningAlgorithm[] | undefined) ?? OIDC_SIGNING_ALGORITHMS)],
-    clockSkewSeconds: (raw.clockSkewSeconds as number | undefined) ?? 30,
+    algorithms: [...provider.algorithms],
+    clockSkewSeconds: skew,
     // The subject of a plain OAuth2 provider comes from userinfo, so it is always on.
-    userinfo: idToken ? ((raw.userinfo as boolean | undefined) ?? 'auto') : true,
-    requiredClaims: { ...((raw.requiredClaims ?? {}) as Record<string, string | number | boolean>) },
-    authorizationParams: { ...((raw.authorizationParams ?? {}) as Record<string, string>) } as OidcAuthorizationParams,
+    userinfo: idToken ? (provider.userinfo ?? 'auto') : true,
+    requiredClaims: defined(provider.requiredClaims) as Record<string, string | number | boolean>,
+    authorizationParams: defined(provider.authorizationParams) as OidcAuthorizationParams,
     linking,
   });
 }
 
-const APP_PATH = new RegExp(OIDC_APP_PATH_PATTERN);
-const PROVIDER_NAME = new RegExp(OIDC_PROVIDER_NAME_PATTERN);
-
-function readRedirects(raw: unknown): OidcOptions['redirects'] {
-  if (raw === undefined) return { success: '/', failure: '/' };
-  if (!isPlainObject(raw)) return fail(`${ROOT}.redirects must be an object`);
-  const out: Record<string, OidcAppPath> = { success: '/', failure: '/' };
-  for (const [k, v] of Object.entries(raw)) {
-    if (v === undefined) continue;
-    if (k !== 'success' && k !== 'failure') fail(`${ROOT}.redirects: unknown key ${JSON.stringify(k)}`);
-    if (typeof v !== 'string' || !APP_PATH.test(v)) fail(`${ROOT}.redirects.${k} must be an app-relative path: one leading '/', never '//' or '/\\'`);
-    out[k] = v as OidcAppPath;
-  }
-  return out as OidcOptions['redirects'];
-}
-
 /**
- * `authn.oidc` after the schema, the boot checks (design §22.15: names, subject mapping, Entra tenant, redirects,
- * https outside development and test) and the defaults. Throws InvalidOption naming the provider and the key; a message
- * never carries a configured value.
+ * The options of a validated `authn.oidc` (design §22.15): the preset merge, the https rule outside development and test,
+ * the subject mapping and the linking warnings. The shape, the names, the redirects and the defaults are the schema's.
+ * Throws InvalidOption naming the provider and the key; a message never carries a configured value.
+ *
+ * The floors below repeat a schema rule where a bad value would fail open, for a config the schema never saw: the
+ * controller is found by a directory scan, so it can serve an app that never ran OidcBootstrapper.
  */
-export function readOidcOptions(raw: unknown, env: string | undefined, extra: ReadOidcOptionsExtra = {}): OidcOptions {
-  const input = raw === undefined || raw === null ? {} : raw;
-  if (!isPlainObject(input)) {
-    return fail(`${ROOT} must be an object`);
+export function buildOidcOptions(config: ConfiguredOidc, env: string | undefined, extra: BuildOidcOptionsExtra = {}): OidcOptions {
+  for (const k of ['success', 'failure'] as const) {
+    const path: unknown = config.redirects?.[k];
+    if (typeof path !== 'string' || !APP_PATH.test(path)) fail(`${ROOT}.redirects.${k} must be an app-relative path: one leading '/', never '//' or '/\\'`);
   }
-  for (const [k, v] of Object.entries(input)) {
-    if (v !== undefined && k !== 'providers' && k !== 'redirects') fail(`${ROOT}: unknown key ${JSON.stringify(k)}`);
-  }
-  const rawProviders = input.providers ?? {};
-  if (!isPlainObject(rawProviders)) {
-    return fail(`${ROOT}.providers must be an object of providers by name`);
-  }
-  const providers = new Map<string, OidcProviderOptions>();
-  for (const [name, provider] of Object.entries(rawProviders)) {
-    if (provider === undefined) continue;
-    if (!PROVIDER_NAME.test(name)) {
-      fail(`${ROOT}.providers: the provider name ${JSON.stringify(name)} must be 1–59 of [a-z0-9_-]`);
-    }
-    providers.set(name, readProvider(name, provider, env, extra));
-  }
-  return Object.freeze({ providers, redirects: Object.freeze(readRedirects(input.redirects)) });
+  const providers = new Map(Object.entries(config.providers).map(([name, provider]) => [name, buildProvider(name, provider, env, extra)] as const));
+  return Object.freeze({ providers, redirects: Object.freeze({ ...config.redirects }) });
 }

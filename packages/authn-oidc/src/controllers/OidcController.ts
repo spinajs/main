@@ -1,11 +1,12 @@
 import type * as express from 'express';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
+import { proxyTrustOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders } from '@spinajs/http';
+import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
 import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
@@ -13,7 +14,7 @@ import { OidcLogin } from '../login.js';
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
-import { requestOrigin, trustedPeer } from '../origin.js';
+import { requestOrigin } from '../origin.js';
 import { isRelaxedEnv } from '../support.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
@@ -62,6 +63,15 @@ export class OidcController extends BaseController {
   protected flow: OidcLogin | undefined;
   protected trusted: (peer: string | undefined) => boolean = () => false;
   protected warnedHttpOrigin = false;
+
+  @Config('authn.http.trustProxy')
+  protected OwnTrust: unknown;
+
+  @Config('http.trustProxy')
+  protected SharedTrust: unknown;
+
+  @Config('authn.session.cookie')
+  protected SessionCookie: ISessionCookieConfig;
 
   @Get(':provider')
   public async begin(@Param() provider: string, @Req() req: Request) {
@@ -114,14 +124,18 @@ export class OidcController extends BaseController {
 
   protected env: string | undefined;
 
+  /** The trust setting of ClientIp and the CSRF guard, parsed by the shared parser; throws, naming the key, for an entry that is no address. */
+  protected peerTrust(): (peer: string | undefined) => boolean {
+    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
+    return (peer) => isTrustedPeer(trust, peer);
+  }
+
   protected async login(): Promise<OidcLogin> {
     if (this.flow) return this.flow;
     const providers = await DI.resolve(OidcProviders);
-    const config = DI.get(Configuration)!;
     this.env = providers.env;
-    const authnTrust = config.get<unknown>('authn.http.trustProxy');
-    this.trusted = trustedPeer((authnTrust ?? config.get<unknown>('http.trustProxy')) as never);
-    const cookieConfig = config.get<ISessionCookieConfig>('authn.session.cookie', {});
+    this.trusted = this.peerTrust();
+    const cookieConfig = this.SessionCookie;
     this.flow = new OidcLogin({
       strategies: providers.strategies(),
       service: await DI.resolve(AuthnService),

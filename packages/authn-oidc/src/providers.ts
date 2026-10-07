@@ -1,17 +1,17 @@
 import { AsyncService, Container, DI, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { AuthenticationStrategy, IdentityLinkStore, IdentityStore } from '@spinajs/authn/contracts';
 import { NonceStore } from '@spinajs/authn-orm';
 import { Log, Logger } from '@spinajs/log';
 import { appEnvOf as sessionAppEnvOf } from '@spinajs/authn-session';
 
-import { readOidcOptions } from './options/options.js';
-import type { OidcOptions } from './options/options.js';
+import { buildOidcOptions } from './options/options.js';
+import type { ConfiguredOidc, OidcOptions } from './options/options.js';
 import { OidcHttpClient } from './http/client.js';
 import { OidcProvider } from './provider.js';
 import { OidcStrategy } from './strategy.js';
-import { isPlainObject, isRelaxedEnv } from './support.js';
+import { isRelaxedEnv } from './support.js';
 
 /** authn-session's reading of the app env: undefined (production) when no source named one (SR-16). */
 export const appEnvOf = (config: Configuration): string | undefined => sessionAppEnvOf(config);
@@ -27,6 +27,12 @@ export class OidcProviders extends AsyncService {
   @Logger('authn-oidc')
   protected Log: Log;
 
+  @Config('authn.oidc')
+  protected Oidc: ConfiguredOidc;
+
+  @Config('authn.linking')
+  protected GlobalLinking: { jit: boolean; byVerifiedEmail: boolean } | undefined;
+
   public options!: OidcOptions;
   public env: string | undefined;
   public linking = { jit: false, byVerifiedEmail: false };
@@ -37,11 +43,12 @@ export class OidcProviders extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+    // A @Config read needs the container's Configuration resolved; the env needs the object itself (SR-16).
     const config = await this.container.resolve(Configuration);
     this.env = appEnvOf(config);
-    const linking = config.get<{ jit?: boolean; byVerifiedEmail?: boolean } | undefined>('authn.linking');
-    this.linking = { jit: linking?.jit === true, byVerifiedEmail: linking?.byVerifiedEmail === true };
-    this.options = readOidcOptions(config.get('authn.oidc'), this.env, {
+    // === true: authn.linking skips the schema when the @spinajs/authn bootstrapper never ran, and the strategy reads it as truthy.
+    this.linking = { jit: this.GlobalLinking?.jit === true, byVerifiedEmail: this.GlobalLinking?.byVerifiedEmail === true };
+    this.options = buildOidcOptions(this.Oidc, this.env, {
       linking: this.linking,
       log: { warn: (m: string) => this.Log?.warn(m) },
     });
@@ -86,7 +93,7 @@ export function registerOidcStrategies(names: Iterable<string>, container: ICont
   }
 }
 
-/** The provider names of a raw `authn.oidc` value, without checking them (boot does). */
-export function providerNamesOf(raw: unknown): string[] {
-  return isPlainObject(raw) && isPlainObject(raw.providers) ? Object.keys(raw.providers) : [];
+/** The provider names of an `authn.oidc` value the schema has validated. */
+export function providerNamesOf(config: { readonly providers?: Readonly<Record<string, unknown>> } | undefined): string[] {
+  return Object.keys(config?.providers ?? {});
 }

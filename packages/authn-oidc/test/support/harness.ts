@@ -4,7 +4,7 @@ import type { ConfigOverrides, Harness, HarnessContext, HttpRequest, HttpRespons
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 import { MemoryNonceStore } from '@spinajs/authn-orm';
 
-import { readOidcOptions } from '../../src/options/options.js';
+import { readOidcOptions } from './oidc-config.js';
 import { OidcProvider } from '../../src/provider.js';
 import { OidcStrategy } from '../../src/strategy.js';
 import { OIDC_FAILURE_BODY, OidcLogin } from '../../src/login.js';

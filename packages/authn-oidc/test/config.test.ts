@@ -1,16 +1,26 @@
 import 'mocha';
 import { expect } from 'chai';
-import AjvModule from 'ajv';
+import { createRequire } from 'node:module';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import type { OidcProviderSource } from '../src/contracts.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_PROVIDER_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/options/schema.js';
-import { readOidcOptions } from '../src/options/options.js';
 import type { OidcOptions, OidcProviderOptions } from '../src/options/options.js';
 import { OIDC_PRESETS, resolveEndpoints, resolveIssuer } from '../src/presets.js';
+import { readOidcOptions } from './support/oidc-config.js';
 
-const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown[] | null } };
+type Validate = ((data: unknown) => boolean) & { errors?: unknown[] | null };
+
+/** A strict Ajv with the keywords the app validator adds (ajv-keywords and $configurationModule). */
+function strictAjv(): { compile(schema: object): Validate } {
+  const require = createRequire(import.meta.url);
+  const Ajv = require('ajv');
+  const ajv = new (Ajv.default ?? Ajv)({ strict: true, strictRequired: false, allErrors: true });
+  require('ajv-keywords').default(ajv);
+  ajv.addKeyword('$configurationModule');
+  return ajv;
+}
 
 const SECRET = 'SUPER-SECRET-VALUE-42';
 const TENANT = '72f988bf-86f1-41af-91ab-2d7cd011db47';
@@ -212,70 +222,7 @@ describe('authn-oidc config', () => {
     });
   });
 
-  describe('boot checks (D14)', () => {
-    it('refuses a provider name outside 1–59 of [a-z0-9_-]', () => {
-      for (const name of ['Corp', 'a'.repeat(60), 'co rp', 'corp.x', 'oidc:corp', '']) {
-        refused(() => read({ [name]: generic() }), 'authn.oidc.providers', 'name');
-      }
-      expect(read({ ['a'.repeat(59)]: generic() }).providers.size).to.eq(1);
-    });
-
-    it('refuses an unknown key', () => {
-      refusedProvider(generic({ pkce: false }), 'pkce');
-      refused(() => readOidcOptions({ providers: {}, flow: 'implicit' }, undefined), 'authn.oidc', 'flow');
-    });
-
-    it('refuses a provider without its source', () => {
-      refusedProvider(client(), 'issuer');
-      refusedProvider(client({ preset: 'gitlab' }), 'preset');
-      refusedProvider(client({ preset: 'entra' }), 'tenant');
-      refusedProvider(client({ preset: 'keycloak', baseUrl: 'https://kc.example.test' }), 'realm');
-      refusedProvider(client({ preset: 'auth0' }), 'domain');
-      refusedProvider(client({ preset: 'okta' }), 'domain');
-    });
-
-    it('refuses an issuer on a preset, and the parameters of another source', () => {
-      refusedProvider(client({ preset: 'google', issuer: 'https://evil.example' }), 'issuer');
-      refusedProvider(client({ preset: 'github', issuer: 'https://evil.example' }), 'issuer');
-      refusedProvider(generic({ tenant: TENANT }), 'tenant');
-      refusedProvider(client({ preset: 'auth0', domain: 'corp.auth0.com', realm: 'x' }), 'realm');
-      refusedProvider(client({ preset: 'google', host: 'github.com' }), 'host');
-    });
-
-    it('refuses userinfo off for github', () => {
-      refusedProvider(client({ preset: 'github', userinfo: false }), 'userinfo');
-    });
-
-    it('refuses a client without its id or secret ref', () => {
-      refusedProvider(generic({ clientId: undefined }), 'clientId');
-      refusedProvider(generic({ clientId: '' }), 'clientId');
-      refusedProvider(generic({ clientSecret: undefined }), 'clientSecret');
-      refusedProvider(generic({ clientSecret: SECRET }), 'clientSecret');
-      refusedProvider(generic({ clientSecret: { secret: '' } }), 'clientSecret.secret');
-      refusedProvider(generic({ clientSecret: { secret: null } }), 'clientSecret.secret');
-      refusedProvider(generic({ clientSecret: { secret: SECRET, version: 1 } }), 'version');
-    });
-
-    it('refuses a token endpoint auth outside the enum', () => {
-      refusedProvider(generic({ tokenEndpointAuth: 'none' }), 'tokenEndpointAuth');
-      refusedProvider(generic({ tokenEndpointAuth: 'private_key_jwt' }), 'tokenEndpointAuth');
-    });
-
-    it('refuses scopes that are not scope tokens', () => {
-      refusedProvider(generic({ scopes: 'openid email' }), 'scopes');
-      refusedProvider(generic({ scopes: ['openid email'] }), 'scopes');
-      refusedProvider(generic({ scopes: [''] }), 'scopes');
-      refusedProvider(generic({ scopes: ['openid', 'openid'] }), 'scopes');
-    });
-
-    it('refuses a claims mapping outside the shape', () => {
-      refusedProvider(generic({ claims: { subject: null } }), 'claims.subject');
-      refusedProvider(generic({ claims: { subject: '' } }), 'claims.subject');
-      refusedProvider(generic({ claims: { subject: [] } }), 'claims.subject');
-      refusedProvider(generic({ claims: { email: 42 } }), 'claims.email');
-      refusedProvider(generic({ claims: { roles: 'roles' } }), 'roles');
-    });
-
+  describe('what the schema cannot check (D14)', () => {
     it('refuses a subject mapped to email, upn, preferred_username, login or name (nOAuth)', () => {
       for (const subject of ['email', 'upn', 'preferred_username', 'login', 'name', 'Email', 'UPN', ['user', 'Preferred_Username'], ['profile', 'login']]) {
         refusedProvider(generic({ claims: { subject } }), 'claims.subject');
@@ -283,48 +230,6 @@ describe('authn-oidc config', () => {
       refusedProvider(client({ preset: 'github', claims: { subject: 'login' } }), 'claims.subject');
       expect(one(generic({ claims: { subject: ['email', 'id'] } })).claims.subject).to.deep.eq(['email', 'id']);
       expect(one(generic({ claims: { subject: 'oid' } })).claims.subject).to.eq('oid');
-    });
-
-    it('refuses algorithms outside a non-empty subset of the signing algorithms', () => {
-      refusedProvider(generic({ algorithms: [] }), 'algorithms');
-      refusedProvider(generic({ algorithms: ['HS256'] }), 'algorithms');
-      refusedProvider(generic({ algorithms: ['none'] }), 'algorithms');
-      refusedProvider(generic({ algorithms: ['RS256', 'RS256'] }), 'algorithms');
-    });
-
-    it('refuses a clock skew outside the integers 0–300', () => {
-      for (const clockSkewSeconds of [-1, 301, 1.5, '30']) {
-        refusedProvider(generic({ clockSkewSeconds }), 'clockSkewSeconds');
-      }
-      expect(one(generic({ clockSkewSeconds: 300 })).clockSkewSeconds).to.eq(300);
-    });
-
-    it('refuses a userinfo switch that is not a boolean', () => {
-      refusedProvider(generic({ userinfo: 'yes' }), 'userinfo');
-    });
-
-    it('refuses required claims other than strings, numbers and booleans', () => {
-      refusedProvider(generic({ requiredClaims: { groups: ['admin'] } }), 'requiredClaims');
-      refusedProvider(generic({ requiredClaims: { tid: null } }), 'requiredClaims');
-      refusedProvider(generic({ requiredClaims: { n: Number.NaN } }), 'requiredClaims');
-    });
-
-    it('refuses reserved or non-string authorization parameters', () => {
-      for (const param of OIDC_RESERVED_PARAMS) {
-        refusedProvider(generic({ authorizationParams: { [param]: 'x' } }), param);
-      }
-      refusedProvider(generic({ authorizationParams: { prompt: 1 } }), 'authorizationParams');
-    });
-
-    it('refuses linking switches that are not booleans', () => {
-      refusedProvider(generic({ linking: { jit: 'true' } }), 'linking');
-      refusedProvider(generic({ linking: { provision: true } }), 'provision');
-    });
-
-    it('refuses an Entra tenant that is not a GUID', () => {
-      for (const tenant of ['common', 'organizations', 'consumers', 'contoso.com', `${TENANT}x`, TENANT.replace(/-/g, '')]) {
-        refusedProvider(client({ preset: 'entra', tenant }), 'tenant');
-      }
     });
 
     it('refuses an issuer that is not an https URL, unless the env is development or test', () => {
@@ -339,42 +244,23 @@ describe('authn-oidc config', () => {
       refusedProvider(generic({ issuer: 'ftp://localhost/realms/corp' }), 'issuer', 'test');
     });
 
-    it('refuses a keycloak baseUrl that is not an https URL, unless the env is development or test, and a bad realm', () => {
+    it('refuses a keycloak baseUrl that is not an https URL, unless the env is development or test', () => {
       refusedProvider(client({ preset: 'keycloak', baseUrl: 'http://kc.example.test', realm: 'corp' }), 'baseUrl');
       refusedProvider(client({ preset: 'keycloak', baseUrl: 'https://kc.example.test?x=1', realm: 'corp' }), 'baseUrl');
       refusedProvider(client({ preset: 'keycloak', baseUrl: 'kc.example.test', realm: 'corp' }), 'baseUrl');
       expect(one(client({ preset: 'keycloak', baseUrl: 'http://localhost:8080', realm: 'corp' }), 'test').issuer).to.eq('http://localhost:8080/realms/corp');
-      for (const realm of ['', 'a/b', '..', '.', 'a?b', 'a b']) {
-        refusedProvider(client({ preset: 'keycloak', baseUrl: 'https://kc.example.test', realm }), 'realm');
-      }
     });
 
-    it('refuses a domain or host that is not a plain host name', () => {
-      for (const domain of ['https://corp.auth0.com', 'corp.auth0.com/path', 'user@corp.auth0.com', 'corp..auth0.com', '-corp.auth0.com', 'corp auth0.com', '']) {
-        refusedProvider(client({ preset: 'auth0', domain }), 'domain');
-        refusedProvider(client({ preset: 'okta', domain }), 'domain');
-        refusedProvider(client({ preset: 'github', host: domain }), 'host');
-      }
-      for (const authorizationServer of ['', 'a/b', '..']) {
-        refusedProvider(client({ preset: 'okta', domain: 'corp.okta.com', authorizationServer }), 'authorizationServer');
-      }
+    it('resolves a domain with a port', () => {
       expect(one(client({ preset: 'auth0', domain: 'login.corp.example:8443' })).issuer).to.eq('https://login.corp.example:8443/');
     });
 
     it('refuses a redirectUri that is not an absolute https URL, unless the env is development or test', () => {
-      for (const redirectUri of ['/auth/oidc/corp/callback', 'http://app.example.test/cb', 'https://app.example.test/cb#x', 'javascript:alert(1)', '']) {
+      for (const redirectUri of ['/auth/oidc/corp/callback', 'http://app.example.test/cb', 'https://app.example.test/cb#x', 'javascript:alert(1)']) {
         refusedProvider(generic({ redirectUri }), 'redirectUri');
       }
       expect(one(generic({ redirectUri: 'http://localhost:3000/auth/oidc/corp/callback' }), 'test').redirectUri).to.eq('http://localhost:3000/auth/oidc/corp/callback');
       expect(one(generic({ redirectUri: 'https://app.example.test/cb?tenant=a' })).redirectUri).to.eq('https://app.example.test/cb?tenant=a');
-    });
-
-    it('refuses redirects that are not app-relative paths', () => {
-      for (const path of ['//evil.example', '/\\evil.example', 'https://evil.example/', 'login', '', 42]) {
-        refused(() => read({}, undefined, { redirects: { success: path } }), 'authn.oidc.redirects.success');
-        refused(() => read({}, undefined, { redirects: { failure: path } }), 'authn.oidc.redirects.failure');
-      }
-      refused(() => read({}, undefined, { redirects: { home: '/' } }), 'home');
     });
 
     it('warns when a provider linking switch is on while the global one is off', () => {
@@ -391,16 +277,12 @@ describe('authn-oidc config', () => {
       expect(warnings).to.deep.eq([]);
     });
 
-    it('refuses a config that is not an object', () => {
-      refused(() => readOidcOptions('oidc', undefined), 'authn.oidc');
-      refused(() => readOidcOptions({ providers: [] }, undefined), 'authn.oidc.providers');
-      refused(() => readOidcOptions({ providers: { corp: 'x' } }, undefined), 'corp');
-    });
   });
 
   describe('schemas', () => {
     it('the configuration schema accepts a valid authn.oidc and refuses an invalid one', () => {
-      const validate = new Ajv({ strict: true, strictRequired: false, allowUnionTypes: true }).compile(AUTHN_OIDC_CONFIGURATION_SCHEMA);
+      expect(AUTHN_OIDC_CONFIGURATION_SCHEMA).to.deep.include({ $id: 'spinajs/authn-oidc.configuration.schema.json', $configurationModule: 'authn.oidc' });
+      const validate = strictAjv().compile(AUTHN_OIDC_CONFIGURATION_SCHEMA);
       expect(validate({ providers: { corp: generic(), gh: client({ preset: 'github' }) }, redirects: { success: '/app' } })).to.eq(true);
       expect(validate({ providers: { Corp: generic() } })).to.eq(false);
       expect(validate({ providers: { corp: generic({ pkce: false }) } })).to.eq(false);
@@ -412,7 +294,7 @@ describe('authn-oidc config', () => {
       for (const id of ['google', 'entra', 'keycloak', 'auth0', 'okta', 'github', ...OIDC_SIGNING_ALGORITHMS]) {
         expect(text).to.contain(`"${id}"`);
       }
-      const validate = new Ajv({ strict: true, strictRequired: false, allowUnionTypes: true }).compile(AUTHN_OIDC_PROVIDER_SCHEMA);
+      const validate = strictAjv().compile(AUTHN_OIDC_PROVIDER_SCHEMA);
       expect(validate(generic())).to.eq(true);
       expect(validate(client({ preset: 'entra', tenant: TENANT }))).to.eq(true);
       expect(validate(client({ preset: 'google', issuer: ISSUER }))).to.eq(false);

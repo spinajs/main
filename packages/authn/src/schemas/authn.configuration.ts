@@ -420,23 +420,5 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
       },
     },
-    oidc: {
-      type: 'object',
-      properties: {
-        providers: {
-          type: 'object',
-          description: "Validated per provider by @spinajs/authn-oidc's own schema.",
-          propertyNames: { pattern: '^[a-z0-9_-]{1,59}$' },
-          additionalProperties: { type: 'object' },
-        },
-        redirects: {
-          type: 'object',
-          properties: {
-            success: { type: 'string', pattern: '^/(?![/\\\\])' },
-            failure: { type: 'string', pattern: '^/(?![/\\\\])' },
-          },
-        },
-      },
-    },
   },
 };

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import type { Configuration } from '@spinajs/configuration';
 
 import { appEnvOf } from '../src/providers.js';
-import { readOidcOptions } from '../src/options/options.js';
+import { readOidcOptions } from './support/oidc-config.js';
 import { FetchOidcHttpClient } from '../src/http/client.js';
 import { flowCookie } from '../src/flow/cookie.js';
 

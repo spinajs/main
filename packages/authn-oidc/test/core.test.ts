@@ -4,12 +4,13 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
 import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { MemoryNonceStore, NonceStore } from '@spinajs/authn-orm';
 
 import { encodeFlow } from '../src/flow/cookie.js';
+import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';
 import { OidcHttpClient } from '../src/http/client.js';
 import { OidcProviders, registerOidcStrategies } from '../src/providers.js';
 import { OidcLogin } from '../src/login.js';
@@ -60,6 +61,8 @@ async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, provide
   const sessions = new MemorySessionIssuer();
   const step = new FakeMfaStep();
   const child = DI.RootContainer.child();
+  // The provider defaults come from the schema.
+  for (const schema of [AUTHN_CONFIGURATION_SCHEMA, AUTHN_OIDC_CONFIGURATION_SCHEMA]) child.register(schema).asValue('__configurationSchema__');
   child.register(
     configurationOf({
       authn: {
