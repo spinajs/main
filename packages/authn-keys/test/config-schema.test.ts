@@ -10,7 +10,8 @@ import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, KeyChallengeStrategy } from '../src/strategies/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
-import { TEST_KEYS_CONFIG } from './support/keys-options.js';
+import { TEST_KEYS_CONFIG, keysOptionsFor } from './support/keys-options.js';
+import type { KeysOverrides } from './support/keys-options.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 const bad = (keys: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { keys } });
@@ -71,6 +72,29 @@ describe('authn.keys through the schema', () => {
       expect(keysOptionsOf(withAssertion).challenge.audience).to.eq(AUD);
       expect(keysOptionsOf({ ...withAssertion, challenge: { ttlSeconds: 120, audience: 'other' } }).challenge.audience).to.eq('other');
       expect(keysOptionsOf(TEST_KEYS_CONFIG).challenge.audience).to.eq(null);
+    });
+
+    it('refuses a range the schema refuses, for a config or Options that never went through it', () => {
+      const cases: KeysOverrides[] = [
+        { challenge: { ttlSeconds: 0 } },
+        { challenge: { ttlSeconds: 3601 } },
+        { challenge: { ttlSeconds: Number.NaN } },
+        { assertion: { maxLifetimeSeconds: 0 } },
+        { assertion: { maxLifetimeSeconds: 301 } },
+        { assertion: { maxLifetimeSeconds: '60' as unknown as number } },
+        { assertion: { skewSeconds: -1 } },
+        { assertion: { skewSeconds: 301 } },
+        { assertion: { skewSeconds: undefined as unknown as number } },
+        { httpSignature: { maxAgeSeconds: Infinity } },
+        { httpSignature: { maxAgeSeconds: 0 } },
+        { httpSignature: { skewSeconds: 1.5 } },
+      ];
+      for (const over of cases) {
+        const [block, values] = Object.entries(over)[0] as [string, Record<string, unknown>];
+        const key = Object.keys(values)[0];
+        expect(() => keysOptionsFor(over), JSON.stringify(over)).to.throw(`authn.keys.${block}.${key}`);
+      }
+      expect(() => keysOptionsFor({ challenge: { ttlSeconds: 3600 }, assertion: { maxLifetimeSeconds: 1, skewSeconds: 0 }, httpSignature: { maxAgeSeconds: 300, skewSeconds: 300 } })).to.not.throw();
     });
 
     it('freezes the result and returns the same object for the same config', () => {

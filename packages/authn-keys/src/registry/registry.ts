@@ -79,7 +79,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
   }
 
   protected get options(): KeysOptions {
-    return this.Options ?? keysOptionsOf(this.KeysConfig);
+    return keysOptionsOf(this.Options ?? this.KeysConfig);
   }
 
   protected async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {

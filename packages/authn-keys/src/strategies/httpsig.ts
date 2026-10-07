@@ -51,7 +51,7 @@ export class HttpSignatureStrategy extends AuthenticationStrategy {
   }
 
   protected get options(): KeysOptions {
-    return this.Options ?? keysOptionsOf(this.KeysConfig);
+    return keysOptionsOf(this.Options ?? this.KeysConfig);
   }
 
   /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */

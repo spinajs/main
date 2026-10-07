@@ -73,6 +73,15 @@ function resign(req: SignedRequest, kp: KitKeyPair, input: string, components: r
 }
 
 describe('HttpSignatureStrategy', () => {
+  it('fails a request instead of verifying with explicit Options outside the schema ranges', async () => {
+    const w = await world();
+    const ed = await w.add();
+    const options = { ...w.p.options, httpSignature: { ...w.p.options.httpSignature, maxAgeSeconds: Number.NaN } };
+    const strategy = new HttpSignatureStrategy(w.p.registry, w.p.nonces, options);
+    const outcome = await strategy.verify(w.cred(w.signed(ed.kp, ed.kid, { expires: w.nowS() + 3600 })), w.ctx()).catch((e: unknown) => e);
+    assert.ok(outcome instanceof Error && outcome.message.includes('authn.keys.httpSignature.maxAgeSeconds'), JSON.stringify(outcome));
+  });
+
   it('accepts any label, an alg naming the key, and more components', async () => {
     const w = await world();
     const ed = await w.add();

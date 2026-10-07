@@ -32,7 +32,7 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
   }
 
   protected get audience(): string {
-    const audience = (this.Options ?? keysOptionsOf(this.KeysConfig)).challenge.audience;
+    const audience = keysOptionsOf(this.Options ?? this.KeysConfig).challenge.audience;
     if (audience === null) {
       throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
     }

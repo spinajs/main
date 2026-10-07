@@ -47,7 +47,7 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
   }
 
   protected get options(): KeysOptions {
-    return this.Options ?? keysOptionsOf(this.KeysConfig);
+    return keysOptionsOf(this.Options ?? this.KeysConfig);
   }
 
   /** The audience the assertions name; which strategies are listed decides that one is required, so this is a boot check, not a schema rule. */
