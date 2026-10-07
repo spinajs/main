@@ -1,4 +1,4 @@
-import { Configuration, CONFIGURATION_CONTAINER_KEY, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
@@ -49,17 +49,4 @@ export async function violationsOf(schemas: readonly object[], values: Record<st
 
 export async function disposeBooted(): Promise<void> {
   for (const c of open.splice(0)) await c.dispose();
-}
-
-/** For an instance built with `new`: makes its `@Config` properties read this container's Configuration. */
-export function readingFrom<T extends object>(instance: T, container: IContainer): T {
-  Object.defineProperty(instance, CONFIGURATION_CONTAINER_KEY, { value: container, configurable: true, writable: true });
-  return instance;
-}
-
-/** A container whose Configuration answers `values` by full path (a unit-test stand-in; the values are not validated). */
-export function fakeContainer(values: Record<string, unknown>): IContainer {
-  const keyOf = (path: string | string[]): string => (Array.isArray(path) ? path.join('.') : path);
-  const configuration = { get: (path: string | string[], fallback?: unknown) => (keyOf(path) in values ? values[keyOf(path)] : fallback) };
-  return { get: () => configuration } as unknown as IContainer;
 }
