@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { META_COMMAND } from '@spinajs/cli';
 import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -152,10 +151,6 @@ describe('v3 cli: authn:mfa-reset', () => {
         super({ step });
       }
     }
-    // Its @Config reads the root Configuration, which this file never boots.
-    const logSinks: Class<unknown>[] = [];
-    // Another file of the run loads the @spinajs/authn root, which registers its service as a side effect.
-    const rootRegistered: [Class<unknown>, Class<unknown>][] = [];
     /** RbacCliCommand autoinjects the Orm; the reset never touches it. */
     class KitOrm {}
 
@@ -163,16 +158,6 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
       DI.unregister(DbAuthnAuditSink);
-      logSinks.splice(0, logSinks.length, ...DI.RootContainer.Registry.getTypes(AuthnEventSink).filter((t) => t.name === 'LogAuthnAuditSink'));
-      logSinks.forEach((t) => DI.unregister(t));
-      rootRegistered.length = 0;
-      for (const service of [AuthnService, AuthnThrottle] as unknown as Class<unknown>[]) {
-        for (const t of DI.RootContainer.Registry.getTypes(service) as Class<unknown>[]) {
-          if (t === DbAuthnThrottle) continue;
-          rootRegistered.push([service, t]);
-          DI.unregister(t);
-        }
-      }
       DI.unregister(DbAuthnThrottle);
       DI.register(KitSink).as(AuthnEventSink);
       DI.register(KitIdentities).as(IdentityStore);
@@ -186,8 +171,6 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.unregister(KitTotp);
       DI.unregister(KitOrm);
       DI.register(DbAuthnAuditSink).as(AuthnEventSink);
-      logSinks.forEach((t) => DI.register(t).as(AuthnEventSink));
-      rootRegistered.forEach(([service, t]) => DI.register(t).as(service as never));
       DI.register(DbAuthnThrottle).as(AuthnThrottle);
       DI.clearCache();
     });

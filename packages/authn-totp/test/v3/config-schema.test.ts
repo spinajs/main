@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import authnTotp from '../../src/config/authn-totp.js';

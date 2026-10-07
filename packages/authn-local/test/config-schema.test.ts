@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 
 import authnLocal from '../src/config/authn-local.js';
 import { Argon2PasswordHasher } from '../src/hasher.js';

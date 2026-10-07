@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { TokenStrategy } from '@spinajs/authn-token';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 

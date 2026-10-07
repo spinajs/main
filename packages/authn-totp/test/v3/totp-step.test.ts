@@ -15,7 +15,7 @@ import { MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
 import type { MfaRecord } from '../../src/store/index.js';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep } from '../../src/step/index.js';
 import type { TotpOptions } from '../../src/step/index.js';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
 import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
 import { ClientIp, CsrfOriginGuard, AuthnMiddleware, proxyTrustOf } from '../../src/index.js';

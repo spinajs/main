@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 
 import { OidcBootstrapper } from '../src/bootstrap.js';
 import { OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';

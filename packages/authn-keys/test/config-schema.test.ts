@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { MemorySecretStore, FakeBackoffThrottle, throttleParams } from '@spinajs/authn-testing';
 
 import { keysOptionsOf } from '../src/options/index.js';

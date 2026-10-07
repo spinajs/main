@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { MfaPolicy } from '@spinajs/authn/contracts';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { SESSION_PENDING_STEPS_KEY } from '@spinajs/authn-session';
 
 import '../../src/api.js';

@@ -1,5 +1,5 @@
 /** Test DB fixture: boots an Orm in a child DI container on sqlite `:memory:` or on a throwaway Postgres database. */
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, ClassInfo, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
