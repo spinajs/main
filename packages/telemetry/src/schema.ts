@@ -1,4 +1,5 @@
 import { PERMISSION_PATTERN } from '@spinajs/authz';
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 const name = { type: 'string', minLength: 1 };
 const permission = { type: 'string', pattern: PERMISSION_PATTERN.source };
@@ -23,3 +24,5 @@ export const TELEMETRY_CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(TELEMETRY_CONFIGURATION_SCHEMA);

@@ -20,6 +20,9 @@ import './../policies/TelemetryTokenPolicy.js';
 import './../policies/PublicPolicy.js';
 import { TelemetryAccess } from './../policies/TelemetryAccessPolicy.js';
 
+// Found by a directory scan after boot, where TelemetryBootstrapper may never run: the schema module registers itself.
+import './../schema.js';
+
 /**
  * JSON telemetry API. Machine-facing — consumed by dashboards, uptime monitors
  * and orchestrator probes.
