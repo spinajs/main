@@ -39,7 +39,8 @@ export function registerConfigurationSchema(schema: IConfigurationSchema, contai
  * Registers a schema from a module's top level, so a module loaded after the Configuration
  * resolved (a directory scan, a CLI command) still gets its values checked and defaulted. A refused value does not
  * fail the import, which would take down every module loaded with it: the violations are logged, and each read of
- * the module throws InvalidConfiguration until it validates.
+ * the module throws InvalidConfiguration until it validates. A Bootstrapper that registers the same schema keeps doing
+ * so: DI.clearCache() drops this registration, and a module's top level runs once per process.
  */
 export function registerConfigurationSchemaAtImport(schema: IConfigurationSchema, container: IContainer = DI.RootContainer): void {
   try {
