@@ -5,11 +5,12 @@ import ajvFormats from 'ajv-formats';
 import ajvKeywords from 'ajv-keywords';
 
 import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, configAt, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { childWith, violationsOf } from './support.js';
+import { childWith, configurationOf, violationPaths, violationsOf } from './support.js';
 
 const expect = chai.expect;
 
@@ -452,20 +453,24 @@ describe('authz.admin through a child Configuration', function () {
 });
 
 describe('AuthzConfigBootstrapper', () => {
-  it('registers the schema under __configurationSchema__', () => {
-    const before = [...((DI.get(Array.ofType('__configurationSchema__' as any)) as unknown[] | null) ?? [])];
-    const schemas = () => (DI.get(Array.ofType('__configurationSchema__' as any)) as unknown[] | null) ?? [];
-    expect(schemas()).to.not.include(AUTHZ_CONFIGURATION_SCHEMA);
+  const registered = () =>
+    ((DI.get(Array.ofType('__configurationSchema__' as any)) as unknown[] | null) ?? []).filter((s) => (s as { $id?: string }).$id === AUTHZ_CONFIGURATION_SCHEMA.$id);
+
+  it('finds the schema the module registered at import and adds no second copy', () => {
+    expect(registered()).to.have.length(1);
+    expect(registered()[0]).to.equal(AUTHZ_CONFIGURATION_SCHEMA);
     new AuthzConfigBootstrapper().bootstrap();
+    expect(registered()).to.have.length(1);
+  });
+
+  it('applies the root registration to a Configuration that boots later', async () => {
+    const child = DI.RootContainer.child();
     try {
-      expect(schemas()).to.include(AUTHZ_CONFIGURATION_SCHEMA);
+      child.register(configurationOf({ authz: { admin: { maxBatch: 0 } } })).as(Configuration);
+      expect(await violationPaths(Promise.resolve().then(() => child.resolve(Configuration)))).to.include('authz.admin.maxBatch');
     } finally {
-      // DI cannot drop one cached value: drop the key and put back what was there before.
-      DI.uncache('__configurationSchema__');
-      for (const other of before) DI.register(other as any).asValue('__configurationSchema__');
+      await child.dispose();
     }
-    expect(schemas()).to.not.include(AUTHZ_CONFIGURATION_SCHEMA);
-    expect(schemas()).to.have.length(before.length);
   });
 });
 
