@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { AuthenticationStrategy, AuthnEventSink, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
@@ -12,6 +12,7 @@ import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
+import { readingFrom } from '../support/config-boot.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
 
 const NOW = new Date('2026-10-03T10:00:00.000Z');
@@ -227,6 +228,31 @@ describe('TokenStrategy', function () {
       expect(strategy.accepts(bearer(token))).to.equal(false);
       setToken('prefix', 'key_');
       expect(strategy.accepts(bearer(token))).to.equal(true);
+    });
+
+    it('lets a refused authn.token configuration through instead of declining the credential', async () => {
+      const refused = new InvalidConfiguration('authn.token refused', [], [{ path: 'authn.token.prefix', schema: 'authn', message: 'refused' }]);
+      class RefusingConfiguration extends FrameworkConfiguration {
+        public async resolve(): Promise<void> {}
+
+        public get<T>(): T {
+          throw refused;
+        }
+      }
+      const child = DI.RootContainer.child();
+      try {
+        child.register(RefusingConfiguration).as(Configuration);
+        await child.resolve(Configuration);
+        const s = readingFrom(new TokenStrategy(tokens), child);
+        const c = bearer(`spt_${'a'.repeat(43)}`);
+
+        expect(() => s.accepts(c)).to.throw(InvalidConfiguration);
+        expect(() => s.throttleKeys(c, ctx())).to.throw(InvalidConfiguration);
+        expect(await s.verify(c, ctx()).catch((e: unknown) => e)).to.equal(refused);
+        expect(tokens.validated).to.deep.equal([]);
+      } finally {
+        await child.dispose();
+      }
     });
   });
 

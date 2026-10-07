@@ -58,8 +58,9 @@ export class TokenStrategy extends AuthenticationStrategy {
    * out-of-format value past the format gate. A hostile object reads as "not ours".
    */
   protected tokenOf(c: Credentials): string | null {
+    // Outside the try: a refused authn.token section must fail the request, not read as "not ours".
+    const prefix = this.Prefix;
     try {
-      const prefix = this.Prefix;
       // Credentials does not narrow by kind, so every field is checked at runtime.
       if (typeof c !== 'object' || c === null || c.kind !== 'bearer') {
         return null;
