@@ -41,6 +41,13 @@ describe('http.socket configuration schema', () => {
       ['a missing hooks block', { hooks: undefined }, 'http.socket.hooks'],
       ['a missing ordering block', { ordering: undefined }, 'http.socket.ordering'],
       ['a missing revalidation interval', { auth: { required: false } }, 'http.socket.auth.revalidateMs'],
+      ['an auth switch that is not a boolean', { auth: { required: 'maybe', revalidateMs: 0 } }, 'http.socket.auth.required'],
+      ['an empty path', { path: '' }, 'http.socket.path'],
+      ['a zero ping interval', { pingInterval: 0 }, 'http.socket.pingInterval'],
+      ['a fractional ping timeout', { pingTimeout: 1.5 }, 'http.socket.pingTimeout'],
+      ['a negative drain time', { drainMs: -1 }, 'http.socket.drainMs'],
+      ['a negative recovery window', { recovery: { maxDisconnectionMs: -1 } }, 'http.socket.recovery.maxDisconnectionMs'],
+      ['a repeated transport', { transports: ['websocket', 'websocket'] }, 'http.socket.transports'],
     ];
 
     for (const [label, patch, path] of cases) {
@@ -50,9 +57,23 @@ describe('http.socket configuration schema', () => {
     }
   });
 
-  it('SocketConfigBootstrapper registers the schema', () => {
-    new SocketConfigBootstrapper().bootstrap();
+  describe('SocketConfigBootstrapper', () => {
+    const schemas = (): unknown[] => (DI.get(Array.ofType('__configurationSchema__' as never)) as unknown[] | null) ?? [];
+    let saved: unknown[] = [];
 
-    expect(DI.RootContainer.Cache.get('__configurationSchema__', false) ?? []).to.include(SOCKET_CONFIGURATION_SCHEMA);
+    beforeEach(() => {
+      saved = [...schemas()];
+    });
+
+    afterEach(() => {
+      DI.uncache('__configurationSchema__' as never);
+      for (const other of saved) DI.register(other as never).asValue('__configurationSchema__');
+    });
+
+    it('registers the schema in the root container', () => {
+      new SocketConfigBootstrapper().bootstrap();
+
+      expect(schemas()).to.include(SOCKET_CONFIGURATION_SCHEMA);
+    });
   });
 });

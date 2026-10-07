@@ -6,7 +6,6 @@ const ORIGIN_PATTERN = '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#*@\\\\\\s]+/?$';
 
 // anyOf with const null first: as a type union Ajv warns, and coerceTypes would turn null into '' or false.
 const headerList = { anyOf: [{ type: 'array', items: { type: 'string' } }, { const: null }, { type: 'string' }] };
-const positive = { type: 'number', exclusiveMinimum: 0 };
 const positiveInteger = { type: 'integer', minimum: 1 };
 
 export const HTTP_CONFIGURATION_SCHEMA = {
@@ -70,26 +69,6 @@ export const HTTP_CONFIGURATION_SCHEMA = {
             },
           },
         },
-      },
-    },
-    socket: {
-      type: 'object',
-      description: 'Ranges and cross-field rules of the socket server (http-socket). Defaults stay in the http-socket package config.',
-      properties: {
-        path: nonEmpty,
-        pingInterval: positiveInteger,
-        pingTimeout: positiveInteger,
-        drainMs: { type: 'number', minimum: 0 },
-        maxPayloadBytes: positiveInteger,
-        maxInFlightPerConnection: positiveInteger,
-        // A cap below the burst would drop events the rate limit lets through.
-        maxInFlightEventsPerConnection: { type: 'integer', exclusiveMinimum: 0, minimum: { $data: '1/rate/burst' } },
-        rate: { type: 'object', properties: { perSecond: positive, burst: positive } },
-        auth: { type: 'object', properties: { required: { type: 'boolean' }, revalidateMs: { type: 'number', minimum: 0 } } },
-        recovery: { type: 'object', properties: { maxDisconnectionMs: { type: 'number', minimum: 0 } } },
-        ordering: { type: 'object', properties: { abortGraceMs: positive } },
-        hooks: { type: 'object', properties: { connectTimeoutMs: positive } },
-        transports: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['websocket', 'polling'] } },
       },
     },
   },

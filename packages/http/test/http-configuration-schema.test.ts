@@ -103,26 +103,8 @@ describe('http configuration schema', () => {
     });
   });
 
-  describe('socket', () => {
-    const sound = { rate: { perSecond: 20, burst: 40 }, maxPayloadBytes: 1024, maxInFlightPerConnection: 32, maxInFlightEventsPerConnection: 128, auth: { required: false, revalidateMs: 0 }, transports: ['websocket'] };
-
-    it('accepts the shipped shape', async () => {
-      expect(await bad({ socket: sound })).to.deep.eq([]);
-    });
-
-    it('names the key of every range the limits check used to throw RangeError for', async () => {
-      expect(await bad({ socket: { ...sound, rate: { perSecond: 0, burst: 40 } } })).to.include('http.socket.rate.perSecond');
-      expect(await bad({ socket: { ...sound, maxPayloadBytes: 0 } })).to.include('http.socket.maxPayloadBytes');
-      expect(await bad({ socket: { ...sound, maxInFlightPerConnection: 1.5 } })).to.include('http.socket.maxInFlightPerConnection');
-      expect(await bad({ socket: { ...sound, auth: { revalidateMs: -1 } } })).to.include('http.socket.auth.revalidateMs');
-      expect(await bad({ socket: { ...sound, transports: ['websocket', 'tcp'] } })).to.include('http.socket.transports.1');
-      expect(await bad({ socket: { ...sound, transports: [] } })).to.include('http.socket.transports');
-    });
-
-    it('requires the event cap to be at least the burst ($data)', async () => {
-      expect(await bad({ socket: { ...sound, rate: { perSecond: 1, burst: 200 } } })).to.include('http.socket.maxInFlightEventsPerConnection');
-      expect(await bad({ socket: { ...sound, rate: { perSecond: 1, burst: 128 } } })).to.deep.eq([]);
-    });
+  it('leaves http.socket to the http-socket schema', async () => {
+    expect(await bad({ socket: { maxPayloadBytes: 0 } })).to.deep.eq([]);
   });
 
   it('reports every violation, not the first', async () => {

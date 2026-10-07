@@ -3,6 +3,7 @@ import { Bootstrapper, Injectable } from '@spinajs/di';
 
 const positive = { type: 'number', exclusiveMinimum: 0 };
 const positiveInteger = { type: 'integer', exclusiveMinimum: 0 };
+const nonNegative = { type: 'number', minimum: 0 };
 
 export const SOCKET_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/http-socket.configuration.schema.json',
@@ -11,14 +12,19 @@ export const SOCKET_CONFIGURATION_SCHEMA = {
   type: 'object',
   required: ['rate', 'maxPayloadBytes', 'maxInFlightPerConnection', 'maxInFlightEventsPerConnection', 'auth', 'hooks', 'ordering'],
   properties: {
+    path: { type: 'string', minLength: 1 },
+    pingInterval: positiveInteger,
+    pingTimeout: positiveInteger,
+    drainMs: nonNegative,
     rate: { type: 'object', required: ['perSecond', 'burst'], properties: { perSecond: positive, burst: positive } },
     maxPayloadBytes: positiveInteger,
     maxInFlightPerConnection: positiveInteger,
     // a cap below the burst would drop events the rate limit lets through
     maxInFlightEventsPerConnection: { ...positiveInteger, minimum: { $data: '1/rate/burst' } },
-    auth: { type: 'object', required: ['revalidateMs'], properties: { revalidateMs: { type: 'number', minimum: 0 } } },
+    auth: { type: 'object', required: ['revalidateMs'], properties: { required: { type: 'boolean' }, revalidateMs: nonNegative } },
+    recovery: { type: 'object', properties: { maxDisconnectionMs: nonNegative } },
     // absent leaves socket.io's default
-    transports: { type: 'array', minItems: 1, items: { type: 'string', enum: ['websocket', 'polling'] } },
+    transports: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['websocket', 'polling'] } },
     hooks: { type: 'object', required: ['connectTimeoutMs'], properties: { connectTimeoutMs: positive } },
     ordering: { type: 'object', required: ['abortGraceMs'], properties: { abortGraceMs: positive } },
   },
