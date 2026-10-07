@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOperation, JsonValidationFailed, MethodNotImplemented, NotSupported, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { DataValidator } from '@spinajs/validation';
 import { AccessDenied, FALSE, Unauthenticated } from '@spinajs/authz';
@@ -126,6 +127,37 @@ describe('socket error mapping', function () {
     const wire = mapper.toWire('boom', 'test');
     expect(wire.code).to.equal('internal');
     expect(wire.message).to.equal('boom');
+  });
+
+  describe('without a configuration.isProduction boolean', () => {
+    let saved: { APP_ENV?: string; NODE_ENV?: string };
+
+    beforeEach(async () => {
+      saved = { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV };
+      delete process.env.NODE_ENV;
+      ((await DI.resolve(Configuration)) as Configuration).set(['configuration', 'isProduction'], undefined);
+    });
+
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    it('hides the internal message when the env names production', () => {
+      process.env.APP_ENV = 'production';
+      const wire = DI.resolve(SocketErrorMapper).toWire(new Error('db password is hunter2'), 'test');
+
+      expect(wire).to.deep.equal({ code: 'internal', message: 'Internal server error', retryable: false, errorId: wire.errorId });
+    });
+
+    it('shows it when the env names development', () => {
+      process.env.APP_ENV = 'development';
+      const wire = DI.resolve(SocketErrorMapper).toWire(new Error('kaput'), 'test');
+
+      expect(wire.message).to.equal('kaput');
+    });
   });
 
   it('hides the internal message in production', async () => {

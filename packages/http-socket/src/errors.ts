@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOperation, JsonValidationFailed, MethodNotImplemented, NotSupported, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
-import { AccessDenied } from '@spinajs/authz';
+import { AccessDenied, isProduction } from '@spinajs/authz';
 import type { DenyReason } from '@spinajs/authz';
 import { DEFAULT_RETRYABLE, ErrorCode, SocketError, SocketException } from '@spinajs/http-socket-common';
 
@@ -117,8 +117,8 @@ export class SocketErrorMapper {
   @Logger('http-socket')
   protected Log: Log;
 
-  @Config('configuration.isProduction', { defaultValue: false })
-  protected IsProduction: boolean;
+  @Config('configuration.isProduction')
+  protected IsProduction: boolean | undefined;
 
   /**
    * @param context - what failed, for the log line ( eg. `command docs.open` )
@@ -143,7 +143,7 @@ export class SocketErrorMapper {
 
     this.Log.error(err, `Socket ${context} failed, errorId: ${errorId}`);
 
-    if (this.IsProduction) {
+    if (isProduction(this.IsProduction)) {
       return { code: 'internal', message: 'Internal server error', retryable: false, errorId };
     }
 
