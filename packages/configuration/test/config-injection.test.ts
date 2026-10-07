@@ -5,7 +5,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
-import { Config } from '../src/decorators.js';
+import { AutoinjectService, Config } from '../src/decorators.js';
 import { configurationOf, NoSource } from './fixtures.js';
 
 @PerChildInstance()
@@ -24,6 +24,16 @@ const sharedConfiguration = (values: Record<string, unknown>) => {
   class SharedConfiguration extends Base {}
   return SharedConfiguration;
 };
+
+class Speaker {}
+class Loud extends Speaker {}
+class Quiet extends Speaker {}
+
+@PerChildInstance()
+class Room {
+  @AutoinjectService('feature.speaker', Speaker)
+  public Speaker: Speaker;
+}
 
 class Plain {
   @Config('feature.value')
@@ -144,5 +154,32 @@ describe('@Config reads the Configuration of the container that built the instan
     const service = c.resolve(PerChild) as PerChild;
 
     expect(() => service.Value).to.throw(InvalidOperation, /feature.value/);
+  });
+
+  describe('@AutoinjectService', () => {
+    const scenario = async () => {
+      const s = child(undefined, DI.RootContainer);
+      s.register(sharedConfiguration({ feature: { speaker: 'Loud' } })).as(Configuration);
+      s.register(Loud).as(Speaker);
+      s.register(Quiet).as(Speaker);
+      s.register(Room).asSelf();
+      await s.resolve(Configuration);
+      return s;
+    };
+
+    it('reads the service name from the Configuration of a child that has its own', async () => {
+      const c = child(undefined, await scenario());
+      c.register(sharedConfiguration({ feature: { speaker: 'Quiet' } })).as(Configuration);
+      await c.resolve(Configuration);
+
+      expect((await c.resolve(Room)).Speaker).to.be.instanceOf(Quiet);
+    });
+
+    it('does not take the service name from a same-named Configuration class in an ancestor', async () => {
+      const c = child(undefined, await scenario());
+      c.register(sharedConfiguration({ feature: { speaker: 'Quiet' } })).as(Configuration);
+
+      expect(() => c.resolve(Room)).to.throw(InvalidOperation, /feature.speaker/);
+    });
   });
 });

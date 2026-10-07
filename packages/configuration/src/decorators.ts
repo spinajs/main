@@ -169,10 +169,10 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         return x.ServiceName || x.constructor.name;
       },
       serviceFunc: (data: string | any[], container: IContainer) => {
-        const cfg = container.get(Configuration);
+        const cfg = getOwnConfiguration(container);
 
         if (!cfg) {
-          throw new Error(`Configuration service is not registered in DI container. Cannot autoinject service for property ${propertyKey.toString()}, path: ${data}`);
+          throw new InvalidOperation(`Cannot autoinject service for property ${propertyKey.toString()}, path: ${String(data)}: the Configuration of the container is not resolved`);
         }
 
         let cfgVal: any;
