@@ -761,6 +761,21 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual((await p.service.authenticate(external, ctx())).status, 'success');
     });
 
+    it('takes only true as on for a switch set past the schema', async () => {
+      let p: CoreParts | undefined;
+      for (const on of ['false', 1, 'true']) {
+        await p?.dispose();
+        p = await bootLinking({}, subject({ email: 'new@example.test' }));
+        await seedAlice(p);
+        p.externalSubjects.set('sub-2', subject({ subject: 'sub-2' }));
+        p.configuration.set('authn.linking', { jit: on, byVerifiedEmail: on });
+        failure(await p.service.authenticate(external, ctx()), 'not_linked');
+        failure(await p.service.authenticate({ ...external, payload: { subject: 'sub-2' } } as Credentials, ctx()), 'not_linked');
+        assert.strictEqual(p.identities.calls.provision.length, 0, String(on));
+        assert.strictEqual(p.links.links.length, 0, String(on));
+      }
+    });
+
     it('logs a linked subject in as its identity', async () => {
       const p = await bootLinking({});
       const a = await seedAlice(p);

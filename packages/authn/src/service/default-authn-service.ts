@@ -502,13 +502,15 @@ export class DefaultAuthnService extends AuthnService {
     if (!this.links) return { id: null };
     const found = await this.links.find(external.provider, external.subject);
     if (found) return { id: found.identity };
-    const own = this.Linking.jit || this.Linking.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
-    if (this.Linking.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+    // === true: a value set at runtime never went through the schema, and a truthy string must not switch linking on.
+    const global = { jit: this.Linking.jit === true, byVerifiedEmail: this.Linking.byVerifiedEmail === true };
+    const own = global.jit || global.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
+    if (global.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
       // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
       if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
     }
-    if (this.Linking.jit && own.jit && typeof this.identities.provision === 'function') {
+    if (global.jit && own.jit && typeof this.identities.provision === 'function') {
       return { id: await this.identities.provision(external), link: external, provisioned: true };
     }
     return { id: null };

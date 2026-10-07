@@ -76,7 +76,8 @@ export class LogAuthnAuditSink extends AuthnEventSink {
   }
 
   private id(domain: string, value: string, shown = value): string {
-    if (!this.config.hashIdentifiers && !value.includes('@')) return enc(shown);
+    // === false: a value set at runtime never went through the schema, and only false may write raw identifiers.
+    if (this.config.hashIdentifiers === false && !value.includes('@')) return enc(shown);
     return createHmac('sha256', this.key).update(`${domain}|${value}`).digest('base64url');
   }
 }
