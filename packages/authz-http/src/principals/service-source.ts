@@ -29,10 +29,10 @@ export class ServicePrincipalSource extends PrincipalSource {
   public readonly order = 40;
 
   @Config('authz.http.services')
-  protected Services: readonly ServiceEntry[];
+  protected Services: readonly ServiceEntry[] | undefined;
 
   public async authenticate(req: Request): Promise<Principal | null> {
-    for (const service of servicePrincipals(this.Services)) {
+    for (const service of servicePrincipals(this.Services ?? [])) {
       const presented = req.headers?.[service.header];
       if (typeof presented !== 'string' || presented.length === 0) {
         continue;
