@@ -11,6 +11,7 @@ import { parsePrincipalKey, scopeFromColumns, scopeToColumns, toDate } from './c
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
 import { pageWindow } from './queries.js';
+import { LINK_SECRET_MIN_LENGTH } from './schema.js';
 import { normaliseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -22,7 +23,6 @@ export const LINK_SECRET_KEY = 'authz.rbac.links.secret';
 /** The most links one `find` call returns, with or without a page. */
 export const LINK_LIST_MAX_LIMIT = 1000;
 
-const MIN_SECRET_LENGTH = 32;
 const TOKEN_BYTES = 32;
 // `token_hash` is `v1:<hex HMAC-SHA256(secret, token)>`; the prefix names the key so a rotation can add v2.
 const HASH_VERSION = 'v1';
@@ -253,8 +253,8 @@ export class DbLinkStore extends AdminLinkStore {
     const secret = this.Secret;
 
     // Floor for a secret that bypassed the schema (a runtime set): a weak key would let links be forged.
-    if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
-      throw new AuthzConfigError(`${LINK_SECRET_KEY} must be set to hash share link tokens: a string of at least ${MIN_SECRET_LENGTH} characters`);
+    if (typeof secret !== 'string' || secret.length < LINK_SECRET_MIN_LENGTH) {
+      throw new AuthzConfigError(`${LINK_SECRET_KEY} must be set to hash share link tokens: a string of at least ${LINK_SECRET_MIN_LENGTH} characters`);
     }
 
     return secret;

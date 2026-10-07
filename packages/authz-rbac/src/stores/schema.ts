@@ -4,6 +4,9 @@ import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_R
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
+/** The shortest authz.rbac.links.secret, the HMAC key of share link tokens. */
+export const LINK_SECRET_MIN_LENGTH = 32;
+
 const name = { type: 'string', minLength: 1 };
 const stringList = { type: 'array', items: name };
 const roleName = { type: 'string', pattern: ROLE_NAME_PATTERN, maxLength: ROLE_NAME_MAX_LENGTH };
@@ -165,7 +168,7 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
       then: { properties: { rolesCheckSeconds: false } },
     },
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
-    links: { type: 'object', properties: { secret: { type: 'string', minLength: 32 } } },
+    links: { type: 'object', properties: { secret: { type: 'string', minLength: LINK_SECRET_MIN_LENGTH } } },
     connection: name,
   },
 };
