@@ -37,13 +37,13 @@ function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
   }
 }
 
-// A throttle that cannot be selected is not reported here; only what the selected one refuses, as boot would.
+// What boot refuses: a throttle that cannot be selected, or what the selected one refuses.
 async function throttleFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
   let throttle: AuthnThrottle;
   try {
     throttle = await selectAuthnThrottle(container, config.get<string | undefined>('authn.throttle.service'));
-  } catch {
-    return [];
+  } catch (e) {
+    return [{ topic: 'throttle', level: 'error', message: safeMessage(e, 'selecting the throttle') }];
   }
   try {
     await throttle.checkConfiguration?.(config);

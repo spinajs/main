@@ -239,6 +239,12 @@ describe('authn:check-config', () => {
       expect(env).to.eq('production');
     });
 
+    it('reports a throttle that cannot be selected as an error, as boot fails on it', async () => {
+      const f = await check(merge(sound(), { authn: { throttle: { service: 'MissingThrottle' } } }));
+      expect(topics(f)).to.deep.eq(['throttle:error']);
+      expect(f[0].message).to.contain('"MissingThrottle"');
+    });
+
     it('finds nothing when the throttle accepts the configuration or has no check', async () => {
       const accepting = throttleNamed('AcceptingThrottle', async () => undefined);
       expect(await check(accepting.values, { register: accepting.register })).to.deep.eq([]);
