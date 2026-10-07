@@ -231,6 +231,22 @@ describe('AuthnImpersonationService', function () {
       assert.ok((await svc.start(admin, b, ctx(at(3600 * SECOND)))).ok);
     });
 
+    it('keeps requireMfa and requirePassword on for any value but false set past the schema', async () => {
+      let booted: Booted | undefined;
+      for (const value of [undefined, null, 0, '', 'false']) {
+        await booted?.p.dispose();
+        booted = await boot({ requirePassword: false });
+        booted.p.configuration.set('authn.impersonation.requireMfa', value);
+        const aal1 = await issue(booted.p, booted.a, { assurance: 'aal1', mfa: [] });
+        assert.deepStrictEqual(await booted.svc.start(aal1, booted.b, ctx()), { ok: false }, `requireMfa ${String(value)}`);
+        booted.p.configuration.set('authn.impersonation.requireMfa', false);
+        booted.p.configuration.set('authn.impersonation.requirePassword', value);
+        const stale = await issue(booted.p, booted.a);
+        assert.deepStrictEqual(await booted.svc.start(stale, booted.b, ctx(at(3600 * SECOND))), { ok: false }, `requirePassword ${String(value)}`);
+        assert.deepStrictEqual(reasons(booted.p, 'impersonation.start'), ['mfa_required', 'not_fresh'], String(value));
+      }
+    });
+
     it('fails closed when the new session cannot be set up: the new one is revoked, the old one stays', async () => {
       const { p, svc, a, b } = await boot();
       const admin = await issue(p, a);
@@ -641,6 +657,26 @@ describe('AuthnImpersonationService', function () {
       for (const bad of [0, -5, 1.5, 'abc']) {
         const paths = await violationPaths(boot(undefined, {}, { session: { expiration: { maxLifetime: bad } } }));
         assert.ok(paths.includes('authn.session.expiration.maxLifetime'), `${String(bad)}: ${paths.join(', ')}`);
+      }
+    });
+
+    it('ends the impersonation on a maxMinutes or maxLifetime set past the schema that is not a finite positive number', async () => {
+      const cases: [string, unknown, string][] = [];
+      for (const bad of [null, Number.NaN, Infinity, 0, -1, '30']) {
+        cases.push(['authn.impersonation.maxMinutes', bad, 'max_minutes'], ['authn.session.expiration.maxLifetime', bad, 'session_lifetime']);
+      }
+      cases.push(['authn.impersonation.maxMinutes', undefined, 'max_minutes']);
+      let booted: Booted | undefined;
+      for (const [path, bad, reason] of cases) {
+        await booted?.p.dispose();
+        booted = await boot();
+        const { imp } = await started(booted);
+        booted.p.configuration.set(path, bad);
+        const label = `${path} ${String(bad)}`;
+        assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null, label);
+        assert.strictEqual(await booted.p.sessions.restore(imp.id), null, label);
+        const ended = [...events(booted.p, 'impersonation.expire'), ...events(booted.p, 'impersonation.end')].map((e) => e.reason);
+        assert.deepStrictEqual(ended, [reason], label);
       }
     });
 

@@ -59,6 +59,10 @@ const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(e
 
 const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
 
+// The schema is the gate; the checks below hold for values set at runtime that never went through it: a switch is off
+// only when false, and a limit that is not a finite positive number ends the session instead of never ending it.
+const positive = (v: unknown): v is number => Number.isFinite(v) && (v as number) > 0;
+
 /** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
@@ -236,10 +240,10 @@ export class AuthnImpersonationService extends AsyncService {
     if (sameRef(stored.identity, target)) return { reason: 'self' };
     // Sessions are for users only (D12).
     if (target.type !== 'user') return { reason: 'non_user_target' };
-    if (this.Settings.requireMfa && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
+    if (this.Settings.requireMfa !== false && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
     const actorRefused = await this.statusRefusal(stored.identity);
     if (actorRefused) return { reason: actorRefused };
-    if (this.Settings.requirePassword && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
+    if (this.Settings.requirePassword !== false && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
       return { reason: 'not_fresh' };
     }
     const targetRefused = await this.statusRefusal(target);
@@ -257,7 +261,8 @@ export class AuthnImpersonationService extends AsyncService {
   private ending(stored: Stored, ctx: AuthnContext): Ending | null {
     const started = this.startedAt(stored, ctx);
     if (started === null) return { type: 'impersonation.end', reason: 'invalid_block' };
-    if (ctx.now.getTime() - started.getTime() >= this.Settings.maxMinutes * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
+    const max = this.Settings.maxMinutes;
+    if (!positive(max) || ctx.now.getTime() - started.getTime() >= max * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
     if (this.beyondLifetime(stored.facts, ctx)) return { type: 'impersonation.end', reason: 'session_lifetime' };
     return null;
   }
@@ -283,7 +288,8 @@ export class AuthnImpersonationService extends AsyncService {
   /** Start and stop issue new sessions, so the store's absolute lifetime would start again without this bound (I1). */
   private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
     const at = facts.authenticatedAt;
-    return !validDate(at) || ctx.now.getTime() - at.getTime() >= this.MaxLifetimeMinutes * MINUTE_MS;
+    const max = this.MaxLifetimeMinutes;
+    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= max * MINUTE_MS;
   }
 
   /** Why the guard, or its absence, refuses `actor` impersonating `target` now; null when it consents. */
