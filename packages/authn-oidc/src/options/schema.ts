@@ -1,5 +1,6 @@
 import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../contracts.js';
 import type { OidcReservedParam } from '../contracts.js';
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 export const OIDC_RESERVED_PARAMS: readonly OidcReservedParam[] = Object.freeze(['response_type', 'response_mode', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method', 'request', 'request_uri', 'max_age', 'acr_values'] satisfies OidcReservedParam[]);
 
@@ -125,3 +126,5 @@ export const AUTHN_OIDC_CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHN_OIDC_CONFIGURATION_SCHEMA);
