@@ -1,5 +1,8 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
+// Ajv's option types: a boolean, or one of its named modes.
+const ajvOption = (...modes: string[]) => ({ anyOf: [{ type: 'boolean' }, { enum: modes }] });
+
 const CONFIGURATION_SCHEMA = {
   $id: 'spinajs/validation.configuration.schema.json',
   $configurationModule: 'validation',
@@ -7,9 +10,9 @@ const CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     allErrors: { type: 'boolean' },
-    removeAdditional: { type: 'boolean' },
-    useDefaults: { type: 'boolean' },
-    coerceTypes: { type: 'boolean' },
+    removeAdditional: ajvOption('all', 'failing'),
+    useDefaults: ajvOption('empty'),
+    coerceTypes: ajvOption('array'),
     messages: { type: 'boolean' },
   },
 };
