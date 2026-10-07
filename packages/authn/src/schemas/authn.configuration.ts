@@ -242,7 +242,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       },
       allOf: [
         // force and forceForRoles both require the first step, so there must be one (DefaultMfaPolicy). The `if` sees the
-        // raw value, before coercion, so it names every spelling that coerces to true.
+        // raw value, before coercion, so it lists the values Ajv coerces to true ('true', 1) and also '1', which Ajv does not
+        // coerce and the type check refuses: its error then names the missing step too.
         {
           if: { type: 'object', required: ['policy'], properties: { policy: { type: 'object', required: ['force'], properties: { force: { enum: [true, 'true', 1, '1'] } } } } },
           then: { required: ['steps'], properties: { steps: { type: 'array', minItems: 1 } } },

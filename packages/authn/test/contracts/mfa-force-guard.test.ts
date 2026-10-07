@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { configuredChild, violationPaths } from '../behaviour/harness.js';
 
 // Ajv evaluates the `if` on the raw value, before `properties` coerces 'true' or 1 into true.
-describe('authn.mfa.policy.force needs a step, whatever spelling coerces to true', () => {
+describe("authn.mfa.policy.force needs a step for true, the values Ajv coerces to it ('true', 1), and '1'", () => {
   const children: IContainer[] = [];
 
   afterEach(async () => {
