@@ -59,13 +59,13 @@ export class TokenAuthMiddleware extends ServerMiddleware {
   @Logger('rbac-http-token')
   protected Log: Log;
 
-  @Config('authn.token.headerName', { defaultValue: 'x-api-key' })
+  @Config('authn.token.headerName')
   protected HeaderName: string;
 
-  @Config('authn.token.lastUsedUpdateInterval', { defaultValue: 60 })
+  @Config('authn.token.lastUsedUpdateInterval')
   protected LastUsedUpdateInterval: number;
 
-  @Config('authn.token.prefix', { defaultValue: 'spt_' })
+  @Config('authn.token.prefix')
   protected TokenPrefix: string;
 
   constructor() {
