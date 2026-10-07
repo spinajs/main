@@ -102,6 +102,7 @@ describe('golden conversions', () => {
           const root = f.name.split('-')[0] as 'authz' | 'authn';
           if (!f.name.endsWith('.ts') || !(root in validate)) continue;
           // An env file is loaded over the common one, so it is validated as the app sees it, merged.
+          // _.merge joins arrays by index where the loader concatenates them (its mergeArrays is not exported); no golden env file holds an array the common one also sets.
           const common = r.files.find((x) => x.name === `${root}-generated.ts`);
           const value = _.merge({}, common && common !== f ? read(common.content)[root] : {}, structuredClone(read(f.content)[root]));
           // The finding leaves privilegedPermission to a person; give it one, as they would.

@@ -240,6 +240,12 @@ describe('convertGrants', () => {
       expect(f.list.map((x) => x.code)).to.include('declared-without-grants');
     });
 
+    it('leaves a role name the 3.0 schema refuses for a person, and passes a 2.x name with an inner space', () => {
+      const { r, f } = run({ grants: { '2nd-line': {}, true: {}, user: { $extend: ['-1'] } }, roles: [{ Name: 'Stock editor' }] });
+      expect([...r.roles.keys()]).to.include.members(['2nd-line', 'true', 'Stock editor']);
+      expect(f.list.filter((x) => x.code === 'role-name').map((x) => x.path)).to.deep.equal(['rbac.grants["2nd-line"]', 'rbac.grants.true', 'rbac.grants.user.$extend']);
+    });
+
     it('warns about granted roles that differ only in case and keeps both', () => {
       const { r, f } = run({ grants: { Editor: {}, editor: {} } });
       expect([...r.roles.keys()]).to.deep.equal(['Editor', 'editor']);

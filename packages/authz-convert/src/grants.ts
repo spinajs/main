@@ -1,4 +1,4 @@
-import { isFieldGlob, isPermission, normalizeFieldGlobs } from '@spinajs/authz';
+import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, isFieldGlob, isPermission, normalizeFieldGlobs } from '@spinajs/authz';
 
 import type { Findings } from './findings.js';
 import { RBAC_2X_PACKAGE_EXTENDS, RBAC_2X_PACKAGE_GRANTS } from './legacy.js';
@@ -14,6 +14,7 @@ const DEFAULT_SCOPE = 'default';
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 const RESERVED_RELATIONS = ['owner', 'self'];
 const POSSESSIONS = ['own', 'any'];
+const ROLE_NAME = new RegExp(ROLE_NAME_PATTERN, 'u');
 
 /** 2.x's virtual resource for impersonation; 2.x only ever asked `createAny` of it (design §18.1). */
 export const IMPERSONATE_RESOURCE = 'user:impersonate';
@@ -234,6 +235,12 @@ function impersonation(actions: Plain, at: string, f: Findings): Grant[] {
  */
 export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx?: GrantsContext): GrantsResult {
   const roles = new Map<string, RoleOut>();
+  // Written as is: renaming would orphan the stored assignments, so a person renames it in both places.
+  const checkName = (name: string, at: string) => {
+    if (name.length > ROLE_NAME_MAX_LENGTH || !ROLE_NAME.test(name)) {
+      f.manual('role-name', `Role '${name}' is no valid 3.0 role name (no leading digit or minus-digit, not true/false, no edge whitespace, at most ${ROLE_NAME_MAX_LENGTH} characters), so authz.rbac fails the boot. Rename it here and in the stored role assignments.`, at);
+    }
+  };
   const permissions = new Map<string, { fields: boolean }>();
   const relations = new Map<string, Set<string>>();
 
@@ -254,6 +261,7 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
       f.refuse(`${at} must be an object`);
       continue;
     }
+    checkName(role, at);
     const out: RoleOut = { grants: [] };
     for (const [resource, actions] of Object.entries(def)) {
       if (resource === '$extend') {
@@ -261,6 +269,7 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
         else if ((actions as string[]).includes(role)) f.refuse(`${keyPath(at, '$extend')}: role '${role}' extends itself, which 2.x refused at boot`);
         else if (actions.length > 0) {
           out.extends = [...new Set(actions as string[])];
+          for (const r of out.extends) checkName(r, keyPath(at, '$extend'));
           const pkg = RBAC_2X_PACKAGE_EXTENDS[role];
           if (pkg) f.info('package-extends', `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written, and the 3.0 packages define their own '${role}'.`, keyPath(at, '$extend'));
         }
@@ -346,6 +355,7 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
           `Role '${name}' is declared but has no grants; it was written with no grants so it can be assigned. In 2.x a user holding it with other roles got no permission at all (accesscontrol refused the role list); in 3.0 the other roles apply.`,
           at,
         );
+        checkName(name, at);
         roles.set(name, { ...(description === undefined ? {} : { description }), grants: [] });
       });
     }
