@@ -2,6 +2,7 @@ import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 const name = { type: 'string', minLength: 1 };
 const stringList = { type: 'array', items: name };
@@ -168,3 +169,5 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     connection: name,
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_RBAC_CONFIGURATION_SCHEMA);

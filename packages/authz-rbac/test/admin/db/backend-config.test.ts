@@ -3,6 +3,7 @@ import 'mocha';
 import { AUTHZ_CONFIGURATION_SCHEMA, AuthzConfigError } from '@spinajs/authz';
 import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 
@@ -34,7 +35,15 @@ describe('DbAuthzAdminBackend reads authz.admin.connection through @Config', () 
   });
 
   it('fails closed with a named error when an unvalidated configuration leaves the connection unset', async () => {
-    const { child } = await bootConfiguration({ authz: {} }, []);
+    // Loading @spinajs/authz registers its schema in the root; DI.clearCache() drops it, as this does.
+    const registered = [...(DI.RootContainer.Cache.get('__configurationSchema__', false) as object[])];
+    DI.uncache('__configurationSchema__' as never);
+    let child: IContainer;
+    try {
+      child = (await bootConfiguration({ authz: {} }, [])).child;
+    } finally {
+      for (const s of registered) DI.register(s).asValue('__configurationSchema__');
+    }
     children.push(child);
     class FakeOrm {
       Connections = new Map([['default', {}]]);

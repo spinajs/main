@@ -1,5 +1,5 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 /** One `authz.http.services` entry as configured. */
 export interface ServiceEntry {
@@ -74,6 +74,8 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_HTTP_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AuthzHttpConfigBootstrapper extends Bootstrapper {

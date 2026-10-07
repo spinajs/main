@@ -1,6 +1,7 @@
 import { AUTHZ_DEFAULTS } from './defaults.js';
 import { ADMIN_DEFAULTS } from '../../admin/config.js';
 import { PERMISSION_PATTERN } from '../../contracts/permission.js';
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 const D = AUTHZ_DEFAULTS;
 
@@ -211,3 +212,5 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     config: { type: 'object', default: {}, properties: { rejectLegacyKeys: { type: 'boolean', default: D.config.rejectLegacyKeys } } },
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_CONFIGURATION_SCHEMA);

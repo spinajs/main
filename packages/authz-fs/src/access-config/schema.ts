@@ -1,5 +1,5 @@
 import { PERMISSION_PATTERN } from '@spinajs/authz';
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
 import { FS_METADATA_DEFAULT_CONNECTION } from '../metadata/connection.js';
@@ -63,6 +63,9 @@ export const AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: { connection: { ...name, default: FS_METADATA_DEFAULT_CONNECTION } },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_FS_CONFIGURATION_SCHEMA);
+registerConfigurationSchemaAtImport(AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AuthzFsConfigBootstrapper extends Bootstrapper {

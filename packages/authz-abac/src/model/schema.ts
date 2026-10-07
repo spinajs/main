@@ -1,4 +1,4 @@
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
 /** The policy stores `authz.<model>.stores` may name (design §8.3). */
@@ -19,6 +19,8 @@ export const AUTHZ_ABAC_CONFIGURATION_SCHEMA = {
     connection: { type: 'string', minLength: 1, default: ABAC_DEFAULT_CONNECTION },
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_ABAC_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AbacConfigBootstrapper extends Bootstrapper {

@@ -1,4 +1,4 @@
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
 const name = { type: 'string', minLength: 1 };
@@ -22,6 +22,9 @@ export const AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: { topic: name },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_QUEUE_CONFIGURATION_SCHEMA);
+registerConfigurationSchemaAtImport(AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AuthzQueueConfigBootstrapper extends Bootstrapper {

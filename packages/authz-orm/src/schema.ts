@@ -1,4 +1,4 @@
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
 export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
@@ -11,6 +11,8 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
     domain: { type: 'string', minLength: 1, default: 'root' },
   },
 };
+
+registerConfigurationSchemaAtImport(AUTHZ_ORM_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AuthzOrmConfigBootstrapper extends Bootstrapper {
