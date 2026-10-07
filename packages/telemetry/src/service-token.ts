@@ -23,7 +23,7 @@ export function bridgeTelemetryToken(cfg: Pick<Configuration, 'get' | 'set'>, lo
   if (typeof token !== 'string' || token.length === 0) return;
 
   const services = cfg.get<unknown>(SERVICES) ?? [];
-  // authz-http reports a malformed list when it reads it.
+  // authz-http's schema refuses a list that is not an array; this skips one that never went through it.
   if (!Array.isArray(services)) return;
 
   const own = services.filter((s) => isRecord(s) && s.name === TELEMETRY_SERVICE);
