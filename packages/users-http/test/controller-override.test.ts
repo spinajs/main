@@ -6,6 +6,7 @@ import { join } from 'path';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, Ok, Get } from '@spinajs/http';
@@ -41,8 +42,9 @@ class OverrideTestConfiguration extends TestConfiguration {
     // has to exist.
     cfg.http.cookie = { secret: 'controller-override-test-secret' };
 
-    // The base class replaces the validated tree, so the schema defaults of the authn http middlewares are lost.
-    cfg.authn = { ...cfg.authn, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { service: 'MemorySessionStore', ...cfg.authn?.session, cookie: { name: 'ssid' } } };
+    // The base class replaces the validated tree, so the authn schema runs again to fill its defaults.
+    cfg.authn = { ...cfg.authn, session: { service: 'MemorySessionStore', ...cfg.authn?.session } };
+    this.validateModule(AUTHN_CONFIGURATION_SCHEMA);
   }
 }
 
