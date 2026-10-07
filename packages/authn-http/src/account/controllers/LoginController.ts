@@ -5,7 +5,7 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacE
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import _ from 'lodash';
 import { LoggedPolicy } from '../../policies/LoggedPolicy.js';
 import { User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, SkipModelPermission } from '../../decorators.js';
@@ -28,8 +28,17 @@ import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
  */
 @BasePath('auth')
 export class LoginController extends BaseController {
-  @Autoinject()
-  protected Configuration: Configuration;
+  @Config('authn.mfa.policy.service')
+  protected MfaPolicyService: string | undefined;
+
+  @Config('authn.mfa.steps')
+  protected MfaSteps: unknown;
+
+  @Config('authn.mfa.policy.force')
+  protected MfaForce: unknown;
+
+  @Config('authn.mfa.policy.forceForRoles')
+  protected MfaForceForRoles: unknown;
 
   @AutoinjectService('rbac.auth')
   protected AuthProvider: AuthProvider;
@@ -206,7 +215,7 @@ export class LoginController extends BaseController {
   protected async mfaStepsRequired(uuid: string): Promise<boolean> {
     const id = { type: 'user', id: uuid };
     try {
-      const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service');
+      const name = this.MfaPolicyService;
       const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
       if (type) {
         const policy = (await DI.resolve(type)) as MfaPolicy;
@@ -221,7 +230,7 @@ export class LoginController extends BaseController {
 
   // DefaultMfaPolicy's rule over authn.mfa.steps only: a registered step the config does not list never counts.
   protected async configuredStepRequired(id: { type: string; id: string }): Promise<boolean> {
-    const entries = this.Configuration.get<unknown>('authn.mfa.steps');
+    const entries = this.MfaSteps;
     if (entries === undefined || entries === null) return false;
     if (!Array.isArray(entries)) return true;
     if (entries.length === 0) return false;
@@ -232,8 +241,8 @@ export class LoginController extends BaseController {
       if (!type) return true;
       if (await ((await DI.resolve(type)) as MfaStep).enrolled(id)) return true;
     }
-    const force = this.Configuration.get<unknown>('authn.mfa.policy.force') === true;
-    const forceForRoles = this.Configuration.get<unknown>('authn.mfa.policy.forceForRoles');
+    const force = this.MfaForce === true;
+    const forceForRoles = this.MfaForceForRoles;
     return force || (Array.isArray(forceForRoles) && forceForRoles.length > 0);
   }
 

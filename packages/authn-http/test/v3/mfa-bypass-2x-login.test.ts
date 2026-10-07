@@ -171,10 +171,16 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
   });
 
   /** No MfaPolicy under the configured name (the @spinajs/authn root entry is not loaded); over replaces config keys. */
+  const PROPERTY_OF: Record<string, string> = {
+    'authn.mfa.policy.service': 'MfaPolicyService',
+    'authn.mfa.steps': 'MfaSteps',
+    'authn.mfa.policy.force': 'MfaForce',
+    'authn.mfa.policy.forceForRoles': 'MfaForceForRoles',
+  };
   const withoutPolicy = (over: Record<string, unknown> = {}) => {
-    const config = (controller as any).Configuration;
-    const values: Record<string, unknown> = { 'authn.mfa.policy.service': 'NoSuchMfaPolicy', ...over };
-    Object.defineProperty(controller, 'Configuration', { value: { get: (k: string, d?: unknown) => (k in values ? values[k] : config.get(k, d)) }, configurable: true });
+    for (const [key, value] of Object.entries({ 'authn.mfa.policy.service': 'NoSuchMfaPolicy', ...over })) {
+      Object.defineProperty(controller, PROPERTY_OF[key], { value, configurable: true });
+    }
   };
 
   const authorized = async () => {
