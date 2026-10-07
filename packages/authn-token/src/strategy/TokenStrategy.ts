@@ -74,7 +74,7 @@ export class TokenStrategy extends AuthenticationStrategy {
     // Outside the try and only for a bearer value: a refused authn.token section fails a token request instead of
     // reading as "not ours", and never touches other credential kinds.
     const prefix = this.Prefix;
-    if (typeof prefix !== 'string' || prefix.length === 0 || !token.startsWith(prefix)) {
+    if (prefix.length === 0 || !token.startsWith(prefix)) {
       return null;
     }
     return token;
