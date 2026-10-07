@@ -241,8 +241,14 @@ export class FrameworkConfiguration extends Configuration {
     this.loadSources();
     await this.load();
 
-    this.validate();
-    this.configure();
+    try {
+      this.validate();
+      this.configure();
+    } catch (e) {
+      // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
+      if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
+      throw e;
+    }
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {

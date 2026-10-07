@@ -380,6 +380,22 @@ describe('configuration schema validation', () => {
     expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
   });
 
+  it('forgets the checked Configuration when its boot fails after the check', async () => {
+    const child = DI.child();
+    booted.push(child);
+    child.register(NoSource).as(ConfigurationSource);
+    const Base = configurationOf({ range: { min: 10, max: 5 } });
+    child.register(class extends Base {
+      protected configure(): void {
+        throw new Error('configure failed');
+      }
+    }).as(Configuration);
+
+    await expect(child.resolve(Configuration)).to.be.rejectedWith('configure failed');
+    expect(FrameworkConfiguration.checkedIn(child)).to.equal(undefined);
+    expect(() => registerConfigurationSchema(RANGE, child)).to.not.throw();
+  });
+
   describe('the copy the check validates first', () => {
     class Secret {
       #value: string;
