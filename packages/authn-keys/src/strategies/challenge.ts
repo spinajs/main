@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { challengeSecretPurpose, challengeSigningInput, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';

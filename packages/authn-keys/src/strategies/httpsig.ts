@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, SignedRequest, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { dummyVerify, verifySignature } from '../jwk/signature.js';
