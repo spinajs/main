@@ -72,6 +72,11 @@ describe('authn.local through the schema', function () {
         [{ generator: { length: 0 } }, 'authn.local.generator.length'],
         [{ generator: { characters: [] } }, 'authn.local.generator.characters'],
         [{ reset: { ttlSeconds: 0 } }, 'authn.local.reset.ttlSeconds'],
+        // Not coerced: a null or 'false' would otherwise keep every API token alive after a reset.
+        [{ reset: { revokeTokens: null } }, 'authn.local.reset.revokeTokens'],
+        [{ reset: { revokeTokens: 'false' } }, 'authn.local.reset.revokeTokens'],
+        [{ reset: { revokeTokens: 'true' } }, 'authn.local.reset.revokeTokens'],
+        [{ reset: { revokeTokens: 0 } }, 'authn.local.reset.revokeTokens'],
         [{ invite: { ttlSeconds: 0 } }, 'authn.local.invite.ttlSeconds'],
         [{ expiration: { maxAgeDays: 0 } }, 'authn.local.expiration.maxAgeDays'],
         [{ expiration: { maxAgeDays: -3 } }, 'authn.local.expiration.maxAgeDays'],

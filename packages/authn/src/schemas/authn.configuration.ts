@@ -158,7 +158,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           properties: {
             ttlSeconds: { type: 'integer', minimum: 1, default: 3600 },
             url: { type: 'string', default: '' },
-            revokeTokens: { type: 'boolean', default: true },
+            // Not `type: 'boolean'`: coerceTypes would turn a null into false and keep every API token after a reset.
+            revokeTokens: { enum: [true, false], default: true },
           },
         },
         invite: {
@@ -370,8 +371,9 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: {
-        requirePassword: { type: 'boolean', default: true },
-        requireMfa: { type: 'boolean', default: true },
+        // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the check off.
+        requirePassword: { enum: [true, false], default: true },
+        requireMfa: { enum: [true, false], default: true },
         maxMinutes: { type: 'integer', minimum: 1, default: 60 },
       },
     },
@@ -381,7 +383,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       propertyNames: { enum: ['sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
         sampleUse: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
-        hashIdentifiers: { type: 'boolean', default: true },
+        // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
+        hashIdentifiers: { enum: [true, false], default: true },
         hashKey: {
           ...secretRef('HMAC key of LogAuthnAuditSink for hashed identifiers and of DbAuthnThrottle for its row keys; null: a random key per process, which DbAuthnThrottle refuses outside development and test.'),
           propertyNames: { enum: ['secret'] },

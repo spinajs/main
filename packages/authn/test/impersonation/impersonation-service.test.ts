@@ -638,8 +638,8 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: true, requireMfa: true, maxMinutes: 60 });
     });
 
-    it('takes what the schema coerces: a numeric string and boolean strings', async () => {
-      const { p } = await boot({ maxMinutes: '30', requirePassword: 'false', requireMfa: 'true' });
+    it('takes what the schema coerces: a numeric string', async () => {
+      const { p } = await boot({ maxMinutes: '30', requirePassword: false });
       assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: false, requireMfa: true, maxMinutes: 30 });
     });
 
@@ -648,6 +648,11 @@ describe('AuthnImpersonationService', function () {
         [{ maxMinutes: 0 }, 'authn.impersonation.maxMinutes'],
         [{ maxMinutes: 1.5 }, 'authn.impersonation.maxMinutes'],
         [{ requireMfa: 'yes' }, 'authn.impersonation.requireMfa'],
+        // Not coerced: a null, 0 or 'false' would otherwise switch the check off.
+        [{ requireMfa: null }, 'authn.impersonation.requireMfa'],
+        [{ requireMfa: 'false' }, 'authn.impersonation.requireMfa'],
+        [{ requirePassword: 0 }, 'authn.impersonation.requirePassword'],
+        [{ requirePassword: 'true' }, 'authn.impersonation.requirePassword'],
         ['on', 'authn.impersonation'],
       ];
       for (const [bad, path] of cases) {
