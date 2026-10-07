@@ -1,4 +1,5 @@
 import type { Configuration } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import type { SessionHandle } from '@spinajs/authn/contracts';
