@@ -58,21 +58,26 @@ export class TokenStrategy extends AuthenticationStrategy {
    * out-of-format value past the format gate. A hostile object reads as "not ours".
    */
   protected tokenOf(c: Credentials): string | null {
-    // Outside the try: a refused authn.token section must fail the request, not read as "not ours".
-    const prefix = this.Prefix;
+    let token: unknown;
     try {
       // Credentials does not narrow by kind, so every field is checked at runtime.
       if (typeof c !== 'object' || c === null || c.kind !== 'bearer') {
         return null;
       }
-      const token: unknown = (c as { token?: unknown }).token;
-      if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH || typeof prefix !== 'string' || prefix.length === 0 || !token.startsWith(prefix)) {
-        return null;
-      }
-      return token;
+      token = (c as { token?: unknown }).token;
     } catch {
       return null;
     }
+    if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH) {
+      return null;
+    }
+    // Outside the try and only for a bearer value: a refused authn.token section fails a token request instead of
+    // reading as "not ours", and never touches other credential kinds.
+    const prefix = this.Prefix;
+    if (typeof prefix !== 'string' || prefix.length === 0 || !token.startsWith(prefix)) {
+      return null;
+    }
+    return token;
   }
 
   public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {

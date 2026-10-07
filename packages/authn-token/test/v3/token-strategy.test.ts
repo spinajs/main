@@ -249,6 +249,14 @@ describe('TokenStrategy', function () {
         expect(() => s.accepts(c)).to.throw(InvalidConfiguration);
         expect(() => s.throttleKeys(c, ctx())).to.throw(InvalidConfiguration);
         expect(await s.verify(c, ctx()).catch((e: unknown) => e)).to.equal(refused);
+
+        // Credentials of another kind never read authn.token, so a password login is not affected.
+        for (const other of [{ kind: 'password', login: 'spt_login', password: 'spt_password' }, null, { kind: 'bearer' }] as unknown as Credentials[]) {
+          const label = JSON.stringify(other);
+          expect(s.accepts(other), label).to.equal(false);
+          expect(s.throttleKeys(other, ctx()), label).to.deep.equal([]);
+          expect(await s.verify(other, ctx()), label).to.deep.equal({ ok: false, reason: 'unsupported_credentials' });
+        }
         expect(tokens.validated).to.deep.equal([]);
       } finally {
         await child.dispose();
