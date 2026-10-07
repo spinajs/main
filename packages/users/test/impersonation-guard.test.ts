@@ -372,6 +372,15 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
       }
     });
 
+    it('fails closed on an authz.impersonation.protectedRoles that is not a list, set past the schema', async () => {
+      const actor = await signedIn(await user('support', 'useradmin'));
+      const target = await signedIn(await user('admin'));
+      for (const bad of [5, { admin: true }, true]) {
+        (await DI.resolve(Configuration)).set(['authz', 'impersonation', 'protectedRoles'], bad);
+        await expect(new AuthzTargetGuard().check(actor, target), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.impersonation\.protectedRoles/);
+      }
+    });
+
     describe('checkIdentity (A25)', () => {
       it('judges an inactive or banned account on its rights', async () => {
         const rule = new AuthzTargetGuard();

@@ -82,11 +82,16 @@ export class AuthzTargetGuard {
 
   /** `target` is the principal the actor would act as or on; build it the way the session that uses it will carry it. */
   public async check(actor: Principal, target: Principal): Promise<TargetRuleAnswer> {
+    const guarded: unknown = this.ProtectedRoles;
+    // A value set past the schema that is not a list would skip the protected-role check.
+    if (!Array.isArray(guarded)) {
+      throw new AuthzConfigError(`users: ${PROTECTED_ROLES_KEY} must be a list of role names`);
+    }
+
     const domain = await accessDomain(this.AccessDomain);
     const rbac = await registeredInDomain(domain, RbacService);
     const authz = await domain.service();
 
-    const guarded = this.ProtectedRoles;
     if (guarded.length > 0) {
       const held = await reachableRoles(rbac, domain.name, target);
       if (guarded.some((r) => held.has(r))) {
