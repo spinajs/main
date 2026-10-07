@@ -1,6 +1,8 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
+import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
+import type { AuthnConfigSource } from '@spinajs/authn/env';
 import type { AuthnContext, BackoffParams, ThrottleFlow, ThrottleFlowParams, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
 import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
@@ -18,9 +20,8 @@ const MAX_TRIES = 64;
 const PURGE_EVERY = 64;
 const PURGE_BATCH = 500;
 const FAIL_CLOSED_MS = 1000;
-// Without authn.audit.hashKey the row key is a hash under this public constant: no raw value is stored, but a
-// known login can be tested against it.
-const DEFAULT_HASH_KEY = 'spinajs:authn-orm:throttle';
+// The hash key without authn.audit.hashKey.secret, which checkConfiguration accepts in development and test only.
+let processKey: Buffer | undefined;
 
 type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
@@ -51,7 +52,7 @@ export interface ClaimWrite {
 export type Claimed = { readonly ok: true; readonly write: ClaimWrite } | { readonly ok: false; readonly waitMs: number };
 
 export interface DbThrottleOptions {
-  /** Overrides `authn.audit.hashKey.secret`; null uses the built-in constant. */
+  /** Overrides `authn.audit.hashKey.secret`; null: a random key of this process. */
   readonly hashKey?: string | null;
   /** Where the Orm and the Configuration come from; default the root container. */
   readonly container?: IContainer;
@@ -111,6 +112,18 @@ export class DbAuthnThrottle extends AuthnThrottle {
   public get params(): ThrottleParams {
     if (!this.loadedParams) throw new InvalidOption('DbAuthnThrottle: params are read from the configuration; await init() first');
     return this.loadedParams;
+  }
+
+  /**
+   * The authn service calls it at boot with its Configuration. Without `authn.audit.hashKey.secret` the rows are keyed
+   * with a random key of this process, which only development and test accept.
+   */
+  public checkConfiguration(configuration: AuthnConfigSource): void {
+    if (isSecret(this.options.hashKey) || isSecret(configuration.get<unknown>('authn.audit.hashKey.secret'))) return;
+    const env = authnAppEnv(configuration);
+    if (!isLenientAuthnEnv(env)) {
+      throw new InvalidOption(`DbAuthnThrottle: authn.audit.hashKey.secret is not set; outside development and test (env ${JSON.stringify(env ?? 'unset')}) the throttle rows must be keyed with a secret of the app`);
+    }
   }
 
   /** Resolves the connection and the configuration; `attempt`, `succeed` and `purge` call it first. */
@@ -401,8 +414,8 @@ export class DbAuthnThrottle extends AuthnThrottle {
       this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
       const secret = this.options.hashKey !== undefined ? this.options.hashKey : this.ConfiguredHashSecret;
       this.hmacKey = hashKeyOf(secret);
-      if (typeof secret !== 'string' || secret.length === 0) {
-        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle row keys are hashed under a public constant; anyone reading authn_throttle can test guessed logins and IPs against them');
+      if (!isSecret(secret)) {
+        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
       }
     }
     if (!this.driver) {
@@ -436,6 +449,8 @@ function deepFreeze<T extends object>(o: T): T {
   return Object.freeze(o);
 }
 
+const isSecret = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
 function hashKeyOf(secret: unknown): Buffer {
-  return Buffer.from(typeof secret === 'string' && secret.length > 0 ? secret : DEFAULT_HASH_KEY, 'utf8');
+  return isSecret(secret) ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32));
 }

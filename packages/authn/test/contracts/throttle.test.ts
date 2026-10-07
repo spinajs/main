@@ -142,6 +142,7 @@ describe('throttle contract', () => {
       expect(c.AuthnThrottle.members.map(({ doc: _doc, ...rest }) => rest)).to.deep.eq([
         { name: 'attempt', modifiers: ['abstract'], optional: false, params: ['keys', 'flow', 'ctx'] },
         { name: 'succeed', modifiers: ['abstract'], optional: false, params: ['keys', 'flow'] },
+        { name: 'checkConfiguration', modifiers: [], optional: true, params: ['configuration'] },
       ]);
     });
 

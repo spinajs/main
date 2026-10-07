@@ -379,7 +379,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         sampleUse: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
         hashIdentifiers: { type: 'boolean', default: true },
         hashKey: {
-          ...secretRef('HMAC key of LogAuthnAuditSink for hashed identifiers; null: a random key per process.'),
+          ...secretRef('HMAC key of LogAuthnAuditSink for hashed identifiers and of DbAuthnThrottle for its row keys; null: a random key per process, which DbAuthnThrottle refuses outside development and test.'),
           propertyNames: { enum: ['secret'] },
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },

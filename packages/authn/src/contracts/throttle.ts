@@ -18,6 +18,8 @@ export abstract class AuthnThrottle {
   abstract attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }>;
   /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). */
   abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
+  /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
+  checkConfiguration?(configuration: { get<T>(path: string | string[]): T }): void | Promise<void>;
 }
 
 export interface BackoffParams {
