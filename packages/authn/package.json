@@ -24,6 +24,11 @@
       "types": "./lib/mjs/schemas/index.d.ts",
       "import": "./lib/mjs/schemas/index.js",
       "require": "./lib/cjs/schemas/index.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
     }
   },
   "typesVersions": {
@@ -36,6 +41,9 @@
       ],
       "schemas": [
         "lib/cjs/schemas/index.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
       ]
     }
   },
