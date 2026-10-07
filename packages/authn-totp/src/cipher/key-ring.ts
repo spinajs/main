@@ -40,9 +40,6 @@ export function mfaKeyRingFrom(options: MfaEncryptionKeyOptions | undefined): Mf
   if (typeof options?.secret !== 'string' || options.secret.length === 0) {
     throw new InvalidOption('authn.mfa.encryptionKey.secret is not set');
   }
-  if (options.previous !== undefined && !Array.isArray(options.previous)) {
-    throw new InvalidOption('authn.mfa.encryptionKey.previous must be an array');
-  }
   return new MfaKeyRing(
     mfaKeyFrom(options.secret),
     (options.previous ?? []).map((p, i) => {
