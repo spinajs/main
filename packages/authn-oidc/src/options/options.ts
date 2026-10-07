@@ -111,6 +111,11 @@ function buildProvider(name: string, provider: ConfiguredProvider, env: string |
   const skew = provider.clockSkewSeconds;
   if (!Number.isInteger(skew) || skew < 0 || skew > 300) fail(`${at}.clockSkewSeconds must be an integer from 0 to 300`);
 
+  // The schema's typeof passes NaN and Infinity, which a JS config file can hold; no claim ever equals them.
+  for (const [k, v] of Object.entries(provider.requiredClaims ?? {})) {
+    if (typeof v === 'number' && !Number.isFinite(v)) fail(`${at}.requiredClaims.${k} must be a finite number`);
+  }
+
   const source = sourceOf(raw);
   const presetId = provider.preset ?? null;
   const preset = presetId ? OIDC_PRESETS[presetId] : null;

@@ -233,6 +233,11 @@ describe('authn.oidc through its own schema', function () {
       }
     });
 
+    it('turns a provider linking switch on for what the schema coerces to true', async () => {
+      const cfg = await configOf({ corp: generic({ linking: { jit: 'true', byVerifiedEmail: 1 } }) });
+      expect(buildOidcOptions(cfg, 'production').providers.get('corp')!.linking).to.deep.eq({ jit: true, byVerifiedEmail: true });
+    });
+
     it('warns when a provider switch has no global switch behind it, and redacts the secret', async () => {
       const cfg = await configOf({ corp: generic({ linking: { jit: true } }) });
       const warnings: string[] = [];
@@ -250,6 +255,14 @@ describe('authn.oidc through its own schema', function () {
   describe('values that never went through the schema', () => {
     const unchecked = (provider: Record<string, unknown>, redirects: Record<string, unknown> = {}) =>
       ({ providers: { corp: { ...withSchemaDefaults({ providers: { corp: generic() } }).providers.corp, ...provider } }, redirects: { success: '/', failure: '/', ...redirects } }) as never;
+
+    // JSON has no NaN or Infinity, but a JS config file does, and the schema's typeof cannot refuse them.
+    it('refuses a required claim that is not a finite number, naming the claim', () => {
+      for (const n of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        expect(() => buildOidcOptions(unchecked({ requiredClaims: { tier: n } }), 'production'), String(n)).to.throw(InvalidOption, 'authn.oidc.providers.corp.requiredClaims.tier');
+      }
+      expect(buildOidcOptions(unchecked({ requiredClaims: { tier: 2 } }), 'production').providers.get('corp')!.requiredClaims).to.deep.eq({ tier: 2 });
+    });
 
     it('refuses a redirect that is not an app-relative path', () => {
       for (const value of ['//evil.example', '/\\evil.example', 'https://evil.example', '/\t/evil.example', undefined, 42]) {
@@ -299,7 +312,7 @@ describe('authn.oidc through its own schema', function () {
       for (const other of saved) DI.register(other as never).asValue('__configurationSchema__');
     });
 
-    it('registers the authn.oidc schema before the Configuration boots', async () => {
+    it('registers the authn.oidc schema when it bootstraps', async () => {
       await new OidcBootstrapper().bootstrap();
       expect(schemas()).to.include(AUTHN_OIDC_CONFIGURATION_SCHEMA);
     });

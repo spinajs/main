@@ -55,6 +55,7 @@ function fits(e: Entry, alg: OidcSigningAlgorithm): boolean {
   if (!e.jwk || (e.alg !== undefined && e.alg !== alg)) return false;
   if (alg.startsWith('RS') || alg.startsWith('PS')) return e.jwk.kty === 'RSA';
   const want = CURVES[alg];
+  if (!want) return false;
   return e.jwk.kty === want.kty && e.jwk.crv === want.crv;
 }
 
