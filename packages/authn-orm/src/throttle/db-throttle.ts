@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
-import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import type { AuthnContext, BackoffParams, ThrottleFlow, ThrottleFlowParams, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
 import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
@@ -103,6 +103,7 @@ export class DbAuthnThrottle extends AuthnThrottle {
    */
   constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
+    if (params) checkThrottleParams(params);
     if (options.container) {
       // An instance built with `new` has no injected container, so @Config would read the root Configuration.
       Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
@@ -409,6 +410,7 @@ export class DbAuthnThrottle extends AuthnThrottle {
   private snapshotConfigured(): ThrottleParams {
     if (!this.ConfiguredParams) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
     const { service: _service, maxRows: _maxRows, ...params } = structuredClone(this.ConfiguredParams) as ThrottleParams & { service?: string; maxRows?: number };
+    checkThrottleParams(params);
     return deepFreeze(params);
   }
 

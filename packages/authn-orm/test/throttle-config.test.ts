@@ -67,6 +67,27 @@ describe('DbAuthnThrottle configuration', () => {
     expect(throttle.params).to.eq(DEFAULT_THROTTLE_PARAMS);
   });
 
+  it('refuses explicit params outside the schema ranges, in every flow, naming the key', () => {
+    for (const flow of THROTTLE_FLOWS) {
+      for (const [key, value] of [['free', -1], ['baseDelayMs', Number.NaN], ['maxDelayMs', 0]] as const) {
+        const params = clone(DEFAULT_THROTTLE_PARAMS) as unknown as Record<string, Record<string, Record<string, unknown>>>;
+        params[flow].account[key] = value;
+        expect(() => new DbAuthnThrottle({} as OrmDriver, params as never), `${flow}.${key}`).to.throw(InvalidOption, `authn.throttle.${flow}.account.${key}`);
+      }
+    }
+    expect(() => new DbAuthnThrottle({} as OrmDriver, { ...DEFAULT_THROTTLE_PARAMS, resetAfterSeconds: 0 })).to.throw(InvalidOption, 'authn.throttle.resetAfterSeconds');
+  });
+
+  it('refuses limits set past the schema before init', async () => {
+    const { child, configuration } = await boot(SCHEMAS, {});
+    configuration.set('authn.throttle.reset.ip.maxDelayMs', 0);
+    const throttle = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
+    let error: unknown;
+    await throttle.init().catch((e: unknown) => (error = e));
+    expect(error).to.be.instanceOf(InvalidOption);
+    expect(String(error)).to.contain('authn.throttle.reset.ip.maxDelayMs');
+  });
+
   it("keys rows with authn.audit.hashKey.secret from the container's configuration", async () => {
     const { child } = await boot(SCHEMAS, { authn: { audit: { hashKey: { secret: HASH_KEY } } } });
     const throttle = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
