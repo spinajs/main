@@ -462,6 +462,9 @@ function convertMfa(value: unknown, at: string, m: (path: string) => unknown, w:
   if (enabled !== true) {
     w.out.cleared.push('authn.mfa.steps');
     f.info('mfa-off', 'Two-factor login is off here, so authn.mfa.steps stays empty.', at);
+    if (m('twoFactorAuth.forceUser') === true) {
+      f.manual('mfa-force-without-steps', 'forceUser is on while two-factor login is off: authn refuses authn.mfa.policy.force without a step at boot. Turn force off or list a step in authn.mfa.steps.', `${at}.forceUser`);
+    }
     return;
   }
   const mapped = typeof service === 'string' ? SERVICES.mfa[service] : undefined;

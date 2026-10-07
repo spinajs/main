@@ -6,6 +6,7 @@ import type { GrantDef, RoleDef } from '@spinajs/authz-rbac';
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
+import _ from 'lodash';
 
 import { convertLayers, loadLayers, readDbFacts, scanSources } from '../src/index.js';
 import type { ConvertOptions, ConvertResult } from '../src/index.js';
@@ -100,7 +101,9 @@ describe('golden conversions', () => {
         for (const f of r.files) {
           const root = f.name.split('-')[0] as 'authz' | 'authn';
           if (!f.name.endsWith('.ts') || !(root in validate)) continue;
-          const value = structuredClone(read(f.content)[root]);
+          // An env file is loaded over the common one, so it is validated as the app sees it, merged.
+          const common = r.files.find((x) => x.name === `${root}-generated.ts`);
+          const value = _.merge({}, common && common !== f ? read(common.content)[root] : {}, structuredClone(read(f.content)[root]));
           // The finding leaves privilegedPermission to a person; give it one, as they would.
           if (root === 'authz' && handDone) value.admin.guard.privilegedPermission = 'users:update';
           expect(validate[root](value), `${f.name}: ${ajv.errorsText(validate[root].errors)}`).to.equal(true);

@@ -224,6 +224,13 @@ describe('convertKeys', () => {
       expect(codes(f)).to.deep.equal(['mfa-off']);
     });
 
+    it('leaves a forced two-factor login without a step for a person, which the authn schema refuses at boot', () => {
+      const { out, f } = run({ twoFactorAuth: { enabled: false } }, { twoFactorAuth: { enabled: false, forceUser: true } });
+      expect(out.cleared).to.deep.equal(['authn.mfa.steps']);
+      expect(codes(f, 'manual')).to.deep.equal(['mfa-force-without-steps']);
+      expect(codes(run({ twoFactorAuth: { enabled: false, forceUser: false } }).f, 'manual')).to.deep.equal([]);
+    });
+
     it('falls back on the 2.x package default (on, Default2FaToken) when the app sets only forceUser', () => {
       const { out } = run({ twoFactorAuth: { forceUser: true } });
       expect(out.authn).to.deep.equal({ authn: { mfa: { policy: { force: true }, steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } });
