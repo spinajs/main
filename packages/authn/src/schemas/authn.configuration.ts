@@ -186,14 +186,15 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         service: { type: 'string', minLength: 1 },
         expiration: {
           type: 'object',
+          default: {},
           description: 'Minutes.',
           properties: {
             service: { type: 'string', minLength: 1 },
-            ttl: { type: 'integer', minimum: 1 },
-            maxLifetime: { type: 'integer', minimum: 1 },
+            ttl: { type: 'integer', minimum: 1, default: 30 },
+            maxLifetime: { type: 'integer', minimum: 1, default: 480 },
           },
         },
-        pendingTtlSeconds: { type: 'integer', minimum: 1, description: 'Pre-MFA session (D25).' },
+        pendingTtlSeconds: { type: 'integer', minimum: 1, default: 300, description: 'Pre-MFA session (D25).' },
         cookie: {
           type: 'object',
           default: {},

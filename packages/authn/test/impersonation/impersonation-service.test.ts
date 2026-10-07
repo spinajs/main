@@ -671,6 +671,7 @@ describe('AuthnImpersonationService', function () {
         cases.push(['authn.impersonation.maxMinutes', bad, 'max_minutes'], ['authn.session.expiration.maxLifetime', bad, 'session_lifetime']);
       }
       cases.push(['authn.impersonation.maxMinutes', undefined, 'max_minutes']);
+      cases.push(['authn.session.expiration.maxLifetime', undefined, 'session_lifetime']);
       let booted: Booted | undefined;
       for (const [path, bad, reason] of cases) {
         await booted?.p.dispose();

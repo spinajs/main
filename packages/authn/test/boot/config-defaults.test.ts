@@ -72,7 +72,7 @@ describe('authn shipped config', () => {
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
   });
 });
 
@@ -133,6 +133,12 @@ describe('authn schema (task 8 edits)', () => {
   it('accepts the session lifetime the impersonation service reads (minutes)', () => {
     expect(check({ session: { expiration: { maxLifetime: 480 } } }).ok).to.eq(true);
     expect(check({ session: { expiration: { maxLifetime: 0 } } }).paths).to.include('/session/expiration/maxLifetime');
+  });
+
+  it('defaults the session lifetimes to what authn-session ships: 30 idle and 480 absolute minutes, 300 s pending', () => {
+    expect(check({}).config.session.expiration).to.deep.eq({ ttl: 30, maxLifetime: 480 });
+    expect(check({}).config.session.pendingTtlSeconds).to.eq(300);
+    expect(check({ session: { expiration: { service: 'AbsoluteExpiration', ttl: 5 } } }).config.session.expiration).to.deep.eq({ service: 'AbsoluteExpiration', ttl: 5, maxLifetime: 480 });
   });
 
   // Decision (task 1 hand-off): JSON Schema cannot tie a name to one service across items, and F6's contract pins

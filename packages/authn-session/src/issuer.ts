@@ -91,7 +91,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
   @AutoinjectService('authn.session', SessionProvider)
   protected Store!: SessionProvider;
 
-  @Config('authn.session.pendingTtlSeconds', { defaultValue: 300 })
+  @Config('authn.session.pendingTtlSeconds')
   protected PendingTtlSeconds!: number;
 
   public async issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> {

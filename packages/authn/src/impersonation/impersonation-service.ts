@@ -37,9 +37,6 @@ type Denial = { readonly reason: string; readonly data?: Readonly<Record<string,
 
 type Ending = { readonly type: AuthnEventType; readonly reason: string };
 
-/** Design §22.5 `authn.session.expiration.maxLifetime`. */
-const DEFAULT_MAX_LIFETIME_MINUTES = 480;
-
 const MINUTE_MS = 60_000;
 
 /** Clock skew tolerated between instances, the default of `authn.keys.assertion.skewSeconds`. */
@@ -106,8 +103,7 @@ export class AuthnImpersonationService extends AsyncService {
   @Config('authn.impersonation')
   protected Settings: ImpersonationConfig;
 
-  // authn-session ships and reads the same default for the same key; authn core cannot import it.
-  @Config('authn.session.expiration.maxLifetime', { defaultValue: DEFAULT_MAX_LIFETIME_MINUTES })
+  @Config('authn.session.expiration.maxLifetime')
   protected MaxLifetimeMinutes: number;
 
   private sessions!: SessionIssuer;

@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
@@ -23,6 +24,8 @@ class ExpirationTestConfiguration extends TestConfiguration {
 async function withConfig(expiration: unknown) {
   currentExpiration = expiration;
   DI.clearCache();
+  // clearCache drops the schema registered at import; its defaults are the ttl and maxLifetime the strategies read.
+  registerConfigurationSchema(AUTHN_CONFIGURATION_SCHEMA);
   await DI.resolve(Configuration);
 }
 
@@ -122,7 +125,7 @@ describe('Session expiration strategies', () => {
     });
   });
 
-  describe('code defaults without configuration: what users shipped, 30 idle and 480 absolute minutes', () => {
+  describe('schema defaults without configuration: what users shipped, 30 idle and 480 absolute minutes', () => {
     it('AbsoluteExpiration and SlidingExpiration use a ttl of 30', async () => {
       await withConfig({});
       const session = new UserSession();

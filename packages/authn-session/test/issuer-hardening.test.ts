@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer } from '@spinajs/authn/contracts';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
 import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY } from '../src/index.js';
@@ -154,16 +155,21 @@ describe('DefaultSessionIssuer hardening', () => {
   });
 
   describe('pending state (A09 store part)', () => {
-    it('the shipped pendingTtlSeconds equals the built-in default: 300 seconds', async () => {
+    it('the shipped pendingTtlSeconds equals the schema default: 300 seconds', () => {
+      const session = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: Record<string, { default?: unknown }> } } }).properties.session.properties;
+      expect(session.pendingTtlSeconds.default).to.equal(300);
       expect((shipped.authn.session as Record<string, unknown>).pendingTtlSeconds).to.equal(300);
+    });
 
+    it('without a pendingTtlSeconds the schema filled, a pending session expires at once', async () => {
+      // The test configuration merges its overrides after the schema check, as a runtime set would.
       const c = fake();
       await withSessionConfig({ authn: { session: { ...SESSION_CONFIG.authn.session, pendingTtlSeconds: undefined } } }, [DefaultSessionIssuer, SessionIssuer]);
       const issuer = await DI.resolve(DefaultSessionIssuer);
       const store = await DI.resolve(MemorySessionStore);
       await store.truncate();
       const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
-      expect(rowOf(store, pd)!.Expiration!.toMillis()).to.equal(c.now().getTime() + 300_000);
+      expect(rowOf(store, pd)!.Expiration!.toMillis()).to.equal(c.now().getTime());
     });
 
     it('restore of a pending session carries its steps, read-only, under SESSION_PENDING_STEPS_KEY', async () => {
