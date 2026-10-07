@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { Configuration } from '@spinajs/configuration';
+import { InvalidOption } from '@spinajs/exceptions';
 
 import { MemoryThrottleStore, ThrottleMiddleware, IThrottleRule, ThrottleStore } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
@@ -97,6 +99,32 @@ describe('ThrottleMiddleware', () => {
     it('is a no-op when disabled or unconfigured', async () => {
       expect((await makeMiddleware(undefined)).before()).to.be.null;
       expect((await makeMiddleware({ enabled: false, rules: [{ path: '/', limit: 1, windowSeconds: 1 }] })).before()).to.be.null;
+    });
+
+    it('refuses a rule set past the schema whose limit or window is not a finite number, rather than never throttling', async () => {
+      const cases: [Record<string, unknown>, string][] = [
+        [{ path: '/auth', windowSeconds: 60 }, 'http.throttle.rules.0.limit'],
+        [{ path: '/auth', limit: NaN, windowSeconds: 60 }, 'http.throttle.rules.0.limit'],
+        [{ path: '/auth', limit: 5 }, 'http.throttle.rules.0.windowSeconds'],
+        [{ path: '/auth', limit: 5, windowSeconds: 0 }, 'http.throttle.rules.0.windowSeconds'],
+        [{ path: '/auth', limit: 5, windowSeconds: Infinity }, 'http.throttle.rules.0.windowSeconds'],
+      ];
+      for (const [rule, key] of cases) {
+        const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
+        ((await child.resolve(Configuration)) as Configuration).set(['http', 'throttle', 'rules'], [rule]);
+        const mw = readingFrom(new ThrottleMiddleware(), child);
+        expect(() => mw.before(), JSON.stringify(rule)).to.throw(InvalidOption, key);
+      }
+    });
+
+    it('keeps a limit of 0 set past the schema: every matching request is refused', async () => {
+      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
+      ((await child.resolve(Configuration)) as Configuration).set(['http', 'throttle', 'rules'], [{ path: '/auth', limit: 0, windowSeconds: 60 }]);
+      const mw = readingFrom(new ThrottleMiddleware(), child);
+      Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
+      Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
+
+      expect((await run(mw.before()!, request())).status).to.eq(429);
     });
 
     it('is a no-op when enabled without rules', async () => {

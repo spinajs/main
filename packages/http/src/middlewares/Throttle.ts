@@ -1,6 +1,7 @@
 import * as express from 'express';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware, Request as sRequest, HTTP_STATUS_CODE } from '../interfaces.js';
@@ -138,6 +139,11 @@ export class ThrottleMiddleware extends ServerMiddleware {
     }
 
     const rules = cfg.rules ?? [];
+    // A rule set past the schema without a usable limit or window never throttles and shadows the rules after it.
+    rules.forEach((r, i) => {
+      if (!(Number.isFinite(r.limit) && r.limit >= 0)) throw new InvalidOption(`http.throttle.rules.${i}.limit must be a finite number >= 0`);
+      if (!(Number.isFinite(r.windowSeconds) && r.windowSeconds > 0)) throw new InvalidOption(`http.throttle.rules.${i}.windowSeconds must be a finite positive number`);
+    });
 
     if (rules.length === 0) {
       this.Log.warn('http.throttle is enabled but has no rules - throttling is a no-op. Check http.throttle.rules.');
