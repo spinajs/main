@@ -241,9 +241,10 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
       },
       allOf: [
-        // force and forceForRoles both require the first step, so there must be one (DefaultMfaPolicy).
+        // force and forceForRoles both require the first step, so there must be one (DefaultMfaPolicy). The `if` sees the
+        // raw value, before coercion, so it names every spelling that coerces to true.
         {
-          if: { type: 'object', required: ['policy'], properties: { policy: { type: 'object', required: ['force'], properties: { force: { const: true } } } } },
+          if: { type: 'object', required: ['policy'], properties: { policy: { type: 'object', required: ['force'], properties: { force: { enum: [true, 'true', 1, '1'] } } } } },
           then: { required: ['steps'], properties: { steps: { type: 'array', minItems: 1 } } },
         },
         {
