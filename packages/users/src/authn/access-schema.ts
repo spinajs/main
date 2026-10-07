@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+
 export const DEFAULT_ACCESS_DOMAIN = 'root';
 
 // authz-http owns authz.http; users reads the access domain without depending on it, so it validates the key itself.
@@ -10,3 +12,5 @@ export const USERS_ACCESS_CONFIGURATION_SCHEMA = {
     domain: { type: 'string', minLength: 1, default: DEFAULT_ACCESS_DOMAIN },
   },
 };
+
+registerConfigurationSchemaAtImport(USERS_ACCESS_CONFIGURATION_SCHEMA);

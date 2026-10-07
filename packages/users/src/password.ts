@@ -4,6 +4,7 @@ import { IPasswordPolicy, PasswordProvider, PasswordValidationProvider } from '.
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DataValidator } from '@spinajs/validation';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { randomInt } from 'crypto';

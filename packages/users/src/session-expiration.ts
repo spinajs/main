@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { ISession, SessionExpirationProvider } from './interfaces.js';
 
 /**
