@@ -1,6 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { User } from '@spinajs/users';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { TwoFactorAuthProvider } from "../interfaces.js";
 import * as OTPAuth from "otpauth";

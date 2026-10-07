@@ -1,5 +1,6 @@
 import * as OTPAuth from 'otpauth';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { IdentityStore, MfaStep } from '@spinajs/authn/contracts';

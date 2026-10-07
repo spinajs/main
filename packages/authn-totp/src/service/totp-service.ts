@@ -1,4 +1,5 @@
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
