@@ -224,6 +224,10 @@ describe('StrategyRegistry', function () {
       await bootFails([LOCAL, entry('local-2', 'LocalPassword')], '"local-2"');
     });
 
+    it('lists an identical entry twice when the configuration skipped the schema: only the schema refuses repeats', async () => {
+      expect(names(await boot([LOCAL, LOCAL]))).to.deep.equal(['local', 'local']);
+    });
+
     it('fails on a strategy whose interactive is not a boolean', async () => {
       await bootFails([entry('loose', 'NonBooleanInteractive')], '"loose"', 'interactive');
     });
@@ -317,7 +321,6 @@ describe('StrategyRegistry', function () {
       expect(() => r.candidates(password)).to.throw(Error);
     });
   });
-
 
   describe('configuration shape', () => {
     const kids: IContainer[] = [];

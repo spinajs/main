@@ -4,7 +4,7 @@ import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 
 import { DefaultMfaPolicy, MfaStep, MfaStepRegistry, RoleSource } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
-import { KIT_MFA_STEP, bind, buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
+import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
 
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
@@ -103,6 +103,37 @@ describe('MFA steps and DefaultMfaPolicy', function () {
         assert.ok(paths.includes(path), paths.join(', '));
       });
     }
+
+    it('refuses a name listed twice by the unique-name rule, not by another rule at the same path', async () => {
+      const steps = [
+        { name: 'fake', service: KIT_MFA_STEP },
+        { name: 'fake', service: 'Step_second' },
+      ];
+      const { violations } = await invalidOf(boot({ steps, extra: [new FakeMfaStep({ name: 'second' })] }));
+      assert.deepStrictEqual(
+        violations.map((v) => v.path),
+        ['authn.mfa.steps'],
+      );
+      assert.match(violations[0].message, /uniqueItemProperties/);
+    });
+
+    it('lists an identical entry twice when it comes past the schema (Configuration.set): only the schema refuses repeats', async () => {
+      const p = await boot();
+      p.configuration.set('authn.mfa.steps', [
+        { name: 'fake', service: KIT_MFA_STEP },
+        { name: 'fake', service: KIT_MFA_STEP },
+      ]);
+      const fresh = p.child.child();
+      try {
+        const registry = await fresh.resolve(MfaStepRegistry);
+        assert.deepStrictEqual(
+          registry.steps().map((s) => s.name),
+          ['fake', 'fake'],
+        );
+      } finally {
+        await fresh.dispose();
+      }
+    });
   });
 
   describe('DefaultMfaPolicy', () => {

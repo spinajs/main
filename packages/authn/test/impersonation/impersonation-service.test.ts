@@ -622,6 +622,11 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: true, requireMfa: true, maxMinutes: 60 });
     });
 
+    it('takes what the schema coerces: a numeric string and boolean strings', async () => {
+      const { p } = await boot({ maxMinutes: '30', requirePassword: 'false', requireMfa: 'true' });
+      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: false, requireMfa: true, maxMinutes: 30 });
+    });
+
     it('refuses malformed settings, naming the path of each', async () => {
       const cases: [unknown, string][] = [
         [{ maxMinutes: 0 }, 'authn.impersonation.maxMinutes'],
