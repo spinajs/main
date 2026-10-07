@@ -19,7 +19,7 @@ import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
-import { DEFAULT_ROLES_KEY, assignGlobalRoles, defaultRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
+import { DEFAULT_ROLES_KEY, assignGlobalRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
 import { PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
@@ -661,7 +661,9 @@ async function createUser(data: ICreateUserData, roles: string[] | undefined, ac
   const metadata = data.Metadata;
 
   const asked = roleList(roles);
-  const roleNames = asked.length > 0 ? asked : defaultRoles(cfg<unknown>(DEFAULT_ROLES_KEY, []));
+  // Runtime Configuration.set is not schema-validated: a bare string must not be spread into one-letter roles.
+  const configured = cfg<unknown>(DEFAULT_ROLES_KEY, []);
+  const roleNames = asked.length > 0 ? asked : [...new Set(Array.isArray(configured) ? (configured as string[]) : [])];
 
   const passwords = await passwordService();
   if (password !== undefined && (await passwords.check(password)).length > 0) {

@@ -141,7 +141,8 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
       properties: { role: { ...name, default: DEFAULT_GROUP_PRINCIPAL.role }, scopeType: { ...name, default: DEFAULT_GROUP_PRINCIPAL.scopeType } },
       propertyNames: { enum: ['role', 'scopeType'] },
     },
-    defaultRoles: stringList,
+    // Non-blank, no edge whitespace: create() used to trim, a padded name now fails the boot instead.
+    defaultRoles: { type: 'array', items: { type: 'string', pattern: '^\\S(?:.*\\S)?$' } },
     anonymousRoles: { ...stringList, default: [] },
     serviceRoles: { type: 'object', additionalProperties: stringList, default: {} },
     stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList } },

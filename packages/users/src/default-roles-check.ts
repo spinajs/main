@@ -2,10 +2,10 @@ import { AuthzConfigError, AuthzContributor, GLOBAL } from '@spinajs/authz';
 import type { AuthzContribution } from '@spinajs/authz';
 import { RoleStore, assignmentProblem, compileRoles } from '@spinajs/authz-rbac';
 import type { LadderDef, RoleDef } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 
-import { DEFAULT_ROLES_KEY, defaultRoles } from './role-assignments.js';
+import { DEFAULT_ROLES_KEY } from './role-assignments.js';
 
 /**
  * Checks `authz.rbac.defaultRoles` once, when the root authz domain boots (RFC L1-1, decision 3): each
@@ -18,13 +18,15 @@ import { DEFAULT_ROLES_KEY, defaultRoles } from './role-assignments.js';
  */
 @Injectable(AuthzContributor)
 export class DefaultRolesBootCheck extends AuthzContributor {
+  @Config(DEFAULT_ROLES_KEY, { defaultValue: [] })
+  protected DefaultRoles: readonly string[];
+
   public async contribute(domain: string): Promise<AuthzContribution> {
     if (domain !== 'root') {
       return {};
     }
 
-    const configuration = (await DI.resolve(Configuration)) as Configuration;
-    const roles = defaultRoles(configuration.get(DEFAULT_ROLES_KEY.split('.')));
+    const roles = [...new Set(this.DefaultRoles)];
     if (roles.length === 0) {
       return {};
     }

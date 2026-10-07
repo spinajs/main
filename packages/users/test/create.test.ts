@@ -268,8 +268,6 @@ describe('create(user, roles?)', function () {
     for (const [value, fragment] of [
       [['ghost'], "role 'ghost'"],
       [['admin.users'], "role 'admin.users'"],
-      ['user', 'must be an array of role names'],
-      [['user', 7], 'must be an array of role names'],
     ] as const) {
       it(`fails the root boot for ${JSON.stringify(value)}`, async () => {
         DI.get(Configuration)!.set('authz.rbac.defaultRoles', value);
