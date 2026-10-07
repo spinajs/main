@@ -1,4 +1,4 @@
-import { registerConfigurationSchema } from '@spinajs/configuration';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
 const positive = { type: 'number', exclusiveMinimum: 0 };
@@ -29,6 +29,8 @@ export const SOCKET_CONFIGURATION_SCHEMA = {
     ordering: { type: 'object', required: ['abortGraceMs'], properties: { abortGraceMs: positive } },
   },
 };
+
+registerConfigurationSchemaAtImport(SOCKET_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class SocketConfigBootstrapper extends Bootstrapper {

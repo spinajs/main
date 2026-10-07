@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+
 const nonEmpty = { type: 'string', minLength: 1 };
 
 // Scheme, host and optional port; no path, query, credentials, wildcard, backslash or space. parseOrigin still normalises
@@ -73,3 +75,5 @@ export const HTTP_CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(HTTP_CONFIGURATION_SCHEMA);
