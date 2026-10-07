@@ -3,6 +3,7 @@ import type { JsonWebKey as NodeJwk } from 'node:crypto';
 import { isIPv4 } from 'node:net';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';

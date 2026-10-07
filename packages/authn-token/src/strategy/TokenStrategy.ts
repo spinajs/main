@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey, TokenRecord } from '@spinajs/authn/contracts';

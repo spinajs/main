@@ -1,5 +1,6 @@
 import { DI, Inject, Injectable } from '@spinajs/di';
 import { Config, service } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';

@@ -1,6 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { TokenService } from '@spinajs/authn/contracts';
