@@ -150,7 +150,7 @@ export class QueueChangeBus extends ChangeBus {
     const cfg = DI.get(Configuration);
     if (!cfg || cfg.get<unknown>(['queue', 'routing', AuthzChangeEvent.name]) !== undefined) return;
     const topic = this.Topic;
-    if (topic === undefined) return;
+    if (typeof topic !== 'string' || topic === '') return;
     cfg.set(['queue', 'routing', AuthzChangeEvent.name], { channel: topic });
   }
 

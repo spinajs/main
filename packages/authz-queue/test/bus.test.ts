@@ -135,6 +135,22 @@ describe('QueueChangeBus', () => {
         await testHost.uninstallHost();
       }
     });
+
+    it('never routes to a topic set at runtime that is empty or not a string', async () => {
+      await testHost.installHost();
+      try {
+        const cfg = DI.get(Configuration)!;
+        for (const topic of ['', 5, {}]) {
+          cfg.set(['authz', 'bus', 'topic'], topic);
+          cfg.set(['queue', 'routing'], {});
+          const n = await start();
+          await n.bus.publish(change());
+          expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent']), JSON.stringify(topic)).to.equal(undefined);
+        }
+      } finally {
+        await testHost.uninstallHost();
+      }
+    });
   });
 });
 

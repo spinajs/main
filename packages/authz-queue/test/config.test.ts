@@ -1,7 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
-import { bindConfiguration, bootConfiguration, violationPaths } from '@spinajs/authz-testing';
+import { AUTHZ_CONFIGURATION_SCHEMA, AuthzConfigError } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
+import { bindConfiguration, bootConfiguration, testHost, violationPaths } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
@@ -37,6 +38,25 @@ describe('authz-queue configuration through @Config', () => {
   it('refuses an empty domain or topic at boot', async () => {
     expect(await violationPaths(boot({ queue: { domain: '' } }))).to.include('authz.queue.domain');
     expect(await violationPaths(boot({ bus: { topic: '' } }))).to.include('authz.bus.topic');
+  });
+
+  it('a domain set at runtime to no live domain fails the hooks closed, never falls back to root', async () => {
+    await testHost.installHost();
+    try {
+      for (const domain of ['', 'nowhere']) {
+        const child = await boot({});
+        (await child.resolve(Configuration)).set(['authz', 'queue', 'domain'], domain);
+        const hook = bindConfiguration(new AuthzQueueHook(), child) as unknown as { service(): Promise<unknown> };
+        const failure = await hook.service().then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect(failure, JSON.stringify(domain)).to.be.instanceOf(AuthzConfigError);
+      }
+    } finally {
+      for (const c of children.splice(0)) await c.dispose();
+      await testHost.uninstallHost();
+    }
   });
 
   it('the bootstrapper registers both schemas', () => {
