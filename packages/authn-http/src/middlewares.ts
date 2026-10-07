@@ -3,6 +3,7 @@ import { Autoinject, DI, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import * as cs from 'cookie-signature';
 import { Request as sRequest, ServerMiddleware } from '@spinajs/http';

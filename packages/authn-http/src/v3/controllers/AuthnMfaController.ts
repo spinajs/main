@@ -1,4 +1,5 @@
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';

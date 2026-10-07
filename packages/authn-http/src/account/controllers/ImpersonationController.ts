@@ -12,6 +12,7 @@ import {
 import type { ISession } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { _ev } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { LoggedPolicy } from '../../policies/LoggedPolicy.js';

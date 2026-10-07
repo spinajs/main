@@ -26,7 +26,7 @@ interface Run {
   loadedV3Controllers: string[] | null;
   /** The files of the shipped cli dir, loaded before the first snapshot as the CLI's scan loads them. */
   cliFiles: string[];
-  /** CJS only: loaded module files of the @spinajs/authn build outside its contracts; null in ESM. */
+  /** CJS only: loaded module files of the @spinajs/authn build outside its contracts and its schema registration; null in ESM. */
   loadedAuthnRoot: string[] | null;
 }
 
@@ -54,7 +54,7 @@ const BODY = `
     functions: ['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie'].filter((n) => typeof pkg[n] === 'function'),
   };
   const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
-  const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f) && !/[\\\\/]service[\\\\/]boot[\\\\/]env\.js$/.test(f)) : null;
+  const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f) && !/[\\\\/]service[\\\\/]boot[\\\\/]env\.js$/.test(f) && !/[\\\\/](register-schema|schemas[\\\\/][\\w.-]+)\.js$/.test(f)) : null;
   await pkg.registerAuthnHttpV3();
   console.log(JSON.stringify({ before, after: snap(di, http, contracts, pkg), n10, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
 `;

@@ -1,6 +1,7 @@
 import { Autoinject, Container, isFactory } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
