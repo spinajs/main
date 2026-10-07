@@ -8,7 +8,7 @@ import type { AuthnConfigSource } from './env.js';
 
 /** One finding of the boot checks and of authn:check-config. */
 export interface AuthnConfigFinding {
-  readonly topic: 'strategies' | 'secrets' | 'proxy' | 'cors' | 'env' | 'mfa' | 'legacy' | 'schema';
+  readonly topic: 'strategies' | 'secrets' | 'proxy' | 'cors' | 'env' | 'mfa' | 'legacy' | 'schema' | 'throttle';
   readonly level: 'error' | 'warning';
   readonly message: string;
 }

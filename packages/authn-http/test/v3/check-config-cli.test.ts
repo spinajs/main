@@ -169,7 +169,8 @@ const CLI_PROCESS = `
 `;
 
 function cliProcess(strategies: unknown, authnExtra: Values = {}): { findings: string[]; exitCode: number; output: string } {
-  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, ...authnExtra } };
+  // The CLI loads authn-orm, so DbAuthnThrottle is the throttle and needs its hash key in production.
+  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, audit: { hashKey: { secret: STRONG } }, ...authnExtra } };
   const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values) };
   delete env.NODE_OPTIONS;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS], { cwd: PKG_ROOT, encoding: 'utf8', env });

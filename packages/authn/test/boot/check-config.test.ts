@@ -4,8 +4,9 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
+import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, MfaStep, checkAuthnConfig } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaStep, checkAuthnConfig } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
 import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
@@ -217,6 +218,32 @@ describe('authn:check-config', () => {
     it('reports them as an error when rejectLegacyKeys is on', async () => {
       const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } }, authn: { config: { rejectLegacyKeys: true } } }));
       expect(topics(f)).to.deep.eq(['legacy:error']);
+    });
+  });
+
+  describe('throttle', () => {
+    const throttleNamed = (service: string, checkConfiguration?: (c: { get<T>(path: string): T }) => Promise<void>) => ({
+      values: merge(sound(), { authn: { throttle: { service } } }),
+      register: (c: IContainer) => bind(c, AuthnThrottle, service, { attempt: async () => ({ allowed: true }), succeed: async () => undefined, ...(checkConfiguration ? { checkConfiguration } : {}) }),
+    });
+
+    it('reports the refusal of the selected throttle as an error, with the booting configuration', async () => {
+      let env: unknown;
+      const t = throttleNamed('RefusingThrottle', async (c) => {
+        env = c.get('process.env.APP_ENV');
+        throw new InvalidOption('DbAuthnThrottle: authn.audit.hashKey.secret is not set');
+      });
+      const f = await check(t.values, { register: t.register });
+      expect(topics(f)).to.deep.eq(['throttle:error']);
+      expect(f[0].message).to.contain('authn.audit.hashKey.secret');
+      expect(env).to.eq('production');
+    });
+
+    it('finds nothing when the throttle accepts the configuration or has no check', async () => {
+      const accepting = throttleNamed('AcceptingThrottle', async () => undefined);
+      expect(await check(accepting.values, { register: accepting.register })).to.deep.eq([]);
+      const plain = throttleNamed('PlainThrottle');
+      expect(await check(plain.values, { register: plain.register })).to.deep.eq([]);
     });
   });
 

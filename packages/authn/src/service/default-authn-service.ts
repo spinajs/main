@@ -24,6 +24,7 @@ import { instantiate, nearestRegistration, registeredNames } from '../registry/n
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
+import { selectAuthnThrottle } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnLegacyKeys } from './boot/legacy-keys.js';
 import { warnOnce } from './boot/log.js';
@@ -37,8 +38,6 @@ type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 
 /** The answer of the first candidate that does not pass the credentials on, or why none gave one. */
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
-
-const MEMORY_THROTTLE = 'MemoryAuthnThrottle';
 
 const NO_PEEK_WARNING = 'DefaultAuthnService: the throttle has no peek(), so token and key requests count before verify and a client with many parallel requests on a valid credential gets throttled';
 
@@ -195,7 +194,7 @@ export class DefaultAuthnService extends AuthnService {
       this.steps = await this.container.resolve(MfaStepRegistry);
       this.policy = await this.selectPolicy();
     }
-    this.throttle = await this.selectThrottle();
+    this.throttle = await selectAuthnThrottle(this.container, this.ThrottleService);
     await this.throttle.checkConfiguration?.(configuration);
     if (canPeek(this.throttle)) this.peeker = this.throttle;
     else if (this.registry.strategies().some((s) => !s.interactive)) warnOnce(NO_PEEK_WARNING);
@@ -603,29 +602,5 @@ export class DefaultAuthnService extends AuthnService {
     const policy: unknown = await instantiate(this.container, type);
     if (!isObject(policy) || typeof policy.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
     return policy as unknown as MfaPolicy;
-  }
-
-  private async selectThrottle(): Promise<AuthnThrottle> {
-    const names = registeredNames(this.container, AuthnThrottle);
-    const listed = names.map(q).join(', ') || 'none';
-    let name = this.ThrottleService;
-    if (name === undefined) {
-      // The core always registers the memory throttle; one more registered throttle is the one the app imported (K6).
-      const others = names.filter((n) => n !== MEMORY_THROTTLE);
-      const only = names.length === 1 ? names : others.length === 1 ? others : [];
-      if (only.length !== 1) {
-        throw new InvalidOption(`authn.throttle.service is not set and ${names.length === 0 ? 'no AuthnThrottle is' : 'several are'} registered (${listed}); name one`);
-      }
-      name = only[0];
-    }
-    const type = nearestRegistration(this.container, AuthnThrottle, name);
-    if (!type) {
-      throw new InvalidOption(`authn.throttle.service ${q(name)}: no AuthnThrottle is registered under that name (registered: ${listed}). Install the package that provides it (DbAuthnThrottle: @spinajs/authn-orm); MemoryAuthnThrottle suits a single instance only`);
-    }
-    const throttle: unknown = await instantiate(this.container, type);
-    if (!isObject(throttle) || typeof throttle.attempt !== 'function' || typeof throttle.succeed !== 'function') {
-      throw new InvalidOption(`authn.throttle.service ${q(name)} is not an AuthnThrottle`);
-    }
-    return throttle as unknown as AuthnThrottle;
   }
 }

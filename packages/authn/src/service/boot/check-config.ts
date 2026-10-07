@@ -2,6 +2,8 @@ import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
+import type { AuthnThrottle } from '../../contracts/throttle.js';
+import { selectAuthnThrottle } from '../../throttle/select.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 import { nearestRegistration, q } from '../../registry/named.js';
 import type { NamedEntry } from '../../registry/named.js';
@@ -35,11 +37,27 @@ function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
   }
 }
 
+// A throttle that cannot be selected is not reported here; only what the selected one refuses, as boot would.
+async function throttleFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
+  let throttle: AuthnThrottle;
+  try {
+    throttle = await selectAuthnThrottle(container, config.get<string | undefined>('authn.throttle.service'));
+  } catch {
+    return [];
+  }
+  try {
+    await throttle.checkConfiguration?.(config);
+    return [];
+  } catch (e) {
+    return [{ topic: 'throttle', level: 'error', message: safeMessage(e, 'checking the throttle configuration') }];
+  }
+}
+
 const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
 
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
- * and covers what boot refuses (secrets, legacy keys with rejectLegacyKeys) and what boot accepts but an operator
+ * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys with rejectLegacyKeys) and what boot accepts but an operator
  * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development).
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
@@ -76,6 +94,8 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
       }
     })),
   );
+
+  out.push(...(await throttleFindings(container, config)));
 
   if (!set(config.get('authn.http.trustProxy')) && !set(config.get('http.trustProxy'))) {
     out.push({ topic: 'proxy', level: 'warning', message: 'Neither authn.http.trustProxy nor http.trustProxy is set: behind a proxy every client has the proxy address, so per-IP throttling and audit see one client (0 says there is no proxy)' });
