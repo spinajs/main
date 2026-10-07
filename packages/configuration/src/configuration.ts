@@ -23,7 +23,7 @@ import {
 import { Autoinject, Class, Container, IContainer, Injectable, DI } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
-import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
+import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config from './config/configuration.js';
 import './sources.js';
 
@@ -107,6 +107,9 @@ export class FrameworkConfiguration extends Configuration {
 
   protected ValidationSchemas: IConfigurationSchema[];
 
+  /** Schemas applied after boot that refused the loaded value, by schema; a read of their module throws. */
+  protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
+
   public get RootConfig() {
     return this.Config as IConfigLike;
   }
@@ -135,7 +138,19 @@ export class FrameworkConfiguration extends Configuration {
    * @param defaultValue - optional, if value at specified path not exists returns default value
    */
   public get<T>(path: string[] | string, defaultValue?: T): T {
+    if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
     return _.get(this.Config, path, defaultValue) as T;
+  }
+
+  // A schema applied after boot cannot fail the boot; reading the value it refused, or a part of it, must still fail.
+  private throwIfRefused(path: string[] | string) {
+    const segments = _.toPath(path);
+    for (const { module, error } of this.RefusedModules.values()) {
+      const n = Math.min(module.length, segments.length);
+      if (_.isEqual(module.slice(0, n), segments.slice(0, n))) {
+        throw new InvalidConfiguration(error.message, error.validationExceptions, error.violations);
+      }
+    }
   }
 
   /**
@@ -404,9 +419,17 @@ export class FrameworkConfiguration extends Configuration {
     this.throwIfInvalid(errors, violations);
   }
 
+  /** Validates one module after boot; a refused module stays refused for reads until a later check passes. */
   public validateModule(s: IConfigurationSchema) {
+    const key = schemaNameOf(s);
     const r = this.checkModule(s);
-    this.throwIfInvalid(r.errors, r.violations);
+    try {
+      this.throwIfInvalid(r.errors, r.violations);
+    } catch (e) {
+      this.RefusedModules.set(key, { module: _.toPath(s.$configurationModule), error: e as InvalidConfiguration });
+      throw e;
+    }
+    this.RefusedModules.delete(key);
   }
 
   private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
@@ -416,7 +439,8 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   private checkModule(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
-    const config = this.get(s.$configurationModule);
+    // Not this.get: a refused module is read here to check it again.
+    const config = _.get(this.Config, s.$configurationModule);
 
     if (config === undefined) {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
@@ -434,7 +458,7 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     const errors: ErrorObject[] = this.Validator.errors ?? [];
-    const schema = (s as { $id?: string }).$id ?? s.$configurationModule;
+    const schema = schemaNameOf(s);
     let violations = toViolations(s.$configurationModule, schema, errors);
     if (violations.length === 0) {
       // An invalid configuration must never pass, whatever shape Ajv reported.
@@ -498,7 +522,7 @@ export class FrameworkConfiguration extends Configuration {
     const found: IConfigurationSchema[] = [];
     for (let c: IContainer | undefined = this.Container; c; c = c.Parent) {
       for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as IConfigurationSchema[]) {
-        if (!found.includes(s)) found.push(s);
+        if (!found.some((f) => sameSchema(f, s))) found.push(s);
       }
     }
     return found;

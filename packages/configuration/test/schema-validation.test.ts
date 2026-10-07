@@ -7,7 +7,7 @@ import { Configuration, ConfigurationSource } from '@spinajs/configuration-commo
 import { configurationOf, NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { InvalidConfiguration } from '../src/exception.js';
-import { registerConfigurationSchema } from '../src/schemas.js';
+import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '../src/schemas.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -232,5 +232,80 @@ describe('configuration schema validation', () => {
     booted.push(grandchild);
 
     expect(() => registerConfigurationSchema(RANGE, grandchild)).to.throw(InvalidConfiguration);
+  });
+
+  describe('registering a schema more than once', () => {
+    const bad = { range: { min: 10, max: 5 } };
+
+    it('adds it once and reports each violation once, also for a copy with the same $id', async () => {
+      const child = DI.child();
+      booted.push(child);
+      registerConfigurationSchema(RANGE, child);
+      registerConfigurationSchema(RANGE, child);
+      registerConfigurationSchema({ ...RANGE }, child);
+      expect(child.Cache.get('__configurationSchema__', false)).to.deep.equal([RANGE]);
+
+      child.register(NoSource).as(ConfigurationSource);
+      child.register(configurationOf(bad)).as(Configuration);
+      const e = await child.resolve(Configuration).then(() => null, (err: unknown) => err);
+      expect(e).to.be.instanceOf(InvalidConfiguration);
+      expect((e as InvalidConfiguration).violations.map((v) => v.path)).to.deep.equal(['range.max']);
+    });
+
+    it('validates the copy of a schema that is already compiled, after boot, without an Ajv duplicate id error', async () => {
+      const { child, config } = await boot({ range: { min: 1, max: 5 } }, RANGE);
+      expect(() => registerConfigurationSchema({ ...RANGE }, child)).to.not.throw();
+      expect(config.get('range.max')).to.equal(5);
+    });
+
+    it('applies the defaults again without changing them (a Bootstrapper after a module-level registration)', async () => {
+      const { child, config } = await boot({});
+      registerConfigurationSchema(WITH_DEFAULTS, child);
+      config.set('withDefaults.timeoutMs', 50);
+      registerConfigurationSchema(WITH_DEFAULTS, child);
+      expect(config.get('withDefaults')).to.deep.equal({ timeoutMs: 50 });
+    });
+  });
+
+  describe('a late schema that refuses the loaded value', () => {
+    const bad = { range: { min: 10, max: 5 }, other: { a: 1 } };
+
+    it('makes every read of the module throw, naming the path and the schema, until it validates', async () => {
+      const { child, config } = await boot(bad);
+      expect(() => registerConfigurationSchema(RANGE, child)).to.throw(InvalidConfiguration);
+
+      for (const path of ['range.max', 'range', ['range', 'min'], '']) {
+        const e = (() => {
+          try {
+            config.get(path);
+          } catch (err) {
+            return err;
+          }
+          return null;
+        })();
+        expect(e, String(path)).to.be.instanceOf(InvalidConfiguration);
+        expect((e as InvalidConfiguration).violations).to.deep.equal([{ path: 'range.max', schema: 'test-range', message: 'must be >= 10' }]);
+        expect((e as InvalidConfiguration).message).to.contain('range.max').and.contain('test-range');
+      }
+      expect(config.get('other.a')).to.equal(1);
+      expect(config.get('rangeX', 'none')).to.equal('none');
+
+      config.set('range.max', 20);
+      registerConfigurationSchema(RANGE, child);
+      expect(config.get('range.max')).to.equal(20);
+    });
+
+    it('registerConfigurationSchemaAtImport does not throw: the import goes on, the reads of the module fail', async () => {
+      const { child, config } = await boot(bad);
+      expect(() => registerConfigurationSchemaAtImport(RANGE, child)).to.not.throw();
+      expect(() => config.get('range.max')).to.throw(InvalidConfiguration, /range\.max/);
+      expect(config.get('other.a')).to.equal(1);
+    });
+
+    it('registerConfigurationSchemaAtImport applies the defaults of a module loaded after boot', async () => {
+      const { child, config } = await boot({});
+      registerConfigurationSchemaAtImport(WITH_DEFAULTS, child);
+      expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
+    });
   });
 });
