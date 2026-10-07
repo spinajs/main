@@ -1,7 +1,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { Perf } from '@spinajs/log';
-import { Config, registerConfigurationSchema } from '@spinajs/configuration';
+import { Config, normalizeEnvironment, registerConfigurationSchema } from '@spinajs/configuration';
 import { IEmail, EmailService } from './interfaces.js';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
 import { EmailSent } from './events/EmailSent.js';
@@ -34,19 +34,17 @@ export class LogBotstrapper extends Bootstrapper {
  */
 @Injectable(EmailService)
 export class DefaultEmailService extends EmailService {
+  @Config('configuration.isProduction')
+  protected IsProductionFlag: boolean | undefined;
+
   /**
-   * The environment configuration resolved — `Env ?? APP_ENV ?? NODE_ENV ?? 'development'`.
-   * The same value that chose which config file loaded, so this guard and the loaded
-   * configuration cannot disagree.
+   * `configuration.isProduction`, the framework's answer, which an app's own config may override. Without a boolean
+   * (a Configuration that does not load the shipped configuration module) the env decides, as in authz.
    */
-  /**
-   * The framework's single source of truth for "am I running as production", derived from the
-   * same value that selected the config files and overridable by an app's own config. Read it
-   * rather than re-deriving from APP_ENV here: two matchers for one question drift, and a local
-   * one cannot see an override.
-   */
-  @Config('configuration.isProduction', { defaultValue: false })
-  protected IsProduction: boolean;
+  protected get IsProduction(): boolean {
+    const flag = this.IsProductionFlag;
+    return typeof flag === 'boolean' ? flag : normalizeEnvironment(process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development') === 'prod';
+  }
 
   @Config('email.attachments.check', { defaultValue: true })
   protected CheckAttachments: boolean;
