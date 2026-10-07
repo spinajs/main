@@ -47,7 +47,7 @@ export class OidcProviders extends AsyncService {
     // A @Config read needs the container's Configuration resolved; the env needs the object itself (SR-16).
     const config = await this.container.resolve(Configuration);
     this.env = appEnvOf(config);
-    // === true: authn.linking skips the schema when the @spinajs/authn bootstrapper never ran, and the strategy reads it as truthy.
+    // === true: the strategy reads these as truthy, and a value set at runtime never went through the schema.
     this.linking = { jit: this.GlobalLinking?.jit === true, byVerifiedEmail: this.GlobalLinking?.byVerifiedEmail === true };
     this.options = buildOidcOptions(this.Oidc, this.env, {
       linking: this.linking,
