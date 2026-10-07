@@ -1,4 +1,4 @@
-import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration, registerConfigurationSchema } from '@spinajs/configuration';
 import type { IConfigurationSchema } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
@@ -29,8 +29,9 @@ export interface BootedConfiguration {
  */
 export async function bootConfiguration(values: Record<string, unknown>, schemas: readonly IConfigurationSchema[] = [], parent: IContainer = DI.RootContainer): Promise<BootedConfiguration> {
   const child = parent.child();
-  for (const schema of schemas) child.register(schema).asValue('__configurationSchema__');
   child.register(configurationOf(values)).as(Configuration);
+  // After the Configuration: registered first, a schema would be validated at once against the parent's.
+  for (const schema of schemas) registerConfigurationSchema(schema, child);
   try {
     return { child, configuration: (await child.resolve(Configuration)) as Configuration };
   } catch (e) {
