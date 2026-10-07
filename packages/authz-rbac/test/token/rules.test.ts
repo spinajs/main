@@ -57,6 +57,16 @@ class ProfilesTokenRolePolicy extends TokenRolePolicy {
   }
 }
 
+// Entries no role name can match (ROLE_NAME_PATTERN), which would exclude nothing.
+const NO_ROLE: [string, unknown][] = [
+  ['a leading space', [' admin']],
+  ['a trailing space', ['admin ']],
+  ['a leading digit', ['1admin']],
+  ['a name coercion makes of a boolean', ['true']],
+  ['a prefix with a leading digit', ['1route.*']],
+  ['a prefix with a leading space', [' route.*']],
+];
+
 describe('authz-rbac token: role rules', () => {
   const owner = userPrincipal('alice');
 
@@ -202,11 +212,18 @@ describe('authz-rbac token: role rules', () => {
       expect(rules.trivial).to.equal(false);
     });
 
+    it('takes a role name with an inner space, and a prefix of one', async () => {
+      const rules = await loadTokenRoleRules(config({ excludedRoles: ['Stock editor', 'Stock editor.*'] }), container);
+      expect(rules.excluded('Stock editor')).to.equal(true);
+      expect(rules.excluded('Stock editor.read')).to.equal(true);
+    });
+
     const failOpen: [string, unknown][] = [
       ['not an array', 'route.*'],
       ['a non-string entry', [1]],
       ['a full glob', ['*']],
       ['a star before the end', ['route.*.admin']],
+      ...NO_ROLE,
     ];
     for (const [title, value] of failOpen) {
       it(`refuses authz.token.excludedRoles with ${title} on a configuration no schema validated`, async () => {
@@ -307,6 +324,7 @@ describe('authz-rbac token: role rules', () => {
         ['a star before the end', ['route.*.admin']],
         ['two stars', ['route.*.*']],
         ['an empty prefix', ['.*']],
+        ...NO_ROLE,
       ];
       for (const [title, value] of badExcluded) {
         it(`refuses authz.token.excludedRoles with ${title} at boot`, async () => {
