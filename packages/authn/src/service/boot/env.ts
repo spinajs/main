@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { normalizeEnvironment } from '@spinajs/configuration';
+import { normalizeEnvironment } from '@spinajs/configuration-common';
 
 /**
  * `http.cookie.secret` as `@spinajs/http` ships it: public, so anyone can sign cookies with it. The same value as
