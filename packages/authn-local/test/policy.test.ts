@@ -78,6 +78,12 @@ describe('LocalPasswordPolicy', () => {
     it('refuses a minLength below 8 at first use', () => {
       expect(failure(() => new LocalPasswordPolicy({ minLength: 7 }).resolve())).to.be.instanceOf(InvalidOption);
     });
+
+    it('refuses a minLength that is not an integer, which would let any length through', () => {
+      for (const minLength of [Number.NaN, 8.5, '12' as unknown as number]) {
+        expect(failure(() => new LocalPasswordPolicy({ minLength }).resolve()), String(minLength)).to.be.instanceOf(InvalidOption);
+      }
+    });
   });
 
   describe('login length (D5)', () => {

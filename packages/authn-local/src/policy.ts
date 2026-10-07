@@ -224,8 +224,9 @@ export class LocalPasswordPolicy extends SyncService {
     const minLength = options.minLength ?? PASSWORD_MIN_LENGTH;
     const maxLength = options.maxLength ?? PASSWORD_MAX_LENGTH;
 
-    // A seam or a raw config can skip the schema's minimum; a shorter minimum would accept weak passwords at set time.
-    if (minLength < PASSWORD_MIN_LENGTH) {
+    // A seam or a raw config can skip the schema's minimum; a shorter one, or a NaN or string that no length is below,
+    // would accept weak passwords at set time.
+    if (!(Number.isInteger(minLength) && minLength >= PASSWORD_MIN_LENGTH)) {
       throw new InvalidOption(`authn.local.policy.minLength must be at least ${PASSWORD_MIN_LENGTH}, got ${minLength}`);
     }
 
