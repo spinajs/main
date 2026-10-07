@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+
 const PASSWORD_MAIL_PURPOSE = {
   type: 'object',
   properties: {
@@ -86,5 +88,7 @@ const CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(CONFIGURATION_SCHEMA);
 
 export default CONFIGURATION_SCHEMA;

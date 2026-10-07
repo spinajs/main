@@ -5,6 +5,8 @@ import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
 import { fs, getFs } from '@spinajs/fs';
 import { attachmentFile } from './attachments.js';
+// The jobs dir is scanned after boot, where no Bootstrapper of this package runs: the schema module registers itself.
+import './schemas/email.smtp.configuration.js';
 
 export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
