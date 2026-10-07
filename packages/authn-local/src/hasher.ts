@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { AsyncService, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 
 import { ConcurrencyLimiter } from './limiter.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
