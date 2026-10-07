@@ -1,6 +1,6 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
@@ -40,10 +40,15 @@ function check(e: StrategyEntry, s: unknown): Listed {
   return { strategy, kinds: Object.freeze([...kinds]), selector: isCredentialSelector(strategy) };
 }
 
+// A refused configuration section fails the request (a 500 the HTTP layer logs); read as a decline it would only show
+// as a quiet 401 for every credential of the kind. Matched by name too: the cjs and the mjs build each have the class.
+const isInvalidConfiguration = (e: unknown): boolean => e instanceof InvalidConfiguration || (e instanceof Error && e.constructor.name === 'InvalidConfiguration');
+
 function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
   try {
     return (s as AuthenticationStrategy & CredentialSelector).accepts(c) === true;
-  } catch {
+  } catch (e) {
+    if (isInvalidConfiguration(e)) throw e;
     return false;
   }
 }
@@ -89,7 +94,7 @@ export class StrategyRegistry extends AsyncService {
     return this.all!;
   }
 
-  /** Listed strategies for `c.kind`, in list order, minus those whose optional `accepts(c)` declines (D1). */
+  /** Listed strategies for `c.kind`, in list order, minus those whose optional `accepts(c)` declines (D1). @throws InvalidConfiguration thrown by an `accepts` */
   public candidates(c: Credentials): readonly AuthenticationStrategy[] {
     const listed = this.state();
     const kind = c !== null && typeof c === 'object' ? (c as { kind?: unknown }).kind : undefined;

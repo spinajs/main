@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy, StrategyRegistry, isCredentialSelector } from '../../src/index.js';
 import type { Credentials, StrategyOutcome, ThrottleKey } from '../../src/index.js';
@@ -60,6 +60,14 @@ class ThrowingBearer extends TestStrategy {
   }
 }
 
+class RefusedConfigBearer extends TestStrategy {
+  readonly name = 'refused';
+  readonly kinds = ['bearer'];
+  accepts(): boolean {
+    throw new InvalidConfiguration('Invalid configuration: authn.token.prefix', [], [{ path: 'authn.token.prefix', schema: 'test', message: 'refused' }]);
+  }
+}
+
 class TruthyBearer extends TestStrategy {
   readonly name = 'truthy';
   readonly kinds = ['bearer'];
@@ -104,7 +112,7 @@ class NotAStrategy {
   readonly kinds = ['password'];
 }
 
-const ALL: Class<unknown>[] = [LocalPassword, PrefixBearer, JwtBearer, PlainBearer, ThrowingBearer, TruthyBearer, KeysMulti, KeysJws, NoKinds, BadKinds, NonBooleanInteractive];
+const ALL: Class<unknown>[] = [LocalPassword, PrefixBearer, JwtBearer, PlainBearer, ThrowingBearer, RefusedConfigBearer, TruthyBearer, KeysMulti, KeysJws, NoKinds, BadKinds, NonBooleanInteractive];
 
 class RegistryTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
@@ -403,6 +411,13 @@ describe('StrategyRegistry', function () {
     it('treats a throwing or non-boolean accepts as a decline', async () => {
       const r = await boot([entry('throwing', 'ThrowingBearer'), entry('truthy', 'TruthyBearer'), PLAIN]);
       expect(cand(r, bearer('x'))).to.deep.equal(['plain']);
+    });
+
+    // A refused configuration section must fail the request, not read as "not mine" and end in a quiet 401.
+    it('lets an InvalidConfiguration thrown by accepts through', async () => {
+      const r = await boot([PLAIN, entry('refused', 'RefusedConfigBearer')]);
+      expect(() => r.candidates(bearer('x'))).to.throw(InvalidConfiguration, /authn\.token\.prefix/);
+      expect(cand(r, password)).to.deep.equal([]);
     });
 
     it('is empty for malformed credentials', async () => {
