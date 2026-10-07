@@ -10,6 +10,7 @@ import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
 import type { AuthnContext } from '../contracts/credentials.js';
 import { THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
 import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from '../contracts/throttle.js';
+import { checkThrottleMaxRows, checkThrottleParams } from '../service/boot/env.js';
 import { DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
 import type { ThrottleConfig } from './params.js';
 import type { PeekableThrottle } from './peek.js';
@@ -85,6 +86,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
   /** DI passes nothing and the limits come from `authn.throttle`; tests pass complete, trusted params. */
   constructor(private readonly explicit?: ThrottleParams, private readonly options: MemoryThrottleOptions = {}) {
     super();
+    if (explicit) checkThrottleParams(explicit);
+    if (options.maxRows !== undefined) checkThrottleMaxRows(options.maxRows);
     const table = (): ThrottleTable => ({ rows: new Map(), cursor: undefined, fullUntilMs: 0, fullReported: false });
     this.tables = Object.freeze({ login: table(), mfa: table(), reset: table(), reauth: table() });
   }
@@ -102,6 +105,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     if (!this.loaded) {
       if (!this.Throttle) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
       const { service: _service, maxRows, ...params } = structuredClone(this.Throttle);
+      checkThrottleParams(params);
+      if (maxRows !== undefined) checkThrottleMaxRows(maxRows);
       this.loaded = { params: deepFreeze(params), maxRows };
     }
     return this.loaded;

@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attackerIp, backoffSchedule, burst, expectAllowed, expectRefused, pwKeys, runThrottleConformance, throttleParams, walkBackoff } from '@spinajs/authn-testing';
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
@@ -649,6 +649,47 @@ describe('MemoryAuthnThrottle', function () {
       const t = new MemoryAuthnThrottle(DEFAULT_THROTTLE);
       assert.strictEqual(t.params, DEFAULT_THROTTLE);
       assert.strictEqual(t.maxRows, DEFAULT_THROTTLE_MAX_ROWS);
+    });
+
+    it('refuses explicit params outside the schema ranges, in every flow, naming the key', () => {
+      type Loose = Record<string, Record<string, Record<string, unknown> | undefined> | unknown>;
+      const variant = (edit: (p: Loose) => void): ThrottleParams => {
+        const p = structuredClone(DEFAULT_THROTTLE_PARAMS) as unknown as Loose;
+        edit(p);
+        return p as unknown as ThrottleParams;
+      };
+      const flowOf = (p: Loose, flow: string) => p[flow] as Record<string, Record<string, unknown> | undefined>;
+      const cases: [string, ThrottleParams][] = [];
+      for (const flow of FLOWS) {
+        for (const [key, bad] of [['free', -1], ['free', Number.NaN], ['baseDelayMs', Infinity], ['maxDelayMs', 0], ['maxDelayMs', '60000']] as const) {
+          cases.push([`${flow}.account.${key}`, variant((p) => (flowOf(p, flow).account![key] = bad))]);
+        }
+        cases.push([`${flow}.account`, variant((p) => delete flowOf(p, flow).account)]);
+        cases.push([`${flow}.ip`, variant((p) => (flowOf(p, flow).ip = { free: 1, baseDelayMs: Number.NaN, maxDelayMs: 1 }))]);
+        cases.push([flow, variant((p) => (p[flow] = null))]);
+      }
+      cases.push(['global', variant((p) => (p.global = { free: 0, baseDelayMs: 1000, maxDelayMs: 0 }))]);
+      cases.push(['resetAfterSeconds', variant((p) => (p.resetAfterSeconds = 0))]);
+      cases.push(['resetAfterSeconds', variant((p) => (p.resetAfterSeconds = Number.NaN))]);
+      for (const [path, params] of cases) {
+        assert.throws(() => new MemoryAuthnThrottle(params), (e: Error) => e instanceof InvalidOption && e.message.includes(`authn.throttle.${path}`), path);
+      }
+    });
+
+    it('refuses an explicit maxRows that is not a positive integer', () => {
+      for (const maxRows of [Number.NaN, Infinity, 0, 1.5, '10' as unknown as number]) {
+        assert.throws(() => new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows }), (e: Error) => e instanceof InvalidOption && e.message.includes('maxRows'), String(maxRows));
+      }
+    });
+
+    it('refuses limits set past the schema before the first use', async () => {
+      for (const [path, bad] of [['authn.throttle.mfa.account.maxDelayMs', 0], ['authn.throttle.maxRows', Infinity]] as const) {
+        const child = await configuredChild({ authn: { throttle: {} } });
+        kids.push(child);
+        child.get(Configuration)!.set(path, bad);
+        const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+        await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), (e: Error) => e instanceof InvalidOption && e.message.includes(path.slice('authn.throttle.'.length)), path);
+      }
     });
 
     const refused: [string, unknown, string][] = [
