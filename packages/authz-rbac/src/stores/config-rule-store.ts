@@ -19,6 +19,8 @@ const RULE_KEYS: ReadonlyMap<unknown, readonly string[]> = new Map([
 const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 const isId = (v: unknown): boolean => typeof v === 'string' && v !== '';
 const isNames = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every(isId);
+// The schema's pattern: Date.parse reads a date-time without a timezone as local time.
+const WITH_TIMEZONE = /(?:[zZ]|[+-]\d\d:?\d\d)$/;
 
 function refuse(bad: boolean, at: string, what: string): void {
   if (bad) throw new AuthzConfigError(`${at}: ${what}`);
@@ -35,15 +37,15 @@ function floor(r: Raw, scope: unknown, at: string): void {
   refuse(keys === undefined, at, `kind must be one of ${[...RULE_KEYS.keys()].join(', ')}`);
   const unknown = Object.keys(r).find((k) => !keys!.includes(k));
   refuse(unknown !== undefined, at, `'${unknown}' is not a key of a ${r.kind as string} rule`);
-  const { type, id } = scope as Raw;
-  refuse(typeof type !== 'string' || (type === GLOBAL.type ? id !== undefined : !isId(id)), at, 'scope must be $global or a node with an id');
+  const { type, id } = isPlain(scope) ? scope : {};
+  refuse(!isId(type) || (type === GLOBAL.type ? id !== undefined : !isId(id)), at, 'scope must be $global or a node with an id');
   const subjects = isPlain(r.subjects) ? r.subjects : {};
   const assignments = isPlain(r.assignments) ? r.assignments : {};
   const lists = { resourceTypes: r.resourceTypes, permissions: r.permissions, 'subjects.principalTypes': subjects.principalTypes, 'subjects.actorTypes': subjects.actorTypes, 'assignments.scopeTypes': assignments.scopeTypes, 'assignments.subjectTypes': assignments.subjectTypes };
   for (const [key, v] of Object.entries(lists)) refuse(v !== undefined && !isNames(v), at, `${key} must be a non-empty list of names`);
   refuse(r.kind === 'threshold' && r.permissions === undefined, at, 'a threshold needs permissions');
   const refs = subjects.refs;
-  refuse(refs !== undefined && !(Array.isArray(refs) && refs.length > 0 && refs.every((p) => isPlain(p) && typeof p.type === 'string' && isId(p.id))), at, 'subjects.refs must be a non-empty list of { type, id }');
+  refuse(refs !== undefined && !(Array.isArray(refs) && refs.length > 0 && refs.every((p) => isPlain(p) && isId(p.type) && isId(p.id))), at, 'subjects.refs must be a non-empty list of { type, id }');
   const rank = subjects.rank;
   refuse(rank !== undefined && (!isPlain(rank) || ['lt', 'eq', 'gte'].filter((k) => rank[k] !== undefined).length !== 1), at, 'subjects.rank needs exactly one of lt, eq, gte');
   refuse(r.kind === 'cap' && r.maxRole === undefined && r.stripTags !== true, at, 'a cap needs maxRole or stripTags: true');
@@ -57,10 +59,12 @@ function floor(r: Raw, scope: unknown, at: string): void {
  *   that is not a date (a list given to ConfigRuleStore skips the schema)
  */
 export function readRuleDefs(rules: readonly unknown[], source = 'config'): readonly RuleDef[] {
+  refuse(!Array.isArray(rules), 'authz.rbac.rules', 'must be a list of rules');
   return Object.freeze(
     rules.map((given, i) => {
       const r = given as RuleDef;
       const at = `authz.rbac.rules[${i}]${typeof r?.id === 'string' ? ` (id '${r.id}')` : ''}`;
+      refuse(!isPlain(given), at, 'a rule must be an object');
       const scope = r.scope === undefined ? GLOBAL : r.scope;
       floor(given as Raw, scope, at);
       return deepFreeze({ ...r, scope, source: r.source ?? source, ...expiry(r.expiresAt, at) });
@@ -70,8 +74,8 @@ export function readRuleDefs(rules: readonly unknown[], source = 'config'): read
 
 function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
   if (value === undefined || value === null) return value === null ? { expiresAt: null } : {};
-  const ms = typeof value === 'string' ? Date.parse(value) : Object.prototype.toString.call(value) === '[object Date]' ? Date.prototype.getTime.call(value) : NaN;
-  if (Number.isNaN(ms)) throw new AuthzConfigError(`${at}: expiresAt must be a date or an ISO date string`);
+  const ms = typeof value === 'string' ? (WITH_TIMEZONE.test(value) ? Date.parse(value) : NaN) : Object.prototype.toString.call(value) === '[object Date]' ? Date.prototype.getTime.call(value) : NaN;
+  if (Number.isNaN(ms)) throw new AuthzConfigError(`${at}: expiresAt must be a date or an ISO date-time string with a timezone`);
   return { expiresAt: new Date(ms) };
 }
 

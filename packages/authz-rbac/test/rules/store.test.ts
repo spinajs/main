@@ -78,7 +78,16 @@ describe('authz-rbac ConfigRuleStore', () => {
     });
 
     it('refuses a scope other than $global or a node with an id, which no check path holds', () => {
-      for (const scope of [{ type: 'file' }, { type: 'org', idd: 'o1' }, { id: 'o1' }, 'org', { type: 'org', id: '' }, { type: 'org', id: null }, { type: 'org', id: 1 }, { type: '$global', id: 'x' }]) refuses([cap({ scope })], "(id 'c1')", 'scope');
+      for (const scope of [{ type: 'file' }, { type: 'org', idd: 'o1' }, { id: 'o1' }, 'org', { type: 'org', id: '' }, { type: 'org', id: null }, { type: 'org', id: 1 }, { type: '$global', id: 'x' }, { type: '', id: 'o1' }, null]) refuses([cap({ scope })], "(id 'c1')", 'scope');
+    });
+
+    it('refuses a subject ref with an empty type, which no principal has', () => {
+      refuses([cap({ subjects: { refs: [{ type: '', id: 'u1' }] } })], "(id 'c1')", 'subjects.refs');
+    });
+
+    it('names a rules value or a rule that is not an object instead of a TypeError', () => {
+      for (const rules of [null, {}, 'r1']) refuses(rules, 'authz.rbac.rules');
+      for (const rule of [null, 'c1', []]) refuses([rule], 'authz.rbac.rules[0]', 'object');
     });
 
     it('refuses a selector that selects nothing or a threshold without permissions', () => {
@@ -107,6 +116,11 @@ describe('authz-rbac ConfigRuleStore', () => {
     it('refuses an expiresAt that is not a date', () => {
       refuses([cap({ expiresAt: 'soon' })], "(id 'c1')", 'expiresAt');
       refuses([cap({ expiresAt: new Date('soon') })], "(id 'c1')", 'expiresAt');
+    });
+
+    it('refuses an expiresAt string without a timezone, which would be read as local time', () => {
+      for (const expiresAt of ['2027-01-01T00:00:00', '2027-01-01', 'Jan 1 2027']) refuses([cap({ expiresAt })], "(id 'c1')", 'expiresAt');
+      for (const expiresAt of ['2027-01-01T00:00:00Z', '2027-01-01T00:00:00.000+02:00', '2027-01-01T00:00:00-0130']) expect(readRuleDefs([cap({ expiresAt })])[0].expiresAt).to.deep.equal(new Date(expiresAt));
     });
 
     it('does not read a null authz.rbac.rules as no rules', () => {
