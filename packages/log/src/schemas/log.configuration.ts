@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from "@spinajs/configuration";
+
 const CONFIGURATION_SCHEMA = {
   $id: "spinajs/log.configuration.schema.json",
   $configurationModule: "logger",
@@ -249,5 +251,7 @@ const CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(CONFIGURATION_SCHEMA);
 
 export default CONFIGURATION_SCHEMA;
