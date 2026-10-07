@@ -1,6 +1,6 @@
 import * as express from 'express';
-import { Injectable, Autoinject } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 
@@ -61,8 +61,8 @@ const withoutProxyHeaders = (list: string | undefined): string | undefined => {
  */
 @Injectable(ServerMiddleware)
 export class CorsMiddleware extends ServerMiddleware {
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('http.cors')
+  protected Cors: { origins?: readonly string[] | null; exposedHeaders?: unknown; allowedHeaders?: unknown } | boolean | null | undefined;
 
   @Logger('http')
   protected Log!: Log;
@@ -75,11 +75,9 @@ export class CorsMiddleware extends ServerMiddleware {
   }
 
   public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    const cfg = this.Configuration.get<{ origins?: unknown; exposedHeaders?: unknown; allowedHeaders?: unknown } | undefined>('http.cors', undefined);
-    const raw = cfg ? (cfg.origins ?? []) : [];
-    if (!Array.isArray(raw)) {
-      throw new InvalidOption(`http.cors.origins must be a list of origins (scheme://host[:port]) or '*'`);
-    }
+    // true passes the schema (no CORS, as false does) and has no origins to read.
+    const cfg = typeof this.Cors === 'object' ? this.Cors : null;
+    const raw = cfg?.origins ?? [];
 
     const any = raw.includes('*');
     const listed = new Set<string>();

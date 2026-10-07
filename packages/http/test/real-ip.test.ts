@@ -5,14 +5,16 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { RealIp, parseTrustProxy, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
+import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
+import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
 
 const SOCKET = '203.0.113.9';
 const SPOOF = '198.51.100.66';
 
-function realIp(trustProxy: unknown) {
-  const mw = new RealIp();
-  Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.trustProxy' ? trustProxy : def) } });
-  return mw;
+/** A RealIp reading `http.trustProxy` (absent when undefined) from a Configuration the http schema checked. */
+async function realIp(trustProxy: unknown) {
+  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], trustProxy === undefined ? {} : { http: { trustProxy } });
+  return readingFrom(new RealIp(), child);
 }
 
 function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, extra: Record<string, unknown> = {}) {
@@ -20,6 +22,8 @@ function fakeReq(xff?: string | string[], socket: string | undefined = SOCKET, e
 }
 
 describe('trusted client address (RealIp)', () => {
+  afterEach(disposeBooted);
+
   describe('parseTrustProxy', () => {
     const at = (v: unknown) => trustedClientAddress(SOCKET, '192.0.2.1, 192.0.2.2', parseTrustProxy(v, 'http.trustProxy'));
 
@@ -132,30 +136,47 @@ describe('trusted client address (RealIp)', () => {
   });
 
   describe('RealIp middleware', () => {
-    it('SR-03 RealIp ignores a client-set X-Forwarded-For', () => {
+    it('SR-03 RealIp ignores a client-set X-Forwarded-For', async () => {
       const req = fakeReq(SPOOF);
       const next = sinon.spy();
-      realIp(undefined).before()(req, {} as any, next);
+      (await realIp(undefined)).before()(req, {} as any, next);
       expect(req.storage.realIp).to.eq(SOCKET);
       expect(next.calledOnce).to.eq(true);
     });
 
-    it('honours http.trustProxy', () => {
+    it('honours http.trustProxy', async () => {
       const req = fakeReq(`${SPOOF}, 192.0.2.1`);
-      realIp(1).before()(req, {} as any, () => undefined);
+      (await realIp(1)).before()(req, {} as any, () => undefined);
       expect(req.storage.realIp).to.eq('192.0.2.1');
     });
 
-    it('a bad http.trustProxy fails when the middleware is built', () => {
-      expect(() => realIp('nope').before()).to.throw(InvalidOption, 'http.trustProxy');
+    it('honours every form of http.trustProxy the schema accepts, true as one hop', async () => {
+      const cases: [unknown, string][] = [
+        [null, SOCKET],
+        [0, SOCKET],
+        [false, SOCKET],
+        [true, '192.0.2.1'],
+        [2, SPOOF],
+        [`${SOCKET}, 192.0.2.1`, SPOOF],
+        [['203.0.113.0/24'], '192.0.2.1'],
+      ];
+      for (const [trustProxy, client] of cases) {
+        const req = fakeReq(`${SPOOF}, 192.0.2.1`);
+        (await realIp(trustProxy)).before()(req, {} as any, () => undefined);
+        expect(req.storage.realIp, JSON.stringify(trustProxy)).to.eq(client);
+      }
+    });
+
+    it('a bad http.trustProxy fails when the middleware is built', async () => {
+      const mw = await realIp('nope');
+      expect(() => mw.before()).to.throw(InvalidOption, 'http.trustProxy');
     });
   });
 
   describe('ThrottleMiddleware key', () => {
-    function throttle(limit: number) {
-      const mw = new ThrottleMiddleware();
-      const cfg = { enabled: true, rules: [{ path: '/auth', methods: ['POST'], limit, windowSeconds: 60 }] };
-      Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.throttle' ? cfg : def) } });
+    async function throttle(limit: number, path = '/auth') {
+      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true, rules: [{ path, methods: ['POST'], limit, windowSeconds: 60 }] } } });
+      const mw = readingFrom(new ThrottleMiddleware(), child);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
       Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
       return mw.before()!;
@@ -172,8 +193,8 @@ describe('trusted client address (RealIp)', () => {
     }
 
     it('SR-03 the throttle ignores a spoofed X-Forwarded-For', async () => {
-      const ip = realIp(null).before();
-      const limited = throttle(3);
+      const ip = (await realIp(null)).before();
+      const limited = await throttle(3);
       const statuses: number[] = [];
       for (let i = 0; i < 5; i++) {
         const req = fakeReq(`198.51.100.${i + 1}`, SOCKET, { path: '/auth/login', method: 'POST', ip: `198.51.100.${i + 1}` });
@@ -184,7 +205,7 @@ describe('trusted client address (RealIp)', () => {
     });
 
     it('without realIp keys on the socket address, never on req.ip', async () => {
-      const limited = throttle(1);
+      const limited = await throttle(1);
       const a = { path: '/auth', method: 'POST', ip: '198.51.100.1', socket: { remoteAddress: SOCKET }, storage: {} };
       const b = { path: '/auth', method: 'POST', ip: '198.51.100.2', socket: { remoteAddress: SOCKET }, storage: {} };
       expect(await hit(limited, a)).to.eq(200);
@@ -192,7 +213,7 @@ describe('trusted client address (RealIp)', () => {
     });
 
     it('matches a rule path on a segment boundary', async () => {
-      const limited = throttle(1);
+      const limited = await throttle(1);
       const at = (path: string) => ({ path, method: 'POST', socket: { remoteAddress: SOCKET }, storage: { realIp: SOCKET } });
       expect(await hit(limited, at('/authority'))).to.eq(200);
       expect(await hit(limited, at('/authority'))).to.eq(200);
@@ -201,7 +222,7 @@ describe('trusted client address (RealIp)', () => {
     });
 
     it('matches a rule path whatever the case of the request path, as express routes do', async () => {
-      const limited = throttle(1);
+      const limited = await throttle(1);
       const at = (path: string) => ({ path, method: 'POST', socket: { remoteAddress: SOCKET }, storage: { realIp: SOCKET } });
       expect(await hit(limited, at('/auth/login'))).to.eq(200);
       expect(await hit(limited, at('/AUTH/login'))).to.eq(429);
@@ -209,12 +230,7 @@ describe('trusted client address (RealIp)', () => {
     });
 
     it('matches a rule path written with a trailing slash against the bare path', async () => {
-      const mw = new ThrottleMiddleware();
-      const cfg = { enabled: true, rules: [{ path: '/auth/', methods: ['POST'], limit: 1, windowSeconds: 60 }] };
-      Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.throttle' ? cfg : def) } });
-      Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
-      Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
-      const limited = mw.before()!;
+      const limited = await throttle(1, '/auth/');
       const at = (path: string) => ({ path, method: 'POST', socket: { remoteAddress: SOCKET }, storage: { realIp: SOCKET } });
       expect(await hit(limited, at('/auth'))).to.eq(200);
       expect(await hit(limited, at('/auth/login'))).to.eq(429);

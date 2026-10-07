@@ -1,7 +1,7 @@
 import { BlockList, isIP } from 'node:net';
 import * as express from 'express';
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 
@@ -102,8 +102,8 @@ export function requestOrigin(req: { headers: express.Request['headers']; socket
 /** Writes `req.storage.realIp`: the client address through `http.trustProxy` only; without it, the socket address. */
 @Injectable(ServerMiddleware)
 export class RealIp extends ServerMiddleware {
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('http.trustProxy')
+  protected TrustProxy: TrustProxySetting;
 
   constructor() {
     super();
@@ -115,7 +115,7 @@ export class RealIp extends ServerMiddleware {
   }
 
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    const trust = parseTrustProxy(this.Configuration.get('http.trustProxy'), 'http.trustProxy');
+    const trust = parseTrustProxy(this.TrustProxy, 'http.trustProxy');
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       req.storage.realIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
       next();

@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { MemoryThrottleStore, ThrottleMiddleware, IThrottleRule, ThrottleStore } from '../src/middlewares/Throttle.js';
+import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
+import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
 
 interface IFakeResult {
   nextCalled: boolean;
@@ -12,10 +14,11 @@ interface IFakeResult {
   headers: Record<string, string>;
 }
 
-function makeMiddleware(cfg: { enabled?: boolean; rules?: IThrottleRule[] } | undefined, store?: ThrottleStore) {
-  const mw = new ThrottleMiddleware();
+/** A ThrottleMiddleware reading `http.throttle` (absent when undefined) from a Configuration the http schema checked. */
+async function makeMiddleware(cfg: { enabled?: boolean; rules?: IThrottleRule[] } | undefined, store?: ThrottleStore) {
+  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], cfg === undefined ? {} : { http: { throttle: cfg } });
+  const mw = readingFrom(new ThrottleMiddleware(), child);
   // decorator-injected properties are getter-only; redefine them for the unit test
-  Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.throttle' ? cfg : def) } });
   Object.defineProperty(mw, 'Store', { value: store ?? new MemoryThrottleStore() });
   Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
   return mw;
@@ -63,8 +66,9 @@ function request(overrides?: Partial<{ path: string; method: string; ip: string 
 }
 
 describe('ThrottleMiddleware', () => {
-  afterEach(() => {
+  afterEach(async () => {
     sinon.restore();
+    await disposeBooted();
   });
 
   describe('MemoryThrottleStore', () => {
@@ -90,14 +94,14 @@ describe('ThrottleMiddleware', () => {
   });
 
   describe('configuration gate', () => {
-    it('is a no-op when disabled or unconfigured', () => {
-      expect(makeMiddleware(undefined).before()).to.be.null;
-      expect(makeMiddleware({ enabled: false, rules: [{ path: '/', limit: 1, windowSeconds: 1 }] }).before()).to.be.null;
+    it('is a no-op when disabled or unconfigured', async () => {
+      expect((await makeMiddleware(undefined)).before()).to.be.null;
+      expect((await makeMiddleware({ enabled: false, rules: [{ path: '/', limit: 1, windowSeconds: 1 }] })).before()).to.be.null;
     });
 
-    it('is a no-op when enabled without valid rules', () => {
-      expect(makeMiddleware({ enabled: true, rules: [] }).before()).to.be.null;
-      expect(makeMiddleware({ enabled: true, rules: [{ path: '/x', limit: 0, windowSeconds: 60 }] }).before()).to.be.null;
+    it('is a no-op when enabled without rules', async () => {
+      expect((await makeMiddleware({ enabled: true, rules: [] })).before()).to.be.null;
+      expect((await makeMiddleware({ enabled: true })).before()).to.be.null;
     });
   });
 
@@ -105,7 +109,7 @@ describe('ThrottleMiddleware', () => {
     const RULES: IThrottleRule[] = [{ path: '/auth', methods: ['POST'], limit: 2, windowSeconds: 60 }];
 
     it('passes requests under the limit and refuses the first one over it with 429', async () => {
-      const handler = makeMiddleware({ enabled: true, rules: RULES }).before()!;
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES })).before()!;
 
       expect((await run(handler, request())).nextCalled).to.eq(true);
       expect((await run(handler, request())).nextCalled).to.eq(true);
@@ -119,7 +123,7 @@ describe('ThrottleMiddleware', () => {
     });
 
     it('counts per client ip', async () => {
-      const handler = makeMiddleware({ enabled: true, rules: RULES }).before()!;
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES })).before()!;
 
       await run(handler, request());
       await run(handler, request());
@@ -130,7 +134,7 @@ describe('ThrottleMiddleware', () => {
     });
 
     it('ignores paths and methods outside the rules', async () => {
-      const handler = makeMiddleware({ enabled: true, rules: RULES }).before()!;
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES })).before()!;
 
       for (let i = 0; i < 5; i++) {
         expect((await run(handler, request({ path: '/api/users' }))).nextCalled).to.eq(true);
@@ -139,7 +143,7 @@ describe('ThrottleMiddleware', () => {
     });
 
     it('matches by path prefix', async () => {
-      const handler = makeMiddleware({ enabled: true, rules: RULES }).before()!;
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES })).before()!;
 
       await run(handler, request({ path: '/auth/password/reset-request' }));
       await run(handler, request({ path: '/auth/password/reset-request' }));
@@ -152,7 +156,7 @@ describe('ThrottleMiddleware', () => {
       const broken: ThrottleStore = {
         increment: () => Promise.reject(new Error('store down')),
       } as ThrottleStore;
-      const handler = makeMiddleware({ enabled: true, rules: RULES }, broken).before()!;
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES }, broken)).before()!;
 
       const result = await run(handler, request());
       expect(result.nextCalled).to.eq(true);

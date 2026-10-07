@@ -1,6 +1,6 @@
 import * as express from 'express';
 import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware, Request as sRequest, HTTP_STATUS_CODE } from '../interfaces.js';
@@ -115,8 +115,8 @@ const underPath = (path: string, prefix: string): boolean => {
  */
 @Injectable(ServerMiddleware)
 export class ThrottleMiddleware extends ServerMiddleware {
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('http.throttle')
+  protected Throttle: { enabled?: boolean; rules?: IThrottleRule[] } | undefined;
 
   @Autoinject(ThrottleStore)
   protected Store!: ThrottleStore;
@@ -131,16 +131,16 @@ export class ThrottleMiddleware extends ServerMiddleware {
   }
 
   public before(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
-    const cfg = this.Configuration.get<{ enabled?: boolean; rules?: IThrottleRule[] }>('http.throttle', undefined);
+    const cfg = this.Throttle;
 
     if (!cfg?.enabled) {
       return null;
     }
 
-    const rules = (Array.isArray(cfg.rules) ? cfg.rules : []).filter((r) => r && typeof r.path === 'string' && r.limit > 0 && r.windowSeconds > 0);
+    const rules = cfg.rules ?? [];
 
     if (rules.length === 0) {
-      this.Log.warn('http.throttle is enabled but has no valid rules - throttling is a no-op. Check http.throttle.rules.');
+      this.Log.warn('http.throttle is enabled but has no rules - throttling is a no-op. Check http.throttle.rules.');
       return null;
     }
 

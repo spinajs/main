@@ -7,22 +7,25 @@ import express from 'express';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
+import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
+import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 
 chai.use(chaiHttp);
 
 const PARTNER = 'https://partner.example.test';
 const EVIL = 'https://evil.example.test';
 
-function middleware(cors: unknown) {
-  const mw = new CorsMiddleware();
+/** A CorsMiddleware reading `http.cors` (absent when undefined) from a Configuration the http schema checked. */
+async function middleware(cors: unknown) {
+  const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], cors === undefined ? {} : { http: { cors } });
+  const mw = readingFrom(new CorsMiddleware(), child);
   const warn = sinon.stub();
-  Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.cors' ? cors : def) } });
   Object.defineProperty(mw, 'Log', { value: { warn } });
   return { mw, warn };
 }
 
-function app(cors: unknown) {
-  const handler = middleware(cors).mw.before();
+async function app(cors: unknown) {
+  const handler = (await middleware(cors)).mw.before();
   const a = express();
   if (handler) a.use(handler);
   a.all('/probe', (_req, res) => {
@@ -31,16 +34,18 @@ function app(cors: unknown) {
   return a;
 }
 
-const simple = (cors: unknown, origin: string) => chai.request(app(cors)).get('/probe').set('Origin', origin);
-const preflight = (cors: unknown, origin: string) =>
-  chai.request(app(cors)).options('/probe').set('Origin', origin).set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', 'content-type');
+const simple = async (cors: unknown, origin: string) => chai.request(await app(cors)).get('/probe').set('Origin', origin);
+const preflight = async (cors: unknown, origin: string) =>
+  chai.request(await app(cors)).options('/probe').set('Origin', origin).set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', 'content-type');
 
 const acHeaders = (res: { header: Record<string, string> }) => Object.keys(res.header).filter((n) => n.startsWith('access-control-'));
 
 describe('CorsMiddleware (A31)', () => {
-  it('A31 without http.cors installs no middleware and warns', () => {
-    for (const cors of [undefined, null, false]) {
-      const { mw, warn } = middleware(cors);
+  afterEach(disposeBooted);
+
+  it('A31 without http.cors installs no middleware and warns', async () => {
+    for (const cors of [undefined, null, false, true]) {
+      const { mw, warn } = await middleware(cors);
       expect(mw.before(), String(cors)).to.eq(null);
       expect(warn.calledOnce).to.eq(true);
     }
@@ -88,7 +93,7 @@ describe('CorsMiddleware (A31)', () => {
   });
 
   it('A31 a request without Origin gets no CORS headers', async () => {
-    const res = await chai.request(app({ origins: [PARTNER] })).get('/probe');
+    const res = await chai.request(await app({ origins: [PARTNER] })).get('/probe');
     expect(res.status).to.eq(200);
     expect(acHeaders(res)).to.deep.eq([]);
   });
@@ -121,8 +126,8 @@ describe('CorsMiddleware (A31)', () => {
   });
 
   it('A31 a listed origin is never allowed to send Forwarded or X-Forwarded-* headers', async () => {
-    const ask = (cors: unknown, headers: string) =>
-      chai.request(app(cors)).options('/probe').set('Origin', PARTNER).set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', headers);
+    const ask = async (cors: unknown, headers: string) =>
+      chai.request(await app(cors)).options('/probe').set('Origin', PARTNER).set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', headers);
 
     const echoed = await ask({ origins: [PARTNER] }, 'content-type, X-Forwarded-Host, x-forwarded-proto, forwarded, x-forwarded-for');
     expect(echoed.status).to.eq(204);
@@ -135,11 +140,18 @@ describe('CorsMiddleware (A31)', () => {
     expect(configured.header['access-control-allow-headers']).to.eq('content-type');
   });
 
-  it('A31 an origin entry that is not a URL origin fails when the middleware is built', () => {
+  it('A31 an origin entry that is not a URL origin fails the boot', async () => {
     for (const entry of ['partner.example.test', 'localhost:3000', 'null', '', 'https://partner.example.test/app', 'https://partner.example.test?x=1', 'https://*.example.test', 'https://user@partner.example.test']) {
-      expect(() => middleware({ origins: [entry] }).mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
+      expect(await violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { cors: { origins: [entry] } } }), entry).to.include('http.cors.origins.0');
     }
-    expect(() => middleware({ origins: 'https://a.example' }).mw.before()).to.throw(InvalidOption, 'http.cors.origins');
+    expect(await violationsOf([HTTP_CONFIGURATION_SCHEMA], { http: { cors: { origins: 'https://a.example' } } })).to.include('http.cors.origins');
+  });
+
+  it('A31 an origin entry the schema lets through but URL refuses fails when the middleware is built', async () => {
+    for (const entry of ['http://app.example.test:99999', 'http://app:port', 'http://[::1']) {
+      const { mw } = await middleware({ origins: [entry] });
+      expect(() => mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
+    }
   });
 });
 
