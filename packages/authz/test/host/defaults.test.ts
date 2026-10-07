@@ -253,6 +253,17 @@ describe('isProduction', () => {
     delete process.env.NODE_ENV;
     expect(isProduction(undefined)).to.equal(false);
   });
+
+  it('a flag that is not a boolean follows the environment', () => {
+    process.env.APP_ENV = 'prod';
+    for (const flag of [0, '', null, 'false', 1]) {
+      expect(isProduction(flag as never), String(flag)).to.equal(true);
+    }
+    process.env.APP_ENV = 'dev';
+    for (const flag of [1, 'true']) {
+      expect(isProduction(flag as never), String(flag)).to.equal(false);
+    }
+  });
 });
 
 describe('engineLog', () => {
