@@ -37,6 +37,28 @@ const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://'
 // A Configuration whose check ran but which DI has not cached yet (the microtasks after resolve() returns), by container.
 const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
 
+// The target of each lazy-var proxy load() builds, by proxy: copying a proxy property by property would load every var.
+const LAZY_TARGETS = new WeakMap<object, object>();
+
+function withLazyVars<T extends object>(obj: T): T {
+  const proxy = new Proxy(obj, {
+    get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
+  });
+  LAZY_TARGETS.set(proxy, obj);
+  return proxy;
+}
+
+// A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
+// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
+function copyForCheck(value: unknown): unknown {
+  return _.cloneDeepWith(value, function copy(v: unknown): unknown {
+    const target = typeof v === 'object' && v !== null ? LAZY_TARGETS.get(v) : undefined;
+    if (target) return withLazyVars(_.cloneDeepWith(target, copy));
+    if (Object.prototype.toString.call(v) === '[object Object]' && !_.isPlainObject(v)) return v;
+    return undefined;
+  });
+}
+
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
 // Ajv tags the sub-errors of a propertyNames check with `propertyName`; the check itself reports the key in `params`.
@@ -291,15 +313,7 @@ export class FrameworkConfiguration extends Configuration {
         return obj;
       }
 
-      return new Proxy(obj, {
-        get: (obj, prop) => {
-          if (obj[prop] instanceof ConfigVar) {
-            return obj[prop].get();
-          }
-
-          return obj[prop];
-        },
-      });
+      return withLazyVars(obj);
     };
 
     // omit system config prop couse dir dynamic loading.
@@ -470,7 +484,7 @@ export class FrameworkConfiguration extends Configuration {
     // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
     // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
     // value whose copy passes gets its defaults and coercion.
-    if (this.Validator.validate(s, _.cloneDeep(config)) && this.Validator.validate(s, config)) {
+    if (this.Validator.validate(s, copyForCheck(config)) && this.Validator.validate(s, config)) {
       return { errors: [], violations: [] };
     }
 

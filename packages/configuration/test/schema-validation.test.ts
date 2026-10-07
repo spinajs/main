@@ -2,7 +2,7 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI, IContainer } from '@spinajs/di';
-import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource, ConfigVar } from '@spinajs/configuration-common';
 
 import { configurationOf, NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
@@ -378,5 +378,92 @@ describe('configuration schema validation', () => {
 
     const config = await child.resolve(Configuration);
     expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
+  });
+
+  describe('the copy the check validates first', () => {
+    class Secret {
+      #value: string;
+
+      constructor(value: string) {
+        this.#value = value;
+      }
+
+      public get value() {
+        return this.#value;
+      }
+    }
+
+    const LAZY = {
+      $id: 'test-lazy',
+      $configurationModule: 'lazy',
+      type: 'object',
+      properties: {
+        named: { type: 'integer', minimum: 1 },
+        deep: { type: 'object', properties: { named: { type: 'integer', minimum: 1 } } },
+        list: { type: 'array', items: { type: 'object' } },
+      },
+    };
+
+    const HOLDER = {
+      $id: 'test-holder',
+      $configurationModule: 'holder',
+      type: 'object',
+      properties: { key: { type: 'object', required: ['value'], properties: { value: { type: 'string', minLength: 1 } } } },
+    };
+
+    async function bootRaw(values: () => Record<string, unknown>, ...schemas: object[]) {
+      const child = DI.child();
+      booted.push(child);
+      for (const s of schemas) child.register(s).asValue('__configurationSchema__');
+      child.register(NoSource).as(ConfigurationSource);
+      child.register(class extends FrameworkConfiguration {
+        protected loadSources(): void {
+          this.Sources = [];
+        }
+
+        protected onLoad(): unknown {
+          return values();
+        }
+      }).as(Configuration);
+      return { child, config: await child.resolve(Configuration) };
+    }
+
+    // The check before the copy-first one read the stored value alone, through the same proxies: a var loaded only
+    // when the schema reads its key, and an array element (never proxied) checked as the ConfigVar object itself.
+    it('loads only the ConfigVars under keys the schema reads, at any depth, and leaves array elements alone', async () => {
+      const loaded: string[] = [];
+      const lazy = (name: string, value: unknown) => new ConfigVar(() => (loaded.push(name), value));
+      const element = lazy('list.0', 's');
+      const { config } = await bootRaw(
+        () => ({ lazy: { named: lazy('named', 5), unnamed: lazy('unnamed', 's'), deep: { named: lazy('deep.named', 6), unnamed: lazy('deep.unnamed', 's') }, list: [element] } }),
+        LAZY,
+      );
+      expect(loaded).to.have.members(['named', 'deep.named']);
+      expect(config.get('lazy.deep.named')).to.equal(6);
+      expect(config.get('lazy.deep.unnamed')).to.equal('s');
+      expect(config.get<unknown[]>('lazy.list')[0]).to.equal(element);
+      expect(loaded).to.have.members(['named', 'deep.named', 'deep.unnamed']);
+    });
+
+    it('validates the value of a ConfigVar the schema names, at any depth', async () => {
+      for (const [values, path] of [
+        [{ named: new ConfigVar(() => 0) }, 'lazy.named'],
+        [{ deep: { named: new ConfigVar(() => 0) } }, 'lazy.deep.named'],
+      ] as const) {
+        const e = await bootRaw(() => ({ lazy: values }), LAZY).then(() => null, (err: unknown) => err);
+        expect(e, path).to.be.instanceOf(InvalidConfiguration);
+        expect((e as InvalidConfiguration).violations.map((v) => v.path)).to.deep.equal([path]);
+      }
+    });
+
+    it('checks a class instance with private fields through its getters, keeping the instance', async () => {
+      const key = new Secret('k');
+      const { config } = await bootRaw(() => ({ holder: { key } }), HOLDER);
+      expect(config.get('holder.key')).to.equal(key);
+
+      const e = await bootRaw(() => ({ holder: { key: new Secret('') } }), HOLDER).then(() => null, (err: unknown) => err);
+      expect(e).to.be.instanceOf(InvalidConfiguration);
+      expect((e as InvalidConfiguration).violations.map((v) => v.path)).to.deep.equal(['holder.key.value']);
+    });
   });
 });
