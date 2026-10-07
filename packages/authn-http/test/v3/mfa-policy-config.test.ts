@@ -47,6 +47,22 @@ describe('authn.mfa.policy.service through @Config', () => {
     expect(String(error)).to.contain('no MfaPolicy is registered');
   });
 
+  it('mfaPolicyOf and pendingSteps refuse a name that came past the schema unset or empty', async () => {
+    const { child } = await boot(SCHEMAS, {});
+    child.register(named).as(MfaPolicy as never);
+    for (const name of [undefined, '']) {
+      for (const ask of [() => mfaPolicyOf(child, name as unknown as string), () => pendingSteps(child, session(undefined), name as unknown as string)]) {
+        let error: unknown;
+        try {
+          await ask();
+        } catch (e) {
+          error = e;
+        }
+        expect(error, String(name)).to.be.instanceOf(InvalidOption);
+      }
+    }
+  });
+
   it('pendingSteps asks the named policy unless the session stored its steps', async () => {
     const { child } = await boot(SCHEMAS, {});
     child.register(named).as(MfaPolicy as never);

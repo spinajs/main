@@ -1,5 +1,4 @@
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
@@ -17,12 +16,9 @@ async function pending(u: KitUser): Promise<Client> {
   return c;
 }
 
-/** DefaultMfaPolicy reads authn.mfa.policy.force when built, and DefaultAuthnService keeps the policy it resolved. */
-async function setForce(on: boolean): Promise<void> {
+/** DefaultMfaPolicy reads authn.mfa.policy.force on every login. */
+function setForce(on: boolean): void {
   config().set('authn.mfa.policy.force', on);
-  const { DefaultAuthnService, DefaultMfaPolicy } = await import('@spinajs/authn');
-  DI.uncache(DefaultMfaPolicy);
-  DI.uncache(DefaultAuthnService);
 }
 
 export function mfaSuite(): void {

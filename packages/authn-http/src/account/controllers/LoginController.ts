@@ -200,13 +200,13 @@ export class LoginController extends BaseController {
 
   /**
    * Whether the 3.0 MfaPolicy named by authn.mfa.policy.service (as DefaultAuthnService picks it) requires a step.
-   * That policy is registered only when the @spinajs/authn root entry is loaded; without it the configured steps
-   * are asked directly, as DefaultMfaPolicy would. Fails closed on any error.
+   * The policy and the schema default of its name come with the @spinajs/authn root entry; without either the
+   * configured steps are asked directly, as DefaultMfaPolicy would. Fails closed on any error.
    */
   protected async mfaStepsRequired(uuid: string): Promise<boolean> {
     const id = { type: 'user', id: uuid };
     try {
-      const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy';
+      const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service');
       const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
       if (type) {
         const policy = (await DI.resolve(type)) as MfaPolicy;
