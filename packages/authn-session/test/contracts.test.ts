@@ -470,7 +470,8 @@ describe('@spinajs/authn-session contracts', function () {
     it('the configured service name is read from authn.session.expiration', () => {
       const meta = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, SessionProvider) as IInjectDescriptor<unknown>;
       const cfg = { [KEY]: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 } } as Record<string, unknown>;
-      const container = { get: () => ({ get: (path: string) => cfg[path] }) } as unknown as IContainer;
+      // What the owner lookup of AutoinjectService reads: a container that owns a resolved Configuration.
+      const container = { Registry: { ownsRegistration: () => true }, getRegisteredTypes: () => [], get: () => ({ get: (path: string) => cfg[path] }) } as unknown as IContainer;
       expect(meta.inject[0].serviceFunc!(KEY, container)).to.deep.eq({ service: 'SlidingCappedExpiration', options: cfg[KEY] });
     });
 
