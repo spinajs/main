@@ -170,6 +170,8 @@ export class FrameworkConfiguration extends Configuration {
   // A schema applied after boot cannot fail the boot; reading the value it refused, or a part of it, must still fail.
   private throwIfRefused(path: string[] | string) {
     const segments = _.toPath(path);
+    // An empty path names no module (and reads nothing): it must not match every refused one.
+    if (segments.length === 0) return;
     for (const { module, error } of this.RefusedModules.values()) {
       const n = Math.min(module.length, segments.length);
       if (_.isEqual(module.slice(0, n), segments.slice(0, n))) {

@@ -274,7 +274,7 @@ describe('configuration schema validation', () => {
       const { child, config } = await boot(bad);
       expect(() => registerConfigurationSchema(RANGE, child)).to.throw(InvalidConfiguration);
 
-      for (const path of ['range.max', 'range', ['range', 'min'], '']) {
+      for (const path of ['range.max', 'range', ['range', 'min']]) {
         const e = (() => {
           try {
             config.get(path);
@@ -293,6 +293,13 @@ describe('configuration schema validation', () => {
       config.set('range.max', 20);
       registerConfigurationSchema(RANGE, child);
       expect(config.get('range.max')).to.equal(20);
+    });
+
+    it('lets a read of the empty path through, which names no module', async () => {
+      const { child, config } = await boot(bad);
+      expect(() => registerConfigurationSchema(RANGE, child)).to.throw(InvalidConfiguration);
+      expect(config.get('', 'none')).to.equal('none');
+      expect(config.get([], 'none')).to.equal('none');
     });
 
     it('registerConfigurationSchemaAtImport does not throw: the import goes on, the reads of the module fail', async () => {
