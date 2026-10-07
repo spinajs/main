@@ -694,6 +694,12 @@ describe('authz-http-admin routes', function () {
         expect(await domainAdmin(DOMAIN)).to.equal((await domains.service(DOMAIN)).admin());
         expect(await domainAdmin('root')).to.equal(((await DI.resolve(AuthzService)) as AuthzService).admin());
 
+        // Set at runtime past the schema, an empty, unset or non-string domain fails closed and never falls back to root.
+        for (const domain of ['', undefined, 5]) {
+          cfg.set(['authz', 'http', 'admin', 'domain'], domain);
+          expect((await commands(root, { commands: [grant('carol')] })).status, JSON.stringify(domain)).to.equal(500);
+        }
+
         cfg.set(['authz', 'http', 'admin', 'domain'], 'no-such-domain');
         const failed = await commands(root, { commands: [grant('carol')] });
         expect(failed.status).to.equal(500);
