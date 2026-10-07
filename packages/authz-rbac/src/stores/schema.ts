@@ -1,11 +1,11 @@
-import { ROLE_NAME_PATTERN } from '@spinajs/authz';
+import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
 
 const name = { type: 'string', minLength: 1 };
 const stringList = { type: 'array', items: name };
-const roleName = { type: 'string', pattern: ROLE_NAME_PATTERN };
+const roleName = { type: 'string', pattern: ROLE_NAME_PATTERN, maxLength: ROLE_NAME_MAX_LENGTH };
 const roleList = { type: 'array', items: roleName };
 
 // propertyNames rejects an unknown key; additionalProperties: false would let the configuration's removeAdditional drop a typo silently.
@@ -105,7 +105,7 @@ const rule = {
       'cap',
       {
         ladder: name,
-        maxRole: { anyOf: [{ type: ['string', 'null'], pattern: ROLE_NAME_PATTERN }, valueRef] },
+        maxRole: { anyOf: [{ type: ['string', 'null'], pattern: ROLE_NAME_PATTERN, maxLength: ROLE_NAME_MAX_LENGTH }, valueRef] },
         stripTags: { type: 'boolean' },
         assignments: closed({ scopeTypes: ruleNames, subjectTypes: ruleNames }),
       },

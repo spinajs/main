@@ -9,11 +9,14 @@ const stringList = { type: 'array', items: { type: 'string' } };
 /** What AuthzDomains.create accepts as a domain name. */
 const DOMAIN_NAME = '^[A-Za-z0-9_.-]{1,64}$';
 /**
- * A role name in configuration, for authz and authz-rbac alike. No leading digit and not true/false, so coerceTypes
- * cannot turn [5] or [true] into one; no edge whitespace, but an inner space stays (2.x roles such as 'Stock editor').
+ * A role name, in configuration and the users admin API alike. No leading digit or minus-digit and not true/false, so
+ * coerceTypes cannot turn [5], [-1] or [true] into one; no edge whitespace, but an inner space stays (2.x roles such
+ * as 'Stock editor').
  */
-export const ROLE_NAME_PATTERN = '^(?!(?:true|false)$)[^0-9\\s](?:.*\\S)?$';
-const ROLE_NAME = { type: 'string', pattern: ROLE_NAME_PATTERN };
+export const ROLE_NAME_PATTERN = '^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$';
+/** The width of the role columns of authz_assignment and authz_rule_subject. */
+export const ROLE_NAME_MAX_LENGTH = 128;
+const ROLE_NAME = { type: 'string', pattern: ROLE_NAME_PATTERN, maxLength: ROLE_NAME_MAX_LENGTH };
 
 // A default only at the root: inside authz.domains.<n> an unset key must stay unset, or the domain would stop inheriting it from its parent.
 const rootDefault = (root: boolean, value: unknown): { default?: unknown } => (root ? { default: value } : {});

@@ -43,6 +43,8 @@ describe('users access domain and impersonation configuration', () => {
       ['a role name that is not a string', { authz: { impersonation: { protectedRoles: [{}] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a number that coerces to a role name', { authz: { impersonation: { protectedRoles: [5] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a boolean that coerces to a role name', { authz: { impersonation: { protectedRoles: [true] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a negative number that coerces to a role name', { authz: { impersonation: { protectedRoles: [-5] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a role name longer than the role columns', { authz: { impersonation: { protectedRoles: ['r'.repeat(129)] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a role name with edge whitespace', { authz: { impersonation: { protectedRoles: ['admin '] } } }, 'authz.impersonation.protectedRoles.0'],
       ['a role name of true', { authz: { impersonation: { protectedRoles: ['true'] } } }, 'authz.impersonation.protectedRoles.0'],
       ['protectedRoles set to null', { authz: { impersonation: { protectedRoles: null } } }, 'authz.impersonation.protectedRoles'],

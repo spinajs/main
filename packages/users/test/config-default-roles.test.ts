@@ -27,6 +27,7 @@ describe('authz.rbac.defaultRoles', () => {
     // coerceTypes turns 7 into '7', which the shared role-name pattern refuses for its leading digit
     ['a number that coerces to a role name', [7], `${DEFAULT_ROLES_KEY}.0`],
     ['a boolean that coerces to a role name', [true], `${DEFAULT_ROLES_KEY}.0`],
+    ['a negative number that coerces to a role name', [-1], `${DEFAULT_ROLES_KEY}.0`],
   ];
 
   for (const [label, value, path] of bad) {

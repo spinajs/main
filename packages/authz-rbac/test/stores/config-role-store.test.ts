@@ -500,6 +500,9 @@ describe('authz-rbac stores: authz.rbac schema', function () {
         [{ ladders: { project: { roles: ['viewer', 'admin '] } } }, 'ladders.project.roles.1'],
         [{ groupPrincipal: { role: '1group' } }, 'groupPrincipal.role'],
         [{ defaultRoles: [7] }, 'defaultRoles.0'],
+        [{ defaultRoles: [-1] }, 'defaultRoles.0'],
+        [{ roles: { '-2nd': {} } }, 'roles.-2nd'],
+        [{ roles: { a: { extends: ['r'.repeat(129)] } } }, 'roles.a.extends.0'],
         [{ anonymousRoles: [false] }, 'anonymousRoles.0'],
         [{ serviceRoles: { 'service:x': [' x'] } }, 'serviceRoles.service:x.0'],
       ];
@@ -517,7 +520,7 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     });
 
     it('accepts a 2.x role name with an inner space, as the converter writes it', async () => {
-      const rbac = { roles: { 'Stock editor': {}, 'acme.salesman': { extends: ['Stock editor'] } }, ladders: { desk: { roles: ['Stock editor'] } }, defaultRoles: ['Stock editor'], anonymousRoles: ['acme.salesman'] };
+      const rbac = { roles: { 'Stock editor': {}, '-editor': {}, ['r'.repeat(128)]: {}, 'acme.salesman': { extends: ['Stock editor'] } }, ladders: { desk: { roles: ['Stock editor'] } }, defaultRoles: ['Stock editor'], anonymousRoles: ['acme.salesman'] };
       expect(await configured(rbac)).to.deep.include(rbac);
     });
   });
