@@ -1,5 +1,6 @@
 import { AsyncService } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 

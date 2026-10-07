@@ -360,7 +360,7 @@ describe('@spinajs/authn-session contracts', function () {
 
     it('imports only what the package may depend on', () => {
       const specs = ts.preProcessFile(readFileSync(SRC_FILE, 'utf8'), true, true).importedFiles.map((f) => f.fileName);
-      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/configuration', '@spinajs/di', 'luxon']);
+      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/authn/register-schema', '@spinajs/configuration', '@spinajs/di', 'luxon']);
     });
 
     it('docs carry the rules a reader needs', () => {

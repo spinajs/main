@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Configuration } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI } from '@spinajs/di';
 import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';

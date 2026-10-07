@@ -51,6 +51,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-http": "3.0.0-alpha.0",
     "@spinajs/authn-totp": "3.0.0-alpha.0",
     "@spinajs/authz": "3.0.0-alpha.0",
@@ -69,7 +70,6 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/intl": "2.0.549",

@@ -4,6 +4,7 @@ import { AccessControl } from 'accesscontrol';
 import { User } from '@spinajs/users';
 import { _check_arg, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
 import { service } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { ev } from '@spinajs/queue';
 import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from './exceptions.js';
 import { DI } from '@spinajs/di';

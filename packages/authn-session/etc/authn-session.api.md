@@ -8,6 +8,7 @@ Entries: `src/contracts.ts`.
 
 ```ts
 import { AsyncService } from "@spinajs/di";
+import "@spinajs/authn/register-schema";
 import type { IdentityRef, SessionHandle } from "@spinajs/authn/contracts";
 import { DateTime } from "luxon";
 export interface ISession {

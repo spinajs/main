@@ -1,5 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { SessionProvider, User, UserImpersonationEnded, regenerateSession } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
 import { _ev } from '@spinajs/queue';

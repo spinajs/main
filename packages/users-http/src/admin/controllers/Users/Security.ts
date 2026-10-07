@@ -1,4 +1,5 @@
 import { AutoinjectService } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
 import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/users';
