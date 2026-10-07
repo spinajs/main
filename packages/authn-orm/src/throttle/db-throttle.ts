@@ -5,6 +5,7 @@ import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import type { AuthnContext, BackoffParams, ThrottleFlow, ThrottleFlowParams, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
 import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';

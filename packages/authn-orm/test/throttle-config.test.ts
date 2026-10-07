@@ -46,13 +46,18 @@ describe('DbAuthnThrottle configuration', () => {
   });
 
   it('fails with InvalidOperation when authn.throttle is unset, not a TypeError', async () => {
-    const { child } = await boot([], {});
-    const throttle = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
+    // Loading DbAuthnThrottle registers the authn schema in the root; DI.clearCache() drops it, as this does.
+    const registered = [...(DI.RootContainer.Cache.get('__configurationSchema__', false) as object[])];
+    DI.uncache('__configurationSchema__' as never);
     let error: unknown;
     try {
+      const { child } = await boot([], {});
+      const throttle = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
       await throttle.init();
     } catch (e) {
       error = e;
+    } finally {
+      for (const s of registered) DI.register(s).asValue('__configurationSchema__');
     }
     expect(error).to.be.instanceOf(InvalidOperation);
   });
