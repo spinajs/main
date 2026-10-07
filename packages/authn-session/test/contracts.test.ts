@@ -514,8 +514,9 @@ describe('@spinajs/authn-session contracts', function () {
         const before = p.before as Snapshot;
         const after = p.after as Snapshot;
         expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
-        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the pending TTL
-        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'] });
+        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the
+        // pending TTL; the authn schema those properties read is registered at import.
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object'] });
         expect(after.events).to.deep.eq(before.events);
       };
 

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';
