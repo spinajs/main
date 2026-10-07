@@ -6,7 +6,7 @@ import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
-import { GLOBAL } from '@spinajs/authz';
+import { GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 import type { AuthzCommand } from '@spinajs/authz';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
@@ -42,22 +42,21 @@ const DEFAULT_PAGE_SIZE = 10;
 const MAX_ROLES_PER_USER = 16;
 
 /**
- * A single role name: no whitespace anywhere, so a "role" made only of blanks
- * cannot pass as one.
+ * A single role name, by the rule the configuration applies to role names: an
+ * inner space is allowed (a 2.x role such as 'Stock editor'), a blank name or
+ * edge whitespace is not.
  *
- * `minLength` alone accepts `' '` and `['  ', '']` — every entry is a string of
- * allowed length — which reached `create()` as an empty role list and produced
- * an account nobody can use. The pattern refuses that here, in the schema, so
- * the caller gets a 400 naming the offending field instead of a handler-thrown
- * error with no field attached. Banning EDGE whitespace too keeps `uniqueItems`
+ * `minLength` alone accepts `' '` and `['  ', '']`, which reached `create()` as
+ * an empty role list and produced an account nobody can use; the pattern makes
+ * that a 400 naming the field. Banning EDGE whitespace also keeps `uniqueItems`
  * honest: `'user'` and `' user '` would otherwise be two distinct entries
  * denoting one role, and the guard is charged per entry.
  */
 const ROLE_NAME = {
   type: 'string',
   minLength: 1,
-  maxLength: 32,
-  pattern: '^\\S+$',
+  maxLength: ROLE_NAME_MAX_LENGTH,
+  pattern: ROLE_NAME_PATTERN,
 };
 
 /**

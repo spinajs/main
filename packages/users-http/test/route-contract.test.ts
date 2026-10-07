@@ -177,7 +177,7 @@ describe('Admin route contract', function () {
      * repaired by another administrator, so a list naming no role is refused
      * rather than applied. `[]` is caught by `minItems`; `['  ', '']` is the
      * case `minLength` cannot see — every entry is a valid string of allowed
-     * length — and is why the role name carries a no-whitespace pattern.
+     * length — and is why the role name carries a pattern that refuses blanks.
      */
     it('refuses a role list that names no role', () => {
       expect(() => validator.validate(new CreateUserDto({ Login: 'blank', Email: 'blank@spinajs.pl', Role: [] }))).to.throw();
@@ -196,6 +196,14 @@ describe('Admin route contract', function () {
     it('refuses padded and duplicated role names', () => {
       expect(() => validator.validate(new UpdateUserDto({ Role: [' user ', 'guest'] }))).to.throw();
       expect(() => validator.validate(new UpdateUserDto({ Role: ['user', 'user'] }))).to.throw();
+    });
+
+    it('takes a role name by the rule the configuration applies (ROLE_NAME_PATTERN, ROLE_NAME_MAX_LENGTH)', () => {
+      expect(() => validator.validate(new UpdateUserDto({ Role: ['Stock editor'] }))).to.not.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: 'r'.repeat(128) }))).to.not.throw();
+      for (const bad of [' admin', '7up', 'true', '-1', 'r'.repeat(129)]) {
+        expect(() => validator.validate(new UpdateUserDto({ Role: [bad] })), bad).to.throw();
+      }
     });
 
     /** Every entry costs a guard check, so the list has a ceiling. */
