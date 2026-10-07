@@ -1,6 +1,6 @@
 import { Autoinject, Container, isFactory } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
@@ -9,9 +9,8 @@ import { MfaPolicy } from '@spinajs/authn/contracts';
 import { refused, unauthenticated } from './errors.js';
 import { authenticatedPrincipal } from './principal.js';
 
-/** The policy DefaultAuthnService asks at login: the registration named authn.mfa.policy.service (default DefaultMfaPolicy) nearest to `container`. */
-export async function mfaPolicyOf(container: IContainer, configured: unknown): Promise<MfaPolicy> {
-  const name = configured ?? 'DefaultMfaPolicy';
+/** The policy DefaultAuthnService asks at login: the registration named `name` (authn.mfa.policy.service) nearest to `container`. */
+export async function mfaPolicyOf(container: IContainer, name: string): Promise<MfaPolicy> {
   const types = container.getRegisteredTypes(Array.chainOf(MfaPolicy)) ?? [];
   const type = [...types].reverse().find((t) => t.name === name);
   if (!type) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
@@ -25,6 +24,9 @@ export class MfaSatisfied extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.mfa.policy.service')
+  protected PolicyService: string;
+
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
@@ -34,8 +36,7 @@ export class MfaSatisfied extends BasePolicy {
     const authn = principal.authn;
     if (authn?.assurance === 'aal2') return;
     if (!authn) throw refused('mfa_required', 'this route needs a second factor');
-    const configuration = await this.Container.resolve(Configuration);
-    const policy = await mfaPolicyOf(this.Container, configuration.get('authn.mfa.policy.service'));
+    const policy = await mfaPolicyOf(this.Container, this.PolicyService);
     const steps = await policy.required({ type: principal.type, id: principal.id }, { method: authn.method, strategy: authn.strategy });
     if (steps.length > 0) throw refused('mfa_required', 'this route needs a second factor');
   }

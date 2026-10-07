@@ -1,5 +1,4 @@
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Request } from '@spinajs/http';
 import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
@@ -102,12 +101,11 @@ export async function answerFor(container: IContainer, kind: AnswerKind, princip
   return body;
 }
 
-/** The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy is asked as completeMfa asks it. */
-export async function pendingSteps(container: IContainer, session: Restored): Promise<string[]> {
+/** The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy `policyService` (authn.mfa.policy.service) is asked as completeMfa asks it. */
+export async function pendingSteps(container: IContainer, session: Restored, policyService: string): Promise<string[]> {
   const stored = session.data.get(SESSION_PENDING_STEPS_KEY);
   if (Array.isArray(stored) && stored.length > 0 && stored.every((s) => typeof s === 'string')) return [...stored];
-  const configuration = await container.resolve(Configuration);
-  const policy = await mfaPolicyOf(container, configuration.get('authn.mfa.policy.service'));
+  const policy = await mfaPolicyOf(container, policyService);
   return [...(await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy }))];
 }
 
