@@ -244,6 +244,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
   private async connection(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
     const name = this.opts.connection ?? this.Connection;
+    if (name === undefined || name === null) throw new AuthzConfigError(`DbAuthzAdminBackend: ${CONNECTION_KEY} is not set`);
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
     if (!driver) throw new AuthzConfigError(`DbAuthzAdminBackend: ${CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);

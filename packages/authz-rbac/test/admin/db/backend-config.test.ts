@@ -1,9 +1,10 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
+import { AUTHZ_CONFIGURATION_SCHEMA, AuthzConfigError } from '@spinajs/authz';
 import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, DbAuthzAdminBackend } from '../../../src/index.js';
 
@@ -30,6 +31,22 @@ describe('DbAuthzAdminBackend reads authz.admin.connection through @Config', () 
 
   it('the default connection when the app names none', async () => {
     expect(connectionOf(new DbAuthzAdminBackend({ container: await boot({}) }))).to.equal('default');
+  });
+
+  it('fails closed with a named error when an unvalidated configuration leaves the connection unset', async () => {
+    const { child } = await bootConfiguration({ authz: {} }, []);
+    children.push(child);
+    class FakeOrm {
+      Connections = new Map([['default', {}]]);
+    }
+    child.register(FakeOrm).as(Orm);
+
+    const failure = await (new DbAuthzAdminBackend({ container: child }) as unknown as { connection(): Promise<unknown> }).connection().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(failure).to.be.instanceOf(AuthzConfigError);
+    expect((failure as Error).message).to.contain('authz.admin.connection is not set');
   });
 
   it('refuses an empty authz.rbac.connection at boot; it has no default, so storeConnection can fall back to authz.admin.connection', async () => {
