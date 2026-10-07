@@ -87,8 +87,6 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
   const e = entry as Record<string, unknown>;
   const out: Record<string, unknown> = { ...e, domain: e.domain ?? 'root' };
   if (e.inherit !== undefined) out.inherit = Object.freeze(Object.assign(Object.create(null) as Record<string, string>, e.inherit));
-  // The schema's if/then sees the value before coercion, so only this floor catches stampOwner: 'true' without a store.
-  if ((e.stampOwner === true || e.stampOwner === 'true' || e.stampOwner === 1) && e.metadata === undefined) throw new AuthzConfigError(`${at}.metadata is required when stampOwner is set`);
   if (e.list !== undefined && e.list !== 'dir' && e.list !== 'each') throw new AuthzConfigError(`${at}.list must be 'dir' or 'each', got ${show(e.list)}`);
   if (e.signedUrl !== undefined) out.signedUrl = signedUrlOf(e.signedUrl, `${at}.signedUrl`);
   if (e.operations !== undefined) out.operations = operationsOf(e.operations as Readonly<Record<string, Permission | readonly Permission[]>>, `${at}.operations`);

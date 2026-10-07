@@ -88,7 +88,6 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     ['an infinite defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
     ['a NaN maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: NaN } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
     ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
-    ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.metadata'],
     ['a signedUrl that is not an object', { mode: 'enforce', signedUrl: 900 }, 'authz.fs.uploads.signedUrl'],
     ['an unknown signedUrl key', { mode: 'enforce', signedUrl: { maxTtl: 5 } }, 'authz.fs.uploads.signedUrl.maxTtl'],
     ['an unknown list mode', { mode: 'enforce', list: 'all' }, 'authz.fs.uploads.list'],
@@ -101,6 +100,11 @@ describe('authz-fs config: parseFsAccessConfig', () => {
         .that.includes(key);
     });
   }
+
+  // Stamping no owner takes nothing away, so the schema alone refuses stampOwner without a store.
+  it('leaves stampOwner without a metadata store to the schema', () => {
+    expect(parseFsAccessConfig('uploads', { mode: 'enforce', stampOwner: true }).stampOwner).to.equal(true);
+  });
 
   it('freezes the result', () => {
     const cfg = parseFsAccessConfig('uploads', { mode: 'enforce', inherit: { 'fs:read': 'read' }, operations: { publish: ['fs:share'] } });
