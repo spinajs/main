@@ -439,9 +439,14 @@ describe('authz-rbac stores: authz.rbac schema', function () {
   });
 
   it('accepts the §8.2 and §8.5 samples and adds only the model defaults', async () => {
+    const defaults = {
+      groupPrincipal: DEFAULT_GROUP_PRINCIPAL,
+      anonymousRoles: [],
+      serviceRoles: {},
+      cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
+    };
     for (const sample of [SAMPLE_8_2(), SAMPLE_8_5(), {}]) {
-      const defaulted = ['groupPrincipal', 'anonymousRoles', 'serviceRoles', 'cache'];
-      expect(_.omit(await configured(sample), defaulted)).to.deep.equal(_.omit(sample, defaulted));
+      expect(await configured(sample)).to.deep.equal(_.merge({}, defaults, sample));
     }
   });
 

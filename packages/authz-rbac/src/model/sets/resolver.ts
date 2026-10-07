@@ -1,5 +1,5 @@
-import { principalKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, ModelInitContext, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { engineLog, principalKey } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import { SubjectResolver } from '../../contracts.js';
 import { expiryTime, subjectKey } from '../assignments.js';
@@ -88,10 +88,13 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
 }
 
 /** `authz.rbac.groupPrincipal`: `null` turns the mapping off; an absent value, or a key left out of it, keeps its default. */
-export function groupPrincipalConfig(ctx: ModelInitContext): GroupPrincipalConfig | null {
+export function groupPrincipalConfig(ctx: ModelInitContext, log: Pick<HostLog, 'warn'> = engineLog('authz-rbac')): GroupPrincipalConfig | null {
   const value = ctx.config<Partial<GroupPrincipalConfig> | null | undefined>('groupPrincipal', undefined);
   // An unvalidated configuration still gets here: a non-object (false, '', a string) turns the mapping off, never on with the defaults.
-  if (value !== undefined && (typeof value !== 'object' || Array.isArray(value))) return null;
+  if (value !== undefined && (typeof value !== 'object' || Array.isArray(value))) {
+    log.warn(`authz.rbac.groupPrincipal is ${JSON.stringify(value)}, not an object or null: group principals speak for no member set`);
+    return null;
+  }
   return value === null ? null : Object.freeze({ ...DEFAULT_GROUP_PRINCIPAL, ...value });
 }
 

@@ -89,6 +89,15 @@ describe('authz-rbac subject sets (B33)', () => {
       }
     });
 
+    it('groupPrincipalConfig warns when a malformed value turns the mapping off, not for null', () => {
+      const warned: string[] = [];
+      const log = { warn: (message: string) => warned.push(message) };
+      groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal: 'group.member' } }), log);
+      groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal: null } }), log);
+      expect(warned).to.have.length(1);
+      expect(warned[0]).to.contain('authz.rbac.groupPrincipal').and.contain('"group.member"');
+    });
+
     describe('memberships', () => {
       const graph = compileRoles(ROLES, LADDERS, { extraEdges: new LadderExtension().extraEdges });
       const sets = (rows: readonly Assignment[]) => [...new RbacSubjectResolver().memberships(rows, graph, NOW)].map(([key, m]) => [key, m.via.map((v) => v.assignment)]);
