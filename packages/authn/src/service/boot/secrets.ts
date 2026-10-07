@@ -65,9 +65,6 @@ export async function authnSecretFindings(config: AuthnConfigSource, steps: Secr
     }
     if (storing.length > 0) weak(`authn.mfa.encryptionKey.secret is not set, but the MFA step(s) ${storing.map(q).join(', ')} store secrets`);
   }
-
-  // null turns the pepper off; an empty string is a pepper that adds nothing.
-  if (config.get<{ secret?: string | null } | undefined>('authn.local.pepper')?.secret === '') weak('authn.local.pepper.secret is empty; set a value, or null to turn the pepper off');
   return out;
 }
 

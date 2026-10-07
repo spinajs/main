@@ -169,7 +169,7 @@ describe('authn boot: secrets (A24, SR-16)', () => {
   it('never puts a secret value in a message', async () => {
     const all = [
       ...(await findings('production', values({ cookie: AUTHN_PUBLIC_COOKIE_SECRET }))),
-      ...(await findings('production', values({ pepper: { secret: '', version: 2, previous: [{ secret: 'old-pepper-value', version: 2 }] } }))),
+      ...(await findings('production', values({ cookie: null, pepper: { secret: STRONG, version: 2, previous: [{ secret: 'old-pepper-value', version: 1 }] } }))),
     ];
     expect(all.length).to.be.greaterThan(1);
     for (const f of all) {
@@ -232,12 +232,6 @@ describe('authn boot: secrets (A24, SR-16)', () => {
       }
     });
 
-    it('when set, must not be empty', async () => {
-      expect(levels(await findings('production', values({ pepper: { secret: '', version: 1 } })))).to.deep.eq(['secrets:error']);
-      expect(levels(await findings('test', values({ pepper: { secret: '', version: 1 } })))).to.deep.eq(['secrets:warning']);
-      expect(await findings('production', values({ pepper: { secret: STRONG, version: 1 } }))).to.deep.eq([]);
-    });
-
     it('accepts previous peppers with their own versions', async () => {
       const pepper = { secret: STRONG, version: 3, previous: [{ secret: 'b'.repeat(64), version: 2 }, { secret: 'c'.repeat(64), version: 1 }] };
       expect(await findings('production', values({ pepper }))).to.deep.eq([]);
@@ -246,6 +240,7 @@ describe('authn boot: secrets (A24, SR-16)', () => {
     it('leaves the shape of the pepper and the MFA key to the schema', async () => {
       expect(await findings('production', values({ mfaKey: 42 }))).to.deep.eq([]);
       expect(await findings('production', values({ pepper: { secret: STRONG, version: 0, previous: {} } }))).to.deep.eq([]);
+      expect(await findings('production', values({ pepper: { secret: '', version: 1 } }))).to.deep.eq([]);
     });
   });
 });

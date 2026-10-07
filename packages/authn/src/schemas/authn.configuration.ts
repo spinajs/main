@@ -113,6 +113,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
         pepper: {
           ...secretRef('HMAC-SHA256 pepper applied before argon2.', {
+            // An empty pepper would add nothing while looking set.
+            secret: { type: ['string', 'null'], minLength: 1 },
             version: { type: 'integer', minimum: 1, maximum: 999999999, default: 1, description: 'Stored in the hash prefix so the pepper can rotate.' },
             previous: {
               type: 'array',

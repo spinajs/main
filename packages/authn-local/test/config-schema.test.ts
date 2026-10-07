@@ -110,6 +110,17 @@ describe('authn.local through the schema', function () {
       expect(() => readingFrom(new LocalPasswordPolicy(), outside.child).generate()).to.throw(/outside authn.local.policy bounds/);
     });
 
+    it('the schema refuses an empty pepper secret; null and an absent pepper mean no pepper', async () => {
+      expect(await bad({ pepper: { secret: '', version: 1 } })).to.include('authn.local.pepper.secret');
+      expect(await bad({ pepper: { secret: null, version: 1 } })).to.deep.eq([]);
+      for (const local of [{ pepper: { secret: null } }, {}]) {
+        const { child } = await boot(SCHEMAS, { authn: { local } });
+        const hasher = readingFrom(new Argon2PasswordHasher(), child);
+        await hasher.resolve();
+        expect((await hasher.hash('correct horse battery')).startsWith('$sp'), JSON.stringify(local)).to.eq(false);
+      }
+    });
+
     it('the schema refuses a previous pepper that reuses the current version', async () => {
       expect(await bad({ pepper: { secret: 'current', version: 2, previous: [{ secret: 'old', version: 2 }] } })).to.include('authn.local.pepper.previous.0.version');
     });
