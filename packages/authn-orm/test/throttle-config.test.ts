@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHmac } from 'node:crypto';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnService, IdentityStore, PrincipalFactory } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn';
 import { DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
 import type { ThrottleKey } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-testing';
@@ -90,21 +90,34 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
     await disposeBooted();
   });
 
-  it('refuses a production configuration, naming the key', async () => {
+  async function checkError(throttle: DbAuthnThrottle, booting: Parameters<DbAuthnThrottle['checkConfiguration']>[0]): Promise<unknown> {
+    try {
+      await throttle.checkConfiguration(booting);
+    } catch (e) {
+      return e;
+    }
+    return undefined;
+  }
+
+  it('refuses a production boot when the throttle reads no key, naming the key', async () => {
     for (const audit of [{}, { hashKey: { secret: null } }]) {
-      const { configuration } = await boot(SCHEMAS, { authn: { audit } }, 'production');
-      expect(() => new DbAuthnThrottle().checkConfiguration(configuration), JSON.stringify(audit))
-        .to.throw(InvalidOption)
-        .with.property('message')
-        .that.contains('authn.audit.hashKey.secret');
+      const { child, configuration } = await boot(SCHEMAS, { authn: { audit } }, 'production');
+      const error = await checkError(new DbAuthnThrottle(undefined, undefined, { container: child }), configuration);
+      expect(error, JSON.stringify(audit)).to.be.instanceOf(InvalidOption);
+      expect((error as Error).message).to.contain('authn.audit.hashKey.secret');
     }
   });
 
-  it('accepts a production configuration with the key, or a key given to the constructor', async () => {
+  it('judges the key the throttle uses, under the env of the booting configuration', async () => {
     const keyed = await boot(SCHEMAS, { authn: { audit: { hashKey: { secret: HASH_KEY } } } }, 'production');
-    expect(() => new DbAuthnThrottle().checkConfiguration(keyed.configuration)).to.not.throw();
     const unkeyed = await boot(SCHEMAS, {}, 'production');
-    expect(() => new DbAuthnThrottle(undefined, undefined, { hashKey: HASH_KEY }).checkConfiguration(unkeyed.configuration)).to.not.throw();
+    const lenient = await boot(SCHEMAS, {}, 'test');
+    const throttle = (from: IContainer, hashKey?: string | null) => new DbAuthnThrottle(undefined, undefined, { container: from, ...(hashKey !== undefined ? { hashKey } : {}) });
+    expect(await checkError(throttle(unkeyed.child), keyed.configuration), 'only the booting configuration has the key').to.be.instanceOf(InvalidOption);
+    expect(await checkError(throttle(keyed.child), unkeyed.configuration), 'only the throttle configuration has the key').to.eq(undefined);
+    expect(await checkError(throttle(unkeyed.child, HASH_KEY), unkeyed.configuration), 'a key given to the constructor').to.eq(undefined);
+    expect(await checkError(throttle(keyed.child, null), keyed.configuration), 'hashKey null over a configured secret').to.be.instanceOf(InvalidOption);
+    expect(await checkError(throttle(unkeyed.child), lenient.configuration), 'booting in test').to.eq(undefined);
   });
 
   for (const env of ['development', 'test']) {
@@ -112,7 +125,7 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
       const { child, configuration } = await boot(SCHEMAS, {}, env);
       const a = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
       const b = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
-      a.checkConfiguration(configuration);
+      await a.checkConfiguration(configuration);
       await a.init();
       await b.init();
       expect(a.rowKey('login', KEY)).to.eq(b.rowKey('login', KEY));
@@ -134,28 +147,48 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
       child.register(factory).as(base);
     }
 
-    async function bootService(env: string, audit: Record<string, unknown>): Promise<unknown> {
-      const { child } = await boot(SCHEMAS, { authn: { strategies: [], throttle: { service: 'DbAuthnThrottle' }, audit }, http: { cookie: { secret: COOKIE_SECRET } } }, env);
+    /** The service boots in a child of its own; `throttle` reads the configuration of another child, as the root singleton reads the root's. */
+    async function bootService(env: string, audit: Record<string, unknown>, throttle?: { audit: Record<string, unknown>; hashKey?: string | null }): Promise<unknown> {
+      const service = throttle ? 'SeparateDbThrottle' : 'DbAuthnThrottle';
+      const { child } = await boot(SCHEMAS, { authn: { strategies: [], throttle: { service }, audit }, http: { cookie: { secret: COOKIE_SECRET } } }, env);
+      if (throttle) {
+        const own = await boot(SCHEMAS, { authn: { audit: throttle.audit } }, env);
+        const options = { container: own.child, ...(throttle.hashKey !== undefined ? { hashKey: throttle.hashKey } : {}) };
+        bind(child, AuthnThrottle, service, new DbAuthnThrottle(undefined, undefined, options));
+      }
       bind(child, IdentityStore, 'HashKeyIdentityStore', new FakeIdentityStore());
       bind(child, PrincipalFactory, 'HashKeyPrincipalFactory', new RecordingPrincipalFactory());
       return child.resolve(AuthnService);
     }
 
-    it('fails the boot in production, naming the key', async () => {
-      let error: unknown;
+    async function bootError(...args: Parameters<typeof bootService>): Promise<unknown> {
       try {
-        await bootService('production', {});
+        await bootService(...args);
       } catch (e) {
-        error = e;
+        return e;
       }
+      return undefined;
+    }
+
+    const KEYED = { hashKey: { secret: HASH_KEY } };
+
+    it('fails the boot in production, naming the key', async () => {
+      const error = await bootError('production', {});
       expect(error).to.be.instanceOf(InvalidOption);
       expect((error as Error).message).to.contain('authn.audit.hashKey.secret');
     });
 
-    it('boots in production with the key set, and in test without it', async () => {
-      expect(await bootService('production', { hashKey: { secret: HASH_KEY } })).to.be.instanceOf(AuthnService);
-      DI.uncache(DbAuthnThrottle);
-      expect(await bootService('test', {})).to.be.instanceOf(AuthnService);
+    it('fails the boot in production when only the service configuration has the key', async () => {
+      expect(await bootError('production', KEYED, { audit: {} })).to.be.instanceOf(InvalidOption);
+    });
+
+    it('fails the boot in production when hashKey null overrides the configured secret', async () => {
+      expect(await bootError('production', KEYED, { audit: KEYED, hashKey: null })).to.be.instanceOf(InvalidOption);
+    });
+
+    it('boots in production when the throttle configuration has the key, and in test without any', async () => {
+      expect(await bootError('production', {}, { audit: KEYED })).to.eq(undefined);
+      expect(await bootError('test', {})).to.eq(undefined);
     });
   });
 });

@@ -73,6 +73,9 @@ export interface DbThrottleOptions {
  *
  * `last_attempt_at` takes the caller's now, not the later of the two: with clocks skewed across instances, an
  * account-ip row can outlive the ip run it counted in by that skew, and a later success subtracts it from the new run.
+ *
+ * The hash key check (`checkConfiguration`) runs when AuthnService resolves. A process that resolves this throttle
+ * without it (a worker, a CLI command) keys rows with a random key of the process when the key is unset.
  */
 @Singleton()
 @Injectable(AuthnThrottle)
@@ -86,6 +89,7 @@ export class DbAuthnThrottle extends AuthnThrottle {
   /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
+  private readonly fromConfiguration: boolean;
   private hmacKey: Buffer | undefined;
   private dialect: Dialect = 'other';
   private loading: Promise<void> | undefined;
@@ -102,8 +106,10 @@ export class DbAuthnThrottle extends AuthnThrottle {
       // An instance built with `new` has no injected container, so @Config would read the root Configuration.
       Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
     }
-    this.fixedParams = params ?? (this.usesConfiguration() ? undefined : DEFAULT_THROTTLE_PARAMS);
-    if (!this.usesConfiguration()) {
+    // Fixed here: init() sets the driver later.
+    this.fromConfiguration = driver === undefined || options.container !== undefined;
+    this.fixedParams = params ?? (this.fromConfiguration ? undefined : DEFAULT_THROTTLE_PARAMS);
+    if (!this.fromConfiguration) {
       this.loadedParams = this.fixedParams;
       this.hmacKey = hashKeyOf(this.options.hashKey);
     }
@@ -115,12 +121,15 @@ export class DbAuthnThrottle extends AuthnThrottle {
   }
 
   /**
-   * The authn service calls it at boot with its Configuration. Without `authn.audit.hashKey.secret` the rows are keyed
-   * with a random key of this process, which only development and test accept.
+   * The authn service calls it at boot with its Configuration. Without the hash key this throttle uses (`options.hashKey`
+   * or the `authn.audit.hashKey.secret` it reads) the rows are keyed with a random key of this process, which only a
+   * development or test env of the booting configuration accepts.
    */
-  public checkConfiguration(configuration: AuthnConfigSource): void {
-    if (isSecret(this.options.hashKey) || isSecret(configuration.get<unknown>('authn.audit.hashKey.secret'))) return;
-    const env = authnAppEnv(configuration);
+  public async checkConfiguration(booting: AuthnConfigSource): Promise<void> {
+    // A @Config read needs the container's Configuration resolved.
+    if (this.fromConfiguration) await (this.options.container ?? DI.RootContainer).resolve(Configuration);
+    if (isSecret(this.hashSecret())) return;
+    const env = authnAppEnv(booting);
     if (!isLenientAuthnEnv(env)) {
       throw new InvalidOption(`DbAuthnThrottle: authn.audit.hashKey.secret is not set; outside development and test (env ${JSON.stringify(env ?? 'unset')}) the throttle rows must be keyed with a secret of the app`);
     }
@@ -402,17 +411,18 @@ export class DbAuthnThrottle extends AuthnThrottle {
     return deepFreeze(params);
   }
 
-  private usesConfiguration(): boolean {
-    return this.driver === undefined || this.options.container !== undefined;
+  /** The key `init` uses: `options.hashKey` when given, else the configured one when there is a configuration. */
+  private hashSecret(): unknown {
+    return this.options.hashKey !== undefined || !this.fromConfiguration ? this.options.hashKey : this.ConfiguredHashSecret;
   }
 
   private async load(): Promise<void> {
     const container = this.options.container ?? DI.RootContainer;
-    if (this.usesConfiguration()) {
+    if (this.fromConfiguration) {
       // A @Config read needs the container's Configuration resolved.
       await container.resolve(Configuration);
       this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
-      const secret = this.options.hashKey !== undefined ? this.options.hashKey : this.ConfiguredHashSecret;
+      const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
       if (!isSecret(secret)) {
         warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
