@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
-import { ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
+import { ACL_CONTROLLER_DESCRIPTOR, Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { ACCESS_CLASS, accessDescriptorOf } from '@spinajs/authz-http';
 import { DataValidator } from '@spinajs/validation';
 
@@ -78,7 +78,6 @@ describe('Admin route contract', function () {
       'Security.unbanUser': 'users:update',
       'Security.listSessions': 'users:read',
       'Security.revokeSession': 'users:update',
-      'Security.logoutUser': 'users:update',
       'Profile.getUserProfile': 'users:read',
     };
 
@@ -108,6 +107,16 @@ describe('Admin route contract', function () {
       }
 
       expect(seen).to.deep.eq(PERMISSIONS);
+    });
+
+    // In the @Access group (AND); a separate @Policy group would be an alternative to @Access (OR).
+    it('the session routes also need a session caller that is not impersonating, as authn-http credential admin routes', () => {
+      const security = controllers.find((c) => c.name === 'Security')!.instance;
+
+      for (const method of ['listSessions', 'revokeSession']) {
+        expect(accessOf(security, method).route!.options.also, method).to.deep.eq([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]);
+        expect(controllerDescriptor(security).Routes.get(method)!.Policies, method).to.have.length(1);
+      }
     });
 
     it('no admin route carries the 2.x @Permission or @Resource any more', () => {

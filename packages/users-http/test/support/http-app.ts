@@ -128,7 +128,7 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
 }
 
 // What the app resolves into the root cache; uncached by key before it boots and when it stops, never DI.clearCache().
-const APP_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'UsersHttpTestRbac'];
+const APP_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'UsersHttpTestRbac', 'RbacService'];
 
 let running: { server: HttpServer; controllers: Class<BaseController>[]; port: number } | undefined;
 
@@ -136,6 +136,7 @@ export interface Res {
   readonly status: number;
   readonly body: any;
   readonly text: string;
+  readonly headers: Readonly<Record<string, string>>;
 }
 
 /** A client of the running app; with a session, it sends that session's cookie. */
@@ -171,7 +172,7 @@ export class HttpClient {
     if (this.session) call = call.set('Cookie', `${cookieName()}=${encodeURIComponent(cs.sign(this.session.id, COOKIE_SECRET))}`);
     for (const [k, v] of Object.entries(headers)) call = call.set(k, v);
     const res = body === undefined ? await call : await call.send(body as object);
-    return { status: res.status, body: res.body, text: res.text };
+    return { status: res.status, body: res.body, text: res.text, headers: res.headers as Record<string, string> };
   }
 }
 

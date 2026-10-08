@@ -89,7 +89,6 @@ describe('users-http v3: admin user routes on @Access', function () {
     ['POST', `/users/security/unban/${t.Uuid}`],
     ['GET', `/users/security/sessions/${t.Uuid}`],
     ['DELETE', `/users/security/sessions/${t.Uuid}/some-handle`],
-    ['DELETE', `/users/security/sessions/${t.Uuid}`],
   ];
 
   const send = (client: HttpClient, [method, path, body]: [Method, string, unknown?], headers: Record<string, string> = {}): Promise<Res> => client.send(method, path, body, headers);
@@ -217,17 +216,6 @@ describe('users-http v3: admin user routes on @Access', function () {
         expect(res.status, `${route[0]} ${route[1]}: ${res.text}`).to.eq(404);
       }
       await untouched(t);
-    });
-
-    // They read users' 2.x session store, which 3.0 no longer writes; task 5 moves them onto the SessionIssuer.
-    it('gets an error, never a pretended success, from the admin session routes', async () => {
-      const client = await app.signIn(admin.Uuid);
-      const t = await target();
-
-      for (const route of routes(t).filter(([, path]) => path.includes('/sessions/'))) {
-        const res = await send(client, route);
-        expect(res.status, `${route[0]} ${route[1]}: ${res.text}`).to.eq(500);
-      }
     });
   });
 

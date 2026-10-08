@@ -1,13 +1,20 @@
-import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Del, Get, Ok, Param, Post } from '@spinajs/http';
-import { MethodNotImplemented } from '@spinajs/exceptions';
+import { Autoinject, DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
+import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
+import type { IController, IResponseHeader, IRoute, Request } from '@spinajs/http';
+import { AuthenticationFailed, ResourceNotFound } from '@spinajs/exceptions';
 import { activate, ban, deactivate, unban, userModel } from '@spinajs/users';
 import type { Principal } from '@spinajs/authz';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
+import { AuthnAudit } from '@spinajs/authn';
+import { SessionIssuer } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+import { AUTHN_FAILURE_BODY, Authenticated, FreshAuth, NoImpersonationPolicy, NoTokenAuthPolicy, authnFailureResponse } from '@spinajs/authn-http';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { userActor } from '../../../services/actor.js';
+import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
 @Schema({
@@ -29,18 +36,61 @@ export class BanUserDto {
 
 /** One live session of a user, as reported to an administrator. */
 export interface IAdminSessionEntry {
-  /**
-   * Opaque handle for the session, NOT the session id — the id is a working
-   * credential and an admin listing must not hand out the means to
-   * impersonate the accounts it lists.
-   */
+  /** The issuer's one-way handle of the session, never its id or storage key: the id is a working credential. */
   Handle: string;
 
   /** ISO instant the session was opened */
   Created: string;
 
-  /** ISO instant the session expires, or null when it never does */
-  Expires: string | null;
+  /** ISO instant the session was last used */
+  LastSeen: string;
+
+  /** Client ip stored for the session (the impersonator's, for an impersonation session) */
+  Ip?: string;
+
+  /** Client user agent stored for the session */
+  UserAgent?: string;
+}
+
+const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+
+/** The policies of authn-http's credential admin routes: a session caller (no token, key or signature) not impersonating. */
+const SESSION_ADMIN = [Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy];
+
+async function sessionIssuer(): Promise<SessionIssuer> {
+  if (!DI.RootContainer.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) {
+    throw Object.assign(new ResourceNotFound('the admin session routes are off: no SessionIssuer is registered'), { error: 'not_found' });
+  }
+  return (await DI.resolve(SessionIssuer)) as SessionIssuer;
+}
+
+/**
+ * The user `uuid` whose sessions the caller manages: `permission` decided on that row, then authn's
+ * CredentialAdminGuard (action `sessions`), as on authn-http's `DELETE /authn/admin/users/:uuid/sessions`. The
+ * subject is the stored Uuid, so it names exactly the identity the session store keys by.
+ */
+async function sessionsTarget(by: Principal, permission: 'users:read' | 'users:update', uuid: string): Promise<IdentityRef> {
+  const row = await userRowFor(by, permission, () => userModel().query().where('Uuid', uuid).first());
+  await assertCredentialAdmin(by, row.Uuid, 'sessions');
+  return { type: 'user', id: row.Uuid };
+}
+
+/**
+ * authn-http's fresh auth (a recent login, or the caller's password in `reauthPassword`), run in the handler: http runs
+ * a route's policies at once, so as a policy it would verify and count a password while `@Access` refuses. The package
+ * exports the FreshAuth policy, not its `assertFreshAuth`. Answers the 401 of a failed re-authentication, else null.
+ */
+async function freshAuthRefusal(req: Request, controller: IController): Promise<ReturnType<typeof authnFailureResponse> | null> {
+  try {
+    await ((await DI.resolve(FreshAuth)) as FreshAuth).execute(req, null as unknown as IRoute, controller);
+    return null;
+  } catch (err) {
+    // The thrown error's body carries a stack outside production; authn-http answers the same 401 body.
+    if (err instanceof AuthenticationFailed && (err as { error?: unknown }).error === AUTHN_FAILURE_BODY.error) {
+      return authnFailureResponse();
+    }
+    throw err;
+  }
 }
 
 /** The user `uuid` with its metadata (the ban lives there), for a caller holding `permission` on every user. */
@@ -49,18 +99,16 @@ async function lifecycleTarget(caller: Principal, permission: 'users:update' | '
   return userRowFor(caller, permission, () => userModel().query().where('Uuid', uuid).populate('Metadata').first());
 }
 
-// users' 2.x session store no longer holds the 3.0 sessions: a listing would be empty and a forced logout would end
-// nothing. Until these routes move onto the SessionIssuer they refuse rather than pretend.
-function sessionRoutesPending(): MethodNotImplemented {
-  return new MethodNotImplemented('the admin session routes are not served until they move onto the 3.0 session issuer');
-}
-
 /**
- * User account lifecycle (admin).
+ * User account lifecycle and sessions (admin).
  * Activation, deactivation and bans. Each route sits on `@Access('users:<action>')` and needs a
  * grant on every user: a conditional grant (e.g. `self`) changes no account's standing.
- * Credential management (password, reset, expiry, two-factor) is served by authn-http under
- * `/authn/admin/users/:uuid/*`.
+ * Listing a user's sessions and ending one of them also need what authn-http's credential admin
+ * routes need: a session caller that is not impersonating and authn's CredentialAdminGuard
+ * (users': `users:credentials`, the target covered, no protected role).
+ * authn-http serves `/authn/admin/users/:uuid/{password-reset,mfa-reset,sessions,tokens}`, the
+ * forced logout of every session included; 3.0 has no admin route to set a password, expire one
+ * or enable two-factor.
  *
  * Every route that takes an account out of service goes through the
  * {@link AccountGuard} first — an administrator must not be able to lock themselves,
@@ -156,45 +204,81 @@ export class Security extends BaseController {
 
   /**
    * List sessions of a user (admin)
-   * Not served yet: answers 500 until the route reads the 3.0 sessions.
+   * The user's live sessions from the session issuer, newest first, impersonation sessions of
+   * the user included. Each entry names the session by its one-way handle, never by id.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @returns {IAdminSessionEntry[]} Live sessions of the user
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:read`
+   * @response 403 Forbidden — no `users:read` on this user, a token or impersonating caller (`session_required`, `impersonating`), or refused by the credential admin guard (`forbidden`, `protected_role`, `escalation`; the caller's own sessions are `forbidden`: see `GET /user/sessions`)
+   * @response 404 User not found
    */
   @Get('sessions/:user')
-  @Access('users:read')
-  public async listSessions(): Promise<Ok<IAdminSessionEntry[]>> {
-    throw sessionRoutesPending();
+  @Access('users:read', { also: SESSION_ADMIN })
+  public async listSessions(@CurrentPrincipal() caller: Principal, @Param() user: string): Promise<Ok<IAdminSessionEntry[]>> {
+    const issuer = await sessionIssuer();
+    const subject = await sessionsTarget(userActor(caller), 'users:read', user);
+
+    const rows = await issuer.list(subject);
+    const entries: IAdminSessionEntry[] = [...rows]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((r) => ({
+        Handle: r.handle,
+        Created: r.createdAt.toISOString(),
+        LastSeen: r.lastSeenAt.toISOString(),
+        ...(r.ip !== undefined ? { Ip: r.ip } : {}),
+        ...(r.userAgent !== undefined ? { UserAgent: r.userAgent } : {}),
+      }));
+
+    return new Ok(entries, { Headers: [NO_STORE] });
   }
 
   /**
    * Revoke one session of a user (admin)
-   * Not served yet: answers 500 until the route ends 3.0 sessions.
+   * Ends the user's session with that handle. Needs fresh authentication: a login within
+   * authn.freshAuth.maxAgeSeconds, or the caller's password in the body field `reauthPassword`.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @param handle Session handle as returned by `GET /users/security/sessions/:user`
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update`
+   * @response 200 Session ended
+   * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
+   * @response 403 Forbidden — no `users:update` on this user, no fresh authentication (`fresh_auth_required`), a token or impersonating caller, or refused by the credential admin guard (`forbidden`, `protected_role`, `escalation`; the caller's own sessions are `forbidden`: see `DELETE /user/sessions/:handle`)
+   * @response 404 User not found, or no session of this user has that handle (`session_not_found`)
    */
   @Del('sessions/:user/:handle')
-  @Access('users:update')
-  public async revokeSession(): Promise<Ok> {
-    throw sessionRoutesPending();
-  }
+  @Access('users:update', { also: SESSION_ADMIN })
+  public async revokeSession(@Req() req: Request, @CurrentPrincipal() caller: Principal, @Param() user: string, @Param() handle: string) {
+    const by = userActor(caller);
+    const issuer = await sessionIssuer();
 
-  /**
-   * Force logout user (admin)
-   * Not served yet: answers 500 until the route ends 3.0 sessions.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update`
-   */
-  @Del('sessions/:user')
-  @Access('users:update')
-  public async logoutUser(): Promise<Ok> {
-    throw sessionRoutesPending();
+    const stale = await freshAuthRefusal(req, this);
+    if (stale) {
+      return stale;
+    }
+
+    const subject = await sessionsTarget(by, 'users:update', user);
+
+    // revokeHandle is owner-bound: a handle of another user's session through this uuid ends nothing.
+    const ended = typeof handle === 'string' && handle !== '' && (await issuer.revokeHandle(subject, handle));
+    if (!ended) {
+      return new NotFound({ error: 'session_not_found', message: 'No such session' }, { Headers: [NO_STORE] });
+    }
+
+    // SessionIssuer audits nothing.
+    const ip = req.storage.ClientIp;
+    const userAgent = req.headers['user-agent'];
+    await ((await DI.resolve(AuthnAudit)) as AuthnAudit).publish({
+      type: 'session.revoke',
+      outcome: 'success',
+      reason: 'admin',
+      at: new Date(),
+      identity: subject,
+      actor: { type: by.type, id: by.id },
+      session: handle,
+      ...(typeof ip === 'string' && ip !== '' ? { ip } : {}),
+      ...(typeof userAgent === 'string' && userAgent !== '' ? { userAgent } : {}),
+    });
+
+    return new Ok(null, { Headers: [NO_STORE] });
   }
 }

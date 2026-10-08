@@ -40,12 +40,35 @@ caller; a service principal is refused there.
 | `POST`   | `/users/security/deactivate/:uuid`            | `users:delete` | Deactivate + revoke sessions                              |
 | `POST`   | `/users/security/ban/:uuid`                   | `users:delete` | Ban for `duration` seconds + revoke sessions              |
 | `POST`   | `/users/security/unban/:uuid`                 | `users:update` | Lift a ban                                                |
-| `GET`    | `/users/security/sessions/:uuid`              | `users:read`   | Not served yet (answers 500): moves onto the 3.0 session issuer |
-| `DELETE` | `/users/security/sessions/:uuid/:handle`      | `users:update` | Not served yet (answers 500): moves onto the 3.0 session issuer |
-| `DELETE` | `/users/security/sessions/:uuid`              | `users:update` | Not served yet (answers 500): moves onto the 3.0 session issuer |
+| `GET`    | `/users/security/sessions/:uuid`              | `users:read` + credential admin guard | The user's live sessions, newest first, by handle |
+| `DELETE` | `/users/security/sessions/:uuid/:handle`      | `users:update` + credential admin guard + fresh auth | End one session of the user |
 
-Password, reset, password expiry and two-factor administration are served by `@spinajs/authn-http` under
-`/authn/admin/users/:uuid/*`. 3.0 has no login lockout to clear (authn throttles instead), so `unlock` is gone.
+## Sessions of a user
+
+The two session routes read and end the sessions of authn's `SessionIssuer`. Besides `@Access` (decided on the
+addressed row), they need what `@spinajs/authn-http`'s credential admin routes need:
+
+- a caller signed in with a session: a token, key or signature caller gets `403 session_required`, an impersonating
+  session `403 impersonating`;
+- authn's `CredentialAdminGuard` (action `sessions`) answering `ok: true`. users' `AuthzCredentialAdminGuard` wants
+  `authz.credentials.permission` (default `users:credentials`) at GLOBAL, a target whose rights the caller's strictly
+  contain and no protected role on the target; it refuses the caller's own account, whose sessions the owner routes
+  (`GET /user/sessions`, `DELETE /user/sessions/:handle`) manage. A refusal answers `403` with `forbidden`,
+  `protected_role` or `escalation`; without a registered guard every call is refused (`403 forbidden`);
+- for the revoke, fresh authentication: a login within `authn.freshAuth.maxAgeSeconds`, or the caller's password in the
+  body field `reauthPassword` (`403 fresh_auth_required`, a wrong password the login failure `401`).
+
+No package declares `users:credentials`; an application that uses these routes registers it
+(`authz.permissions: { 'users:credentials': {} }`) and grants it. A list entry carries `Handle` (the issuer's
+one-way handle, never the session id), `Created`, `LastSeen` and, when stored, `Ip` and `UserAgent`, so an
+administrator can tell the devices apart before ending one. A handle that is not one of this user's sessions answers
+`404 session_not_found`. Answers carry `Cache-Control: no-store`. An ended session is audited as `session.revoke`
+(reason `admin`, the caller as actor, the handle).
+
+`@spinajs/authn-http` serves `/authn/admin/users/:uuid/{password-reset,mfa-reset,sessions,tokens}`; its
+`DELETE /authn/admin/users/:uuid/sessions` ends every session of a user, impersonations included. 3.0 has no admin route
+to set a password, expire one or enable two-factor (the owner enrols), and no login lockout to clear (authn throttles
+instead), so `unlock` is gone.
 
 The admin routes do not manage user metadata. `UserMetadataController` serves `/user/:uuid/metadata`, which validates one entry at
 a time. Another user's metadata needs an unconditional `user.metadata` grant (users' `admin.users`); users' `user` role
@@ -112,10 +135,14 @@ This package's config fragment declares the `users:read`, `users:create`, `users
   `readOwn`/`updateOwn`-style grants become conditional grants decided on the addressed row.
 - 3.0: `changePassword`, `password-reset-request`, `expire-password`, `reset2fa`, `2fa/enable`, `2fa/disable`
   and `unlock` under `/users/security` are gone (404); the credential routes live in `@spinajs/authn-http`.
-- 3.0: the admin session routes answer 500 until they move onto the 3.0 session issuer.
-- `activate`, `deactivate` and the forced logout moved off `GET`. They are now
-  `POST /users/security/activate/:uuid`, `POST /users/security/deactivate/:uuid` and
-  `DELETE /users/security/sessions/:uuid`.
+- 3.0: the forced logout `DELETE /users/security/sessions/:uuid` is gone (404). Clients call
+  `DELETE /authn/admin/users/:uuid/sessions` of `@spinajs/authn-http`, which answers `{ revoked }` (the count)
+  and needs `users:credentials` and fresh authentication.
+- 3.0: the session list and the per-handle revoke read the 3.0 `SessionIssuer` and need a session caller and the
+  credential admin guard (see "Sessions of a user"); the revoke also needs fresh authentication. A list entry is
+  `{ Handle, Created, LastSeen, Ip?, UserAgent? }` (`IAdminSessionEntry`); `Expires` is gone.
+- `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and
+  `POST /users/security/deactivate/:uuid`.
 - `activate` now requires `updateAny` instead of `deleteAny`.
 - `GET /users/:uuid` and `GET /users/byLogin/:login` now require `readAny`. They previously required
   nothing beyond a valid session — any authenticated account could read any other.
