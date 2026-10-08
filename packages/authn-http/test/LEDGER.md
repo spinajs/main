@@ -220,6 +220,8 @@ Status (N8c task 4): only the moved 2.x controllers (`src/account/legacy/`) read
 
 Status (T2): closed as drop (class stays rewrite in the table above). The frozen `AuthnResponseExtension` contract (`authn/src/contracts/hooks.ts`) has no response-schema contribution, so there is no 3.0 counterpart of `SessionContextProvider.Properties`. The extensions run on every answer (`test/v3-app/suites/login.ts`). The 2.x file is deleted; the provider itself goes with R1. Hand-off: swagger schemas of the auth answers do not list extension fields (needs an RFC if wanted).
 
+Status (R1bc): `SessionContextProvider`, `sessionContextProperties` and `resolveSessionContext` are deleted with `src/session-context.ts`; the 3.0 counterpart is `AuthnResponseExtension` (authn contracts).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22); N8a task 6: the 3.0 routes run every `AuthnResponseExtension` (`test/v3-app/suites/login.ts`, "logs in: ... the login extensions; ..."); no response schema contributions are built yet (N8c/T2); T2: closed, no 3.0 counterpart (see Status T2) |
@@ -488,6 +490,8 @@ Status (N8a task 6): the extension runs are tested with a recording `AuthnRespon
 Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compiled, never scanned); the 3.0 routes in `src/v3/controllers/` are scanned; the file is `test/legacy-v2/z-account-session-context.test.ts`.
 
 Status (T2): done. Rows are covered by `test/v3-app/suites/login.ts` (whoami, login) and `active-role.ts` (role switch). `test/legacy-v2/z-account-session-context.test.ts` is deleted.
+
+Status (R1bc): `SessionContextProvider` is deleted; the three 2.x response schemas in `src/dto/auth-responses.ts` no longer spread its properties.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|

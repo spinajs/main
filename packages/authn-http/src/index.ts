@@ -9,7 +9,6 @@ export * from './decorators.js';
 export * from './interfaces.js';
 export * from './transformers.js';
 export * from './route-args.js';
-export * from './session-context.js';
 
 export * from "./policies/RbacPolicy.js";
 export * from "./policies/AuthorizedPolicy.js";
