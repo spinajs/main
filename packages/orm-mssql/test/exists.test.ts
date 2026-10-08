@@ -6,7 +6,7 @@ import _ from 'lodash';
 import '@spinajs/log';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, IColumnDescriptor, Orm, OrmDriver } from '@spinajs/orm';
+import { ICompilerOutput, IColumnDescriptor, Orm, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
 import { mergeArrays } from './util.js';
@@ -108,5 +108,29 @@ describe('mssql whereExist correlation', function () {
 
     expect(stmt).to.contain('EXISTS (');
     expect(stmt).to.contain('WHERE [item_tag_exists].[item_id] = [model].[id]');
+  });
+});
+
+describe('mssql identifier quoting', function () {
+  this.timeout(15000);
+
+  beforeEach(async () => {
+    DI.clearCache();
+    DI.register(ExistsConnectionConf).as(Configuration);
+    DI.register(FakeMsSqlDriver).as('orm-driver-mssql-exists-fake');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('quotes the FROM table, the join tables, the ON keys and the ORDER BY with brackets', () => {
+    const connection = DI.get(Orm)!.Connections.get('mssql-exists')!;
+    const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+    const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
+
+    expect(result.expression).to.equal('SELECT [#users#].* FROM [users] as [#users#] LEFT JOIN [test].[adresses] as [adresses] ON [#users#].[id] = [adresses].[addressId] ORDER BY [name] ASC');
+    expect(result.expression).to.not.contain('`');
   });
 });

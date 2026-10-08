@@ -83,6 +83,16 @@ describe('postgres SQL compilation', function () {
     });
   });
 
+  describe('identifier quoting in joins', () => {
+    it('quotes the FROM table, the join tables and the ON keys with double quotes', () => {
+      const connection = db()!.Connections.get('postgres')!;
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
+
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "test"."adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId" ORDER BY "name" ASC');
+    });
+  });
+
   describe('whereExist correlation', () => {
     function compiled(query: { toDB(): unknown }) {
       return sql(query.toDB() as ICompilerOutput);
