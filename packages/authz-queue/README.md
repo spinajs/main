@@ -12,7 +12,7 @@ Importing the package registers `AuthzQueueHook` as a `QueueMessageHook` of `@sp
 
 The hook uses the authz domain named by `authz.queue.domain` (default `root`).
 
-`Initiator` crosses the broker as plain data, so the broker is trusted to carry it unchanged. The default `InitiatorPrincipalFactory` builds the principal from the stamp alone (no attributes, `source: 'queue'`) and warns once about it; a wrapper that does reload the user builds `new StampedInitiatorPrincipalFactory({ warn: false })`. An app that must reload the user registers its own: `DI.register(MyFactory).as(InitiatorPrincipalFactory)`. The stamp does not carry `onBehalfOf` or `authn` facts, so an agent or impersonating principal is rebuilt without them.
+`Initiator` crosses the broker as plain data, so the broker is trusted to carry it unchanged. The default `InitiatorPrincipalFactory` builds the principal from the stamp alone (no attributes, `source: 'queue'`) and warns once about it. `authz.queue.stampedInitiatorWarning: false` silences the warning; a wrapper built with `new` that does reload the user passes `{ warn: false }` instead, which never reads the config. An app that must reload the user registers its own: `DI.register(MyFactory).as(InitiatorPrincipalFactory)`. The stamp does not carry `onBehalfOf` or `authn` facts, so an agent or impersonating principal is rebuilt without them.
 
 ## Change bus
 
