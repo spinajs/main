@@ -11,9 +11,6 @@ import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, auditEnded, bodyField, boundedString, contextOf, pendingSteps, stampClient } from '../routes.js';
 
-// The 3.0 controllers are scanned only when an app lists src/v3/controllers (N8c); this file must not load the
-// @spinajs/authn root at module load either.
-
 /**
  * Login, logout and whoami of the 3.0 layer (design §22.4, §22.11). Every failed login answers the same 401 body
  * (A02); a pending (pre-MFA) session answers only `MfaRequired` (SR-07).

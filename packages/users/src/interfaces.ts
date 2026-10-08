@@ -85,7 +85,7 @@ export interface ISession {
  *
  * @deprecated 3.0: SessionExpirationProvider of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
-export abstract class SessionExpirationProvider {
+export abstract class LegacySessionExpirationProvider {
   /**
    * Expiration to set when a session is first created. `undefined` = never expires.
    */
@@ -96,6 +96,11 @@ export abstract class SessionExpirationProvider {
    */
   public abstract renew(session: ISession): DateTime | undefined;
 }
+
+/** @deprecated 3.0: LegacySessionExpirationProvider, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const SessionExpirationProvider = LegacySessionExpirationProvider;
+/** @deprecated 3.0: LegacySessionExpirationProvider, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type SessionExpirationProvider = LegacySessionExpirationProvider;
 
 /**
  * Service used for generating random password & for hash raw string
@@ -202,8 +207,8 @@ export abstract class AuthProvider<U = User> {
 }
 
 /** @deprecated 3.0: SessionProvider of @spinajs/authn-session, behind SessionIssuer. R1 deletes it after N8a and C2. */
-export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
-  private _expiration?: SessionExpirationProvider;
+export abstract class LegacySessionProvider<T extends ISession = ISession> extends AsyncService {
+  private _expiration?: LegacySessionExpirationProvider;
 
   /**
    * Expiration strategy, resolved by config service name at
@@ -211,11 +216,11 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
    * expiration semantics are uniform across providers. Without the key, the
    * last registered strategy (`SlidingCappedExpiration`, the 2.x default).
    */
-  protected get Expiration(): SessionExpirationProvider {
-    return (this._expiration ??= legacyService('authn.session.expiration', SessionExpirationProvider) as SessionExpirationProvider);
+  protected get Expiration(): LegacySessionExpirationProvider {
+    return (this._expiration ??= legacyService('authn.session.expiration', LegacySessionExpirationProvider) as LegacySessionExpirationProvider);
   }
 
-  protected set Expiration(value: SessionExpirationProvider) {
+  protected set Expiration(value: LegacySessionExpirationProvider) {
     this._expiration = value;
   }
 
@@ -293,6 +298,11 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     return !!s.Expiration && s.Expiration <= DateTime.now();
   }
 }
+
+/** @deprecated 3.0: LegacySessionProvider, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const SessionProvider = LegacySessionProvider;
+/** @deprecated 3.0: LegacySessionProvider, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type SessionProvider<T extends ISession = ISession> = LegacySessionProvider<T>;
 
 /** @deprecated 3.0: permission names '<resource>:<action>' and relations of @spinajs/authz. R1 deletes it. */
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';

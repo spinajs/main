@@ -4,8 +4,8 @@ import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, w
 import * as chai from 'chai';
 import 'mocha';
 
-import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, rbacAssignmentExtension, readRbacInput, runRbacPipeline } from '../../src/index.js';
-import type { RbacExtension, RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
+import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, rbacAssignmentExtension, readRbacInput, runRbacPipeline, voteFieldGlobs, withFieldRule } from '../../src/index.js';
+import type { FieldRule, RbacExtension, RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -510,6 +510,99 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         expectFields(typeLevel.fields, 'read', ['salary'], ['email']);
         const wider = fieldVote({ mine: [{ permission: 'user:read', on: [{ type: 'user', id: 'u1' }], fields: { read: ['salary', 'email'] } }], self: [{ permission: 'user:read', relation: 'self', fields: { read: ['email'] } }] }, { resource: { type: 'user' } });
         expectFields(wider.fields, 'read', ['email'], ['salary']);
+      });
+    });
+
+    describe('conditional grants with the same condition (RFC C3-1)', () => {
+      const GUEST_SELF = { permission: 'user:read', relation: 'self', fields: { read: ['Login'] } };
+      const USER_SELF = { permission: 'user:read', relation: 'self', fields: { read: ['Email', 'Login'] } };
+      /** Two roles, a and b, whose grants are conditional on `native:test.rows` with these args only. */
+      const nativeVote = (aArgs: unknown, bArgs: unknown, b: RoleDef['grants'][number] = { permission: 'user:read', fields: { read: ['Email', 'Login'] } }) =>
+        fieldVote(
+          { a: [{ permission: 'user:read', fields: { read: ['Login'] } }], b: [b] },
+          {
+            steps: withSteps({
+              tag: (s) => {
+                for (const c of s.candidates) c.rows = { op: 'native:test.rows', args: c.grant.role === 'a' ? aArgs : bArgs };
+              },
+            }),
+          },
+        );
+
+      it('guest and user, both on self: the vote reads the union, Email and Login', () => {
+        const v = fieldVote({ guest: [GUEST_SELF], user: [USER_SELF] });
+        expect(v.permitWhen).to.deep.equal({ op: 'relation', relation: 'self' });
+        expectFields(v.fields, 'read', ['Email', 'Login'], ['Phone', 'Password']);
+        const typeLevel = fieldVote({ guest: [GUEST_SELF], user: [USER_SELF] }, { resource: { type: 'user' } });
+        expectFields(typeLevel.fields, 'read', ['Email', 'Login'], ['Phone']);
+      });
+
+      it('the same grants on different relations still intersect', () => {
+        const v = fieldVote({ guest: [GUEST_SELF], user: [{ ...USER_SELF, relation: 'member' }] });
+        expectFields(v.fields, 'read', ['Login'], ['Email']);
+      });
+
+      it('a union within a group, an intersection across groups', () => {
+        const v = fieldVote({ guest: [GUEST_SELF], user: [USER_SELF], member: [{ permission: 'user:read', relation: 'member', fields: { read: ['Email', 'Phone'] } }] });
+        expectFields(v.fields, 'read', ['Email'], ['Login', 'Phone']);
+      });
+
+      it('a grant without fields in a group stands for every field', () => {
+        const v = fieldVote({ guest: [GUEST_SELF], all: [{ permission: 'user:read', relation: 'self' }], member: [{ permission: 'user:read', relation: 'member', fields: { read: ['Email', 'Phone'] } }] });
+        expectFields(v.fields, 'read', ['Email', 'Phone'], ['Login']);
+        expect(fieldVote({ guest: [GUEST_SELF], all: [{ permission: 'user:read', relation: 'self' }] })).not.to.have.property('fields');
+      });
+
+      it('equal native args, a structured clone of plain data: the union', () => {
+        const args = { roles: ['a', 'b'], at: new Date(0), nested: { n: 1, none: null } };
+        expectFields(nativeVote(args, structuredClone(args)).fields, 'read', ['Email', 'Login'], ['Phone']);
+        const fn = () => true;
+        expectFields(nativeVote(fn, fn).fields, 'read', ['Email', 'Login'], ['Phone']);
+      });
+
+      it('native args that differ in a Map entry, or in an undefined key, keep the intersection', () => {
+        expectFields(nativeVote(new Map([['a', 1]]), new Map([['b', 1]])).fields, 'read', ['Login'], ['Email']);
+        expectFields(nativeVote({ x: undefined }, {}).fields, 'read', ['Login'], ['Email']);
+        expectFields(nativeVote(new Array<unknown>(2), [undefined, undefined]).fields, 'read', ['Login'], ['Email']);
+        expectFields(nativeVote({ at: new Date(0) }, { at: new Date(1) }).fields, 'read', ['Login'], ['Email']);
+      });
+
+      it('native args with no canonical form keep the intersection: functions, class instances', () => {
+        class Box {
+          constructor(readonly v: number) {}
+        }
+        expectFields(
+          nativeVote(
+            () => true,
+            () => true,
+          ).fields,
+          'read',
+          ['Login'],
+          ['Email'],
+        );
+        expectFields(nativeVote(new Box(1), new Box(1)).fields, 'read', ['Login'], ['Email']);
+        expectFields(nativeVote(new Set([1]), new Set([1])).fields, 'read', ['Login'], ['Email']);
+      });
+
+      it('scoped grants on a type-level request unite only when their holders sit at the same scopes', () => {
+        const O1: ResourceRef = { type: 'org', id: 'o1' };
+        const O2: ResourceRef = { type: 'org', id: 'o2' };
+        const scopedVote = (guestAt: ResourceRef, userAt: ResourceRef) => {
+          const base = input([assignment('a1', 'guest', { scope: guestAt }), assignment('a2', 'user', { scope: userAt })], 'user:read', { roles: [withGrantsOf('guest', [GUEST_SELF]), withGrantsOf('user', [USER_SELF])], permissions: PERMISSIONS });
+          return runRbacPipeline({ ...base, request: { ...base.request, resource: { type: 'user' } }, path: [{ type: 'user' }, GLOBAL] });
+        };
+        expectFields(scopedVote(O1, { ...O1 }).fields, 'read', ['Email', 'Login'], ['Phone']);
+        expectFields(scopedVote(O1, O2).fields, 'read', ['Login'], ['Email']);
+      });
+
+      it('a custom FieldRule gets one conditional entry per group', () => {
+        const seen: number[] = [];
+        const rule: FieldRule = (u, c) => {
+          seen.push(c.length);
+          return voteFieldGlobs(u, c);
+        };
+        fieldVote({ guest: [GUEST_SELF], user: [USER_SELF], member: [{ permission: 'user:read', relation: 'member', fields: { read: ['Email'] } }] }, { steps: withFieldRule(RBAC_STEPS, rule) });
+        expect(seen).to.deep.equal([2]);
       });
     });
 

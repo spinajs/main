@@ -12,7 +12,7 @@ export interface ILogoutContext {
   /** Restored session, or null when none is active */
   Session: ISession | null;
 
-  /** Logged-in user as resolved by RbacMiddleware */
+  /** Logged-in user, `req.storage.User` */
   User: User;
 }
 

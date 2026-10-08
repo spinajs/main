@@ -10,7 +10,7 @@ import { NotFound, Ok } from '@spinajs/http';
 import { hashSessionId } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
 
-import { SessionsController } from '../src/account/controllers/SessionsController.js';
+import { SessionsController } from '../../src/account/legacy/SessionsController.js';
 
 /**
  * "Where am I logged in", and ending any of those sessions.

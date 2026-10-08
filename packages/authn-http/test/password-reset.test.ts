@@ -1,7 +1,8 @@
 // Pure unit test: the controller is constructed directly, so it does not touch
 // the process-wide DI container that sibling suites contaminate.
 import 'mocha';
-import { expect } from 'chai';
+import chai, { expect } from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 
 import { BadRequestResponse, Ok } from '@spinajs/http';
@@ -10,6 +11,8 @@ import { InvalidCredentials, TokenExpired, TokenInvalid } from '@spinajs/users';
 
 import { PasswordResetController } from '../src/account/controllers/PasswordResetController.js';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../src/account/dto/password-reset-dto.js';
+
+chai.use(chaiAsPromised);
 
 /**
  * The reset endpoints are public, so the property that matters most is that

@@ -6,8 +6,7 @@ import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
-import { ClientIp, CsrfOriginGuard, AuthnMiddleware, proxyTrustOf } from '../../src/index.js';
-import { TokenAuthMiddleware } from '../../src/token/middlewares.js';
+import { ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
@@ -38,9 +37,12 @@ describe('authn http middlewares through @Config and the schemas', () => {
   afterEach(disposeBooted);
 
   describe('schema', () => {
-    it('gives TokenAuthMiddleware the token header, update interval and prefix it reads', async () => {
-      const m = readingFrom(new TokenAuthMiddleware(), (await boot(SCHEMAS, {})).child) as unknown as Record<string, unknown>;
-      expect([m.HeaderName, m.LastUsedUpdateInterval, m.TokenPrefix]).to.deep.equal(['x-api-key', 60, 'spt_']);
+    // The update interval moved with the last-use stamp to authn-token's TokenStrategy.
+    it('gives the api-key and bearer extractors the token header and prefix they read', async () => {
+      const { child } = await boot(SCHEMAS, {});
+      const apiKey = readingFrom(new ApiKeyHeaderExtractor(), child) as unknown as Record<string, unknown>;
+      const bearer = readingFrom(new AuthorizationBearerExtractor(), child) as unknown as Record<string, unknown>;
+      expect([apiKey.HeaderName, apiKey.Prefix, bearer.Prefix]).to.deep.equal(['x-api-key', 'spt_', 'spt_']);
     });
 
     it('fills the csrf and session cookie defaults', async () => {

@@ -7,7 +7,8 @@ import type { SessionHandle } from '@spinajs/authn/contracts';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, V3AppResponseExtension, config, events, guard, identities, loggedIn, loggedInAal2, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
+import { Client, V3AppResponseExtension, config, events, guard, identities, loggedIn, loggedInAal2, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
+import type { KitUser } from '../app.js';
 
 const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
 
@@ -305,5 +306,62 @@ export function impersonationSuite(): void {
     const res = await c.post('/auth/impersonate', { target: t2.ref.id });
     expect(res.status).to.eq(403);
     expect((await probe(c)).principal.id).to.eq(t1.ref.id);
+  });
+
+  describe('D14 an actor narrowed by a role switch', () => {
+    /** An aal2 admin who holds root and switched to editor. */
+    async function switchedAdmin(): Promise<{ admin: KitUser; c: Client }> {
+      const admin = await seedUser();
+      await roles.grant(admin.ref, [
+        { role: 'editor', requirePassword: false },
+        { role: 'root', requirePassword: true },
+      ]);
+      const c = await loggedInAal2(admin);
+      const res = await c.post('/auth/active-role', { role: 'editor' });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      return { admin, c };
+    }
+
+    it('is judged restricted at start and on later requests, the target is not narrowed, and stop keeps the switch', async () => {
+      const { admin, c } = await switchedAdmin();
+      const target = await seedUser();
+      const res = await c.post('/auth/impersonate', { target: target.ref.id });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      const asked = () => guard.calls.filter((x) => x.target.id === target.ref.id);
+      const [start] = asked();
+      expect(start.actor.id).to.eq(admin.ref.id);
+      expect(start.actor.ceiling).to.deep.eq({ roles: ['editor'] });
+      expect(start.actor.authn?.sessionHandle).to.be.a('string').and.not.eq('');
+
+      const p = (await probe(c)).principal;
+      expect(p.id).to.eq(target.ref.id);
+      expect(p.ceiling, 'the target carries no role switch').to.eq(undefined);
+      const later = asked().slice(1);
+      expect(later.length, 'the guard is asked again on a later request').to.be.greaterThan(0);
+      for (const call of later) expect(call.actor.ceiling).to.deep.eq({ roles: ['editor'] });
+
+      const stop = await c.del('/auth/impersonate');
+      expect(stop.status, JSON.stringify(stop.body)).to.eq(200);
+      expect(stop.body.Access.roles, 'the stop answer shows the restored switch').to.deep.eq(['editor']);
+      expect((await c.get('/auth')).body.Access.roles, 'whoami agrees').to.deep.eq(['editor']);
+      expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq('editor');
+      const back = (await probe(c)).principal;
+      expect(back.id).to.eq(admin.ref.id);
+      expect(back.ceiling).to.deep.eq({ roles: ['editor'] });
+    });
+
+    it('a guard that refuses the narrowed actor refuses the start 403; the switch stays', async () => {
+      const { c } = await switchedAdmin();
+      const target = await seedUser();
+      const allowed = sinon.stub(guard, 'allowed').callsFake(async (actor, t) => (actor.ceiling ? { ok: false, code: 'escalation' } : allowed.wrappedMethod.call(guard, actor, t)));
+      try {
+        const res = await c.post('/auth/impersonate', { target: target.ref.id });
+        expect(res.status).to.eq(403);
+        expect(res.body.error).to.eq('impersonation_refused');
+      } finally {
+        allowed.restore();
+      }
+      expect((await probe(c)).principal.ceiling).to.deep.eq({ roles: ['editor'] });
+    });
   });
 }

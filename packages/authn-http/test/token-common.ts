@@ -91,7 +91,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           // `account/controllers` is listed too: the controller listing is memoized
           // once per process ( `ListFromFiles` in reflection ), so every http suite
           // in this package has to ask for the same directories.
-          controllers: [dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
+          controllers: [dir('./../src/v3/controllers'), dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
         },
       },
       // `@spinajs/http` contributes the providers its own machinery needs
@@ -176,29 +176,17 @@ export class TestConfiguration extends FrameworkConfiguration {
 }
 
 /**
- * Creates an authorized session for the user and returns the signed session
- * cookie ready for a `Cookie` header.
+ * Creates a 2.x authorized session for the user and returns the signed session
+ * cookie ready for a `Cookie` header, in the shape the 2.x login wrote.
  *
- * The name comes from the same helper `RbacMiddleware` reads it with, not a
- * literal: with authn-session's shipped `hostPrefix: 'auto'` it may carry the
- * `__Host-` prefix.
- *
- * `Authorized` is what `RbacPolicy` looks at, `User` carries the uuid the
- * `RbacUserFactory` reloads the row by - the same shape the login controller
- * writes.
- *
- * `MemorySessionStore` is registered with `@Injectable(SessionProvider)`
- * ( `users/src/session.ts` ), and `RbacMiddleware` injects the same abstract
- * base, so both sides land on one instance.
+ * Only the suites parked in `legacy-v2/` use it: the 2.x `RbacMiddleware` that
+ * read this session is gone since N8c, and the 3.0 session layer revokes a 2.x
+ * row that carries an `ActiveRole` (N8c-D2).
  *
  * @param user - the user the session acts AS ( the impersonation target, when
  *               `impersonator` is given )
- * @param impersonator - administrator who started an impersonation of `user`.
- *                       Stored under the `Impersonator` session key, which is
- *                       what `RbacMiddleware` reads to populate
- *                       `req.storage.Impersonator`. Must be an existing active
- *                       user - the middleware resolves it through
- *                       `RbacUserFactory`, which loads the row by uuid.
+ * @param impersonator - administrator who started an impersonation of `user`,
+ *                       stored under the 2.x `Impersonator` session key.
  */
 export async function sessionCookieFor(user: User, impersonator?: User): Promise<string> {
   const provider = await DI.resolve(SessionProvider);

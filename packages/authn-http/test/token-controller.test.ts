@@ -16,12 +16,15 @@ import { AccessTokenController } from '../src/token/controllers/AccessTokenContr
 import { NoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
 import '@spinajs/authn-token';
-import '../src/token/middlewares.js';
 
 /**
  * The self-service token API over a real http server. The rows that need a
  * user's roles are in `legacy-v2/token-controller.test.ts`: since C1 the 2.x
  * stack reads no roles for a stored user (LEDGER, N8a task 9).
+ *
+ * Since N8c the controller-scope group below is fed by LegacyStorageBridge's
+ * `TokenAuth` and `Impersonator` markers (`test/v3/legacy-bridge.test.ts`): it
+ * is what keeps a token from minting a token here until N8b replaces it.
  */
 describe('AccessTokenController', function () {
   this.timeout(25000);

@@ -15,9 +15,9 @@ import {
   User,
 } from '@spinajs/users';
 
-import { LogoutHandler, ILogoutContext } from '../src/account/logout.js';
-import { ImpersonationLogoutHandler } from '../src/account/handlers/ImpersonationLogoutHandler.js';
-import { DefaultLogoutHandler } from '../src/account/handlers/DefaultLogoutHandler.js';
+import { LogoutHandler, ILogoutContext } from '../../src/account/logout.js';
+import { ImpersonationLogoutHandler } from '../../src/account/handlers/ImpersonationLogoutHandler.js';
+import { DefaultLogoutHandler } from '../../src/account/handlers/DefaultLogoutHandler.js';
 
 /**
  * Tests for the pluggable logout handler chain. Verifies built-in handlers

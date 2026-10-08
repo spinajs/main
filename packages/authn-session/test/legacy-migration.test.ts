@@ -102,13 +102,13 @@ describe('2.x session migration', () => {
     it('migrates the row under sha256(raw) on first use, without logging the user out', async () => {
       const { issuer, store } = await setup();
       const creation = DateTime.now().minus({ minutes: 5 });
-      const raw = plantLegacy(store, { user: 'u-1', creation, extra: [['ActiveRole', 'editor']] });
+      const raw = plantLegacy(store, { user: 'u-1', creation, extra: [['Theme', 'dark']] });
 
       const r = await issuer.restore(raw);
       expect(r, 'the 2.x session restores').to.not.be.null;
       expect(r!.handle).to.deep.equal({ id: raw, state: 'active' });
       expect(r!.identity).to.deep.equal(user('u-1'));
-      expect(r!.data.get('ActiveRole')).to.equal('editor');
+      expect(r!.data.get('Theme')).to.equal('dark');
 
       const keys = [...Rows.of(store).keys()];
       expect(keys).to.include(sha256hex(raw));
@@ -119,6 +119,61 @@ describe('2.x session migration', () => {
       expect(row.Creation.toMillis(), 'Creation is kept, so the absolute lifetime is not reset').to.equal(creation.toMillis());
 
       expect(await issuer.restore(raw), 'the same cookie keeps working').to.not.be.null;
+    });
+
+    it('N8c a 2.x row carrying an ActiveRole is revoked, not migrated', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1', extra: [['ActiveRole', 'editor']] });
+
+      expect(await issuer.restore(raw)).to.be.null;
+      const keys = [...Rows.of(store).keys()];
+      expect(keys, 'the raw row is deleted').to.not.include(raw);
+      expect(keys, 'no migrated copy').to.not.include(sha256hex(raw));
+      expect(await issuer.restore(raw), 'the cookie stays dead').to.be.null;
+      expect(Rows.of(store).size).to.equal(0);
+    });
+
+    it('N8c a pending 2.x row carrying an ActiveRole is revoked too', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1', authorized: false, extra: [['ActiveRole', 'editor']] });
+
+      expect(await issuer.restore(raw)).to.be.null;
+      expect(Rows.of(store).size).to.equal(0);
+    });
+
+    it('N8c parallel first uses of a 2.x row carrying an ActiveRole both answer null and leave no row', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1', extra: [['ActiveRole', 'editor']] });
+
+      expect(await Promise.all([issuer.restore(raw), issuer.restore(raw)])).to.deep.equal([null, null]);
+      expect(Rows.of(store).size).to.equal(0);
+    });
+
+    it('N8c a 2.x row whose ActiveRole is absent, undefined, null or empty still migrates', async () => {
+      const { issuer, store } = await setup();
+      const cases: [string, [string, unknown][]][] = [
+        ['absent', []],
+        ['undefined', [['ActiveRole', undefined]]],
+        ['null', [['ActiveRole', null]]],
+        ['empty', [['ActiveRole', '']]],
+      ];
+      for (const [name, extra] of cases) {
+        const raw = plantLegacy(store, { user: 'u-1', extra });
+        const r = await issuer.restore(raw);
+        expect(r, name).to.not.be.null;
+        expect(r!.identity, name).to.deep.equal(user('u-1'));
+        expect([...Rows.of(store).keys()], name).to.include(sha256hex(raw)).and.not.include(raw);
+      }
+    });
+
+    it('N8c a 3.0 row with an ActiveRole set through the issuer is untouched', async () => {
+      const { issuer, store } = await setup();
+      const h = await issuer.issue(user('u-1'), { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+      await issuer.set(h, 'ActiveRole', 'editor');
+
+      expect((await issuer.restore(h.id))!.data.get('ActiveRole')).to.equal('editor');
+      expect((await issuer.restore(h.id))!.data.get('ActiveRole'), 'and again').to.equal('editor');
+      expect([...Rows.of(store).keys()]).to.deep.equal([sha256hex(h.id)]);
     });
 
     it('builds aal1 password facts with authenticatedAt = Creation (hand-off 9)', async () => {

@@ -11,8 +11,8 @@ import { Unauthorized } from '@spinajs/http';
 
 import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 
-import { LoginController } from '../src/account/controllers/LoginController.js';
-import { DbTestConfiguration } from './account-db-common.js';
+import { LoginController } from '../../src/account/legacy/LoginController.js';
+import { DbTestConfiguration } from '../account-db-common.js';
 
 const body = async <T = any>(r: any): Promise<T> => await r.responseData;
 

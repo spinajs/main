@@ -27,7 +27,7 @@ export const QUEUE_PRINCIPAL_SOURCE = 'queue';
 @Injectable(InitiatorPrincipalFactory)
 export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
   // Its one-time warning says users are not reloaded, which is untrue here.
-  protected readonly stamped: InitiatorPrincipalFactory = Object.assign(new StampedInitiatorPrincipalFactory(), { warned: true } as object);
+  protected readonly stamped: InitiatorPrincipalFactory = new StampedInitiatorPrincipalFactory({ warn: false });
 
   public async principalOf(initiator: Initiator): Promise<Principal> {
     const stamp = (initiator !== null && typeof initiator === 'object' ? initiator : {}) as { type?: unknown; id?: unknown; ceiling?: unknown };

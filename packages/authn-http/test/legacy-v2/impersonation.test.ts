@@ -17,9 +17,9 @@ import {
   User,
 } from '@spinajs/users';
 
-import { ImpersonationController } from '../src/account/controllers/ImpersonationController.js';
-import { ImpersonationService } from '../src/account/services/ImpersonationService.js';
-import { ImpersonateDto } from '../src/account/dto/impersonate-dto.js';
+import { ImpersonationController } from '../../src/account/legacy/ImpersonationController.js';
+import { ImpersonationService } from '../../src/account/services/ImpersonationService.js';
+import { ImpersonateDto } from '../../src/account/dto/impersonate-dto.js';
 
 import { Ok, BadRequestResponse, Unauthorized, ForbiddenResponse, Conflict, NotFound } from '@spinajs/http';
 

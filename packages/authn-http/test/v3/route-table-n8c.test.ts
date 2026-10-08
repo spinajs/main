@@ -10,7 +10,11 @@ import shipped from '../../src/config/authn-http.js';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
 
-/** The 2.x account controllers the 3.0 ones replace; N8c takes them out of the scan (N8a-D6). */
+/** The 2.x controller dirs the shipped config still scans beside v3/controllers, and the controllers in them; N8b's merge shortens both. */
+const SCANNED_2X_DIRS = ['account/controllers', 'token/controllers'];
+const SCANNED_2X_CONTROLLERS = ['AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
+
+/** The 2.x account controllers the 3.0 ones replace: compiled in account/legacy, never scanned (N8a-D6). */
 const REPLACED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController'];
 
 interface Mounted {
@@ -34,34 +38,30 @@ async function routesOf(dir: string): Promise<Mounted[]> {
 }
 
 const twice = (list: Mounted[]) => list.filter((m, i) => list.findIndex((x) => x.route === m.route) !== i).map((m) => `${m.route} (${m.controller})`);
+const controllersOf = (list: Mounted[]) => [...new Set(list.map((m) => m.controller))].sort();
 
 describe('the N8c controller swap (route table)', function () {
   this.timeout(30000);
 
-  it('the shipped config scans the 2.x account and token controllers only, never the 3.0 ones', () => {
+  it('the shipped config scans v3/controllers and the 2.x dirs that stay, nothing else', () => {
     const dirs = shipped.system.dirs.controllers.map((d: string) => d.replace(/\\/g, '/'));
-    expect(dirs.some((d: string) => d.endsWith('/account/controllers'))).to.eq(true);
-    expect(dirs.some((d: string) => d.endsWith('/token/controllers'))).to.eq(true);
-    expect(dirs.filter((d: string) => d.includes('/v3/'))).to.deep.eq([]);
+    const expected = ['v3/controllers', ...SCANNED_2X_DIRS];
+    for (const dir of expected)
+      expect(
+        dirs.some((d: string) => d.endsWith(`/${dir}`)),
+        dir,
+      ).to.eq(true);
+    expect(dirs.filter((d: string) => !expected.some((dir) => d.endsWith(`/${dir}`)))).to.deep.eq([]);
   });
 
-  it('today: the shipped scan registers no method and path twice', async () => {
-    const today = [...(await routesOf('account/controllers')), ...(await routesOf('token/controllers'))];
-    expect(twice(today)).to.deep.eq([]);
+  it('the scanned 2.x dirs hold only the 2.x controllers that stay; the replaced ones sit in account/legacy', async () => {
+    const scanned = (await Promise.all(SCANNED_2X_DIRS.map(routesOf))).flat();
+    expect(controllersOf(scanned)).to.deep.eq(SCANNED_2X_CONTROLLERS);
+    expect(controllersOf(await routesOf('account/legacy'))).to.deep.eq([...REPLACED_2X].sort());
   });
 
-  it('the 3.0 controllers collide only with the five 2.x controllers they replace, so both cannot be scanned at once', async () => {
-    const v3 = await routesOf('v3/controllers');
-    const today = [...(await routesOf('account/controllers')), ...(await routesOf('token/controllers'))];
-    const clashes = today.filter((m) => v3.some((x) => x.route === m.route));
-    expect(clashes.length).to.be.greaterThan(0);
-    expect([...new Set(clashes.map((m) => m.controller))].every((c) => REPLACED_2X.includes(c)), JSON.stringify(clashes)).to.eq(true);
-  });
-
-  it('after N8c: the 3.0 controllers, the token controllers and the account controllers that stay register no method and path twice', async () => {
-    const kept = (await routesOf('account/controllers')).filter((m) => !REPLACED_2X.includes(m.controller));
-    expect([...new Set(kept.map((m) => m.controller))].sort()).to.deep.eq(['PasswordResetController', 'TwoFactorAuthUserController']);
-    const after = [...(await routesOf('v3/controllers')), ...(await routesOf('token/controllers')), ...kept];
+  it('after N8c: the 3.0 controllers and the scanned 2.x ones register no method and path twice', async () => {
+    const after = [...(await routesOf('v3/controllers')), ...(await Promise.all(SCANNED_2X_DIRS.map(routesOf))).flat()];
     expect(twice(after)).to.deep.eq([]);
   });
 });

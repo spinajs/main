@@ -105,8 +105,9 @@ describe('token policies', function () {
 
   it('NoImpersonationPolicy rejects an impersonated session', async () => {
     const policy = new NoImpersonationPolicy();
-    // what RbacMiddleware builds from the `Impersonator` session key: User is
-    // the TARGET, Impersonator is whoever started it
+    // what the 2.x RbacMiddleware built from the `Impersonator` session key (and
+    // LegacyStorageBridge now builds from the principal): User is the TARGET,
+    // Impersonator is whoever started it
     const req: any = { storage: { User: { Uuid: 'victim' }, Session: {}, Impersonator: { Uuid: 'admin' } } };
     await expect(policy.execute(req, action, {} as any)).to.be.rejectedWith(Forbidden);
   });

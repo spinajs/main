@@ -5,6 +5,7 @@ import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
+import { MfaStepRegistry } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
@@ -61,8 +62,6 @@ export class PendingMfaEnrolment extends BasePolicy {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a session');
     if (session.handle.state !== 'pending') throw refused('enrolment_closed', 'only a pending session forced to enrol passes here');
-    // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-    const { MfaStepRegistry } = await import('@spinajs/authn');
     const steps = (await this.Container.resolve(MfaStepRegistry)).steps();
     if (steps.length === 0) throw refused('enrolment_closed', 'no MFA step is configured');
     for (const step of steps) {
