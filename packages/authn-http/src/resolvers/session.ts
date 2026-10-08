@@ -39,6 +39,11 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   public async resolve(req: Request, _credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined> {
     const session = req.storage.AuthnSession;
     if (!session) return undefined;
+    return this.principalOfSession(session, ctx);
+  }
+
+  /** The principal of a restored session without an http request: `@spinajs/authn-http/socket` resolves socket sessions with it. */
+  public async principalOfSession(session: Restored, ctx: AuthnContext): Promise<Principal | null> {
     if (session.handle.state !== 'active') return null;
 
     // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.

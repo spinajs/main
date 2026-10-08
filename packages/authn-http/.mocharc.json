@@ -7,6 +7,7 @@
   ],
   "ignore": [
     "test/v3-app/**",
+    "test/v3-socket/**",
     "test/legacy-v2/**"
   ],
   "node-option": [

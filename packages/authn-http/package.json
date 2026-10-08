@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./socket": {
+      "types": "./lib/mjs/socket/index.d.ts",
+      "import": "./lib/mjs/socket/index.js",
+      "require": "./lib/cjs/socket/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "socket": [
+        "lib/cjs/socket/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -26,7 +38,7 @@
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run clean && npm run compile && cd ../.. && node node_modules/typescript-7/lib/tsc.js -b packages/authn-http/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs",
-    "test": "ts-mocha -p tsconfig.json && ts-mocha -p tsconfig.json --config .mocharc.v3-app.json",
+    "test": "ts-mocha -p tsconfig.json && ts-mocha -p tsconfig.json --config .mocharc.v3-app.json && ts-mocha -p tsconfig.json --config .mocharc.v3-socket.json",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -75,11 +87,21 @@
     "reflect-metadata": "^0.1.13",
     "uuid": "^9.0.0"
   },
+  "peerDependencies": {
+    "@spinajs/http-socket": "2.0.549"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/http-socket": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
+    "@spinajs/http-socket": "2.0.549",
     "@spinajs/intl": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
-    "@types/uuid": "^9.0.0"
+    "@types/uuid": "^9.0.0",
+    "socket.io-client": "^4.8.1"
   }
 }
