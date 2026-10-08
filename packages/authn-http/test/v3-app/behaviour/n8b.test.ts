@@ -9,6 +9,7 @@ import { clearLog, logLines } from '../app.js';
 import { mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
 import { keyRoutesSuite } from '../suites/keys.js';
 import { tokenRoutesSuite } from '../suites/tokens.js';
+import { tokenEndToEndSuite } from '../suites/token-e2e.js';
 import { credentialAdminRoutesSuite } from '../suites/credential-admin.js';
 import { ROUTES, supports } from './harness.js';
 import { ADMIN_ROUTES, KEY_ROUTES, MFA_ROUTES, N8B_PORTS, N8B_SUPPORTED_CONFIG, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
@@ -98,6 +99,11 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
   describe('token routes on authn-token (task 3)', function () {
     this.timeout(60000);
     tokenRoutesSuite();
+  });
+
+  describe('tokens through the whole stack (T3 task 2)', function () {
+    this.timeout(60000);
+    tokenEndToEndSuite();
   });
 
   describe('key routes on authn-keys (task 4)', function () {
