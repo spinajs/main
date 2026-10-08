@@ -45,7 +45,9 @@ export class AuthnCredentialAdminController extends BaseController {
    * Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,
    * those where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`
    * (default true) the owner gets a reset mail; the secret is never in this answer. Answers
-   * `{ expired: true, resetMailRequested }`. 400 `invalid_send_reset` for a `sendReset` that is not a boolean.
+   * `{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides
+   * whether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400
+   * `invalid_send_reset` for a `sendReset` that is not a boolean.
    * @security cookieAuth
    */
   @Post(':uuid/password-reset')
@@ -128,7 +130,8 @@ export class AuthnCredentialAdminController extends BaseController {
     if (invalid) return { answer: invalid };
     const principal = authenticatedPrincipal(req);
     const verdict = await (await this.Container.resolve(CredentialAdminGuard)).allowed(principal, target, action);
-    if (!verdict.ok) return { answer: guardRefusal(verdict.code) };
+    // A guard written past the types may answer anything; only `ok: true` opens the effect.
+    if (verdict?.ok !== true) return { answer: guardRefusal(verdict?.code) };
     return { actor: { type: principal.type, id: principal.id }, target, ctx: contextOf(req, 'request', session.handle) };
   }
 }

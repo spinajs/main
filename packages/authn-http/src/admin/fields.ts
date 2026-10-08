@@ -8,8 +8,12 @@ import { bodyField } from '../v3/routes.js';
 // The `:uuid` of the credential admin routes and their answers. No answer carries a secret: a reset secret travels in
 // the owner's mail only, and an MFA reset hands out nothing (A25, SR-10).
 
-/** users' identities are uuids (users.Uuid); anything else names no user. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * users' identities are lower-case uuids (users.Uuid); anything else names no user. Case-sensitive on purpose: under a
+ * `_ci` collation an upper-case id finds and expires the user while the session store, keyed by the exact id, revokes
+ * nothing.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** The user the route names, or null for a param that cannot be a user id. */
 export const targetOf = (uuid: unknown): IdentityRef | null => (typeof uuid === 'string' && UUID.test(uuid) ? { type: 'user', id: uuid } : null);
@@ -34,5 +38,9 @@ const REFUSALS: Record<Exclude<GuardRefusal, 'not_found'>, string> = {
   escalation: 'the user holds rights you do not hold',
 };
 
-/** 403 with the guard's code, or 404 `not_found`. */
-export const guardRefusal = (code: GuardRefusal): ForbiddenResponse | NotFound => (code === 'not_found' ? targetNotFound() : new ForbiddenResponse({ error: code, message: REFUSALS[code] }, { Headers: [NO_STORE] }));
+/** 403 with the guard's code, or 404 `not_found`; a code the routes do not know is 403 `forbidden`. */
+export function guardRefusal(code: unknown): ForbiddenResponse | NotFound {
+  if (code === 'not_found') return targetNotFound();
+  const known = typeof code === 'string' && Object.hasOwn(REFUSALS, code) ? (code as keyof typeof REFUSALS) : 'forbidden';
+  return new ForbiddenResponse({ error: known, message: REFUSALS[known] }, { Headers: [NO_STORE] });
+}

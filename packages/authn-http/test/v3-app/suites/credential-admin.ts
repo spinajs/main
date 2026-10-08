@@ -330,9 +330,9 @@ export function credentialAdminRoutesSuite(): void {
       expect(laneAdminGuardCalls().map((x) => x.action)).to.deep.eq(['sessions']);
     });
 
-    it('a malformed or over-long uuid answers 404 not_found and never reaches the guard', async () => {
+    it('a malformed, over-long or upper-case uuid answers 404 not_found and never reaches the guard', async () => {
       const a = await admin();
-      for (const id of ['not-a-uuid', `${randomUUID()}x`, 'x'.repeat(65), ' ']) {
+      for (const id of ['not-a-uuid', `${randomUUID()}x`, 'x'.repeat(65), ' ', randomUUID().toUpperCase()]) {
         for (const route of ROUTE_NAMES) {
           const res = await a.c.send({ ...ADMIN_ROUTES[route]!({ type: 'user', id }), path: pathOf(route, id) });
           expectRefused(res, 404, 'not_found');
@@ -401,6 +401,34 @@ export function credentialAdminRoutesSuite(): void {
         await bob.untouched();
       });
     }
+
+    it('a caller without the right gets 403 forbidden, not 404, for an id the guard does not know', async () => {
+      const a = await admin(false);
+      const unknown = { type: 'user', id: randomUUID() };
+      const guard = h.targetGuard! as unknown as { allowed: (...args: unknown[]) => Promise<unknown> };
+      guard.allowed = async () => ({ ok: false, code: 'not_found' });
+      for (const route of ROUTE_NAMES) {
+        const res = await a.c.send(request(route, unknown));
+        expectRefused(res, 403, 'forbidden');
+        expect(res.headers['cache-control'], route).to.eq('no-store');
+      }
+      expect(effects()).to.deep.eq([]);
+    });
+
+    it('a malformed guard answer refuses every route with 403 forbidden and changes nothing', async () => {
+      const bob = await armed();
+      const a = await admin();
+      const guard = h.targetGuard! as unknown as { allowed: (...args: unknown[]) => Promise<unknown> };
+      for (const verdict of [undefined, null, { ok: 1 }, { ok: 'false' }, { ok: false }, { ok: false, code: 'toString' }]) {
+        guard.allowed = async () => verdict;
+        for (const route of ROUTE_NAMES) {
+          const res = await a.c.send(request(route, bob.ref));
+          expectRefused(res, 403, 'forbidden');
+          expect(res.headers['cache-control'], `${route} ${JSON.stringify(verdict)}`).to.eq('no-store');
+        }
+      }
+      await bob.untouched();
+    });
   });
 
   describe('fresh authentication (A13)', () => {
@@ -430,6 +458,20 @@ export function credentialAdminRoutesSuite(): void {
       const reauth = h.events!.all().filter((e) => e.type === 'reauth');
       expect(reauth.filter((e) => e.outcome === 'success')).to.deep.eq([]);
       expect(reauth.map((e) => e.reason)).to.include('password_too_long');
+      await bob.untouched();
+    });
+
+    it('a throttled re-authentication answers the login failure body without Retry-After, also to the right password, and changes nothing', async () => {
+      const bob = await armed();
+      const a = await admin();
+      const blocks = () => h.events!.all().filter((e) => e.type === 'throttle.block').length;
+      await later(331, async () => {
+        for (let i = 0; i < 10 && blocks() === 0; i++) expectFailureBody(await a.c.send(request('adminSessionsRevoke', bob.ref, { reauthPassword: 'Not-The-Pass-1' })));
+        expect(blocks(), 'the reauth throttle blocked').to.eq(1);
+        for (const route of ROUTE_NAMES) expectFailureBody(await a.c.send(request(route, bob.ref, { reauthPassword: a.password })));
+      });
+      expect(h.events!.all().filter((e) => e.type === 'reauth' && e.outcome === 'success')).to.deep.eq([]);
+      expect(laneAdminGuardCalls()).to.deep.eq([]);
       await bob.untouched();
     });
 
