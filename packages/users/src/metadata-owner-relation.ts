@@ -53,14 +53,19 @@ export class UserMetadataOwnerRelation extends RelationResolver {
 
     if (!found) {
       found = (async () => {
-        const authz = (await DI.resolve(AuthzService)) as AuthzService;
-        const user = (await authz.runAs(SYSTEM, 'user-metadata-owner', () => userModel().query().where('Uuid', uuid).first())) as { Id?: unknown } | undefined;
-        return user?.Id;
+        const user = await this.userOf(uuid);
+        return user && !user.DeletedAt ? user.Id : undefined;
       })();
       cache.set(key, found);
       found.catch(() => cache.delete(key));
     }
 
     return found;
+  }
+
+  /** The users row of `uuid`, read as SYSTEM. */
+  protected async userOf(uuid: string): Promise<{ Id?: unknown; DeletedAt?: unknown } | undefined> {
+    const authz = (await DI.resolve(AuthzService)) as AuthzService;
+    return (await authz.runAs(SYSTEM, 'user-metadata-owner', () => userModel().query().where('Uuid', uuid).first())) as { Id?: unknown; DeletedAt?: unknown } | undefined;
   }
 }

@@ -1,8 +1,12 @@
 import { expect } from 'chai';
+import * as sinon from 'sinon';
+import { DateTime } from 'luxon';
 import { SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import { DefaultQueueService } from '@spinajs/queue';
 
 import { UserMetadata, UserMetadataOwnerRelation } from '../src/index.js';
+import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, setIdentityFlags } from './support/users-db.js';
 
 const OWNER_UUID = '0b8f7e7a-41f1-4b67-9c3e-6a1d2c3b4e5f';
 const OTHER_UUID = '6f1c1c55-3c1e-4a8f-9b9a-2f4f0c1d2e3a';
@@ -85,5 +89,44 @@ describe('user.metadata owner relation', () => {
     const r = new StubbedOwnerRelation();
 
     expect(await r.holds(principal('user', 'gone'), { type: 'user.metadata' }, row(7))).to.eq(false);
+  });
+
+  it('never holds for a principal whose account is soft deleted, whatever the lookup returns', async () => {
+    class DeletedOwner extends UserMetadataOwnerRelation {
+      protected async userOf(): Promise<{ Id?: unknown; DeletedAt?: unknown } | undefined> {
+        return { Id: 7, DeletedAt: DateTime.now() };
+      }
+    }
+
+    expect(await new DeletedOwner().holds(owner, { type: 'user.metadata' }, row(7))).to.eq(false);
+  });
+});
+
+describe('user.metadata owner relation on the database', function () {
+  this.timeout(30000);
+
+  before(() => {
+    registerUsersTestHost();
+  });
+
+  beforeEach(async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+    await bootUsersDb();
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    releaseUsersHost();
+  });
+
+  it('holds for the owner of a row while its account exists, never once it is soft deleted', async () => {
+    const { user } = await seedUser({ login: 'owner-relation-db' });
+    const owner = principal('user', user.Uuid);
+
+    expect(await new UserMetadataOwnerRelation().holds(owner, { type: 'user.metadata' }, row(user.Id))).to.eq(true);
+
+    await setIdentityFlags({ type: 'user', id: user.Uuid }, { deleted: true });
+
+    expect(await new UserMetadataOwnerRelation().holds(owner, { type: 'user.metadata' }, row(user.Id))).to.eq(false);
   });
 });
