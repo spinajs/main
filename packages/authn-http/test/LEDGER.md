@@ -258,6 +258,8 @@ Status (N8b task 7): nothing left to move here (the file went to `test/legacy-v2
 
 Status (N8b task 9): the shipped config no longer scans `token/controllers`, so the routes this file tests are retired; it stays in `test/legacy-v2/`.
 
+Status (R1bc): `AccessTokenController` and its DTO are deleted from `src/token/`; the routes this file tested have no 3.0 counterpart (D26), the rows keep their T3 targets.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` (deleted by T3); T3: authz-rbac/test/ported/token/role-policy.test.ts "answers the policy set when the owner holds that role too (controller-roles 1)". Same |
@@ -292,6 +294,8 @@ Status (N8b task 7): the C5 line above ("N8b moves the rewrite rows") is done as
 Status (N8c task 4, fix round): rows 1 and 10 stay here (`test/token-controller.test.ts`) and pass; the first switch-on commit had parked them in `test/legacy-v2/token-controller-rest.test.ts` (deleted by T3) although only the import of the deleted `src/token/middlewares.ts` blocked them (review 4, I2). `AccessTokenController` stays scanned until N8b replaces it; every route of it answers 401 now (`@Permission` needs a 2.x session, which the bridge never sets), and row 10 pins the controller-scope group the bridge's `TokenAuth` and `Impersonator` markers feed.
 
 Status (N8b task 9): done. The shipped config no longer scans `token/controllers`; `AccessTokenController` (with its roles, profiles and role-edit routes) stays there, unscanned and out of the barrel; `AuthnTokensController` serves `/user/tokens`. Rows 1 and 10 moved with the file to `test/legacy-v2/token-controller-rest.test.ts` (deleted by T3) (the other rows sit in `test/legacy-v2/token-controller.test.ts` (deleted by T3)); the test apps no longer scan `token/controllers` either, so the file would need that dir back to run (nothing runs it). Adapt rows 3, 8 and 9 stay parked and open for the owning lane; each names its 3.0 case from N8b task 3.
+
+Status (R1bc): `AccessTokenController` and its DTO are deleted from `src/token/`; `test/v3/route-table-n8c.test.ts` asserts `token/controllers` is gone and no retired 2.x controller returns. `AuthnTokensController` serves the routes.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
