@@ -11,12 +11,9 @@ import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
 import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { AUTHENTICATION_FAILED, SocketPrincipalSource } from '@spinajs/http-socket';
-import type { ISocketHandshake, SocketRevalidationResult } from '@spinajs/http-socket';
+import type { ISocketHandshake, ISocketRevalidation, SocketRevalidationResult } from '@spinajs/http-socket';
 
 import { SessionPrincipalResolver } from '../resolvers/session.js';
-
-// http-socket's ISocketRevalidation written out, so this also compiles against an http-socket build that predates it
-type SocketRevalidationCheck = { readonly trigger: string; readonly active: boolean };
 
 // AuthnMiddleware's: sha256 of a raw session id is its storage key, which must not reach a log.
 const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
@@ -82,12 +79,12 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
    * activity. Otherwise it is only read: sweeps are no user activity, so an idle socket still ends at the idle timeout.
    * Only DefaultSessionIssuer honours `peekingSessions`.
    */
-  public revalidate(handshake: ISocketHandshake, principal: Principal, check?: SocketRevalidationCheck): Promise<SocketRevalidationResult> {
+  public revalidate(handshake: ISocketHandshake, principal: Principal, check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
     if (check?.active) {
-      return super.revalidate(handshake, principal);
+      return super.revalidate(handshake, principal, check);
     }
 
-    return peekingSessions(() => super.revalidate(handshake, principal));
+    return peekingSessions(() => super.revalidate(handshake, principal, check));
   }
 
   /**
