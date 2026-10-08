@@ -61,8 +61,7 @@ export const SUPPORTED_CONFIG: readonly string[] = [
 
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 
-// The @spinajs/authn-token root also loads its legacy modules, which import @spinajs/users; that would register the
-// 2.x SessionProvider and MemorySessionStore beside authn-session's. Only these files are loaded, from its build.
+// Only the modules the harness needs, loaded from the authn-token build rather than through its root.
 const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
 const TOKEN_MODULES = ['generator.js', 'models/AccessToken.js', 'service/index.js', 'strategy/TokenStrategy.js', 'migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js', 'migrations/RbacHttpTokenProfile_2026_08_21_00_00_00.js', 'migrations/AuthnTokenScope_2026_10_02_00_00_00.js'];
 const DB_CONNECTION = 'sqlite';

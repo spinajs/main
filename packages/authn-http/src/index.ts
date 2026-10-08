@@ -7,22 +7,16 @@ import './dto/auth-responses.js';
 
 export * from './decorators.js';
 export * from './interfaces.js';
-export * from './policies/RbacPolicy.js';
 export * from './transformers.js';
 export * from './route-args.js';
-export * from './session-context.js';
 
-export * from "./policies/LoggedPolicy.js";
-export * from "./policies/NotLoggedPolicy.js";
 export * from "./policies/RbacPolicy.js";
-export * from "./policies/NotAthorizedPolicy.js";
 export * from "./policies/AuthorizedPolicy.js";
 
 export * from './account/index.js';
-export * from './token/index.js';
 
 export * from './api.js';
-// api.ts and the 2.x code both declare these five names; an explicit export wins over `export *`.
+// api.ts declares these five names; the explicit export picks the 3.0 implementations over `export * from './api.js'`.
 export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
 // N8a lane implementations of api.ts declarations; an explicit export wins over `export * from './api.js'`.
 export { ClientIp, proxyTrustOf } from './middleware/client-ip.js';

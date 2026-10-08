@@ -220,6 +220,8 @@ Status (N8c task 4): only the moved 2.x controllers (`src/account/legacy/`) read
 
 Status (T2): closed as drop (class stays rewrite in the table above). The frozen `AuthnResponseExtension` contract (`authn/src/contracts/hooks.ts`) has no response-schema contribution, so there is no 3.0 counterpart of `SessionContextProvider.Properties`. The extensions run on every answer (`test/v3-app/suites/login.ts`). The 2.x file is deleted; the provider itself goes with R1. Hand-off: swagger schemas of the auth answers do not list extension fields (needs an RFC if wanted).
 
+Status (R1bc): `SessionContextProvider`, `sessionContextProperties` and `resolveSessionContext` are deleted with `src/session-context.ts`; the 3.0 counterpart is `AuthnResponseExtension` (authn contracts).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22); N8a task 6: the 3.0 routes run every `AuthnResponseExtension` (`test/v3-app/suites/login.ts`, "logs in: ... the login extensions; ..."); no response schema contributions are built yet (N8c/T2); T2: closed, no 3.0 counterpart (see Status T2) |
@@ -258,6 +260,8 @@ Status (N8b task 7): nothing left to move here (the file went to `test/legacy-v2
 
 Status (N8b task 9): the shipped config no longer scans `token/controllers`, so the routes this file tests are retired; it stays in `test/legacy-v2/`.
 
+Status (R1bc): `AccessTokenController` and its DTO are deleted from `src/token/`; the routes this file tested have no 3.0 counterpart (D26), the rows keep their T3 targets.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` (deleted by T3); T3: authz-rbac/test/ported/token/role-policy.test.ts "answers the policy set when the owner holds that role too (controller-roles 1)". Same |
@@ -292,6 +296,8 @@ Status (N8b task 7): the C5 line above ("N8b moves the rewrite rows") is done as
 Status (N8c task 4, fix round): rows 1 and 10 stay here (`test/token-controller.test.ts`) and pass; the first switch-on commit had parked them in `test/legacy-v2/token-controller-rest.test.ts` (deleted by T3) although only the import of the deleted `src/token/middlewares.ts` blocked them (review 4, I2). `AccessTokenController` stays scanned until N8b replaces it; every route of it answers 401 now (`@Permission` needs a 2.x session, which the bridge never sets), and row 10 pins the controller-scope group the bridge's `TokenAuth` and `Impersonator` markers feed.
 
 Status (N8b task 9): done. The shipped config no longer scans `token/controllers`; `AccessTokenController` (with its roles, profiles and role-edit routes) stays there, unscanned and out of the barrel; `AuthnTokensController` serves `/user/tokens`. Rows 1 and 10 moved with the file to `test/legacy-v2/token-controller-rest.test.ts` (deleted by T3) (the other rows sit in `test/legacy-v2/token-controller.test.ts` (deleted by T3)); the test apps no longer scan `token/controllers` either, so the file would need that dir back to run (nothing runs it). Adapt rows 3, 8 and 9 stay parked and open for the owning lane; each names its 3.0 case from N8b task 3.
+
+Status (R1bc): `AccessTokenController` and its DTO are deleted from `src/token/`; `test/v3/route-table-n8c.test.ts` asserts `token/controllers` is gone and no retired 2.x controller returns. `AuthnTokensController` serves the routes.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -345,6 +351,8 @@ Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is
 
 Status (N8c task 4): the barrel now exports the 3.0 `NoTokenAuthPolicy` and `NoImpersonationPolicy`. The rows import the 2.x classes from `src/token/policies/` and pass; over the bridge's keys the 2.x classes still refuse a per-request principal and an impersonation (`test/v3/legacy-bridge.test.ts`).
 
+Status (R1bc): file deleted with the 2.x `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`; rows 1-4 are closed by T3, rows 5-10 are covered by the 3.0 matrix in `test/v3/authn-policies.test.ts`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 41 | token policies > TokenPolicy rejects request without token auth | rewrite | C5 → T3 | authz-rbac/test/ported/; `TokenPolicy` is gone, `@Access` accepts tokens; no credential gives 401 (B23, B10); T3: authz-rbac/test/ported/token/ceiling-e2e.test.ts "no credential is unauthenticated, a token without the grant is forbidden (token-policies 1, 3)". Changed: `TokenPolicy` is gone, `@Access` takes tokens; 401 is authn-http's (B23, B10); 403 becomes `forbidden` |
@@ -367,6 +375,8 @@ Status (C5): not moved yet: it drives the live 2.x token middleware and RBAC pol
 Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite). After C1 every row but row 3 failed (see "C1 merge" above); row 3 passed and moved with its file.
 
 Status (N8b task 7): nothing left for N8b; the 2.x token middleware it drives retires in N8c's switch-on commit (N8a-N8c checklist step 3).
+
+Status (R1bc): its fixture `test/support/TestTokenController.ts` is deleted with the 2.x `TokenPolicy`; the file was already gone (T3).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -398,6 +408,8 @@ Login-window 2FA verification and session regeneration. Class: rewrite (pending 
 Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
 
 Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compiled, never scanned); the 3.0 routes in `src/v3/controllers/` are scanned; the file is `test/legacy-v2/two-factor-regenerate.test.ts`.
+
+Status (R1bc): the legacy-v2 file also imports the deleted `policies/NotAthorizedPolicy.js`; it already failed to compile (it imports the deleted `TwoFactorAuthController`) and does not run.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -482,6 +494,8 @@ Status (N8a task 6): the extension runs are tested with a recording `AuthnRespon
 Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compiled, never scanned); the 3.0 routes in `src/v3/controllers/` are scanned; the file is `test/legacy-v2/z-account-session-context.test.ts`.
 
 Status (T2): done. Rows are covered by `test/v3-app/suites/login.ts` (whoami, login) and `active-role.ts` (role switch). `test/legacy-v2/z-account-session-context.test.ts` is deleted.
+
+Status (R1bc): `SessionContextProvider` is deleted; the three 2.x response schemas in `src/dto/auth-responses.ts` no longer spread its properties.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|

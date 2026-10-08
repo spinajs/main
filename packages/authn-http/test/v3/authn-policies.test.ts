@@ -26,9 +26,6 @@ import * as api from '../../src/api.js';
 import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
-import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../../src/policies/NotLoggedPolicy.js';
-import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../../src/token/policies/NoTokenAuthPolicy.js';
-import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../../src/token/policies/NoImpersonationPolicy.js';
 import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../../src/args/authn.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
@@ -247,22 +244,9 @@ describe('3.0 authn policies and route args', function () {
   });
 
   describe('exports', () => {
-    it('the barrel shadows every api.ts name with the 3.0 class, the five 2.x names included (N8c)', () => {
+    it('the barrel exports the 3.0 class under every api.ts name, not the api.ts contract class (N8c)', () => {
       for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
         expect(barrel[n], n).to.eq(v3[n]).and.not.eq(api[n]);
-      }
-    });
-
-    it('N8a-D2: a 2.x policy and the 3.0 one of the same name each resolve to their own class, in either order', () => {
-      for (const [old, lane] of [
-        [MovedNotLoggedPolicy, NotLoggedPolicy],
-        [MovedNoTokenAuthPolicy, NoTokenAuthPolicy],
-        [MovedNoImpersonationPolicy, NoImpersonationPolicy],
-      ] as const) {
-        expect(old.name).to.eq(lane.name);
-        expect(DI.resolve(old as Class<unknown>), old.name).to.be.instanceOf(old);
-        expect(DI.resolve(lane as Class<unknown>), lane.name).to.be.instanceOf(lane);
-        expect(DI.resolve(old as Class<unknown>), old.name).to.be.instanceOf(old);
       }
     });
 

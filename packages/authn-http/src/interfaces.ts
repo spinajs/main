@@ -130,6 +130,25 @@ export interface IEnable2faResponse {
   otp: string;
 }
 
+/**
+ * Marker the legacy bridge stores on req.storage when a request carries a per-request credential (a token) instead of
+ * a session.
+ *
+ * @deprecated The legacy bridge writes it; R1 deletes it with the bridge.
+ */
+export interface ITokenAuthInfo {
+  /**
+   * Uuid of the AccessToken row - safe to log; never the token itself.
+   */
+  Uuid: string;
+
+  /**
+   * The profile (a role name) this token is pinned to, when it carries one.
+   * Consumed by application row-scoping the way a session's ActiveRole is;
+   * permission checks do NOT read it - they stay on the narrowed User.Role.
+   */
+  Profile?: string;
+}
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
@@ -163,6 +182,13 @@ declare module '@spinajs/http' {
      * Set via @SkipModelPermission() decorator.
      */
     SkipModelPermissionCheck?: boolean;
+
+    /**
+     * Set by the legacy bridge when the request carries a per-request credential (a token) instead of a session.
+     *
+     * @deprecated The legacy bridge writes it; R1 deletes it with the bridge.
+     */
+    TokenAuth?: ITokenAuthInfo;
   }
 }
 

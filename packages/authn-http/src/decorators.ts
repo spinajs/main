@@ -96,14 +96,6 @@ function hasInheritedDescriptor(controller: object): boolean {
   return false;
 }
 
-export function setRbacMetadata(target: any, callback: (meta: IRbacDescriptor) => void) {
-  const metadata = rbacDescriptor(target);
-
-  if (callback) {
-    callback(metadata);
-  }
-}
-
 function descriptor(callback: (controller: IRbacDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
     const metadata = rbacDescriptor(target);
@@ -204,24 +196,8 @@ export function User() {
 }
 
 /**
- * Extract args from user session
- */
-export function FromSession() {
-  return Route(Parameter('SessionArg'));
-}
-
-/**
  * @deprecated 2.x; use the 3.0 `@AuthnSession()`. R1 removes it.
  */
 export function Session(){
   return Route(Parameter("CurrentSessionArg"));
-}
-
-/**
- * Verified session id from the session cookie, resolved under whatever name the
- * cookie is configured with. Prefer this over `@Cookie(true) ssid`, which ties
- * the read to the parameter name.
- */
-export function SessionId() {
-  return Route(Parameter('SessionIdArg'));
 }

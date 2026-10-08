@@ -89,6 +89,7 @@ N6 task 6: row 11 deleted from `test/actions-validate.test.ts`; it now lives in 
 N6 task 3: row 12 deleted from `test/actions-validate.test.ts`; it now lives in `v3/token-strategy.test.ts`:
 `TokenStrategy` > `last-used stamp` (first use stamps, a use inside the interval writes nothing, a use after it writes again;
 racing requests write once; a throwing stamp still answers ok) and `DbTokenService.touch`.
+Status (R1bc): file deleted with `src/legacy/`; the 6 remaining cases drove the 2.x `createToken`/`validateToken`. The 3.0 path is covered in `v3/token-service.test.ts`, `v3/token-strategy.test.ts` and `v3/cli.test.ts`.
 N8c task 3 (after the rebase onto feat 978d391ff): the owner fixtures here are feat's; N8c changed none of them. No row moved.
 
 ## test/cli.test.ts
@@ -163,6 +164,7 @@ Status (N8c task 3, after the rebase onto feat 978d391ff): rows 1-5 stay with fe
 Status (N6): file moved to `legacy-v2/role-policy-actions.test.ts` with rows 1, 2, 4-8; row 3 deleted (N6 task 0).
 
 T3: `role-policy-name-clash.test.ts` (2 `it`s, no row above) dropped: it tested two same-named policy classes coexisting; R1 removes the legacy class. 3.0 side: `authz-rbac/test/token/rules.test.ts` "defaults to no excluded roles and OwnRolesTokenRolePolicy".
+Status (R1bc): `src/legacy/` is deleted, so the 2.x role policy these rows tested is gone.
 
 ## test/role-policy.test.ts
 
@@ -180,3 +182,4 @@ T3: `role-policy-name-clash.test.ts` (2 `it`s, no row above) dropped: it tested 
 | 8 | 95 | access token role policy - defaults > _role_excluded > excludes nothing when no patterns are given | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | done (C5): moved to `authz-rbac/test/token/rules.test.ts` > roleExcluded > excludes nothing when no patterns are given (assertions unchanged) |
 
 Status (C5): rows 1-8 moved to `authz-rbac/test/token/rules.test.ts`; file deleted (C5 task 4). The 2.x `_role_excluded` and `LegacyOwnRolesTokenRolePolicy` stay in `src/legacy/` until R1.
+Status (R1bc): `src/legacy/` is deleted; `_role_excluded` and `LegacyOwnRolesTokenRolePolicy` are gone.

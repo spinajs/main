@@ -1,7 +1,5 @@
 import { DI } from '@spinajs/di';
 
-import { sessionContextProperties } from '../session-context.js';
-
 /**
  * JSON schemas for the auth endpoints' RESPONSE bodies.
  *
@@ -157,8 +155,6 @@ export const UserWithGrantsSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'User with grants',
   type: 'object',
-  // A getter, like the two below: SessionContextProviders register after this module loads,
-  // so their properties are read when the spec is built, not now.
   get properties() {
     return {
       ...userProperties,
@@ -167,7 +163,6 @@ export const UserWithGrantsSchema = {
         description: 'Role whose grants are in effect; defaults to Role[0] at login',
       },
       Grants: grantsMap,
-      ...sessionContextProperties(),
     };
   },
   required: USER_REQUIRED,
@@ -233,7 +228,6 @@ export const ActiveRoleResponseSchema = {
     return {
       ActiveRole: { type: 'string', description: 'Role whose grants are now in effect' },
       Grants: grantsMap,
-      ...sessionContextProperties(),
     };
   },
 };
@@ -261,7 +255,6 @@ export const WhoamiResponseSchema = {
         type: 'boolean',
         description: 'False while the session has passed the password step but still owes 2FA. ' + 'Absent on sessions minted before this field existed, which were fully authorized.',
       },
-      ...sessionContextProperties(),
     };
   },
   required: USER_REQUIRED,

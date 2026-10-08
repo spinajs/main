@@ -36,18 +36,6 @@ const authnToken = {
       // themselves through the `@Model` decorator when their file is imported.
     },
   },
-  queue: {
-    // All events emitted by this package go to the black hole connection
-    // declared by @spinajs/users ( `rbac-user-empty-queue` ). Without the
-    // routing they would fall back to the application's DEFAULT connection -
-    // a real broker - and every token operation would publish to it.
-    routing: {
-      AccessTokenCreated: { connection: 'rbac-user-empty-queue' },
-      AccessTokenDeleted: { connection: 'rbac-user-empty-queue' },
-      AccessTokenRoleGranted: { connection: 'rbac-user-empty-queue' },
-      AccessTokenRoleRevoked: { connection: 'rbac-user-empty-queue' },
-    },
-  },
   authn: {
     token: {
       /**
@@ -93,47 +81,6 @@ const authnToken = {
        * Seconds between LastUsedAt writes for a busy token.
        */
       lastUsedUpdateInterval: 60,
-    },
-  },
-  rbac: {
-    token: {
-      /**
-       * Decides which roles an owner may put on a token. Swap for your own
-       * implementation of AccessTokenRolePolicy registered under this name.
-       */
-      rolePolicy: {
-        service: 'LegacyOwnRolesTokenRolePolicy',
-      },
-
-      /**
-       * Role name patterns for a custom AccessTokenRolePolicy to consult - not
-       * read by anything shipped in this package, including the default
-       * `LegacyOwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
-       * matching that prefix and everything under it; matching is implemented
-       * by `_role_excluded(role, patterns)` in `src/legacy/role-policy.ts`. Empty by
-       * default: this package has no opinion about which of an application's
-       * roles are meaningful to an API caller.
-       */
-      excludedRoles: [] as string[],
-    },
-    grants: {
-      user: {
-        'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
-      },
-
-      // RESERVED - nothing shipped in this package enforces or consumes these.
-      //
-      // `AccessTokenController` is self-service by construction: every one of
-      // its routes declares an `*Own` permission and additionally constrains
-      // its query by the caller's id ( `own()` ), so an `*:any` grant changes
-      // nothing about what that controller lets through. The entry is here so
-      // the role's grant map is complete ahead of an admin-scope controller -
-      // "list / revoke the tokens of any user" is the obvious next addition -
-      // and so an application that writes such a controller itself finds the
-      // grants already declared under the resource name it must use.
-      'admin.users': {
-        'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-      },
     },
   },
 };

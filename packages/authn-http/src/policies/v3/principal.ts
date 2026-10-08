@@ -12,8 +12,8 @@ export function authenticatedPrincipal(req: Request): Principal {
   return principal;
 }
 
-// The 2.x classes of the three @NewInstance policies below share their names, and DI keys classes by name: a singleton
-// of either would be handed out for the other.
+// api.ts declares contract classes under the names of the three @NewInstance policies below, and DI keys classes by
+// name: a singleton of either would be handed out for the other.
 
 /** Only a session principal carries its hashed session handle; a per-request credential (token, JWT, key, signature) never does. */
 export const isSessionPrincipal = (principal: Principal): boolean => typeof principal.authn?.sessionHandle === 'string' && principal.authn.sessionHandle !== '';
