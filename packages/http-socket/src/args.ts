@@ -5,7 +5,6 @@ import { DataValidator } from '@spinajs/validation';
 import { ISocketCallContext, ISocketParameter, SocketArg } from './interfaces.js';
 
 const PLAIN_TYPES = new Set<unknown>([Object, Array, String, Number, Boolean]);
-const PRIMITIVE_TYPES = new Set<unknown>([String, Number, Boolean, BigInt]);
 
 interface IHydratorMetadata {
   hydrator: Class<ArgHydrator>;
@@ -37,10 +36,13 @@ export class PayloadArg extends SocketArg {
     return this.hydrate(payload, param);
   }
 
-  /** http's `ArgInputFilter`s, as `RouteArgs` runs them on a body; the payload is the body. */
+  /**
+   * http's `ArgInputFilter`s, as `RouteArgs` runs them on a body; the payload is the body. A primitive payload skips
+   * them, unlike http, which checks a primitive body by its parameter name ( a follow-up ).
+   */
   protected async filter(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown> {
     const payload = ctx.payload;
-    if (payload === null || typeof payload !== 'object' || PRIMITIVE_TYPES.has(param.RuntimeType)) {
+    if (payload === null || typeof payload !== 'object') {
       return payload;
     }
 

@@ -53,6 +53,12 @@ export class InputFilterSocket extends BaseSocketController {
     return doc;
   }
 
+  @Command('title')
+  @SocketAccess('doc:update')
+  public async title(@Payload() title: string) {
+    return title;
+  }
+
   @Command('open')
   public async open(@Payload() body: Record<string, unknown>) {
     return body;
@@ -105,6 +111,16 @@ describe('socket payloads through the ArgInputFilters; http error codes in detai
 
   it('B17 strips fields.neverRead ( Password ) even when the decision lets the caller write every field', async () => {
     expect(resultOf(await command(alice, 'inf.update', { id: 'd1', title: 'new', Password: 'hash' }))).to.deep.equal({ id: 'd1', title: 'new' });
+  });
+
+  it('checks a record payload declared with a primitive type as one field named payload, as http checks a primitive body parameter', async () => {
+    infWrite = ['title'];
+    expect(resultOf(await command(alice, 'inf.title', { title: 't', role: 'admin' }))).to.equal(null);
+  });
+
+  it('passes a primitive payload without the field filters: it has no field names (follow-up: check it by name, as http does)', async () => {
+    infWrite = ['title'];
+    expect(resultOf(await command(alice, 'inf.title', 'admin'))).to.equal('admin');
   });
 
   it('leaves the payload of a command without @SocketAccess untouched, as http leaves a route without @Access', async () => {
@@ -162,5 +178,9 @@ describe('the real AuthzInputFieldFilter in reject mode (G3)', function () {
 
   it('refuses a payload field the decision does not let the caller write, with the stable code and the fields', async () => {
     expect(errorOf(await command(alice, 'inf.update', { id: 'd1', title: 'new', owner: 'mallory' }))).to.deep.equal({ code: 'invalid_argument', message: 'fields not writable: owner', retryable: false, details: { error: 'fields_not_writable', fields: ['owner'] } });
+  });
+
+  it('refuses a record payload declared with a primitive type by its parameter name, payload', async () => {
+    expect(errorOf(await command(alice, 'inf.title', { title: 't', role: 'admin' }))).to.deep.equal({ code: 'invalid_argument', message: 'fields not writable: payload', retryable: false, details: { error: 'fields_not_writable', fields: ['payload'] } });
   });
 });
