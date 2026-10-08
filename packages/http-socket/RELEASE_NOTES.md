@@ -107,18 +107,24 @@ Live connections re-check their principal, so a revoked or expired credential st
 
 ## Startup checks
 
-`SocketServer` refuses to start with a `RangeError` when:
+`SOCKET_CONFIGURATION_SCHEMA` checks `http.socket` when the configuration loads. A bad value fails the boot with `InvalidConfiguration`, which names the full path of every bad key (`http.socket.rate.burst`), when:
 
 - `rate.perSecond` or `rate.burst` is not a positive number;
 - `maxInFlightEventsPerConnection` is not an integer of at least `rate.burst`;
 - `maxPayloadBytes` is not a finite integer above 0;
 - `maxInFlightPerConnection` is not an integer above 0;
 - `auth.revalidateMs` is not a finite number of at least 0;
-- `transports` is empty or holds anything but `'websocket'` and `'polling'`;
+- `drainMs` is not a finite number of at least 0;
+- `transports` is empty, repeats a transport, or holds anything but `'websocket'` and `'polling'`;
 - `hooks.connectTimeoutMs` is not a positive number;
 - `ordering.abortGraceMs` is not a positive number;
 - `streams.maxCredits` or `streams.maxPerConnection` is not an integer above 0;
-- `streams.stallTimeoutMs` is not an integer within 1 and 2^31-1.
+- `streams.stallTimeoutMs` is not an integer within 1 and 2^31-1;
+- `rate`, `auth.revalidateMs`, `hooks`, `ordering`, `streams` or another required key is missing.
+
+The configuration coerces types, as everywhere in spinajs: a numeric string is read as its number. `NaN` and `Infinity` are refused. `null` and booleans are refused for `auth.revalidateMs` and `drainMs`, where coercion would read `null` and `false` as 0 and turn revalidation or the drain off.
+
+`SocketServer` itself refuses to start with a `RangeError` for a bad `idempotency`, `shutdownRetryAfterMs` or a `drainMs` above 2^31-1, and warns when the drain may outlast `http.shutdownTimeout`; see W3 resilience (startup checks).
 
 The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`, and when an `ordered` or `idempotent` command's handler is an async generator (W4): its queue place would be released when the generator is returned, long before the stream ends, and its reply is never stored. An `ordered` or `idempotent` handler that returns another async iterable is answered `failed_precondition` at run time, only after the handler ran: its side effects have happened, and its idempotency key is released. Socket.io is not attached in either case.
 
@@ -205,7 +211,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 `SocketServer` also refuses to start with a `RangeError` when:
 
 - `idempotency.service` is not a non-empty string, `idempotency.ttlMs` is not within (0, 2^31-1], or `idempotency.maxEntries` is not an integer above 0;
-- `drainMs` is not within [0, 2^31-1], or `shutdownRetryAfterMs` is not a finite number above 0.
+- `drainMs` is above 2^31-1 (the configuration schema refuses a negative one), or `shutdownRetryAfterMs` is not a finite number above 0.
 
 It warns when `drainMs + 3 000` reaches `http.shutdownTimeout`. `SocketClient` throws a `RangeError` for a `durable.window` or `durable.maxPayloadBytes` that is not an integer of at least 1, and for an invalid `durable.ackTimeoutMs`. `durable()` rejects with a `RangeError` for a key that `isKey` refuses or that starts with `${clientId}:`.
 

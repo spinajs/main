@@ -186,5 +186,27 @@ describe('socket pipeline limits', function () {
       expect(failure).to.be.instanceOf(InvalidConfiguration);
       expect((failure as InvalidConfiguration).violations.map((v) => v.path)).to.include('http.socket.rate.perSecond');
     });
+
+    // only a JS configuration can hold them; a JSON round trip would turn them into null
+    const nonFinite: Array<[Record<string, unknown>, string]> = [
+      [{ rate: { perSecond: Number.NaN, burst: 5 } }, 'http.socket.rate.perSecond'],
+      [{ maxPayloadBytes: Number.POSITIVE_INFINITY }, 'http.socket.maxPayloadBytes'],
+      [{ maxInFlightPerConnection: Number.POSITIVE_INFINITY }, 'http.socket.maxInFlightPerConnection'],
+      [{ auth: { required: false, revalidateMs: Number.POSITIVE_INFINITY } }, 'http.socket.auth.revalidateMs'],
+      [{ hooks: { connectTimeoutMs: Number.NaN } }, 'http.socket.hooks.connectTimeoutMs'],
+      [{ ordering: { abortGraceMs: Number.NaN } }, 'http.socket.ordering.abortGraceMs'],
+      [{ streams: { maxCredits: Number.POSITIVE_INFINITY } }, 'http.socket.streams.maxCredits'],
+    ];
+
+    for (const [socket, path] of nonFinite) {
+      it(`aborts server startup on a non-finite ${path}`, async () => {
+        const failure = await startServer({ http: { socket } }).then(
+          (started) => ((t = started), null),
+          (e: unknown) => e,
+        );
+        expect(failure).to.be.instanceOf(InvalidConfiguration);
+        expect((failure as InvalidConfiguration).violations.map((v) => v.path)).to.include(path);
+      });
+    }
   });
 });

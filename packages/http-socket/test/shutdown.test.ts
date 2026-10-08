@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import type { Socket } from 'node:net';
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
 import { Adapter, BroadcastOptions } from 'socket.io-adapter';
@@ -559,5 +560,36 @@ describe('socket graceful shutdown', function () {
     // the drain, the keyed grace and the transport flush each add up to SHUTDOWN_FLUSH_MS
     expect(shutdownOverrun(6_999, 10_000)).to.be.null;
     expect(shutdownOverrun(7_000, 10_000)).to.match(/http.shutdownTimeout/);
+  });
+
+  it('refuses to start with a drainMs or shutdownRetryAfterMs it cannot use', async () => {
+    await t.close();
+    // a server that starts after all is closed, or it would keep the run alive
+    const failure = (socket: Record<string, unknown>) =>
+      startServer({ http: { socket } }).then(
+        async (started) => (await started.close(), null),
+        (e: unknown) => e,
+      );
+
+    expect(await failure({ drainMs: 2 ** 31 }))
+      .to.be.instanceOf(RangeError)
+      .with.property('message')
+      .that.includes('http.socket.drainMs');
+    expect(await failure({ shutdownRetryAfterMs: 0 }))
+      .to.be.instanceOf(RangeError)
+      .with.property('message')
+      .that.includes('http.socket.shutdownRetryAfterMs');
+  });
+
+  it('warns at startup when the http server would cut the drain short', async () => {
+    // the logger is resolved once per class, so the next server logs through this one
+    const warn = sinon.spy((t.server as unknown as { Log: { warn: (...args: unknown[]) => void } }).Log, 'warn');
+    try {
+      await restartWith({ http: { socket: { drainMs: 7_000 } } });
+
+      expect(warn.args.map((args) => String(args[0]))).to.satisfy((lines: string[]) => lines.some((line) => line.includes('http.shutdownTimeout')));
+    } finally {
+      warn.restore();
+    }
   });
 });

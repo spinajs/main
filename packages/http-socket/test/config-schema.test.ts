@@ -16,8 +16,8 @@ describe('http.socket configuration schema', () => {
     await bootChild(socket(), SOCKET_CONFIGURATION_SCHEMA);
   });
 
-  it('accepts the bounds: an event cap equal to the burst, a zero revalidation interval, one transport', async () => {
-    await bootChild(socket({ rate: { perSecond: 50, burst: 100 }, maxInFlightEventsPerConnection: 100, auth: { required: false, revalidateMs: 0 }, transports: ['polling'] }), SOCKET_CONFIGURATION_SCHEMA);
+  it('accepts the bounds: an event cap equal to the burst, a zero revalidation interval and drain time, one transport', async () => {
+    await bootChild(socket({ rate: { perSecond: 50, burst: 100 }, maxInFlightEventsPerConnection: 100, auth: { required: false, revalidateMs: 0 }, drainMs: 0, transports: ['polling'] }), SOCKET_CONFIGURATION_SCHEMA);
   });
 
   describe('a bad value fails the boot with the full path of the bad key', () => {
@@ -52,6 +52,12 @@ describe('http.socket configuration schema', () => {
       ['a zero stream credit window', { streams: { maxCredits: 0, maxPerConnection: 8, stallTimeoutMs: 60_000 } }, 'http.socket.streams.maxCredits'],
       ['a fractional stream cap', { streams: { maxCredits: 64, maxPerConnection: 1.5, stallTimeoutMs: 60_000 } }, 'http.socket.streams.maxPerConnection'],
       ['a stall timeout above the longest timer delay', { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 2 ** 31 } }, 'http.socket.streams.stallTimeoutMs'],
+      ['a missing stall timeout', { streams: { maxCredits: 64, maxPerConnection: 8 } }, 'http.socket.streams.stallTimeoutMs'],
+      // coerceTypes would read null and false as 0, which turns revalidation or the drain off
+      ['a null revalidation interval', { auth: { required: false, revalidateMs: null } }, 'http.socket.auth.revalidateMs'],
+      ['a boolean revalidation interval', { auth: { required: false, revalidateMs: false } }, 'http.socket.auth.revalidateMs'],
+      ['a null drain time', { drainMs: null }, 'http.socket.drainMs'],
+      ['a boolean drain time', { drainMs: false }, 'http.socket.drainMs'],
     ];
 
     for (const [label, patch, path] of cases) {
