@@ -5,13 +5,7 @@ import { testHost } from '@spinajs/authz-testing';
 
 import { ROLE_SWITCH_PASSWORD_KEY } from '../../src/index.js';
 import { setIdentityFlags } from './users-db.js';
-import { ConfigScope, grantGlobal, removeAccounts, rootRbacModel, seedAccount, useMfaStep, usersHttpApp } from './http-app.js';
-
-/**
- * runAuthnBehaviour's factory over the users http app (http-app.ts) with registerRootRbac: users' real hooks behind
- * authn-http's routes, roles granted at GLOBAL through the root AuthzAdmin. Each case gets a fresh MFA step and its config
- * keys through a ConfigScope; dispose undoes them and deletes the accounts the case seeded.
- */
+import { ConfigScope, grantGlobal, removeAccounts, resetAuthnCaseServices, rootRbacModel, seedAccount, useMfaStep, usersHttpApp } from './http-app.js';
 
 /** Config keys a case may set: those the app reads on every use. Any other makes the factory throw UnsupportedConfig. */
 export const SUPPORTED_CONFIG: readonly string[] = ['authn.freshAuth.maxAgeSeconds', 'authn.impersonation', 'authn.mfa.policy.force'];
@@ -33,16 +27,30 @@ function supportedLeaves(config: ConfigOverrides): string[] {
 const roleKey = (role: string) => ['authz', 'rbac', 'roles', role];
 const PASSWORD_LIST = ROLE_SWITCH_PASSWORD_KEY.split('.');
 
+/**
+ * runAuthnBehaviour's factory over the users http app (http-app.ts) with registerRootRbac: users' real hooks behind
+ * authn-http's routes, roles granted at GLOBAL through the root AuthzAdmin. Each case gets a fresh MFA step, fresh authn
+ * services and its config keys through a ConfigScope. dispose removes the accounts the case seeded (before the config
+ * undo, as the revoke reads the case's role definitions), undoes the config and drops the case's roles from the root
+ * model.
+ */
 export async function usersAuthnHarness(ctx: HarnessContext): Promise<Harness> {
   const leaves = supportedLeaves(ctx.config);
   const scope = new ConfigScope();
   const seeded: IdentityRef[] = [];
+  let definedRoles = false;
   const dispose = async () => {
-    scope.restore();
-    await removeAccounts(seeded.splice(0));
+    try {
+      await removeAccounts(seeded.splice(0));
+    } finally {
+      scope.restore();
+      if (definedRoles) rootRbacModel()?.invalidate(['model:rbac']);
+      resetAuthnCaseServices();
+    }
   };
 
   try {
+    resetAuthnCaseServices();
     for (const path of leaves) scope.set(path.split('.'), leafValue(ctx.config, path));
     const mfa = useMfaStep();
     const app = usersHttpApp();
@@ -64,7 +72,10 @@ export async function usersAuthnHarness(ctx: HarnessContext): Promise<Harness> {
           const cfg = testHost.config();
           const missing = roles.filter(({ role }) => cfg.get(roleKey(role)) === undefined);
           for (const { role } of missing) scope.set(roleKey(role), {});
-          if (missing.length > 0) rootRbacModel()?.invalidate(['model:rbac']);
+          if (missing.length > 0) {
+            definedRoles = true;
+            rootRbacModel()?.invalidate(['model:rbac']);
+          }
           const listed = new Set(cfg.get<string[] | undefined>(PASSWORD_LIST) ?? []);
           for (const r of roles) if (r.requirePassword) listed.add(r.role);
           scope.set(PASSWORD_LIST, [...listed]);

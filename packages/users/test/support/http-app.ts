@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,7 +18,8 @@ import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL, SYSTEM } fr
 import type { AuthzCommand } from '@spinajs/authz';
 import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { AccessController, PrincipalMiddleware } from '@spinajs/authz-http';
-import { MfaStep, PasswordCredentialStore } from '@spinajs/authn/contracts';
+import { AuthnImpersonationService, FreshAuthCheck } from '@spinajs/authn';
+import { AuthnService, AuthnThrottle, MfaStep, PasswordCredentialStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { PasswordHasher } from '@spinajs/authn-local';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -24,16 +27,6 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import type { HttpPort, HttpRequest, HttpResponse, HttpRoutes } from '@spinajs/authn-testing';
 import { testHost } from '@spinajs/authz-testing';
-
-// authn-http's package barrel still carries 2.x code that imports @spinajs/users from its lib, a second copy beside
-// the users sources this process tests; its 3.0 layer and controllers import neither, so they are loaded from the lib
-// by path. Loading the layer registers it on the root container (registerAuthnHttpV3).
-import '../../../authn-http/lib/mjs/v3/index.js';
-import { AuthnActiveRoleController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnActiveRoleController.js';
-import { AuthnImpersonationController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnImpersonationController.js';
-import { AuthnLoginController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnLoginController.js';
-import { AuthnMfaController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnMfaController.js';
-import { AuthnSessionsController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnSessionsController.js';
 
 import { NO_PASSWORD, User } from '../../src/index.js';
 import { TestConfiguration } from '../common.test.js';
@@ -53,15 +46,13 @@ import { PROBE_PATH, UsersHttpProbeController, resetProbeHits } from './AuthnPro
 
 export const COOKIE_SECRET = 'users-http-' + 'Hq7Kd3Wz'.repeat(6);
 
-const MFA_STEP_SERVICE = 'UsersHttpMfaStep';
-
 const usersDir = (...path: string[]) => resolve(normalize(join(process.cwd(), ...path)));
 
 const APP_VALUES = {
   http: { cookie: { secret: COOKIE_SECRET } },
   authn: {
     strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
-    mfa: { steps: [{ name: 'totp', service: MFA_STEP_SERVICE }] },
+    mfa: { steps: [{ name: 'totp', service: 'UsersHttpMfaStep' }] },
   },
 };
 
@@ -121,10 +112,60 @@ export class ConfigScope {
 
 let mfaStep = new FakeMfaStep({ name: 'totp' });
 
-/** From now on the app's MFA step `totp` is `step` (a fresh one when omitted). */
+/** From now on the app's MFA step `totp` forwards to `step` (a fresh one when omitted). */
 export function useMfaStep(step: FakeMfaStep = new FakeMfaStep({ name: 'totp' })): FakeMfaStep {
   mfaStep = step;
   return step;
+}
+
+/** The app's MFA step `totp`. authn's MfaStepRegistry keeps the instance it resolved, so cases swap the step behind it. */
+class UsersHttpMfaStep extends MfaStep {
+  public readonly name = 'totp';
+  declare verifyRecovery?: (id: IdentityRef, code: string) => Promise<boolean>;
+  declare regenerateRecoveryCodes?: (id: IdentityRef) => Promise<readonly string[]>;
+
+  constructor() {
+    super();
+    // authn tells a step without recovery codes by these members' absence, so they follow the current step.
+    Object.defineProperties(this, {
+      verifyRecovery: { get: () => mfaStep.verifyRecovery?.bind(mfaStep) },
+      regenerateRecoveryCodes: { get: () => mfaStep.regenerateRecoveryCodes?.bind(mfaStep) },
+    });
+  }
+
+  public enrolled(id: IdentityRef): Promise<boolean> {
+    return mfaStep.enrolled(id);
+  }
+
+  public beginEnrolment(id: IdentityRef): Promise<{ provisioning: string }> {
+    return mfaStep.beginEnrolment(id);
+  }
+
+  public confirmEnrolment(id: IdentityRef, response: string): Promise<{ recoveryCodes?: readonly string[] }> {
+    return mfaStep.confirmEnrolment(id, response);
+  }
+
+  public verify(id: IdentityRef, response: string): Promise<boolean> {
+    return mfaStep.verify(id, response);
+  }
+
+  public disable(id: IdentityRef): Promise<void> {
+    return mfaStep.disable(id);
+  }
+}
+
+/**
+ * Uncaches the authn services that keep state or read config once (the throttle's counters, AuthnService, fresh auth,
+ * the impersonation service), so the next request builds them for the case. The session issuer stays, as
+ * AuthnMiddleware holds it: removeAccounts ends the sessions of the accounts a case seeded.
+ */
+export function resetAuthnCaseServices(): void {
+  for (const base of [AuthnService, AuthnThrottle] as unknown as Class<unknown>[]) {
+    for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type as Class<unknown>);
+    DI.uncache(base);
+  }
+  DI.uncache(FreshAuthCheck);
+  DI.uncache(AuthnImpersonationService);
 }
 
 export const ROUTES: Partial<HttpRoutes> = {
@@ -139,7 +180,17 @@ export const ROUTES: Partial<HttpRoutes> = {
   activeRoleSet: (role, password) => ({ method: 'POST', path: '/auth/active-role', body: { role, ...(password !== undefined ? { password } : {}) } }),
 };
 
-const CONTROLLERS: Class<BaseController>[] = [AuthnLoginController, AuthnMfaController, AuthnSessionsController, AuthnActiveRoleController, AuthnImpersonationController, AccessController, UsersHttpProbeController] as unknown as Class<BaseController>[];
+const AUTHN_HTTP_V3_LIB = new URL('../../../authn-http/lib/mjs/v3/', import.meta.url);
+
+/** authn-http's 3.0 controllers, loaded from its build (authn-http-v3.ts says why). */
+async function authnHttpControllers(): Promise<Class<BaseController>[]> {
+  for (const file of ['index.js', 'controllers/AuthnLoginController.js']) {
+    const path = fileURLToPath(new URL(file, AUTHN_HTTP_V3_LIB));
+    if (!existsSync(path)) throw new Error(`the users http tests load @spinajs/authn-http from its build, and ${path} is missing: build it first (npm run build at the repo root)`);
+  }
+  const v3 = await import('./authn-http-v3.js');
+  return [v3.AuthnLoginController, v3.AuthnMfaController, v3.AuthnSessionsController, v3.AuthnActiveRoleController, v3.AuthnImpersonationController] as unknown as Class<BaseController>[];
+}
 
 export interface UsersHttpApp {
   readonly origin: string;
@@ -218,21 +269,31 @@ function handle(port: number): UsersHttpApp {
 
 /** The running app; throws before `startUsersHttpApp()`. */
 export function usersHttpApp(): UsersHttpApp {
-  if (!app) throw new Error('the users http app is not started: call startUsersHttpApp() in a before hook');
+  if (!app?.port) throw new Error('the users http app is not started: call startUsersHttpApp() in a before hook');
   return handle(app.port);
 }
 
 /**
  * Boots the app once per process on a free port: bootstrappers, the seeded TestConfiguration (testHost.installHost), the
- * users test database (users' and authz-rbac's migrations), the controllers, the server. Pair with stopUsersHttpApp().
+ * users test database (users' and authz-rbac's migrations), the controllers, the server, the root authz domain. Pair
+ * with stopUsersHttpApp(), which also cleans up after a failed start. Root always holds a ConfigRoleStore over
+ * `authz.rbac.roles`: users' DefaultRolesBootCheck looks up the roles `authz.rbac.defaultRoles` names in the root's
+ * role stores, and the users config names `user`.
  */
 export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersHttpApp> {
   if (app) throw new Error('startUsersHttpApp: the app is already running; call stopUsersHttpApp() first');
+  const authnControllers = await authnHttpControllers();
 
   // Config sources pick lib/mjs over lib/cjs on their first resolve: a lib/cjs file would load a CommonJS copy of DI.
   DI.setESMModuleSupport();
-  DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  rootUndo.push(testHost.registerInRoot(MfaStep as unknown as Class<MfaStep>, { [MFA_STEP_SERVICE]: () => mfaStep }[MFA_STEP_SERVICE]));
+  if (!DI.RootContainer.Registry.ownsRegistration('orm-driver-sqlite')) {
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    rootUndo.push(() => {
+      DI.unregister(SqliteOrmDriver);
+      DI.uncache('orm-driver-sqlite');
+    });
+  }
+  rootUndo.push(testHost.registerInRoot(MfaStep as unknown as Class<MfaStep>, UsersHttpMfaStep), testHost.registerInRoot(RoleStore, ConfigRoleStore), () => DI.uncache(ConfigRoleStore));
 
   for (const b of (await DI.resolve(Array.ofType(Bootstrapper))) as Bootstrapper[]) await b.bootstrap();
   const seeded = await seededValues();
@@ -252,15 +313,20 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
   await DI.resolve(Orm);
 
   const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
-  for (const c of CONTROLLERS) DI.register(c).as(BaseController);
+  for (const c of [...authnControllers, AccessController, UsersHttpProbeController] as Class<BaseController>[]) DI.register(c).as(BaseController);
   await DI.resolve(Controllers);
   const server = (await DI.resolve(HttpServer)) as HttpServer;
+  app = { server, port: 0, controllers: [...new Set(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)) as Class<BaseController>[] };
   await server.start();
   resetProbeHits();
 
-  const port = (server.Server.address() as AddressInfo).port;
-  app = { server, port, controllers: [...new Set(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)) as Class<BaseController>[] };
-  return handle(port);
+  // PrincipalMiddleware boots the root domain once the server listens, and stops the server when that fails. Waiting on
+  // the same boot here fails the before hook instead of handing out a stopped server.
+  await DI.resolve(AuthzService);
+  if (!server.Server.listening) throw new Error('startUsersHttpApp: the http server stopped after it started (see the log)');
+
+  app.port = (server.Server.address() as AddressInfo).port;
+  return handle(app.port);
 }
 
 /** Stops the server, disposes the database and the root authz domain, and removes what startUsersHttpApp added. */
@@ -278,24 +344,26 @@ export async function stopUsersHttpApp(): Promise<void> {
   await DI.get(PrincipalMiddleware)?.dispose();
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
+  resetAuthnCaseServices();
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
-  for (const undo of rootUndo.splice(0)) undo();
+  for (const undo of rootUndo.splice(0).reverse()) undo();
   await testHost.uninstallHost();
 }
 
 let rootModel: RbacModel | undefined;
+let rootRbac = false;
 
 /**
- * A root authz host over the users test database: roles from `authz.rbac.roles`, assignments in `authz_assignment`,
+ * A root authz host over the users test database: the RbacModel over the root's ConfigRoleStore and `authz_assignment`,
  * AuthzAdmin on users' DbAuthzAdminBackend, RbacService over the model. Pass it as `register` to startUsersHttpApp;
  * stopUsersHttpApp removes it. A hostHarness suite registers its models in the test domain instead.
  */
 export function registerRootRbac(): void {
   rootModel = undefined;
+  rootRbac = true;
   const model = (c: IContainer): RbacModel => (rootModel ??= new RbacModel({ roles: c.resolve(RoleStore) as RoleStore, assignments: c.resolve(AssignmentStore) as AssignmentStore }));
   rootUndo.push(
-    testHost.registerInRoot(RoleStore, ConfigRoleStore),
     testHost.registerInRoot(AssignmentStore, DbAssignmentStore),
     testHost.registerInRoot(AdminAssignmentStore, DbAssignmentStore),
     testHost.registerInRoot(AuthorizationModel, (c: IContainer) => model(c)),
@@ -303,7 +371,8 @@ export function registerRootRbac(): void {
     testHost.registerInRoot(RbacService, (c: IContainer) => new RbacService(model(c))),
     () => {
       rootModel = undefined;
-      for (const t of [ConfigRoleStore, DbAssignmentStore] as Class<unknown>[]) DI.uncache(t);
+      rootRbac = false;
+      DI.uncache(DbAssignmentStore);
     },
   );
 }
@@ -313,12 +382,16 @@ export function rootRbacModel(): RbacModel | undefined {
   return rootModel;
 }
 
+async function asSystem(commands: AuthzCommand[], what: string): Promise<void> {
+  const admin = ((await DI.resolve(AuthzService)) as AuthzService).admin();
+  const results = await admin.execute(SYSTEM, commands, { reason: 'users http test' });
+  if (!results.every((r) => r.ok)) throw new Error(`${what} failed: ${JSON.stringify(results)}`);
+}
+
 /** GLOBAL assignments through the root AuthzAdmin, as SYSTEM. */
 export async function grantGlobal(subject: IdentityRef, roles: readonly string[]): Promise<void> {
-  const admin = ((await DI.resolve(AuthzService)) as AuthzService).admin();
   const commands: AuthzCommand[] = roles.map((role) => ({ kind: 'assignment.grant', subject: { type: subject.type, id: subject.id }, role, scope: GLOBAL }));
-  const results = await admin.execute(SYSTEM, commands, { reason: 'users http test' });
-  if (!results.every((r) => r.ok)) throw new Error(`grant ${roles.join(', ')} to ${subject.id} failed: ${JSON.stringify(results)}`);
+  await asSystem(commands, `grant ${roles.join(', ')} to ${subject.id}`);
 }
 
 export interface AccountSpec {
@@ -343,11 +416,26 @@ export async function seedAccount(spec: AccountSpec): Promise<IdentityRef> {
   return ref;
 }
 
-/** Deletes the users rows, their metadata and their assignments, so a later case can seed the same login. */
+/**
+ * Ends the accounts' sessions, revokes their assignments through the root AuthzAdmin (so the assignment cache and the
+ * change bus see it) and deletes the users rows and their metadata, so a later case can seed the same login or Uuid.
+ */
 export async function removeAccounts(refs: readonly IdentityRef[]): Promise<void> {
   const ids = refs.map((r) => r.id);
   if (ids.length === 0) return;
+  const sessions = (await DI.resolve(SessionIssuer)) as SessionIssuer;
+  for (const ref of refs) await sessions.revokeAll(ref, { includeImpersonations: true });
+
   const driver = User.query().Driver;
+  const assignments = (await driver.select().from('authz_assignment').columns(['id']).where('subject_type', 'user').whereIn('subject_id', ids)) as { id: string }[];
+  if (assignments.length > 0) {
+    if (!rootRbac) throw new Error(`removeAccounts: ${ids.join(', ')} hold root assignments, and no root AuthzAdmin can revoke them (registerRootRbac)`);
+    await asSystem(
+      assignments.map((a) => ({ kind: 'assignment.revoke', id: a.id })),
+      `revoke the assignments of ${ids.join(', ')}`,
+    );
+  }
+
   const rows = (await driver.select().from('users').columns(['Id']).whereIn('Uuid', ids)) as { Id: number }[];
   if (rows.length > 0)
     await driver
@@ -358,5 +446,4 @@ export async function removeAccounts(refs: readonly IdentityRef[]): Promise<void
         rows.map((r) => r.Id),
       );
   await driver.del().from('users').whereIn('Uuid', ids);
-  await driver.del().from('authz_assignment').where('subject_type', 'user').whereIn('subject_id', ids);
 }
