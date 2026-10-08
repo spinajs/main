@@ -1,6 +1,6 @@
 # `@spinajs/users-http`
 
-HTTP API for user accounts: the signed-in user's profile (`GET /user`, on `@Access('user:read')`) and metadata routes, and an administrative API for
+HTTP API for user accounts: the signed-in user's profile (`GET /user`, on `@Access('user:read')`) and metadata routes (on `@Access('user.metadata:<action>')`), and an administrative API for
 listing and editing users, roles, passwords, two-factor authentication, bans, login lockouts and live sessions.
 
 Every route sits behind `AuthorizedPolicy` plus a route-level `@Permission` on the `users` resource,
@@ -42,8 +42,9 @@ grants: {
 | `DELETE` | `/users/security/sessions/:uuid/:handle`      | `updateAny` | Revoke one session                                        |
 | `DELETE` | `/users/security/sessions/:uuid`              | `updateAny` | Revoke every session of the user                          |
 
-The admin routes do not manage user metadata. `UserMetadataController` serves `/user/:uuid/metadata`,
-which validates one entry at a time.
+The admin routes do not manage user metadata. `UserMetadataController` serves `/user/:uuid/metadata`, which validates one entry at
+a time. Another user's metadata needs an unconditional `user.metadata` grant (users' `admin.users`); users' `user` role
+reaches only its own, through the `owner` relation.
 
 ## Handing a new account to its owner
 
