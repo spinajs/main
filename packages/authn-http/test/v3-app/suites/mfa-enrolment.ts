@@ -9,6 +9,7 @@ import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spina
 
 import { TOTP_SERVICE, TotpEnrolmentOn } from '../../../src/mfa/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
+import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { clearLog, config, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
@@ -54,6 +55,7 @@ async function gateOn(container: IContainer): Promise<'open' | 'not_found'> {
   const req = { storage: {} } as unknown as Request;
   const gate = new TotpEnrolmentOn();
   (gate as unknown as { Container: unknown }).Container = container;
+  readingFrom(gate, container);
   expect(gate.isEnabled(route, ctrl)).to.eq(true);
   try {
     await gate.execute(req, route, ctrl);

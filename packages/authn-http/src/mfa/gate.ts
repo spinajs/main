@@ -1,6 +1,7 @@
+import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import type { TotpService } from '@spinajs/authn-totp/service';
@@ -19,12 +20,12 @@ const off = () => notFound('not_found', 'the MFA enrolment routes are off');
 /**
  * authn-totp's TotpService while login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep and
  * authn.mfa.encryptionKey.secret is set (what authn-totp calls "Turning TOTP on"). Otherwise 404 `not_found`: a factor
- * enrolled here that login never asks for would only look like a second factor (design §22.11).
+ * enrolled here that login never asks for would only look like a second factor (design §22.11). `encryptionKey` is
+ * that secret as the caller's `@Config` reads it from `container`'s configuration.
  */
-export async function totpServiceOf(container: IContainer): Promise<TotpService> {
+export async function totpServiceOf(container: IContainer, encryptionKey: string | null | undefined): Promise<TotpService> {
   if (!container.hasRegistered(TOTP_SERVICE)) throw off();
-  const key = (await container.resolve(Configuration)).get<unknown>('authn.mfa.encryptionKey.secret');
-  if (typeof key !== 'string' || key === '') throw off();
+  if (!encryptionKey) throw off();
   // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
   const { MfaStepRegistry } = await import('@spinajs/authn');
   const steps = (await container.resolve(MfaStepRegistry)).steps();
@@ -44,11 +45,14 @@ export class TotpEnrolmentOn extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.mfa.encryptionKey.secret')
+  protected MfaEncryptionKey: string | null | undefined;
+
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    await totpServiceOf(this.Container);
+    await totpServiceOf(this.Container, this.MfaEncryptionKey);
   }
 }

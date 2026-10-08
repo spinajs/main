@@ -1,3 +1,5 @@
+import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
@@ -32,6 +34,9 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.mfa.encryptionKey.secret')
+  protected MfaEncryptionKey: string | null | undefined;
+
   /**
    * MFA status
    * `{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not
@@ -63,7 +68,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await (await totpServiceOf(this.Container)).begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await (await this.totp()).begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
@@ -80,7 +85,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await (await totpServiceOf(this.Container)).confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
+    const result = await (await this.totp()).confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
@@ -98,7 +103,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await (await totpServiceOf(this.Container)).disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await (await this.totp()).disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -114,9 +119,13 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = activeSession(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await (await totpServiceOf(this.Container)).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await (await this.totp()).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
+  }
+
+  protected totp() {
+    return totpServiceOf(this.Container, this.MfaEncryptionKey);
   }
 }
 

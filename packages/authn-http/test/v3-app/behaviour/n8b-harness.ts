@@ -444,14 +444,19 @@ let keysUndo: (() => void) | undefined;
 
 export const laneKeys = (): typeof import('@spinajs/authn-keys') => loaded(keysModule, 'authn-keys');
 
-/** Replaces authn.keys until the case ends. */
-export function laneKeysConfig(value: unknown): void {
-  const undo = setConfig('authn.keys', value);
-  const earlier = keysUndo;
-  keysUndo = () => {
-    undo();
-    earlier?.();
-  };
+/**
+ * Sets these leaves of authn.keys (path below authn.keys → value) until the case ends. Leaves, not the block:
+ * Configuration.set skips the schema, so a replaced block would lose the defaults authn-keys' range floor checks.
+ */
+export function laneKeysConfig(leaves: Record<string, unknown>): void {
+  for (const [path, value] of Object.entries(leaves)) {
+    const undo = setConfig(`authn.keys.${path}`, value);
+    const earlier = keysUndo;
+    keysUndo = () => {
+      undo();
+      earlier?.();
+    };
+  }
 }
 
 /** The authn.mfa.policy.service of a case whose key logins must pass TOTP; no other login asks for a step. */
@@ -495,7 +500,8 @@ export const keysPart: LanePart = {
     }
     const db = tokenDb();
     for (const table of ['authn_key', 'authn_nonce']) await db.del().from(table);
-    keysUndo = setConfig('authn.keys', { assertion: { audience: KEYS_AUDIENCE } });
+    keysUndo = undefined;
+    laneKeysConfig({ 'assertion.audience': KEYS_AUDIENCE });
   },
   async addPorts() {
     const k = laneKeys();

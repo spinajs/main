@@ -11,6 +11,7 @@ import type { ConfigOverrides, Harness, HttpResponse, KitKeyPair } from '@spinaj
 
 import { KeyRoutesOn } from '../../../src/keys/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
+import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
@@ -49,6 +50,7 @@ export function keyGateSuite(): void {
     expect(gate.isEnabled(route, ctrl)).to.eq(true);
     const answer = async (container: IContainer): Promise<'open' | 'not_found'> => {
       (gate as unknown as { Container: unknown }).Container = container;
+      readingFrom(gate, container);
       try {
         await gate.execute(req, route, ctrl);
         return 'open';
@@ -598,7 +600,7 @@ export function keyRoutesSuite(): void {
     it('the key routes are off: 404 not_found on every route, to a session and to anyone', async () => {
       const u = await user();
       const { kid } = await mintKey(u.ref);
-      laneKeysConfig({ challenge: { ttlSeconds: 120 } });
+      laneKeysConfig({ 'assertion.audience': null });
       const session = await login(u);
       for (const c of [session, new LaneClient(h)]) for (const res of await all(c, kid)) expectRefused(res, 404, 'not_found');
       expect((await stored(u.ref))[0].revokedAt).to.eq(undefined);
@@ -606,7 +608,7 @@ export function keyRoutesSuite(): void {
 
     it('authn.keys.challenge.audience alone turns them on', async () => {
       const u = await user();
-      laneKeysConfig({ challenge: { audience: KEYS_AUDIENCE } });
+      laneKeysConfig({ 'assertion.audience': null, 'challenge.audience': KEYS_AUDIENCE });
       const res = await list(await login(u));
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
     });

@@ -1,13 +1,12 @@
+import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 
 import { notFound } from '../policies/v3/errors.js';
-
-const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v !== '';
 
 /**
  * The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.keys names no
@@ -18,13 +17,18 @@ export class KeyRoutesOn extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.keys.challenge.audience')
+  protected ChallengeAudience: string | null | undefined;
+
+  @Config('authn.keys.assertion.audience')
+  protected AssertionAudience: string | null | undefined;
+
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
     if (!this.Container.hasRegistered(KeyRegistry as unknown as Class<KeyRegistry>)) throw notFound('not_found', 'the key routes are off');
-    const config = await this.Container.resolve(Configuration);
-    if (!nonEmpty(config.get<unknown>('authn.keys.challenge.audience')) && !nonEmpty(config.get<unknown>('authn.keys.assertion.audience'))) throw notFound('not_found', 'the key routes are off');
+    if (!(this.ChallengeAudience ?? this.AssertionAudience)) throw notFound('not_found', 'the key routes are off');
   }
 }
