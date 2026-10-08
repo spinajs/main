@@ -2,7 +2,7 @@
 // and only the strategy packages named on the command line loaded. No database: the probes stop at the route gates,
 // the authentication policies and the field checks. Prints one JSON line.
 //
-//   node route-groups-app.cjs <esm|cjs> <packages, comma separated> <groups probed with a session, comma separated>
+//   node route-groups-app.cjs <esm|cjs> <packages, comma separated> <groups probed with a session, comma separated> <controller cache dir>
 //
 // A .cjs file, so one source serves both builds: `import()` takes the ESM build, `require` the CJS one.
 
@@ -10,7 +10,8 @@ const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const http = require('node:http');
 
-const [mode, packagesArg = '', probedArg = ''] = process.argv.slice(2);
+const [mode, packagesArg = '', probedArg = '', cacheDir] = process.argv.slice(2);
+if (!cacheDir) throw new Error('no controller cache dir given');
 const ESM = mode === 'esm';
 const FORMAT = ESM ? 'mjs' : 'cjs';
 const PACKAGES = packagesArg.split(',').filter(Boolean);
@@ -108,6 +109,12 @@ async function main() {
       await super.resolve();
       // Shipped configs add their compiled controller dirs (among them authn-http's 2.x ones); this app scans the 3.0 dir only.
       this.set(['system', 'dirs', 'controllers'], [controllersDir]);
+      // The children of one test run in parallel from one cwd; sharing @spinajs/http's controller cache there, one child
+      // read an entry another was still writing.
+      this.set(
+        ['fs', 'providers'],
+        this.get(['fs', 'providers']).map((p) => (p.name === '__fs_controller_cache__' ? { ...p, basePath: cacheDir } : p)),
+      );
     }
 
     onLoad() {

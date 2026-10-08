@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -93,13 +95,16 @@ const isOn = (c: Case, g: Group) => c.packages.includes(PACKAGE_OF[g]);
 const routeShape = (route: string): string => route.replace(/:\w+/g, ':param');
 
 const children: ChildProcess[] = [];
+const cacheDirs = new Map<Case, string>();
 
 function boot(c: Case): Promise<Boot> {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
   const off = GROUPS.filter((g) => !isOn(c, g));
+  const cacheDir = mkdtempSync(join(tmpdir(), 'authn-http-route-groups-'));
+  cacheDirs.set(c, cacheDir);
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(',')], { cwd: PKG_ROOT, env, timeout: 150000, killSignal: 'SIGKILL' });
+    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(','), cacheDir], { cwd: PKG_ROOT, env, timeout: 150000, killSignal: 'SIGKILL' });
     children.push(child);
     let out = '';
     let err = '';
@@ -130,6 +135,8 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
 
   after(() => {
     for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    for (const dir of cacheDirs.values()) rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    cacheDirs.clear();
   });
 
   for (const c of CASES) {
@@ -140,6 +147,7 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
         expect(b.bootstrappers).to.not.include('RbacBootstrapper');
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
         expect([...b.controllers].sort()).to.deep.eq(V3_CONTROLLERS);
+        expect(readdirSync(cacheDirs.get(c)!), 'the controller cache of this child alone').to.not.be.empty;
         expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys') });
       });
 
