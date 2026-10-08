@@ -5,7 +5,7 @@ import { expect } from 'chai';
 
 import { Forbidden } from '@spinajs/exceptions';
 
-import { TwoFactorAuthEnabled } from '../src/account/policies/2FaPolicy.js';
+import { TwoFactorAuthEnabled } from '../../src/account/policies/2FaPolicy.js';
 
 describe('TwoFactorAuthEnabled', () => {
   const policy = (enabled: boolean) => {
