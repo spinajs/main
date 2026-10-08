@@ -1,4 +1,5 @@
 import { Configuration } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
