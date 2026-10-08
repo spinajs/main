@@ -144,7 +144,7 @@ export class RevalSocket extends BaseSocketController {
 }
 
 function handshakeWith(token?: string): ISocketHandshake {
-  return { auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 };
+  return { auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', peerAddress: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 };
 }
 
 describe('socket principal revalidation on commands', function () {

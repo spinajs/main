@@ -94,8 +94,13 @@ export interface ISocketHandshake {
   readonly headers: Readonly<IncomingHttpHeaders>;
   /** Unsigned raw cookie values; signed-cookie checks belong to the source. */
   readonly cookies: Readonly<Record<string, string>>;
-  /** the socket's remote address; never taken from X-Forwarded-For */
+  /**
+   * The client address: the socket's peer, or behind trusted proxy hops ( `authn.http.trustProxy`, else `http.trustProxy`,
+   * as authn-http's ClientIp ) the X-Forwarded-For entry they vouch for. An untrusted peer's header is ignored ( SR-03 ).
+   */
   readonly address: string;
+  /** the socket's remote address as it connected; never taken from X-Forwarded-For */
+  readonly peerAddress: string;
   readonly url: string;
   readonly query: Readonly<Record<string, unknown>>;
   readonly secure: boolean;

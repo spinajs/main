@@ -128,7 +128,7 @@ describe('AuthnCredentialSource', function () {
       expect(await refusal({ auth: { token: 'authn-mfa' } })).to.deep.equal(FAILED);
     });
 
-    it('SR-03 the client address is the socket address, never X-Forwarded-For', async () => {
+    it('SR-03 without a trusted proxy the client address is the socket address, never X-Forwarded-For', async () => {
       await principalOf({ auth: { token: 'authn-ok' }, headers: { 'x-forwarded-for': '6.6.6.6' } });
       const ctx = AuthnTestService.contexts[AuthnTestService.contexts.length - 1];
 
@@ -150,7 +150,7 @@ describe('AuthnCredentialSource', function () {
     describe('revalidate', () => {
       const source = new AuthnCredentialSource();
       const registered = async () => ((await DI.resolve(Array.ofType(SocketPrincipalSource))) as SocketPrincipalSource[]).find((s) => s.name === 'authn')!;
-      const handshakeWith = (token?: string): ISocketHandshake => ({ auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
+      const handshakeWith = (token?: string): ISocketHandshake => ({ auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', peerAddress: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
 
       it('answers valid with the principal AuthnService resolves now', async () => {
         expect(await source.revalidate(handshakeWith('authn-ok'), BOB)).to.deep.equal({ status: 'valid', principal: BOB });

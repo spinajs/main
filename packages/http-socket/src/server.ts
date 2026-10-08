@@ -7,7 +7,9 @@ import { ListFromFiles } from '@spinajs/reflection';
 import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, ShutdownNotice, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
+import type { ProxyTrust } from '@spinajs/http';
 import { SocketConnection, toHandshake } from './connection.js';
+import { socketProxyTrust } from './client-address.js';
 import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
@@ -93,6 +95,15 @@ export class SocketServer extends AsyncService {
   @Config('http.shutdownTimeout', { defaultValue: 10_000 })
   protected HttpShutdownTimeout: number;
 
+  @Config('authn.http.trustProxy')
+  protected AuthnTrustProxy: unknown;
+
+  @Config('http.trustProxy')
+  protected HttpTrustProxy: unknown;
+
+  /** the proxy hops that may name the client address */
+  protected trust: ProxyTrust = { hops: 0 };
+
   @Autoinject()
   protected Host: SocketHttpHost;
 
@@ -147,6 +158,7 @@ export class SocketServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
+    this.trust = socketProxyTrust(this.AuthnTrustProxy, this.HttpTrustProxy);
     assertIdempotencyConfig(this.Options.idempotency);
     assertShutdownConfig(this.Options);
     const overrun = shutdownOverrun(this.Options.drainMs, this.HttpShutdownTimeout);
@@ -342,7 +354,7 @@ export class SocketServer extends AsyncService {
         throw new SocketException('forbidden', 'origin not allowed');
       }
 
-      const handshake = toHandshake(socket);
+      const handshake = toHandshake(socket, this.trust);
       const auth = handshake.auth;
 
       if (auth.protocol !== PROTOCOL_VERSION) {
@@ -396,7 +408,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected onConnection(socket: Socket): void {
-    const handshake = this.handshakes.get(socket) ?? toHandshake(socket);
+    const handshake = this.handshakes.get(socket) ?? toHandshake(socket, this.trust);
     this.handshakes.delete(socket);
 
     // a recovered socket skipped the handshake middleware, and a handshake may have passed it just before shutdown began
