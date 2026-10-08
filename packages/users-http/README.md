@@ -70,8 +70,14 @@ The `Role` list filter matches the GLOBAL holders of the named roles; `Role` is 
 
 Delete, deactivate and ban are not AuthzAdmin commands. They go through the
 `AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches.
-A `PATCH` that removes a role goes through it too (`assertCanDemote`): AuthzAdmin's last-holder rule
-counts deactivated, banned and deleted holders, the account guard counts only active ones.
+A `PATCH` that removes a role goes through it too (`assertCanDemote`), before AuthzAdmin sees the batch.
+
+The account guard counts another holder of `privilegedPermission` as a witness only when the registered
+`AccountStatusSource` (users' `UserAccountStatusSource`) answers `true` for it and its row is active,
+unbanned and undeleted. An account with an expired password or a pending invite is no witness. A source
+that is missing, throws or answers anything but a `Map` with `true` counts no witness, so the last
+privileged account stays. The target itself counts as privileged while its row is active, unbanned and
+undeleted, whatever the source says: a password reset or an accepted invite can still bring it back.
 
 ```js
 authz: {

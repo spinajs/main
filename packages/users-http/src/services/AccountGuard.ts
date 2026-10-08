@@ -1,9 +1,10 @@
-import { AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { Permission, Principal } from '@spinajs/authz';
-import { AssignmentStore, guardSwitches } from '@spinajs/authz-rbac';
+import { AuthzService, GLOBAL, SYSTEM, principalKey } from '@spinajs/authz';
+import type { Permission, Principal, PrincipalRef } from '@spinajs/authz';
+import { AccountStatusSource, AssignmentStore, guardSwitches } from '@spinajs/authz-rbac';
 import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
 import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
 
 import { configuredRoleNames } from './user-roles.js';
@@ -34,15 +35,22 @@ export abstract class AccountGuard {
 /**
  * Reads `authz.admin.guard` (the switches AuthzAdmin's guard reads) on every call. Self lockout: the actor
  * may not disable its own account, nor take its own privilege. Last holder: an account holding
- * `privilegedPermission` unconditionally loses it only while another active, unbanned, undeleted user holds
- * it. Witnesses are searched once per configured role, among the GLOBAL user holders of that role; a holder
- * reachable only through a subject set, or one who is not the first usable holder of any role, is not found,
- * so the check fails closed.
+ * `privilegedPermission` unconditionally loses it only while another user in service holds it. A witness is in
+ * service when the registered AccountStatusSource answers exactly `true` for it (users' source also refuses an
+ * expired password and a pending invite) and its row is active, unbanned and undeleted. A source that is
+ * missing, throws or answers anything else counts no witness. Witnesses are searched once per configured role,
+ * among the GLOBAL user holders of that role; a holder reachable only through a subject set, or one who is not
+ * the first in-service holder of any role, is not found, so the check fails closed.
  */
 @Injectable(AccountGuard)
 export class DefaultAccountGuard extends AccountGuard {
   @Config('authz.admin.guard')
   protected Guard: unknown;
+
+  @Logger('users-http')
+  protected Log: Log;
+
+  private warnedNoStatusSource = false;
 
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
     const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
@@ -89,7 +97,11 @@ export class DefaultAccountGuard extends AccountGuard {
     }
   }
 
-  /** An account already out of service holds nothing anyone relies on. */
+  /**
+   * An account already out of service holds nothing anyone relies on. Read from the row, not from the
+   * AccountStatusSource: a password reset or an accepted invite brings an account back, and a failing source must
+   * not make the last administrator look out of service.
+   */
   protected async privilegedNow(user: User, permission: Permission): Promise<boolean> {
     return usable(user) && (await this.privileged(await this.principalOf(user), permission));
   }
@@ -97,17 +109,21 @@ export class DefaultAccountGuard extends AccountGuard {
   protected async hasWitness(target: User, permission: Permission): Promise<boolean> {
     const store = (await DI.resolve(AssignmentStore)) as AssignmentStore;
     const now = new Date();
-    const probed = new Set<string>([target.Uuid]);
-
+    const candidates: string[][] = [];
     for (const role of await configuredRoleNames()) {
       const ids = new Set<string>();
       for (const holder of await store.holders(role, GLOBAL, now)) {
-        if (!('set' in holder) && holder.type === 'user' && !probed.has(holder.id)) {
+        if (!('set' in holder) && holder.type === 'user' && holder.id !== target.Uuid) {
           ids.add(holder.id);
         }
       }
+      candidates.push([...ids]);
+    }
 
-      const witness = await this.firstUsable([...ids]);
+    const inService = await this.inService([...new Set(candidates.flat())]);
+    const probed = new Set<string>([target.Uuid]);
+    for (const ids of candidates) {
+      const witness = await this.firstUsable(ids.filter((id) => inService.has(id) && !probed.has(id)));
       if (!witness) {
         continue;
       }
@@ -119,6 +135,43 @@ export class DefaultAccountGuard extends AccountGuard {
     }
 
     return false;
+  }
+
+  /** The uuids the AccountStatusSource answers exactly `true` for, asked in one call. */
+  protected async inService(uuids: readonly string[]): Promise<ReadonlySet<string>> {
+    const found = new Set<string>();
+    if (uuids.length === 0) {
+      return found;
+    }
+
+    // A DI.unregister leaves the key with an empty list, so the list is checked, not the key.
+    const registered = DI.getRegisteredTypes(AccountStatusSource);
+    if (!registered || registered.length === 0) {
+      if (!this.warnedNoStatusSource) {
+        this.warnedNoStatusSource = true;
+        this.Log.warn('users-http AccountGuard: no AccountStatusSource is registered, so no account counts as a remaining holder of the privileged permission');
+      }
+      return found;
+    }
+
+    const refs: PrincipalRef[] = uuids.map((id) => ({ type: 'user', id }));
+    try {
+      const source = (await DI.resolve(AccountStatusSource)) as AccountStatusSource;
+      const answers: unknown = await source.inService(refs);
+      if (!(answers instanceof Map)) {
+        throw new TypeError('the answer is not a Map');
+      }
+      for (const ref of refs) {
+        if (answers.get(principalKey(ref)) === true) {
+          found.add(ref.id);
+        }
+      }
+    } catch (e) {
+      this.Log.warn(`users-http AccountGuard: the AccountStatusSource failed, so no account counts as a remaining holder of the privileged permission: ${e instanceof Error ? `${e.name}: ${e.message}` : typeof e}`);
+      found.clear();
+    }
+
+    return found;
   }
 
   protected async firstUsable(uuids: readonly string[]): Promise<User | undefined> {
