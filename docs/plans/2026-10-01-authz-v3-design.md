@@ -2744,7 +2744,8 @@ broker, `Initiator.ceiling.expiresAt` must be revived to a `Date`.
   `UNATTENDED` (B30).
 - `JobModel` gains `InitiatorType`, `InitiatorId`; `@AccessResource('job')`
   with relation `initiator`; `job:read` granted to `user` with relation
-  `initiator` by the package config fragment. `queue-http-progress`
+  `initiator` by a configuration source registered at import (F8), not a
+  config fragment, so an installed but unused package adds nothing. `queue-http-progress`
   `GET jobs/v1/:jobId/status` gets `@Access('job:read', { resource:
   fromParam('jobId', 'job') })` (study §8.1 #87).
 - `http-lazy-file-uploader` `LazyUploadJob` runs with `runAs: 'initiator'`.
