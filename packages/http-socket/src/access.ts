@@ -68,7 +68,7 @@ export function socketAccessDomain(handler: readonly IPolicyGroup[] | undefined,
   return socketAccessOf(handler)?.domain ?? socketAccessOf(controller)?.domain ?? 'root';
 }
 
-const isRef =(v: unknown): v is ResourceRef => typeof v === 'object' && v !== null && typeof (v as ResourceRef).type === 'string' && Object.keys(v).every((k) => k === 'type' || k === 'id');
+const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== null && typeof (v as ResourceRef).type === 'string' && Object.keys(v).every((k) => k === 'type' || k === 'id');
 
 /**
  * Decides one `@SocketAccess` group as authz-http's AccessPolicy decides `@Access` ( design §11.2 ): unauthenticated ⇒
