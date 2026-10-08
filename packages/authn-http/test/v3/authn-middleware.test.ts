@@ -295,6 +295,13 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(res.headers['cache-control']).to.eq('no-store');
     });
 
+    it('sends no cookie for an authenticated request: the idle expiry slides in the issuer, the cookie stays a browser-session cookie (N8a-D7)', async () => {
+      const h = await s.issuer.issue(alice, FACTS());
+      const res = await probe({ Cookie: cookieOf(h.id) });
+      expect(res.status).to.eq(200);
+      expect(res.headers['set-cookie']).to.eq(undefined);
+    });
+
     it('an express-signed cookie (s: prefix, req.signedCookies) restores too', async () => {
       const h = await s.issuer.issue(alice, FACTS());
       const p = await principalWith({ Cookie: `${cookieName}=${encodeURIComponent('s:' + cs.sign(h.id, COOKIE_SECRET))}` });
