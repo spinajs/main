@@ -2,14 +2,15 @@ import 'mocha';
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BaseSocketController, Command, Connection, SocketConnection, SocketController, SocketPolicy } from '@spinajs/http-socket';
 import type { Socket as ClientSocket } from 'socket.io-client';
 
 import * as socketApi from '../../src/socket/index.js';
 import { Authenticated, MfaSatisfied, NoImpersonationPolicy, NoTokenAuthPolicy, NotLoggedPolicy } from '../../src/socket/index.js';
 import * as v3 from '../../src/v3/index.js';
-import { loggedIn, loggedInAal2, seedUser, startApp, stopApp, switchHooksOn, tokens, useFakes } from '../v3-app/app.js';
+import { loggedIn, loggedInAal2, seedUser, startApp, step, stopApp, switchHooksOn, tokens, useFakes } from '../v3-app/app.js';
 import { closeSockets, command, connected, disconnectNotice, errorOf, refusalOf, resultOf, socketTo, startSockets, stopSockets } from './support.js';
 import type { SocketOptions } from './support.js';
 
@@ -85,7 +86,7 @@ describe('@spinajs/authn-http/socket: authn and the 3.0 authn-http policies on s
   it('exports the session source and the five 3.0 policies that work on sockets; the package root does not load it', () => {
     expect(Object.keys(socketApi).sort()).to.deep.equal(['Authenticated', 'MfaSatisfied', 'NoImpersonationPolicy', 'NoTokenAuthPolicy', 'NotLoggedPolicy', 'SessionSocketPrincipalSource']);
     expect(socketApi.NoTokenAuthPolicy).to.equal(v3.NoTokenAuthPolicy);
-    expect(readFileSync(join(process.cwd(), 'src', 'index.ts'), 'utf8')).to.not.match(/\.\/socket\//);
+    expect(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'index.ts'), 'utf8')).to.not.match(/['"]\.\/socket(\/|\.js|['"])/);
   });
 
   describe('bearer tokens through the real AuthnService', () => {
@@ -138,6 +139,18 @@ describe('@spinajs/authn-http/socket: authn and the 3.0 authn-http policies on s
       const admin = await loggedInAal2(await seedUser());
       expect((await admin.post('/auth/impersonate', { target: target.ref.id })).status).to.eq(200);
       expect(errorOf(await command(await opened({ cookie: admin.cookie }), 'authnsock.noImpersonation'))).to.deep.include({ code: 'forbidden', details: { error: 'impersonating' } });
+    });
+
+    it('NotLoggedPolicy refuses a logged-in session caller too', async () => {
+      const c = await loggedIn(await seedUser());
+      expect(errorOf(await command(await opened({ cookie: c.cookie }), 'authnsock.notLogged'))).to.deep.include({ code: 'forbidden', details: { error: 'already_authenticated' } });
+    });
+
+    it('MfaSatisfied refuses an aal1 session of an enrolled identity', async () => {
+      const u = await seedUser();
+      const c = await loggedIn(u);
+      step.enrol(u.ref);
+      expect(errorOf(await command(await opened({ cookie: c.cookie }), 'authnsock.mfa'))).to.deep.include({ code: 'forbidden', details: { error: 'mfa_required' } });
     });
 
     it('MfaSatisfied passes an aal2 session and answers UNATTENDED unauthenticated', async () => {
