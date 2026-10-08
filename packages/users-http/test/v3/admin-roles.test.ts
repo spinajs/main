@@ -14,7 +14,7 @@ import type { Principal } from '@spinajs/authz';
 
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, seedRoles, unseedRoles } from '../support/authz-host.js';
-import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
+import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld, signedInPrincipalOf } from '../support/admin-world.js';
 
 /**
  * Role changes of the admin user routes go through AuthzAdmin with the caller as actor, so authz-rbac's
@@ -49,7 +49,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     DI.clearCache();
   });
 
-  const admin = () => principalOf(ADMIN_UUID);
+  const admin = () => signedInPrincipalOf(ADMIN_UUID);
   const config = () => DI.get(Configuration)!;
 
   describe('Users.list role filter', () => {

@@ -23,6 +23,15 @@ the lifecycle routes (activate, deactivate, ban, unban) need a grant on every us
 AuthzAdmin or the account guard (create, update, delete, deactivate, ban, assignable roles) need a signed-in user as the
 caller; a service principal is refused there.
 
+A `PATCH /users/:uuid` that changes the `Email` or `Login` of another account also needs authn's
+`CredentialAdminGuard` (action `password-reset`), as `@spinajs/authn-http`'s admin password reset does: the public
+password reset goes to that address, so the change could hand the account over. The guard is asked before anything is
+checked or written; it answers as on the session routes below (`403 forbidden`, `protected_role`, `escalation`), and
+without a registered guard such a change is refused. A role-only change, an `Email` or `Login` sent unchanged, and a
+change of the caller's own account need only `users:update`. Note that users' guard checks `users:credentials`, which
+no package declares: until the application registers it, such a change answers 500 (`UnknownPermission`) and writes
+nothing.
+
 ## Routes
 
 | Method   | Path                                          | Permission     | What it does                                              |
@@ -59,7 +68,8 @@ addressed row), they need what `@spinajs/authn-http`'s credential admin routes n
   body field `reauthPassword` (`403 fresh_auth_required`, a wrong password the login failure `401`).
 
 No package declares `users:credentials`; an application that uses these routes registers it
-(`authz.permissions: { 'users:credentials': {} }`) and grants it. A list entry carries `Handle` (the issuer's
+(`authz.permissions: { 'users:credentials': {} }`) and grants it; until then the routes answer 500
+(`UnknownPermission`) and end nothing. A list entry carries `Handle` (the issuer's
 one-way handle, never the session id), `Created`, `LastSeen` and, when stored, `Ip` and `UserAgent`, so an
 administrator can tell the devices apart before ending one. A handle that is not one of this user's sessions answers
 `404 session_not_found`. Answers carry `Cache-Control: no-store`. An ended session is audited as `session.revoke`
@@ -141,6 +151,8 @@ This package's config fragment declares the `users:read`, `users:create`, `users
 - 3.0: the session list and the per-handle revoke read the 3.0 `SessionIssuer` and need a session caller and the
   credential admin guard (see "Sessions of a user"); the revoke also needs fresh authentication. A list entry is
   `{ Handle, Created, LastSeen, Ip?, UserAgent? }` (`IAdminSessionEntry`); `Expires` is gone.
+- 3.0: changing the `Email` or `Login` of another account through `PATCH /users/:uuid` needs the credential admin
+  guard (`users:credentials`, the target covered, no protected role) besides `users:update`.
 - `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and
   `POST /users/security/deactivate/:uuid`.
 - `activate` now requires `updateAny` instead of `deleteAny`.

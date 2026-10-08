@@ -122,6 +122,8 @@ Own and admin metadata routes with owner scoping and the protected-key guard; al
 
 Admin user records, roles, role guard and credential and lifecycle actions; user-record and lifecycle tests adapt in C2, role and guard tests rewrite (C4 or C2), credential tests rewrite (N8b).
 
+C2b task 5: a PATCH that changes the Email or Login of another account asks the credential admin guard, so the acting `admin` of this suite (and of `test/v3/admin-roles.test.ts`) is a password-session principal (`signedInPrincipalOf`) and `admin` holds `users:credentials`; intent and expected values unchanged. The guard itself is pinned by `test/v3/identity-change-guard.test.ts` (no ledger rows).
+
 | # | Line | Test | Class | Lane | Target | Now |
 |---|---|---|---|---|---|---|
 | 1 | 175 | Admin user controllers > Users.list > returns all users with the total count header | adapt | C2 | users-http/test/ | adapted (C2b task 3): test/users-controller.test.ts, called with the caller's principal and the addressed uuid instead of 2.x `User` records; the route itself is on `@Access` (test/v3/admin-access.test.ts) |

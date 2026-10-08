@@ -13,6 +13,7 @@ import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { asHttpRefusal, userActor } from '../../../services/actor.js';
+import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
 import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
@@ -500,12 +501,15 @@ export class Users extends BaseController {
    * the privileged permission from an account must also leave another account in service holding it
    * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
    * role leaves the login and email untouched too. An empty list is refused rather than applied.
+   * Changing the `Email` or `Login` of another account also needs authn's CredentialAdminGuard
+   * (action `password-reset`; users': `users:credentials`, the target covered, no protected role):
+   * the password reset goes to that address.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, or the account guard refused it (own privilege, last active privileged account)
+   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, the account guard refused it (own privilege, last active privileged account), or the credential admin guard refused an e-mail or login change of another account (`forbidden`, `protected_role`, `escalation`)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
@@ -525,6 +529,13 @@ export class Users extends BaseController {
     const next = data.Role !== undefined ? roleList(data.Role) : null;
     if (next && next.length === 0) {
       throw new InvalidArgument('Role must name at least one role', 'Role');
+    }
+
+    // The public password reset mails the address, and the login names the account at sign-in: changing either on another
+    // account can hand it over, so it takes what authn-http's admin password reset takes, before anything else is checked.
+    const changesIdentity = (data.Email ?? target.Email) !== target.Email || (data.Login ?? target.Login) !== target.Login;
+    if (changesIdentity && target.Uuid !== by.id) {
+      await assertCredentialAdmin(by, target.Uuid, 'password-reset');
     }
 
     let commands: AuthzCommand[] = [];

@@ -17,7 +17,7 @@ import { Security } from '../src/admin/controllers/Users/Security.js';
 import { Profile } from '../src/admin/controllers/Users/Profile.js';
 
 import { globalRolesOf } from './support/authz-host.js';
-import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from './support/admin-world.js';
+import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld, signedInPrincipalOf } from './support/admin-world.js';
 
 /**
  * Integration tests for the admin user-management controllers.
@@ -74,7 +74,7 @@ describe('Admin user controllers', function () {
     DI.clearCache();
   });
 
-  const admin = () => principalOf(ADMIN_UUID);
+  const admin = () => signedInPrincipalOf(ADMIN_UUID);
 
   describe('Users.list', () => {
     it('returns all users with the total count header', async () => {
