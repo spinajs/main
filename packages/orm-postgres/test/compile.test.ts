@@ -93,6 +93,15 @@ describe('postgres SQL compilation', function () {
     });
   });
 
+  describe('recursive CTE', () => {
+    it('quotes the CTE column list and the ON keys alike, so a mixed-case key resolves', () => {
+      const result = sqb().withRecursive('Parent_Id', 'Id').from('roles').columns(['Id', 'Parent_Id']).toDB();
+
+      expect(sql(result)).to.contain('recursive_cte("Id","Parent_Id")');
+      expect(sql(result)).to.contain('ON "$recursive$"."Parent_Id" = "$recursive_cte$"."Id"');
+    });
+  });
+
   describe('whereExist correlation', () => {
     function compiled(query: { toDB(): unknown }) {
       return sql(query.toDB() as ICompilerOutput);

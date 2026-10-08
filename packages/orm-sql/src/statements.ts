@@ -122,6 +122,9 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
 
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   /**
    * REBINDS to the builder it is handed. `_query` is the OWNING query — `withRecursive()`
    * passes `this` — and `build()` mutates it ( it pushes a join before compiling the recursive
@@ -129,7 +132,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
    * from and pushed joins into it.
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlWithRecursiveStatement {
-    return new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName);
+    return _carryQuoter(new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName), this);
   }
 
   public build(): IQueryStatementResult {
@@ -172,7 +175,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
     const additionalQuery = this._query.clone().clearRecursive().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
-      .map((c: ColumnStatement) => c.Column)
+      .map((c: ColumnStatement) => typeof c.Column === 'string' ? this.Quoter.quote(c.Column) : c.Column.Query)
       .join(',');
 
     return {
@@ -382,8 +385,6 @@ export class SqlJoinStatement extends JoinStatement {
         joinTable = `${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
       }
     }
-
-
 
     const primaryKey = `${this.Quoter.quote(sourceTableAlias ?? sourceTable)}.${this.Quoter.quote(this._options.sourceTablePrimaryKey as string)}`;
     const foreignKey = `${this.Quoter.quote(joinTableAlias ?? joinTable)}.${this.Quoter.quote(this._options.joinTableForeignKey as string)}`;
