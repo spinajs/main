@@ -219,6 +219,7 @@ const PUBLIC_EXPORTS = [
   'decodeSessionData',
   'encodeSessionData',
   'isLegacySessionId',
+  'peekingSessions',
   'sessionCookie',
   'sessionCookieMaxAge',
   'sessionCookieName',

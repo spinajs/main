@@ -1,18 +1,18 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Settings } from 'luxon';
 import { DI } from '@spinajs/di';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import type { Principal } from '@spinajs/authn/contracts';
+import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
 import { storageKeyOf } from '@spinajs/authn-session';
 import type { ISession, SessionProvider } from '@spinajs/authn-session';
 import { AuthnCredentialSource, BaseSocketController, Command, Connection, SocketConnection, SocketController, SocketPrincipalSource } from '@spinajs/http-socket';
 import type { ISocketHandshake } from '@spinajs/http-socket';
 
 import { SessionSocketPrincipalSource } from '../../src/socket/index.js';
-import { Client, clearLog, cookieName, identities, logLines, loggedIn, roles, seedUser, signed, startApp, step, stopApp, switchHooksOn, tokens, useFakes } from '../v3-app/app.js';
+import { Client, clearLog, cookieName, events, guard, identities, logLines, loggedIn, loggedInAal2, roles, seedUser, signed, startApp, step, stopApp, switchHooksOn, tokens, useFakes } from '../v3-app/app.js';
 import { closeSockets, command, connected, disconnectNotice, refusalOf, resultOf, socketTo, startSockets, stopSockets } from './support.js';
 import type { SocketOptions } from './support.js';
 
@@ -39,6 +39,9 @@ const sessionClockAt = (ms: number): void => {
   Settings.now = () => ms;
 };
 
+// AuthnMiddleware's log hash: socket and http log lines of one session correlate
+const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
+
 async function who(o: SocketOptions) {
   const socket = socketTo(o);
   await connected(socket);
@@ -53,7 +56,9 @@ async function bearerFor(): Promise<{ id: string; token: string }> {
 }
 
 function handshakeOf(cookie: string): ISocketHandshake {
-  return { auth: {}, headers: {}, cookies: { [cookieName()]: cookie }, address: '127.0.0.1', url: '/socket.io/?EIO=4&transport=websocket', query: {}, secure: false, issuedAt: Date.now() };
+  // a variable, not a returned literal: an http-socket lib built before peerAddress was added would reject it as excess
+  const handshake = { auth: {}, headers: {}, cookies: { [cookieName()]: cookie }, address: '127.0.0.1', peerAddress: '127.0.0.1', url: '/socket.io/?EIO=4&transport=websocket', query: {}, secure: false, issuedAt: Date.now() };
+  return handshake;
 }
 
 async function sessionSource(): Promise<SessionSocketPrincipalSource> {
@@ -168,6 +173,37 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
     expect((await who({ cookie: c.cookie })).who).to.deep.include({ id: u.ref.id, roles: ['editor'] });
   });
 
+  it('M2 refuses an active session that gives no principal, without trying a bearer token, as http does', async () => {
+    const u = await seedUser();
+    const c = await loggedIn(u);
+    const other = await bearerFor();
+    identities.setStatus(u.ref, { banned: true });
+
+    expect(await refusalOf(socketTo({ cookie: c.cookie, token: other.token }))).to.deep.include({ code: 'unauthenticated' });
+  });
+
+  it('M4 ends an impersonation past maxMinutes and closes its socket', async () => {
+    await guard.allowAll();
+    const target = await seedUser();
+    const c = await loggedInAal2(await seedUser());
+    expect((await c.post('/auth/impersonate', { target: target.ref.id })).status).to.eq(200);
+    const { socket, who: seen } = await who({ cookie: c.cookie });
+    expect(seen).to.deep.include({ id: target.ref.id, source: 'session' });
+    const notice = disconnectNotice(socket);
+
+    type WithContext = { context(handshake: ISocketHandshake): AuthnContext };
+    const proto = SessionSocketPrincipalSource.prototype as unknown as WithContext;
+    const context = proto.context;
+    // V3AppConfiguration: impersonation.maxMinutes 60
+    sinon.stub(proto, 'context').callsFake(function (this: WithContext, handshake: ISocketHandshake) {
+      return { ...context.call(this, handshake), now: new Date(Date.now() + 61 * 60_000) };
+    });
+
+    expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    expect(events.ofType('impersonation.expire').some((e) => e.reason === 'max_minutes')).to.eq(true);
+    expect(await (await sessionStore()).restore(storageKeyOf(c.sessionId!))).to.eq(null);
+  });
+
   describe('cookie rules shared with AuthnMiddleware', () => {
     it("accepts the `s:` form of express's signed cookies and refuses it with a wrong signature", async () => {
       const u = await seedUser();
@@ -210,6 +246,25 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
       for (const secret of [rawId, storageKeyOf(rawId), signed(rawId), encodeURIComponent(signed(rawId))]) {
         expect(lines).to.not.include(secret);
       }
+    });
+
+    it('M3 takes a correctly signed empty id for no session, not for a bad signature', async () => {
+      clearLog();
+
+      expect((await who({ cookie: signed('') })).who).to.deep.equal(UNATTENDED_WHO);
+      expect(logLines().join('\n')).to.not.include('invalid signature');
+    });
+
+    it('M3 logs a cookie of no live session with the hashed id, as http does', async () => {
+      const c = await loggedIn(await seedUser());
+      const rawId = c.sessionId!;
+      expect((await c.post('/auth/logout')).status).to.eq(200);
+      clearLog();
+
+      expect((await who({ cookie: signed(rawId) })).who).to.deep.equal(UNATTENDED_WHO);
+      const line = logLines().find((l) => l.includes('names no live session'));
+      expect(line).to.include(logHash(rawId));
+      expect(line).to.not.include(rawId);
     });
   });
 
@@ -333,24 +388,40 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
       expect(logLines().some((l) => l.includes('still unavailable, closing after grace'))).to.eq(true);
     });
 
-    it('Q5 slides the session while the socket is open, and maxLifetime still ends it', async () => {
+    it('I1 never slides the session: an idle socket ends at the idle timeout despite the sweeps', async () => {
+      const c = await loggedIn(await seedUser());
+      const { socket } = await who({ cookie: c.cookie });
+      const row = await storedRow(c);
+      const deadline = row.Expiration!.toMillis();
+
+      sessionClockAt(row.Creation.toMillis() + 100 * 60_000);
+      await delay(REVALIDATE_MS * 3);
+      expect(socket.connected, 'still inside the idle timeout').to.eq(true);
+      expect(row.Expiration!.toMillis(), 'the sweeps did not slide it').to.eq(deadline);
+
+      const notice = disconnectNotice(socket);
+      sessionClockAt(deadline + 1000);
+      expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    });
+
+    it('a handshake slides the session as an http request does, and maxLifetime still ends it', async () => {
       const u = await seedUser();
       const c = await loggedIn(u);
-      const { socket } = await who({ cookie: c.cookie });
       const row = await storedRow(c);
       const created = row.Creation.toMillis();
       expect(row.Expiration!.toMillis()).to.be.closeTo(created + IDLE_MS, 5000);
 
-      // each step lies inside the idle timeout the previous revalidation renewed; together they outlive it many times
+      // each handshake lies inside the idle timeout the previous one renewed; together they outlive it many times
+      let socket: ReturnType<typeof socketTo> | null = null;
       for (let at = 100 * 60_000; at < MAX_LIFETIME_MS; at += 100 * 60_000) {
         sessionClockAt(created + at);
-        // past revalidateMs: the sweep or this command revalidates on the moved clock
-        await delay(REVALIDATE_MS + 50);
-        expect(resultOf(await command(socket, 'sess.who')), `at ${at / 60_000} min`).to.deep.include({ id: u.ref.id });
+        const opened = await who({ cookie: c.cookie });
+        expect(opened.who, `at ${at / 60_000} min`).to.deep.include({ id: u.ref.id, source: 'session' });
         expect(row.Expiration!.toMillis(), `at ${at / 60_000} min`).to.eq(Math.min(created + at + IDLE_MS, created + MAX_LIFETIME_MS));
+        socket = opened.socket;
       }
 
-      const notice = disconnectNotice(socket);
+      const notice = disconnectNotice(socket!);
       sessionClockAt(created + MAX_LIFETIME_MS + 60_000);
       expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
     });

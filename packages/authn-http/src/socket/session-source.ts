@@ -1,24 +1,30 @@
+import { createHash } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container, DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
-import { appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
+import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { SocketPrincipalSource } from '@spinajs/http-socket';
-import type { ISocketHandshake } from '@spinajs/http-socket';
+import { AUTHENTICATION_FAILED, SocketPrincipalSource } from '@spinajs/http-socket';
+import type { ISocketHandshake, SocketRevalidationResult } from '@spinajs/http-socket';
 
 import { SessionPrincipalResolver } from '../resolvers/session.js';
+
+// AuthnMiddleware's: sha256 of a raw session id is its storage key, which must not reach a log.
+const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
 
 /**
  * The browser session cookie as a socket principal: AuthnMiddleware's restore and SessionPrincipalResolver for a handshake.
  * Order 40, before AuthnCredentialSource ( 50 ): an active session wins over bearer credentials, as in http. A pending
- * session, or an unknown, ended or forged cookie, gives null, so a bearer token is still tried ( SR-07 ). http-socket
- * refuses a cross-site handshake before any source runs ( SR-12 ). Revalidation restores the session again, so logout,
- * revocation or an id rotation closes the socket.
+ * session, or an unknown, ended or forged cookie, gives null, so a bearer token is still tried ( SR-07 ); an active
+ * session that gives no principal refuses the handshake, as http tries no bearer credentials beside it. http-socket
+ * refuses a cross-site handshake before any source runs ( SR-12 ). Revalidation reads the session again without
+ * sliding it, so logout, revocation, an id rotation or the idle timeout closes the socket.
  */
 @Injectable(SocketPrincipalSource)
 export class SessionSocketPrincipalSource extends SocketPrincipalSource {
@@ -54,14 +60,33 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
 
     const session = await (await this.Container.resolve(SessionIssuer)).restore(rawId);
     if (!session) {
+      this.Log.warn('Session cookie names no live session (expired or unknown)', { Session: logHash(rawId), Ip: handshake.address });
       return null;
     }
 
     const resolver = await this.Container.resolve(SessionPrincipalResolver);
-    return resolver.principalOfSession(session, this.context(handshake));
+    const principal = await resolver.principalOfSession(session, this.context(handshake));
+    if (principal === null && session.handle.state === 'active') {
+      throw new AuthenticationFailed(AUTHENTICATION_FAILED);
+    }
+
+    return principal;
   }
 
-  /** The raw session id from the signed cookie; null when it is absent, unsigned or forged. */
+  /**
+   * The inherited check on a read that does not slide the session. The guard does not tell a sweep from a check a command
+   * triggered, and background traffic is no user activity, so no revalidation extends the session; a handshake does, as
+   * an http request does. Only DefaultSessionIssuer honours `peekingSessions`.
+   */
+  public revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+    return peekingSessions(() => super.revalidate(handshake, principal));
+  }
+
+  /**
+   * The raw session id from the signed cookie; null when it is absent, unsigned, forged or empty. Both the raw form
+   * (`cs.sign`) and express's `s:` form are verified here with `http.cookie.secret`: the handshake carries raw cookie
+   * values, whatever cookie parser the app's http stack uses.
+   */
   protected sessionId(handshake: ISocketHandshake): string | null {
     const env = appEnvOf(this.Configuration);
     const value = handshake.cookies[sessionCookieName(this.SessionCookie ?? {}, env)];
@@ -70,14 +95,13 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
     }
 
     assertSessionCookieSecret(this.CookieSecret, env);
-    // @spinajs/http signs by hand ( cs.sign ); express res.cookie({ signed: true }) adds an `s:` prefix
     const id = cs.unsign(value.startsWith('s:') ? value.slice(2) : value, this.CookieSecret);
-    if (id === false || id === '') {
-      this.Log.warn('Rejected a socket session cookie with an invalid signature', { Ip: handshake.address });
+    if (id === false) {
+      this.Log.warn('Rejected a socket session cookie with an invalid signature', { Cookie: logHash(value), Ip: handshake.address });
       return null;
     }
 
-    return id;
+    return id === '' ? null : id;
   }
 
   protected context(handshake: ISocketHandshake): AuthnContext {

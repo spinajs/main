@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
@@ -51,6 +52,16 @@ type Restored = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFact
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
+
+const PEEKING = new AsyncLocalStorage<true>();
+
+/**
+ * Runs `fn` with every DefaultSessionIssuer.restore in it working as `peek`: a background re-check (a socket's
+ * revalidation sweep) is no user activity, and code it calls, such as AuthnImpersonationService, restores again.
+ */
+export function peekingSessions<T>(fn: () => Promise<T>): Promise<T> {
+  return PEEKING.run(true, fn);
+}
 
 /** Storage key of a handle, or null for a malformed one. */
 const keyOf = (h: SessionHandle | undefined): string | null => {
@@ -120,6 +131,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return { id: rawId, state: pending ? 'pending' : 'active' };
   }
 
+  /** `restore` without its side effects: checks the session but neither slides its idle deadline nor records lastSeenAt. */
+  public peek(rawId: string): Promise<Restored | null> {
+    return peekingSessions(() => this.restore(rawId));
+  }
+
   public async restore(rawId: string): Promise<Restored | null> {
     if (typeof rawId !== 'string' || rawId.length === 0 || rawId.length > MAX_RAW_ID_LENGTH) {
       return null;
@@ -138,7 +154,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return null;
     }
 
-    if (session.State === 'active') {
+    if (session.State === 'active' && !PEEKING.getStore()) {
       await this.refresh(session);
     }
     // The store checked the row before the renewal; a just-migrated 2.x row past maxLifetime is only caught here.
