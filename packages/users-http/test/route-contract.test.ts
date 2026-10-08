@@ -3,146 +3,33 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
-import { ACL_CONTROLLER_DESCRIPTOR, Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
-import { ACCESS_CLASS, accessDescriptorOf } from '@spinajs/authz-http';
 import { DataValidator } from '@spinajs/validation';
 
-import { CreateUserDto, UpdateUserDto, Users } from '../src/admin/controllers/Users/Users.js';
-import { Security } from '../src/admin/controllers/Users/Security.js';
-import { Profile } from '../src/admin/controllers/Users/Profile.js';
+import { CreateUserDto, UpdateUserDto } from '../src/admin/controllers/Users/Users.js';
 
 import { TestConfiguration } from './admin-common.js';
 
 /**
- * The layers the handler-level suite cannot see.
+ * The JSON schemas applied to the admin bodies, run through the real validator.
  *
- * `users-controller.test.ts` calls handlers directly, which is the right way to
- * test what they DO — but it walks straight past the two things that decide
- * whether a request ever reaches them: the policies attached to the route and
- * the JSON schema applied to the body. Both have already failed silently once:
- * two read routes shipped with no permission decorator at all ( so any logged-in
- * user could read any account ), and PATCH shared the creation schema ( so every
- * documented partial update was rejected ).
- *
- * These assertions read the descriptors the http and authz-http decorators produce,
- * and run the DTO schemas through the real validator. No server is started —
- * this is a contract test, not an end-to-end one.
+ * `users-controller.test.ts` calls handlers directly and walks past them; PATCH once
+ * shared the creation schema, so every documented partial update was rejected. The
+ * route descriptors (`@Access`, policies, verbs) are pinned in
+ * `test/v3/route-contract-access.test.ts`. No server is started.
  */
-
-const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
-
-const routesOf = (instance: object): IRoute[] => [...controllerDescriptor(instance).Routes.values()];
-
-const accessOf = (instance: object, method: string) => {
-  const d = accessDescriptorOf(instance);
-  return { route: d?.Access.get(method), anonymous: !!d && (d.Anonymous.has(method) || d.Anonymous.has(ACCESS_CLASS)) };
-};
 
 describe('Admin route contract', function () {
   this.timeout(25000);
-
-  let controllers: Array<{ name: string; instance: object }>;
 
   before(async () => {
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
 
     await DI.resolve(Configuration);
-
-    controllers = [
-      { name: 'Users', instance: await DI.resolve(Users) },
-      { name: 'Security', instance: await DI.resolve(Security) },
-      { name: 'Profile', instance: await DI.resolve(Profile) },
-    ];
   });
 
   after(() => {
     DI.clearCache();
-  });
-
-  describe('authorization', () => {
-    /** The permission of each route: the 2.x verb (readAny → read, createAny → create, ...) on the `users` type. */
-    const PERMISSIONS: Record<string, string> = {
-      'Users.list': 'users:read',
-      'Users.assignableRoles': 'users:read',
-      'Users.getSingleUser': 'users:read',
-      'Users.getByLogin': 'users:read',
-      'Users.addUser': 'users:create',
-      'Users.updateUser': 'users:update',
-      'Users.removeUser': 'users:delete',
-      'Users.restoreUser': 'users:delete',
-      'Security.activateUser': 'users:update',
-      'Security.deactivateUser': 'users:delete',
-      'Security.banUser': 'users:delete',
-      'Security.unbanUser': 'users:update',
-      'Security.listSessions': 'users:read',
-      'Security.revokeSession': 'users:update',
-      'Profile.getUserProfile': 'users:read',
-    };
-
-    /** A route without `@Access` is open to whatever its other policies let through; anonymous admin routes are never meant. */
-    it('every admin route sits on @Access, none allows anonymous callers', () => {
-      const unguarded: string[] = [];
-
-      for (const { name, instance } of controllers) {
-        for (const route of routesOf(instance)) {
-          const access = accessOf(instance, String(route.Method));
-          if (!access.route || access.anonymous) {
-            unguarded.push(`${name}.${String(route.Method)}`);
-          }
-        }
-      }
-
-      expect(unguarded, 'routes without @Access, or with @AllowAnonymous').to.deep.eq([]);
-    });
-
-    it('every admin route checks one users permission, by the verb it had in 2.x', () => {
-      const seen: Record<string, string> = {};
-
-      for (const { name, instance } of controllers) {
-        for (const route of routesOf(instance)) {
-          seen[`${name}.${String(route.Method)}`] = accessOf(instance, String(route.Method)).route!.permissions.join(',');
-        }
-      }
-
-      expect(seen).to.deep.eq(PERMISSIONS);
-    });
-
-    // In the @Access group (AND); a separate @Policy group would be an alternative to @Access (OR).
-    it('the session routes also need a session caller that is not impersonating, as authn-http credential admin routes', () => {
-      const security = controllers.find((c) => c.name === 'Security')!.instance;
-
-      for (const method of ['listSessions', 'revokeSession']) {
-        expect(accessOf(security, method).route!.options.also, method).to.deep.eq([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]);
-        expect(controllerDescriptor(security).Routes.get(method)!.Policies, method).to.have.length(1);
-      }
-    });
-
-    it('no admin route carries the 2.x @Permission or @Resource any more', () => {
-      for (const { name, instance } of controllers) {
-        expect(Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance), name).to.eq(undefined);
-      }
-    });
-  });
-
-  describe('http verbs', () => {
-    /** Reading is the only thing GET is allowed to do here. */
-    const READ_ONLY_ROUTES = ['list', 'assignableRoles', 'getSingleUser', 'getByLogin', 'listSessions', 'getUserProfile'];
-
-    it('no state-changing route answers GET', () => {
-      const offenders: string[] = [];
-
-      for (const { name, instance } of controllers) {
-        for (const route of routesOf(instance)) {
-          if (route.Type === RouteType.GET && !READ_ONLY_ROUTES.includes(String(route.Method))) {
-            offenders.push(`${name}.${String(route.Method)}`);
-          }
-        }
-      }
-
-      expect(offenders, 'activating, deactivating or logging a user out over GET is triggerable by a link or a prefetch').to.deep.eq([]);
-    });
   });
 
   describe('body schemas', () => {
