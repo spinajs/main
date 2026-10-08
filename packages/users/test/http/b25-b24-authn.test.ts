@@ -133,10 +133,9 @@ function usersHostHarness(): BehaviourHarness {
           expectOk(res, `login of ${actor.login}`);
           if (aal2) {
             res = await send(h, ROUTES.mfaVerify!(step.nextCode(actor.ref)), jar);
-            if (f.kind === 'impersonation') expectOk(res, `MFA of ${actor.login}`);
+            expectOk(res, `MFA of ${actor.login}`);
           }
-          // No authz.principals.roleSwitch.requirePassword: every role asks for the password; impersonation keeps
-          // requirePassword and requireMfa on.
+          // The session is fresh, so the password sent here is not checked; A26/http covers a stale switch.
           if (f.kind === 'roleSwitch') res = await send(h, ROUTES.activeRoleSet!(f.role, actor.password), jar);
           if (f.kind === 'impersonation') res = await send(h, ROUTES.impersonateStart!({ type: 'user', id: account(f.target).ref.id }, actor.password), jar);
 
