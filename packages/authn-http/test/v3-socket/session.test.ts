@@ -72,6 +72,29 @@ async function sessionStore(): Promise<SessionProvider> {
   return ((await DI.resolve(SessionIssuer)) as unknown as { Store: SessionProvider }).Store;
 }
 
+type RevalidateSpy = sinon.SinonSpy<Parameters<SessionSocketPrincipalSource['revalidate']>, ReturnType<SessionSocketPrincipalSource['revalidate']>>;
+
+/** The first revalidate() from call `from` on whose check reports client activity; null when the guard passes no check at all. */
+async function activeRevalidation(spy: RevalidateSpy, from: number, timeoutMs = 5000): Promise<sinon.SinonSpyCall<Parameters<SessionSocketPrincipalSource['revalidate']>, ReturnType<SessionSocketPrincipalSource['revalidate']>> | null> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const calls = spy.getCalls().slice(from);
+    if (calls.some((call) => call.args[2] === undefined)) {
+      return null;
+    }
+
+    const active = calls.find((call) => call.args[2]?.active === true);
+    if (active) {
+      return active;
+    }
+
+    if (Date.now() > until) {
+      throw new Error(`no revalidation reporting client activity within ${timeoutMs} ms`);
+    }
+    await delay(20);
+  }
+}
+
 /** The live row of the memory store; restore() of the store itself does not slide it. */
 async function storedRow(c: Client): Promise<ISession> {
   const row = await (await sessionStore()).restore(storageKeyOf(c.sessionId!));
@@ -316,6 +339,27 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
       expect(await source.revalidate(handshake, principal)).to.eq('invalid');
     });
 
+    it('slides the session on a check that reports client activity, as an http request does', async () => {
+      const { c, source, handshake, principal } = await connectedSession();
+      const row = await storedRow(c);
+      const created = row.Creation.toMillis();
+      sessionClockAt(created + 100 * 60_000);
+
+      expect(await source.revalidate(handshake, principal, { trigger: 'sweep', active: true })).to.deep.include({ status: 'valid' });
+      expect(row.Expiration!.toMillis()).to.eq(created + 100 * 60_000 + IDLE_MS);
+    });
+
+    it('reads the session without sliding it on a check without client activity', async () => {
+      const { c, source, handshake, principal } = await connectedSession();
+      const row = await storedRow(c);
+      const deadline = row.Expiration!.toMillis();
+      sessionClockAt(row.Creation.toMillis() + 100 * 60_000);
+
+      expect(await source.revalidate(handshake, principal, { trigger: 'sweep', active: false })).to.deep.include({ status: 'valid' });
+      expect(await source.revalidate(handshake, principal)).to.deep.include({ status: 'valid' });
+      expect(row.Expiration!.toMillis()).to.eq(deadline);
+    });
+
     it('closes the socket of a session revoked from another device', async () => {
       const u = await seedUser();
       const c = await loggedIn(u);
@@ -390,7 +434,9 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
 
     it('I1 never slides the session: an idle socket ends at the idle timeout despite the sweeps', async () => {
       const c = await loggedIn(await seedUser());
-      const { socket } = await who({ cookie: c.cookie });
+      // no command: a command is client activity, for which the next sweep slides the session
+      const socket = socketTo({ cookie: c.cookie });
+      await connected(socket);
       const row = await storedRow(c);
       const deadline = row.Expiration!.toMillis();
 
@@ -424,6 +470,33 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
       const notice = disconnectNotice(socket!);
       sessionClockAt(created + MAX_LIFETIME_MS + 60_000);
       expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    });
+
+    it('slides the session of a socket-only user who sends a command in each idle window, without an http request', async function () {
+      const u = await seedUser();
+      const c = await loggedIn(u);
+      const { socket } = await who({ cookie: c.cookie });
+      const row = await storedRow(c);
+      const created = row.Creation.toMillis();
+      const revalidate = sinon.spy(SessionSocketPrincipalSource.prototype, 'revalidate');
+
+      // each command lies inside the idle timeout the previous slide renewed; together they outlive the first one
+      for (let at = 100 * 60_000; at <= 300 * 60_000; at += 100 * 60_000) {
+        sessionClockAt(created + at);
+        const from = revalidate.callCount;
+        expect(resultOf(await command(socket, 'sess.who')), `at ${at / 60_000} min`).to.deep.include({ id: u.ref.id, source: 'session' });
+
+        const check = await activeRevalidation(revalidate, from);
+        if (check === null) {
+          // the http-socket lib this suite resolves predates ISocketRevalidation: its guard passes no check
+          this.skip();
+        }
+        await check.returnValue;
+        expect(row.Expiration!.toMillis(), `at ${at / 60_000} min`).to.eq(created + at + IDLE_MS);
+      }
+
+      await delay(REVALIDATE_MS * 3);
+      expect(socket.connected, 'past the first idle timeout').to.eq(true);
     });
   });
 });

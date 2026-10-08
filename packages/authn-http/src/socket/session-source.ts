@@ -15,6 +15,9 @@ import type { ISocketHandshake, SocketRevalidationResult } from '@spinajs/http-s
 
 import { SessionPrincipalResolver } from '../resolvers/session.js';
 
+// http-socket's ISocketRevalidation written out, so this also compiles against an http-socket build that predates it
+type SocketRevalidationCheck = { readonly trigger: string; readonly active: boolean };
+
 // AuthnMiddleware's: sha256 of a raw session id is its storage key, which must not reach a log.
 const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
 
@@ -23,8 +26,8 @@ const logHash = (value: string): string => createHash('sha256').update(`authn-ht
  * Order 40, before AuthnCredentialSource ( 50 ): an active session wins over bearer credentials, as in http. A pending
  * session, or an unknown, ended or forged cookie, gives null, so a bearer token is still tried ( SR-07 ); an active
  * session that gives no principal refuses the handshake, as http tries no bearer credentials beside it. http-socket
- * refuses a cross-site handshake before any source runs ( SR-12 ). Revalidation reads the session again without
- * sliding it, so logout, revocation, an id rotation or the idle timeout closes the socket.
+ * refuses a cross-site handshake before any source runs ( SR-12 ). Revalidation reads the session again and slides
+ * it only for client activity, so logout, revocation, an id rotation or the idle timeout of an idle socket closes it.
  */
 @Injectable(SocketPrincipalSource)
 export class SessionSocketPrincipalSource extends SocketPrincipalSource {
@@ -74,11 +77,16 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
   }
 
   /**
-   * The inherited check on a read that does not slide the session. The guard does not tell a sweep from a check a command
-   * triggered, and background traffic is no user activity, so no revalidation extends the session; a handshake does, as
-   * an http request does. Only DefaultSessionIssuer honours `peekingSessions`.
+   * The inherited check. When `check.active` reports a command or an event since the last check ( or a recovery ), the
+   * session is restored as an http request restores it, which slides it, up to `http.socket.auth.revalidateMs` after the
+   * activity. Otherwise it is only read: sweeps are no user activity, so an idle socket still ends at the idle timeout.
+   * Only DefaultSessionIssuer honours `peekingSessions`.
    */
-  public revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+  public revalidate(handshake: ISocketHandshake, principal: Principal, check?: SocketRevalidationCheck): Promise<SocketRevalidationResult> {
+    if (check?.active) {
+      return super.revalidate(handshake, principal);
+    }
+
     return peekingSessions(() => super.revalidate(handshake, principal));
   }
 
