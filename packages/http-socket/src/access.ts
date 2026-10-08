@@ -21,6 +21,8 @@ export interface ISocketAccessOptions {
   allowAnonymous?: boolean;
   /** 'load': a conditional allow is checked again against the row the domain's ResourceAdapter loads, so the answer is definite */
   subject?: 'load' | 'none';
+  /** 'filter': the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead` */
+  fields?: 'filter' | 'none';
   /** why the payload skips authz-http's input field filter, as `@UnfilteredInput(reason)` */
   unfilteredInput?: string;
 }

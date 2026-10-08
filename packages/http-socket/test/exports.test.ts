@@ -6,6 +6,7 @@ import * as api from '../src/index.js';
 const PUBLIC_API = [
   'AUTHENTICATION_FAILED',
   'AccessDeniedMapping',
+  'AccessFieldsStage',
   'ArgumentsStage',
   'AuthenticationStage',
   'AuthnCredentialSource',
