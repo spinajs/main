@@ -9,11 +9,11 @@ import 'mocha';
 import type { RoleDef } from '../../src/index.js';
 import { RbacRoleGraphSource, RbacScopeAttributeSource } from '../../src/orm/index.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
-import { propertyPart } from './rules-arbitraries.js';
+import { propertyPart, propertyRuns } from './rules-arbitraries.js';
 import { DAY, PERMISSIONS, ROLES, RouteWorld, at, registerRouteSources, routeArgs, service, team, u, user } from './route-world.js';
 
 const SEED = 20261005;
-const RUNS = Number(process.env.L4B_ROUTE_RUNS ?? 300);
+const RUNS = propertyRuns('L4B_ROUTE_RUNS', 300);
 const part = propertyPart(RUNS);
 
 const ROLE_NAMES = [...ROLES.map((r) => r.name), 'nope'];

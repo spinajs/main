@@ -29,6 +29,18 @@ export interface PropertyPart {
  * the whole property's worlds (same seed; run i depends on the seed and i only) and checks its own slice of them,
  * so the n parts together check exactly the worlds of one whole run. Unset: the whole property.
  */
+/**
+ * The runs of a property: `L4B_PROP_RUNS` for every property (the nightly job sets 2,000, plan task 8), else the
+ * property's own variable, else its default.
+ */
+export function propertyRuns(own: string, dflt: number): number {
+  const raw = process.env.L4B_PROP_RUNS ?? process.env[own];
+  if (raw === undefined) return dflt;
+  const runs = Number(raw);
+  if (!Number.isInteger(runs) || runs < 1) throw new Error(`${process.env.L4B_PROP_RUNS !== undefined ? 'L4B_PROP_RUNS' : own}=${raw}: want a positive integer`);
+  return runs;
+}
+
 export const propertyPart = (() => {
   const spec = process.env.L4B_PROP_CHUNK;
   const m = spec ? /^(\d+)\/(\d+)$/.exec(spec) : null;

@@ -9,7 +9,7 @@ import 'mocha';
 import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP } from '../../src/index.js';
 import { RbacRoleGraphSource, RbacScopeAttributeSource } from '../../src/orm/index.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
-import { EXPIRY, ROLE_NAMES, TAGS, asRestrict, propertyPart, attributesOf, attributesOfArb, inexactLeafArb, rankArb, restrictArb, rowsOf, ruleOf, safetyAttributesArb, safetyWhenArb, subjectsArb, whenArb, worldOf } from './rules-arbitraries.js';
+import { EXPIRY, ROLE_NAMES, TAGS, asRestrict, propertyPart, propertyRuns, attributesOf, attributesOfArb, inexactLeafArb, rankArb, restrictArb, rowsOf, ruleOf, safetyAttributesArb, safetyWhenArb, subjectsArb, whenArb, worldOf } from './rules-arbitraries.js';
 import type { Rule, When } from './rules-arbitraries.js';
 import { RouteWorld, at, registerRouteSources, routeArgs, service, thresholdArgs, u, user } from './route-world.js';
 /*
@@ -26,8 +26,8 @@ import { RouteWorld, at, registerRouteSources, routeArgs, service, thresholdArgs
  */
 
 const SEED = 20261005;
-const RUNS = Number(process.env.L4B_RULES_RUNS ?? 300);
-const SAFETY_RUNS = Number(process.env.L4B_SAFETY_RUNS ?? 200);
+const RUNS = propertyRuns('L4B_RULES_RUNS', 300);
+const SAFETY_RUNS = propertyRuns('L4B_SAFETY_RUNS', 200);
 const [exactPart, safetyPart] = [propertyPart(RUNS), propertyPart(SAFETY_RUNS)];
 
 // The exact property's shapes as before the safety property: no string levels or tags, and no 'skipper'.

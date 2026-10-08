@@ -9,7 +9,7 @@ import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, toSqlForm } from '../../src/inde
 import { RbacRoleGraphSource, RbacScopeAttributeSource } from '../../src/orm/index.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
 import type { Kind } from '../orm/root-orm.js';
-import { EXPIRY, RULE_SCOPES, ROLE_NAMES, attributesOf, propertyPart, attributesOfArb, rowsOf, ruleOf, safetyAttributesArb, safetyWhenArb, subjectsArb, whenArb, worldOf } from './rules-arbitraries.js';
+import { EXPIRY, RULE_SCOPES, ROLE_NAMES, attributesOf, propertyPart, propertyRuns, attributesOfArb, rowsOf, ruleOf, safetyAttributesArb, safetyWhenArb, subjectsArb, whenArb, worldOf } from './rules-arbitraries.js';
 import type { Rule, When, WorldSpec } from './rules-arbitraries.js';
 import { DAY, LADDERS, RouteWorld, at, registerRouteSources, routeArgs, service, thresholdArgs, user } from './route-world.js';
 
@@ -27,8 +27,8 @@ import { DAY, LADDERS, RouteWorld, at, registerRouteSources, routeArgs, service,
  */
 
 const SEED = 20261005;
-const RUNS = Number(process.env.L4B_DB_RULES_RUNS ?? 100);
-const SAFETY_RUNS = Number(process.env.L4B_DB_SAFETY_RUNS ?? 80);
+const RUNS = propertyRuns('L4B_DB_RULES_RUNS', 100);
+const SAFETY_RUNS = propertyRuns('L4B_DB_SAFETY_RUNS', 80);
 const runsOn = (kind: Kind, runs: number) => (kind === 'sqlite' ? Math.max(1, Math.ceil(runs / 10)) : runs);
 
 // One comparison of a scope attribute with a literal, as toSqlForm takes it; decided exactly by SQL (or a fault, as in the check).
