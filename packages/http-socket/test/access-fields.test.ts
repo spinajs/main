@@ -6,8 +6,9 @@ import { BasePolicy } from '@spinajs/http';
 import { AuthzDomains, AuthzService } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
-import { SocketAccess } from '../src/access.js';
-import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
+import { SocketAccess, SocketAccessPolicy } from '../src/access.js';
+import { AccessFieldsStage } from '../src/stages/access-fields.js';
+import { ITestServer, command, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 import { rawStream } from './stream-client.js';
 import { ScriptedSocketAuthz } from './scripted-authz.js';
 
@@ -71,16 +72,16 @@ export class AccessFieldsClassSocket extends BaseSocketController {
   }
 }
 
-/** An async iterable that is not a generator: only its iterator's return() can release what it holds. */
-export const acfSources = { returned: 0, started: 0 };
+export const acfSources = { returned: 0, started: 0, pulls: 0 };
 
+/** An async iterable that is not a generator: only its iterator's return() can release what it holds. */
 function closable(items: unknown[], hang = false): AsyncIterable<unknown> {
   return {
     [Symbol.asyncIterator]() {
       acfSources.started++;
       let i = 0;
       return {
-        next: () => (hang ? new Promise<IteratorResult<unknown>>(() => undefined) : Promise.resolve(i < items.length ? { done: false, value: items[i++] } : { done: true, value: undefined })),
+        next: () => (acfSources.pulls++, hang ? new Promise<IteratorResult<unknown>>(() => undefined) : Promise.resolve(i < items.length ? { done: false, value: items[i++] } : { done: true, value: undefined })),
         return: async () => {
           acfSources.returned++;
           return { done: true, value: undefined };
@@ -277,6 +278,7 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
     beforeEach(() => {
       acfSources.returned = 0;
       acfSources.started = 0;
+      acfSources.pulls = 0;
     });
 
     it("closes the handler's source when openStream refuses the stream", async () => {
@@ -288,10 +290,28 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
       const stream = rawStream(alice, 'acfx.hanging', null, 4);
 
       await stream.reply;
-      await waitFor(() => acfSources.started === 1);
-      await delay(50);
+      await waitFor(() => acfSources.pulls === 1);
       stream.cancel();
       await waitFor(() => acfSources.returned === 1);
     });
+  });
+
+  it('filters a value the source yields from its finally block when return() is called', async () => {
+    const source = (async function* () {
+      try {
+        yield { id: 'n1' };
+      } finally {
+        yield { ...ACF_NOTE };
+      }
+    })();
+    const ctx = { handler: { descriptor: { Policies: [[{ Type: SocketAccessPolicy, Options: [{ permissions: [], scope: 'handler', fields: 'filter' }] }]] }, controller: {} }, storage: {} };
+    const stream = (await new AccessFieldsStage().execute(ctx as never, async () => source)) as AsyncIterable<unknown>;
+    const iterator = stream[Symbol.asyncIterator]();
+
+    await iterator.next();
+    const step = await iterator.return!();
+    expect(step.done).to.equal(false);
+    expect(step.value).to.not.have.property('Password');
+    expect(step.value).to.have.property('title', 't');
   });
 });

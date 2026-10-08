@@ -20,16 +20,17 @@ function filtered(source: AsyncIterable<unknown>, filter: (chunk: unknown) => un
     [Symbol.asyncIterator](): AsyncIterator<unknown> {
       const iterator = source[Symbol.asyncIterator]();
 
+      // a done step carries no value: a generator's `return x` must not pass unfiltered
+      const settle = (step: IteratorResult<unknown>): IteratorResult<unknown> => (step.done ? { done: true, value: undefined } : { done: false, value: filter(step.value) });
+
       return {
-        next: async (...args: [] | [undefined]) => {
-          const step = await iterator.next(...args);
-          return step.done ? step : { done: false, value: filter(step.value) };
-        },
-        return: async (value?: unknown) => (iterator.return ? iterator.return(value) : { done: true, value }),
+        next: async (...args: [] | [undefined]) => settle(await iterator.next(...args)),
+        return: async () => (iterator.return ? settle(await iterator.return()) : { done: true, value: undefined }),
         throw: async (error?: unknown) => {
           if (iterator.throw) {
-            return iterator.throw(error);
+            return settle(await iterator.throw(error));
           }
+          await iterator.return?.();
           throw error;
         },
       };
