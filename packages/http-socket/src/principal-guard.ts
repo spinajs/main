@@ -134,7 +134,7 @@ export class SocketPrincipalGuard {
   }
 
   /** @param trigger - the client frame being served; a check it starts tells the source the client is active */
-  public async ensure(connection: SocketConnection, trigger: 'command' | 'event' = 'command'): Promise<void> {
+  public async ensure(connection: SocketConnection, trigger: 'command' | 'event'): Promise<void> {
     if (connection.auth.source === null) {
       return;
     }
@@ -173,6 +173,8 @@ export class SocketPrincipalGuard {
     }
 
     const restored = connection.principal;
+    // a reconnect is client activity, as a handshake is: stamped, so an 'unavailable' answer leaves it for the retry sweep
+    connection.auth.activeAt = Date.now();
     await (this.pending.get(connection) ?? this.check(connection, 'recovery'));
 
     if (connection.principal === restored && !this.closing.has(connection)) {

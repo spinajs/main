@@ -7,6 +7,7 @@ import type { Principal } from '@spinajs/authz';
 import { PROTOCOL_VERSION, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, OnEvent, SocketController } from '../src/decorators.js';
+import { SocketConnection } from '../src/connection.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SocketHub } from '../src/hub.js';
 import { ISocketHandshake, ISocketRevalidation, SocketPrincipalSource, SocketRevalidationResult } from '../src/interfaces.js';
@@ -16,11 +17,13 @@ import { ITestServer, command, connect, connected, errorOf, nextEvent, open, res
 /** Owns the tokens starting with 'activity-'; records the check each revalidate() gets and answers from `answers` ( 'valid' when empty ) once `gate` settles. */
 export class ActivityScriptedSource extends SocketPrincipalSource {
   public static checks: Array<ISocketRevalidation | undefined> = [];
+  public static checksOf = new Map<string, Array<ISocketRevalidation | undefined>>();
   public static answers: SocketRevalidationResult[] = [];
   public static gate: Promise<void> | null = null;
 
   public static reset(): void {
     ActivityScriptedSource.checks = [];
+    ActivityScriptedSource.checksOf = new Map();
     ActivityScriptedSource.answers = [];
     ActivityScriptedSource.gate = null;
   }
@@ -37,8 +40,9 @@ export class ActivityScriptedSource extends SocketPrincipalSource {
     return { type: 'user', id: token, authenticated: true, source: 'token', attributes: {} };
   }
 
-  public async revalidate(_handshake: ISocketHandshake, _principal: Principal, check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
+  public async revalidate(_handshake: ISocketHandshake, principal: Principal, check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
     ActivityScriptedSource.checks.push(check);
+    ActivityScriptedSource.checksOf.set(principal.id, [...(ActivityScriptedSource.checksOf.get(principal.id) ?? []), check]);
     if (ActivityScriptedSource.gate) {
       await ActivityScriptedSource.gate;
     }
@@ -159,6 +163,18 @@ describe('socket client activity in revalidation', function () {
     await sweep();
 
     expect(ActivityScriptedSource.checks).to.deep.equal([ACTIVE_SWEEP, SWEEP]);
+  });
+
+  it('reports the activity of one connection only to its own check', async () => {
+    await start();
+    const a = await openWith('activity-isolated-a');
+    await openWith('activity-isolated-b');
+
+    expect(resultOf(await command(a, 'activity.ping'))).to.equal('pong');
+    await sweep();
+
+    expect(ActivityScriptedSource.checksOf.get('activity-isolated-a')).to.deep.equal([ACTIVE_SWEEP]);
+    expect(ActivityScriptedSource.checksOf.get('activity-isolated-b')).to.deep.equal([SWEEP]);
   });
 
   it('counts a client event as activity', async () => {
@@ -304,6 +320,12 @@ describe('socket client activity in revalidation', function () {
     expect(ActivityScriptedSource.checks).to.deep.equal([{ trigger: 'event', active: true }, SWEEP]);
   });
 
+  it('requires the trigger of ensure(), so no caller reports activity it did not see', () => {
+    // @ts-expect-error the trigger is required
+    const withoutTrigger: Parameters<SocketPrincipalGuard['ensure']> = [{} as SocketConnection];
+    expect(withoutTrigger).to.have.length(1);
+  });
+
   it('still calls a source that overrides revalidate() with two parameters', async () => {
     await start();
     const socket = await openWith('activitytwo-legacy');
@@ -324,10 +346,10 @@ describe('socket client activity in revalidation', function () {
     expect(guard().restorable({ client, auth: { ...auth, activeAt: Date.now() } })).to.be.true;
   });
 
-  it('tells the source of a recovered connection that the client was active, without any command', async () => {
-    t = await startServer();
+  /** Drops a connection that read one packet and reconnects it with its stored session; resolves the recovered socket. */
+  const recovered = async (token: string): Promise<ClientSocket> => {
     const hub = DI.resolve(SocketHub);
-    const first = await openWith('activity-recovered');
+    const first = await openWith(token);
     const id = first.id!;
 
     // a packet with an offset: socket.io recovers only a session the client has read from
@@ -338,12 +360,32 @@ describe('socket client activity in revalidation', function () {
     first.io.engine.close();
     await waitFor(() => hub.connection(id) === undefined);
 
-    const second = connect(t, { auth: { clientId: 'activity-recovered-again', token: 'activity-recovered', pid, offset } });
+    const second = connect(t, { auth: { clientId: `${token}-again`, token, pid, offset } });
     sockets.push(second);
     await connected(second);
+    expect(t.server.Io!.of('/').sockets.get(second.id!)!.recovered).to.be.true;
+    return second;
+  };
+
+  it('tells the source of a recovered connection that the client was active, without any command', async () => {
+    await start();
+    await recovered('activity-recovered');
     await waitFor(() => ActivityScriptedSource.checks.length === 1);
 
-    expect(t.server.Io!.of('/').sockets.get(second.id!)!.recovered).to.be.true;
     expect(ActivityScriptedSource.checks).to.deep.equal([{ trigger: 'recovery', active: true }]);
+  });
+
+  it("keeps the reconnect as activity for the retry after an 'unavailable' recovery check", async () => {
+    await start();
+    ActivityScriptedSource.answers = ['unavailable'];
+    const socket = await recovered('activity-recovered-unavailable');
+    await waitFor(() => ActivityScriptedSource.checks.length === 1);
+    await waitFor(() => connectionOf(socket).auth.unavailableSince !== undefined);
+
+    await sweep();
+    await sweep();
+
+    expect(ActivityScriptedSource.checks).to.deep.equal([{ trigger: 'recovery', active: true }, ACTIVE_SWEEP, SWEEP]);
+    expect(socket.connected).to.be.true;
   });
 });

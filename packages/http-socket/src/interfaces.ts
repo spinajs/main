@@ -125,7 +125,7 @@ export interface ISocketRevalidation {
    */
   readonly trigger: 'sweep' | 'recovery' | 'command' | 'event';
   /**
-   * The client sent a command or an event since the last 'valid' check; always true unless the trigger is 'sweep'.
+   * The client sent a command or an event, or reconnected, since the last 'valid' check; always true unless the trigger is 'sweep'.
    * Activity is reported at the next check, up to `revalidateMs` after it.
    */
   readonly active: boolean;
@@ -192,7 +192,7 @@ export interface ISocketAuthState {
   checkedAt: number;
   /** ms epoch of an 'unavailable' answer not yet followed by a 'valid' one: the connection is in its grace window */
   unavailableSince?: number;
-  /** ms epoch of the last command or event the client sent; absent before the first one, and in a state stored by an older version */
+  /** ms epoch of the last command, event or reconnect of the client; absent before the first one, and in a state stored by an older version */
   activeAt?: number;
 }
 
