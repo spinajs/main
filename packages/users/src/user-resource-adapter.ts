@@ -6,6 +6,7 @@ import type { User } from './models/User.js';
 import { userModel } from './model-token.js';
 
 const USER = 'user';
+const USER_METADATA = 'user.metadata';
 
 /**
  * The `user` resource: one user, addressed by Uuid (D4). It tells the engine whether a user exists (an
@@ -28,12 +29,18 @@ export class UserResourceAdapter extends ResourceAdapter<User> {
     return false;
   }
 
-  /** The `user` permissions users' shipped roles name; a role's literal permission must be registered. */
+  /**
+   * The `user` and `user.metadata` permissions users' shipped roles name: a role's literal permission must be registered,
+   * and a glob matching none makes the role ungrantable (RFC C1-1). They come with the adapter, not with users' config
+   * fragment, so they register only where `UserMetadataOwnerRelation`, which the `user` role's grant needs, does too.
+   * No adapter serves `user.metadata`: its checks are type-level with the row as subject.
+   */
   public permissions(): readonly Omit<PermissionDef, 'source'>[] {
     return [
       { name: 'user:read', resource: USER, action: 'read', types: [USER], fields: true },
       { name: 'user:update', resource: USER, action: 'update', types: [USER], fields: true },
       { name: 'user:impersonate', resource: USER, action: 'impersonate', types: [USER] },
+      ...['read', 'create', 'update', 'delete'].map((action) => ({ name: `${USER_METADATA}:${action}`, resource: USER_METADATA, action, types: [USER_METADATA] })),
     ];
   }
 
