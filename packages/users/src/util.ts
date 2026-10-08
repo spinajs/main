@@ -66,18 +66,6 @@ export const _unwindGrants = (role: string, grants: { [key: string]: any }, seen
 }
 
 /**
- * Combines already unwound grant sets — eg. one per role of a multi-role user — into a single
- * map, merging per action for the same reason `_unwindGrants` does.
- *
- * @param grants - unwound grant maps; later entries win on a conflicting action
- *
- * @deprecated 3.0: roles and grants in authz.rbac.roles (extends), compiled by the RBAC model; RbacService for introspection. R1 deletes it.
- */
-export const _combineGrants = (...grants: { [key: string]: any }[]) => {
-    return grants.reduce((acc, g) => _mergeResourceGrants(acc, g), {});
-}
-
-/**
  * Flat set of `"resource::action"` strings covering everything the union of
  * `roles` is permitted to do, `$extend` chains included.
  *
