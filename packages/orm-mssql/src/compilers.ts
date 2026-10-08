@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 /**
@@ -27,7 +27,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       .getColumnsToUpdate()
       .map((c: string | RawQuery): string => {
         if (_.isString(c)) {
-          return `\`${c}\` = ?`;
+          return `${this.Quoter.quote(c)} = ?`;
         } else {
           return c.Query;
         }
@@ -205,7 +205,7 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
     const bindings = [] as unknown[];
 
     if (sort) {
-      stmt = ` ORDER BY ${sort.tableAlias ? `${escapeIdentifier(sort.tableAlias)}.` : ''}${escapeIdentifier(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+      stmt = ` ORDER BY ${sort.tableAlias ? `${this.Quoter.quote(sort.tableAlias)}.` : ''}${this.Quoter.quote(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
     }
 
     return {
@@ -290,21 +290,24 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
 
 @NewInstance()
 export class MsSqlTableAliasCompiler implements TableAliasCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
     if (builder.Database) {
-      table += `${escapeIdentifier(builder.Database)}.`;
+      table += `${this.Quoter.quote(builder.Database)}.`;
     }
 
     if (builder.Driver.Options.Options?.Schema) {
-      table += `${escapeIdentifier(builder.Driver.Options.Options?.Schema)}.`;
+      table += `${this.Quoter.quote(builder.Driver.Options.Options?.Schema)}.`;
     }
 
-    table += escapeIdentifier(tbl ? tbl : builder.Table);
+    table += this.Quoter.quote(tbl ? tbl : builder.Table);
 
     if (builder.TableAlias) {
-      table += ` as ${escapeIdentifier(builder.TableAlias)}`;
+      table += ` as ${this.Quoter.quote(builder.TableAlias)}`;
     }
 
     return table;

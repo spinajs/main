@@ -211,8 +211,8 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'rejected', violations };
     }
 
-    const identities = this.identities();
-    const secrets = this.secrets();
+    const identities = await this.identities();
+    const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
     const status = await identities.status(id ?? throwaway());
     const target = id && eligible(status) ? id : null;
@@ -268,9 +268,9 @@ export class LocalPasswordService extends PasswordService {
     // unmarked for the next run. An admin sees the error and retries, so there the password dies first.
     if (opts.cause === 'aged') {
       await sessions.revokeAll(id, { includeImpersonations: true });
-      await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
+      await (await this.passwords()).set(id, EXPIRED_PASSWORD_MARKER);
     } else {
-      await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
+      await (await this.passwords()).set(id, EXPIRED_PASSWORD_MARKER);
       await sessions.revokeAll(id, { includeImpersonations: true });
       await this.revokeTokensOf(id, ctx, opts.actor);
     }
@@ -289,7 +289,7 @@ export class LocalPasswordService extends PasswordService {
    */
   protected async mailResetAfterExpiry(id: IdentityRef): Promise<void> {
     try {
-      if (eligible(await this.identities().status(id))) {
+      if (eligible(await (await this.identities()).status(id))) {
         await this.mail(id, 'reset', this.resetTtlSeconds());
       }
     } catch (err) {
@@ -298,7 +298,7 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected async sendReset(login: string, ctx: AuthnContext): Promise<void> {
-    const identities = this.identities();
+    const identities = await this.identities();
     const id = await identities.findByLogin(login);
     if (!id) {
       await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', reason: 'unknown_login' });
@@ -319,8 +319,8 @@ export class LocalPasswordService extends PasswordService {
       this.log().warn(`No PasswordMailer is registered: the ${purpose} mail for ${id.type} ${id.id} was not sent`);
       return false;
     }
-    const to = await this.identities().display(id);
-    const secret = await this.secrets().issue(id, purpose, ttlSeconds);
+    const to = await (await this.identities()).display(id);
+    const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
     await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds });
     return true;
   }
@@ -335,7 +335,7 @@ export class LocalPasswordService extends PasswordService {
       await hasher.verify(null, '');
       return null;
     }
-    const stored = await this.passwords().get(id);
+    const stored = await (await this.passwords()).get(id);
     return (await hasher.verify(stored, password)) ? stored : null;
   }
 
@@ -343,7 +343,7 @@ export class LocalPasswordService extends PasswordService {
   protected async storePassword(id: IdentityRef, password: string, expected?: string): Promise<boolean> {
     const hasher = await this.hasher();
     const hash = await hasher.hash(password);
-    return this.passwords().set(id, hash, expected);
+    return (await this.passwords()).set(id, hash, expected);
   }
 
   protected async revokeTokensOf(id: IdentityRef, ctx: AuthnContext, actor?: PrincipalRef): Promise<void> {
@@ -381,18 +381,18 @@ export class LocalPasswordService extends PasswordService {
     return this.Deps ? (this.Deps.resetUrl ?? '') : this.ResetUrl;
   }
 
-  protected identities(): IdentityStore {
-    return this.Deps ? this.Deps.identities : DI.resolve(IdentityStore);
+  protected async identities(): Promise<IdentityStore> {
+    return this.Deps ? this.Deps.identities : await DI.resolve(IdentityStore);
   }
 
-  protected secrets(): SecretStore {
+  protected async secrets(): Promise<SecretStore> {
     if (this.Deps) {
       if (!this.Deps.secrets) {
         throw new InvalidOperation('LocalPasswordService was built without a SecretStore');
       }
       return this.Deps.secrets;
     }
-    return DI.resolve(SecretStore);
+    return await DI.resolve(SecretStore);
   }
 
   protected async mailer(): Promise<PasswordMailer | null> {
@@ -414,8 +414,8 @@ export class LocalPasswordService extends PasswordService {
     return this.Deps ? this.Deps.throttle : DI.resolve(AuthnThrottle);
   }
 
-  protected passwords(): PasswordCredentialStore {
-    return this.Deps ? this.Deps.passwords : DI.resolve(PasswordCredentialStore);
+  protected async passwords(): Promise<PasswordCredentialStore> {
+    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
   }
 
   protected async hasher(): Promise<PasswordHasher> {

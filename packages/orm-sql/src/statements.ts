@@ -122,6 +122,9 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
 
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   /**
    * REBINDS to the builder it is handed. `_query` is the OWNING query — `withRecursive()`
    * passes `this` — and `build()` mutates it ( it pushes a join before compiling the recursive
@@ -129,7 +132,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
    * from and pushed joins into it.
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlWithRecursiveStatement {
-    return new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName);
+    return _carryQuoter(new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName), this);
   }
 
   public build(): IQueryStatementResult {
@@ -172,7 +175,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
     const additionalQuery = this._query.clone().clearRecursive().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
-      .map((c: ColumnStatement) => c.Column)
+      .map((c: ColumnStatement) => typeof c.Column === 'string' ? this.Quoter.quote(c.Column) : c.Column.Query)
       .join(',');
 
     return {
@@ -383,15 +386,8 @@ export class SqlJoinStatement extends JoinStatement {
       }
     }
 
-
-
-    // NOTE: only the table alias part of the ON keys is escaped here. The join
-    // key column names (sourceTablePrimaryKey / joinTableForeignKey) are left
-    // as-is on purpose: they come from validated relation descriptors and the
-    // existing suite asserts the unquoted form, so escaping them would change
-    // byte output for normal identifiers.
-    const primaryKey = sourceTableAlias ? `${this.Quoter.quote(sourceTableAlias)}.${this._options.sourceTablePrimaryKey}` : `${this.Quoter.quote(sourceTable)}.${this._options.sourceTablePrimaryKey}`;
-    const foreignKey = joinTableAlias ? `${this.Quoter.quote(joinTableAlias)}.${this._options.joinTableForeignKey}` : `${this.Quoter.quote(joinTable)}.${this._options.joinTableForeignKey}`;
+    const primaryKey = `${this.Quoter.quote(sourceTableAlias ?? sourceTable)}.${this.Quoter.quote(this._options.sourceTablePrimaryKey as string)}`;
+    const foreignKey = `${this.Quoter.quote(joinTableAlias ?? joinTable)}.${this.Quoter.quote(this._options.joinTableForeignKey as string)}`;
 
     // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
     // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer

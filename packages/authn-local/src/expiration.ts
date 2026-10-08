@@ -70,7 +70,7 @@ export class PasswordExpirationJob {
       return { idle: 'no_source', expired: 0, skipped: 0, failed: 0 };
     }
 
-    const passwords = this.passwords();
+    const passwords = await this.passwords();
     const service = await this.service();
     const counts = { expired: 0, skipped: 0, failed: 0 };
     for (const id of await ages.passwordsSetBefore(new Date(now.getTime() - maxAgeDays * DAY_MS))) {
@@ -99,8 +99,8 @@ export class PasswordExpirationJob {
     return DI.check(PasswordAgeSource) ? await DI.resolve(PasswordAgeSource) : null;
   }
 
-  protected passwords(): PasswordCredentialStore {
-    return this.Deps ? this.Deps.passwords : DI.resolve(PasswordCredentialStore);
+  protected async passwords(): Promise<PasswordCredentialStore> {
+    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
   }
 
   protected async service(): Promise<PasswordService> {

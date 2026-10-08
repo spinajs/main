@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
+import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
@@ -551,6 +551,67 @@ describe('LocalPasswordStrategy DI wiring', function () {
 
     expect(await strategy.verify(pw(LOGIN, PASSWORD), CTX)).to.deep.equal({ ok: true, identity: alice, method: 'password' });
     expect((await passwords.get(alice))!.startsWith('$sp3$')).to.equal(true);
+  });
+  it('awaits stores whose backend boots asynchronously', async () => {
+    const seen: string[] = [];
+    const sharedIdentities = new FakeIdentityStore();
+    const sharedPasswords = new MemoryPasswordCredentialStore();
+
+    class StrategyBootBackend extends AsyncService {
+      public booted = false;
+      public async resolve(): Promise<void> {
+        await new Promise((res) => setTimeout(res, 5));
+        this.booted = true;
+      }
+    }
+
+    class StrategyBootingIdentityStore extends FakeIdentityStore {
+      @Autoinject(StrategyBootBackend)
+      protected backend: StrategyBootBackend;
+
+      public async findByLogin(login: string) {
+        seen.push(this.backend.booted ? 'identities booted' : 'identities not booted');
+        return sharedIdentities.findByLogin(login);
+      }
+    }
+
+    class StrategyBootingPasswordStore extends MemoryPasswordCredentialStore {
+      @Autoinject(StrategyBootBackend)
+      protected backend: StrategyBootBackend;
+
+      public async get(id: IdentityRef): Promise<string | null> {
+        seen.push(this.backend.booted ? 'passwords booted' : 'passwords not booted');
+        return sharedPasswords.get(id);
+      }
+    }
+
+    DI.unregister(FakeIdentityStore);
+    DI.unregister(MemoryPasswordCredentialStore);
+    DI.register(StrategyBootingIdentityStore).as(IdentityStore);
+    DI.register(StrategyBootingPasswordStore).as(PasswordCredentialStore);
+    DI.uncache(IdentityStore);
+    DI.uncache(PasswordCredentialStore);
+    DI.uncache(LocalPasswordStrategy);
+    try {
+      const strategy = await DI.resolve(LocalPasswordStrategy);
+      const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
+      const alice = sharedIdentities.add({ login: LOGIN });
+      await sharedPasswords.set(alice, await hasher.hashWith(PASSWORD, { pepper: null }));
+
+      expect(await strategy.verify(pw(LOGIN, PASSWORD), CTX)).to.deep.equal({ ok: true, identity: alice, method: 'password' });
+      expect(seen).to.deep.equal(['identities booted', 'passwords booted']);
+    } finally {
+      DI.unregister(StrategyBootingIdentityStore);
+      DI.uncache(StrategyBootingIdentityStore);
+      DI.uncache(StrategyBootingPasswordStore);
+      DI.unregister(StrategyBootingPasswordStore);
+      DI.register(FakeIdentityStore).as(IdentityStore);
+      DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
+      DI.uncache(StrategyBootBackend);
+      DI.uncache(IdentityStore);
+      DI.uncache(PasswordCredentialStore);
+      DI.uncache(LocalPasswordStrategy);
+    }
   });
 });
 

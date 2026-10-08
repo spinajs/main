@@ -133,49 +133,49 @@ describe('Where query builder', () => {
   it('left join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('right join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.rightJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('left outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT OUTER JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('inner join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.innerJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` INNER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` INNER JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('right outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.rightOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT OUTER JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('full outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.fullOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` FULL OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` FULL OUTER JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('cross join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.crossJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` CROSS JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` CROSS JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId`');
   });
 
   it('multiple joins', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).leftJoin({ joinTable: 'account', joinTableAlias: 'account', joinTableForeignKey: 'accountId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId LEFT JOIN `account` as `account` ON `$users$`.id = `account`.accountId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId` LEFT JOIN `account` as `account` ON `$users$`.`id` = `account`.`accountId`');
   });
 
   it('raw query joins', () => {
@@ -922,7 +922,7 @@ describe('Relations query builder', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.relation_id = `$RelationModel2$`.Id AND ( `$RelationModel2$`.`RelationProperty` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( `$RelationModel2$`.`RelationProperty` = ? ) WHERE `$RelationTable$`.`Id` = ?');
 
     // join binding must come before the main WHERE binding (ON precedes WHERE in SQL)
     expect(result.bindings).to.deep.equal(['foo', 1]);
@@ -936,7 +936,7 @@ describe('Relations query builder', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.relation_id = `$RelationModel2$`.Id AND ( `$RelationModel2$`.`RelationProperty` = ? AND `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.`relation_id` = `$RelationModel2$`.`Id` AND ( `$RelationModel2$`.`RelationProperty` = ? AND `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
     expect(result.bindings).to.deep.equal(['foo', 5, 1]);
   });
 
@@ -976,7 +976,7 @@ describe('Relations query builder', () => {
   it('belongsTo simple', () => {
     const result = RelationModel.where('Id', 1).populate('Relation').toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.`Id` = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('belongsTo nested', () => {
@@ -986,7 +986,7 @@ describe('Relations query builder', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id WHERE `$RelationModel$`.`Id` = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.`relation3_id` = `$Relation$.$Relation3$`.`Id` WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('order by a belongsTo relation column sorts the parent rows by the joined table', () => {
@@ -1075,7 +1075,7 @@ describe('Relations query builder', () => {
 
   it('belongsTo with custom keys', () => {
     const result = RelationModel.where('Id', 1).populate('Relation2').toDB() as ICompilerOutput;
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.fK_Id = `$Relation2$`.pK_Id WHERE `$RelationModel$`.`Id` = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.`fK_Id` = `$Relation2$`.`pK_Id` WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('hasManyToMany', async () => {
@@ -1106,7 +1106,7 @@ describe('Relations query builder', () => {
     expect(relStub.calledTwice).to.be.true;
     expect(result).to.be.not.null;
     expect(relStub.firstCall.args[0]).to.equal('SELECT * FROM `RelationTable3`');
-    expect(relStub.secondCall.args[0]).to.equal('SELECT `$JoinTable$`.`Id`,`$JoinTable$`.`owner_id`,`$JoinTable$`.`target_id`,`$Models$`.`Id` as `$Models$.Id`,`$Models$`.`Model4Property` as `$Models$.Model4Property` FROM `JoinTable` as `$JoinTable$` LEFT JOIN `RelationTable4` as `$Models$` ON `$JoinTable$`.target_id = `$Models$`.Id WHERE `$JoinTable$`.`owner_id` IN (?,?)');
+    expect(relStub.secondCall.args[0]).to.equal('SELECT `$JoinTable$`.`Id`,`$JoinTable$`.`owner_id`,`$JoinTable$`.`target_id`,`$Models$`.`Id` as `$Models$.Id`,`$Models$`.`Model4Property` as `$Models$.Model4Property` FROM `JoinTable` as `$JoinTable$` LEFT JOIN `RelationTable4` as `$Models$` ON `$JoinTable$`.`target_id` = `$Models$`.`Id` WHERE `$JoinTable$`.`owner_id` IN (?,?)');
   });
 });
 
@@ -1134,7 +1134,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
     );
 
     // ON binding must come before the WHERE binding (ON precedes WHERE in SQL)
@@ -1160,7 +1160,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`RelationProperty` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`RelationProperty` = ?',
     );
     expect(result.bindings).to.deep.equal([1, 'foo']);
   });
@@ -1176,7 +1176,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
     );
     expect(result.bindings).to.deep.equal(['foo', 1, 99]);
   });
@@ -1194,7 +1194,7 @@ describe('whereOnJoin', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.contain('ON `$RelationModel$`.relation_id = `$Relation$`.Id AND ( `$Relation$`.`RelationProperty` = ? OR `$Relation$`.`RelationProperty` = ? ) WHERE');
+    expect(result.expression).to.contain('ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? OR `$Relation$`.`RelationProperty` = ? ) WHERE');
     expect(result.bindings).to.deep.equal(['foo', 'bar', 1]);
   });
 
@@ -1210,7 +1210,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id AND `$Relation$.$Relation3$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.`relation3_id` = `$Relation$.$Relation3$`.`Id` AND `$Relation$.$Relation3$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
     );
     expect(result.bindings).to.deep.equal(['bar', 1]);
   });
@@ -1268,12 +1268,12 @@ describe('Select query builder', () => {
   // "Model should populate recursive relations".
   it('withRecursion simple', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive_cte$`.id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(`id`,`parent_id`,`slug`) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.`parent_id` = `$recursive_cte$`.`id` ) SELECT * FROM recursive_cte');
   });
 
   it('withRecursion with where', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).where('id', 2).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE `id` = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive_cte$`.id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(`id`,`parent_id`,`slug`) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE `id` = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.`parent_id` = `$recursive_cte$`.`id` ) SELECT * FROM recursive_cte');
     expect(result.bindings).to.be.an('array').to.include(2);
   });
 
