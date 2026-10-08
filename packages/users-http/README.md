@@ -1,6 +1,6 @@
 # `@spinajs/users-http`
 
-HTTP API for user accounts: self-service password and metadata routes, and an administrative API for
+HTTP API for user accounts: the signed-in user's profile (`GET /user`, on `@Access('user:read')`) and metadata routes, and an administrative API for
 listing and editing users, roles, passwords, two-factor authentication, bans, login lockouts and live sessions.
 
 Every route sits behind `AuthorizedPolicy` plus a route-level `@Permission` on the `users` resource,

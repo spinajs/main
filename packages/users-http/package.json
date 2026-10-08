@@ -55,6 +55,7 @@
     "@spinajs/authn-http": "3.0.0-alpha.0",
     "@spinajs/authn-totp": "3.0.0-alpha.0",
     "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-http": "3.0.0-alpha.0",
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
@@ -70,11 +71,13 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@spinajs/authn-session": "3.0.0-alpha.0",
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/intl": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
     "@spinajs/queue": "2.0.549",
+    "cookie-signature": "^1.2.2",
     "express": "^5.1.0"
   }
 }

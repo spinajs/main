@@ -12,8 +12,8 @@ import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, Ok, Get } from '@spinajs/http';
 import { AuthorizedPolicy, RbacMiddleware, RbacPolicy } from '@spinajs/authn-http';
 
-import { dir, req, TestConfiguration } from './common.js';
-import { UserController } from '../src/controllers/UserController.js';
+import { dir, req, TestConfiguration } from '../common.js';
+import { UserController } from '../../src/controllers/UserController.js';
 
 /**
  * The TestConfiguration shared with `authn-http.test.ts` cannot actually boot an
