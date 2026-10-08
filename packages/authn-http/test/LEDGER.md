@@ -349,6 +349,8 @@ Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is
 
 Status (N8c task 4): the barrel now exports the 3.0 `NoTokenAuthPolicy` and `NoImpersonationPolicy`. The rows import the 2.x classes from `src/token/policies/` and pass; over the bridge's keys the 2.x classes still refuse a per-request principal and an impersonation (`test/v3/legacy-bridge.test.ts`).
 
+Status (R1bc): file deleted with the 2.x `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`; rows 1-4 are closed by T3, rows 5-10 are covered by the 3.0 matrix in `test/v3/authn-policies.test.ts`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 41 | token policies > TokenPolicy rejects request without token auth | rewrite | C5 → T3 | authz-rbac/test/ported/; `TokenPolicy` is gone, `@Access` accepts tokens; no credential gives 401 (B23, B10); T3: authz-rbac/test/ported/token/ceiling-e2e.test.ts "no credential is unauthenticated, a token without the grant is forbidden (token-policies 1, 3)". Changed: `TokenPolicy` is gone, `@Access` takes tokens; 401 is authn-http's (B23, B10); 403 becomes `forbidden` |

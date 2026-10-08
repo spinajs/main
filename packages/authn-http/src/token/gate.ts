@@ -8,7 +8,7 @@ import { notFound } from '../policies/v3/errors.js';
 
 /**
  * 404 while no TokenService is registered: the 3.0 token routes are off (design §22.11). The first policy of the
- * controller. Not exported by the package barrel (src/token/index.ts is the 2.x one).
+ * controller. Not exported by the package barrel.
  */
 export class TokenServiceRegistered extends BasePolicy {
   @Autoinject(Container)

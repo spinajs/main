@@ -85,7 +85,7 @@ export class TestConfiguration extends FrameworkConfiguration {
       system: {
         dirs: {
           // `./support` holds test only controllers ( see
-          // `support/TestTokenController.ts` ) used by the end to end policy
+          // `support/*.ts` ) used by the end to end policy
           // suite; they are loaded exactly like the package's own ones.
           //
           // The controller listing is memoized once per process ( `ListFromFiles`

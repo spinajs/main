@@ -27,8 +27,6 @@ import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../../src/policies/NotLoggedPolicy.js';
-import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../../src/token/policies/NoTokenAuthPolicy.js';
-import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../../src/token/policies/NoImpersonationPolicy.js';
 import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../../src/args/authn.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
@@ -256,8 +254,6 @@ describe('3.0 authn policies and route args', function () {
     it('N8a-D2: a 2.x policy and the 3.0 one of the same name each resolve to their own class, in either order', () => {
       for (const [old, lane] of [
         [MovedNotLoggedPolicy, NotLoggedPolicy],
-        [MovedNoTokenAuthPolicy, NoTokenAuthPolicy],
-        [MovedNoImpersonationPolicy, NoImpersonationPolicy],
       ] as const) {
         expect(old.name).to.eq(lane.name);
         expect(DI.resolve(old as Class<unknown>), old.name).to.be.instanceOf(old);

@@ -15,8 +15,6 @@ import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { AuthorizedPolicy } from '../../src/policies/AuthorizedPolicy.js';
 import { LoggedPolicy } from '../../src/policies/LoggedPolicy.js';
 import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
-import { NoTokenAuthPolicy as LegacyNoTokenAuthPolicy } from '../../src/token/policies/NoTokenAuthPolicy.js';
-import { NoImpersonationPolicy as LegacyNoImpersonationPolicy } from '../../src/token/policies/NoImpersonationPolicy.js';
 import { Permission, Resource } from '../../src/decorators.js';
 
 type Kind = 'none' | 'pending' | 'session' | 'impersonation' | 'token' | 'agent' | 'key' | 'service';
@@ -339,21 +337,6 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
     async function bridged(kind: Kind, users_: Map<string, FakeUser> = users): Promise<Record<string, unknown>> {
       return (await runBridge(containerWith(users_), await storageOf(kind))).storage;
     }
-
-    it('2.x NoTokenAuthPolicy refuses every per-request principal (a token never mints a token) and passes a session', async () => {
-      const policy = new LegacyNoTokenAuthPolicy();
-      for (const kind of ['token', 'agent', 'key', 'service'] as const) expect(await outcome(policy, await bridged(kind)), kind).to.eq('403');
-      for (const kind of ['none', 'pending', 'session'] as const) expect(await outcome(policy, await bridged(kind)), kind).to.eq('pass');
-    });
-
-    it('2.x NoImpersonationPolicy refuses an impersonation, also when the impersonator cannot be loaded', async () => {
-      const policy = new LegacyNoImpersonationPolicy();
-      expect(await outcome(policy, await bridged('impersonation'))).to.eq('403');
-      const withoutBob = new Map(users);
-      withoutBob.delete(bob.id);
-      expect(await outcome(policy, await bridged('impersonation', withoutBob))).to.eq('403');
-      expect(await outcome(policy, await bridged('session'))).to.eq('pass');
-    });
 
     it('2.x AuthorizedPolicy, LoggedPolicy and RbacPolicy (@Permission) refuse an active 3.0 session: no 2.x Session', async () => {
       for (const kind of ['session', 'impersonation', 'token', 'none'] as const) {

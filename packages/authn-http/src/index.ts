@@ -19,7 +19,6 @@ export * from "./policies/NotAthorizedPolicy.js";
 export * from "./policies/AuthorizedPolicy.js";
 
 export * from './account/index.js';
-export * from './token/index.js';
 
 export * from './api.js';
 // api.ts and the 2.x code both declare these five names; an explicit export wins over `export *`.
