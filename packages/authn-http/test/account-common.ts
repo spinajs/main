@@ -38,7 +38,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         dirs: {
           // Same set as token-common.ts: the controller listing is memoized once per
           // process ( `ListFromFiles` in reflection ), so all http suites must agree.
-          controllers: [dir('./../src/v3/controllers'), dir('./../src/account/controllers'), dir('./../src/token/controllers'), dir('./support')],
+          controllers: [dir('./../src/v3/controllers'), dir('./support')],
         },
       },
       fs: {

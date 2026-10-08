@@ -107,7 +107,8 @@ async function main() {
   class RouteGroupsConfiguration extends FrameworkConfiguration {
     async resolve() {
       await super.resolve();
-      // Shipped configs add their compiled controller dirs (among them authn-http's 2.x ones); this app scans the 3.0 dir only.
+      // Shipped configs add their compiled controller dirs (users-http's among them); this app scans authn-http's only one,
+      // v3/controllers (pinned in route-table-n8c.test.ts).
       this.set(['system', 'dirs', 'controllers'], [controllersDir]);
       // The children of one test run in parallel from one cwd; sharing @spinajs/http's controller cache there, one child
       // read an entry another was still writing.
