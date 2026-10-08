@@ -74,6 +74,17 @@ export class RbacScopeDefaults {
     return new RbacScopeDefaults(byType, layerMap);
   }
 
+  /**
+   * The same, with the `exists` test of `type`'s adapter layer replaced by `own`: for the filtered row's own type,
+   * whose node the term reads is the row itself, so `exists` need not scan the row's table (a native fragment may
+   * not name the filtered row's table, and the term already sits under `whenFound`).
+   */
+  withOwnRow(type: ResourceType, own: (nodeId: RbacSql) => RbacSql): RbacScopeDefaults {
+    const layer = this.layers.get(type);
+    if (layer?.kind !== 'adapter' || layer.exists === undefined) return this;
+    return new RbacScopeDefaults(this.byType, new Map([...this.layers, [type, { kind: 'adapter', attributes: layer.attributes, exists: own }]]));
+  }
+
   /** Undefined: undeclared, every read is a fault. */
   layer(type: ResourceType): RbacScopeLayer | undefined {
     return this.layers.get(type);
@@ -271,6 +282,10 @@ export function attrLookup(path: RbacPathSql, type: ResourceType, attributePath:
  * reads nothing (a fault).
  */
 export function attrOfRef(path: RbacPathSql, ref: RbacSql, defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrSql {
+  return attributeOf(refTargets(path, ref), defaults, dialect);
+}
+
+function refTargets(path: RbacPathSql, ref: RbacSql): Target[] {
   // The engine reads the second segment as the type: a node type holding '.' is never named, and its prefix
   // would match references to its first part ('scope.a.b.x' is type 'a', path 'b.x').
   const types = [...new Set(path.nodes.map((n) => n.type))].filter((type) => !type.includes('.'));
@@ -285,7 +300,7 @@ export function attrOfRef(path: RbacPathSql, ref: RbacSql, defaults: RbacScopeDe
       path: rsql`SUBSTR(${ref}, ${intSql(n + 1)})`,
     };
   });
-  return attributeOf(targets, defaults, dialect);
+  return targets;
 }
 
 const DIGITS = ['-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -300,13 +315,31 @@ const numberJson = (json: RbacSql): RbacSql => rsql`${firstChar(json)} IN (${DIG
 const as = (expr: RbacSql, name: string): RbacSql => rsql`${expr} AS ${ident(name)}`;
 const flag = (cond: RbacSql): RbacSql => rsql`CASE WHEN ${cond} THEN 1 ELSE 0 END`;
 
+/** A stage's columns, read from the row of the stage before (`col(name)`). */
+export type RbacAttrColumns = (name: string) => RbacSql;
+
 /**
- * One-row derived tables, each level naming what the next reads (SQL has no let), so each lookup runs once
- * per row and the scope attribute table is probed by its key (scope_type, scope_id, path):
- * authz_t: which node and path the reference names; authz_y: the store's rows there and the default;
- * authz_x: the engine's layering; the row: json, num, present.
+ * `attrOfRef` in four steps over columns, for a block that reads a `{ ref }` column of many rows: each step is
+ * one SELECT over the row of the step before, so the steps can be WITH tables side by side instead of derived
+ * tables nested in each other (SQLite's parser stack allows few levels).
+ * - `resolve()`: `t` the node type, `i` its id, `p` the attribute path, `ok` (1/0) the layer lets SQL read it;
+ * - `lookup(col)`: `node` (1/0), `v` the store's row, `above` and `below` (1/0), `dcode` and `djson` the default;
+ * - `layer(col)`: `code` (1 a scalar, 2 an object or a list, NULL nothing) and `json`;
+ * - `value(col)`: `json`, `num`, `present` (1/0), as `RbacAttrSql`.
  */
-function attributeOf(targets: readonly Target[], defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrSql {
+export interface RbacAttrStages {
+  resolve(): Readonly<Record<'t' | 'i' | 'p' | 'ok', RbacSql>>;
+  lookup(col: RbacAttrColumns): Readonly<Record<'node' | 'v' | 'above' | 'below' | 'dcode' | 'djson', RbacSql>>;
+  layer(col: RbacAttrColumns): Readonly<Record<'code' | 'json', RbacSql>>;
+  value(col: RbacAttrColumns): Readonly<Record<'json' | 'num' | 'present', RbacSql>>;
+}
+
+/** The stages of `attrOfRef(path, ref, …)`. */
+export function attrOfRefStages(path: RbacPathSql, ref: RbacSql, defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrStages {
+  return stagesOf(refTargets(path, ref), defaults, dialect);
+}
+
+function stagesOf(targets: readonly Target[], defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrStages {
   const pick = (value: (t: Target) => RbacSql): RbacSql =>
     targets.length === 1 && targets[0].constPath !== undefined
       ? value(targets[0])
@@ -314,48 +347,46 @@ function attributeOf(targets: readonly Target[], defaults: RbacScopeDefaults, di
           targets.map((t) => rsql`WHEN ${t.applies} THEN ${value(t)}`),
           ' ',
         )} END`;
-  const resolved = rsql`SELECT ${joinSql(
-    [
-      as(
-        pick((t) => rsql`${t.type}`),
-        't',
-      ),
-      as(
-        pick((t) => t.id),
-        'i',
-      ),
-      as(
-        pick((t) => t.path),
-        'p',
-      ),
-      as(
-        pick((t) => flag(layerReads(t, defaults.layer(t.type)))),
-        'ok',
-      ),
-    ],
+  return {
+    resolve: () => ({ t: pick((t) => rsql`${t.type}`), i: pick((t) => t.id), p: pick((t) => t.path), ok: pick((t) => flag(layerReads(t, defaults.layer(t.type)))) }),
+    lookup: (t) => {
+      const sa = (column: string): RbacSql => rsql`${ident(SA, column)}`;
+      const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = ${t('t')} AND ${sa('scope_id')} = ${t('i')}`;
+      // GLOBAL's key is ('$global', ''); any other node needs an id, and '' is the type-only scope's key.
+      const nodeOk = andSql(rsql`${t('ok')} = 1`, rsql`${t('i')} IS NOT NULL`, orSql(rsql`${t('t')} = ${GLOBAL.type}`, rsql`${t('i')} <> ${''}`));
+      const value = rsql`(SELECT ${sa('value_json')} FROM ${node} AND ${sa('path')} = ${t('p')})`;
+      const above = rsql`EXISTS (SELECT 1 FROM ${node} AND LENGTH(${sa('path')}) < LENGTH(${t('p')}) AND SUBSTR(${t('p')}, 1, LENGTH(${sa('path')}) + 1) = ${sa('path')} || ${'.'})`;
+      const below = rsql`EXISTS (SELECT 1 FROM ${node} AND SUBSTR(${sa('path')}, 1, LENGTH(${t('p')}) + 1) = ${t('p')} || ${'.'})`;
+      const { code, json } = defaultsOf(targets, defaults, t('t'), t('p'));
+      return { node: flag(nodeOk), v: value, above: flag(above), below: flag(below), dcode: code, djson: json };
+    },
+    layer: (y) => ({
+      // Codes: 1 a scalar, 2 an object or a list, NULL nothing (missing, null, or a row the store would not write).
+      code: rsql`CASE WHEN ${y('node')} = 0 THEN NULL WHEN ${y('v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y('v'))} THEN 1 END) WHEN ${y('above')} = 1 THEN NULL WHEN ${y('below')} = 1 THEN 2 ELSE ${y('dcode')} END`,
+      json: rsql`CASE WHEN ${y('node')} = 0 THEN NULL WHEN ${y('v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y('v'))} THEN ${y('v')} END) WHEN ${y('above')} = 1 OR ${y('below')} = 1 THEN NULL ELSE ${y('djson')} END`,
+    }),
+    value: (x) => ({ json: x('json'), num: rsql`CASE WHEN ${numberJson(x('json'))} THEN ${dialect.number(x('json'))} END`, present: rsql`CASE WHEN ${x('code')} IS NOT NULL THEN 1 ELSE 0 END` }),
+  };
+}
+
+const columnsOf = (stage: Readonly<Record<string, RbacSql>>): RbacSql =>
+  joinSql(
+    Object.entries(stage).map(([name, expr]) => as(expr, name)),
     ', ',
-  )}${dialect.fence}`;
+  );
 
-  const t = (column: string): RbacSql => rsql`${ident('authz_t', column)}`;
-  const sa = (column: string): RbacSql => rsql`${ident(SA, column)}`;
-  const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = ${t('t')} AND ${sa('scope_id')} = ${t('i')}`;
-  // GLOBAL's key is ('$global', ''); any other node needs an id, and '' is the type-only scope's key.
-  const nodeOk = andSql(rsql`${t('ok')} = 1`, rsql`${t('i')} IS NOT NULL`, orSql(rsql`${t('t')} = ${GLOBAL.type}`, rsql`${t('i')} <> ${''}`));
-  const value = rsql`(SELECT ${sa('value_json')} FROM ${node} AND ${sa('path')} = ${t('p')})`;
-  const above = rsql`EXISTS (SELECT 1 FROM ${node} AND LENGTH(${sa('path')}) < LENGTH(${t('p')}) AND SUBSTR(${t('p')}, 1, LENGTH(${sa('path')}) + 1) = ${sa('path')} || ${'.'})`;
-  const below = rsql`EXISTS (SELECT 1 FROM ${node} AND SUBSTR(${sa('path')}, 1, LENGTH(${t('p')}) + 1) = ${t('p')} || ${'.'})`;
-  const { code: defaultCode, json: defaultJson } = defaultsOf(targets, defaults, t('t'), t('p'));
-  const lookup = rsql`SELECT ${joinSql([as(flag(nodeOk), 'node'), as(value, 'v'), as(flag(above), 'above'), as(flag(below), 'below'), as(defaultCode, 'dcode'), as(defaultJson, 'djson')], ', ')} FROM (${resolved}) ${ident('authz_t')}${dialect.fence}`;
-
-  const y = (column: string): RbacSql => rsql`${ident('authz_y', column)}`;
-  // Codes: 1 a scalar, 2 an object or a list, NULL nothing (missing, null, or a row the store would not write).
-  const code = rsql`CASE WHEN ${y('node')} = 0 THEN NULL WHEN ${y('v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y('v'))} THEN 1 END) WHEN ${y('above')} = 1 THEN NULL WHEN ${y('below')} = 1 THEN 2 ELSE ${y('dcode')} END`;
-  const json = rsql`CASE WHEN ${y('node')} = 0 THEN NULL WHEN ${y('v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y('v'))} THEN ${y('v')} END) WHEN ${y('above')} = 1 OR ${y('below')} = 1 THEN NULL ELSE ${y('djson')} END`;
-  const layered = rsql`SELECT ${as(code, 'code')}, ${as(json, 'json')} FROM (${lookup}) ${ident('authz_y')}${dialect.fence}`;
-
-  const x = (column: string): RbacSql => rsql`${ident('authz_x', column)}`;
-  const num = rsql`CASE WHEN ${numberJson(x('json'))} THEN ${dialect.number(x('json'))} END`;
-  const row = rsql`(SELECT ${as(x('json'), 'json')}, ${as(num, 'num')}, ${as(rsql`CASE WHEN ${x('code')} IS NOT NULL THEN 1 ELSE 0 END`, 'present')} FROM (${layered}) ${ident('authz_x')}${dialect.fence})`;
+/**
+ * One-row derived tables, each level naming what the next reads (SQL has no let), so each lookup runs once
+ * per row and the scope attribute table is probed by its key (scope_type, scope_id, path):
+ * authz_t: which node and path the reference names; authz_y: the store's rows there and the default;
+ * authz_x: the engine's layering; the row: json, num, present.
+ */
+function attributeOf(targets: readonly Target[], defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrSql {
+  const stages = stagesOf(targets, defaults, dialect);
+  const resolved = rsql`SELECT ${columnsOf(stages.resolve())}${dialect.fence}`;
+  const lookup = rsql`SELECT ${columnsOf(stages.lookup((c) => rsql`${ident('authz_t', c)}`))} FROM (${resolved}) ${ident('authz_t')}${dialect.fence}`;
+  const layered = rsql`SELECT ${columnsOf(stages.layer((c) => rsql`${ident('authz_y', c)}`))} FROM (${lookup}) ${ident('authz_y')}${dialect.fence}`;
+  const row = rsql`(SELECT ${columnsOf(stages.value((c) => rsql`${ident('authz_x', c)}`))} FROM (${layered}) ${ident('authz_x')}${dialect.fence})`;
   const read = (column: string): RbacSql => rsql`(SELECT ${ident('authz_z', column)} FROM ${row} ${ident('authz_z')})`;
   return { present: rsql`(${read('present')} = 1)`, json: read('json'), num: read('num'), row };
 }

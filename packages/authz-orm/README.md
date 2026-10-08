@@ -210,5 +210,12 @@ every list query: measured 25-30 s per query, 13 s of it JIT, for 3.4 ms of work
 for the connection authz lists through (`ALTER ROLE <role> SET jit = off`, or the same per
 database), or raise `jit_above_cost` above the plans' cost.
 
+authz-rbac's terms over stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`) are
+one `WITH … AS MATERIALIZED` each, which needs PostgreSQL 12 or SQLite 3.35 or later (an older server
+fails every such list with a syntax error). SQLite works the row-correlated WITH tables out again at
+each reference: about 0.45 s per filtered row with four stored rules, so on SQLite such lists suit
+small tables only until authz-rbac reads the rule tables by joins. On Postgres they log "Slow
+orm.query" warnings.
+
 `@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
 it only together with L4b.

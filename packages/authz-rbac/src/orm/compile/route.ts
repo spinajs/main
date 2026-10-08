@@ -95,7 +95,7 @@ export function rbacRouteGrant(listing: RbacListing, args: Pick<RbacAssignmentAr
  */
 export function rbacRoutePlan(listing: RbacListing, args: RbacAssignmentArgsV2, rowType: ResourceType): RbacRoutePlan {
   if (args.rules.length > 0 || args.dbRules) {
-    throw refuse(`args v2 with ${args.dbRules ? 'stored rules (dbRules)' : `${args.rules.length} rule(s)`} have no plan without rules; RbacRulesSql compiles bound rules, and stored rules come with the next L4b task`);
+    throw refuse(`args v2 with ${args.dbRules ? 'stored rules (dbRules)' : `${args.rules.length} rule(s)`} have no plan without rules; RbacRulesSql compiles them`);
   }
   const { roles: graph, ladders, implies } = listing;
   const route = args.route;

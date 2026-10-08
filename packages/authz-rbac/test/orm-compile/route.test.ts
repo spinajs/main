@@ -101,10 +101,10 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
       ]);
     });
 
-    it('has no plan for args with rules (RbacRulesSql compiles them) or dbRules (the next task)', () => {
+    it('has no plan for args with rules or dbRules (RbacRulesSql compiles them)', () => {
       const rule = { id: 'r', kind: 'restrict' as const, scope: { type: 'org', id: 'o1' } };
       expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { rules: [rule] }), 'doc')).to.throw(AuthzConfigError, /RbacRulesSql/);
-      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { dbRules: true }), 'doc')).to.throw(AuthzConfigError, /dbRules.*next L4b task/);
+      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { dbRules: true }), 'doc')).to.throw(AuthzConfigError, /dbRules.*RbacRulesSql/);
     });
 
     it('refuses a route the current roles do not give as stated', () => {
@@ -293,7 +293,7 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
           });
         }
 
-        it('refuses args v2 with dbRules, a stale route, and a source without the listing', async () => {
+        it('refuses a stale route and a source without the listing; dbRules with no stored rule lists as the route', async () => {
           await world1([assignment(u('ann'), 'team.lead', at('project', '10'))]);
           const [real] = routeArgs(await world.residual(user('ann'), 'doc:edit')) as unknown as RbacAssignmentArgsV2[];
           const { v: _v, route, ...ctx } = parseRbacListArgs(RBAC_ASSIGNMENT_OP, real);
@@ -306,7 +306,7 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
             expect(e, String(why)).to.be.instanceOf(AuthzConfigError);
             expect((e as Error).message).to.match(why);
           };
-          await refused(rbacAssignmentArgsV2({ ...ctx, dbRules: true }, route), /dbRules.*next L4b task/);
+          expect(await compile(rbacAssignmentArgsV2({ ...ctx, dbRules: true }, route))).to.deep.equal(['1', '2', '7']);
           await refused(rbacAssignmentArgsV2(ctx, { ...route, grant: 3 }), /roles changed/);
           await refused({ ...real, extra: 1 }, /unknown args key/);
           const undo = testHost.registerInRoot(

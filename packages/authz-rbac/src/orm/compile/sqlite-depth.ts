@@ -9,7 +9,7 @@ import type { RbacSql } from './sql.js';
  * fragments in brackets until they overflow: the estimate is within a symbol or two of the parser's.
  */
 
-type Sym = 'E' | 'OP' | 'NOT' | 'LP' | 'FN' | 'EXISTS' | 'CASE' | 'CO' | 'CL' | 'WHEN' | 'THEN' | 'ELSE' | 'SELECT' | 'X';
+type Sym = 'E' | 'OP' | 'NOT' | 'LP' | 'FN' | 'EXISTS' | 'CASE' | 'CO' | 'CL' | 'WHEN' | 'THEN' | 'ELSE' | 'SELECT' | 'WITH' | 'CTE' | 'X';
 
 // parse.y precedence, low to high; prefix NOT sits between AND and the comparisons.
 const PREC: Readonly<Record<string, number>> = {
@@ -71,6 +71,11 @@ export function sqliteParserDepth(fragment: RbacSql): number {
     if (stack.length > max) max = stack.length;
   };
   const top = (i = 0): Sym | undefined => stack[stack.length - 1 - i]?.s;
+  const inWithList = (): boolean => {
+    let i = stack.length - 1;
+    while (i >= 0 && stack[i].s === 'X') i--;
+    return i >= 0 && stack[i].s === 'WITH';
+  };
   /** Reduces the operators that bind at least as tightly as `p` (left associative). */
   const reduce = (p: number): void => {
     for (;;) {
@@ -96,6 +101,22 @@ export function sqliteParserDepth(fragment: RbacSql): number {
   for (let i = 0; i < t.length; i++) {
     const tok = t[i];
     const next = t[i + 1];
+    // `name AS (` in a WITH list: the name, its column list and AS stay below the table's select.
+    if (inWithList()) {
+      const materialized = t[i + 2] === 'MATERIALIZED' ? 1 : 0;
+      if (/^[A-Z_?]/.test(tok) && next === 'AS' && t[i + 2 + materialized] === '(') {
+        push('X');
+        push('X');
+        push('X');
+        push('CTE');
+        i += 2 + materialized;
+        continue;
+      }
+    }
+    if (tok === 'WITH') {
+      push('WITH');
+      continue;
+    }
     if (tok === '(') {
       push('LP');
       // `name(` takes an empty `distinct` before its arguments; `(*)` is COUNT's.
@@ -103,7 +124,13 @@ export function sqliteParserDepth(fragment: RbacSql): number {
       continue;
     }
     if (tok === ')') {
-      unwind(['LP']);
+      unwind(['LP', 'CTE']);
+      if (top() === 'CTE') {
+        // The table reduces into the WITH list.
+        while (stack.length > 0 && top() !== 'WITH') stack.pop();
+        push('X');
+        continue;
+      }
       stack.pop();
       if (top() === 'X') stack.pop();
       if (top() === 'FN' || top() === 'EXISTS') stack.pop();
@@ -111,7 +138,12 @@ export function sqliteParserDepth(fragment: RbacSql): number {
       continue;
     }
     if (tok === ',') {
-      unwind(['LP', 'SELECT']);
+      unwind(['LP', 'SELECT', 'WITH']);
+      if (top() === 'WITH') {
+        push('X');
+        push('X');
+        continue;
+      }
       if (top() === 'LP') push('X');
       else push('X'), push('X'), push('X');
       push('X');

@@ -3,6 +3,7 @@ import type { Assignment, AssignmentSubject, AuthzContribution, AuthzService, Pr
 import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { accessResourceTypeOf } from '@spinajs/authz-orm/native';
 import { evaluateFilter, fakeEvaluationContext, testHost } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -11,8 +12,8 @@ import { mergeAttributes, schemaIndex } from '../../../authz/lib/mjs/engine/attr
 // Not a root export of authz-orm; the build the package resolves to, so one copy of the module.
 import { OrmResourceAdapter } from '../../../authz-orm/lib/mjs/adapter.js';
 import { compileResidual } from '../../../authz-orm/lib/mjs/compile/compiler.js';
-import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacContributor, RbacModel, createRbacExtensions, rbacAssignmentExtension, rbacTables } from '../../src/index.js';
-import type { LadderDef, RbacModelOptions, RoleDef, RoleGraph } from '../../src/index.js';
+import { AuthzRbac_2026_10_01_00_00_00, ConfigRuleStore, DbRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacContributor, RbacModel, createRbacExtensions, rbacAssignmentExtension, rbacTables } from '../../src/index.js';
+import type { LadderDef, RbacModelOptions, RoleDef, RoleGraph, RuleStore } from '../../src/index.js';
 import { RbacRoleGraphSource, RbacScopeAttributeSource, RbacScopeDefaults, ormRbacScopeLayers } from '../../src/orm/index.js';
 import type { RbacListing } from '../../src/orm/index.js';
 import { createAssignmentTable, defineDocModels, idsOf, insertAssignments } from '../orm/orm-world.js';
@@ -132,6 +133,14 @@ export interface RouteWorldOptions {
   readonly schemas?: readonly ScopeAttributeSchema[];
   /** Scope attributes written to authz_scope_attribute (DbScopeAttributeStore, the domain's store). */
   readonly attributes?: ReadonlyArray<readonly [ResourceRef, Readonly<Record<string, unknown>>]>;
+  /** Stored rules: the model gets a DbRuleStore beside its ConfigRuleStore, and these are written through it (`putWithLadders`). */
+  readonly dbRules?: readonly Omit<RuleDef, 'source'>[];
+}
+
+/** An `authz_rule` row as a test writes it past the store (raw columns and its subject rows). */
+export interface RawRuleRow {
+  readonly rule: Readonly<Record<string, unknown>>;
+  readonly subjects?: readonly Readonly<Record<string, unknown>>[];
 }
 
 /**
@@ -165,12 +174,17 @@ export class RouteWorld {
   service!: AuthzService;
   private undo?: () => Promise<void>;
   private readonly attributes: DbScopeAttributeStore;
+  /** The model's DbRuleStore when `dbRules` is given: the root container, whose configuration names this kind's connection. */
+  readonly ruleStore = new DbRuleStore(DI.RootContainer);
 
   private constructor(readonly db: RootOrm, readonly kind: Kind, readonly models: DocModels) {
     this.attributes = new DbScopeAttributeStore({ connection: RootOrm.connectionOf(kind) });
   }
 
   static async open(db: RootOrm, kind: Kind, opts: RouteWorldOptions = {}): Promise<RouteWorld> {
+    // The rule tables of the real migration; authz_assignment as the orm harness makes it.
+    await new AuthzRbac_2026_10_01_00_00_00().up(db.driver(kind));
+    await db.raw(kind, 'DROP TABLE "authz_assignment"');
     await createAssignmentTable(db.driver(kind), kind);
     await new AuthzScopeAttribute_2026_10_02_00_00_00().up(db.driver(kind));
     if (kind === 'postgres') await withoutJit(db);
@@ -187,12 +201,15 @@ export class RouteWorld {
     const cfg = testHost.config();
     const name = `l4broute${++seq}`;
     const permissions = Object.fromEntries(PERMISSIONS.map((p) => [p, { types: ['doc'] }]));
-    cfg.set(['authz', 'domains', name], { permissions, combine: { default: { algorithm: 'deny-overrides', models: ['rbac'] } }, cache: { maxEntries: 0 } });
+    // A Postgres busy with other suites can take seconds per query: a check past the default model timeout
+    // refuses, which a test would read as SQL listing a row the check refuses.
+    cfg.set(['authz', 'domains', name], { permissions, combine: { default: { algorithm: 'deny-overrides', models: ['rbac'] } }, cache: { maxEntries: 0 }, engine: { modelTimeoutMs: 120000 } });
     const before = { domain: cfg.get<unknown>(['authz', 'orm', 'domain']), rbac: cfg.get<unknown>(['authz', 'rbac']) };
     cfg.set(['authz', 'orm', 'domain'], name);
-    cfg.set(['authz', 'rbac'], { serviceRoles: SERVICE_ROLES, cache: { assignmentsTtlSeconds: 0 } });
+    cfg.set(['authz', 'rbac'], { serviceRoles: SERVICE_ROLES, cache: { assignmentsTtlSeconds: 0 }, connection: RootOrm.connectionOf(this.kind) });
     const store = new MemoryAssignmentStore(this.store?.all() ?? []);
-    const options: RbacModelOptions = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, log: { warn: () => undefined }, ...(opts.rules ? { rules: new ConfigRuleStore(opts.rules as RuleDef[]) } : {}) };
+    const ruleStores: RuleStore[] = [...(opts.rules ? [new ConfigRuleStore(opts.rules as RuleDef[])] : []), ...(opts.dbRules ? [this.ruleStore] : [])];
+    const options: RbacModelOptions = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, log: { warn: () => undefined }, ...(ruleStores.length > 0 ? { rules: ruleStores } : {}) };
     const model = new RbacModel({ ...options, extensions: [...createRbacExtensions(options), rbacAssignmentExtension(options, { rules: true })] });
     const container: IContainer = ds.create(name, 'root');
     container.register(testHost.instance(model)).as(AuthorizationModel);
@@ -214,6 +231,7 @@ export class RouteWorld {
     };
     try {
       await this.writeAttributes(opts.attributes ?? []);
+      await this.writeRules(opts.dbRules ?? []);
       this.service = await ds.service(name);
       this.model = model;
       this.store = store;
@@ -231,7 +249,7 @@ export class RouteWorld {
       await this.undo?.();
     } finally {
       await this.db.clear();
-      await this.db.raw(this.kind, 'DROP TABLE IF EXISTS "authz_assignment"');
+      await new AuthzRbac_2026_10_01_00_00_00().down(this.db.driver(this.kind));
       await new AuthzScopeAttribute_2026_10_02_00_00_00().down(this.db.driver(this.kind));
     }
   }
@@ -244,6 +262,33 @@ export class RouteWorld {
     await driver.transaction(async (tx: OrmDriver) => {
       for (const [ref, attributes] of nodes) await this.attributes.write(ref, { set: flattenAttributes(attributes).set, remove: [] }, { type: 'user', id: 'root' }, { driver: tx });
     });
+  }
+
+  /** As AuthzAdmin's rule.put writes them: every earlier rule removed, then DbRuleStore.putWithLadders in one transaction. */
+  private async writeRules(rules: readonly Omit<RuleDef, 'source'>[]): Promise<void> {
+    const driver = this.db.driver(this.kind);
+    await this.db.raw(this.kind, 'DELETE FROM "authz_rule_subject"');
+    await this.db.raw(this.kind, 'DELETE FROM "authz_rule"');
+    if (rules.length === 0) return;
+    await driver.transaction(async (tx: OrmDriver) => {
+      for (const rule of rules) await this.ruleStore.putWithLadders(rule, LADDERS, { type: 'user', id: 'root' }, { driver: tx });
+    });
+  }
+
+  /** Writes rule rows past the store: what no AuthzAdmin write gives (a stale rank, a definition beyond the columns). */
+  async writeRawRules(rows: readonly RawRuleRow[]): Promise<void> {
+    const driver = this.db.driver(this.kind);
+    for (const r of rows) {
+      await driver
+        .insert()
+        .into('authz_rule')
+        .values({ created_by: 'user:root', created_at: new Date(), ...r.rule });
+      for (const s of r.subjects ?? [])
+        await driver
+          .insert()
+          .into('authz_rule_subject')
+          .values({ ...s });
+    }
   }
 
   /** Replaces every assignment, in the model's store and in `authz_assignment`. */

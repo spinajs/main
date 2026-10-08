@@ -149,6 +149,24 @@ export class RbacPathSql {
     return rsql`(${read.exact} AND ${this.dialect!.sameText(rsql`${id}`, read.text)})`;
   }
 
+  /**
+   * Two-valued: `x` is a type-only scope `(type, '')` and some column node of that type holds the id ''. Such a
+   * node's ref is `{ type, id: '' }`, which a store reading by `(scope_type, scope_id)` takes for the type-only
+   * scope (`DbRuleStore.forPath`), though `atNode` names no node by it.
+   */
+  emptyIdNode(x: string): RbacSql {
+    const { type, id } = this.scope(x);
+    const types = new Map<string, RbacSql[]>();
+    for (const n of this.nodes) {
+      if (n.column === undefined || n.idMode === 'none') continue;
+      const column = rsql`${outer(n.column)}`;
+      const empty = n.idMode === undefined ? rsql`(${column} IS NOT NULL AND ${textOf(column, this.quoter)} = ${''})` : rsql`(${this.dialect!.idOf(column, n.idMode).exact} AND ${this.dialect!.sameText(this.dialect!.idOf(column, n.idMode).text, rsql`${''}`)})`;
+      types.set(n.type, [...(types.get(n.type) ?? []), empty]);
+    }
+    if (types.size === 0) return FALSE_SQL;
+    return andSql(rsql`${type} IS NOT NULL AND ${id} IS NOT NULL AND ${id} = ${''}`, orSql(...[...types].map(([t, empties]) => andSql(rsql`${type} = ${t}`, orSql(...empties)))));
+  }
+
   /** `x` names a node of the path. */
   onPathNode(x: string): RbacSql {
     return orSql(...this.nodes.map((_, i) => this.atNode(x, i)));

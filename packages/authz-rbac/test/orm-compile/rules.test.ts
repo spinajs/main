@@ -7,7 +7,7 @@ import 'mocha';
 
 import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, parseRbacListArgs, rbacAssignmentArgsV2, rbacThresholdArgs } from '../../src/index.js';
 import type { RbacAssignmentArgsV2, RbacThresholdArgs } from '../../src/index.js';
-import { RbacRoleGraphSource, RbacScopeAttributeSource, RbacSql } from '../../src/orm/index.js';
+import { RbacListCompiler, RbacRoleGraphSource, RbacScopeAttributeSource, RbacSql } from '../../src/orm/index.js';
 import { sqliteParserDepth } from '../../src/orm/compile/sqlite-depth.js';
 import { SQLITE_ODD_DOCS } from '../orm/orm-world.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
@@ -177,6 +177,22 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
         await scenario([{ id: 'r1', kind: 'restrict', scope: O('o1'), allow: [], when: { attr: 'scope.org.policies.tag', ne: 'a' } }], [assignment(u('ann'), 'editor', GLOBAL)]);
         await respell();
         await narrower(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8'], ['1', '3']);
+      });
+
+      it('a boolean literal against a number attribute other than 0 or 1 is UNKNOWN: restricts, caps and thresholds act (review probes P1, P3, P4)', async () => {
+        // o1's level is 3; the rules sit at o1.
+        const rows = [assignment(u('ann'), 'editor', GLOBAL)];
+        for (const when of [
+          { attr: 'scope.org.policies.level', eq: true },
+          { attr: 'scope.org.policies.level', ne: false },
+        ]) {
+          await scenario([{ id: 'r1', kind: 'restrict', scope: O('o1'), allow: [], when }], rows);
+          await lists(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8']);
+          await scenario([{ id: 'c1', kind: 'cap', scope: O('o1'), ladder: 'project', maxRole: 'viewer', when }], rows);
+          await lists(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8']);
+          await scenario([{ id: 't1', kind: 'threshold', scope: O('o1'), permissions: ['doc:edit'], minRole: 'maintainer', when }], rows);
+          await lists(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8']);
+        }
       });
 
       it('cap: constant, ref through scope attributes, drop, strip, subject and scope selectors; implied roles go with their clamped source unless bypassed', async () => {
@@ -403,8 +419,21 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
           expect(await world.compiled(f, user('nobody')), `${kind} another principal`).to.deep.equal(want);
           expect(await world.inMemory(f, user('ann')), `${kind} in memory`).to.deep.equal(want);
         };
-        await both(term(RBAC_ASSIGNMENT_OP, route), ['2', '4', '5', '6', '7', '8']);
-        await both(term(RBAC_THRESHOLD_OP, threshold), ['1', '2', '7']);
+        // The compilers read authz.orm.domain only to name a refusal (review M4).
+        const proto = RbacListCompiler.prototype as unknown as { where(type: string): string };
+        const where = proto.where;
+        let domainReads = 0;
+        proto.where = function (this: unknown, type: string) {
+          domainReads++;
+          return where.call(this, type);
+        };
+        try {
+          await both(term(RBAC_ASSIGNMENT_OP, route), ['2', '4', '5', '6', '7', '8']);
+          await both(term(RBAC_THRESHOLD_OP, threshold), ['1', '2', '7']);
+        } finally {
+          proto.where = where;
+        }
+        expect(domainReads, 'domain reads of terms that compile').to.equal(0);
         // A config role (a constant GLOBAL assignment) under the same rules.
         const config = { ...ctx, subjects: [], config: [{ subject: { type: 'service', id: 'z' }, role: 'editor' }] };
         await both(term(RBAC_ASSIGNMENT_OP, rbacAssignmentArgsV2(config, r)), ['2', '4', '5', '6', '7', '8']);
@@ -417,8 +446,9 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
           expect(e, String(why)).to.be.instanceOf(AuthzConfigError);
           expect((e as Error).message).to.match(why);
         };
-        await refused(term(RBAC_ASSIGNMENT_OP, rbacAssignmentArgsV2({ ...ctx, dbRules: true }, r)), /dbRules.*next L4b task/);
-        await refused(term(RBAC_THRESHOLD_OP, rbacThresholdArgs({ ...ctx, permission: 'doc:edit' }, { db: true })), /db: true.*next L4b task/);
+        // No stored rule: dbRules and { db: true } add nothing to the bound rules.
+        expect(await world.compiled(term(RBAC_ASSIGNMENT_OP, rbacAssignmentArgsV2({ ...ctx, dbRules: true }, r)), user('ann'))).to.deep.equal(['2', '4', '5', '6', '7', '8']);
+        expect(await world.compiled(term(RBAC_THRESHOLD_OP, rbacThresholdArgs({ ...ctx, permission: 'doc:edit' }, { db: true })), user('ann'))).to.deep.equal([]);
         await refused(term(RBAC_THRESHOLD_OP, rbacThresholdArgs({ ...ctx, permission: 'doc:edit' }, { rule: 'nope' })), /names no threshold rule 'nope'/);
         const fn = { ...ctx, rules: [{ id: 'f1', kind: 'cap' as const, scope: GLOBAL, ladder: 'project', maxRole: 'viewer', when: { fn: 'time.between', args: { from: '00:00', to: '23:59' } } }] };
         await refused(term(RBAC_ASSIGNMENT_OP, rbacAssignmentArgsV2(fn, r)), /rule 'f1'.*condition SQL cannot follow/);
@@ -497,6 +527,10 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
             mixed: (d) => '(a IS NOT NULL AND (b = 1 OR NOT (c IN (1, 2) AND '.repeat(d) + '1' + ')))'.repeat(d),
             between: (d) => '(typeof(a) IN (1, 2) AND a BETWEEN -9 AND 9 AND ('.repeat(d) + '1' + '))'.repeat(d),
             glob: (d) => '(a GLOB b AND NOT (a GLOB c) AND instr(a, char(0)) = 0 AND a = b COLLATE BINARY AND ('.repeat(d) + '1' + '))'.repeat(d),
+            // The WITH of a term with stored rules: depth in a table, in a later table, in the select after them.
+            withFirst: (d) => `(WITH a AS MATERIALIZED (SELECT 1 AS v FROM t WHERE ${'NOT ('.repeat(d)}1${')'.repeat(d)}), b AS MATERIALIZED (SELECT 1 AS w) SELECT COUNT(*) FROM a) = 1`,
+            withLater: (d) => `(WITH a AS MATERIALIZED (SELECT 1 AS v), b AS MATERIALIZED (SELECT v FROM a), c AS MATERIALIZED (SELECT v FROM b WHERE ${'(NOT EXISTS (SELECT 1 FROM a WHERE '.repeat(d)}1${'))'.repeat(d)}) SELECT COUNT(*) FROM c) = 1`,
+            withSelect: (d) => `(WITH a AS MATERIALIZED (SELECT 1 AS v), b AS MATERIALIZED (SELECT v FROM a) SELECT COUNT(*) FROM b WHERE ${'1 AND ('.repeat(d)}1${')'.repeat(d)}) = 1`,
           };
           const base = sqliteParserDepth(new RbacSql(['1'])) + (await headroom('1'));
           for (const [name, shape] of Object.entries(shapes)) {

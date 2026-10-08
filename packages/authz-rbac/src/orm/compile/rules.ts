@@ -13,12 +13,15 @@ import { rbacRoleScopes } from '../role-graph.js';
 import type { RbacListing } from '../role-graph.js';
 import { attrLookup } from './attributes.js';
 import type { RbacAttrLookup, RbacScopeDefaults } from './attributes.js';
+import { RULE_SUBJECT_TABLE, rbacDbRuleTables, storedPatternLeaves, whenApplies, whenMissing } from './db-rules.js';
+import type { RbacDbRuleKind } from './db-rules.js';
 import type { RbacDialectName, RbacSqlDialect } from './dialect.js';
 import type { RbacPathSql } from './path.js';
 import { rbacRouteGrant } from './route.js';
 import { sqliteParserDepth } from './sqlite-depth.js';
 import { FALSE_SQL, RbacCollationName, RbacIdentifier, RbacOuterColumn, TRUE_SQL, ident, inList, intSql, joinSql, outer, rsql } from './sql.js';
 import type { RbacSql } from './sql.js';
+import { WHEN_INEXACT, storedTypeIn } from './stored-rule.js';
 import type { RbacResourceField } from './stored-rule.js';
 
 /*
@@ -59,6 +62,10 @@ import type { RbacResourceField } from './stored-rule.js';
  * Anything SQL cannot express at all (a condition function, a condition the core does not parse, a rule
  * the current roles do not hold) is refused at compile time, and on SQLite a term deeper than its parser
  * stack allows (`RBAC_SQLITE_TERM_DEPTH`).
+ *
+ * With stored rules (`dbRules`) the term is one WITH that reads the filtered row. SQLite works such a correlated
+ * table out again at every sub-query that reads it, so a list takes seconds there for a few rows and a few rules;
+ * Postgres works each out once per row.
  */
 
 /** A subject as the `authz_assignment` subject columns hold it (`''` role for a principal). */
@@ -82,8 +89,8 @@ export interface RbacRulesSqlContext {
   /** `args.subjects` as the assignment table stores them. */
   readonly subjects: readonly RbacSubjectColumns[];
   readonly table: string;
-  /** Names the term in refusals, e.g. `native:rbac.assignment (domain "root", type 'doc')`. */
-  readonly where: string;
+  /** Names the term in refusals, e.g. `native:rbac.assignment (domain "root", type 'doc')`; called only to refuse. */
+  readonly where: () => string;
 }
 
 type Level = 0 | 1 | 2;
@@ -169,6 +176,24 @@ const GB = 'authz_gb';
 const GD = 'authz_gd';
 // The assignment rows inside `contributions`' derived table.
 const ROWS = 'authz_s';
+
+// With stored rules the term is one WITH: the assignment rows by step (s0 after collect, s1 with what the stored
+// restricts keep, s2 with what the stored caps do), the stored rules (dj, dr, dx with restrict selection, dy with
+// cap and threshold selection), and the faults and denials worked out per rule (dz, dc, dt); dn counts pattern leaves.
+const S0 = 'authz_s0';
+const S1 = 'authz_s1';
+const S2 = 'authz_s2';
+const DR = 'authz_dr';
+const DX = 'authz_dx';
+const DY = 'authz_dy';
+const DZ = 'authz_dz';
+const DC = 'authz_dc';
+const DT = 'authz_dt';
+const DN = 'authz_dn';
+// A stored rule a block is about, and the stored rules a sub-query scans.
+const D = 'authz_d';
+const E = 'authz_e';
+const RS = 'authz_rs';
 
 const readAlias = (read: Read): string => `authz_v${read.n}`;
 
@@ -285,6 +310,9 @@ const numericString = (s: string): number | undefined => {
   return Number.isFinite(n) && String(n) === s ? n : undefined;
 };
 
+/** No character outside the BMP: JavaScript's code unit order and SQL's code point order agree on it. */
+const bmp = (s: string): boolean => [...s].every((ch) => ch.codePointAt(0)! <= 0xffff);
+
 const isScalar = (v: unknown): v is string | number | boolean => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
 
 function literalList(v: unknown): (string | number)[] | undefined {
@@ -300,7 +328,9 @@ function literalList(v: unknown): (string | number)[] | undefined {
 
 // The evaluator's budget (engine/evaluate.ts, 8 M per evaluation): a pattern leaf charges about
 // (pattern + 1) * (text + 1) UTF-16 units. Texts up to WORK / ((pattern + 1) * leaves) code points keep every
-// pattern leaf of these args within WORK together; longer ones are UNKNOWN in SQL. The budget covers the whole
+// pattern leaf of these args within WORK together (with stored rules, `leaves` counts the stored thresholds'
+// patterns on the row's path too, and their bound is the same: stored-rule.ts `withinWork`); longer ones are
+// UNKNOWN in SQL. The budget covers the whole
 // combined residual a check evaluates (every model's permits and denies, authorizer.ts), which the SQL of one
 // term cannot see: this assumes the rest of it spends less than the other 7 M. authz-orm's residual compiler
 // does not mirror the budget either (compile/compiler.ts); change both together.
@@ -323,9 +353,10 @@ export function rbacResourceFields(model: Class<ModelBase>, dialect: RbacDialect
 }
 
 /**
- * The SQL of the list terms of one args context (`RbacListContext` with bound config rules): `route` for
- * `native:rbac.assignment` v2, `threshold` for `native:rbac.threshold` v1 `{ rule }`.
- * @throws AuthzConfigError for `dbRules` (the next L4b task), a rule the current roles do not hold, a
+ * The SQL of the list terms of one args context (`RbacListContext` with bound config rules, and the stored ones
+ * with `dbRules`): `route` for `native:rbac.assignment` v2, `threshold` for `native:rbac.threshold` v1 `{ rule }`,
+ * `thresholdDb` for `{ db: true }`.
+ * @throws AuthzConfigError for a bound rule the current roles do not hold, a
  *   condition SQL cannot follow (a function, or one the core does not parse), and on SQLite a term deeper than
  *   `RBAC_SQLITE_TERM_DEPTH` (from `route` or `threshold`, naming the rule with the deepest condition)
  */
@@ -340,19 +371,31 @@ export class RbacRulesSql {
   private readonly caps: readonly Rule[];
   private readonly thresholds: readonly Rule[];
   private readonly patternLeaves: number;
+  private readonly configPatternLeaves: number;
   private readonly exactResource: boolean;
   /** Scope types whose nearest node the rank parts read, each a column `nx<i>` from authz_gb on. */
   private readonly nearTypes: readonly string[];
+  /** `args.dbRules`: the stored rules on the row's path apply too. */
+  private readonly db: boolean;
+  private readonly ladders: readonly CompiledLadder[];
+  /** The term being built reads stored thresholds (`thresholdDb`). */
+  private dbThresholds = false;
+  private readonly defaults: RbacScopeDefaults;
 
   constructor(private readonly ctx: RbacRulesSqlContext) {
     const { listing, args } = ctx;
-    if (args.dbRules) throw this.refuse(undefined, 'stored rules (dbRules) are not compiled to SQL yet (the next L4b task); refused rather than listing rows they hide');
+    this.db = args.dbRules;
+    // The row type's node is the filtered row itself (nodes of that type further up are not read: a fault, narrower).
+    const own = ctx.path.nearestIndex(ctx.rowType);
+    this.defaults = ctx.defaults.withOwnRow(ctx.rowType, () => (own === undefined ? FALSE_SQL : rsql`(${own} = 0)`));
+    this.ladders = listing.ladders?.ladders ?? [];
     this.ceiling = args.ceilingRoles ? new Set(args.ceilingRoles) : undefined;
     const graph = listing.roles;
     this.storedRoles = graph.names.filter((r) => this.within(r) && graph.get(r)!.assignable);
     this.config = args.config.filter((c) => this.within(c.role) && assignmentProblem(graph, c.role, GLOBAL) === undefined);
     const resourceLeaves = args.rules.filter((r) => r.kind === 'threshold' && !r.indeterminate).flatMap((r) => [r.when, r.resource].flatMap(resourceReads));
     this.patternLeaves = Math.max(1, resourceLeaves.length);
+    this.configPatternLeaves = resourceLeaves.length;
     // Another resource.* leaf spends the evaluator's budget too, which SQL cannot follow: then every one is UNKNOWN.
     this.exactResource = resourceLeaves.every((l) => l);
     const stuck: Rule[] = [];
@@ -405,6 +448,20 @@ export class RbacRulesSql {
     const known = own !== undefined || this.ctx.args.rules.some((r) => r.id === id && r.kind === 'threshold');
     if (!known) throw this.refuse(undefined, `names no threshold rule '${id}' of its args`);
     return this.term([...this.restricts, ...this.caps, ...(own ? [own] : [])], (row) => any(this.narrowingFault(row), own ? this.thresholdDeny(own, row) : FALSE_SQL));
+  }
+
+  /**
+   * The threshold term of the stored rules (`native:rbac.threshold` v1 `{ db: true }`): some threshold of the model's
+   * DbRuleStore on the row's path denies the row (reason `{ code: 'threshold', priority: 600 }`), after restrict and
+   * cap with the bound and the stored rules. Without `dbRules` no stored rule applies: only the faults of the bound ones.
+   */
+  thresholdDb(): RbacSql {
+    this.dbThresholds = this.db;
+    try {
+      return this.term([...this.restricts, ...this.caps], (row) => any(this.narrowingFault(row), this.db ? rsql`(EXISTS (SELECT 1 FROM ${ident(DT)}))` : FALSE_SQL));
+    } finally {
+      this.dbThresholds = false;
+    }
   }
 
   // ---- rules ----
@@ -516,7 +573,7 @@ export class RbacRulesSql {
       if (type.includes('.')) throw this.refuse(def, `reads scope type ${JSON.stringify(type)}, which no reference names`);
       let lookup: RbacAttrLookup;
       try {
-        lookup = attrLookup(this.ctx.path, type, attributePath, this.ctx.defaults, this.ctx.dialect);
+        lookup = attrLookup(this.ctx.path, type, attributePath, this.defaults, this.ctx.dialect);
       } catch (e) {
         throw this.refuse(def, `cannot read scope.${type}.${attributePath}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -592,13 +649,13 @@ export class RbacRulesSql {
         const list = literalList(lit);
         if (list === undefined) return UNKNOWN_SQL;
         if (list.length === 0) return constant(op === 'nin');
-        const found = any(...list.map((item) => this.equals(j, item, op === 'in' ? bound : flip(bound))));
+        const found = any(...list.map((item) => this.equals(read, item, op === 'in' ? bound : flip(bound))));
         return op === 'in' ? found : neg(found);
       }
       case 'eq':
       case 'ne': {
         if (!isScalar(lit)) return UNKNOWN_SQL;
-        const eq = this.equals(j, lit, op === 'eq' ? bound : flip(bound));
+        const eq = this.equals(read, lit, op === 'eq' ? bound : flip(bound));
         return op === 'eq' ? eq : neg(eq);
       }
       case 'lt':
@@ -608,8 +665,11 @@ export class RbacRulesSql {
         if (typeof lit !== 'number' && typeof lit !== 'string') return UNKNOWN_SQL;
         const n = typeof lit === 'number' ? lit : numericString(lit);
         if (n === undefined || !Number.isFinite(n)) return string();
-        const cmp = ORDER[op](readCol(read, 'num'), this.ctx.dialect.number(rsql`${String(n)}`));
-        return x === UNKNOWN_SQL ? rsql`(CASE WHEN ${this.isNumber(j)} THEN ${cmp} END)` : rsql`(CASE WHEN ${this.isNumber(j)} THEN ${cmp} WHEN ${this.isString(j)} THEN ${x} END)`;
+        const num = readCol(read, 'num');
+        const literal = this.ctx.dialect.number(rsql`${String(n)}`);
+        const exact = rsql`${this.isNumber(j)} AND ${this.shortNumber(j)}`;
+        const cmp = ORDER[op](num, literal);
+        return x === UNKNOWN_SQL ? rsql`(CASE WHEN ${exact} THEN ${cmp} END)` : rsql`(CASE WHEN ${exact} THEN ${cmp} WHEN ${this.isNumber(j)} OR ${this.isString(j)} THEN ${x} END)`;
       }
       case 'like':
       case 'glob':
@@ -623,23 +683,44 @@ export class RbacRulesSql {
   /**
    * The engine's `eq` after `coerce` of a scalar JSON text and a literal, three-valued. A string attribute against
    * a number is TRUE when it is the number's own text; the engine also says FALSE for another numeric string, which
-   * SQL cannot tell from a non-numeric one (UNKNOWN in the engine). Texts compare as `JSON.stringify` writes them
+   * SQL cannot tell from a non-numeric one (UNKNOWN in the engine). Strings compare as `JSON.stringify` writes them
    * (DbScopeAttributeStore, schema defaults): a stored string holding an escape may spell the literal another way,
-   * so only its exact text decides it.
+   * so only its exact text decides it. Numbers compare by value (`numberIs`), whatever their text.
    */
-  private equals(j: RbacSql, lit: string | number | boolean, bound: Bound): RbacSql {
+  private equals(read: Read, lit: string | number | boolean, bound: Bound): RbacSql {
+    const j = readCol(read, 'json');
     const x = inexact(bound);
     const same = (text: string): RbacSql => rsql`(${this.ctx.dialect.sameText(j, rsql`${text}`)})`;
     if (typeof lit === 'string') {
       const n = numericString(lit);
       const str = any(same(JSON.stringify(lit)), all(rsql`(${this.ctx.dialect.contains(j, rsql`${'\\'}`)})`, x));
-      return rsql`(CASE WHEN ${this.isString(j)} THEN ${str} WHEN ${this.isNumber(j)} THEN ${n === undefined ? UNKNOWN_SQL : same(String(n))} END)`;
+      return rsql`(CASE WHEN ${this.isString(j)} THEN ${str} WHEN ${this.isNumber(j)} THEN ${n === undefined ? UNKNOWN_SQL : this.numberIs(read, n, bound)} END)`;
     }
     if (typeof lit === 'number') {
       const bool = lit === 0 || lit === 1 ? same(lit === 1 ? 'true' : 'false') : UNKNOWN_SQL;
-      return rsql`(CASE WHEN ${this.isNumber(j)} THEN ${same(String(lit))} WHEN ${this.isString(j)} THEN ${any(same(JSON.stringify(String(lit))), x)} WHEN ${this.isBoolean(j)} THEN ${bool} END)`;
+      return rsql`(CASE WHEN ${this.isNumber(j)} THEN ${this.numberIs(read, lit, bound)} WHEN ${this.isString(j)} THEN ${any(same(JSON.stringify(String(lit))), x)} WHEN ${this.isBoolean(j)} THEN ${bool} END)`;
     }
-    return rsql`(CASE WHEN ${this.isBoolean(j)} THEN ${same(String(lit))} WHEN ${same('1')} THEN ${constant(lit)} WHEN ${same('0')} THEN ${constant(!lit)} END)`;
+    // A number attribute coerces against a boolean only as 0 or 1: any other short number falls through to NULL.
+    const num = readCol(read, 'num');
+    const short = this.shortNumber(j);
+    return rsql`(CASE WHEN ${this.isBoolean(j)} THEN ${same(String(lit))} WHEN ${this.isNumber(j)} AND ${short} AND ${num} = 1 THEN ${constant(lit)} WHEN ${this.isNumber(j)} AND ${short} AND ${num} = 0 THEN ${constant(!lit)} WHEN ${this.isNumber(j)} AND ${neg(short)} THEN ${x} END)`;
+  }
+
+  /** A number attribute equals `n` as the engine's doubles do; a text `shortNumber` refuses is undecided. */
+  private numberIs(read: Read, n: number, bound: Bound): RbacSql {
+    const short = this.shortNumber(readCol(read, 'json'));
+    return any(all(short, rsql`(${readCol(read, 'num')} = ${this.ctx.dialect.number(rsql`${String(n)}`)})`), all(neg(short), inexact(bound)));
+  }
+
+  /**
+   * A JSON number text SQL compares as the engine compares its double: at most 15 characters and no exponent, so at
+   * most 15 significant digits in the normal range, where distinct decimals are distinct doubles (DBL_DIG) and
+   * Postgres' NUMERIC and SQLite's REAL agree with the engine. A longer text (`3.0000000000000001` is the double 3)
+   * is left undecided.
+   */
+  private shortNumber(j: RbacSql): RbacSql {
+    const dialect = this.ctx.dialect;
+    return rsql`(LENGTH(${j}) <= 15 AND NOT (${dialect.contains(j, rsql`${'e'}`)}) AND NOT (${dialect.contains(j, rsql`${'E'}`)}))`;
   }
 
   private isString(j: RbacSql): RbacSql {
@@ -676,7 +757,8 @@ export class RbacRulesSql {
     }
     const leaves = this.patternLeaves;
     if ((65 * lit.length + 1) * leaves > WORK) return UNKNOWN_SQL;
-    const max = Math.floor(WORK / ((lit.length + 1) * leaves));
+    // With stored rules their thresholds' patterns share the budget, and how many there are depends on the row.
+    const max = this.db ? rsql`${intSql(WORK)} / (${intSql(lit.length + 1)} * ${this.leavesSql()})` : Math.floor(WORK / ((lit.length + 1) * leaves));
     const column = rsql`${outer(field.column)}`;
     if (this.ctx.dialect.name === 'sqlite') {
       const matches = all(rsql`(${column} GLOB ${likeToGlob(like)})`, notLike === undefined ? TRUE_SQL : neg(rsql`(${column} GLOB ${likeToGlob(notLike)})`));
@@ -684,6 +766,22 @@ export class RbacRulesSql {
     }
     const matches = all(rsql`(${column} LIKE ${like} ESCAPE ${'\\'})`, notLike === undefined ? TRUE_SQL : neg(rsql`(${column} LIKE ${notLike} ESCAPE ${'\\'})`));
     return rsql`(CASE WHEN ${column} IS NOT NULL AND LENGTH(${column}) <= ${max} THEN ${matches} END)`;
+  }
+
+  /** The resource pattern leaves a check of the row may evaluate, read from the term's WITH (leavesTable). */
+  private leavesSql(): RbacSql {
+    return rsql`(SELECT ${ident('n')} FROM ${ident(DN)})`;
+  }
+
+  /**
+   * One row, 
+: the config thresholds' pattern leaves and the stored ones'; NULL for none (a bound that is never
+   * read: a leaf being bounded counts itself, unless it is a stored rule the row skips). A table of its own, so the
+   * bounds stay shallow for SQLite's parser stack.
+   */
+  private leavesTable(): RbacSql {
+    const { path, rowType, now, dialect, args } = this.ctx;
+    return rsql`SELECT NULLIF(${intSql(this.configPatternLeaves)} + ${storedPatternLeaves({ path, rowType, now, dialect, permission: args.permission })}, 0) AS ${ident('n')}${dialect.fence}`;
   }
 
   // ---- contributions ----
@@ -715,7 +813,7 @@ export class RbacRulesSql {
    * table holding what the predicates read of each (`pi` its static path index, NULL for none; `ar` made at the
    * row itself; `al<n>` the subject in restrict rule n's allow list), so the predicates stay shallow.
    */
-  private contributions(alias: string, level: Level, row: Row, pred: (k: Kind, src: Src) => RbacSql): RbacSql {
+  private contributions(alias: string, level: Level, row: Row, pred: (k: Kind, src: Src) => RbacSql, table?: string): RbacSql {
     const parts: RbacSql[] = [];
     if (this.ctx.subjects.length > 0) {
       const src: Src = { alias };
@@ -734,7 +832,8 @@ export class RbacRulesSql {
       }
       if (groups.size > 0) {
         const which = any(...[...groups.values()].map((g) => all(this.roleIn([...g.roles], alias), g.sql)));
-        const sub = rsql`(SELECT 1 FROM (${this.assignmentRows()}) ${ident(alias)} WHERE ${which})`;
+        const from = this.db ? rsql`${ident(table ?? [S0, S1, S2][level])}` : rsql`(${this.assignmentRows()})`;
+        const sub = rsql`(SELECT 1 FROM ${from} ${ident(alias)} WHERE ${which})`;
         const exists = rsql`(EXISTS ${sub})`;
         existsTerms.set(exists, sub);
         parts.push(exists);
@@ -754,7 +853,9 @@ export class RbacRulesSql {
   private assignmentRows(): RbacSql {
     const x = (column: string) => rsql`${ident(ROWS, column)}`;
     const path = this.ctx.path;
-    const cols = [as(x('role'), 'role'), as(x('scope_type'), 'scope_type'), as(x('subject_type'), 'subject_type'), as(x('tags'), 'tags'), as(path.pathIndex(ROWS), 'pi'), as(asFlag(path.atNode(ROWS, 0)), 'ar'), ...this.restricts.map((r) => as(asFlag(any(...r.allow.triples.map((t) => rsql`(${x('subject_type')} = ${t.type} AND ${x('subject_id')} = ${t.id} AND ${x('subject_role')} = ${t.role})`))), `al${r.n}`))];
+    // With stored rules the allow lists of the stored restricts read the subject too.
+    const subject = this.db ? [as(x('subject_id'), 'subject_id'), as(x('subject_role'), 'subject_role')] : [];
+    const cols = [as(x('role'), 'role'), as(x('scope_type'), 'scope_type'), as(x('subject_type'), 'subject_type'), ...subject, as(x('tags'), 'tags'), as(path.pathIndex(ROWS), 'pi'), as(asFlag(path.atNode(ROWS, 0)), 'ar'), ...this.restricts.map((r) => as(asFlag(any(...r.allow.triples.map((t) => rsql`(${x('subject_type')} = ${t.type} AND ${x('subject_id')} = ${t.id} AND ${x('subject_role')} = ${t.role})`))), `al${r.n}`))];
     const subjects = any(...this.ctx.subjects.map((s) => rsql`(${x('subject_type')} = ${s.type} AND ${x('subject_id')} = ${s.id} AND ${x('subject_role')} = ${s.role})`));
     const where = all(subjects, rsql`(${x('expires_at')} IS NULL OR ${x('expires_at')} > ${this.ctx.now})`, any(...path.onPathTerms(ROWS)));
     return rsql`SELECT ${joinSql(cols, ', ')} FROM ${ident(this.ctx.table)} ${ident(ROWS)} WHERE ${where}`;
@@ -813,8 +914,233 @@ export class RbacRulesSql {
 
   // ---- restrict (step 2) ----
 
-  private keptByRestricts(k: Kind, src: Src, row: Row, before?: number): RbacSql {
-    return all(...this.restricts.filter((r) => before === undefined || r.n < before).map((r) => neg(all(flag(row.col(`rs${r.n}`)), this.restrictDrops(r, k, src, row)))));
+  /** Kept by the bound restricts (those before `before` in id order), and by the stored ones (before it). */
+  private keptByRestricts(k: Kind, src: Src, row: Row, before?: Rule): RbacSql {
+    const bound = all(...this.restricts.filter((r) => before === undefined || r.n < before.n).map((r) => neg(all(flag(row.col(`rs${r.n}`)), this.restrictDrops(r, k, src, row)))));
+    return this.db ? all(bound, this.keptByStored(k, src, before)) : bound;
+  }
+
+  // ---- stored rules: restrict ----
+
+  /**
+   * Kept by the selected stored restricts (or those before the bound rule `before`): no bypass, or every such
+   * restrict not allowing the subject sits at or above where the contribution was made. For an assignment row the
+   * nearest such restrict is a column of the row (`xd`, `xe<n>`).
+   */
+  private keptByStored(k: Kind, src: Src, before?: Rule): RbacSql {
+    if (k.bypassRestrict) return TRUE_SQL;
+    if ('config' in src) {
+      const earlier = before === undefined ? TRUE_SQL : this.storedBefore(E, before.def.id);
+      return rsql`(NOT EXISTS (SELECT 1 FROM ${ident(DX)} ${ident(E)} WHERE ${all(this.storedRs(E), earlier, rsql`(${ident(E, 'ix')} <> ${intSql(this.lastIndex)})`, neg(this.allowsPrincipal(E, src.config)))}))`;
+    }
+    const nearest = rsql`${ident(src.alias, before === undefined ? 'xd' : `xe${before.n}`)}`;
+    const pi = rsql`${ident(src.alias, 'pi')}`;
+    return rsql`(${nearest} IS NULL OR (${pi} IS NOT NULL AND ${pi} <= ${nearest}))`;
+  }
+
+  private get lastIndex(): number {
+    return this.ctx.path.nodes.length - 1;
+  }
+
+  private dcol(d: string, c: string): RbacSql {
+    return rsql`${ident(d, c)}`;
+  }
+
+  /** Stored restrict `d` drops what it does not keep: it is selected and acts (a node, a `when` not FALSE, the rank selector). */
+  private storedRs(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'restrict'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('ix')} IS NOT NULL)`, rsql`(${c('ab')} = 0)`, whenApplies(c('wc')), rsql`(${c('rk')} = 1)`);
+  }
+
+  /** Stored restrict `d` is selected without its node: the check throws where it would drop something (B39). */
+  private storedRi(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'restrict'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('ix')} IS NOT NULL)`, rsql`(${c('ab')} = 1)`, rsql`(${c('rk')} = 1)`);
+  }
+
+  /** Stored restrict `d` is selected with a `when` SQL cannot decide: `storedRs` counts it, and the row faults where it acts. */
+  private storedRu(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'restrict'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('ix')} IS NOT NULL)`, rsql`(${c('ab')} = 0)`, rsql`(${c('wc')} = ${intSql(WHEN_INEXACT)})`, rsql`(${c('rk')} = 1)`);
+  }
+
+  /** Stored rule `d` comes before the bound rule `id` in the steps' id order. Under SQL's code point order: only when no character outside the BMP can make it differ from JavaScript's. */
+  private storedBefore(d: string, id: string): RbacSql {
+    if (!bmp(id)) return FALSE_SQL;
+    const dialect = this.ctx.dialect;
+    const did = this.dcol(d, 'id');
+    return all(rsql`(${dialect.textBefore(did, rsql`CAST(${id} AS TEXT)`)})`, rsql`(${dialect.bmpOnly(did)})`);
+  }
+
+  /** The bound rule `id` comes before stored rule `d` (a bound rule goes first on an equal id). */
+  private boundBefore(id: string, d: string): RbacSql {
+    if (!bmp(id)) return FALSE_SQL;
+    const dialect = this.ctx.dialect;
+    const did = this.dcol(d, 'id');
+    return all(any(rsql`(${dialect.sameText(did, rsql`CAST(${id} AS TEXT)`)})`, rsql`(${dialect.textBefore(rsql`CAST(${id} AS TEXT)`, did)})`), rsql`(${dialect.bmpOnly(did)})`);
+  }
+
+  /** Stored rule `a` comes before stored rule `b`. */
+  private storedBeforeStored(a: string, b: string): RbacSql {
+    const dialect = this.ctx.dialect;
+    return all(rsql`(${dialect.textBefore(this.dcol(a, 'id'), this.dcol(b, 'id'))})`, rsql`(${dialect.bmpOnly(this.dcol(a, 'id'))})`, rsql`(${dialect.bmpOnly(this.dcol(b, 'id'))})`);
+  }
+
+  /**
+   * Stored rule `d`'s `allow` holds the subject of assignment row `s`. A set entry at a type-only scope is no
+   * entry AuthzAdmin writes (it reads a set's scope as GLOBAL or a node), and the check matches it only when the
+   * definition spells the scope without an id: it allows nothing here, and `storedSimpleFault` refuses a row whose
+   * subjects hold such a set.
+   */
+  private allowsRow(d: string, s: string): RbacSql {
+    const rs = (c: string) => rsql`${ident(RS, c)}`;
+    return rsql`(EXISTS (SELECT 1 FROM ${ident(RULE_SUBJECT_TABLE)} ${ident(RS)} WHERE ${rs('rule_id')} = ${this.dcol(d, 'id')} AND ${rs('list')} = ${'allow'} AND ${rs('subject_type')} = ${ident(s, 'subject_type')} AND ${rs('subject_id')} = ${ident(s, 'subject_id')} AND ${rs('subject_role')} = ${ident(s, 'subject_role')} AND (${rs('subject_role')} = ${''} OR ${rs('subject_type')} = ${GLOBAL.type} OR ${rs('subject_id')} <> ${''})))`;
+  }
+
+  private allowsPrincipal(d: string, p: PrincipalRef): RbacSql {
+    const rs = (c: string) => rsql`${ident(RS, c)}`;
+    return rsql`(EXISTS (SELECT 1 FROM ${ident(RULE_SUBJECT_TABLE)} ${ident(RS)} WHERE ${rs('rule_id')} = ${this.dcol(d, 'id')} AND ${rs('list')} = ${'allow'} AND ${rs('subject_type')} = ${p.type} AND ${rs('subject_id')} = ${p.id} AND ${rs('subject_role')} = ${''}))`;
+  }
+
+  /** Stored restrict `d` would drop the contribution: no bypass, not allowed, made strictly above `d`'s node. */
+  private storedDrops(d: string, k: Kind, src: Src): RbacSql {
+    if (k.bypassRestrict) return FALSE_SQL;
+    const ix = this.dcol(d, 'ix');
+    if ('config' in src) return all(neg(this.allowsPrincipal(d, src.config)), rsql`(${ix} <> ${intSql(this.lastIndex)})`);
+    const pi = rsql`${ident(src.alias, 'pi')}`;
+    return all(neg(this.allowsRow(d, src.alias)), neg(rsql`(${pi} IS NOT NULL AND ${pi} <= ${ix})`));
+  }
+
+  // ---- stored rules: cap ----
+
+  /** Stored cap `d` is selected and applies (an inexact `when` applies a cap: it only takes from C2). */
+  private storedCs(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'cap'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('ab')} = 0)`, whenApplies(c('wc')), rsql`(${c('rk1')} = 1)`);
+  }
+
+  private storedCi(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'cap'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('ab')} = 1)`, rsql`(${c('rk1')} = 1)`);
+  }
+
+  private storedTs(d: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return all(rsql`(${c('kind')} = ${'threshold'})`, rsql`(${c('ps')} = 1)`, rsql`(${c('rk1')} = 1)`);
+  }
+
+  /** The assignment selectors of stored cap `d` take an assignment made at `scopeType` to `subjectType`. */
+  private storedCapTakes(d: string, scopeType: RbacSql, subjectType: RbacSql): RbacSql {
+    const dialect = this.ctx.dialect;
+    return all(storedTypeIn(this.dcol(d, 'sty'), scopeType, dialect), storedTypeIn(this.dcol(d, 'sjt'), subjectType, dialect));
+  }
+
+  private srcTypes(src: Src): { scope: RbacSql; subject: RbacSql } {
+    if ('config' in src) return { scope: rsql`CAST(${GLOBAL.type} AS TEXT)`, subject: rsql`CAST(${src.config.type} AS TEXT)` };
+    return { scope: rsql`${ident(src.alias, 'scope_type')}`, subject: rsql`${ident(src.alias, 'subject_type')}` };
+  }
+
+  /**
+   * What the selected stored caps do to an assignment made at `scopeType` to `subjectType`: `xs` some strips tags,
+   * `xp<i>` some drops on ladder i (`maxRole: null`), `xm<i>` the lowest maxRole rank on ladder i (-1 for a ref the
+   * row cannot read, which faults anyway). For an assignment row these are columns of authz_s2.
+   */
+  private storedCapEffect(what: 'xs' | 'xp' | 'xm', ladder: number, scopeType: RbacSql, subjectType: RbacSql): RbacSql {
+    const e = (c: string) => this.dcol(E, c);
+    const takes = all(this.storedCs(E), this.storedCapTakes(E, scopeType, subjectType));
+    if (what === 'xs') return asFlag(rsql`EXISTS (SELECT 1 FROM ${ident(DY)} ${ident(E)} WHERE ${all(takes, rsql`(${e('sp')} = 1)`)})`);
+    const on = rsql`(${this.ctx.dialect.sameText(e('cl'), rsql`CAST(${this.ladders[ladder].name} AS TEXT)`)})`;
+    if (what === 'xp') return asFlag(rsql`EXISTS (SELECT 1 FROM ${ident(DY)} ${ident(E)} WHERE ${all(takes, on, rsql`(${e('mk')} = 1)`)})`);
+    return rsql`(SELECT MIN(CASE WHEN ${e('mx')} IS NULL THEN -1 ELSE ${e('mx')} END) FROM ${ident(DY)} ${ident(E)} WHERE ${all(takes, on, rsql`(${e('mk')} IN (2, 3))`)})`;
+  }
+
+  private capEffectOf(src: Src, what: 'xs' | 'xp' | 'xm', ladder: number): RbacSql {
+    if ('config' in src) {
+      const t = this.srcTypes(src);
+      return this.storedCapEffect(what, ladder, t.scope, t.subject);
+    }
+    return rsql`${ident(src.alias, what === 'xs' ? 'xs' : `${what}${ladder}`)}`;
+  }
+
+  /** The stored caps drop the contribution: `maxRole: null` on its ladder, or a role off it reaching above the cap. */
+  private storedCapDrops(k: Kind, src: Src): RbacSql {
+    if (k.bypassCap) return FALSE_SQL;
+    return any(
+      ...this.ladders.map((l, i) => {
+        if (k.ladder === l) return rsql`(${this.capEffectOf(src, 'xp', i)} = 1)`;
+        const reached = this.reachedRank(k.role, l);
+        if (reached === undefined) return FALSE_SQL;
+        const m = this.capEffectOf(src, 'xm', i);
+        return any(rsql`(${this.capEffectOf(src, 'xp', i)} = 1)`, rsql`(${m} IS NOT NULL AND ${m} < ${intSql(reached)})`);
+      }),
+    );
+  }
+
+  /** No selected stored cap of the contribution's ladder clamps it below `t`. */
+  private storedClampOK(k: Kind, src: Src, t: number | RbacSql): RbacSql {
+    if (k.bypassCap || !k.ladder) return TRUE_SQL;
+    const m = this.capEffectOf(src, 'xm', this.ladders.indexOf(k.ladder));
+    const tt = typeof t === 'number' ? intSql(t) : t;
+    return rsql`(${m} IS NULL OR (${tt} IS NOT NULL AND ${m} >= ${tt}))`;
+  }
+
+  private storedStripped(k: Kind, src: Src): RbacSql {
+    if (k.bypassCap) return FALSE_SQL;
+    return rsql`(${this.capEffectOf(src, 'xs', 0)} = 1)`;
+  }
+
+  /** `acts` of `applyCaps` for stored cap `d` without its node. */
+  private storedCapActs(d: string, k: Kind, src: Src): RbacSql {
+    if (k.bypassCap) return FALSE_SQL;
+    const t = this.srcTypes(src);
+    const strips = all(rsql`(${this.dcol(d, 'sp')} = 1)`, k.entry ? constant(k.entry.tags.length > 0) : this.anyStoredTag(src));
+    const ranks = any(...this.ladders.filter((l) => k.ladder === l || this.reachedRank(k.role, l) !== undefined).map((l) => rsql`(${this.ctx.dialect.sameText(this.dcol(d, 'cl'), rsql`CAST(${l.name} AS TEXT)`)})`));
+    return all(this.storedCapTakes(d, t.scope, t.subject), any(strips, ranks));
+  }
+
+  // ---- stored rules: rank selectors and thresholds ----
+
+  /**
+   * Flags `h<a>`, `h<b>`: the rank of stored rule `d`'s selector (ladder `rl`, nearest `rn`) after collect (level 0)
+   * or restrict (level 1) reaches its bound `rb`, and `rb + 1`; computed only for the kinds that read it.
+   */
+  private storedHeld(d: string, level: 0 | 1, row: Row, plusOne: boolean): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    const v = plusOne ? rsql`${c('rb')} + 1` : c('rb');
+    return this.contributions('authz_k', level, row, (k, src) => (k.ladder ? all(rsql`(${this.ctx.dialect.sameText(c('rl'), rsql`CAST(${k.ladder.name} AS TEXT)`)})`, rsql`(${intSql(k.rank!)} >= ${v})`, this.atOrAbove(src, c('rn'))) : FALSE_SQL));
+  }
+
+  /** `rankSelects` from the flags `storedHeld` gave: 1 or 0. */
+  private storedRank(d: string, held: string, heldNext: string): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return rsql`CASE WHEN ${c('ro')} IS NULL THEN 1 WHEN ${c('ro')} = 1 THEN 1 - ${c(held)} WHEN ${c('ro')} = 2 THEN ${c(held)} * (1 - ${c(heldNext)}) ELSE ${c(held)} END`;
+  }
+
+  /** Stored threshold `d`'s deciding rank (ladder `dl`, at `at`/`nt` or the provenance types) reaches its minRole `mt`. */
+  private storedMeets(d: string, row: Row): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    return this.contributions('authz_m', 2, row, (k, src) => {
+      if (!k.ladder) return FALSE_SQL;
+      const madeAt = this.provenance(k.ladder);
+      const where = any(all(rsql`(${c('at')} IS NOT NULL)`, this.atOrAbove(src, c('nt'))), all(rsql`(${c('at')} IS NULL)`, madeAt ? this.scopeTypeIn(src, madeAt) : TRUE_SQL));
+      return all(rsql`(${this.ctx.dialect.sameText(c('dl'), rsql`CAST(${k.ladder.name} AS TEXT)`)})`, this.clampOK(k, src, c('mt'), row), where);
+    });
+  }
+
+  /**
+   * Stored threshold `d` denies the row, or the check fails on it there (step 8 and its gathering): a rule the
+   * check cannot compile, a missing `when` attribute or `{ ref }` value, a selected rule without its node (a ref
+   * minRole, or the rank not met), a ref minRole off the rule's ladder, or a selected rule whose when and resource
+   * are not FALSE and whose deciding rank is not met.
+   */
+  private storedDenies(d: string, row: Row): RbacSql {
+    const c = (n: string) => this.dcol(d, n);
+    const active = all(rsql`(${c('ps')} = 1)`, rsql`(${c('ab')} = 0)`);
+    const applies = whenApplies(c('wc'));
+    const fault = any(rsql`(${c('st')} = 1)`, all(active, whenMissing(c('wc'))), all(active, applies, rsql`(${c('nf')} = 1)`));
+    const unmet = any(all(rsql`(${c('ab')} = 1)`, rsql`(${c('nk')} = 1)`), all(rsql`(${c('ab')} = 0)`, applies, rsql`(${c('rr')} IS NULL OR ${c('rr')} = 1)`));
+    const selected = any(all(rsql`(${c('ab')} = 1)`, rsql`(${c('nk')} = 2)`), all(rsql`(${c('ab')} = 0)`, applies, rsql`(${c('ol')} = 1)`), all(unmet, neg(this.storedMeets(d, row))));
+    return all(rsql`(${c('kind')} = ${'threshold'})`, any(fault, all(this.storedTs(d), selected)));
   }
 
   /** The restrict rule would drop the contribution: made strictly above its node, not allowed, no bypass. */
@@ -838,6 +1164,7 @@ export class RbacRulesSql {
         const drops = this.capDrops(rule, k, row);
         return drops === FALSE_SQL ? FALSE_SQL : all(this.capMatches(rule, k, src, row), drops);
       }),
+      this.db ? this.storedCapDrops(k, src) : FALSE_SQL,
     );
   }
 
@@ -875,6 +1202,7 @@ export class RbacRulesSql {
         const below = this.capBelow(rule, t, row);
         return below === FALSE_SQL ? TRUE_SQL : neg(all(this.capMatches(rule, k, src, row), below));
       }),
+      this.db ? this.storedClampOK(k, src, t) : TRUE_SQL,
     );
   }
 
@@ -904,7 +1232,7 @@ export class RbacRulesSql {
   }
 
   private stripped(k: Kind, src: Src, row: Row): RbacSql {
-    return any(...this.caps.filter((r) => r.stripTags).map((r) => this.capMatches(r, k, src, row)));
+    return any(...this.caps.filter((r) => r.stripTags).map((r) => this.capMatches(r, k, src, row)), this.db ? this.storedStripped(k, src) : FALSE_SQL);
   }
 
   /** `acts` of `applyCaps`: what makes a cap whose scope node is missing throw. */
@@ -922,15 +1250,19 @@ export class RbacRulesSql {
   private rankSelects(rule: Rule, level: 0 | 1, row: Row): RbacSql {
     const r = rule.rank;
     if (!r) return TRUE_SQL;
-    const held = (v: number): RbacSql => (v >= r.ladder.roles.length ? FALSE_SQL : this.contributions('authz_k', level, row, (k, src) => (k.ladder === r.ladder && k.rank! >= v ? this.atOrAbove(src, r.at, row) : FALSE_SQL)));
+    const held = (v: number): RbacSql => (v >= r.ladder.roles.length ? FALSE_SQL : this.contributions('authz_k', level, row, (k, src) => (k.ladder === r.ladder && k.rank! >= v ? this.atOrAboveType(src, r.at, row) : FALSE_SQL)));
     if (r.op === 'lt') return neg(held(r.bound));
     if (r.op === 'eq') return all(held(r.bound), neg(held(r.bound + 1)));
     return held(r.bound);
   }
 
   /** The contribution is made at the nearest node of `type` or above it (`rankAtNode`). */
-  private atOrAbove(src: Src, type: string, row: Row): RbacSql {
-    const index = row.nearest(type);
+  private atOrAboveType(src: Src, type: string, row: Row): RbacSql {
+    return this.atOrAbove(src, row.nearest(type));
+  }
+
+  /** The contribution is made at the node of static index `index` or above it; `index` NULL or undefined: no such node. */
+  private atOrAbove(src: Src, index: RbacSql | undefined): RbacSql {
     if (index === undefined) return FALSE_SQL;
     if ('config' in src) return rsql`(${index} IS NOT NULL)`;
     const pi = rsql`${ident(src.alias, 'pi')}`;
@@ -942,7 +1274,26 @@ export class RbacRulesSql {
   /** Restrict and cap rules make the row's check throw: an indeterminate rule on the path, a read that faults, a rule without its node that would act. */
   private narrowingFault(row: Row): RbacSql {
     const c = (name: string, rule: Rule) => flag(row.col(`${name}${rule.n}`));
-    return any(...this.stuck.map((r) => r.scope.on), ...this.restricts.map((r) => any(all(c('o', r), neg(c('b', r)), c('f', r)), c('rf', r), r.bounds ? all(c('rs', r), neg(c('rl', r))) : FALSE_SQL)), ...this.caps.map((r) => any(all(c('o', r), neg(c('b', r)), any(c('f', r), r.max.kind === 'ref' ? all(notFalseCol(row.col(`w${r.n}`)), rsql`(${row.col(`m${r.n}`)} IS NULL)`) : FALSE_SQL)), c('ci', r))));
+    // rx<n>: the restrict would drop what the earlier ones kept. Without its node it then throws; with bounds that
+    // disagree its choice is unknown here, and matters only then.
+    const restrictFault = (r: Rule) => any(all(c('o', r), neg(c('b', r)), c('f', r)), r.types.length > 0 ? all(c('ri', r), c('rx', r)) : FALSE_SQL, r.bounds ? all(c('rs', r), neg(c('rl', r)), c('rx', r)) : FALSE_SQL);
+    const stored = this.db ? [this.storedSimpleFault(), rsql`(EXISTS (SELECT 1 FROM ${ident(DZ)}))`, rsql`(EXISTS (SELECT 1 FROM ${ident(DC)}))`] : [];
+    return any(...this.stuck.map((r) => r.scope.on), ...this.restricts.map(restrictFault), ...this.caps.map((r) => any(all(c('o', r), neg(c('b', r)), any(c('f', r), r.max.kind === 'ref' ? all(notFalseCol(row.col(`w${r.n}`)), rsql`(${row.col(`m${r.n}`)} IS NULL)`) : FALSE_SQL)), c('ci', r))), ...stored);
+  }
+
+  /**
+   * A stored restrict or cap the check fails on wherever it reads it: one it cannot compile (`st`), a selected one
+   * whose `when` attribute is missing, a cap applying with a `maxRole: { ref }` that names no role of its ladder.
+   * Also a restrict on the path whose `allow` holds a set at a type-only scope that the subjects hold (`allowsRow`).
+   */
+  private storedSimpleFault(): RbacSql {
+    const e = (n: string) => this.dcol(E, n);
+    const rs = (c: string) => rsql`${ident(RS, c)}`;
+    const s = (c: string) => rsql`${ident(S0, c)}`;
+    const active = all(rsql`(${e('ps')} = 1)`, rsql`(${e('ab')} = 0)`);
+    const typeOnlySet = rsql`(EXISTS (SELECT 1 FROM ${ident(RULE_SUBJECT_TABLE)} ${ident(RS)} WHERE ${rs('rule_id')} = ${e('id')} AND ${rs('list')} = ${'allow'} AND ${rs('subject_role')} <> ${''} AND ${rs('subject_type')} <> ${GLOBAL.type} AND ${rs('subject_id')} = ${''} AND EXISTS (SELECT 1 FROM ${ident(S0)} WHERE ${s('subject_type')} = ${rs('subject_type')} AND ${s('subject_id')} = ${''} AND ${s('subject_role')} = ${rs('subject_role')})))`;
+    const fault = any(rsql`(${e('st')} = 1)`, all(active, whenMissing(e('wc'))), all(rsql`(${e('kind')} = ${'cap'})`, active, whenApplies(e('wc')), rsql`(${e('mf')} = 1)`), all(rsql`(${e('kind')} = ${'restrict'})`, rsql`(${e('ps')} = 1)`, rsql`(${e('ix')} IS NOT NULL)`, typeOnlySet));
+    return rsql`(EXISTS (SELECT 1 FROM ${ident(DR)} ${ident(E)} WHERE ${all(rsql`(${inList(e('kind'), ['restrict', 'cap'])})`, fault)}))`;
   }
 
   // ---- threshold (step 8) ----
@@ -972,7 +1323,7 @@ export class RbacRulesSql {
   /** The deciding rank on `ladder` reaches `t` (`rankAtNode` at `at`, else `rowsMeeting` with the provenance types). */
   private meets(rule: Rule, ladder: CompiledLadder, t: number | RbacSql, row: Row): RbacSql {
     const madeAt = rule.at === undefined ? this.provenance(ladder) : undefined;
-    return this.contributions('authz_m', 2, row, (k, src) => (k.ladder !== ladder ? FALSE_SQL : all(this.clampOK(k, src, t, row), rule.at !== undefined ? this.atOrAbove(src, rule.at, row) : madeAt ? this.scopeTypeIn(src, madeAt) : TRUE_SQL)));
+    return this.contributions('authz_m', 2, row, (k, src) => (k.ladder !== ladder ? FALSE_SQL : all(this.clampOK(k, src, t, row), rule.at !== undefined ? this.atOrAboveType(src, rule.at, row) : madeAt ? this.scopeTypeIn(src, madeAt) : TRUE_SQL)));
   }
 
   /** The scope types every grant of the permission on `ladder` names in `grantedAt`, when all of them name some. */
@@ -1052,9 +1403,8 @@ export class RbacRulesSql {
     for (const r of rules) {
       const n = r.n;
       if (r.def.kind === 'restrict') {
-        // The steps apply restrict rules in id order (the args' order): one without its node throws when it would drop what the earlier ones kept.
-        const acts = this.contributions('authz_c', 0, b, (k, src) => all(this.keptByRestricts(k, src, b, n), this.restrictDrops(r, k, src, b)));
-        gdCols.push(as(asFlag(all(flag(b.col(`ri${n}`)), acts)), `rf${n}`));
+        // The steps apply restrict rules in id order (the args' order): rx<n>, the rule would drop what the earlier ones kept.
+        if (r.types.length > 0 || r.bounds) gdCols.push(as(asFlag(this.contributions('authz_c', 0, b, (k, src) => all(this.keptByRestricts(k, src, b, r), this.restrictDrops(r, k, src, b)), this.db ? S1 : undefined)), `rx${n}`));
         continue;
       }
       const selects = this.rankSelects(r, 1, b);
@@ -1065,12 +1415,74 @@ export class RbacRulesSql {
       const acts = this.contributions('authz_c', 1, b, (k, src) => this.capActs(r, k, src));
       gdCols.push(as(asFlag(all(flag(b.col(`o${n}`)), neg(flag(b.col(`b${n}`))), notFalseCol(b.col(`w${n}`)), selects)), `cs${n}`), as(asFlag(all(flag(b.col(`o${n}`)), flag(b.col(`b${n}`)), selects, acts)), `ci${n}`));
     }
-    const gd = rsql`SELECT ${joinSql(gdCols, ', ')} FROM (${gb}) ${ident(GB)}${fence}`;
-
     const verdict = cond(columns(GD));
-    // A one-row table: the count is 1 where the verdict holds, else 0.
-    const out = path.whenFoundFlag(rsql`(SELECT COUNT(*) FROM (${gd}) ${ident(GD)} WHERE ${verdict === TRUE_SQL ? rsql`1 = 1` : verdict})`);
+    const holds = verdict === TRUE_SQL ? rsql`1 = 1` : verdict;
+    let out: RbacSql;
+    if (!this.db) {
+      const gd = rsql`SELECT ${joinSql(gdCols, ', ')} FROM (${gb}) ${ident(GB)}${fence}`;
+      // A one-row table: the count is 1 where the verdict holds, else 0.
+      out = path.whenFoundFlag(rsql`(SELECT COUNT(*) FROM (${gd}) ${ident(GD)} WHERE ${holds})`);
+    } else {
+      const gd = rsql`SELECT ${joinSql(gdCols, ', ')} FROM ${ident(GB)}${fence}`;
+      // Materialized: every table is read from many sub-queries, which would otherwise each work it out again.
+      const ctes = this.storedTables(gb, gd, b, columns(GD)).map(([name, body]) => rsql`${ident(name)} AS MATERIALIZED (${body})`);
+      out = path.whenFoundFlag(rsql`(WITH ${joinSql(ctes, ', ')} SELECT COUNT(*) FROM ${ident(GD)} WHERE ${holds})`);
+    }
     if (dialect.name === 'sqlite') this.fitsSqlite(out, rules);
+    return out;
+  }
+
+  /**
+   * The WITH of a term with stored rules, in the order each reads the ones before: the pattern leaf count (dn),
+   * assignment rows after collect (s0), the stored rules (dj, dr) and the restricts' selection (dx), the bound rules' parts (gb, gd), the rows with
+   * what the stored restricts keep (s1), the caps' and thresholds' selection (dy), the rows with what the stored caps
+   * do (s2), the stored rules' faults (dz, dc) and, for `thresholdDb`, their denials (dt).
+   */
+  private storedTables(gb: RbacSql, gd: RbacSql, b: Row, g: Row): [string, RbacSql][] {
+    const { dialect } = this.ctx;
+    const fence = dialect.fence;
+    const kinds: RbacDbRuleKind[] = this.dbThresholds ? ['restrict', 'cap', 'threshold'] : ['restrict', 'cap'];
+    const ruleTables = rbacDbRuleTables({ listing: this.ctx.listing, rowType: this.ctx.rowType, path: this.ctx.path, dialect, defaults: this.defaults, fields: this.ctx.fields, now: this.ctx.now, permission: this.ctx.args.permission, everyone: [this.ctx.args.principal, ...this.ctx.args.companions], patternLeaves: this.leavesSql() }, kinds);
+    const unread: Row = {
+      col: (name) => {
+        throw new Error(`authz-rbac rules sql: ${name} is not read with the stored restricts' selection`);
+      },
+      nearest: () => undefined,
+      index: () => {
+        throw new Error('authz-rbac rules sql: no bound rule is read with the stored restricts');
+      },
+    };
+    const d = (c: string) => this.dcol(D, c);
+    const rankFlags = (level: 0 | 1, row: Row, a: string, z: string, kindsRead: readonly string[]) => {
+      const reads = all(rsql`(${inList(d('kind'), kindsRead)})`, rsql`(${d('ps')} = 1)`, rsql`(${d('ro')} IS NOT NULL)`);
+      return [as(rsql`CASE WHEN ${reads} THEN ${asFlag(this.storedHeld(D, level, row, false))} ELSE 0 END`, a), as(rsql`CASE WHEN ${reads} AND ${d('ro')} = 2 THEN ${asFlag(this.storedHeld(D, level, row, true))} ELSE 0 END`, z)];
+    };
+    const s0 = this.assignmentRows();
+    const dx = rsql`SELECT ${ident(D)}.*, ${this.storedRank(D, 'h0', 'h1')} AS ${ident('rk')} FROM (SELECT ${ident(D)}.*, ${joinSql(rankFlags(0, unread, 'h0', 'h1', ['restrict']), ', ')} FROM ${ident(DR)} ${ident(D)}${fence}) ${ident(D)}${fence}`;
+    const nearestStored = (extra: RbacSql) => rsql`(SELECT MIN(${this.dcol(E, 'ix')}) FROM ${ident(DX)} ${ident(E)} WHERE ${all(this.storedRs(E), extra, neg(this.allowsRow(E, S0)))})`;
+    const s1Cols = [rsql`${ident(S0)}.*`, as(nearestStored(TRUE_SQL), 'xd'), ...this.restricts.filter((r) => r.types.length > 0 || r.bounds).map((r) => as(nearestStored(this.storedBefore(E, r.def.id)), `xe${r.n}`))];
+    const s1 = rsql`SELECT ${joinSql(s1Cols, ', ')} FROM ${ident(S0)}${fence}`;
+    const dy = rsql`SELECT ${ident(D)}.*, ${this.storedRank(D, 'h2', 'h3')} AS ${ident('rk1')} FROM (SELECT ${ident(D)}.*, ${joinSql(rankFlags(1, b, 'h2', 'h3', ['cap', 'threshold']), ', ')} FROM ${ident(DX)} ${ident(D)} CROSS JOIN ${ident(GB)}${fence}) ${ident(D)}${fence}`;
+    const t1 = (c: string) => rsql`${ident(S1, c)}`;
+    const s2Cols = [rsql`${ident(S1)}.*`, as(this.storedCapEffect('xs', 0, t1('scope_type'), t1('subject_type')), 'xs'), ...this.ladders.flatMap((_, i) => [as(this.storedCapEffect('xp', i, t1('scope_type'), t1('subject_type')), `xp${i}`), as(this.storedCapEffect('xm', i, t1('scope_type'), t1('subject_type')), `xm${i}`)])];
+    const s2 = rsql`SELECT ${joinSql(s2Cols, ', ')} FROM ${ident(S1)}${fence}`;
+    // A stored restrict that would drop what the earlier restricts (bound and stored, in id order) kept: it throws
+    // without its node, and with an inexact when its choice is unknown here.
+    const keptEarlier = (k: Kind, src: Src): RbacSql => {
+      const bound = all(...this.restricts.map((r) => neg(all(flag(b.col(`rs${r.n}`)), this.boundBefore(r.def.id, D), this.restrictDrops(r, k, src, b)))));
+      const stored = k.bypassRestrict ? TRUE_SQL : rsql`(NOT EXISTS (SELECT 1 FROM ${ident(DX)} ${ident(E)} WHERE ${all(this.storedRs(E), this.storedBeforeStored(E, D), this.storedDrops(E, k, src))}))`;
+      return all(bound, stored);
+    };
+    const dz = rsql`SELECT 1 AS ${ident('f')} FROM ${ident(DX)} ${ident(D)} CROSS JOIN ${ident(GB)} WHERE ${all(
+      any(this.storedRi(D), this.storedRu(D)),
+      this.contributions('authz_c', 0, b, (k, src) => all(keptEarlier(k, src), this.storedDrops(D, k, src))),
+    )}`;
+    const dc = rsql`SELECT 1 AS ${ident('f')} FROM ${ident(DY)} ${ident(D)} CROSS JOIN ${ident(GB)} WHERE ${all(
+      this.storedCi(D),
+      this.contributions('authz_c', 1, b, (k, src) => this.storedCapActs(D, k, src)),
+    )}`;
+    const out: [string, RbacSql][] = [[DN, this.leavesTable()], [S0, s0], ...ruleTables, [DX, dx], [GB, gb], [S1, s1], [GD, gd], [DY, dy], [S2, s2], [DZ, dz], [DC, dc]];
+    if (this.dbThresholds) out.push([DT, rsql`SELECT 1 AS ${ident('f')} FROM ${ident(DY)} ${ident(D)} CROSS JOIN ${ident(GD)} WHERE ${this.storedDenies(D, g)}`]);
     return out;
   }
 
@@ -1101,7 +1513,7 @@ export class RbacRulesSql {
   // ---- refusals ----
 
   private refuse(rule: BoundRule | undefined, why: string): AuthzConfigError {
-    return new AuthzConfigError(`${this.ctx.where}${rule ? ` rule '${rule.id}'` : ''}: ${why}`);
+    return new AuthzConfigError(`${this.ctx.where()}${rule ? ` rule '${rule.id}'` : ''}: ${why}`);
   }
 
   private stale(rule: BoundRule, why: string): AuthzConfigError {

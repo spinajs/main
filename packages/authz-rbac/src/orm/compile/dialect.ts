@@ -2,7 +2,7 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 
 import type { RbacIdMode } from '../scope-path.js';
-import { FALSE_SQL, collation, intSql, rsql } from './sql.js';
+import { FALSE_SQL, collation, ident, intSql, rsql } from './sql.js';
 import type { RbacSql } from './sql.js';
 
 export type RbacDialectName = 'sqlite' | 'postgres';
@@ -35,7 +35,36 @@ export interface RbacSqlDialect {
   idOf(column: RbacSql, mode: Exclude<RbacIdMode, 'none'>): RbacIdSql;
   /** `a = b` in the binary collation, whatever the columns declare; NULL when either is NULL. */
   sameText(a: RbacSql, b: RbacSql): RbacSql;
+  /** `a < b` by code points (the binary collation); NULL when either is NULL. */
+  textBefore(a: RbacSql, b: RbacSql): RbacSql;
+  /** Two-valued for a non-NULL text: it holds no character outside the Basic Multilingual Plane. */
+  bmpOnly(text: RbacSql): RbacSql;
+  /** The JSON text `doc` holds a string at `keys` (object keys from the top): that string; else NULL. */
+  jsonString(doc: RbacSql, keys: readonly string[]): RbacSql;
+  /** Two-valued for a JSON text `doc`: `keys` name a value, JSON null included. */
+  jsonHas(doc: RbacSql, keys: readonly string[]): RbacSql;
+  /** Two-valued for a JSON text `doc`: `keys` name JSON null. */
+  jsonNull(doc: RbacSql, keys: readonly string[]): RbacSql;
+  /** The text `doc` where the `json*` reads above may run on it (NULL elsewhere, which they read as nothing). */
+  jsonDoc(doc: RbacSql): RbacSql;
+  /**
+   * Two-valued for a non-NULL text `doc`: JSON.parse refuses it or reads it otherwise than the `json*` reads do.
+   * SQLite: not RFC 8259 JSON (one-argument `json_valid` refuses the JSON5 the other json functions accept from
+   * 3.42), a key repeated in one object (json_extract takes the first, JSON.parse the last), or a `\u` escape
+   * anywhere (json_extract does not find a key spelled with one; a value with one is refused too, narrower).
+   * Postgres: FALSE; a text it cannot parse fails the query, and `->` reads keys as JSON.parse does (escapes
+   * decoded, the last of repeated keys).
+   */
+  jsonUnlike(doc: RbacSql): RbacSql;
 }
+
+// The keys these blocks read are plain names: a path text needs no quoting.
+const jsonPath = (keys: readonly string[]): string => {
+  if (keys.length === 0 || keys.some((k) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k))) throw new AuthzConfigError(`authz-rbac sql: ${JSON.stringify(keys)} is no path of plain JSON keys`);
+  return `$.${keys.join('.')}`;
+};
+
+const ASTRAL = '\u{10000}-\u{10FFFF}';
 
 const MAX = Number.MAX_SAFE_INTEGER;
 
@@ -65,7 +94,30 @@ const sqlite: RbacSqlDialect = {
     return { holds, exact, text: rsql`CASE WHEN ${exact} THEN CAST(CAST(${c} AS INTEGER) AS TEXT) END`, findable: holds };
   },
   sameText: (a, b) => rsql`${a} = ${b} COLLATE BINARY`,
+  textBefore: (a, b) => rsql`${a} < ${b} COLLATE BINARY`,
+  // GLOB ranges compare code points.
+  bmpOnly: (text) => rsql`NOT (${text} GLOB ${`*[${ASTRAL}]*`})`,
+  jsonString: (doc, keys) => rsql`CASE WHEN json_type(${doc}, ${jsonPath(keys)}) = ${'text'} THEN json_extract(${doc}, ${jsonPath(keys)}) END`,
+  jsonHas: (doc, keys) => rsql`(json_type(${doc}, ${jsonPath(keys)}) IS NOT NULL)`,
+  jsonNull: (doc, keys) => rsql`(json_type(${doc}, ${jsonPath(keys)}) IS NOT NULL AND json_type(${doc}, ${jsonPath(keys)}) = ${'null'})`,
+  jsonDoc: (doc) => rsql`CASE WHEN json_valid(${doc}) THEN ${doc} END`,
+  jsonUnlike: (doc) => {
+    const valid = rsql`CASE WHEN json_valid(${doc}) THEN ${doc} END`;
+    const [a, b] = ['authz_jt', 'authz_ju'];
+    const repeated = rsql`EXISTS (SELECT 1 FROM json_tree(${valid}) ${ident(a)}, json_tree(${valid}) ${ident(b)} WHERE ${ident(a, 'parent')} = ${ident(b, 'parent')} AND ${ident(a, 'key')} = ${ident(b, 'key')} AND ${ident(a, 'id')} < ${ident(b, 'id')})`;
+    return rsql`(NOT json_valid(${doc}) OR instr(${doc}, ${'\\u'}) > 0 OR ${repeated})`;
+  },
 };
+
+/** `CAST(doc AS JSON) -> k1 -> … -> kn`: the JSON value at `keys`, SQL NULL when they name none. */
+function pgJson(doc: RbacSql, keys: readonly string[], lastAsText = false): RbacSql {
+  jsonPath(keys);
+  let out = rsql`CAST(${doc} AS JSON)`;
+  keys.forEach((k, i) => {
+    out = lastAsText && i === keys.length - 1 ? rsql`${out} ->> CAST(${k} AS TEXT)` : rsql`${out} -> CAST(${k} AS TEXT)`;
+  });
+  return rsql`(${out})`;
+}
 
 const postgres: RbacSqlDialect = {
   name: 'postgres',
@@ -87,6 +139,13 @@ const postgres: RbacSqlDialect = {
   },
   // "C" compares byte by byte, also against a column with a nondeterministic collation.
   sameText: (a, b) => rsql`${a} = ${b} COLLATE ${collation('C')}`,
+  textBefore: (a, b) => rsql`${a} < ${b} COLLATE ${collation('C')}`,
+  bmpOnly: (text) => rsql`NOT (${text} ~ ${`[${ASTRAL}]`})`,
+  jsonString: (doc, keys) => rsql`CASE WHEN json_typeof(${pgJson(doc, keys)}) = ${'string'} THEN ${pgJson(doc, keys, true)} END`,
+  jsonHas: (doc, keys) => rsql`(${pgJson(doc, keys)} IS NOT NULL)`,
+  jsonNull: (doc, keys) => rsql`(${pgJson(doc, keys)} IS NOT NULL AND json_typeof(${pgJson(doc, keys)}) = ${'null'})`,
+  jsonDoc: (doc) => doc,
+  jsonUnlike: () => FALSE_SQL,
 };
 
 /** By the connection's driver name, as authz-orm's `dialectFor`. */

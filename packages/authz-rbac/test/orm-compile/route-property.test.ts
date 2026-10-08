@@ -8,10 +8,12 @@ import 'mocha';
 
 import { RbacRoleGraphSource, RbacScopeAttributeSource } from '../../src/orm/index.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
+import { propertyPart } from './rules-arbitraries.js';
 import { DAY, PERMISSIONS, ROLES, RouteWorld, at, registerRouteSources, routeArgs, service, team, u, user } from './route-world.js';
 
 const SEED = 20261005;
 const RUNS = Number(process.env.L4B_ROUTE_RUNS ?? 300);
+const part = propertyPart(RUNS);
 
 const ROLE_NAMES = [...ROLES.map((r) => r.name), 'nope'];
 const SUBJECTS: readonly AssignmentSubject[] = [u('u1'), u('u2'), u('u3'), { type: 'service', id: 's1' }, { type: 'service', id: 's2' }, team('t1'), team('t2')];
@@ -79,34 +81,37 @@ describe('authz-rbac orm-compile: grant routes, check ⇔ listed (property)', fu
         await world?.close();
       });
 
-      it(`for every principal and row, check() allows exactly the rows authz-orm lists and the in-memory list filter keeps (seed ${SEED}, ${RUNS} runs)`, async () => {
+      it(`for every principal and row, check() allows exactly the rows authz-orm lists and the in-memory list filter keeps (seed ${SEED}, ${part.label})`, async () => {
         const stats = { v2: 0, terms: 0, listed: 0, sqlMs: 0 };
         const started = Date.now();
         await fc.assert(
-          fc.asyncProperty(worldArb, async (spec) => {
-            await world.assign(rowsOf(spec, Date.now()));
-            const principals: Principal[] = [user('u1', spec.ceilings[0]), user('u2', spec.ceilings[1]), user('u3'), service('s1', spec.ceilings[2]), service('s2', spec.ceilings[3])];
-            for (const p of principals) {
-              for (const permission of spec.permissions) {
-                const residual = await world.residual(p, permission);
-                stats.terms++;
-                if (routeArgs(residual).length > 0) stats.v2++;
-                const allowed = await world.allowed(p, permission);
-                const t0 = Date.now();
-                const listed = await world.listed(p, permission);
-                stats.sqlMs += Date.now() - t0;
-                stats.listed += listed.length;
-                const why = `${kind} ${p.type}:${p.id} ceiling ${JSON.stringify(p.ceiling?.roles)} ${permission}: ${JSON.stringify(residual)}`;
-                expect(listed, `listed, ${why}`).to.deep.equal(allowed);
-                expect(await world.inMemory(residual, p), `in memory, ${why}`).to.deep.equal(allowed);
+          fc.asyncProperty(
+            worldArb,
+            part.only(async (spec) => {
+              await world.assign(rowsOf(spec, Date.now()));
+              const principals: Principal[] = [user('u1', spec.ceilings[0]), user('u2', spec.ceilings[1]), user('u3'), service('s1', spec.ceilings[2]), service('s2', spec.ceilings[3])];
+              for (const p of principals) {
+                for (const permission of spec.permissions) {
+                  const residual = await world.residual(p, permission);
+                  stats.terms++;
+                  if (routeArgs(residual).length > 0) stats.v2++;
+                  const allowed = await world.allowed(p, permission);
+                  const t0 = Date.now();
+                  const listed = await world.listed(p, permission);
+                  stats.sqlMs += Date.now() - t0;
+                  stats.listed += listed.length;
+                  const why = `${kind} ${p.type}:${p.id} ceiling ${JSON.stringify(p.ceiling?.roles)} ${permission}: ${JSON.stringify(residual)}`;
+                  expect(listed, `listed, ${why}`).to.deep.equal(allowed);
+                  expect(await world.inMemory(residual, p), `in memory, ${why}`).to.deep.equal(allowed);
+                }
               }
-            }
-          }),
-          { seed: SEED, numRuns: RUNS, endOnFailure: true },
+            }),
+          ),
+          { seed: SEED, numRuns: part.numRuns, endOnFailure: true },
         );
-        console.log(`      ${kind}: ${RUNS} runs in ${Date.now() - started} ms (SQL ${stats.sqlMs} ms over ${stats.terms} lists); ${stats.v2} lists with args v2, ${stats.listed} rows listed`);
-        expect(stats.v2, 'lists with args v2').to.be.at.least(RUNS / 2);
-        expect(stats.listed, 'rows listed').to.be.at.least(RUNS);
+        console.log(`      ${kind}: ${part.label} in ${Date.now() - started} ms (SQL ${stats.sqlMs} ms over ${stats.terms} lists); ${stats.v2} lists with args v2, ${stats.listed} rows listed`);
+        expect(stats.v2, 'lists with args v2').to.be.at.least(part.min(RUNS / 2));
+        expect(stats.listed, 'rows listed').to.be.at.least(part.min(RUNS));
       });
     });
   }

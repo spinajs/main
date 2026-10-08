@@ -1,7 +1,7 @@
 import { AuthzClock, AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { OrmNativeCompiler } from '@spinajs/authz-orm';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { IdentifierQuoter } from '@spinajs/orm';
@@ -66,12 +66,22 @@ interface BuilderLinks {
  * Postgres: the rule terms have a high estimated cost and with the default `jit_above_cost` the server
  * JIT-compiles every list query for seconds (25-30 s measured for 3.4 ms of work). Hosts set `jit = off`, or a
  * `jit_above_cost` above these plans' cost, for the role or database of the authz connection.
+ *
+ * Stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`): a term is one `WITH … AS MATERIALIZED`,
+ * which needs Postgres 12 or SQLite 3.35 (an older server fails every such list with a syntax error). SQLite works
+ * the row-correlated WITH tables out again at each reference: about 0.45 s per filtered row with four stored rules,
+ * so on SQLite these lists suit small tables only, until the rule tables are read by joins (L4b task 9).
  */
 export abstract class RbacListCompiler extends OrmNativeCompiler {
   protected readonly table: string = AUTHZ_ASSIGNMENT_TABLE;
 
+  @Config('authz.orm.domain')
+  protected Domain: string;
+
   constructor(protected readonly container: IContainer) {
     super();
+    // Built with `new`, the compiler reads the Configuration of the container it is given, as when DI builds it there.
+    (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = container;
   }
 
   /** As the assignment store writes subjects: a principal `(type, id, '')`, a set `(scope.type, scope.id ?? '', role)`. */
@@ -150,7 +160,7 @@ export abstract class RbacListCompiler extends OrmNativeCompiler {
       now: this.now(),
       subjects: args.subjects.map((s) => this.subjectTriple(s)),
       table: this.table,
-      where: this.where(pathOf.type),
+      where: () => this.where(pathOf.type),
     });
   }
 
@@ -162,13 +172,7 @@ export abstract class RbacListCompiler extends OrmNativeCompiler {
 
   /** The op, the domain authz-orm scopes queries for, and the row type, for refusals. */
   protected where(type: string): string {
-    let domain: unknown;
-    try {
-      domain = (this.container.get(Configuration) as Configuration | null)?.get(['authz', 'orm', 'domain']);
-    } catch {
-      domain = undefined;
-    }
-    return `${this.op} (domain ${JSON.stringify(typeof domain === 'string' ? domain : 'root')}, type '${type}')`;
+    return `${this.op} (domain ${JSON.stringify(this.Domain)}, type '${type}')`;
   }
 }
 
@@ -215,7 +219,7 @@ export class RbacOrmCompiler extends RbacListCompiler {
 
   /**
    * Args v2 (model/rules/args.ts): the route term of design §12.4. Without rules `rbacRoutePlan` turned into SQL by
-   * `routeSql`; with bound config rules `RbacRulesSql`. Stored rules (`dbRules`) are refused (the next L4b task).
+   * `routeSql`; with bound config rules or stored rules (`dbRules`) `RbacRulesSql`.
    */
   protected compileRoute(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>): void {
     const parsed = this.parseRouteArgs(args);
@@ -324,9 +328,9 @@ export class RbacOrmCompiler extends RbacListCompiler {
 
 /**
  * `native:rbac.threshold` v1 (model/rules/args.ts) → the rows where the named bound threshold rule denies the
- * permission, after restrict and cap with every rule of the args (design §6.1.2 step 8, §12.4): `RbacRulesSql`.
- * `{ db: true }` and `dbRules` are refused until the next L4b task. Postgres needs JIT off for these terms
- * (`RbacListCompiler`).
+ * permission, after restrict and cap with every rule of the args (design §6.1.2 step 8, §12.4), and `{ db: true }`
+ * the rows where a stored threshold rule does: `RbacRulesSql`. Postgres needs JIT off for these terms, and
+ * `{ db: true }` has the server versions and SQLite cost of stored rules (both in `RbacListCompiler`).
  */
 @Injectable(OrmNativeCompiler)
 @Inject(Container)
@@ -341,8 +345,8 @@ export class RbacThresholdOrmCompiler extends RbacListCompiler {
   compile(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>, _principal: Principal): void {
     const parsed = this.parseThresholdArgs(args);
     const target = parsed.threshold;
-    if (!('rule' in target)) throw new AuthzConfigError(`${this.where(this.pathOf(model).type)}: the DB threshold rules ({ db: true }) are not compiled to SQL yet (the next L4b task); refused rather than listing rows they deny`);
-    whereRbacSql(builder, this.rulesSql(builder, model, parsed).threshold(target.rule));
+    const rules = this.rulesSql(builder, model, parsed);
+    whereRbacSql(builder, 'rule' in target ? rules.threshold(target.rule) : rules.thresholdDb());
   }
 
   /** L1b's parser: anything but the exact canonical shape is refused. */
