@@ -1,27 +1,27 @@
 import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import type { AuthnImpersonationService } from '@spinajs/authn';
+import { AuthnImpersonationService, activeRoleCeiling } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
-import type { AuthnContext, Ceiling, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
 
 import { AuthnPrincipalResolver } from '../api.js';
 
 type Restored = NonNullable<Request['storage']['AuthnSession']>;
 
-/** Session data key of the role chosen by a role switch (D14). */
-export const ACTIVE_ROLE_KEY = 'ActiveRole';
+export { ACTIVE_ROLE_KEY } from '@spinajs/authn';
 
 // N1 vouches for these through the strategies' own record checks and never asks the store about them (D4b).
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
 
-function activeRoleCeiling(data: ReadonlyMap<string, unknown>): Ceiling | undefined {
-  const role = data.get(ACTIVE_ROLE_KEY);
-  if (role === undefined || role === null) return undefined;
-  // A value no role switch writes narrows to no role instead of lifting the narrowing.
-  return { roles: typeof role === 'string' && role !== '' ? [role] : [] };
+/** `principal` of `session`, narrowed by the session's role switch (D14): the principal every request on it resolves to. */
+export async function narrowedBySwitch(container: IContainer, session: Pick<Restored, 'identity' | 'facts' | 'data'>, principal: Principal): Promise<Principal> {
+  const ceiling = activeRoleCeiling(session.data);
+  if (!ceiling) return principal;
+  const factory = await container.resolve(PrincipalFactory);
+  return factory.principalOf(session.identity, session.facts, { ceiling });
 }
 
 /**
@@ -41,8 +41,6 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
     if (!session) return undefined;
     if (session.handle.state !== 'active') return null;
 
-    // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-    const { AuthnImpersonationService } = await import('@spinajs/authn');
     const impersonation = await this.Container.resolve(AuthnImpersonationService);
     const principal = await impersonation.principalOf(session.handle, ctx);
     if (!principal) {
@@ -50,10 +48,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
       return null;
     }
 
-    const ceiling = activeRoleCeiling(session.data);
-    if (!ceiling) return principal;
-    const factory = await this.Container.resolve(PrincipalFactory);
-    return factory.principalOf(session.identity, session.facts, { ceiling });
+    return narrowedBySwitch(this.Container, session, principal);
   }
 
   /** authn-http cannot see the users lifecycle actions, so a refused status found here ends the identity's sessions (N8a-D4). */

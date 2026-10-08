@@ -6,11 +6,11 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
-import { RbacMiddleware } from '../src/middlewares.js';
+import { RbacMiddleware } from '../../src/middlewares.js';
 
-import { DbTestConfiguration } from './token-db-common.js';
+import { DbTestConfiguration } from '../token-db-common.js';
 import { AccessToken } from '@spinajs/authn-token';
-import { TokenAuthMiddleware } from '../src/token/middlewares.js';
+import { TokenAuthMiddleware } from '../../src/token/middlewares.js';
 import '@spinajs/authn-token';
 
 // The rows that need a valid token are in `legacy-v2/token-middleware.test.ts`: since C1 the

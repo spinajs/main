@@ -891,8 +891,18 @@ describe('DbTokenService', function () {
       DI.uncache(TokenProfilePolicy);
     });
 
-    it('refuses to start when DI has no IdentityStore to inject', () => {
-      expect(() => DI.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+    it('refuses to start when DI has no IdentityStore to inject', async () => {
+      // @spinajs/users registers an IdentityStore once any suite imports it. In the child the key resolves to the bare
+      // abstract class, which is what DI injects when nothing is registered; DbTokenService is registered there too,
+      // because DI builds a type in the container that registered it.
+      const bare = DI.child();
+      bare.register(IdentityStore).as(IdentityStore);
+      bare.register(DbTokenService).as(TokenService);
+      try {
+        expect(() => bare.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+      } finally {
+        await bare.dispose();
+      }
       expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(Error, /IdentityStore/);
     });
 

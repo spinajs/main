@@ -61,6 +61,9 @@ const keyOf = (h: SessionHandle | undefined): string | null => {
 /** 2.x login-state entries; a migrated row must not carry them (a 2.x reader would take `Logged` as logged in). */
 const LEGACY_LOGIN_KEYS = ['Logged', 'TwoFactorAuth'];
 
+/** A role from the removed 2.x RBAC model; 3.0 would read it as the role ceiling, so such a row is revoked (C2 cutover). */
+const LEGACY_ACTIVE_ROLE_KEY = 'ActiveRole';
+
 /** The listed handle: one-way from the storage key, never the key or the raw id. */
 export const sessionHandleOf = (storageKey: string): string => sha256hex(HANDLE_DOMAIN + storageKey);
 
@@ -266,7 +269,8 @@ export class DefaultSessionIssuer extends SessionIssuer {
    * Re-saves a 2.x row (raw uuid key) under sha256(raw) and deletes the raw
    * row (A07). 2.x data cannot show that MFA passed, so the facts are aal1
    * with authenticatedAt = Creation; a row that never passed 2FA stays
-   * pending and lives at most pendingTtlSeconds more.
+   * pending and lives at most pendingTtlSeconds more. A row carrying an
+   * ActiveRole is deleted instead and never migrated.
    */
   protected migrate(rawId: string): Promise<ISession | null> {
     // Parallel first uses in this process share one migration; see migrateOnce for other processes.
@@ -285,6 +289,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
     if (!legacy) {
       // Another process may have migrated it a moment ago.
       return this.Store.restore(storageKeyOf(rawId));
+    }
+    const role = legacy.Data.get(LEGACY_ACTIVE_ROLE_KEY);
+    if (typeof role === 'string' && role.length > 0) {
+      await this.Store.delete(rawId);
+      return null;
     }
 
     const now = DateTime.now();

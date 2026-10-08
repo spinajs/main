@@ -10,11 +10,11 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
-import { RbacMiddleware } from '../src/middlewares.js';
-import { RbacPolicy } from '../src/policies/RbacPolicy.js';
+import { RbacMiddleware } from '../../src/middlewares.js';
+import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
 import { UserSession } from '@spinajs/users';
 
-import { dir, req, TestConfiguration } from './account-common.js';
+import { dir, req, TestConfiguration } from '../account-common.js';
 
 /**
  * Wire-format proof for the system-wide 2FA switch, driven through a real

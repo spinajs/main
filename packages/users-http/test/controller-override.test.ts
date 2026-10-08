@@ -43,7 +43,9 @@ class OverrideTestConfiguration extends TestConfiguration {
     cfg.http.cookie = { secret: 'controller-override-test-secret' };
 
     // The base class replaces the validated tree, so the authn schema runs again to fill its defaults.
-    cfg.authn = { ...cfg.authn, session: { service: 'MemorySessionStore', ...cfg.authn?.session } };
+    // AuthnMiddleware resolves the session store at boot; an app gets the strategy name from authn-session's shipped config.
+    const session = cfg.authn?.session;
+    cfg.authn = { ...cfg.authn, session: { service: 'MemorySessionStore', ...session, expiration: { service: 'SlidingCappedExpiration', ...session?.expiration } } };
     this.validateModule(AUTHN_CONFIGURATION_SCHEMA);
   }
 }

@@ -12,12 +12,12 @@ import {
   AccessControl,
 } from '@spinajs/users';
 import type { User } from '@spinajs/users';
-import { SessionContextProvider } from '../src/session-context.js';
+import { SessionContextProvider } from '../../src/session-context.js';
 
-import { LoginController } from '../src/account/controllers/LoginController.js';
-import { ActiveRoleController } from '../src/account/controllers/ActiveRoleController.js';
-import { SwitchRoleDto } from '../src/account/dto/switchRole-dto.js';
-import { buildUserWithGrants } from '../src/account/services/grants.js';
+import { LoginController } from '../../src/account/legacy/LoginController.js';
+import { ActiveRoleController } from '../../src/account/legacy/ActiveRoleController.js';
+import { SwitchRoleDto } from '../../src/account/dto/switchRole-dto.js';
+import { buildUserWithGrants } from '../../src/account/services/grants.js';
 
 class TestConfiguration extends FrameworkConfiguration {
   protected onLoad() {

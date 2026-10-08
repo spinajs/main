@@ -33,6 +33,7 @@ import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor, HttpSignatureExtractor } from '../../src/extractors/index.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
+import { buildAuthnMiddlewareIn } from './authn-in-child.js';
 import { COOKIE_SECRET, TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
 
 const PUBLIC_ORIGIN = 'https://api.example.test';
@@ -65,23 +66,6 @@ class AuthnMiddlewareConfiguration extends TestConfiguration {
         http: { publicOrigin: PUBLIC_ORIGIN },
       },
     };
-  }
-}
-
-// AuthnMiddleware is not registered until the 2.x RbacMiddleware retires (see its doc). This subclass stays registered
-// for the suites that run later, so it is inert outside this suite; inside it, it resolves its session issuer,
-// extractors and resolvers from the suite's child container, which holds the kit fakes.
-let suiteChild: IContainer | null = null;
-
-class AuthnMiddlewareUnderTest extends AuthnMiddleware {
-  public async resolve(): Promise<void> {
-    if (!suiteChild) return;
-    this.Container = suiteChild;
-    await super.resolve();
-  }
-
-  public before() {
-    return suiteChild ? super.before() : null;
   }
 }
 
@@ -137,7 +121,7 @@ async function buildSuite(): Promise<Suite> {
   const guard = new FakeImpersonationGuard();
   const store = sessionStore();
   const issuer = new DefaultSessionIssuer();
-  // Built by hand: in this process the configured 'MemorySessionStore' name resolves to @spinajs/users' 2.x store.
+  // Built by hand around this suite's own store (fixed 60-minute expiry), not the configured one.
   Object.defineProperty(issuer, 'Store', { value: store });
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
   const throttle = new RecordingThrottle();
@@ -187,6 +171,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
   this.timeout(60000);
 
   let s: Suite;
+  let authnInChild: sinon.SinonStub | undefined;
   let cookieName: string;
   let alice: IdentityRef;
   let bob: IdentityRef;
@@ -212,7 +197,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
   }
 
   async function startServer(): Promise<void> {
-    DI.uncache(AuthnMiddlewareUnderTest);
+    DI.uncache(AuthnMiddleware);
     DI.uncache(barrel.CsrfOriginGuard);
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
@@ -229,7 +214,6 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
-    DI.register(AuthnMiddlewareUnderTest).as(ServerMiddleware);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) await b.bootstrap();
@@ -239,7 +223,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     await DI.resolve(Orm);
 
     s = await buildSuite();
-    suiteChild = s.child;
+    authnInChild = buildAuthnMiddlewareIn(s.child);
     cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), appEnvOf(config));
     await startServer();
   });
@@ -254,8 +238,8 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
 
   after(async () => {
     await releaseHttpServer();
-    suiteChild = null;
-    DI.uncache(AuthnMiddlewareUnderTest);
+    authnInChild?.restore();
+    DI.uncache(AuthnMiddleware);
     DI.uncache(barrel.CsrfOriginGuard);
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
@@ -287,10 +271,10 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(auth).to.be.lessThan(key);
     });
 
-    it('nothing of the 3.0 layer is registered in the root; registerAuthnHttpV3 registers it in the container it is given', () => {
-      expect(DI.getRegisteredTypes(AuthnPrincipalResolver) ?? []).to.deep.eq([]);
-      expect(DI.getRegisteredTypes(CredentialExtractor) ?? []).to.deep.eq([]);
-      expect(DI.getRegisteredTypes(ServerMiddleware)).to.not.include(AuthnMiddleware);
+    it('loading the package registered the 3.0 layer in the root once; registerAuthnHttpV3 registers it in the container it is given', () => {
+      expect(DI.getRegisteredTypes(AuthnPrincipalResolver)).to.have.members([KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]);
+      expect(DI.getRegisteredTypes(CredentialExtractor)).to.have.members([HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]);
+      expect(DI.getRegisteredTypes(ServerMiddleware).filter((t) => t === AuthnMiddleware)).to.have.length(1);
       expect(s.child.getRegisteredTypes(AuthnPrincipalResolver, false)).to.have.members([KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]);
       expect(s.child.getRegisteredTypes(CredentialExtractor, false)).to.have.members([HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]);
       expect(s.child.getRegisteredTypes(ServerMiddleware, false)).to.include(AuthnMiddleware);
@@ -412,24 +396,31 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(await s.issuer.restore(own.id)).to.not.eq(null);
     });
 
-    it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration) with its ActiveRole', async () => {
+    const plant2x = (extra: [string, unknown][]) => {
       const rawId = randomUUID();
       const rows = (s.store as unknown as { Sessions: Map<string, ISession> }).Sessions;
       rows.set(rawId, {
         SessionId: rawId,
         Creation: DateTime.now(),
         Expiration: DateTime.now().plus({ minutes: 30 }),
-        Data: new Map<string, unknown>([
-          ['User', alice.id],
-          ['Authorized', true],
-          ['Logged', true],
-          ['ActiveRole', 'user'],
-        ]),
+        Data: new Map<string, unknown>([['User', alice.id], ['Authorized', true], ['Logged', true], ...extra]),
       } as unknown as ISession);
+      return { rawId, rows };
+    };
+
+    it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration)', async () => {
+      const { rawId, rows } = plant2x([['ActiveRole', undefined]]);
       const p = await principalWith({ Cookie: cookieOf(rawId) });
       expect(p).to.include({ type: 'user', id: alice.id });
-      expect(p.ceiling).to.deep.eq({ roles: ['user'] });
+      expect(p.ceiling).to.eq(undefined);
       expect(rows.has(rawId), 'the raw row is migrated away').to.eq(false);
+    });
+
+    it('N8c a 2.x session row carrying an ActiveRole yields no principal and is revoked', async () => {
+      const { rawId, rows } = plant2x([['ActiveRole', 'user']]);
+      expect(await principalWith({ Cookie: cookieOf(rawId) })).to.eq(null);
+      expect(rows.has(rawId), 'the raw row is deleted').to.eq(false);
+      expect(rows.has(createHash('sha256').update(rawId).digest('hex')), 'no migrated copy').to.eq(false);
     });
 
     it('a store error fails the request (500), never a silent anonymous', async () => {

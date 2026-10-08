@@ -1,7 +1,5 @@
-// The 3.0 layer under the api.ts names, for the 3.0 controllers and tests. The package barrel does not re-export this
-// file: five of these names (NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy, FromSession, SessionId) are still
-// the 2.x code there for 2.x consumers until the N8c cutover. The 3.0 controllers (./controllers) import from here and
-// are loaded only by a controller scan that lists their directory.
+// The 3.0 layer under the api.ts names, for the 3.0 controllers and tests; the package barrel exports the same classes.
+// The 3.0 controllers (./controllers) import from here and are loaded only by a controller scan that lists their directory.
 export { Authenticated, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from '../policies/v3/principal.js';
 export { FreshAuth, assertFreshAuth, REAUTH_PASSWORD_FIELD, PASSWORD_HARD_CAP } from '../policies/v3/fresh-auth.js';
 export { MfaSatisfied, PendingMfaEnrolment } from '../policies/v3/mfa.js';

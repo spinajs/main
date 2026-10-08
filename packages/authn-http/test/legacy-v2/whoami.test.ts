@@ -11,7 +11,7 @@ import {
   UserSession,
 } from '@spinajs/users';
 
-import { LoginController } from '../src/account/controllers/LoginController.js';
+import { LoginController } from '../../src/account/legacy/LoginController.js';
 import { Ok } from '@spinajs/http';
 
 class TestConfiguration extends FrameworkConfiguration {

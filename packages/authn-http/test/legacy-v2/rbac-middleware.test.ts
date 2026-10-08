@@ -7,10 +7,10 @@ import cookieParser from 'cookie-parser';
 import { DI } from '@spinajs/di';
 import { UserSession } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
-import { RbacMiddleware } from '../src/middlewares.js';
+import { RbacMiddleware } from '../../src/middlewares.js';
 // side-effect import: brings in the `@spinajs/http` storage-context augmentation
 // (User / Session / ActiveRole / Impersonator) the middleware relies on.
-import '../src/interfaces.js';
+import '../../src/interfaces.js';
 
 const COOKIE_SECRET = 'middleware-test-secret';
 

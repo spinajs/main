@@ -2,7 +2,12 @@ import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { ISession, SessionExpirationProvider } from './interfaces.js';
+import { ISession, LegacySessionExpirationProvider } from './interfaces.js';
+import { registerRenamedService } from './legacy-services.js';
+
+registerRenamedService(LegacySessionExpirationProvider, 'AbsoluteExpiration', () => LegacyAbsoluteExpiration);
+registerRenamedService(LegacySessionExpirationProvider, 'SlidingExpiration', () => LegacySlidingExpiration);
+registerRenamedService(LegacySessionExpirationProvider, 'SlidingCappedExpiration', () => LegacySlidingCappedExpiration);
 
 /**
  * Absolute expiration: the session dies at a fixed instant from creation and is
@@ -13,8 +18,8 @@ import { ISession, SessionExpirationProvider } from './interfaces.js';
  *
  * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
-@Injectable(SessionExpirationProvider)
-export class AbsoluteExpiration extends SessionExpirationProvider {
+@Injectable(LegacySessionExpirationProvider)
+export class LegacyAbsoluteExpiration extends LegacySessionExpirationProvider {
   @Config('authn.session.expiration.ttl')
   protected Ttl!: number;
 
@@ -36,8 +41,8 @@ export class AbsoluteExpiration extends SessionExpirationProvider {
  *
  * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
-@Injectable(SessionExpirationProvider)
-export class SlidingExpiration extends SessionExpirationProvider {
+@Injectable(LegacySessionExpirationProvider)
+export class LegacySlidingExpiration extends LegacySessionExpirationProvider {
   @Config('authn.session.expiration.ttl')
   protected Ttl!: number;
 
@@ -60,8 +65,8 @@ export class SlidingExpiration extends SessionExpirationProvider {
  *
  * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
-@Injectable(SessionExpirationProvider)
-export class SlidingCappedExpiration extends SessionExpirationProvider {
+@Injectable(LegacySessionExpirationProvider)
+export class LegacySlidingCappedExpiration extends LegacySessionExpirationProvider {
   @Config('authn.session.expiration.ttl')
   protected Ttl!: number;
 
@@ -78,3 +83,18 @@ export class SlidingCappedExpiration extends SessionExpirationProvider {
     return slide < cap ? slide : cap;
   }
 }
+
+/** @deprecated 3.0: LegacyAbsoluteExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const AbsoluteExpiration = LegacyAbsoluteExpiration;
+/** @deprecated 3.0: LegacyAbsoluteExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type AbsoluteExpiration = LegacyAbsoluteExpiration;
+
+/** @deprecated 3.0: LegacySlidingExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const SlidingExpiration = LegacySlidingExpiration;
+/** @deprecated 3.0: LegacySlidingExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type SlidingExpiration = LegacySlidingExpiration;
+
+/** @deprecated 3.0: LegacySlidingCappedExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const SlidingCappedExpiration = LegacySlidingCappedExpiration;
+/** @deprecated 3.0: LegacySlidingCappedExpiration, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type SlidingCappedExpiration = LegacySlidingCappedExpiration;

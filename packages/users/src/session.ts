@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon';
 import { createHash } from 'crypto';
-import { SessionProvider, ISession } from './interfaces.js';
+import { LegacySessionProvider, ISession } from './interfaces.js';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
+import { registerConfiguredFallback } from './legacy-services.js';
 
 /**
  * Session base class
@@ -10,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
  * @deprecated 3.0: SessionIssuer.issue (authn-session). R1 deletes it after N8a and C2.
  */
 @NewInstance()
-export class UserSession implements ISession {
+export class LegacyUserSession implements ISession {
   public SessionId: string = uuidv4();
 
   /**
@@ -230,8 +231,8 @@ export function hashSessionId(sessionId: string): string {
  *
  * @deprecated 3.0: SessionIssuer.rotate (authn-session). R1 deletes it after N8a.
  */
-export async function regenerateSession(provider: SessionProvider, session: ISession): Promise<ISession> {
-  const regenerated = new UserSession({
+export async function regenerateSession(provider: LegacySessionProvider, session: ISession): Promise<ISession> {
+  const regenerated = new LegacyUserSession({
     UserId: session.UserId,
     Creation: session.Creation,
     Data: new Map(session.Data),
@@ -243,14 +244,16 @@ export async function regenerateSession(provider: SessionProvider, session: ISes
   return regenerated;
 }
 
+registerConfiguredFallback(LegacySessionProvider, 'authn.session');
+
 /**
  * Simple session storage in memory, for testing or rapid prototyping.
  * Keeps live session objects (no serialization).
  *
  * @deprecated 3.0: MemorySessionStore of @spinajs/authn-session. R1 deletes it after N8a and C2.
  */
-@Injectable(SessionProvider)
-export class MemorySessionStore extends SessionProvider<ISession> {
+@Injectable(LegacySessionProvider)
+export class LegacyMemorySessionStore extends LegacySessionProvider<ISession> {
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
 
   public async restore(sessionId: string): Promise<ISession | null> {
@@ -326,3 +329,13 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     return a.toMillis() === b.toMillis();
   }
 }
+
+/** @deprecated 3.0: LegacyUserSession, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const UserSession = LegacyUserSession;
+/** @deprecated 3.0: LegacyUserSession, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type UserSession = LegacyUserSession;
+
+/** @deprecated 3.0: LegacyMemorySessionStore, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export const MemorySessionStore = LegacyMemorySessionStore;
+/** @deprecated 3.0: LegacyMemorySessionStore, renamed so DI never mixes it with authn-session's. R1 deletes it. */
+export type MemorySessionStore = LegacyMemorySessionStore;

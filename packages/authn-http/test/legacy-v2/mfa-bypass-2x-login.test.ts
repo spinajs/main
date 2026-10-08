@@ -14,7 +14,7 @@ import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
 
 import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User, getUser } from '@spinajs/users';
 
-import { LoginController } from '../../src/account/controllers/LoginController.js';
+import { LoginController } from '../../src/account/legacy/LoginController.js';
 import { DbTestConfiguration } from '../account-db-common.js';
 import { TwoFacRouteEnabled } from '../../src/account/policies/2FaPolicy.js';
 

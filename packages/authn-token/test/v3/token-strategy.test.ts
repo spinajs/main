@@ -162,9 +162,15 @@ describe('TokenStrategy', function () {
       });
 
       it('fails at boot when no IdentityStore is registered', async () => {
+        // Same child as the DbTokenService wiring test: @spinajs/users registers an IdentityStore once imported.
+        const bare = DI.child();
+        bare.register(IdentityStore).as(IdentityStore);
+        bare.register(DbTokenService).as(TokenService);
+        bare.register(TokenStrategy).asSelf();
         const err = await Promise.resolve()
-          .then(() => DI.resolve(TokenStrategy))
+          .then(() => bare.resolve(TokenStrategy))
           .catch((e: unknown) => e);
+        await bare.dispose();
         expect(err).to.be.instanceOf(Error);
         expect((err as Error).message).to.match(/IdentityStore/);
       });

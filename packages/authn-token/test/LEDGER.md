@@ -89,6 +89,7 @@ N6 task 6: row 11 deleted from `test/actions-validate.test.ts`; it now lives in 
 N6 task 3: row 12 deleted from `test/actions-validate.test.ts`; it now lives in `v3/token-strategy.test.ts`:
 `TokenStrategy` > `last-used stamp` (first use stamps, a use inside the interval writes nothing, a use after it writes again;
 racing requests write once; a throwing stamp still answers ok) and `DbTokenService.touch`.
+N8c task 3 (after the rebase onto feat 978d391ff): the owner fixtures here are feat's; N8c changed none of them. No row moved.
 
 ## test/cli.test.ts
 
@@ -141,6 +142,8 @@ Status (N6): row 4's fixture sets `length: 48` (64 chars), so the test proves th
 | 3 | 80 | AccessToken model > hides hash, ids and owner when dehydrated | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
 | 4 | 99 | AccessToken model > persists and loads the Profile column | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
 | 5 | 113 | AccessToken model > leaves Profile undefined for legacy rows | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
+
+Status (N8c task 3, after the rebase onto feat 978d391ff): rows 1-5 stay with feat's owner fixtures; N8c changed none.
 
 ## test/role-policy-actions.test.ts
 
