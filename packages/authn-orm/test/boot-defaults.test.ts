@@ -47,13 +47,13 @@ describe('authn-orm with no throttle config (K6)', function () {
 
     const configuration = await child.resolve(Configuration);
     expect(configuration.get('authn.throttle.service'), 'no package ships it').to.eq(undefined);
-    expect(configuration.get('authn.audit.sinks'), 'the package configs are loaded').to.include('LogAuthnAuditSink');
+    expect(configuration.get('authn.audit.sampleUse'), 'the package configs are loaded').to.eq(0.01);
 
     const service = (await child.resolve(AuthnService)) as AuthnService;
     const throttle = (service as unknown as { throttle: unknown }).throttle;
     expect(throttle).to.be.instanceOf(DbAuthnThrottle);
     expect(throttle).to.not.be.instanceOf(MemoryAuthnThrottle);
     const audit = await child.resolve(AuthnAudit);
-    expect(audit.sinks().some((s) => s instanceof DbAuthnAuditSink), 'the DB sink gets every event without being listed').to.eq(true);
+    expect(audit.sinks().some((s) => s instanceof DbAuthnAuditSink), 'the DB sink gets every event').to.eq(true);
   });
 });

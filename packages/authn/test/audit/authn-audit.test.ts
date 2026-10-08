@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from '@spinajs/configuration';
-import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, DEFAULT_AUDIT_SAMPLE_USE, LogAuthnAuditSink } from '../../src/index.js';
 import type { AuditConfig, AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
@@ -25,6 +25,7 @@ abstract class Recording extends AuthnEventSink {
 class FirstSink extends Recording {}
 class SecondSink extends Recording {}
 class ThirdSink extends Recording {}
+class LastSink extends Recording {}
 
 class SlowSink extends AuthnEventSink {
   async publish(e: AuthnEvent): Promise<void> {
@@ -136,7 +137,6 @@ describe('AuthnAudit', function () {
     }
   });
 
-  // Isolated: the shipped authn config lists LogAuthnAuditSink, and config arrays concatenate.
   async function childWith(audit: unknown): Promise<{ child: IContainer; configuration: Configuration }> {
     const child = DI.RootContainer.child();
     children.push(child);
@@ -183,58 +183,49 @@ describe('AuthnAudit', function () {
     return (error as Error).message;
   }
 
-  /** Failures the schema cannot see: a sink name with no registered sink behind it. */
-  async function lookupFails(audit: unknown, ...parts: string[]): Promise<void> {
-    const error = await failure(audit);
-    expect(error, 'the boot fails').to.be.instanceOf(InvalidOption);
-    for (const p of parts) expect((error as Error).message).to.contain(p);
-    expect(children[children.length - 1].isResolved(AuthnAudit)).to.equal(false);
-  }
-
   const sinkNames = (a: AuthnAudit): string[] => a.sinks().map((s) => s.constructor.name);
 
   describe('sinks', () => {
-    it('publishes every event to every registered sink: listed ones first, in list order, then the rest', async () => {
-      const a = await boot({ sinks: ['ThirdSink', 'FirstSink'] });
+    it('publishes every event to every registered sink, in registration order', async () => {
+      const a = await boot({});
       await a.publish(ev('login', 'failure'));
       await a.publish(ev('login'));
-      expect(calls).to.deep.equal(['ThirdSink:login', 'FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'FirstSink:login', 'SecondSink:login']);
-      expect(sinkNames(a).slice(0, 2)).to.deep.equal(['ThirdSink', 'FirstSink']);
-      expect(sinkNames(a)).to.include('LogAuthnAuditSink').and.include('SecondSink');
+      expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'FirstSink:login', 'SecondSink:login', 'ThirdSink:login']);
+      expect(sinkNames(a)).to.include('LogAuthnAuditSink');
       const first = (await DI.resolve(FirstSink)).events.map((e) => e.outcome);
       const second = (await DI.resolve(SecondSink)).events.map((e) => e.outcome);
       expect(first).to.deep.equal(['failure', 'success']);
       expect(second).to.deep.equal(first);
     });
 
-    it('keeps every registered sink when the list is missing or empty', async () => {
-      for (const audit of [{}, { sinks: [] }, undefined]) {
+    it('keeps every registered sink when authn.audit is unset', async () => {
+      for (const audit of [{}, undefined]) {
         const a = await boot(audit);
         for (const t of [...BASE, LogAuthnAuditSink]) expect(sinkNames(a)).to.include(t.name);
       }
     });
 
     it('resolves the sinks through DI as singletons, each once', async () => {
-      const a = await boot({ sinks: ['FirstSink', 'FirstSink'] });
-      expect(a.sinks()[0]).to.equal(await DI.resolve(FirstSink));
+      const a = await boot({});
+      expect(a.sinks()).to.include(await DI.resolve(FirstSink));
       expect(sinkNames(a).filter((n) => n === 'FirstSink')).to.have.length(1);
       expect(Object.isFrozen(a.sinks())).to.equal(true);
     });
 
     it('awaits each sink before calling the next', async () => {
-      await withSinks([SlowSink], async () => {
-        const a = await boot({ sinks: ['SlowSink', 'FirstSink'] });
+      await withSinks([SlowSink, LastSink], async () => {
+        const a = await boot({});
         await a.publish(ev('logout'));
-        expect(calls.slice(0, 3)).to.deep.equal(['SlowSink:start:logout', 'SlowSink:end:logout', 'FirstSink:logout']);
+        expect(calls.slice(-3)).to.deep.equal(['SlowSink:start:logout', 'SlowSink:end:logout', 'LastSink:logout']);
       });
     });
 
     it('a failing sink stops neither the other sinks nor the caller', async () => {
-      await withSinks([RejectingSink, ThrowingSink], async () => {
+      await withSinks([RejectingSink, ThrowingSink, LastSink], async () => {
         const log = new CapturingLog();
-        const a = await boot({ sinks: ['RejectingSink', 'ThrowingSink', 'FirstSink'] }, { log });
+        const a = await boot({}, { log });
         await a.publish(ev('login'));
-        expect(calls).to.deep.equal(['RejectingSink:login', 'ThrowingSink:login', 'FirstSink:login', 'SecondSink:login', 'ThirdSink:login']);
+        expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'RejectingSink:login', 'ThrowingSink:login', 'LastSink:login']);
         const failures = log.lines.filter((l) => l.startsWith('warn'));
         expect(failures).to.have.length(2);
         expect(failures[0]).to.contain('RejectingSink').and.contain('login').and.contain('Error');
@@ -245,7 +236,7 @@ describe('AuthnAudit', function () {
     it('logs a sink failure without the error message or event values', async () => {
       await withSinks([QuietRejectingSink], async () => {
         const log = new CapturingLog();
-        const a = await boot({ sinks: ['QuietRejectingSink'] }, { log });
+        const a = await boot({}, { log });
         await a.publish(ev('login'));
         const all = log.lines.join(' ');
         expect(all).to.contain('QuietRejectingSink');
@@ -256,13 +247,13 @@ describe('AuthnAudit', function () {
     });
 
     it('moves on from a sink that does not settle within authn.audit.sinkTimeoutMs', async () => {
-      await withSinks([HangingSink], async () => {
+      await withSinks([HangingSink, LastSink], async () => {
         const log = new CapturingLog();
-        const a = await boot({ sinks: ['HangingSink', 'FirstSink'], sinkTimeoutMs: 20 }, { log });
+        const a = await boot({ sinkTimeoutMs: 20 }, { log });
         const started = Date.now();
         await a.publish(ev('login'));
         expect(Date.now() - started).to.be.below(1000);
-        expect(calls).to.deep.equal(['HangingSink:login', 'FirstSink:login', 'SecondSink:login', 'ThirdSink:login']);
+        expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'HangingSink:login', 'LastSink:login']);
         expect(log.lines).to.have.length(1);
         expect(log.lines[0]).to.match(/^warn /);
         expect(log.lines[0]).to.contain('"HangingSink"').and.contain('timed out').and.contain('"login"');
@@ -278,7 +269,7 @@ describe('AuthnAudit', function () {
       try {
         await withSinks([LateRejectingSink], async () => {
           const log = new CapturingLog();
-          const a = await boot({ sinks: ['LateRejectingSink'], sinkTimeoutMs: 10 }, { log });
+          const a = await boot({ sinkTimeoutMs: 10 }, { log });
           await a.publish(ev('login'));
           await new Promise((r) => setTimeout(r, 80));
           expect(log.lines).to.have.length(1);
@@ -291,14 +282,14 @@ describe('AuthnAudit', function () {
     });
 
     it('hands every sink its own deep frozen copy, so no sink changes the caller or the next sink', async () => {
-      await withSinks([MutatingSink], async () => {
-        const a = await boot({ sinks: ['MutatingSink', 'FirstSink'] });
+      await withSinks([MutatingSink, LastSink], async () => {
+        const a = await boot({});
         const e: AuthnEvent = { ...ev('login'), actor: { type: 'user', id: 'u-9' }, data: { step: 'totp', nested: { list: ['a'] } } };
         const before = JSON.stringify(e);
         await a.publish(e);
         expect(JSON.stringify(e), "the caller's event").to.equal(before);
         const mutated = (await DI.resolve(MutatingSink)).events[0];
-        const seen = (await DI.resolve(FirstSink)).events[0];
+        const seen = (await DI.resolve(LastSink)).events[0];
         expect(JSON.stringify(seen), 'what the next sink sees').to.equal(before);
         expect(seen).to.not.equal(e);
         expect(seen).to.not.equal(mutated);
@@ -310,38 +301,20 @@ describe('AuthnAudit', function () {
       });
     });
 
-    it('fails boot on an unknown sink name, naming it', async () => {
-      await lookupFails({ sinks: ['FirstSink', 'DbAuthnAuditSink'] }, 'authn.audit.sinks', '"DbAuthnAuditSink"');
+    it('does not take a class that is not registered as an AuthnEventSink', async () => {
+      expect(sinkNames(await boot({}))).to.not.include('NotASink');
     });
 
-    it('does not find a class that is not registered as an AuthnEventSink', async () => {
-      await lookupFails({ sinks: ['NotASink'] }, '"NotASink"');
-    });
-
-    it('collapses names that config files repeat (arrays merge by concat)', async () => {
-      const { child, configuration } = await childWith({ sinks: ['SecondSink', 'FirstSink'] });
-      configuration.merge('authn', { audit: { sinks: ['SecondSink'] } });
-      expect(configuration.get('authn.audit.sinks')).to.have.length(3);
-      const a = await child.resolve(AuthnAudit);
-      expect(sinkNames(a).slice(0, 2)).to.deep.equal(['SecondSink', 'FirstSink']);
-      expect(sinkNames(a).filter((n) => n === 'SecondSink')).to.have.length(1);
-      expect(sinkNames(a)).to.include('ThirdSink');
-    });
-
-    it('resolves sinks registered as factories; a factory that returns a non-sink fails boot', async () => {
+    it('resolves sinks registered as factories', async () => {
       const shared = new FirstSink();
-      const good = { FactorySink: () => shared }.FactorySink;
-      const bad = { BrokenSink: () => ({}) }.BrokenSink;
+      const factory = { FactorySink: () => shared }.FactorySink;
       const list = DI.RootContainer.getRegisteredTypes(AuthnEventSink);
-      DI.register(good).as(AuthnEventSink);
+      DI.register(factory).as(AuthnEventSink);
       try {
-        const a = await boot({ sinks: ['FactorySink'] });
-        expect(a.sinks()[0]).to.equal(shared);
-        DI.register(bad).as(AuthnEventSink);
-        await lookupFails({}, '"BrokenSink"', 'AuthnEventSink');
+        expect((await boot({})).sinks()).to.include(shared);
       } finally {
         // DI.unregister matches by type name, and every factory's type name is 'Function'.
-        for (const f of [good, bad]) if (list.includes(f as never)) list.splice(list.indexOf(f as never), 1);
+        list.splice(list.indexOf(factory as never), 1);
       }
     });
 
@@ -427,9 +400,7 @@ describe('AuthnAudit', function () {
       await bootFails('LogAuthnAuditSink', 'authn.audit');
       await bootFails({ sink: ['FirstSink'] }, 'authn.audit.sink');
       await bootFails({ typo: 1 }, 'authn.audit.typo');
-      await bootFails({ sinks: 'FirstSink' }, 'authn.audit.sinks');
-      await bootFails({ sinks: ['FirstSink', ''] }, 'authn.audit.sinks.1');
-      await bootFails({ sinks: [{}] }, 'authn.audit.sinks.0');
+      await bootFails({ sinks: ['FirstSink'] }, 'authn.audit.sinks');
       for (const v of [-0.01, 1.01, 2, 'half']) await bootFails({ sampleUse: v }, 'authn.audit.sampleUse');
       await bootFails({ hashIdentifiers: 'yes' }, 'authn.audit.hashIdentifiers');
       await bootFails({ hashKey: 'k'.repeat(40) }, 'authn.audit.hashKey');

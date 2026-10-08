@@ -1,7 +1,7 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
@@ -16,21 +16,11 @@ export interface AuthnAuditOptions {
   readonly log?: AuditLog;
 }
 
-interface Active {
-  readonly name: string;
-  readonly sink: AuthnEventSink;
-}
-
 const SAMPLED: readonly AuthnEventType[] = ['token.use', 'key.use'];
 
 const MAX_COPY_DEPTH = 16;
 
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
-
-const typeName = (t: unknown): string => {
-  const n = (t as { name?: unknown }).name;
-  return typeof n === 'string' ? n : '';
-};
 
 // Each sink gets its own copy: a frozen Date can still be changed with setTime.
 function frozenCopy(v: unknown, depth = 0): unknown {
@@ -44,9 +34,9 @@ function frozenCopy(v: unknown, depth = 0): unknown {
 }
 
 /**
- * Every registered AuthnEventSink gets every event (A21); `authn.audit.sinks` names sinks that must be registered and
- * run first. Sinks run one at a time, each bounded by `sinkTimeoutMs`, so a stuck sink cannot hold up a login. One per
- * container, so a child boot reads its own `authn.audit` and sinks.
+ * Every AuthnEventSink registered in the container's lineage gets every event (A21). Sinks run one at a time, each
+ * bounded by `sinkTimeoutMs`, so a stuck sink cannot hold up a login. One per container, so a child boot reads its own
+ * `authn.audit` and sinks.
  */
 @PerChildInstance()
 @Inject(Container)
@@ -54,7 +44,6 @@ export class AuthnAudit extends AsyncService {
   @Config('authn.audit')
   protected Config: AuditConfig;
 
-  private active: readonly Active[] | undefined;
   private all: readonly AuthnEventSink[] | undefined;
   private sampleUse = 0;
   private timeoutMs = DEFAULT_AUDIT_SINK_TIMEOUT_MS;
@@ -71,54 +60,31 @@ export class AuthnAudit extends AsyncService {
   public async resolve(): Promise<void> {
     const config = this.Config;
     if (!config) throw new InvalidOperation('authn.audit is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
-    // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. Array.chainOf builds each sink
-    // where it was registered (a root singleton stays the root's), per-child sinks here; both lists share one order.
-    const types = this.container.getRegisteredTypes(Array.chainOf(AuthnEventSink)) ?? [];
-    const built = (await this.container.resolve(Array.chainOf(AuthnEventSink))) as unknown[];
-    const registered = types.map((type, i) => ({ type, sink: built[i] }));
-
-    const order: { name: string; sink: unknown }[] = [];
-    for (const name of new Set(config.sinks ?? [])) {
-      const found = [...registered].reverse().find((r) => typeName(r.type) === name);
-      if (!found) throw new InvalidOption(`authn.audit.sinks: no AuthnEventSink is registered as service ${q(name)}`);
-      order.push({ name, sink: found.sink });
-    }
-    for (const r of registered) {
-      if (!order.some((o) => o.sink === r.sink)) order.push({ name: typeName(r.type) || '(unnamed factory)', sink: r.sink });
-    }
-
-    const active: Active[] = [];
-    for (const { name, sink } of order) {
-      // Duck-typed: sinks built against another copy of the contracts (cjs/mjs, the kit) fail instanceof.
-      if (sink === null || typeof sink !== 'object' || typeof (sink as AuthnEventSink).publish !== 'function') {
-        throw new InvalidOption(`authn.audit: the service ${q(name)} is not an AuthnEventSink`);
-      }
-      if (!active.some((a) => a.sink === sink)) active.push({ name, sink: sink as AuthnEventSink });
-    }
-    if (active.length === 0) this.log.warn('AuthnAudit: no AuthnEventSink is registered; authentication events are not audited');
+    // A child that registers its own sink keeps its ancestors' ones; each is built where it was registered.
+    const sinks = await this.container.resolve(Array.chainOf(AuthnEventSink));
+    if (sinks.length === 0) this.log.warn('AuthnAudit: no AuthnEventSink is registered; authentication events are not audited');
 
     this.sampleUse = config.sampleUse;
     this.timeoutMs = config.sinkTimeoutMs;
-    this.active = Object.freeze(active);
-    this.all = Object.freeze(active.map((a) => a.sink));
+    this.all = Object.freeze([...sinks]);
     await super.resolve();
   }
 
   /** In publish order. */
   public sinks(): readonly AuthnEventSink[] {
-    this.state();
-    return this.all!;
+    return this.state();
   }
 
   /** Never rejects because of a sink. */
   public async publish(e: AuthnEvent): Promise<void> {
-    const active = this.state();
+    const sinks = this.state();
     if (SAMPLED.includes(e.type) && e.outcome === 'success' && !this.sampled()) return;
-    for (const { name, sink } of active) await this.deliver(name, sink, frozenCopy(e) as AuthnEvent);
+    for (const sink of sinks) await this.deliver(sink, frozenCopy(e) as AuthnEvent);
   }
 
   // Logs the error class only: a sink's error message can echo event values.
-  private async deliver(name: string, sink: AuthnEventSink, event: AuthnEvent): Promise<void> {
+  private async deliver(sink: AuthnEventSink, event: AuthnEvent): Promise<void> {
+    const name = sink.constructor.name;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const done = Promise.resolve()
@@ -144,8 +110,8 @@ export class AuthnAudit extends AsyncService {
     return r >= 0 && r < 1 && r < this.sampleUse;
   }
 
-  private state(): readonly Active[] {
-    if (!this.active) throw new InvalidOperation('AuthnAudit is not resolved');
-    return this.active;
+  private state(): readonly AuthnEventSink[] {
+    if (!this.all) throw new InvalidOperation('AuthnAudit is not resolved');
+    return this.all;
   }
 }

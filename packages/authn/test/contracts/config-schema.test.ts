@@ -124,7 +124,7 @@ function example(): Json {
     },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sinks: ['LogAuthnAuditSink', 'DbAuthnAuditSink'], sampleUse: 0.01, hashIdentifiers: true },
+    audit: { sampleUse: 0.01, hashIdentifiers: true },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },

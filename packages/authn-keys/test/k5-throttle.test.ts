@@ -48,7 +48,7 @@ async function world(config: ConfigOverrides = {}) {
     { name: p.strategies[1].name, service: 'K5HttpSig', instance: p.strategies[1] },
   ];
   const child = DI.RootContainer.child();
-  child.register(configurationOf({ authn: { strategies: listed.map(({ name, service }) => ({ name, service })), throttle: { service: 'MemoryAuthnThrottle' }, audit: { sinks: ['K5Events'] } } })).as(Configuration);
+  child.register(configurationOf({ authn: { strategies: listed.map(({ name, service }) => ({ name, service })), throttle: { service: 'MemoryAuthnThrottle' }, audit: {} } })).as(Configuration);
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, IdentityStore, 'K5IdentityStore', new FakeIdentityStore());
   bind(child, PrincipalFactory, 'K5PrincipalFactory', new RecordingPrincipalFactory());

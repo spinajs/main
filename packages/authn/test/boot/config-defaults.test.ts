@@ -62,7 +62,7 @@ describe('authn shipped config', () => {
   it('keeps the other values equal to the code defaults', () => {
     expect(authn.freshAuth).to.deep.eq(check({}).config.freshAuth);
     expect(check({}).config.freshAuth).to.deep.eq({ maxAgeSeconds: 300 });
-    expect(authn.audit).to.deep.eq({ sinks: ['LogAuthnAuditSink'], ...check({}).config.audit });
+    expect(authn.audit).to.deep.eq(check({}).config.audit);
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
@@ -200,7 +200,7 @@ describe('AuthnConfigBootstrapper', () => {
     it('validates the merged 2.x interim shapes and the shipped defaults without an error', async () => {
       const c = await boot({});
       expect(c.get('authn.throttle.login.account')).to.deep.eq(BACKOFF);
-      expect(c.get('authn.audit.sinks')).to.include('LogAuthnAuditSink');
+      expect(c.get('authn.audit.sampleUse')).to.eq(0.01);
       expect(c.get('authn.session.hashIds')).to.eq(true);
     });
 

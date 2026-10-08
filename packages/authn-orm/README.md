@@ -30,7 +30,7 @@ Each one is registered under its class name, so configuration can name it:
 | `AuthnThrottle` | `DbAuthnThrottle` | used when `authn.throttle.service` is unset (or named) |
 | `SecretStore` | `DbSecretStore` | — |
 | `IdentityLinkStore` | `DbIdentityLinkStore` | — |
-| `AuthnEventSink` | `DbAuthnAuditSink` | gets every event; may be listed in `authn.audit.sinks` to run first |
+| `AuthnEventSink` | `DbAuthnAuditSink` | gets every event |
 | — | `DbNonceStore` (`NonceStore`, `MemoryNonceStore`) | — |
 | — | `DbMfaStore` | for MFA steps (authn-totp) |
 

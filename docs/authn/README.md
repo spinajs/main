@@ -516,10 +516,9 @@ its rows hold the raw subject refs, the IP and the user agent.
 
 - `AuthnAudit` gives each event to every registered sink, one at a time, each bounded by
   `authn.audit.sinkTimeoutMs` (default 2000). A sink that fails or times out is logged by error class
-  and never fails a login. `authn.audit.sinks` names sinks that must be registered; they run first.
-  The package default lists `LogAuthnAuditSink`. `DbAuthnAuditSink` (table `authn_audit`) from
-  `authn-orm` gets the events once it is registered; list it too to make boot fail when it is missing.
-  With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
+  and never fails a login. The sinks are every `AuthnEventSink` registered in the container and its
+  ancestors, in registration order; there is no list to keep. `authn-orm` registers `DbAuthnAuditSink`
+  (table `authn_audit`). With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
   default 0.01).
 - `users` will add `QueueAuthnEventSink`, which re-emits the 2.x queue events (`UserLogged`,
   `UserLoginFailed`, `UserPasswordChanged`, `UserImpersonationStarted`, `User2FaEnabled`, …) so 2.x
@@ -527,7 +526,7 @@ its rows hold the raw subject refs, the IP and the user agent.
 - The DB sink never fails on event content: an identity that does not fit the column goes into `data`.
 
 ```ts
-authn: { audit: { sinks: ['LogAuthnAuditSink', 'DbAuthnAuditSink'], sampleUse: 0.01, hashIdentifiers: true } }
+authn: { audit: { sampleUse: 0.01, hashIdentifiers: true } }
 ```
 
 ## Impersonation
@@ -620,7 +619,7 @@ export default {
             httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sinks: ['LogAuthnAuditSink', 'DbAuthnAuditSink'], sampleUse: 0.01, hashIdentifiers: true },
+    audit: { sampleUse: 0.01, hashIdentifiers: true },
     http: { trustProxy: null, csrf: { enabled: true, allowedOrigins: [] }, routes: { prefix: 'auth' } },
   },
 };
@@ -638,7 +637,7 @@ export default {
 | `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches. `jit` also gates JWT provisioning, for every issuer: there is no per-issuer switch (TODO(K6)). `authn-oidc` adds its own per-provider switches. |
 | `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service. The routes that call it wait for N8a. |
-| `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinks` names sinks that must be registered; they run first. `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
+| `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
 | `authn.http.*` | N8a | CSRF and trusted proxy. Nothing reads them yet: `ClientIp` and `CsrfOriginGuard` are stubs (TODO(N8a)). |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,

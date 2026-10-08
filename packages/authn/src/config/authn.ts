@@ -34,7 +34,6 @@ const authn = {
       maxMinutes: 60,
     },
     audit: {
-      sinks: ['LogAuthnAuditSink'],
       sampleUse: 0.01,
       hashIdentifiers: true,
       sinkTimeoutMs: 2000,

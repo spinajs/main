@@ -176,8 +176,8 @@ password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name
 **Core keys as built (N1).** `@spinajs/authn` ships defaults for `strategies`, `mfa.policy`,
 `throttle`, `freshAuth`, `linking`, `impersonation`, `audit` and `config`. They equal the schema and
 code defaults. The package lists **no strategy and no MFA step**, because config files concatenate
-arrays: you list each strategy once, in one file. `authn.audit.sinks` defaults to
-`['LogAuthnAuditSink']`, and every other registered `AuthnEventSink` gets the events too.
+arrays: you list each strategy once, in one file. Every registered `AuthnEventSink` gets the audit
+events; `authn.audit` has no sink list.
 `authn.throttle.service` has no default. When you leave it out and exactly one throttle is registered, that one runs.
 `@spinajs/authn` registers `MemoryAuthnThrottle` and `@spinajs/authn-orm` registers `DbAuthnThrottle`. With both
 installed, an unset key fails boot ("several are registered; name one"). Set it in every app that installs
@@ -195,7 +195,7 @@ services, never values.
 | Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env fails boot as `InvalidConfiguration` with the full path of each bad value (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a `previous` version that repeats or equals the current `version`) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
-| Audit | A sink in `authn.audit.sinks` that is not registered, an unknown key in `authn.audit`, a bad `sampleUse`, `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
+| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `sampleUse`, `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
 | Neighbours | No `IdentityStore` or `PrincipalFactory`; with an interactive strategy, no `SessionIssuer` | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, which gets the lenient secret checks. The warning says so. |
 
@@ -1093,7 +1093,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   `AuthnImpersonationService`. DI keys classes by name, so the last two avoid the plain names: the
   `FreshAuth` policy and the 2.x `ImpersonationService` of `authn-http` would clash with them.
 - **Service names are class names.** `authn.strategies` entries and `authn.throttle.service`,
-  `authn.mfa.policy.service` and `authn.audit.sinks` name registered classes. The core registers
+  `authn.mfa.policy.service` name registered classes. The core registers
   no strategy and no throttle other than the memory one.
 - **Dispatch (D1).** The core picks the listed strategies that accept the credential kind and,
   when the strategy has `accepts`, the credential itself. It counts the union of their throttle keys

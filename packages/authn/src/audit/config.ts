@@ -1,6 +1,4 @@
 export interface AuditConfig {
-  /** Sinks that must be registered; they run first, in this order. */
-  readonly sinks?: readonly string[];
   readonly sampleUse: number;
   readonly hashIdentifiers: boolean;
   /** HMAC key of LogAuthnAuditSink; unset, or secret null: a random per-process key. */

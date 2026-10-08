@@ -98,7 +98,7 @@ describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', fun
       { name: jwt.name, service: 'K5Jwt', instance: jwt },
     ];
     child = DI.RootContainer.child();
-    child.register(configurationOf({ authn: { strategies: listed.map(({ name, service }) => ({ name, service })), throttle: { service: 'MemoryAuthnThrottle' }, audit: { sinks: ['K5Events'] } } })).as(Configuration);
+    child.register(configurationOf({ authn: { strategies: listed.map(({ name, service }) => ({ name, service })), throttle: { service: 'MemoryAuthnThrottle' }, audit: {} } })).as(Configuration);
     bind(child, AuthnThrottle, 'MemoryAuthnThrottle', new MemoryAuthnThrottle(throttleParams(overrides) as ConstructorParameters<typeof MemoryAuthnThrottle>[0]));
     bind(child, IdentityStore, 'K5IdentityStore', identities);
     bind(child, IdentityLinkStore, 'K5Links', links);
