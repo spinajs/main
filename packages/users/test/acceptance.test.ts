@@ -57,8 +57,8 @@ class UsersAcceptanceBackend extends MemoryAuthzAdminBackend {}
  * The kit's shared host harness (a real `DefaultAuthzService` test domain under root) with authz-rbac's `RbacModel`
  * over `ConfigRoleStore`, and, for the admin parts, `DefaultAuthzAdmin` with authz-rbac's guard defaults. The roles are
  * the world's merged with users' shipped `authz.rbac.roles` fragment, as an application loads both; users' root
- * registrations (the `self` and metadata `owner` resolvers, `UserResourceAdapter` and its `user:*` and
- * `user.metadata:*` permissions) are in the chain.
+ * registrations (the `self` and metadata `owner` resolvers, `UserResourceAdapter` and its `user:*`,
+ * `user.metadata:*` and `users:credentials` permissions) are in the chain.
  */
 function usersRbacHarness(admin: boolean): BehaviourHarness {
   return hostHarness({
@@ -70,8 +70,8 @@ function usersRbacHarness(admin: boolean): BehaviourHarness {
 
       const roleDefs = _.mergeWith({}, roleConfig((rbac.roles ?? []) as readonly RoleDef[]), usersConfig.authz.rbac.roles, mergeArrays) as Record<string, { grants?: readonly unknown[] }>;
       // The world's superuser grants users' admin (B12.write), and AuthzAdmin's guard wants it to cover every permission
-      // admin.users' 'user.metadata:*' expands to; the kit world does not know users' permissions.
-      if (admin && roleDefs.superuser) roleDefs.superuser = { ...roleDefs.superuser, grants: [...(roleDefs.superuser.grants ?? []), 'user.metadata:*'] };
+      // admin.users' 'users:*' and 'user.metadata:*' expand to; the kit world does not know users' permissions.
+      if (admin && roleDefs.superuser) roleDefs.superuser = { ...roleDefs.superuser, grants: [...(roleDefs.superuser.grants ?? []), 'users:credentials', 'user.metadata:*'] };
       host.setConfig(['authz', 'rbac', 'roles'], roleDefs);
       if (rbac.ladders) host.setConfig(['authz', 'rbac', 'ladders'], ladderConfig(rbac.ladders as readonly LadderDef[]));
 

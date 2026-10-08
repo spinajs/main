@@ -54,7 +54,6 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
         'self-credentials': { grants: [{ permission: 'users:read', relation: 'self' }, { permission: 'users:update', relation: 'self' }, 'users:credentials'] },
       }),
       config: {
-        'authz.permissions.users:credentials': {},
         'authn.strategies': REAUTH_STRATEGIES,
         'authz.http.services': [{ name: 'sessions-svc', header: 'X-Service-Token', token: SERVICE_TOKEN }],
         'authz.rbac.serviceRoles': { 'service:sessions-svc': ['session-admin'] },
@@ -176,6 +175,22 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
       expect(await isLive(first, t.Uuid)).to.eq(false);
       expect(await isLive(second, t.Uuid)).to.eq(true);
       expect(await liveHandles(t.Uuid)).to.deep.eq([await handleOf(t.Uuid, second)]);
+    });
+
+    // No test registers users:credentials: users does, and users' admin.users (users:*) grants it.
+    it("lets a holder of users' shipped admin role list and end a session of a user it covers", async () => {
+      const t = await target();
+      const victim = await app.signIn(t.Uuid);
+      const admin = await app.signIn(protectedAdmin.Uuid);
+      const handle = await handleOf(t.Uuid, victim);
+
+      const listed = await list(admin, t.Uuid);
+      expect(listed.status, listed.text).to.eq(200);
+      expect(listed.body.map((e: { Handle: string }) => e.Handle)).to.deep.eq([handle]);
+
+      const res = await revoke(admin, t.Uuid, handle);
+      expect(res.status, res.text).to.eq(200);
+      expect(await isLive(victim, t.Uuid)).to.eq(false);
     });
 
     it('audits the revoke with the admin as actor and the handle, never the session id', async () => {

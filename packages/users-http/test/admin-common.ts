@@ -138,7 +138,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           'users:create': {},
           'users:update': { fields: true },
           'users:delete': {},
-          'users:credentials': {},
           'authz:assignments.manage': {},
           'secrets:read': {},
         },

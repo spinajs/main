@@ -50,8 +50,6 @@ describe('users-http v3: admin user routes on @Access', function () {
         'scoped-creator': { grants: [{ permission: 'users:create', on: [{ type: 'users', id: 'scoped-*' }] }, 'authz:assignments.manage'] },
       }),
       config: {
-        // Renaming another account asks the credential admin guard, which checks this permission.
-        'authz.permissions.users:credentials': {},
         'authz.http.services': [{ name: 'admin-svc', header: 'X-Service-Token', token: SERVICE_TOKEN }],
         'authz.rbac.serviceRoles': { 'service:admin-svc': ['admin', 'grantor'] },
       },

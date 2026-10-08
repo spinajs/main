@@ -7,7 +7,7 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 import _ from 'lodash';
 import { DefaultQueueService } from '@spinajs/queue';
-import { AuthzService, ResourceAdapter } from '@spinajs/authz';
+import { AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
 import usersConfig from '../src/config/users.js';
@@ -170,7 +170,21 @@ describe('the configuration users ships', function () {
         { name: 'user.metadata:create', resource: 'user.metadata', action: 'create', types: ['user.metadata'] },
         { name: 'user.metadata:update', resource: 'user.metadata', action: 'update', types: ['user.metadata'] },
         { name: 'user.metadata:delete', resource: 'user.metadata', action: 'delete', types: ['user.metadata'] },
+        { name: 'users:credentials', resource: 'users', action: 'credentials', types: ['users'] },
       ]);
+    });
+
+    it('registers users:credentials, which admin.users holds at GLOBAL through users:*; a plain user does not', async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+      // The fixture test user holds admin, which extends admin.users (seeded by the test migration).
+      const admin = await factory.principalOf(await User.query().where('Uuid', TEST_USER_UUID).populate('Metadata').firstOrFail());
+      const { User: plain } = await create({ Email: 'credentials-plain@spinajs.pl', Login: 'credentials-plain', Password: 'passw0rd123' }, ['user']);
+      await activate(plain);
+      const me = await factory.principalOf(await User.query().where('Uuid', plain.Uuid).populate('Metadata').firstOrFail());
+
+      expect(await authz.can(admin, 'users:credentials', GLOBAL)).to.eq(true);
+      expect(await authz.can(me, 'users:credentials', GLOBAL)).to.eq(false);
     });
 
     it("gives a user its own metadata rows through 'owner' and not another user's; admin.users any row, unconditionally", async () => {

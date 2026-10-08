@@ -45,7 +45,7 @@ describe('users-http v3: e-mail and login changes of other users need fresh auth
         // Holds more than user-admin: user-admin does not cover it.
         'senior-admin': { grants: ['users:read', 'users:update', 'users:delete', 'users:credentials'] },
       }),
-      config: { 'authz.permissions.users:credentials': {}, 'authn.strategies': REAUTH_STRATEGIES },
+      config: { 'authn.strategies': REAUTH_STRATEGIES },
     });
 
     userAdmin = await app.seedUser({ login: 'user-admin', roles: ['user-admin'] });
