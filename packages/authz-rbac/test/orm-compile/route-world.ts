@@ -148,7 +148,7 @@ export interface RawRuleRow {
  * take it seconds per query (L4b task "rules" report): these suites measure the SQL, not the JIT. New sessions of
  * the database start without it; the open ones are ended, and the pool replaces them.
  */
-async function withoutJit(db: RootOrm): Promise<void> {
+export async function withoutJit(db: RootOrm): Promise<void> {
   await db.raw('postgres', `DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET jit = off', current_database()); END $$`);
   await db.raw('postgres', 'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()');
   await db.raw('postgres', 'SET jit = off');

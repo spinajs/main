@@ -5,3 +5,4 @@ export * from './attributes.js';
 export * from './stored-rule.js';
 export * from './route.js';
 export * from './rules.js';
+export * from './boot.js';
