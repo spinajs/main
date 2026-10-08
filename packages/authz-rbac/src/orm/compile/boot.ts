@@ -47,13 +47,14 @@ function patternText(p: CompiledPattern): string {
   return (p.id ?? []).map((part) => (typeof part === 'string' ? part : '{}')).join('');
 }
 
-/** Types a config rule acts on: its `resourceTypes`, and for a threshold the types of its permissions. */
+/**
+ * Types a config rule acts on: those its `resourceTypes` admit that some registered permission is checked on; for a
+ * threshold, the permissions it names (globs expanded as `compileRule` expands them).
+ */
 function ruleTypes(rule: RuleDef, types: readonly ResourceType[], registry: PermissionRegistry): ResourceType[] {
   const admitted = types.filter((t) => rule.resourceTypes === undefined || rule.resourceTypes.includes(t));
-  if (rule.kind !== 'threshold') return admitted;
-  const permissions = rule.permissions ?? ['*'];
-  if (permissions.some((p) => p.includes('*'))) return admitted;
-  const on = new Set(registry.all().flatMap((d) => (permissions.includes(d.name) ? d.types : [])));
+  const names = rule.kind === 'threshold' ? new Set((rule.permissions ?? []).flatMap((p) => (p.includes('*') ? registry.match(p).map((d) => d.name) : [p]))) : undefined;
+  const on = new Set(registry.all().flatMap((d) => (names === undefined || names.has(d.name) ? d.types : [])));
   return admitted.filter((t) => on.has(t));
 }
 

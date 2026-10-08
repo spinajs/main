@@ -75,6 +75,9 @@ const LOCAL = [
         boots('control: the same rule limited to another type boots', world(undefined, [threshold({ resourceTypes: ['project'], when: { attr: 'resource.size', gt: 3 } })])),
         boots('control: a threshold whose permissions are on a type no SQL lists boots', world(undefined, [threshold({ permissions: ['note:read'], resource: { attr: 'resource.title', glob: 'a*b' } })])),
         boots('control: a prefix glob and a wildcard on a column boot', world(undefined, [threshold({ resource: { attr: 'resource.name', glob: 'z/**' } }), threshold({ id: 't2', when: { attr: 'resource.name', wildcard: '*zz*' } })])),
+        // '*' matches project:read too, and projects have no name column.
+        refused('a threshold on every permission reading a field one of the types lacks', world(undefined, [threshold({ permissions: ['*'], resource: { attr: 'resource.name', glob: 'z/*' } })]), ["type 'project'", "rbac rule 't1'", 'resource.name']),
+        boots('control: a permission glob that matches only the type with the column boots', world(undefined, [threshold({ permissions: ['file:*'], resource: { attr: 'resource.name', glob: 'z/*' } })])),
       ],
     },
   ]),
