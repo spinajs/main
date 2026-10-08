@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Unauthenticated, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { ISocketAuthConfig, ISocketAuthState, SocketPrincipalSource, SocketRevalidationResult, SocketRevalidationStatus } from './interfaces.js';
+import { ISocketAuthConfig, ISocketAuthState, ISocketRevalidation, SocketPrincipalSource, SocketRevalidationResult, SocketRevalidationStatus } from './interfaces.js';
 import { SocketConnection, isAuthState, isClientState } from './connection.js';
 
 /** Revalidations the sweep keeps running at once; commands are never held back by it. */
@@ -65,6 +65,9 @@ export class SocketPrincipalGuard {
 
   protected connections: () => Iterable<SocketConnection> = () => [];
 
+  /** The `activeAt` each connection's last 'valid' check started from; a later one is activity the next sweep reports. */
+  protected activityChecked = new WeakMap<SocketConnection, number | undefined>();
+
   /** @internal called by SocketServer */
   public start(connections: () => Iterable<SocketConnection>): void {
     this.stop();
@@ -108,7 +111,7 @@ export class SocketPrincipalGuard {
 
       // no break at the cap: the remaining connections still get their expiry checked
       if (this.due(connection, now) && !this.pending.has(connection) && this.running < MAX_CONCURRENT_REVALIDATIONS) {
-        started.push(this.check(connection));
+        started.push(this.check(connection, 'sweep'));
       }
     }
 
@@ -130,7 +133,8 @@ export class SocketPrincipalGuard {
     return this.closing.has(connection);
   }
 
-  public async ensure(connection: SocketConnection): Promise<void> {
+  /** @param trigger - the client frame being served; a check it starts tells the source the client is active */
+  public async ensure(connection: SocketConnection, trigger: 'command' | 'event' = 'command'): Promise<void> {
     if (connection.auth.source === null) {
       return;
     }
@@ -148,7 +152,7 @@ export class SocketPrincipalGuard {
       return;
     }
 
-    if (!(await (this.pending.get(connection) ?? this.check(connection)))) {
+    if (!(await (this.pending.get(connection) ?? this.check(connection, trigger)))) {
       this.refuse(connection, 'credentials are no longer valid');
     }
 
@@ -169,7 +173,7 @@ export class SocketPrincipalGuard {
     }
 
     const restored = connection.principal;
-    await (this.pending.get(connection) ?? this.check(connection));
+    await (this.pending.get(connection) ?? this.check(connection, 'recovery'));
 
     if (connection.principal === restored && !this.closing.has(connection)) {
       this.Log.debug(`Socket ${connection.id}: the re-check of the recovered connection carried no principal; an identity flattened by a serializing adapter stays flattened`);
@@ -208,11 +212,11 @@ export class SocketPrincipalGuard {
     return this.Options.revalidateMs > 0 && now - (auth.unavailableSince ?? auth.checkedAt) >= this.Options.revalidateMs;
   }
 
-  protected check(connection: SocketConnection): Promise<boolean> {
+  protected check(connection: SocketConnection, trigger: ISocketRevalidation['trigger']): Promise<boolean> {
     const generation = this.generation;
     const pending = this.pending;
     this.running++;
-    const check = this.revalidate(connection).finally(() => {
+    const check = this.revalidate(connection, trigger).finally(() => {
       if (generation === this.generation) {
         this.running--;
         pending.delete(connection);
@@ -222,12 +226,16 @@ export class SocketPrincipalGuard {
     return check;
   }
 
-  protected async revalidate(connection: SocketConnection): Promise<boolean> {
+  protected async revalidate(connection: SocketConnection, trigger: ISocketRevalidation['trigger']): Promise<boolean> {
     const auth = connection.auth;
-    const verdict = await this.ask(connection);
+    // read as the check starts: a frame that arrives while the source works, or joins this check, is left for the next one
+    const activeAt = auth.activeAt;
+    const active = trigger !== 'sweep' || (activeAt !== undefined && activeAt !== this.activityChecked.get(connection));
+    const verdict = await this.ask(connection, { trigger, active });
 
     if (verdict.status === 'valid') {
       auth.checkedAt = Date.now();
+      this.activityChecked.set(connection, activeAt);
       delete auth.unavailableSince;
       if (verdict.principal) {
         auth.principal = verdict.principal;
@@ -253,7 +261,7 @@ export class SocketPrincipalGuard {
     return false;
   }
 
-  protected async ask(connection: SocketConnection): Promise<IRevalidation> {
+  protected async ask(connection: SocketConnection, check: ISocketRevalidation): Promise<IRevalidation> {
     const source = this.Sources.find((s) => s.name === connection.auth.source);
     if (!source) {
       return { status: 'invalid' };
@@ -269,7 +277,7 @@ export class SocketPrincipalGuard {
     let verdict: IRevalidation;
     try {
       // a late answer of a timed out call is dropped by the race
-      verdict = toRevalidation(await Promise.race([source.revalidate(connection.handshake, connection.principal), timeout]));
+      verdict = toRevalidation(await Promise.race([source.revalidate(connection.handshake, connection.principal, check), timeout]));
     } catch (err) {
       return { status: 'unavailable', error: err as Error };
     } finally {

@@ -119,15 +119,29 @@ export class SocketDispatcher extends AsyncService {
 
     this.runtimes.set(connection.id, runtime);
     this.sockets.set(runtime, socket);
-    socket.on(WIRE_EVENTS.command, (request: unknown, ack: unknown) => this.onCommand(runtime, request, ack));
+    socket.on(WIRE_EVENTS.command, (request: unknown, ack: unknown) => {
+      this.clientActive(connection);
+      this.onCommand(runtime, request, ack);
+    });
     socket.on(WIRE_EVENTS.cancel, (frame: unknown) => this.onCancel(runtime, frame));
     socket.on(WIRE_EVENTS.credit, (frame: unknown) => this.onCredit(runtime, frame));
     socket.on(WIRE_EVENTS.event, (frame: unknown) => {
+      this.clientActive(connection);
       this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
     });
     runtime.ready = connection.recovered ? this.afterRecovery(runtime) : this.connectHooks(runtime);
 
     return runtime;
+  }
+
+  /**
+   * Stamps `auth.activeAt` for the principal guard ( ISocketRevalidation.active ). Every command or event frame counts, even
+   * one refused later, as a refused http request still slides its session; cancel and credit frames only steer earlier work.
+   */
+  protected clientActive(connection: SocketConnection): void {
+    if (connection.authenticated) {
+      connection.auth.activeAt = Date.now();
+    }
   }
 
   /** @internal called by SocketServer */
@@ -384,7 +398,7 @@ export class SocketDispatcher extends AsyncService {
     // a disconnect frees the slot and drops the event while the connect hooks still run
     await untilAborted(runtime.ready, connection.signal);
     // closes the connection itself when the principal is no longer valid
-    await this.Guard.ensure(connection);
+    await this.Guard.ensure(connection, 'event');
 
     const handler = this.Registry.event(name);
     if (!handler) {

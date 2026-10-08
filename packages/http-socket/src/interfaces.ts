@@ -117,6 +117,20 @@ export type SocketRevalidationStatus = 'valid' | 'invalid' | 'unavailable';
  */
 export type SocketRevalidationResult = SocketRevalidationStatus | boolean | { readonly status: 'valid'; readonly principal: Principal };
 
+/** Why the guard re-checks a live connection; a source may extend a session for an active client, as an http request does. */
+export interface ISocketRevalidation {
+  /**
+   * 'sweep': the server-wide check every `http.socket.auth.revalidateMs`. 'command' / 'event': a client frame found that check
+   * due and ran it first. 'recovery': connection state recovery restored the connection without a handshake.
+   */
+  readonly trigger: 'sweep' | 'recovery' | 'command' | 'event';
+  /**
+   * The client sent a command or an event since the last 'valid' check; always true unless the trigger is 'sweep'.
+   * Activity is reported at the next check, up to `revalidateMs` after it.
+   */
+  readonly active: boolean;
+}
+
 /**
  * Resolves the authz-v3 principal of a connection from its handshake: the socket form of
  * authz-http's `PrincipalSource`, whose `authenticate(req)` needs an express request that
@@ -142,8 +156,11 @@ export abstract class SocketPrincipalSource {
    *   is read as 'unavailable', never as a refusal. The connection
    *   keeps running for ONE more `revalidateMs` grace window and is asked again; when that answer is
    *   not 'valid' either, it is refused and closed. Commands are served during the grace window.
+   *
+   * `check` tells what triggered the check and whether the client was active since the last 'valid' one; the default
+   * ignores it. It is optional, so a source that overrides this method with two parameters still compiles.
    */
-  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+  public async revalidate(handshake: ISocketHandshake, principal: Principal, _check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
     let again: Principal | null;
     try {
       again = await this.authenticate(handshake);
@@ -175,6 +192,8 @@ export interface ISocketAuthState {
   checkedAt: number;
   /** ms epoch of an 'unavailable' answer not yet followed by a 'valid' one: the connection is in its grace window */
   unavailableSince?: number;
+  /** ms epoch of the last command or event the client sent; absent before the first one, and in a state stored by an older version */
+  activeAt?: number;
 }
 
 /** Supplies the node http(s) server socket.io attaches to. */
