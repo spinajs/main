@@ -20,7 +20,8 @@ import type { PasswordMail } from '@spinajs/authn-local';
 
 import usersConfig from '../src/config/users.js';
 import { QueueAuthnEventSink, UserAccountSink, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
-import { ban, create, deactivate, grant, revoke, setUserMeta } from '../src/actions.js';
+import { ban, create, deactivate, setUserMeta } from '../src/actions.js';
+import { rootAdmin } from './support/authz-host.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { registerRecordingSessionIssuer } from './support/session-issuer.js';
 import { useKitConfiguration } from './support/kit-configuration.js';
@@ -160,9 +161,12 @@ describe('plan C1 acceptance', function () {
       expect(roleEvents()).to.deep.eq([{ type: 'RoleAssigned', actor: SYSTEM.type, subject: { type: 'user', id: u.Uuid }, role: 'user', scope: GLOBAL }]);
     });
 
-    it('grant and revoke emit RoleAssigned and RoleRevoked with the actor', async () => {
-      await grant('test@spinajs.pl', 'editor');
-      await revoke('test@spinajs.pl', 'editor');
+    it('a role assigned and revoked through AuthzAdmin emits RoleAssigned and RoleRevoked with the actor', async () => {
+      const admin = await rootAdmin();
+      const subject = { type: 'user', id: TEST_USER_UUID };
+      await admin.assign(SYSTEM, { subject, role: 'editor', scope: GLOBAL });
+      const [revoked] = await admin.execute(SYSTEM, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role: 'editor' }]);
+      expect(revoked.ok).to.eq(true);
 
       expect(roleEvents().map((e) => [e.type, e.actor, e.role, e.subject.id])).to.deep.eq([
         ['RoleAssigned', SYSTEM.type, 'editor', TEST_USER_UUID],

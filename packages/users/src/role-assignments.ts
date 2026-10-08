@@ -74,16 +74,6 @@ export async function assignGlobalRoles(uuid: string, roles: readonly string[], 
   );
 }
 
-export async function revokeGlobalRole(uuid: string, role: string, opts: RoleWriteOptions): Promise<void> {
-  await execute([{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject: userRef(uuid), role }], opts);
-}
-
-/** Whether `user:<uuid>` holds `role` at GLOBAL now. */
-export async function holdsGlobalRole(uuid: string, role: string): Promise<boolean> {
-  const rows = await (await assignmentStore()).forSubjects([userRef(uuid)], new Date());
-  return rows.some((a) => a.role === role && a.scope.type === GLOBAL.type);
-}
-
 /** Uuids of the users that hold any of `roles` at GLOBAL now; subject sets are not expanded. */
 export async function globalRoleHolders(roles: readonly string[]): Promise<string[]> {
   const store = await assignmentStore();
