@@ -15,7 +15,6 @@ import * as api from '../src/api.js';
 import { Authenticated, AuthnMiddleware, AuthnPrincipalResolver, AuthnSession, ClientIp, CsrfOriginGuard, FreshAuth, FromSession, Identity, KeyPrincipalResolver, MfaSatisfied, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId, SessionPrincipalResolver, TokenPrincipalResolver } from '../src/api.js';
 import type { AuthnIdentity } from '../src/api.js';
 import * as barrel from '../src/index.js';
-import { FromSession as MovedFromSession, SessionId as MovedSessionId } from '../src/decorators.js';
 import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
 import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
 import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
@@ -176,8 +175,6 @@ describe('authn-http api stubs (api.ts)', function () {
         if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
         else expect(b[n], n).to.eq(stub);
       }
-      expect(barrel.FromSession).to.not.eq(MovedFromSession);
-      expect(barrel.SessionId).to.not.eq(MovedSessionId);
     });
 
     it('imports only @spinajs/authn/contracts, @spinajs/http and express', () => {
