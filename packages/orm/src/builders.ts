@@ -29,6 +29,12 @@ export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> { }
 export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> { }
 export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
 
+/** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
+function sortQueryMiddlewares(list: QueryMiddleware[]): QueryMiddleware[] {
+  const key = (m: QueryMiddleware) => (Number.isFinite(m.order) ? m.order : 0);
+  return [...list].sort((a, b) => key(a) - key(b));
+}
+
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
 }
@@ -67,7 +73,7 @@ export class Builder<T = any> implements IBuilder<T> {
     this._nonSelect = true;
     this._asRaw = false;
 
-    this._queryMiddlewares = DI.resolve(Array.ofType(QueryMiddleware));
+    this._queryMiddlewares = sortQueryMiddlewares(DI.resolve(Array.ofType(QueryMiddleware)));
   }
 
   /**

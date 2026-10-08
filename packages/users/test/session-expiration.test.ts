@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
@@ -23,6 +24,8 @@ class ExpirationTestConfiguration extends TestConfiguration {
 async function withConfig(expiration: unknown) {
   currentExpiration = expiration;
   DI.clearCache();
+  // clearCache drops the schema registered at import; its defaults are the ttl and maxLifetime the strategies read.
+  registerConfigurationSchema(AUTHN_CONFIGURATION_SCHEMA);
   await DI.resolve(Configuration);
 }
 
@@ -119,6 +122,25 @@ describe('Session expiration strategies', () => {
 
       const result = strategy.renew(session);
       closeTo(result, cap);
+    });
+  });
+
+  describe('schema defaults without configuration: what users shipped, 30 idle and 480 absolute minutes', () => {
+    it('AbsoluteExpiration and SlidingExpiration use a ttl of 30', async () => {
+      await withConfig({});
+      const session = new UserSession();
+      session.Creation = DateTime.fromISO('2026-01-01T00:00:00.000Z');
+
+      closeTo((await DI.resolve(AbsoluteExpiration)).initial(session), session.Creation.plus({ minutes: 30 }), 5);
+      closeTo((await DI.resolve(SlidingExpiration)).initial(session), DateTime.now().plus({ minutes: 30 }));
+    });
+
+    it('SlidingCappedExpiration caps at 480 minutes from creation', async () => {
+      await withConfig({});
+      const session = new UserSession();
+      session.Creation = DateTime.now().minus({ minutes: 470 });
+
+      closeTo((await DI.resolve(SlidingCappedExpiration)).renew(session), session.Creation.plus({ minutes: 480 }));
     });
   });
 });

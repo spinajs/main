@@ -8,34 +8,15 @@ function dir(path: string) {
 const authzHttpAdmin = {
   system: {
     dirs: {
-      controllers: [dir('legacy/controllers')],
+      controllers: [dir('controllers')],
     },
   },
 
-  rbac: {
-    admin: {
-      /**
-       * Guards applied to every admin operation that changes what an account may
-       * do. Defaults are the strict end — see IRoleGuardConfig for what each one
-       * refuses and why. Turn individual checks off here rather than replacing
-       * the service.
-       */
-      roleGuard: {
-        service: 'DefaultRoleGuard',
-
-        requireKnownRole: true,
-        protectSystemRole: true,
-        preventEscalation: true,
-        preventSelfLockout: true,
-        preventLastPrivilegedRemoval: true,
-
-        /**
-         * What makes a role "privileged" for the self-lockout and last-holder
-         * checks. Action uses accesscontrol grant notation, exactly as written
-         * in `rbac.grants`.
-         */
-        privilegedResource: 'users',
-        privilegedAction: 'update:any',
+  authz: {
+    http: {
+      admin: {
+        /** The domain whose AuthzAdmin the /authz admin routes use. */
+        domain: 'root',
       },
     },
   },

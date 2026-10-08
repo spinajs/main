@@ -4,8 +4,8 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, StrategyOutcome } from '@spinajs/authn/contracts';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, Argon2PasswordHasherOptions, EXPIRED_PASSWORD_MARKER, PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
@@ -35,16 +35,18 @@ class StoreDownError extends Error {
 class FailingPasswordStore extends MemoryPasswordCredentialStore {
   public failSet = false;
   public readonly gets: IdentityRef[] = [];
+  public readonly sets: { hash: string; expected: string | null | undefined }[] = [];
   public async get(id: IdentityRef): Promise<string | null> {
     this.gets.push(id);
     return super.get(id);
   }
-  public async set(id: IdentityRef, hash: string): Promise<void> {
+  public async set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean> {
+    this.sets.push({ hash, expected });
     if (this.failSet) {
       // Some ORM paths put the query bindings, i.e. the new hash, into the message.
       throw new StoreDownError(`insert failed with bindings [${hash}]`);
     }
-    return super.set(id, hash);
+    return super.set(id, hash, expected);
   }
 }
 
@@ -61,6 +63,7 @@ async function setup(hasherOptions: Argon2PasswordHasherOptions = {}) {
   await passwords.set(alice, await hasher.hash(PASSWORD));
   passwords.writes.length = 0;
   passwords.gets.length = 0;
+  passwords.sets.length = 0;
   return { identities, passwords, hasher, log, strategy, alice, dummyRuns };
 }
 
@@ -204,6 +207,20 @@ describe('LocalPasswordStrategy', function () {
       expect(await hasher.verify(stored, PASSWORD)).to.equal(true);
     });
 
+    it('the rehash is a compare-and-set over the hash the login verified, and reads the store once', async () => {
+      const { strategy, passwords, hasher, alice } = await setup();
+      const old = await hasher.hashWith(PASSWORD, { argon2: { memoryCost: 4096, timeCost: 2, parallelism: 1 }, pepper: null });
+      await passwords.set(alice, old);
+      passwords.sets.length = 0;
+      passwords.gets.length = 0;
+
+      expect((await strategy.verify(pw(LOGIN, PASSWORD), CTX)).ok).to.equal(true);
+      expect(passwords.gets).to.have.length(1);
+      expect(passwords.sets).to.have.length(1);
+      expect(passwords.sets[0].expected).to.equal(old);
+      expect(passwords.sets[0].hash).to.equal(await passwords.get(alice));
+    });
+
     it('a failure to store the rehash does not fail the login and logs no secret', async () => {
       const { strategy, passwords, hasher, log, alice } = await setup();
       const old = await hasher.hashWith(PASSWORD, { argon2: { memoryCost: 4096, timeCost: 2, parallelism: 1 }, pepper: null });
@@ -249,17 +266,40 @@ describe('LocalPasswordStrategy', function () {
       }
     }
 
+    const FACTS: AuthnFacts = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: CTX.now };
+
+    /** Lets a test run another writer inside the store's compare-and-set, after every read the strategy makes. */
+    class InterleavingPasswordStore extends MemoryPasswordCredentialStore {
+      public interleave: (() => Promise<void>) | null = null;
+      public readonly results: boolean[] = [];
+
+      public async set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean> {
+        const other = this.interleave;
+        if (expected !== undefined && other) {
+          this.interleave = null;
+          await other();
+        }
+        const wrote = await super.set(id, hash, expected);
+        if (expected !== undefined) this.results.push(wrote);
+        return wrote;
+      }
+    }
+
     async function raceSetup() {
       const identities = new FakeIdentityStore();
-      const passwords = new MemoryPasswordCredentialStore();
+      const passwords = new InterleavingPasswordStore();
       const hasher = new GatedHasher({});
       await hasher.resolve();
-      const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
+      const log = new RecordingLog();
+      const strategy = new LocalPasswordStrategy({ identities, passwords, hasher, log });
       await strategy.resolve();
+      const sessions = new MemorySessionIssuer();
+      const secrets = new MemorySecretStore();
       const service = new LocalPasswordService({
         identities,
         passwords,
-        sessions: new MemorySessionIssuer(),
+        sessions,
+        secrets,
         throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),
         tokens: null,
         sinks: [new RecordingEventSink()],
@@ -268,7 +308,7 @@ describe('LocalPasswordStrategy', function () {
       });
       const alice = identities.add({ login: LOGIN });
       await passwords.set(alice, await hasher.hashWith(OLD, { argon2: { memoryCost: 4096, timeCost: 2, parallelism: 1 } }));
-      return { hasher, strategy, service, passwords, alice };
+      return { hasher, strategy, service, passwords, sessions, secrets, log, alice };
     }
 
     type RaceSetup = Awaited<ReturnType<typeof raceSetup>>;
@@ -286,6 +326,26 @@ describe('LocalPasswordStrategy', function () {
           await x.service.expire(x.alice, { cause: 'admin', actor: { type: 'user', id: 'admin-1' } }, CTX);
         },
       ],
+      [
+        'an aged expiry',
+        async (x) => {
+          await x.service.expire(x.alice, { cause: 'aged' }, CTX);
+        },
+      ],
+      [
+        'a change',
+        async (x) => {
+          const session = await x.sessions.issue(x.alice, FACTS);
+          expect((await x.service.change(x.alice, OLD, NEW, session, CTX)).status).to.equal('changed');
+        },
+      ],
+      [
+        'a reset',
+        async (x) => {
+          const secret = await x.secrets.issue(x.alice, 'reset', 600);
+          expect(await x.service.redeemReset(LOGIN, secret, NEW, CTX)).to.deep.equal({ status: 'reset', purpose: 'reset' });
+        },
+      ],
     ];
 
     for (const [label, change] of paths) {
@@ -295,6 +355,8 @@ describe('LocalPasswordStrategy', function () {
         const login = x.strategy.verify(pw(LOGIN, OLD), CTX);
         await x.hasher.held;
         await change(x);
+        // A change writes by compare-and-set too; only the rehash's result counts here.
+        x.passwords.results.length = 0;
         const changed = await x.passwords.get(x.alice);
         open();
 
@@ -302,8 +364,35 @@ describe('LocalPasswordStrategy', function () {
         expect(await x.passwords.get(x.alice)).to.equal(changed);
         expect(await x.hasher.verify(await x.passwords.get(x.alice), OLD), 'the old password stays dead').to.equal(false);
         expect(await x.strategy.verify(pw(LOGIN, OLD), CTX)).to.deep.equal(INVALID);
+        expect(x.passwords.results, 'the rehash lost its compare-and-set').to.deep.equal([false]);
+      });
+
+      it(`${label} that lands inside the rehash's compare-and-set wins, and the login still succeeds`, async () => {
+        const x = await raceSetup();
+        let changed: string | null = null;
+        x.passwords.interleave = async () => {
+          await change(x);
+          x.passwords.results.length = 0;
+          changed = await x.passwords.get(x.alice);
+        };
+
+        expect((await x.strategy.verify(pw(LOGIN, OLD), CTX)).ok).to.equal(true);
+        expect(changed).to.be.a('string');
+        expect(await x.passwords.get(x.alice)).to.equal(changed);
+        expect(x.passwords.results).to.deep.equal([false]);
+        expect(x.log.lines, 'a lost race is not a store failure').to.deep.equal([]);
+        expect(await x.strategy.verify(pw(LOGIN, OLD), CTX)).to.deep.equal(INVALID);
       });
     }
+
+    it('without a concurrent writer the rehash wins its compare-and-set', async () => {
+      const x = await raceSetup();
+      const before = await x.passwords.get(x.alice);
+      expect((await x.strategy.verify(pw(LOGIN, OLD), CTX)).ok).to.equal(true);
+      expect(x.passwords.results).to.deep.equal([true]);
+      expect(await x.passwords.get(x.alice)).to.not.equal(before);
+      expect(await x.hasher.verify(await x.passwords.get(x.alice), OLD)).to.equal(true);
+    });
   });
 
   describe('throttle keys (D7)', () => {
@@ -465,9 +554,9 @@ describe('LocalPasswordStrategy DI wiring', function () {
   });
 });
 
-/** Holds only a policy rule that strict ajv refuses (no ajv-formats), so nothing else in the config can fail first. */
+/** Holds a policy rule that strict ajv refuses (no ajv-formats) and the hasher limit the strategy needs first, so nothing else can fail before it. */
 class StrategyBadPolicyConfiguration extends Configuration {
-  private readonly values = { authn: { local: { policy: { rule: { type: 'string', format: 'email' } } } } };
+  private readonly values = { authn: { local: { hasher: { maxConcurrent: 2 }, policy: { rule: { type: 'string', format: 'email' } } } } };
   public get RootConfig() {
     return { ...this.values, onConfigLoad: () => undefined };
   }

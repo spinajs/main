@@ -10,6 +10,12 @@ export abstract class NativeFilter {
   abstract matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean>;
 }
 
+// Merged into the class so it emits no field: a subclass may declare it with a field initialiser or a getter.
+export interface NativeFilter {
+  /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it (RFC E2-2). Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
+  readonly principalInArgs?: boolean;
+}
+
 export interface ModelCapabilities {
   readonly effects: readonly ('permit' | 'deny')[];
   readonly residuals: readonly FilterOp[]; // ops its votes may contain

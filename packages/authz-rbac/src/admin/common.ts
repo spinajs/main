@@ -1,8 +1,9 @@
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL, PermissionRegistry, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PermissionDef, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
+import { RbacModel } from '../model/model.js';
 import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../contracts.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 import { copyPrincipalRef, copyRef, isSetSubject, normaliseTags } from './rows.js';
@@ -57,7 +58,7 @@ async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
   if (!container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${where}: no RoleStore is registered; the RBAC write handlers of AuthzAdmin read role definitions from it`);
   const roles = new Map<string, RoleDef>();
   const ladders = new Map<string, LadderDef>();
-  for (const s of await container.resolveChain(RoleStore)) {
+  for (const s of await container.resolve(Array.chainOf(RoleStore))) {
     const loaded = await (s as RoleStore).load();
     for (const r of loaded.roles) {
       if (roles.has(r.name)) throw new AuthzConfigError(`${where}: role ${q(r.name)} is defined twice (${roles.get(r.name)!.source}, ${r.source})`);
@@ -143,11 +144,122 @@ export async function grantClosure(roles: RoleIndex, role: string, holds: (ladde
 }
 
 /**
- * A grant of the role's closure matches `permission` at the role's own scope: implied roles held
- * `self-and-descendants` count, `descendants` ones do not. Grants are names or globs; conditions do not matter.
+ * The subject set roles whose sets a principal holding `role` at a scope is a member of there: the
+ * `subjectSet` roles of its closure without implies, as the model's set resolver counts them.
  */
-export function grantsPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
-  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
+export function setRolesOf(roles: RoleIndex, role: string): string[] {
+  return roleClosure(roles, role, 'none')
+    .defs.filter((d) => d.subjectSet === true)
+    .map((d) => d.name);
+}
+
+/**
+ * The model counts the row: its role is defined, assignable, and may be held at the row's scope type. A row
+ * it ignores gives nothing and makes no set member. Mirrors `assignmentProblem` in `model/roles.ts`, which
+ * needs a compiled RoleGraph the admin side does not have.
+ */
+export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>): boolean {
+  const def = roles.roles.get(a.role);
+  return def !== undefined && def.assignable !== false && (def.scopeTypes === undefined || def.scopeTypes.includes(a.scope.type));
+}
+
+/**
+ * The permissions a grant may match to give `permission`: the permission and every one that implies it,
+ * transitively (PermissionRegistry.impliedBy), as the model's compileGrants follows PermissionDef.implies.
+ * @throws AuthzConfigError when there is no registry (permissionRegistry): without the implies a holder could go unseen
+ */
+export async function grantingPermissions(ctx: AdminContext, permission: Permission): Promise<readonly Permission[]> {
+  const registry = await permissionRegistry(ctx);
+  if (!registry) throw new AuthzConfigError(`Authz domain ${q(ctx.domain)}: DefaultAdminGuard needs the permission registry to find the permissions that imply ${q(permission)}; no model of the domain exposes one through permissions() and no PermissionRegistry is registered`);
+  return [permission, ...registry.impliedBy(permission)];
+}
+
+/**
+ * The registry the domain's RBAC grants were compiled with: an RbacModel's of ctx.authz.models() first (an
+ * RbacModel shared from another domain compiled its grants against that domain's registry, which another
+ * model here may not expose), then any model's permissions() that returns a PermissionRegistry, then a
+ * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected
+ * (design §6.6.2).
+ */
+export async function permissionRegistry(ctx: AdminContext): Promise<PermissionRegistry | undefined> {
+  const models = ctx.authz.models();
+  for (const model of [...models.filter((m) => m instanceof RbacModel), ...models.filter((m) => !(m instanceof RbacModel))]) {
+    const own: unknown = (model as { permissions?: unknown }).permissions;
+    if (typeof own !== 'function') continue;
+    const registry: unknown = own.call(model);
+    if (registry instanceof PermissionRegistry) return registry;
+  }
+  const container = adminContainer(ctx);
+  if (!container.hasRegistered(PermissionRegistry)) return undefined;
+  const registered: unknown = await container.resolve(PermissionRegistry);
+  return registered instanceof PermissionRegistry ? registered : undefined;
+}
+
+/**
+ * The registered permissions a grant gives, as the model's compileGrants compiles it: a literal names
+ * itself, a glob the permissions it matches, and each brings in what it implies, transitively. Undefined
+ * (not covered) for an invalid name or glob, an unregistered permission, and a glob that matches nothing,
+ * which compileGrants accepts as giving nothing.
+ */
+export function grantedPermissions(registry: PermissionRegistry, grant: string): readonly PermissionDef[] | undefined {
+  let direct: readonly PermissionDef[];
+  if (!grant.includes('*')) {
+    const def = isPermission(grant) ? registry.get(grant) : undefined;
+    if (!def) return undefined;
+    direct = [def];
+  } else {
+    if (!isPermissionGlob(grant)) return undefined;
+    direct = registry.match(grant);
+    if (direct.length === 0) return undefined;
+  }
+  const given = new Map(direct.map((d) => [d.name, d]));
+  const queue = [...given.values()];
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of queue[i].implies ?? []) {
+      if (given.has(next)) continue;
+      const def = registry.get(next);
+      if (!def) return undefined;
+      given.set(next, def);
+      queue.push(def);
+    }
+  }
+  return [...given.values()];
+}
+
+const matchesAny = (glob: string, permissions: readonly Permission[]): boolean => {
+  const matches = compilePermissionGlob(glob);
+  return permissions.some((p) => matches(p));
+};
+
+/**
+ * A grant of the role's closure matches one of `permissions` (grantingPermissions) at the role's own scope:
+ * implied roles held `self-and-descendants` count, `descendants` ones do not. Grants are names or globs;
+ * conditions do not matter.
+ */
+export function grantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[]): boolean {
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => matchesAny(g.permission, permissions)));
+}
+
+/**
+ * As grantsPermission, counting only grants the model gives on a request at `scope` to a row of `role` made
+ * there, whatever tags the principal's live assignment carries and whatever the resource: no `requiresTag`,
+ * `relation` or `on`; the declaring role's ladder applies at the scope type; a `grantedAt` lists the scope type
+ * and, for a ladder role's grant, the row's role ranks at or above it on that ladder (the model counts only
+ * rows on that ladder). A grant matched through an implying permission meets the same conditions, as the model
+ * compiles the implied grant from it. Cap and restrict rules are not judged.
+ */
+export function surelyGrantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[], scope: ResourceRef): boolean {
+  const rowLadder = roles.ladderOf(role);
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => {
+    const ladder = roles.ladderOf(d.name);
+    if (ladder !== undefined && !ladderAppliesAt(roles, ladder, scope)) return false;
+    return d.grants.some((g) => {
+      if (g.requiresTag !== undefined || g.relation !== undefined || g.on !== undefined || !matchesAny(g.permission, permissions)) return false;
+      if (g.grantedAt === undefined) return true;
+      if (!g.grantedAt.includes(scope.type)) return false;
+      return ladder === undefined || (rowLadder === ladder && rankOf(roles, ladder, role) >= rankOf(roles, ladder, d.name));
+    });
+  });
 }
 
 // ---- command fields ----

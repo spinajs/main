@@ -14,12 +14,36 @@
       "types": "./lib/mjs/contracts/index.d.ts",
       "import": "./lib/mjs/contracts/index.js",
       "require": "./lib/cjs/contracts/index.js"
+    },
+    "./env": {
+      "types": "./lib/mjs/service/boot/env.d.ts",
+      "import": "./lib/mjs/service/boot/env.js",
+      "require": "./lib/cjs/service/boot/env.js"
+    },
+    "./schemas": {
+      "types": "./lib/mjs/schemas/index.d.ts",
+      "import": "./lib/mjs/schemas/index.js",
+      "require": "./lib/cjs/schemas/index.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
     }
   },
   "typesVersions": {
     "*": {
       "contracts": [
         "lib/cjs/contracts/index.d.ts"
+      ],
+      "env": [
+        "lib/cjs/service/boot/env.d.ts"
+      ],
+      "schemas": [
+        "lib/cjs/schemas/index.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
       ]
     }
   },
@@ -65,8 +89,12 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/configuration": "2.0.549",
+    "@spinajs/configuration-common": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/log-common": "2.0.549"
+  },
+  "devDependencies": {
+    "@spinajs/authn-testing": "3.0.0-alpha.0"
   }
 }

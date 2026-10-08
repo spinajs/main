@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DI, Injectable } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
@@ -60,9 +61,12 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
 
   /** Resolves the hasher, which makes its dummy hash, at boot (D4). */
   public async resolve(): Promise<void> {
-    this._hasher = this.Deps ? this.Deps.hasher : await DI.resolve(PasswordHasher);
-    await this._hasher.resolve();
-    if (!this.Deps) {
+    if (this.Deps) {
+      // A hasher handed in by a test is not resolved by DI.
+      this._hasher = this.Deps.hasher;
+      await this._hasher.resolve();
+    } else {
+      this._hasher = await DI.resolve(PasswordHasher);
       // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; resolving the
       // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
       await DI.resolve(LocalPasswordPolicy);
@@ -109,12 +113,9 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   protected async rehash(hasher: PasswordHasher, id: IdentityRef, password: string, verified: string): Promise<void> {
     try {
       const fresh = await hasher.hash(password);
-      // A reset, set, change or expiry may have stored a new value while we hashed: never write the old password back over it.
-      // A gap between this read and the write remains until the store offers a conditional write (RFC N3-1).
-      if ((await this.passwords().get(id)) !== verified) {
-        return;
-      }
-      await this.passwords().set(id, fresh);
+      // Only over the verified hash: a reset, set, change or expiry that stored a new value meanwhile must not get the old
+      // password written back over it (A30). A lost race leaves the newer value and needs no retry.
+      await this.passwords().set(id, fresh, verified);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
       this.log().warn(`Could not store the rehashed password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);
@@ -122,10 +123,8 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   }
 
   protected async hasher(): Promise<PasswordHasher> {
-    if (!this._hasher) {
-      await this.resolve();
-    }
-    return this._hasher!;
+    if (!this._hasher) throw new InvalidOperation('LocalPasswordStrategy is not resolved');
+    return this._hasher;
   }
 
   protected identities(): IdentityStore {

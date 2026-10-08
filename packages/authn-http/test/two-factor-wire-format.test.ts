@@ -6,6 +6,7 @@ import { join } from 'path';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
@@ -63,6 +64,10 @@ class TwoFactorDisabledConfiguration extends TestConfiguration {
 
     // The one value this suite is actually about: system-wide 2FA switched off.
     cfg.rbac = { twoFactorAuth: { enabled: false, service: 'Default2FaToken' } };
+
+    // The base class replaces the validated tree, so the authn schema runs again to fill its defaults.
+    cfg.authn = { ...cfg.authn, session: { service: 'MemorySessionStore', ...cfg.authn?.session } };
+    this.validateModule(AUTHN_CONFIGURATION_SCHEMA);
   }
 }
 

@@ -33,8 +33,12 @@ export class ActiveRoleController extends BaseController {
   @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
-  @Config('rbac.roleSwitch.requirePassword', { defaultValue: [] as string[] })
-  protected RolesRequiringPassword: string[];
+  @Config('authz.principals.roleSwitch.requirePassword')
+  protected RolesRequiringPassword: string[] | undefined;
+
+  /** @deprecated the 2.x key, read only while the 3.0 key is unset */
+  @Config('rbac.roleSwitch.requirePassword')
+  protected LegacyRolesRequiringPassword: string[] | undefined;
 
   @Autoinject(SessionCookieFactory)
   protected SessionCookies: SessionCookieFactory;
@@ -56,7 +60,8 @@ export class ActiveRoleController extends BaseController {
   /**
    * Switch active role
    * Switches the active role for the current session. The requested role must be one of
-   * the user's assigned roles. If the role is listed in `rbac.roleSwitch.requirePassword`,
+   * the user's assigned roles. If the role is listed in `authz.principals.roleSwitch.requirePassword`
+   * (or, while that key is unset, the 2.x `rbac.roleSwitch.requirePassword`; with neither set, every role),
    * the user's password must also be provided and is re-verified.
    * @security cookieAuth
    * @returns {IActiveRoleResponse}
@@ -79,7 +84,7 @@ export class ActiveRoleController extends BaseController {
       });
     }
 
-    if (this.RolesRequiringPassword?.includes(payload.Role)) {
+    if (this.requiresPassword(payload.Role)) {
       if (!payload.Password) {
         return new Unauthorized({
           error: {
@@ -109,6 +114,12 @@ export class ActiveRoleController extends BaseController {
     return new Ok(await this.buildResponse(user, payload.Role), {
       Coockies: [this.SessionCookies.issue(regenerated)],
     });
+  }
+
+  // Fails safe: with no list configured a switch always asks for the password.
+  protected requiresPassword(role: string): boolean {
+    const list = this.RolesRequiringPassword ?? this.LegacyRolesRequiringPassword;
+    return !Array.isArray(list) || list.includes(role);
   }
 
   protected async buildResponse(user: User, activeRole: string): Promise<IActiveRoleResponse> {

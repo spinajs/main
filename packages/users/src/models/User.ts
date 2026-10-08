@@ -1,24 +1,35 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
-import { _cfg } from '@spinajs/configuration';
+import { GLOBAL } from '@spinajs/authz';
+import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 
 export class UserQueryScopes implements QueryScope {
   /**
+   * Users holding any of `roles` as a live GLOBAL assignment of `user:<Uuid>`.
    *
-   * Fetch users with specified role. If user has more roles and one of them is matching it will be included as well
+   * It reads `authz_assignment` on the users' own connection, so it misses assignments that
+   * `authz.rbac.connection` keeps elsewhere.
    *
-   * @param role  one of user roles. If user has this role it will be included in result. If user has more roles and one of them is matching it will be included as well
-   * @returns
+   * @deprecated 3.0: getUsersByRole() or AssignmentStore.holders(role, GLOBAL, at). R1 deletes it.
    */
   public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, roles: string[]) {
     const r = _check_arg(_trim(), _non_empty())(roles, 'roles');
-    return this.whereInSet('Role', r);
+    const holders = this.Driver.select()
+      .from(AUTHZ_ASSIGNMENT_TABLE)
+      .columns(['subject_id'])
+      .where({ subject_type: 'user', subject_role: '', scope_type: GLOBAL.type, scope_id: '' })
+      .whereIn('role', r)
+      .where(function () {
+        this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
+      });
+
+    return this.whereIn('Uuid', holders);
   }
 
   /**
@@ -227,6 +238,24 @@ export function isReservedMetadataKey(key: string): boolean {
 }
 
 /**
+ * `users.Password` of an account that has no password yet (an invited one). The column is NOT NULL and the
+ * ORM refuses an empty string there; no hash starts with '!', like authn-local's '!expired' marker.
+ */
+export const NO_PASSWORD = '!none';
+
+/** Login of the system account the deprecated `RbacSystemUserFactory` returns. */
+export const SYSTEM_LOGIN = '__system__';
+
+/**
+ * Logins of the form `__name__` belong to accounts the framework seeds, so `create()` refuses them: a user who
+ * registered `__system__` would otherwise be the system account. NFKC folds the full-width underscore a database
+ * collation may treat as `_`.
+ */
+export function isReservedLogin(login: string): boolean {
+  return /^__.*__$/s.test(String(login).normalize('NFKC'));
+}
+
+/**
  * Base model for users used by auth and ACL system
  *
  * To add / extend fields simply extend this model and register as default user model in ACL service
@@ -234,7 +263,10 @@ export function isReservedMetadataKey(key: string): boolean {
 @Connection('default')
 @Model('users')
 export class UserBase extends ModelBase<UserBase> {
-  protected _ac: AccessControl;
+  /** @deprecated 3.0: authz(); RbacService for introspection. R1 deletes it. */
+  protected get _ac(): AccessControl {
+    return DI.get<AccessControl>('AccessControl')!;
+  }
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
 
@@ -242,9 +274,6 @@ export class UserBase extends ModelBase<UserBase> {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
-    this.Role = _check_arg(_default([_cfg('rbac.defaultRole')()]))(this.Role, 'role');
-
-    this._ac = DI.get('AccessControl')!;
   }
 
   /**
@@ -271,10 +300,13 @@ export class UserBase extends ModelBase<UserBase> {
   public Login!: string;
 
   /**
-   * User role
+   * Type only: authz-rbac's migrations copy the `users.Role` column into `authz_assignment` and
+   * drop it. Nothing in users sets it; only the deprecated 2.x checks (`can*`, `effectiveRoles`)
+   * still read a value a 2.x caller put on an instance in memory.
+   *
+   * @deprecated 3.0: RbacService.rolesOf(principal) or AssignmentStore.forSubjects([user:<Uuid>]). R1 deletes it.
    */
-  @Set()
-  public Role!: string[];
+  public declare Role: string[];
 
   /**
    * User creation date
@@ -287,6 +319,14 @@ export class UserBase extends ModelBase<UserBase> {
    */
   @DT()
   public RegisteredAt!: DateTime<true>;
+
+  /**
+   * When the current password was set, from authn's events (`UserAccountSink`); null: none recorded. Hidden like
+   * `Password`: credential state, not profile data.
+   */
+  @DT()
+  @Hidden()
+  public PasswordSetAt!: DateTime;
 
   /**
    * User deletion date
@@ -314,8 +354,13 @@ export class UserBase extends ModelBase<UserBase> {
   })
   public Metadata!: MetadataRelation<UserMetadataBase, User>;
 
+  /**
+   * Only a user that was never stored, such as the guest factory's, is a guest.
+   *
+   * @deprecated 3.0: the anonymous principal of `@spinajs/authn`. R1 deletes it.
+   */
   public get IsGuest(): boolean {
-    return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;
+    return !this.Id;
   }
 
   public get IsBanned(): boolean {
@@ -343,16 +388,16 @@ export class UserBase extends ModelBase<UserBase> {
   public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
     const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>;
 
-    /**
-     * Hide meta keys we dont want to show publicly
-     */
+    // Every reserved prefix, fail safe, plus what an application adds to _hiddenKeys. This hides 2fa:enabled too:
+    // MFA status comes from authn's MFA routes.
     if (base.Metadata) {
-      base.Metadata = base.Metadata.filter((m) => !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
+      base.Metadata = base.Metadata.filter((m) => !isReservedMetadataKey(m.Key) && !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
     }
 
     return base as any;
   }
 
+  /** @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it. */
   public can(resource: string, permission: string): Permission {
     resource = _check_arg(_trim(), _non_empty())(resource, 'resource');
     permission = _check_arg(_trim(), _non_empty())(permission, 'permission');
@@ -364,6 +409,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shorthand for check if user can read any of specified resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canReadAny(resource: string) {
     return this.can(resource, 'readAny');
@@ -374,6 +421,8 @@ export class UserBase extends ModelBase<UserBase> {
    *
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canReadOwn(resource: string) {
     return this.can(resource, 'readOwn');
@@ -384,6 +433,8 @@ export class UserBase extends ModelBase<UserBase> {
    *
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canUpdateAny(resource: string) {
     return this.can(resource, 'updateAny');
@@ -393,6 +444,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can update own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canUpdateOwn(resource: string) {
     return this.can(resource, 'updateOwn');
@@ -402,6 +455,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can delete any resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canDeleteAny(resource: string) {
     return this.can(resource, 'deleteAny');
@@ -411,6 +466,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shourtcut for check if user can delete own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canDeleteOwn(resource: string) {
     return this.can(resource, 'deleteOwn');
@@ -420,6 +477,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can create any resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canCreateAny(resource: string) {
     return this.can(resource, 'createAny');
@@ -429,6 +488,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shourtcut for check if user can create own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canCreateOwn(resource: string) {
     return this.can(resource, 'createOwn');

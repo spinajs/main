@@ -1,4 +1,5 @@
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Injectable } from '@spinajs/di';
 import type { ISession, ISessionCookieConfig } from '@spinajs/users';
 import { clearSessionCookie, sessionCookie, sessionCookieName } from '@spinajs/users';

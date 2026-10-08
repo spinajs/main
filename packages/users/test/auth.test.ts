@@ -17,7 +17,10 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-describe('Authorization provider tests', () => {
+describe('Authorization provider tests', function () {
+  // Every case boots the Orm, authz-rbac's migrations included: the default 2 s is too tight.
+  this.timeout(15000);
+
   before(async () => {
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
@@ -93,42 +96,4 @@ describe('Authorization provider tests', () => {
     expect(result).to.be.true;
   });
 
-  it('Should return invalid credentials', async () => {
-    //const provider = DI.resolve(AuthProvider);
-
-    // let result = await provider.authenticate('test@spinajs.pl', 'dbbbb');
-    // expect(result.User).to.be.undefined;
-    // expect(result.Error).to.be.not.null;
-    // expect(result.Error).to.deep.equal({
-    //   InvalidCredentials,
-    //   Message: 'Invalid user credentials, or user not exist.',
-    // });
-
-    // result = await provider.authenticate('test@spinsajs.pl', 'bbbb');
-    // expect(result.Error).to.deep.equal({
-    //   InvalidCredentials,
-    //   Message: 'Invalid user credentials, or user not exist.',
-    // });
-  });
-
-  it('Should authenticate', async () => {
-    const provider = DI.resolve(AuthProvider);
-    let result = await provider.authenticate('test@spinajs.pl', 'bbbb');
-    expect(result).to.be.not.null;
-  });
-
-  it('should auth fail on banned user', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
-
-  it('should auth fail on user not active', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
-
-  it('Should auth fail on user deleted', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-deleted@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
 });

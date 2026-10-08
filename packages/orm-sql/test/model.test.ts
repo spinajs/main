@@ -267,7 +267,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id AND ( `$UserMetadata$`.`Key` = ? ) WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `$users$`.`Id` )');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id AND ( `$UserMetadata$`.`Key` = ? ) WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.`user_id` = `$users$`.`Id` )');
     expect(result.bindings![0]).to.eq('user:niceName');
     expect(result.bindings![1]).to.eq('user:niceName');
     expect(result.bindings![2]).to.eq('testValue');
@@ -282,7 +282,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `users`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.`user_id` = `users`.`Id` )');
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
 
@@ -297,7 +297,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `users`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.`user_id` = `users`.`Id` )');
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
 
@@ -311,7 +311,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `u`.`Id` )');
+    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.`user_id` = `u`.`Id` )');
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
   });
@@ -324,7 +324,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `u`.`Id` )');
+    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.`user_id` = `u`.`Id` )');
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
   });
@@ -336,7 +336,7 @@ describe('model generated queries', () => {
     // junction row linking the source row to any target already satisfies the check
     const q = RelationModel3.select().whereExist('Models').toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE owner_id = `RelationTable3`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE `JoinTable_exists`.`owner_id` = `RelationTable3`.`Id` )');
   });
 
   it('whereExists on ManyToMany relation should join the target so the callback resolves', async () => {
@@ -347,7 +347,7 @@ describe('model generated queries', () => {
       this.where('Id', 1);
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE `JoinTable_exists`.`owner_id` = `RelationTable3`.`Id` )');
     expect(q.bindings![0]).to.eq(1);
   });
 
@@ -356,7 +356,7 @@ describe('model generated queries', () => {
 
     const q = RelationModel3.select().whereNotExists('Models').toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE NOT EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE owner_id = `RelationTable3`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE NOT EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE `JoinTable_exists`.`owner_id` = `RelationTable3`.`Id` )');
   });
 
   /**
@@ -462,7 +462,7 @@ describe('model generated queries', () => {
       const q = RelationModel.select();
       ownedByGroupMember.call(q);
 
-      expect((q.toDB() as ICompilerOutput).expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+      expect((q.toDB() as ICompilerOutput).expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE `JoinTable_exists`.`owner_id` = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
     });
 
     it('compiles the same chain on a DELETE builder', async () => {
@@ -473,7 +473,7 @@ describe('model generated queries', () => {
       ownedByGroupMember.call(q);
       await q;
 
-      expect(spy.returnValues[0].expression).to.equal('DELETE FROM `RelationTable` WHERE `Id` IN (?,?) AND `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+      expect(spy.returnValues[0].expression).to.equal('DELETE FROM `RelationTable` WHERE `Id` IN (?,?) AND `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE `JoinTable_exists`.`owner_id` = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
     });
 
     it('compiles the same chain on an UPDATE builder', async () => {
@@ -484,7 +484,7 @@ describe('model generated queries', () => {
       ownedByGroupMember.call(q);
       await q;
 
-      expect(spy.returnValues[0].expression).to.equal('UPDATE `RelationTable` SET `fK_Id` = ? WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+      expect(spy.returnValues[0].expression).to.equal('UPDATE `RelationTable` SET `fK_Id` = ? WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE `JoinTable_exists`.`owner_id` = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
     });
   });
 

@@ -52,13 +52,13 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(FsAbac).as(Model);
 
-    const models = child.resolveChain(Model) as Model[];
+    const models = child.resolve(Array.chainOf(Model)) as Model[];
 
     expect(models).to.have.length(3);
     expect(models[0]).to.be.instanceOf(Rbac);
     expect(models[1]).to.be.instanceOf(Abac);
     expect(models[2]).to.be.instanceOf(FsAbac);
-    expect(child.getRegisteredTypesChain(Model)).to.deep.equal([Rbac, Abac, FsAbac]);
+    expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac, FsAbac]);
   });
 
   it('root never sees child registrations', () => {
@@ -66,7 +66,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(FsAbac).as(Model);
 
-    const models = DI.resolveChain(Model) as Model[];
+    const models = DI.resolve(Array.chainOf(Model)) as Model[];
 
     expect(models).to.have.length(2);
     expect(models[0]).to.be.instanceOf(Rbac);
@@ -97,7 +97,7 @@ describe('child-chain (B29 DI part)', () => {
     expect(chain.map((e) => e.type)).to.deep.equal([Rbac, ChildAbac, FsAbac]);
     expect(chain[1].container).to.equal(child);
 
-    const models = child.resolveChain(Model) as Model[];
+    const models = child.resolve(Array.chainOf(Model)) as Model[];
     expect(models).to.have.length(3);
     expect(models[1]).to.be.instanceOf(ChildAbac);
     expect(models.some((m) => m.constructor === Abac)).to.equal(false);
@@ -108,7 +108,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(FsAbac).as(Model);
 
-    const models = child.resolveChain(Model) as Model[];
+    const models = child.resolve(Array.chainOf(Model)) as Model[];
 
     expect(DI.get(Rbac)).to.equal(models[0]);
     expect(DI.resolve(Rbac)).to.equal(models[0]);
@@ -119,7 +119,7 @@ describe('child-chain (B29 DI part)', () => {
     expect(child.Cache.has(FsAbac)).to.equal(true);
     expect(DI.has(FsAbac)).to.equal(false);
 
-    const again = child.resolveChain(Model) as Model[];
+    const again = child.resolve(Array.chainOf(Model)) as Model[];
     models.forEach((m, i) => expect(again[i]).to.equal(m));
   });
 
@@ -128,7 +128,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(FsAbac).as(Model);
 
-    child.resolveChain(Model);
+    child.resolve(Array.chainOf(Model));
 
     expect(DI.RootContainer.Cache.has(Array.ofType(Model))).to.equal(false);
     expect(child.Cache.has(Array.ofType(Model))).to.equal(false);
@@ -153,18 +153,18 @@ describe('child-chain (B29 DI part)', () => {
     expect(chain.map((e) => e.type)).to.deep.equal([Rbac, GrandchildAbac, FsAbac]);
     expect(chain[1].container).to.equal(grandchild);
     expect(chain[2].container).to.equal(child);
-    expect(child.getRegisteredTypesChain(Model)).to.deep.equal([Rbac, Abac, FsAbac]);
+    expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac, FsAbac]);
   });
 
-  it('merges string and Array.ofType keys like class keys', () => {
+  it('merges string keys like class keys', () => {
     DI.register(Rbac).as('chain-model');
     DI.register(Rbac).as(Model);
     const child = DI.child();
     child.register(Abac).as('chain-model');
     child.register(Abac).as(Model);
 
-    expect(child.getRegisteredTypesChain('chain-model')).to.deep.equal([Rbac, Abac]);
-    expect(child.getRegisteredTypesChain(Array.ofType(Model))).to.deep.equal([Rbac, Abac]);
+    expect(child.getRegisteredTypes(Array.chainOf('chain-model'))).to.deep.equal([Rbac, Abac]);
+    expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac]);
   });
 
   it('a level whose own list is empty contributes nothing and hides nothing', () => {
@@ -176,8 +176,8 @@ describe('child-chain (B29 DI part)', () => {
     expect(child.getRegisteredTypes(Model, false)).to.deep.equal([]);
     expect(child.resolve(Array.ofType(Model))).to.deep.equal([]);
 
-    expect(child.getRegisteredTypesChain(Model)).to.deep.equal([Rbac, Abac]);
-    const models = child.resolveChain(Model) as Model[];
+    expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac]);
+    const models = child.resolve(Array.chainOf(Model)) as Model[];
     expect(models.map((m) => m.constructor)).to.deep.equal([Rbac, Abac]);
   });
 
@@ -186,8 +186,8 @@ describe('child-chain (B29 DI part)', () => {
     DI.register(RbacV2).as(Rbac);
     const child = DI.child();
 
-    const first = child.resolveChain(Model) as Model[];
-    const second = child.resolveChain(Model) as Model[];
+    const first = child.resolve(Array.chainOf(Model)) as Model[];
+    const second = child.resolve(Array.chainOf(Model)) as Model[];
 
     expect(first).to.have.length(1);
     expect(first[0]).to.be.instanceOf(RbacV2);
@@ -202,9 +202,9 @@ describe('child-chain (B29 DI part)', () => {
     const child1 = DI.child();
     const child2 = DI.child();
 
-    const inRoot = (DI.resolveChain(Model) as Model[])[0];
-    const inChild1 = (child1.resolveChain(Model) as Model[])[0];
-    const inChild2 = (child2.resolveChain(Model) as Model[])[0];
+    const inRoot = (DI.resolve(Array.chainOf(Model)) as Model[])[0];
+    const inChild1 = (child1.resolve(Array.chainOf(Model)) as Model[])[0];
+    const inChild2 = (child2.resolve(Array.chainOf(Model)) as Model[])[0];
 
     expect(inRoot).to.be.instanceOf(PerChildModel);
     expect(inChild1).to.be.instanceOf(PerChildModel);
@@ -212,7 +212,7 @@ describe('child-chain (B29 DI part)', () => {
     expect(inChild1).to.not.equal(inRoot);
     expect(inChild2).to.not.equal(inRoot);
     expect(inChild1).to.not.equal(inChild2);
-    expect((child1.resolveChain(Model) as Model[])[0]).to.equal(inChild1);
+    expect((child1.resolve(Array.chainOf(Model)) as Model[])[0]).to.equal(inChild1);
     expect(child1.hasRegistered(PerChildModel, false)).to.equal(false);
     expect(child1.getRegisteredTypes(Model, false)).to.equal(null);
   });
@@ -224,10 +224,10 @@ describe('child-chain (B29 DI part)', () => {
     const grandchild = child.child();
     grandchild.register(FsAbac).as(Model);
 
-    expect(grandchild.getRegisteredTypesChain(Model)).to.deep.equal([Rbac, Abac, FsAbac]);
-    expect(child.getRegisteredTypesChain(Model)).to.deep.equal([Rbac, Abac]);
+    expect(grandchild.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac, FsAbac]);
+    expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac]);
 
-    const models = grandchild.resolveChain(Model) as Model[];
+    const models = grandchild.resolve(Array.chainOf(Model)) as Model[];
     expect(models.map((m) => m.constructor)).to.deep.equal([Rbac, Abac, FsAbac]);
     expect(child.Cache.has(Abac)).to.equal(true);
     expect(grandchild.Cache.has(Abac)).to.equal(false);
@@ -239,7 +239,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(AsyncAbac).as(Model);
 
-    const result = child.resolveChain(Model);
+    const result = child.resolve(Array.chainOf(Model));
     expect(result).to.be.instanceOf(Promise);
 
     const models = await result;
@@ -248,13 +248,13 @@ describe('child-chain (B29 DI part)', () => {
     expect(models[1]).to.be.instanceOf(AsyncAbac);
     expect((models[1] as unknown as AsyncAbac).Resolved).to.equal(true);
 
-    const cached = child.resolveChain(Model);
+    const cached = child.resolve(Array.chainOf(Model));
     expect(cached).to.be.instanceOf(Promise);
     expect((await cached)[1]).to.equal(models[1]);
   });
 
   it('always returns a promise for an AsyncService base, even for an empty chain', async () => {
-    const result = DI.resolveChain(AsyncService);
+    const result = DI.resolve(Array.chainOf(AsyncService));
 
     expect(result).to.be.instanceOf(Promise);
     expect(await result).to.deep.equal([]);
@@ -264,7 +264,7 @@ describe('child-chain (B29 DI part)', () => {
     DI.register(Rbac).as(Model);
     DI.register(FailingAsync).as(Model);
 
-    const result = DI.resolveChain(Model);
+    const result = DI.resolve(Array.chainOf(Model));
 
     expect(result).to.be.instanceOf(Promise);
     let error: Error | undefined;
@@ -279,16 +279,16 @@ describe('child-chain (B29 DI part)', () => {
   it('returns a plain array when no element is async', () => {
     rootWithRbacAbac();
 
-    expect(DI.resolveChain(Model)).to.be.an('array');
+    expect(DI.resolve(Array.chainOf(Model))).to.be.an('array');
   });
 
   it('returns an empty array for an empty chain', () => {
     const child = DI.child();
 
-    expect(child.getRegisteredTypesChain(NothingRegistered)).to.deep.equal([]);
+    expect(child.getRegisteredTypes(Array.chainOf(NothingRegistered))).to.deep.equal([]);
     expect(child.Registry.getTypesChain(NothingRegistered)).to.deep.equal([]);
-    expect(child.resolveChain(NothingRegistered)).to.deep.equal([]);
-    expect(DI.resolveChain(NothingRegistered)).to.deep.equal([]);
+    expect(child.resolve(Array.chainOf(NothingRegistered))).to.deep.equal([]);
+    expect(DI.resolve(Array.chainOf(NothingRegistered))).to.deep.equal([]);
   });
 
   it('keeps factories from every level, each called with its owner', () => {
@@ -303,7 +303,7 @@ describe('child-chain (B29 DI part)', () => {
       return { from: 'child' };
     }).as(Model);
 
-    const models = child.resolveChain(Model) as unknown as Array<{ from: string }>;
+    const models = child.resolve(Array.chainOf(Model)) as unknown as Array<{ from: string }>;
 
     expect(models.map((m) => m.from)).to.deep.equal(['root', 'child']);
     expect(seen).to.have.length(2);
@@ -316,7 +316,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(FsAbac).as(Model);
 
-    child.resolveChain(Model);
+    child.resolve(Array.chainOf(Model));
 
     expect(child.hasRegistered(Rbac, false)).to.equal(false);
     expect(child.hasRegistered(Abac, false)).to.equal(false);
@@ -333,13 +333,13 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(ChildAbac).as(Model);
 
-    const chained = child.resolveChain(Model) as Model[];
+    const chained = child.resolve(Array.chainOf(Model)) as Model[];
     const listed = child.resolve(Array.ofType(Model));
 
     expect(chained.map((m) => m.constructor)).to.deep.equal([ChildAbac]);
     expect(listed[0]).to.equal(chained[0]);
     expect(child.get(ChildAbac, false)).to.equal(chained[0]);
-    expect((DI.resolveChain(Model) as Model[])[0].constructor).to.equal(Abac);
+    expect((DI.resolve(Array.chainOf(Model)) as Model[])[0].constructor).to.equal(Abac);
   });
 
   it('a child replaces by name a root class that root has already resolved', () => {
@@ -349,7 +349,7 @@ describe('child-chain (B29 DI part)', () => {
     const child = DI.child();
     child.register(ChildAbac).as(Model);
 
-    const chained = child.resolveChain(Model) as Model[];
+    const chained = child.resolve(Array.chainOf(Model)) as Model[];
 
     expect(chained.map((m) => m.constructor)).to.deep.equal([ChildAbac]);
     expect(chained[0]).to.not.equal(fromRoot);
@@ -396,7 +396,7 @@ describe('child-chain (B29 DI part)', () => {
       public models: DomainModel[];
 
       public resolve() {
-        this.models = this.container.resolveChain(DomainModel) as DomainModel[];
+        this.models = this.container.resolve(Array.chainOf(DomainModel)) as DomainModel[];
         super.resolve();
       }
 
@@ -434,8 +434,8 @@ describe('child-chain (B29 DI part)', () => {
     expect((DI.RootContainer as Container).getCacheStats().childrenCount).to.equal(rootChildren);
     expect([...(DI.RootContainer.Registry as unknown as { registry: Map<string, unknown[]> }).registry.entries()].map(([k, v]) => [k, [...v]])).to.deep.equal(rootRegistry);
     expect(DI.resolve(AuthzService)).to.equal(rootService);
-    expect(DI.resolveChain(DomainModel)).to.deep.equal(rootService.models);
-    (DI.resolveChain(DomainModel) as DomainModel[]).forEach((m, i) => expect(m).to.equal(rootService.models[i]));
+    expect(DI.resolve(Array.chainOf(DomainModel))).to.deep.equal(rootService.models);
+    (DI.resolve(Array.chainOf(DomainModel)) as DomainModel[]).forEach((m, i) => expect(m).to.equal(rootService.models[i]));
     expect((rootService.models[0] as RbacModel).config).to.equal((rootService.models[1] as AbacModel).config);
   });
 });

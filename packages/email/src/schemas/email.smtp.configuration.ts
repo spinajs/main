@@ -1,3 +1,22 @@
+import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+
+const PASSWORD_MAIL_PURPOSE = {
+  type: 'object',
+  properties: {
+    subject: { type: 'string' },
+    template: {
+      anyOf: [
+        { type: 'string' },
+        {
+          type: 'object',
+          properties: { file: { type: 'string' }, fs: { type: 'string' } },
+          required: ['file', 'fs'],
+        },
+      ],
+    },
+  },
+};
+
 const CONFIGURATION_SCHEMA = {
   $id: 'spinajs/email.configuration.schema.json',
   $configurationModule: 'email',
@@ -10,6 +29,23 @@ const CONFIGURATION_SCHEMA = {
       type: 'object',
       properties: {
         count: { type: 'number' },
+      },
+    },
+    attachments: {
+      type: 'object',
+      properties: {
+        check: { type: 'boolean' },
+      },
+    },
+    defaultConnection: { type: 'string' },
+    password: {
+      type: 'object',
+      properties: {
+        connection: { type: 'string' },
+        from: { type: 'string' },
+        lang: { type: 'string' },
+        reset: PASSWORD_MAIL_PURPOSE,
+        invite: PASSWORD_MAIL_PURPOSE,
       },
     },
     connections: {
@@ -52,5 +88,7 @@ const CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(CONFIGURATION_SCHEMA);
 
 export default CONFIGURATION_SCHEMA;

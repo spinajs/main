@@ -13,6 +13,8 @@
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../http/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
-    { "path": "../reflection/tsconfig.json" }
+    { "path": "../reflection/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../authz-http/tsconfig.json" }
   ]
 }

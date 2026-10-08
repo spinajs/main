@@ -1,13 +1,12 @@
 import { DI, NewInstance } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, readDomainConfig, DefaultAuthzDomains } from '@spinajs/authz';
+import { Config } from '@spinajs/configuration';
+import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
-import { domainService } from '../domains.js';
-import { httpConfig } from '../http-config.js';
+import { domainConfig, domainService } from '../domains.js';
 import { routeAccess, routeDomain } from './descriptor.js';
 import { isUnloadedModel } from './extractors.js';
 import type { IAccessRule } from './descriptor.js';
@@ -48,6 +47,15 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
  */
 @NewInstance()
 export class AccessPolicy extends BasePolicy {
+  @Config('authz.http.explainRoute.permission')
+  protected ExplainPermission: Permission;
+
+  @Config('authz')
+  protected Authz: unknown;
+
+  @Config('configuration.isProduction')
+  protected IsProduction: boolean | undefined;
+
   constructor(public readonly scope: AccessScope) {
     super();
   }
@@ -123,7 +131,7 @@ export class AccessPolicy extends BasePolicy {
    */
   protected async refOf(domain: string, instance: object): Promise<ResourceRef> {
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-    const adapters = [...(await domains.container(domain).resolveChain(ResourceAdapter))] as ResourceAdapter[];
+    const adapters = [...(await domains.container(domain).resolve(Array.chainOf(ResourceAdapter)))] as ResourceAdapter[];
     const adapter = adapters.find((a) => a.accepts(instance));
     if (!adapter) throw new AuthzConfigError(`no ResourceAdapter of domain ${domain} accepts ${instance.constructor.name}`);
     return adapter.refOf(instance);
@@ -133,7 +141,7 @@ export class AccessPolicy extends BasePolicy {
   protected async load(domain: string, ref: ResourceRef): Promise<unknown> {
     if (!isRef(ref) || ref.id === undefined) return null;
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-    const adapters = [...(await domains.container(domain).resolveChain(ResourceAdapter))] as ResourceAdapter[];
+    const adapters = [...(await domains.container(domain).resolve(Array.chainOf(ResourceAdapter)))] as ResourceAdapter[];
     const adapter = adapters.find((a) => typeof a.load === 'function' && a.types.includes(ref.type));
     return adapter ? ((await adapter.load!(ref)) ?? null) : null;
   }
@@ -143,16 +151,18 @@ export class AccessPolicy extends BasePolicy {
    * the caller holds the explain permission (`authz.http.explainRoute.permission`, B23, B41).
    */
   protected async trace(authz: AuthzService, domain: string, principal: Principal, denied: Decision): Promise<unknown> {
-    if (isProduction()) return undefined;
+    if (isProduction(this.IsProduction)) return undefined;
 
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
     if (!(domains instanceof DefaultAuthzDomains)) return undefined;
-    const configuration = DI.get(Configuration);
-    if (!readDomainConfig((path) => configuration?.get(path), domains.lineage(domain)).engine.explain) return undefined;
+    if (domainConfig(this.Authz, domains, domain).engine.explain !== true) return undefined;
 
-    const permission: Permission = httpConfig().explainRoute.permission;
+    const permission = this.ExplainPermission;
     // Only an unconditional grant: a residual on the explain permission would not be enforced here.
-    const held = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }).catch(() => undefined);
+    // A permission that never went through the schema (unset, malformed) must stay a denial, not a 500.
+    const held = await Promise.resolve()
+      .then(() => authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }))
+      .catch(() => undefined);
     if (!held?.allowed || held.residual.op !== 'true') return undefined;
 
     return (await authz.explain({ principal, permission: denied.permission, resource: denied.resource })).trace;

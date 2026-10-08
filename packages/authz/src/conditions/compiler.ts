@@ -55,7 +55,7 @@ const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 export class DefaultConditionCompiler extends ConditionCompiler {
   /** Built from what a domain sees along its container lineage, the way the host reads its models and adapters. */
   static fromContainer(container: IContainer): DefaultConditionCompiler | Promise<DefaultConditionCompiler> {
-    const lists = [container.resolveChain(ConditionFunction), container.resolveChain(ScopeResolver), container.resolveChain(ResourceAdapter)] as const;
+    const lists = [container.resolve(Array.chainOf(ConditionFunction)), container.resolve(Array.chainOf(ScopeResolver)), container.resolve(Array.chainOf(ResourceAdapter))] as const;
     if (lists.some((l) => l instanceof Promise)) return Promise.all(lists).then(([f, r, a]) => new DefaultConditionCompiler(f, r, a));
     return new DefaultConditionCompiler(...(lists as unknown as [ConditionFunction[], ScopeResolver[], ResourceAdapter[]]));
   }

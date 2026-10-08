@@ -4,6 +4,7 @@ import { Forbidden } from '@spinajs/exceptions';
 import type { IRbacModelDescriptor } from './interfaces.js';
 import type { User } from './models/User.js';
 
+/** @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it. */
 export const DEFAULT_PERMISSION_SCOPE = 'default';
 
 /**
@@ -18,8 +19,11 @@ export const DEFAULT_PERMISSION_SCOPE = 'default';
  * through to the DEFAULT policy instead of the named one. This is a known limitation, not
  * handled by this module — never mix `['*']` and `scope:` attributes for the SAME resource
  * across an `$extend` chain.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export const PERMISSION_SCOPE_ATTR_PREFIX = 'scope:';
+/** @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it. */
 export const ORM_PERMISSION_POLICY_MAP = '__orm_permission_policy__';
 
 /**
@@ -27,6 +31,8 @@ export const ORM_PERMISSION_POLICY_MAP = '__orm_permission_policy__';
  * keyed on the shared resource STRING (minification-safe), which two unrelated models can
  * legally share for grant purposes — the model recorded here is what lets `policiesFor()`
  * in middleware.ts pick the right policy for `builder.Model` instead of an arbitrary one.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export const ORM_PERMISSION_MODEL = Symbol.for('orm-permission-model');
 
@@ -34,11 +40,14 @@ export const ORM_PERMISSION_MODEL = Symbol.for('orm-permission-model');
  * Keyed on the DECLARED `@OrmResource` string, never on `constructor.name` — grants are
  * keyed on the same string, so a model's resource name is the single permission identity
  * everywhere, and models sharing a resource (a view over the base table) share policies.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export function policyMapKey(resource: string, scope: string): string {
   return `${resource}:${scope}`;
 }
 
+/** @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it. */
 export abstract class OrmPermissionPolicy<M extends ModelBase<unknown> = ModelBase<unknown>> {
   /**
    * Default throws so an accidentally inert policy fails loud instead of running an
@@ -72,6 +81,7 @@ export abstract class OrmPermissionPolicy<M extends ModelBase<unknown> = ModelBa
   }
 }
 
+/** @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it. */
 export type OrmPermissionPolicyClass = Class<OrmPermissionPolicy>;
 
 /** The model `@OrmPermission` bound `policy` to, or `undefined` for a policy built by hand
@@ -81,6 +91,8 @@ export type OrmPermissionPolicyClass = Class<OrmPermissionPolicy>;
  * object itself, and ES class inheritance chains constructors ( `Sub.__proto__ === Base` ), so
  * a plain property read here would let an undecorated `class Sub extends Base {}` silently
  * inherit `Base`'s bound model instead of having none.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export function ormPermissionModel(policy: OrmPermissionPolicyClass): Class<ModelBase<unknown>> | undefined {
   const target = policy as unknown as Record<symbol, Class<ModelBase<unknown>> | undefined>;
@@ -91,6 +103,8 @@ export function ormPermissionModel(policy: OrmPermissionPolicyClass): Class<Mode
  * The single accessor for the policy map — used by both the registration side
  * (`OrmPermission`) and the resolution side (`RbacModelPermissionMiddleware.policiesFor`) so
  * the two can never read/write through differing DI cache accessors and drift apart.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export function getOrCreatePolicyMap(): Map<string, OrmPermissionPolicyClass[]> {
   if (DI.RootContainer.Cache.has(ORM_PERMISSION_POLICY_MAP)) {
@@ -107,6 +121,8 @@ export function getOrCreatePolicyMap(): Map<string, OrmPermissionPolicyClass[]> 
  * LIST: two unrelated models are allowed to share one resource+scope key (the
  * CampaignFileAttachment / ArrowV1CampaignView shape) — only the same (model, scope) pair
  * registered twice is a duplicate/config bug.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
  */
 export function OrmPermission<M extends ModelBase<unknown>>(model: Class<M>, scope: string = DEFAULT_PERMISSION_SCOPE) {
   return (target: Class<OrmPermissionPolicy<M>>): void => {
@@ -132,7 +148,11 @@ export function OrmPermission<M extends ModelBase<unknown>>(model: Class<M>, sco
   };
 }
 
-/** Test helper — wipes all registrations from the DI cache. */
+/**
+ * Test helper — wipes all registrations from the DI cache.
+ *
+ * @deprecated 3.0: @OrmScope(M, 'x') class P extends OrmScopePolicy with (query, principal, op), @spinajs/authz-orm. R1 deletes it.
+ */
 export function clearOrmPermissionRegistry(): void {
   if (DI.RootContainer.Cache.has(ORM_PERMISSION_POLICY_MAP)) {
     DI.RootContainer.Cache.remove(ORM_PERMISSION_POLICY_MAP);

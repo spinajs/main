@@ -1,8 +1,8 @@
 import type { IContainer } from '@spinajs/di';
 import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, resourceKey } from '@spinajs/authz';
-import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
+import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, PermissionRegistryImpl, TRUE, resourceKey } from '@spinajs/authz';
+import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
 
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
 import type { Assignment, LadderDef, MemoryLinkStoreOptions, RoleDef } from '../../src/index.js';
@@ -20,7 +20,9 @@ export const F1: ResourceRef = { type: 'file', id: 'f1' };
 export const GR: ResourceRef = { type: 'group', id: 'g1' };
 
 const TYPES = ['org', 'project', 'file', 'group'];
-const PERMISSIONS: Record<string, { types?: string[] }> = Object.fromEntries(['authz:assignments.manage', 'authz:links.manage', 'authz:rules.manage', 'authz:assignments.read', 'authz:links.read', 'authz:rules.read', 'authz:scope.forget', 'file:read', 'file:edit', 'project:settings'].map((n) => [n, { types: TYPES }]));
+type PermissionConfig = Record<string, { types?: string[]; implies?: string[] }>;
+
+const PERMISSIONS: PermissionConfig = Object.fromEntries(['authz:assignments.manage', 'authz:links.manage', 'authz:rules.manage', 'authz:assignments.read', 'authz:links.read', 'authz:rules.read', 'authz:scope.forget', 'file:read', 'file:edit', 'project:settings'].map((n) => [n, { types: TYPES }]));
 
 const role = (name: string, extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], grants: [], assignable: true, source: 'test', ...extra });
 
@@ -100,7 +102,7 @@ export interface RbacDomainOptions {
   /** Replaces grantsModel(). */
   readonly model?: AuthorizationModel;
   /** Declared besides the default permissions. */
-  readonly permissions?: Record<string, { types?: string[] }>;
+  readonly permissions?: PermissionConfig;
   /** Leave these stores out. */
   readonly without?: readonly ('assignments' | 'links' | 'rules' | 'roles')[];
   register?(c: IContainer): void;
@@ -108,7 +110,7 @@ export interface RbacDomainOptions {
 
 export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): Promise<RbacDomain> {
   config().set(['authz', 'domains', name], { permissions: { ...PERMISSIONS, ...opts.permissions }, cache: { maxEntries: 0 } });
-  config().set(['authz', 'admin'], opts.admin ?? { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' });
+  config().set(['authz', 'admin'], { connection: 'default', ...(opts.admin ?? { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' }) });
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);
@@ -142,6 +144,17 @@ export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): P
   opts.register?.(c);
   const service = await ds.service(name);
   return { container: c, service, admin: service.admin(), assignments, links, rules, bus, audit, sink, clock };
+}
+
+/** The permissions rbacDomain declares (plus `extra`) as a registry of their own: the host keeps the domain's registry to itself. */
+export function permissionRegistry(extra: PermissionConfig = {}): PermissionRegistry {
+  const registry = new PermissionRegistryImpl();
+  registry.register(
+    Object.entries({ ...PERMISSIONS, ...extra }).map(([name, def]) => ({ ...def, name })),
+    'test',
+  );
+  registry.freeze();
+  return registry;
 }
 
 export type Failed = Extract<AuthzCommandResult, { ok: false }>;

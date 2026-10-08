@@ -1,0 +1,677 @@
+import * as chai from 'chai';
+import 'mocha';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { AccessDenied, AuthzConfigError, SYSTEM } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import { userPrincipal } from '@spinajs/authz-testing';
+import type { IContainer } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { fs, fsNative, fsTemp } from '@spinajs/fs';
+import type { IFsLocalOptions, IFsTempOptions } from '@spinajs/fs';
+
+import { AuthzFsDecorator, guardFs, isGuardedFs, parseFsAccessConfig } from '../src/index.js';
+import type { FsGuardOptions } from '../src/index.js';
+import { configuredChild } from './helpers.js';
+import { FakeAuthz } from './support/fake-authz.js';
+import { installQuietLog } from './support/log.js';
+
+const expect = chai.expect;
+
+/** A provider the guard cannot place a default destination for (as S3 or FTP): records what its methods get. */
+function keyStore(name: string, seen: unknown[][]): fs {
+  const store = Object.create(fs.prototype) as fs & Record<string, unknown>;
+  Object.assign(store, {
+    Options: { name },
+    list: async (...args: unknown[]) => (seen.push(['list', ...args]), ['docs/a.txt']),
+    zip: async (...args: unknown[]) => void seen.push(['zip', ...args]),
+    unzip: async (...args: unknown[]) => (seen.push(['unzip', ...args]), 'out'),
+  });
+  Object.defineProperty(store, 'Name', { value: name });
+  return store;
+}
+
+const alice = userPrincipal('alice');
+
+describe('authz-fs guardFs', function () {
+  this.timeout(20000);
+
+  let dir: string;
+  let child: IContainer;
+  let principal: Principal;
+  let warnings: string[];
+  let undoLog: () => void;
+
+  const local = (name: string, files: Record<string, string> = {}): fsNative<IFsLocalOptions> => {
+    const basePath = join(dir, name);
+    mkdirSync(basePath, { recursive: true });
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(join(basePath, path, '..'), { recursive: true });
+      writeFileSync(join(basePath, path), content);
+    }
+    return new fsNative<IFsLocalOptions>({ name, basePath });
+  };
+
+  const guard = <T extends fs>(raw: T, name: string, entry: Record<string, unknown>, authz: FakeAuthz, extra: Partial<FsGuardOptions> = {}): T =>
+    guardFs(raw, name, {
+      config: parseFsAccessConfig(name, entry),
+      container: child,
+      service: async () => authz,
+      principal: () => principal,
+      log: { warn: (m: string) => warnings.push(m) },
+      ...extra,
+    });
+
+  before(() => {
+    undoLog = installQuietLog();
+  });
+
+  after(() => {
+    undoLog();
+  });
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'authz-fs-guard-'));
+    child = await configuredChild({ off: { mode: 'off' } });
+    principal = alice;
+    warnings = [];
+  });
+
+  afterEach(async () => {
+    await child.dispose();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  describe('the proxy', () => {
+    it('keeps instanceof, Name and Options.basePath', () => {
+      const raw = local('uploads');
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect(g).to.not.equal(raw);
+      expect(g instanceof fsNative).to.equal(true);
+      expect(g instanceof fs).to.equal(true);
+      expect(g.Name).to.equal('uploads');
+      expect(g.Options.basePath).to.equal(raw.Options.basePath);
+      expect(isGuardedFs(g)).to.equal(true);
+      expect(isGuardedFs(raw)).to.equal(false);
+    });
+
+    it("is not created for mode 'off'", () => {
+      const raw = local('scratch');
+      expect(guard(raw, 'scratch', { mode: 'off' }, new FakeAuthz())).to.equal(raw);
+    });
+
+    it('guards a frozen instance and its non-configurable own methods too', async () => {
+      const raw = local('uploads', { 'a.txt': 'A' });
+      Object.defineProperty(raw, 'read', { value: raw.read.bind(raw) });
+      Object.freeze(raw);
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz(() => false));
+
+      let error: unknown;
+      await g.read('a.txt').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect(Object.keys(g)).to.deep.equal(Object.keys(raw));
+      expect(Object.getPrototypeOf(g)).to.equal(Object.getPrototypeOf(raw));
+      expect(Object.getOwnPropertyDescriptor(g, 'read')?.value).to.equal(g.read);
+    });
+
+    it('refuses to define a non-configurable property without touching the raw instance', () => {
+      const raw = local('uploads');
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect(() => Object.defineProperty(g, 'extra', { value: 1, configurable: false })).to.throw(TypeError);
+      expect(Object.hasOwn(raw, 'extra')).to.equal(false);
+      Object.defineProperty(g, 'extra', { value: 2, configurable: true });
+      expect((raw as unknown as { extra: number }).extra).to.equal(2);
+    });
+
+    it('returns the same wrapper for a method on every access', () => {
+      const g = guard(local('uploads'), 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect(g.read).to.equal(g.read);
+    });
+  });
+
+  describe('enforce', () => {
+    it('checks the permission on the normalised ref before the raw call and passes the normalised path', async () => {
+      const raw = local('uploads', { 'docs/a.txt': 'A' });
+      const authz = new FakeAuthz();
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, authz);
+
+      expect(String(await g.read('./docs//a.txt', 'utf-8'))).to.equal('A');
+      expect(String(await g.read(join(raw.Options.basePath!, 'docs', 'a.txt'), 'utf-8'))).to.equal('A');
+      expect(String(await g.read('/docs/a.txt', 'utf-8'))).to.equal('A');
+      expect(authz.calls.map((c) => [c.kind, c.principal, c.permission, c.resource])).to.deep.equal([
+        ['assert', 'alice', 'fs:read', 'file:uploads:docs/a.txt'],
+        ['assert', 'alice', 'fs:read', 'file:uploads:docs/a.txt'],
+        ['assert', 'alice', 'fs:read', 'file:uploads:docs/a.txt'],
+      ]);
+    });
+
+    it('hands the raw method the path it checked', async () => {
+      const raw = local('uploads');
+      const seen: unknown[] = [];
+      Object.defineProperty(raw, 'exists', { value: async (p: unknown) => (seen.push(p), true) });
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz());
+
+      await g.exists('\\docs\\.\\a.txt');
+      await g.exists(join(raw.Options.basePath!, 'docs', 'b.txt'));
+      expect(seen).to.deep.equal(['docs/a.txt', 'docs/b.txt']);
+    });
+
+    it('throws AccessDenied and never reaches the raw method when a check fails', async () => {
+      const raw = local('uploads', { 'docs/a.txt': 'A' });
+      let reached = false;
+      Object.defineProperty(raw, 'rm', { value: async () => void (reached = true) });
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz((p) => p !== 'fs:delete'));
+
+      let error: unknown;
+      await g.rm('docs/a.txt').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect(reached).to.equal(false);
+    });
+
+    it('refuses a path above the root with InvalidArgument, before any check or raw call', async () => {
+      const raw = local('uploads');
+      let reached = false;
+      Object.defineProperty(raw, 'read', { value: async () => void (reached = true) });
+      const authz = new FakeAuthz();
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, authz);
+
+      for (const bad of ['../x', 'a/../../x', 'C:\\Windows\\win.ini', 'a.txt::$DATA', 'secret.']) {
+        let error: unknown;
+        await g.read(bad).catch((e: unknown) => (error = e));
+        expect(error, bad).to.be.instanceOf(InvalidArgument);
+      }
+      expect(reached).to.equal(false);
+      expect(authz.calls).to.deep.equal([]);
+    });
+
+    it('checks the filesystem root as the fs ref and directories as dir refs', async () => {
+      const authz = new FakeAuthz();
+      const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, authz);
+
+      expect(await g.list('/')).to.deep.equal(['docs']);
+      await g.mkdir('docs/sub');
+      await g.isDir('docs');
+      expect(authz.keys()).to.deep.equal(['fs:list fs:uploads', 'fs:write dir:uploads:docs/sub', 'fs:stat dir:uploads:docs']);
+    });
+
+    it('checks every permission of a method: move needs read and delete on the source, write on the target', async () => {
+      const authz = new FakeAuthz();
+      const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, authz);
+
+      await g.move('docs/a.txt', 'moved/a.txt');
+      expect(authz.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt', 'fs:delete file:uploads:docs/a.txt', 'fs:write file:uploads:moved/a.txt']);
+      expect(await g.exists('moved/a.txt')).to.equal(true);
+    });
+
+    it('upload checks destPath, or the basename of srcPath it then passes explicitly', async () => {
+      const authz = new FakeAuthz();
+      const raw = local('uploads');
+      const seen: unknown[][] = [];
+      const upload = raw.upload.bind(raw);
+      Object.defineProperty(raw, 'upload', { value: async (...args: [string, string?]) => (seen.push(args), upload(...args)) });
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, authz);
+      const src = join(dir, 'outside', 'local.txt');
+      mkdirSync(join(dir, 'outside'));
+      writeFileSync(src, 'L');
+
+      await g.upload(src, 'in/up.txt');
+      await g.upload(src);
+      expect(authz.keys()).to.deep.equal(['fs:write file:uploads:in/up.txt', 'fs:write file:uploads:local.txt']);
+      expect(seen).to.deep.equal([
+        [src, 'in/up.txt'],
+        [src, 'local.txt'],
+      ]);
+      expect(String(await raw.read('local.txt', 'utf-8'))).to.equal('L');
+    });
+
+    it('checks zip sources, also [path, entry] pairs, and keeps the entry names', async () => {
+      const authz = new FakeAuthz();
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/b.txt': 'B' }), 'uploads', { mode: 'enforce' }, authz);
+
+      const result = await g.zip(['docs/a.txt', ['./docs/b.txt', 'renamed.txt']], g, 'out.zip');
+      expect(result.asFilePath()).to.match(/out\.zip$/);
+      expect(authz.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt', 'fs:read file:uploads:docs/b.txt', 'fs:write file:uploads:out.zip']);
+    });
+
+    it('names the archive itself when zip gets a dstFs without dstFile, and checks that name', async () => {
+      const authz = new FakeAuthz();
+      const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, authz);
+
+      const result = await g.zip(['docs/a.txt'], g);
+      const written = authz.calls[1].resource;
+      expect(written).to.match(/^file:uploads:[0-9a-f-]+\.zip$/);
+      expect(result.asFilePath().endsWith(written.slice('file:uploads:'.length))).to.equal(true);
+    });
+
+    it('a provider it cannot place: refuses a zip or unzip that names a destination without dstFs, unless SYSTEM', async () => {
+      const seen: unknown[][] = [];
+      const g = guard(keyStore('bucket', seen), 'bucket', { mode: 'enforce' }, new FakeAuthz());
+
+      let error: unknown;
+      await g.zip(['docs/a.txt'], undefined, 'out.zip').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message)
+        .to.contain('bucket')
+        .and.contain('zip');
+
+      error = undefined;
+      await g.unzip('a.zip', 'unz').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.contain('unzip');
+      expect(seen).to.deep.equal([]);
+
+      principal = SYSTEM;
+      await g.unzip('a.zip', 'unz');
+      expect(seen).to.deep.equal([['unzip', 'a.zip', 'unz']]);
+    });
+
+    it('a provider it cannot place: checks only the sources of a zip without dstFs and without a name', async () => {
+      const authz = new FakeAuthz();
+      const seen: unknown[][] = [];
+      const g = guard(keyStore('bucket', seen), 'bucket', { mode: 'enforce' }, authz);
+
+      await g.zip('./docs/a.txt');
+      expect(authz.keys()).to.deep.equal(['fs:read file:bucket:docs/a.txt']);
+      expect(seen).to.deep.equal([['zip', 'docs/a.txt']]);
+    });
+
+    it('fsNative.unzip without dstFs writes into itself: fs:write on the destination dir, or on the name it picks', async () => {
+      const authz = new FakeAuthz();
+      const raw = local('uploads', { 'docs/a.txt': 'A' });
+      await raw.zip(['docs/a.txt'], raw, 'a.zip');
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, authz);
+
+      await g.unzip('a.zip', './out');
+      expect(authz.keys()).to.deep.equal(['fs:read file:uploads:a.zip', 'fs:write dir:uploads:out']);
+      expect(String(await raw.read('out/a.txt', 'utf-8'))).to.equal('A');
+
+      authz.calls.length = 0;
+      const extracted = await g.unzip('a.zip');
+      expect(authz.keys()[1]).to.match(/^fs:write dir:uploads:[0-9a-f-]+$/);
+      expect(extracted).to.equal(raw.resolvePath(authz.keys()[1].slice('fs:write dir:uploads:'.length)));
+    });
+
+    it('fsNative.unzip without dstFs is refused without fs:write on the destination', async () => {
+      const raw = local('uploads', { 'docs/a.txt': 'A' });
+      await raw.zip(['docs/a.txt'], raw, 'a.zip');
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz((p) => p !== 'fs:write'));
+
+      let error: unknown;
+      await g.unzip('a.zip').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect(await raw.list('')).to.deep.equal(['a.zip', 'docs']);
+    });
+
+    it('fsTemp.zip and fsTemp.unzip without dstFs write into the temp filesystem itself', async () => {
+      const authz = new FakeAuthz();
+      const backend = local('backend', { 'docs/a.txt': 'A' });
+      const rawTemp = new fsTemp({ name: 'temp', provider: 'backend', cleanup: false } as IFsTempOptions);
+      Object.defineProperty(rawTemp, 'Provider', { value: backend });
+      const temp = guard(rawTemp, 'temp', { mode: 'enforce' }, authz);
+
+      const zipped = await temp.zip(['docs/a.txt']);
+      const name = authz.keys()[1];
+      expect(name).to.match(/^fs:write file:temp:[0-9a-f-]+\.zip$/);
+      expect(zipped.asFilePath()).to.equal(backend.resolvePath(name.slice('fs:write file:temp:'.length)));
+
+      authz.calls.length = 0;
+      await temp.unzip(name.slice('fs:write file:temp:'.length), 'out');
+      expect(authz.keys()[1]).to.equal('fs:write dir:temp:out');
+      expect(String(await backend.read('out/a.txt', 'utf-8'))).to.equal('A');
+    });
+
+    it("fsNative.zip without dstFs writes into the published 'fs-temp', checked with its own config and passed explicitly", async () => {
+      const { DI } = await import('@spinajs/di');
+      const tempAuthz = new FakeAuthz((p) => p === 'fs:write');
+      const fsTempRaw = local('fs-temp');
+      const fsTempGuard = guard(fsTempRaw, 'fs-temp', { mode: 'enforce' }, tempAuthz);
+      const hadMap = DI.RootContainer.Cache.has('__file_provider_instance__');
+      DI.register(fsTempGuard).asMapValue('__file_provider_instance__', 'fs-temp');
+      try {
+        const authz = new FakeAuthz();
+        const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, authz);
+        const result = await g.zip(['docs/a.txt']);
+        expect(authz.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt']);
+        expect(tempAuthz.keys()).to.have.length(1);
+        expect(tempAuthz.keys()[0]).to.match(/^fs:write file:fs-temp:[0-9a-f-]+\.zip$/);
+        expect(result.fs).to.equal(fsTempGuard);
+      } finally {
+        (DI.get('__file_provider_instance__') as Map<string, unknown>).delete('fs-temp');
+        if (!hadMap) DI.uncache('__file_provider_instance__');
+      }
+    });
+
+    it('lists a directory with a trailing slash, so a key store does not match siblings by prefix', async () => {
+      const seen: unknown[][] = [];
+      const authz = new FakeAuthz();
+      const g = guard(keyStore('bucket', seen), 'bucket', { mode: 'enforce' }, authz);
+
+      await g.list('photos');
+      await g.list('./photos/');
+      await g.list('/');
+      expect(seen).to.deep.equal([
+        ['list', 'photos/'],
+        ['list', 'photos/'],
+        ['list', ''],
+      ]);
+      expect(authz.keys()).to.deep.equal(['fs:list dir:bucket:photos', 'fs:list dir:bucket:photos', 'fs:list fs:bucket']);
+    });
+
+    it('fsNative lists a directory given with the trailing slash', async () => {
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/b.txt': 'B' }), 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect((await g.list('docs')).sort()).to.deep.equal(['a.txt', 'b.txt']);
+    });
+  });
+
+  describe('subjects and conditional answers', () => {
+    it('passes the row of the checked path as the subject of every check', async () => {
+      const authz = new FakeAuthz();
+      const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce', list: 'each' }, authz);
+
+      await g.read('./docs/a.txt');
+      await g.list('docs');
+      await g.list('');
+      expect(authz.calls.map((c) => c.subject)).to.deep.equal([
+        { id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' },
+        { id: 'uploads:docs', type: 'dir', fs: 'uploads', path: 'docs' },
+        { id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' },
+        { id: 'uploads', type: 'fs', fs: 'uploads', path: '' },
+        { id: 'uploads:docs', type: 'file', fs: 'uploads', path: 'docs' },
+      ]);
+    });
+
+    it('enforce: a permit with a residual left is AccessDenied (needs_subject) and the raw method is not reached', async () => {
+      const raw = local('uploads', { 'docs/a.txt': 'A' });
+      let reached = false;
+      Object.defineProperty(raw, 'write', { value: async () => void (reached = true), configurable: true });
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz(() => 'conditional'));
+
+      let error: unknown;
+      await g.write('docs/a.txt', 'x').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect((error as AccessDenied).decision.reason).to.include({ code: 'needs_subject', priority: 500 });
+      expect((error as AccessDenied).decision.allowed).to.equal(false);
+      expect(reached).to.equal(false);
+    });
+
+    it('audit: a permit with a residual left warns and allows', async () => {
+      const g = guard(local('archive', { 'docs/a.txt': 'A' }), 'archive', { mode: 'audit' }, new FakeAuthz(() => 'conditional'));
+      expect(String(await g.read('docs/a.txt', 'utf-8'))).to.equal('A');
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('conditional');
+    });
+
+    it("list: 'each' drops an entry whose fs:stat is conditional", async () => {
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/b.txt': 'B' }), 'uploads', { mode: 'enforce', list: 'each' }, new FakeAuthz((p, r) => (p === 'fs:stat' && r === 'file:uploads:docs/a.txt' ? 'conditional' : true)));
+      expect(await g.list('docs')).to.deep.equal(['b.txt']);
+    });
+
+    it('a conditional destination on another filesystem stops the copy', async () => {
+      const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      const archiveRaw = local('archive');
+      const archive = guard(archiveRaw, 'archive', { mode: 'enforce' }, new FakeAuthz(() => 'conditional'));
+
+      let error: unknown;
+      await uploads.copy('docs/a.txt', 'a.txt', archive).catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect(await archiveRaw.exists('a.txt')).to.equal(false);
+    });
+  });
+
+  describe('audit', () => {
+    it('decides, warns on a denial and allows', async () => {
+      const authz = new FakeAuthz(() => false);
+      const g = guard(local('archive', { 'docs/a.txt': 'A' }), 'archive', { mode: 'audit' }, authz);
+
+      expect(String(await g.read('docs/a.txt', 'utf-8'))).to.equal('A');
+      expect(authz.calls.map((c) => c.kind)).to.deep.equal(['check']);
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('archive').and.contain('fs:read').and.contain('file:archive:docs/a.txt').and.contain('alice');
+    });
+
+    it('does not warn when the check allows', async () => {
+      const g = guard(local('archive', { 'docs/a.txt': 'A' }), 'archive', { mode: 'audit' }, new FakeAuthz());
+      await g.read('docs/a.txt');
+      expect(warnings).to.deep.equal([]);
+    });
+
+    it('still refuses a path above the root', async () => {
+      const g = guard(local('archive'), 'archive', { mode: 'audit' }, new FakeAuthz());
+      let error: unknown;
+      await g.read('../x').catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(InvalidArgument);
+    });
+  });
+
+  describe('unmapped and unchecked members', () => {
+    const withCompact = (name: string) => {
+      const raw = local(name);
+      Object.defineProperty(raw, 'compact', { value: () => 'compacted' });
+      return raw as fsNative<IFsLocalOptions> & { compact(): string };
+    };
+
+    it('enforce: an unmapped method throws AuthzConfigError naming fs and method, unless SYSTEM', () => {
+      const g = guard(withCompact('uploads'), 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect(() => g.compact()).to.throw(AuthzConfigError, /uploads.*compact|compact.*uploads/);
+      principal = SYSTEM;
+      expect(g.compact()).to.equal('compacted');
+    });
+
+    it('a provider method that shadows an Object.prototype name is unmapped, not exempt', () => {
+      const raw = local('uploads');
+      Object.defineProperty(raw, 'toString', { value: () => 'secret listing', configurable: true });
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      expect(() => g.toString()).to.throw(AuthzConfigError, /toString/);
+      expect(g.hasOwnProperty('Options')).to.equal(true);
+    });
+
+    it('audit: an unmapped method warns and runs', () => {
+      const g = guard(withCompact('archive'), 'archive', { mode: 'audit' }, new FakeAuthz());
+      expect(g.compact()).to.equal('compacted');
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('compact');
+    });
+
+    it('authz.fs.<name>.operations maps a method, checked on argument 0 as a file', async () => {
+      const authz = new FakeAuthz();
+      const raw = local('uploads');
+      Object.defineProperty(raw, 'compact', { value: async (p: string) => `compacted ${p}` });
+      const g = guard(raw, 'uploads', { mode: 'enforce', operations: { compact: ['fs:write', 'fs:delete'] } }, authz) as typeof raw & { compact(p: string): Promise<string> };
+
+      expect(await g.compact('./docs/x')).to.equal('compacted docs/x');
+      expect(authz.keys()).to.deep.equal(['fs:write file:uploads:docs/x', 'fs:delete file:uploads:docs/x']);
+    });
+
+    it('resolvePath, tmppath, tmpname, lifecycle and Object.prototype members are not checked', async () => {
+      const authz = new FakeAuthz(() => false);
+      const raw = local('uploads');
+      const g = guard(raw, 'uploads', { mode: 'enforce' }, authz);
+
+      expect(g.resolvePath('a.txt')).to.equal(raw.resolvePath('a.txt'));
+      expect(g.tmppath('.x')).to.match(/\.x$/);
+      expect(g.tmpname()).to.be.a('string');
+      expect(g.__checkInstance__([{ name: 'uploads' }])).to.equal(true);
+      expect(g.ServiceName).to.equal('uploads');
+      expect(g.hasOwnProperty('Options')).to.equal(true);
+      expect(String(g)).to.be.a('string');
+      expect(g.constructor).to.equal(fsNative);
+      await g.resolve();
+      expect(authz.calls).to.deep.equal([]);
+    });
+  });
+
+  describe('list', () => {
+    it("default 'dir': only fs:list on the directory", async () => {
+      const authz = new FakeAuthz((p) => p === 'fs:list');
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/b.txt': 'B' }), 'uploads', { mode: 'enforce' }, authz);
+      expect((await g.list('docs')).sort()).to.deep.equal(['a.txt', 'b.txt']);
+      expect(authz.keys()).to.deep.equal(['fs:list dir:uploads:docs']);
+    });
+
+    it("'each' drops the entries without fs:stat", async () => {
+      const authz = new FakeAuthz((p, r) => p === 'fs:list' || r === 'file:uploads:docs/b.txt');
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/b.txt': 'B' }), 'uploads', { mode: 'enforce', list: 'each' }, authz);
+      expect(await g.list('docs')).to.deep.equal(['b.txt']);
+      expect(authz.keys().sort()).to.deep.equal(['fs:list dir:uploads:docs', 'fs:stat file:uploads:docs/a.txt', 'fs:stat file:uploads:docs/b.txt']);
+    });
+
+    it("'each' in audit mode keeps every entry and warns about the denied ones", async () => {
+      const authz = new FakeAuthz((p, r) => p === 'fs:list' || r === 'file:uploads:b.txt');
+      const g = guard(local('uploads', { 'a.txt': 'A', 'b.txt': 'B' }), 'uploads', { mode: 'audit', list: 'each' }, authz);
+      expect((await g.list('')).sort()).to.deep.equal(['a.txt', 'b.txt']);
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('file:uploads:a.txt');
+    });
+  });
+
+  describe('nested calls and other filesystems', () => {
+    it('copy to another guarded filesystem checks the destination there, and its nested upload is not checked again', async () => {
+      const src = new FakeAuthz();
+      const dst = new FakeAuthz();
+      const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, src);
+      const archiveRaw = local('archive');
+      const archive = guard(archiveRaw, 'archive', { mode: 'enforce' }, dst);
+
+      await uploads.copy('docs/a.txt', './kept/a.txt', archive);
+      expect(src.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt']);
+      expect(dst.keys()).to.deep.equal(['fs:write file:archive:kept/a.txt']);
+      expect(String(await archiveRaw.read('kept/a.txt', 'utf-8'))).to.equal('A');
+    });
+
+    it('a denied destination on another filesystem stops the call before the raw method', async () => {
+      const uploadsRaw = local('uploads', { 'docs/a.txt': 'A' });
+      const uploads = guard(uploadsRaw, 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      const archive = guard(local('archive'), 'archive', { mode: 'enforce' }, new FakeAuthz(() => false));
+
+      let error: unknown;
+      await uploads.move('docs/a.txt', 'a.txt', archive).catch((e: unknown) => (error = e));
+      expect(error).to.be.instanceOf(AccessDenied);
+      expect(await uploadsRaw.exists('docs/a.txt')).to.equal(true);
+    });
+
+    it('the destination uses its own mode: audit there warns and allows', async () => {
+      const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, new FakeAuthz());
+      const archive = guard(local('archive'), 'archive', { mode: 'audit' }, new FakeAuthz(() => false));
+
+      await uploads.copy('docs/a.txt', 'a.txt', archive);
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('file:archive:a.txt');
+    });
+
+    it("a raw destination is checked with its filesystem's config; mode 'off' there means no check", async () => {
+      const src = new FakeAuthz();
+      const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, src);
+      const offRaw = local('off');
+
+      await uploads.copy('docs/a.txt', 'copied.txt', offRaw);
+      expect(await offRaw.exists('copied.txt')).to.equal(true);
+      expect(src.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt']);
+    });
+
+    it('a raw destination of a guarded filesystem is checked in that filesystem', async () => {
+      const cfgChild = await configuredChild({ archive: { mode: 'enforce' } });
+      try {
+        const src = new FakeAuthz();
+        const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, src, { container: cfgChild });
+        await uploads.copy('docs/a.txt', 'kept.txt', local('archive'));
+        expect(src.keys()).to.deep.equal(['fs:read file:uploads:docs/a.txt', 'fs:write file:archive:kept.txt']);
+      } finally {
+        await cfgChild.dispose();
+      }
+    });
+
+    it('a call nested in an authorised operation is not re-checked: zip writes through the guarded dstFs once', async () => {
+      const src = new FakeAuthz();
+      const dst = new FakeAuthz((p) => p === 'fs:write');
+      const uploads = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, src);
+      const archive = guard(local('archive'), 'archive', { mode: 'enforce' }, dst);
+
+      await uploads.zip(['docs/a.txt'], archive, 'a.zip');
+      expect(dst.keys()).to.deep.equal(['fs:write file:archive:a.zip']);
+
+      dst.calls.length = 0;
+      const out = await uploads.zip(['docs/a.txt'], archive, 'b.zip');
+      expect(out.fs).to.equal(archive);
+      expect(dst.keys()).to.deep.equal(['fs:write file:archive:b.zip']);
+    });
+
+    it('fsTemp over a guarded backend: the guarded temp is checked once, its backend calls pass inside the operation', async () => {
+      const backendAuthz = new FakeAuthz(() => false);
+      const tempAuthz = new FakeAuthz();
+      const backend = guard(local('backend', { 'docs/a.txt': 'A' }), 'backend', { mode: 'enforce' }, backendAuthz);
+      const rawTemp = new fsTemp({ name: 'temp', provider: 'backend', cleanup: false } as IFsTempOptions);
+      Object.defineProperty(rawTemp, 'Provider', { value: backend });
+      const temp = guard(rawTemp, 'temp', { mode: 'enforce' }, tempAuthz);
+
+      expect(String(await temp.read('docs/a.txt', 'utf-8'))).to.equal('A');
+      expect(tempAuthz.keys()).to.deep.equal(['fs:read file:temp:docs/a.txt']);
+      expect(backendAuthz.calls).to.deep.equal([]);
+
+      let error: unknown;
+      await rawTemp.read('docs/a.txt').catch((e: unknown) => (error = e));
+      expect(error, 'an unguarded temp reaches the guarded backend, which checks').to.be.instanceOf(AccessDenied);
+      expect(backendAuthz.keys()).to.deep.equal(['fs:read file:backend:docs/a.txt']);
+    });
+
+    it('the bypass ends with the operation: a guarded call from a stream callback is checked', async () => {
+      const authz = new FakeAuthz((_p, r) => r !== 'file:uploads:secret.txt');
+      const g = guard(local('uploads', { 'a.txt': 'A', 'secret.txt': 'S' }), 'uploads', { mode: 'enforce' }, authz);
+
+      const stream = await g.readStream('a.txt');
+      const nested = await new Promise<unknown>((resolve) => {
+        stream.on('data', () => {
+          g.read('secret.txt').then(resolve, resolve);
+        });
+        stream.resume();
+      });
+      expect(nested).to.be.instanceOf(AccessDenied);
+    });
+
+    it('concurrent operations do not share a bypass', async () => {
+      const authz = new FakeAuthz((_p, r) => r !== 'file:uploads:secret.txt');
+      const g = guard(local('uploads', { 'a.txt': 'A', 'secret.txt': 'S' }), 'uploads', { mode: 'enforce' }, authz);
+      const results = await Promise.allSettled([g.read('a.txt'), g.read('secret.txt'), g.read('a.txt')]);
+      expect(results.map((r) => r.status)).to.deep.equal(['fulfilled', 'rejected', 'fulfilled']);
+    });
+  });
+
+  describe('AuthzFsDecorator', () => {
+    it('is the @spinajs/fs FsDecorator with order 100', async () => {
+      const { FsDecorator } = await import('@spinajs/fs');
+      const d = new AuthzFsDecorator(child);
+      expect(d).to.be.instanceOf(FsDecorator);
+      expect(d.order).to.equal(100);
+    });
+
+    it('returns the raw instance without an entry or with mode off, else a guard', async () => {
+      const cfg = await configuredChild({ uploads: { mode: 'enforce' }, archive: { mode: 'audit' }, scratch: { mode: 'off' } });
+      try {
+        const d = new AuthzFsDecorator(cfg);
+        for (const [name, guarded] of [
+          ['uploads', true],
+          ['archive', true],
+          ['scratch', false],
+          ['plain', false],
+        ] as const) {
+          const raw = local(name);
+          const out = d.decorate(raw, { name, service: 'fsNative' });
+          expect(out === raw, name).to.equal(!guarded);
+          expect(isGuardedFs(out), name).to.equal(guarded);
+        }
+      } finally {
+        await cfg.dispose();
+      }
+    });
+
+    it('fails on an invalid entry', async () => {
+      const cfg = await configuredChild({ uploads: { mode: 'enforced' } });
+      try {
+        expect(() => new AuthzFsDecorator(cfg).decorate(local('uploads'), { name: 'uploads', service: 'fsNative' })).to.throw(AuthzConfigError, /authz\.fs\.uploads\.mode/);
+      } finally {
+        await cfg.dispose();
+      }
+    });
+  });
+});

@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -77,9 +78,51 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
 
   const alice = identities.add({ login: 'alice@example.com' });
   const bob = identities.add({ login: 'bob@example.com' });
-  await passwords.set(alice, await hasher.hash(OLD));
+  await deps.passwords.set(alice, await deps.hasher.hash(OLD));
   const session = await sessions.issue(alice, facts());
   return { identities, passwords, sessions, throttle, events, tokens, hasher, policy, service, alice, bob, session, warnings };
+}
+
+/** Holds the next `hash` until the test opens the gate. */
+class GatedHasher extends Argon2PasswordHasher {
+  private gate: Promise<void> | null = null;
+  private open!: () => void;
+  private reached!: () => void;
+  public readonly held = new Promise<void>((r) => (this.reached = r));
+
+  public holdNextHash(): () => void {
+    this.gate = new Promise<void>((r) => (this.open = r));
+    return () => this.open();
+  }
+
+  public async hash(password: string): Promise<string> {
+    if (this.gate) {
+      const g = this.gate;
+      this.gate = null;
+      this.reached();
+      await g;
+    }
+    return super.hash(password);
+  }
+}
+
+/** Records every write; runs `interleave` once inside the first conditional write, before its compare-and-set. */
+class InterleavingPasswordStore extends MemoryPasswordCredentialStore {
+  public interleave: (() => Promise<void>) | null = null;
+  public readonly sets: { hash: string; expected: string | null | undefined }[] = [];
+  public readonly results: boolean[] = [];
+
+  public async set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean> {
+    this.sets.push({ hash, expected });
+    const other = this.interleave;
+    if (expected !== undefined && other) {
+      this.interleave = null;
+      await other();
+    }
+    const wrote = await super.set(id, hash, expected);
+    if (expected !== undefined) this.results.push(wrote);
+    return wrote;
+  }
 }
 
 async function verifies(hasher: PasswordHasher, passwords: MemoryPasswordCredentialStore, id: IdentityRef, password: string) {
@@ -298,6 +341,162 @@ describe('LocalPasswordService', function () {
       expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
       expect(warnings.some((w) => w.includes('FailingSink'))).to.equal(true);
     });
+
+    it('writes the new hash only over the hash the old password verified against', async () => {
+      const passwords = new InterleavingPasswordStore();
+      const { service, alice, session } = await setup({ passwords });
+      const verified = await passwords.get(alice);
+      passwords.sets.length = 0;
+
+      expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
+      expect(passwords.sets).to.have.length(1);
+      expect(passwords.sets[0].expected).to.equal(verified);
+      expect(passwords.sets[0].hash).to.equal(await passwords.get(alice));
+    });
+  });
+
+  describe('change racing an expiry, a reset or a set (A30)', () => {
+    const RESET = 'Reset-Password-3';
+    const SET = 'Admin-Password-4';
+    const admin = { type: 'user' as const, id: 'admin-1' };
+
+    async function raceSetup() {
+      const passwords = new InterleavingPasswordStore();
+      const hasher = new GatedHasher({});
+      await hasher.resolve();
+      const secrets = new MemorySecretStore();
+      const x = await setup({ passwords, hasher, secrets });
+      passwords.sets.length = 0;
+      return { ...x, passwords, hasher, secrets, verified: await passwords.get(x.alice) };
+    }
+
+    type RaceSetup = Awaited<ReturnType<typeof raceSetup>>;
+
+    // Each writer answers the password that logs in after it, or null when none may.
+    const writers: [string, (x: RaceSetup) => Promise<string | null>][] = [
+      [
+        'an admin expiry',
+        async (x) => {
+          await x.service.expire(x.alice, { cause: 'admin', actor: admin }, ctx());
+          return null;
+        },
+      ],
+      [
+        'an aged expiry',
+        async (x) => {
+          await x.service.expire(x.alice, { cause: 'aged' }, ctx());
+          return null;
+        },
+      ],
+      [
+        'a reset',
+        async (x) => {
+          const secret = await x.secrets.issue(x.alice, 'reset', 600);
+          expect(await x.service.redeemReset('alice@example.com', secret, RESET, ctx())).to.deep.equal({ status: 'reset', purpose: 'reset' });
+          return RESET;
+        },
+      ],
+      [
+        'an admin set',
+        async (x) => {
+          expect(await x.service.set(x.alice, SET, ctx(), { actor: admin })).to.deep.equal({ status: 'set' });
+          return SET;
+        },
+      ],
+    ];
+
+    async function expectChangeLost(x: RaceSetup, res: unknown, written: string | null, survivor: string | null) {
+      expect(res).to.deep.equal({ status: 'invalid' });
+      expect(await x.passwords.get(x.alice), 'the concurrent write stays').to.equal(written);
+      expect(await verifies(x.hasher, x.passwords, x.alice, OLD), 'the old password stays dead').to.equal(false);
+      expect(await verifies(x.hasher, x.passwords, x.alice, NEW), 'the change did not land').to.equal(false);
+      if (survivor !== null) {
+        expect(await verifies(x.hasher, x.passwords, x.alice, survivor)).to.equal(true);
+      }
+      expect(x.passwords.results, 'the change lost its compare-and-set').to.deep.equal([false]);
+      const changes = x.events.ofType('password.change').filter((e) => e.data === undefined);
+      expect(changes.map((e) => [e.outcome, e.reason])).to.deep.equal([['failure', 'stale']]);
+    }
+
+    for (const [label, write] of writers) {
+      it(`a change whose new hash finishes after ${label} is invalid and writes nothing`, async () => {
+        const x = await raceSetup();
+        const open = x.hasher.holdNextHash();
+        const change = x.service.change(x.alice, OLD, NEW, x.session, ctx());
+        await x.hasher.held;
+        const survivor = await write(x);
+        const written = await x.passwords.get(x.alice);
+        open();
+
+        await expectChangeLost(x, await change, written, survivor);
+      });
+
+      it(`${label} that lands inside the change's compare-and-set wins and the change is invalid`, async () => {
+        const x = await raceSetup();
+        let survivor: string | null = null;
+        let written: string | null = null;
+        x.passwords.interleave = async () => {
+          survivor = await write(x);
+          written = await x.passwords.get(x.alice);
+        };
+
+        const res = await x.service.change(x.alice, OLD, NEW, x.session, ctx());
+        expect(written, 'the writer ran inside the compare-and-set').to.be.a('string');
+        await expectChangeLost(x, res, written, survivor);
+      });
+    }
+
+    // End state only: the expiry's marker lands long before the change's argon2 work, so the windows above test the race itself.
+    it('after a change and an admin expiry run in parallel, neither the old nor the new password logs in', async () => {
+      const x = await raceSetup();
+      const [res] = await Promise.all([x.service.change(x.alice, OLD, NEW, x.session, ctx()), x.service.expire(x.alice, { cause: 'admin', actor: admin }, ctx())]);
+      expect(res).to.deep.equal({ status: 'invalid' });
+      expect(await verifies(x.hasher, x.passwords, x.alice, OLD)).to.equal(false);
+      expect(await verifies(x.hasher, x.passwords, x.alice, NEW)).to.equal(false);
+    });
+
+    it('of two changes over the same old password only one lands', async () => {
+      const x = await raceSetup();
+      const second = await x.sessions.issue(x.alice, facts());
+      const OTHER = 'Second-Change-6';
+      let inner: unknown;
+      x.passwords.interleave = async () => {
+        inner = await x.service.change(x.alice, OLD, OTHER, second, ctx());
+      };
+
+      expect(await x.service.change(x.alice, OLD, NEW, x.session, ctx())).to.deep.equal({ status: 'invalid' });
+      expect((inner as { status: string }).status).to.equal('changed');
+      expect(x.passwords.results).to.deep.equal([true, false]);
+      expect(await verifies(x.hasher, x.passwords, x.alice, OTHER)).to.equal(true);
+      expect(await verifies(x.hasher, x.passwords, x.alice, NEW)).to.equal(false);
+    });
+
+    it('a lost change neither revokes nor rotates sessions', async () => {
+      const x = await raceSetup();
+      const other = await x.sessions.issue(x.alice, facts());
+      const foreign = await x.hasher.hash('Other-Instance-5');
+      // A writer on another instance that has not revoked anything yet.
+      x.passwords.interleave = async () => {
+        await x.passwords.set(x.alice, foreign);
+      };
+
+      expect(await x.service.change(x.alice, OLD, NEW, x.session, ctx())).to.deep.equal({ status: 'invalid' });
+      expect(await x.passwords.get(x.alice)).to.equal(foreign);
+      expect((await x.sessions.restore(x.session.id))?.handle.state).to.equal('active');
+      expect((await x.sessions.restore(other.id))?.handle.state).to.equal('active');
+      const [e] = x.events.ofType('password.change');
+      expect(e).to.include({ outcome: 'failure', reason: 'stale' });
+      expect(e.identity).to.deep.equal(x.alice);
+      expect(e.session).to.be.a('string');
+      assertNoSecrets(x.events.all(), OLD, NEW, x.session.id);
+    });
+
+    it('without a concurrent writer the change wins its compare-and-set', async () => {
+      const x = await raceSetup();
+      expect((await x.service.change(x.alice, OLD, NEW, x.session, ctx())).status).to.equal('changed');
+      expect(x.passwords.results).to.deep.equal([true]);
+      expect(x.passwords.sets[0].expected).to.equal(x.verified);
+    });
   });
 
   describe('set (D14)', () => {
@@ -385,6 +584,7 @@ describe('LocalPasswordService DI wiring', function () {
 
   before(async () => {
     DI.setESMModuleSupport();
+    DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
     DI.register(ServiceTestConfiguration).as(Configuration);
     DI.register(FakeIdentityStore).as(IdentityStore);
     DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
@@ -449,7 +649,7 @@ describe('LocalPasswordService DI wiring', function () {
     expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
     expect(await service.set(alice, 'Another-Pass-4', ctx())).to.deep.equal({ status: 'set' });
     expect(tokens.calls).to.deep.equal([]);
-    const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+    const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
     expect(sink.ofType('password.change').map((e) => e.outcome)).to.deep.equal(['success', 'success']);
   });
 

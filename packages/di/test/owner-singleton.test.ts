@@ -379,7 +379,7 @@ describe('owner-container singletons (DI-2)', () => {
       const child = DI.child();
       child.register(Rbac).as(Model);
 
-      const chained = (child.resolveChain(Model) as Model[])[0];
+      const chained = (child.resolve(Array.chainOf(Model)) as Model[])[0];
       const listed = child.resolve(Array.ofType(Model))[0];
 
       expect(chained).to.be.instanceOf(Rbac);
@@ -395,14 +395,14 @@ describe('owner-container singletons (DI-2)', () => {
       const child = DI.child();
       child.register(ChildRbac).as(Model);
 
-      const chained = (child.resolveChain(Model) as Model[])[0];
+      const chained = (child.resolve(Array.chainOf(Model)) as Model[])[0];
 
       expect(chained).to.be.instanceOf(ChildRbac);
       expect(chained).to.not.equal(fromRoot);
     });
   });
 
-  describe('resolveChain picks the class the owner registry leads to', () => {
+  describe('Array.chainOf picks the class the owner registry leads to', () => {
     it('ignores a concrete override in the calling container for every entry', () => {
       DI.register(Rbac).as(Model);
       DI.register(PerChildModel).as(Model);
@@ -410,12 +410,12 @@ describe('owner-container singletons (DI-2)', () => {
       child.register(RbacChild).as(Rbac);
       child.register(PerChildOverride).as(PerChildModel);
 
-      const models = child.resolveChain(Model) as Model[];
+      const models = child.resolve(Array.chainOf(Model)) as Model[];
 
       expect(models.map((m) => m.constructor)).to.deep.equal([Rbac, PerChildModel]);
       expect(child.Cache.has(PerChildModel)).to.equal(true);
       expect(child.Cache.has(Rbac)).to.equal(false);
-      expect(models[1]).to.not.equal((DI.resolveChain(Model) as Model[])[1]);
+      expect(models[1]).to.not.equal((DI.resolve(Array.chainOf(Model)) as Model[])[1]);
     });
   });
 
@@ -431,7 +431,7 @@ describe('owner-container singletons (DI-2)', () => {
         DI.register(SlowFailing).as('failing-list');
         DI.register(Throwing).as('failing-list');
 
-        expect(() => DI.resolveChain(Model)).to.throw('Throwing failed');
+        expect(() => DI.resolve(Array.chainOf(Model))).to.throw('Throwing failed');
         DI.clearCache();
         expect(() => DI.resolve(Array.ofType('failing-list'))).to.throw('Throwing failed');
 
@@ -445,17 +445,17 @@ describe('owner-container singletons (DI-2)', () => {
   });
 
   describe('self records left by resolving an unregistered key', () => {
-    it('resolveChain lists the self record only while nobody registers the key', () => {
+    it('Array.chainOf lists the self record only while nobody registers the key', () => {
       const child = DI.child();
       const early = child.resolve(Late);
 
-      expect(child.getRegisteredTypesChain(Late)).to.deep.equal([Late]);
-      expect((child.resolveChain(Late) as Late[])[0]).to.equal(early);
+      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([Late]);
+      expect((child.resolve(Array.chainOf(Late)) as Late[])[0]).to.equal(early);
 
       DI.register(LateA).as(Late);
 
-      expect(child.getRegisteredTypesChain(Late)).to.deep.equal([LateA]);
-      expect((child.resolveChain(Late) as Late[]).map((m) => m.constructor)).to.deep.equal([LateA]);
+      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([LateA]);
+      expect((child.resolve(Array.chainOf(Late)) as Late[]).map((m) => m.constructor)).to.deep.equal([LateA]);
     });
 
     it('Array.ofType and a single resolve in the child follow the later root registration', () => {
@@ -572,6 +572,62 @@ describe('owner-container singletons (DI-2)', () => {
 
       expect(child.resolve(Plain)).to.equal(fromRoot);
       expect(child.child().resolve(Plain)).to.equal(fromRoot);
+    });
+  });
+
+  // Services rely on this: their resolve() holds no "already resolved" guard.
+  describe('an AsyncService instance runs resolve() once', () => {
+    class Counted extends AsyncService {
+      public static Calls = 0;
+
+      public async resolve(): Promise<void> {
+        Counted.Calls++;
+        await new Promise((res) => setTimeout(res, 5));
+        await super.resolve();
+      }
+    }
+    class CountedImpl extends Counted {}
+
+    @PerChildInstance()
+    class PerChildCounted extends AsyncService {
+      public static Calls = 0;
+
+      public async resolve(): Promise<void> {
+        PerChildCounted.Calls++;
+        await new Promise((res) => setTimeout(res, 5));
+        await super.resolve();
+      }
+    }
+
+    beforeEach(() => {
+      Counted.Calls = 0;
+      PerChildCounted.Calls = 0;
+    });
+
+    it('a singleton, over concurrent and repeated resolves through every key and container', async () => {
+      DI.register(CountedImpl).as(Counted);
+      DI.register(CountedImpl).asSelf();
+      const child = DI.child();
+
+      const first = await Promise.all([DI.resolve(Counted), DI.resolve(CountedImpl), child.resolve(Counted), child.resolve(Array.chainOf(Counted))]);
+      await DI.resolve(Counted);
+      await child.resolve(CountedImpl);
+      await DI.resolve(Array.ofType(Counted));
+
+      expect(Counted.Calls).to.equal(1);
+      expect(first[1]).to.equal(first[0]);
+      expect(first[2]).to.equal(first[0]);
+    });
+
+    it('a PerChildContainer service, once in every container', async () => {
+      DI.register(PerChildCounted).asSelf();
+      const child = DI.child();
+
+      await Promise.all([DI.resolve(PerChildCounted), DI.resolve(PerChildCounted), child.resolve(PerChildCounted), child.resolve(PerChildCounted)]);
+      await DI.resolve(PerChildCounted);
+      await child.resolve(PerChildCounted);
+
+      expect(PerChildCounted.Calls).to.equal(2);
     });
   });
 });

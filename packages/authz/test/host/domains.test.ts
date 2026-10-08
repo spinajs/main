@@ -2,8 +2,10 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 
-import { DefaultAuthzDomains, DefaultAuthzService, authz, AuthzConfigError, AuthzDomains, AuthzService } from '@spinajs/authz';
-import { domains, installHost, resetHost, resetRoot, rootDomains, rootService, setConfig, uninstallHost } from './support.js';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+
+import { DefaultAuthzDomains, DefaultAuthzService, authz, AuthzConfigError, AuthzDomains, AuthzService, configuredLineage } from '@spinajs/authz';
+import { domains, installHost, registerConfiguration, resetHost, resetRoot, rootDomains, rootService, setConfig, uninstallHost, violationsOf } from './support.js';
 
 const expect = chai.expect;
 
@@ -69,8 +71,41 @@ describe('DefaultAuthzDomains', function () {
 
       setConfig(['authz', 'domains', 'k4'], { parent: 'gone' });
       expect(() => d.create('k4')).to.throw(AuthzConfigError, /gone/);
-      setConfig(['authz', 'domains', 'k5'], { parent: 5 });
-      expect(() => d.create('k5')).to.throw(AuthzConfigError, /"k5"/);
+    });
+
+    it('reads authz.domains.<n>.parent through @Config from the Configuration of its container', async () => {
+      const c = DI.RootContainer.child();
+      try {
+        registerConfiguration(c, { authz: { domains: { kid: { parent: 'mid' } } } });
+        await c.resolve(Configuration);
+        const d = new DefaultAuthzDomains(c);
+        (d as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = c;
+        d.create('mid');
+        expect(d.create('kid').Parent).to.equal(d.container('mid'));
+        expect(d.lineage('kid')).to.deep.equal(['root', 'mid', 'kid']);
+      } finally {
+        await c.dispose();
+      }
+    });
+
+    it('a configured parent that is not a domain name fails the Configuration, naming the full path', async () => {
+      expect(await violationsOf({ authz: { domains: { kid: { parent: 'no such/name' } } } })).to.include('authz.domains.kid.parent');
+      expect(await violationsOf({ authz: { domains: { kid: { parent: {} } } } })).to.include('authz.domains.kid.parent');
+    });
+  });
+
+  describe('configuredLineage', () => {
+    it('follows authz.domains.<n>.parent up to root, names with dots included', () => {
+      const tree = { domains: { 'a.b': { parent: 'p' }, p: {} } };
+      expect(configuredLineage(tree, 'a.b')).to.deep.equal(['root', 'p', 'a.b']);
+      expect(configuredLineage(tree, 'root')).to.deep.equal(['root']);
+      expect(configuredLineage(undefined, 'z')).to.deep.equal(['root', 'z']);
+    });
+
+    it('refuses parents that form a cycle', () => {
+      const tree = { domains: { x: { parent: 'y' }, y: { parent: 'x' }, s: { parent: 's' } } };
+      expect(() => configuredLineage(tree, 'x')).to.throw(AuthzConfigError, /cycle/);
+      expect(() => configuredLineage(tree, 's')).to.throw(AuthzConfigError, /cycle/);
     });
   });
 

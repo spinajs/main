@@ -1,10 +1,10 @@
 import { expect } from 'chai';
 import 'mocha';
 
-import { AuthzConfigError, CORE_FILTER_OPS, FALSE, TRUE } from '@spinajs/authz';
+import { Authorizer, AuthzConfigError, CORE_FILTER_OPS, FALSE, GLOBAL, TRUE } from '@spinajs/authz';
 import type { DecisionRequest, PrincipalRef, ResourceRef, Vote } from '@spinajs/authz';
 
-import { FAKE_TUPLE_OP, FakeAdapter, FakePermissionRegistry, FakeTupleModel, FakeTupleStore, TupleStore, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '../src/index.js';
+import { FAKE_TUPLE_OP, FakeAdapter, FakePermissionRegistry, FakeTupleModel, FakeTupleStore, StaticModel, TupleStore, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, fixtureDsl, userPrincipal } from '../src/index.js';
 import type { FakeTupleSchema, Tuple } from '../src/index.js';
 
 const u = (id: string): PrincipalRef => ({ type: 'user', id });
@@ -64,6 +64,13 @@ describe('FakeTupleStore', () => {
     expect(v2).to.not.eq(v1);
     expect(await store.read(file('f1'), 'viewer')).to.deep.eq([]);
     expect(store.writes.map((w) => w.actor)).to.deep.eq([actor, actor]);
+  });
+
+  it('objects lists each object of a type that a tuple names, once', async () => {
+    const store = await seeded();
+    expect((await store.objects('file')).map((r) => r.id)).to.have.members(['f1', 'f2', 'f3']);
+    expect((await store.objects('group')).map((r) => r.id)).to.deep.eq(['g1']);
+    expect(await store.objects('user')).to.deep.eq([]);
   });
 });
 
@@ -224,6 +231,90 @@ describe('FakeTupleModel', () => {
     expect(m.version()).to.not.eq(v0);
     m.invalidate(['subject:user:x']);
     expect(m.invalidations).to.deep.eq([['subject:user:x']]);
+  });
+
+  describe('summarize', () => {
+    const entries = async (m: FakeTupleModel, who: string, at: ResourceRef, context = fakeEvaluationContext()) => {
+      const s = await m.summarize(userPrincipal(who), at, context);
+      expect(s.model).to.eq('rebac');
+      return Object.fromEntries(s.permissions.map((p) => [p.name, p.conditional]));
+    };
+    const tree = () =>
+      fakeEvaluationContext({
+        permissions: registry,
+        adapters: [
+          new FakeAdapter({
+            types: ['file', 'folder'],
+            rows: { file: [{ id: 'f1' }, { id: 'f2' }, { id: 'f3' }], folder: [{ id: 'd1' }, { id: 'd2' }, { id: 'd3' }, { id: 'd4' }] },
+            parents: [
+              [file('f1'), folder('d1')],
+              [file('f2'), folder('d2')],
+              [folder('d2'), folder('d1')],
+            ],
+          }),
+        ],
+      });
+
+    it('at $global lists, as conditional, every permission held on some object: direct, userset, arrow', async () => {
+      const m = new FakeTupleModel({ store: await seeded(), schema, permissions });
+      expect(await entries(m, 'alice', GLOBAL)).to.deep.eq({ 'file:read': true });
+      expect(await entries(m, 'erin', GLOBAL)).to.deep.eq({ 'file:read': true, 'file:edit': true });
+      expect(await entries(m, 'bob', GLOBAL)).to.deep.eq({ 'file:read': true, 'folder:read': true });
+      expect(await entries(m, 'carol', GLOBAL)).to.deep.eq({ 'file:read': true, 'folder:read': true });
+      expect(await entries(m, 'zed', GLOBAL)).to.deep.eq({});
+    });
+
+    it('at an object it holds the entry is unconditional; objects outside `at` are left out', async () => {
+      const m = new FakeTupleModel({ store: await seeded(), schema, permissions });
+      expect(await entries(m, 'alice', file('f1'))).to.deep.eq({ 'file:read': false });
+      expect(await entries(m, 'erin', file('f1'))).to.deep.eq({ 'file:read': false, 'file:edit': false });
+      expect(await entries(m, 'alice', file('f2'))).to.deep.eq({});
+      expect(await entries(m, 'alice', { type: 'file' })).to.deep.eq({ 'file:read': true });
+    });
+
+    it('below `at` by the ancestors of the context; one unconditional object makes the entry unconditional', async () => {
+      const m = new FakeTupleModel({ store: await seeded(), schema, permissions });
+      expect(await entries(m, 'alice', folder('d1'), tree())).to.deep.eq({ 'file:read': true });
+      expect(await entries(m, 'alice', folder('d2'), tree())).to.deep.eq({});
+      expect(await entries(m, 'bob', folder('d1'), tree())).to.deep.eq({ 'file:read': true, 'folder:read': false });
+      expect(await entries(m, 'bob', folder('d2'), tree())).to.deep.eq({ 'file:read': true, 'folder:read': false });
+      expect(await entries(m, 'alice', { type: 'folder' }, tree())).to.deep.eq({ 'file:read': true });
+      expect(await entries(m, 'alice', { type: 'folder' })).to.deep.eq({});
+    });
+
+    it('an object with unknown ancestors, and a walk past maxDepth, count as held (conditional)', async () => {
+      const m = new FakeTupleModel({ store: await seeded(), schema, permissions });
+      const unknown = fakeEvaluationContext({ adapters: [new FakeAdapter({ types: ['file'], rows: { file: [{ id: 'f2' }] } })] });
+      expect(await entries(m, 'alice', folder('d9'), unknown)).to.deep.eq({ 'file:read': true });
+
+      const store = new FakeTupleStore();
+      const chain: Tuple[] = [tuple(folder('c0'), 'viewer', u('bob'))];
+      for (let i = 1; i <= 12; i++) chain.push(tuple(folder(`c${i}`), 'parent', folder(`c${i - 1}`)));
+      await store.write(chain, [], actor);
+      const shallow = new FakeTupleModel({ store, schema, permissions, maxDepth: 8 });
+      expect(await entries(shallow, 'bob', folder('c12'))).to.deep.eq({ 'folder:read': true });
+      expect(await entries(shallow, 'bob', folder('c3'))).to.deep.eq({ 'folder:read': false });
+      expect(await entries(shallow, 'zed', folder('c12'))).to.deep.eq({ 'folder:read': true });
+    });
+
+    it('lets covers judge a target whose rights come from tuples (E1 hand-off)', async () => {
+      const covReg = new FakePermissionRegistry(['file:read', 'file:edit', 'folder:read']);
+      const authorizer = async (withSummary: boolean) => {
+        const rebac = new FakeTupleModel({ store: await seeded(), schema, permissions });
+        if (!withSummary) Object.defineProperty(rebac, 'summarize', { value: undefined });
+        const init = fakeModelInitContext({ permissions: covReg });
+        await rebac.init(init);
+        const root = new StaticModel({ name: 'm1', votes: (r) => (r.principal.id === 'root' ? { permitWhen: TRUE } : {}) });
+        return new Authorizer({ domain: 'root', registry: covReg, models: [root, rebac], combine: fixtureDsl.combine('deny-overrides', 'm1', 'rebac'), nativeFilters: init.registered.nativeFilters });
+      };
+      const scope = () => ({ cache: new Map() });
+      const a = await authorizer(true);
+      expect(await a.covers(userPrincipal('root'), userPrincipal('alice'), GLOBAL, scope())).to.eq(true);
+      expect(await a.covers(userPrincipal('root'), userPrincipal('erin'), GLOBAL, scope())).to.eq(true);
+      expect(await a.covers(userPrincipal('zed'), userPrincipal('alice'), GLOBAL, scope())).to.eq(false);
+      expect(await a.covers(userPrincipal('bob'), userPrincipal('alice'), GLOBAL, scope())).to.eq(false);
+      expect(await (await authorizer(false)).covers(userPrincipal('root'), userPrincipal('alice'), GLOBAL, scope())).to.eq(false);
+    });
   });
 
   it('rejects a schema that names unknown relations or a mapping to an unknown relation', () => {

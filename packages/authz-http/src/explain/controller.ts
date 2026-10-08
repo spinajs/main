@@ -1,11 +1,11 @@
 import { isPermission, parsePermission } from '@spinajs/authz';
-import type { Principal, ResourceRef } from '@spinajs/authz';
+import type { Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, Ok, Policy, Query, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { Config } from '@spinajs/configuration';
 
 import { domainService } from '../domains.js';
-import { httpConfig } from '../http-config.js';
 import { forbidden, unauthenticated } from '../access/policy.js';
 import '../storage.js';
 
@@ -22,6 +22,12 @@ function splitKey(key: unknown, what: string): { type: string; id?: string } {
 
 /** Allows a caller who holds `authz.http.explainRoute.permission` in the access domain. */
 export class ExplainPolicy extends BasePolicy {
+  @Config('authz.http.access.domain')
+  protected AccessDomain: string;
+
+  @Config('authz.http.explainRoute.permission')
+  protected ExplainPermission: Permission;
+
   public isEnabled(): boolean {
     return true;
   }
@@ -30,9 +36,8 @@ export class ExplainPolicy extends BasePolicy {
     const principal = req.storage.Principal;
     if (!principal?.authenticated) throw unauthenticated('the explain route needs an authenticated principal');
 
-    const cfg = httpConfig();
-    const authz = await domainService(cfg.access.domain);
-    const permission = cfg.explainRoute.permission;
+    const authz = await domainService(this.AccessDomain);
+    const permission = this.ExplainPermission;
     const decision = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } });
     // Only an unconditional grant: nothing here would enforce a residual.
     if (!decision.allowed || decision.residual.op !== 'true') throw forbidden(decision);
@@ -46,6 +51,9 @@ export class ExplainPolicy extends BasePolicy {
  */
 @BasePath('authz')
 export class ExplainController extends BaseController {
+  @Config('authz.http.access.domain')
+  protected AccessDomain: string;
+
   @Get('explain')
   @Policy(ExplainPolicy)
   public async explain(@Req() _req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string) {
@@ -55,7 +63,7 @@ export class ExplainController extends BaseController {
     const ref: ResourceRef = resource === undefined || resource === '' ? { type: parsePermission(permission).resource } : splitKey(resource, 'resource');
 
     const subject: Principal = Object.freeze({ type: target.type, id: target.id, authenticated: target.type !== 'anonymous' && target.type !== 'unattended', source: 'explain', attributes: Object.freeze({}) });
-    const authz = await domainService(httpConfig().access.domain);
+    const authz = await domainService(this.AccessDomain);
     return new Ok(await authz.explain({ principal: subject, permission, resource: ref }));
   }
 }

@@ -11,6 +11,8 @@ export interface FakeStrategyOptions {
   readonly interactive: boolean;
   readonly verify: (c: Credentials, ctx: AuthnContext) => StrategyOutcome | Promise<StrategyOutcome>;
   readonly keys: (c: Credentials, ctx: AuthnContext) => readonly ThrottleKey[];
+  /** The provider's own linking switches `linkingFor` answers (K6); both off when unset. */
+  readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
 }
 
 const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentials' };
@@ -42,6 +44,11 @@ export class FakeStrategy extends AuthenticationStrategy {
   async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
     this.verifyCalls.push(c);
     return this.opts.verify(c, ctx);
+  }
+
+  /** @spinajs/authn's ExternalLinkingStrategy: the core needs these and authn.linking for JIT and linking by email. */
+  linkingFor(_external: ExternalSubject): { jit: boolean; byVerifiedEmail: boolean } {
+    return { jit: this.opts.linking?.jit === true, byVerifiedEmail: this.opts.linking?.byVerifiedEmail === true };
   }
 
   static password(o: { identities: FakeIdentityStore; passwords: MemoryPasswordCredentialStore; name?: string }): FakeStrategy {
@@ -85,12 +92,14 @@ export class FakeStrategy extends AuthenticationStrategy {
     });
   }
 
-  static external(o: { provider: string; subjects: ReadonlyMap<string, ExternalSubject>; name?: string }): FakeStrategy {
+  /** Its provider's own linking switches are on unless `linking` says otherwise, so authn.linking alone decides. */
+  static external(o: { provider: string; subjects: ReadonlyMap<string, ExternalSubject>; name?: string; linking?: { jit: boolean; byVerifiedEmail: boolean } }): FakeStrategy {
     const subjectOf = (c: Credentials) => (c.kind === 'external' && c.provider === o.provider ? (c as { payload: Record<string, unknown> }).payload?.subject : undefined);
     return new FakeStrategy({
       name: o.name ?? 'fake-idp',
       kinds: ['external'],
       interactive: true,
+      linking: o.linking ?? { jit: true, byVerifiedEmail: true },
       keys: (c) => {
         const subject = subjectOf(c);
         return typeof subject === 'string' ? [{ kind: 'account', value: `${o.provider}:${subject}` }] : [];

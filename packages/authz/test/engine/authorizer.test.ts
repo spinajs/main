@@ -3,10 +3,12 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { sanitizeVote } from '../../src/engine/vote.js';
+import { defaultAttribute, evaluateResidual } from '../../src/engine/evaluate.js';
+import type { SubjectEnv } from '../../src/engine/evaluate.js';
 import { LruDecisionCache } from '../../src/engine/cache.js';
 import { l1Key } from '../../src/engine/context.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
-import { AuthzConfigError, Combinator, FALSE, GLOBAL, SYSTEM, TRUE, UNATTENDED, UnknownPermission, and, or } from '../../src/index.js';
+import { AuthzConfigError, CORE_FILTER_OPS, Combinator, FALSE, GLOBAL, SYSTEM, TRUE, UNATTENDED, UnknownPermission, and, not, or, resourceKey } from '../../src/index.js';
 import type { Decision, DecisionRequest, EvaluationContext, Principal, ResourceFilter, Vote } from '../../src/index.js';
 import { FakeAdapter, FakeNativeFilter, FakeRelation, FakeRow, FakeScopeResolver, RecordingAudit, RecordingLog, StaticModel, deny, fakeClock, permit, principal, registryOf } from './fakes.js';
 
@@ -1305,6 +1307,228 @@ describe('Authorizer: bounded work and termination', () => {
     expect(d.residual).to.equal(FALSE);
     expect(d.reason).to.deep.equal({ code: 'model_error' });
     expect(log.at('error').some((e) => /subject/.test(e.message))).to.equal(true);
+  });
+});
+
+describe('Authorizer: an intersect delegate checked with a subject narrows to the filter (B06)', () => {
+  const bob = principal('user', 'bob');
+  const agent = principal('token', 't1', { onBehalfOf: bob });
+  const ownerOp: ResourceFilter = { op: 'relation', relation: 'owner' };
+  const team = (value: string): ResourceFilter => ({ op: 'cmp', field: 'team', cmp: 'eq', value });
+  const underF1: ResourceFilter = { op: 'under', scopes: [{ type: 'folder', id: 'f1' }] };
+  const d1 = new FakeRow('doc', 'd1', { owner: 'bob', team: 'red' });
+  const d2 = new FakeRow('doc', 'd2', { owner: 'carol', team: 'blue' });
+  const d3 = new FakeRow('doc', 'd3', { owner: 'carol', team: 'red' });
+  const d4 = new FakeRow('doc', 'd4', { owner: 'bob', team: 'red' }, { type: 'folder', id: 'f1' });
+  const RESIDUALS = [...CORE_FILTER_OPS, 'native:owns'] as const;
+  const byId = (grants: Readonly<Record<string, ResourceFilter>>, own?: (req: DecisionRequest, ctx: EvaluationContext) => void) =>
+    new StaticModel('m', {
+      capabilities: { residuals: RESIDUALS },
+      vote: (req: DecisionRequest, ctx: EvaluationContext): Vote => {
+        own?.(req, ctx);
+        return { model: 'm', permitWhen: grants[req.principal.id] ?? FALSE, denyWhen: FALSE, cacheable: true };
+      },
+    });
+  const setup = (m: StaticModel, options: Partial<AuthorizerOptions> = {}) => {
+    const adapter = new FakeAdapter(['doc', 'folder'], { rows: [new FakeRow('folder', 'f1'), d1, d2, d3, d4], relations: [new FakeRelation('doc', 'owner', (p, _ref, subject) => (subject as FakeRow).owner === p.id)] });
+    return make({ adapters: [adapter], models: [m], ...options });
+  };
+  const delegateDenial = { code: 'delegate', priority: 200, delegate: 'user:bob' };
+
+  it('a relation the delegate holds on the row is stripped from the filter, so the check denies the row too (delegate)', async () => {
+    const a = setup(byId({ t1: TRUE, bob: ownerOp }));
+    expect((await a.check({ principal: bob, permission: 'doc:read', resource: d1 })).allowed).to.equal(true);
+    expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(FALSE);
+    const d = await a.check({ principal: agent, permission: 'doc:read', resource: d1 });
+    expect(d.allowed).to.equal(false);
+    expect(d.residual).to.equal(FALSE);
+    expect(d.reason).to.deep.equal(delegateDenial);
+    const explained = await a.explain({ principal: agent, permission: 'doc:read', resource: d1 });
+    expect(explained.trace!.steps.some((s) => s.by === 'core' && s.step === 'delegation' && /type-level residual/.test(s.note))).to.equal(true);
+  });
+
+  it('a native filter that holds for the delegate on the row is stripped the same way', async () => {
+    const owns = new FakeNativeFilter('native:owns', (args, subject) => (subject as FakeRow).owner === (args as { who: string }).who);
+    const a = setup(byId({ t1: TRUE, bob: { op: 'native:owns', args: { who: 'bob' } } }), { nativeFilters: [owns] });
+    expect((await a.check({ principal: bob, permission: 'doc:read', resource: d1 })).allowed).to.equal(true);
+    expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(FALSE);
+    const d = await a.check({ principal: agent, permission: 'doc:read', resource: d1 });
+    expect(d.allowed).to.equal(false);
+    expect(d.reason).to.deep.equal(delegateDenial);
+  });
+
+  describe('a native filter that declares principalInArgs (RFC E2-2)', () => {
+    const ownsLeaf: ResourceFilter = { op: 'native:owns', args: { who: 'bob' } };
+    const ownsBy = (args: unknown, subject: unknown) => (subject as FakeRow).owner === (args as { who: string }).who;
+    class FieldFlagged extends FakeNativeFilter {
+      readonly principalInArgs = true;
+    }
+    class GetterFlagged extends FakeNativeFilter {
+      get principalInArgs(): boolean {
+        return true;
+      }
+    }
+    class ThrowingFlag extends FakeNativeFilter {
+      get principalInArgs(): boolean {
+        throw new Error('no flag');
+      }
+    }
+    const agree = async (a: Authorizer, grants: string[]) => {
+      for (const row of [d1, d2, d3, d4]) {
+        const d = await a.check({ principal: agent, permission: 'doc:read', resource: row });
+        expect(d.allowed, row.id).to.equal(grants.includes(row.id));
+        if (!d.allowed) expect(d.reason, row.id).to.deep.equal(delegateDenial);
+      }
+    };
+
+    for (const [label, build] of [
+      ['a field initialiser', () => new FieldFlagged('native:owns', ownsBy)],
+      ['a getter', () => new GetterFlagged('native:owns', ownsBy)],
+      ['a plain object (duck-typed)', () => ({ op: 'native:owns' as const, principalInArgs: true, matches: ownsBy })],
+    ] as const) {
+      it(`declared by ${label}: the leaf survives the strip, and filter and check agree on every row`, async () => {
+        const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [build() as FakeNativeFilter] });
+        expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(ownsLeaf);
+        await agree(a, ['d1', 'd4']);
+        const explained = await a.explain({ principal: agent, permission: 'doc:read', resource: d1 });
+        expect(explained.trace!.steps.some((s) => s.by === 'core' && s.step === 'delegation' && /type-level residual, stripped, against the subject: true/.test(s.note))).to.equal(true);
+      });
+    }
+
+    it('under a `not`, the kept leaf still denies the rows it holds for', async () => {
+      const a = setup(byId({ t1: TRUE, bob: not(ownsLeaf) }), { nativeFilters: [new FieldFlagged('native:owns', ownsBy)] });
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(not(ownsLeaf));
+      await agree(a, ['d2', 'd3']);
+    });
+
+    it('next to a relation, which is still stripped', async () => {
+      const a = setup(byId({ t1: TRUE, bob: or(ownerOp, and(team('red'), ownsLeaf)) }), { nativeFilters: [new FieldFlagged('native:owns', ownsBy)] });
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(and(team('red'), ownsLeaf));
+      await agree(a, ['d1', 'd4']);
+    });
+
+    it('a throwing getter, false or a truthy non-boolean counts as undeclared: stripped as before', async () => {
+      for (const filter of [new ThrowingFlag('native:owns', ownsBy), { op: 'native:owns' as const, principalInArgs: false, matches: ownsBy }, { op: 'native:owns' as const, principalInArgs: 1, matches: ownsBy }]) {
+        const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [filter as unknown as FakeNativeFilter] });
+        expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(FALSE);
+        await agree(a, []);
+      }
+    });
+
+    it("memos in ctx.cache keyed by the args principal: the agent's own leaf and the kept delegate leaf share one cache, each reads its own memo, and filter and check agree", async () => {
+      const HELD: Readonly<Record<string, readonly string[]>> = { t1: ['d1', 'd2', 'd4'], bob: ['d1', 'd3', 'd4'] };
+      const caches = new Set<Map<string, unknown>>();
+      const holds = new FieldFlagged('native:owns', (args, subject, _ref, ctx) => {
+        const who = (args as { who: string }).who;
+        caches.add(ctx.cache);
+        let held = ctx.cache.get(`holds:${who}`) as ReadonlySet<string> | undefined;
+        if (!held) ctx.cache.set(`holds:${who}`, (held = new Set(HELD[who])));
+        return held.has((subject as FakeRow).id);
+      });
+      const leaf = (who: string): ResourceFilter => ({ op: 'native:owns', args: { who } });
+      const a = setup(byId({ t1: leaf('t1'), bob: leaf('bob') }), { nativeFilters: [holds] });
+      const filter = await a.filter(agent, 'doc:read', 'doc');
+      expect(filter).to.deep.equal(and(leaf('t1'), leaf('bob')));
+      for (const row of [d1, d2, d3, d4]) {
+        caches.clear();
+        const d = await a.check({ principal: agent, permission: 'doc:read', resource: row });
+        const shared = [...caches].some((c) => c.has('holds:t1') && c.has('holds:bob'));
+        if (d.allowed) expect(shared, `${row.id}: both leaves ran in one cache`).to.equal(true);
+        const ref = { type: 'doc', id: row.id };
+        const env: SubjectEnv = { principal: agent, ref, attribute: defaultAttribute, relation: () => undefined, ancestors: () => Promise.resolve([]), native: (op) => (op === 'native:owns' ? holds : undefined), ctx: { cache: new Map() } as unknown as EvaluationContext };
+        const listed = (await evaluateResidual(filter, row, env)) === true;
+        expect(d.allowed, row.id).to.equal(listed);
+        expect(d.allowed, row.id).to.equal(HELD.t1.includes(row.id) && HELD.bob.includes(row.id));
+      }
+    });
+
+    it('the flag is read once, when the Authorizer is built', async () => {
+      let reads = 0;
+      class Counting extends FakeNativeFilter {
+        get principalInArgs(): boolean {
+          reads++;
+          return true;
+        }
+      }
+      const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [new Counting('native:owns', ownsBy)] });
+      expect(reads).to.equal(1);
+      await agree(a, ['d1', 'd4']);
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(ownsLeaf);
+      expect(reads).to.equal(1);
+    });
+  });
+
+  it('a `not relation` (FALSE once stripped) leaves the rows where the cmp parts hold', async () => {
+    const a = setup(byId({ t1: TRUE, bob: or(team('red'), not(ownerOp)) }));
+    expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(team('red'));
+    expect((await a.check({ principal: agent, permission: 'doc:read', resource: d1 })).allowed).to.equal(true);
+    expect((await a.check({ principal: agent, permission: 'doc:read', resource: d3 })).allowed).to.equal(true);
+    // bob does not own d2, so his own check allows it; the filter leaves it out.
+    expect((await a.check({ principal: bob, permission: 'doc:read', resource: d2 })).allowed).to.equal(true);
+    const d = await a.check({ principal: agent, permission: 'doc:read', resource: d2 });
+    expect(d.allowed).to.equal(false);
+    expect(d.reason).to.deep.equal(delegateDenial);
+  });
+
+  it('a delegate with the run-as principal key is evaluated exactly, with no type-level check', async () => {
+    const self = principal('user', 'carol', { onBehalfOf: principal('user', 'carol') });
+    const m = byId({ carol: ownerOp });
+    const a = setup(m);
+    expect(await a.filter(self, 'doc:read', 'doc')).to.deep.equal(ownerOp);
+    m.calls.length = 0;
+    expect((await a.check({ principal: self, permission: 'doc:read', resource: d2 })).allowed).to.equal(true);
+    expect(m.calls).to.have.length(2);
+    expect((await a.check({ principal: self, permission: 'doc:read', resource: d1 })).allowed).to.equal(false);
+  });
+
+  it('a strip evaluation that times out is an engine fault: denied, logged, and the memos of the decision dropped', async () => {
+    const ancestorsKey = l1Key('ancestors', 'root', resourceKey({ type: 'doc', id: 'd4' }));
+    const run = async (hang: boolean) => {
+      const scope = { cache: new Map<string, unknown>() };
+      let loads = 0;
+      let armed = hang;
+      const m = byId({ t1: TRUE, bob: or(ownerOp, underF1) }, (req, ctx) => {
+        if (req.principal.id !== 't1') return;
+        if (!ctx.cache.has('roles')) {
+          loads++;
+          ctx.cache.set('roles', true);
+        }
+        // After the models only the strip evaluation reads the row's ancestors.
+        if (armed) scope.cache.set(ancestorsKey, new Promise(() => undefined));
+      });
+      const a = setup(m, { config: { modelTimeoutMs: 30 } });
+      const first = await a.check({ principal: agent, permission: 'doc:read', resource: d4 }, scope);
+      armed = false;
+      scope.cache.delete(ancestorsKey);
+      const second = await a.check({ principal: agent, permission: 'doc:read', resource: d4 }, scope);
+      return { first, second, loads };
+    };
+    const ok = await run(false);
+    expect(ok.first.allowed).to.equal(true);
+    expect(ok.loads).to.equal(1);
+    expect(log.at('error')).to.have.length(0);
+
+    const hung = await run(true);
+    expect(hung.first.allowed).to.equal(false);
+    expect(hung.first.reason).to.deep.equal(delegateDenial);
+    expect(log.at('error').some((e) => /type-level residual/.test(e.message) && /timed out/.test(e.message))).to.equal(true);
+    // A faulted top-level decision detaches its models' memos.
+    expect(hung.second.allowed).to.equal(true);
+    expect(hung.loads).to.equal(2);
+  });
+
+  it('a throwing attribute read in the strip evaluation is UNKNOWN, as in every subject evaluation: denied delegate', async () => {
+    let reads = 0;
+    const attribute = (subject: unknown, field: string) => {
+      if (field === 'team' && reads++ > 0) throw new Error('column gone');
+      return (subject as FakeRow)[field];
+    };
+    const adapter = new FakeAdapter(['doc', 'folder'], { rows: [d1], attribute, relations: [new FakeRelation('doc', 'owner', (p, _ref, subject) => (subject as FakeRow).owner === p.id)] });
+    const a = make({ adapters: [adapter], models: [byId({ t1: TRUE, bob: and(team('red'), or(ownerOp, team('red'))) })] });
+    const d = await a.check({ principal: agent, permission: 'doc:read', resource: d1 });
+    expect(reads).to.be.at.least(2);
+    expect(d.allowed).to.equal(false);
+    expect(d.reason).to.deep.equal(delegateDenial);
   });
 });
 

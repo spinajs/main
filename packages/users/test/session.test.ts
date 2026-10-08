@@ -1,7 +1,8 @@
 import { DI } from '@spinajs/di';
 import { MemorySessionStore, SessionProvider, UserSession } from '../src/index.js';
 import { expect } from 'chai';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { TestConfiguration } from './common.test.js';
 
 describe('Session provider tests', () => {
@@ -12,7 +13,9 @@ describe('Session provider tests', () => {
 
   beforeEach(async () => {
     // Re-resolve Configuration after each clearCache so the SessionProvider base
-    // can autoinject its expiration strategy (authn.session.expiration).
+    // can autoinject its expiration strategy (authn.session.expiration), with the
+    // authn schema clearCache dropped: it defaults the strategy's ttl and maxLifetime.
+    registerConfigurationSchema(AUTHN_CONFIGURATION_SCHEMA);
     await DI.resolve(Configuration);
   });
 

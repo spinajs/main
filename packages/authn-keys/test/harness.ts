@@ -6,7 +6,7 @@ import { LocalJwsSigner, StrictJwsVerifier } from '../src/jws/index.js';
 import type { PrivateJwk } from '../src/jws/index.js';
 import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
 import type { KeyNonceStore } from '../src/nonce/index.js';
-import { keysOptions } from '../src/options/index.js';
+import { keysOptionsFor } from './support/keys-options.js';
 import type { KeysOptions } from '../src/options/index.js';
 import { DefaultKeyRegistry, MemoryKeyStore, OrmKeyStore } from '../src/registry/index.js';
 import type { KeyStore } from '../src/registry/index.js';
@@ -57,7 +57,7 @@ export interface KeysParts {
 /** Everything one case needs, sharing one identity store, throttle and sink list (lane notes D13). */
 export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promise<KeysParts> {
   checkConfig(config);
-  const options = keysOptions({ assertion: { audience: KIT_AUDIENCE, ...config.authn?.keys?.assertion } });
+  const options = keysOptionsFor({ assertion: { audience: KIT_AUDIENCE, ...config.authn?.keys?.assertion } });
   let store: KeyStore;
   let nonces: KeyNonceStore;
   if (kind === 'sqlite') {

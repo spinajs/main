@@ -62,6 +62,22 @@ describe('MemoryPasswordCredentialStore and fake hashing', () => {
     assert.deepEqual(s.writes, [{ id, hash: fakeHash('pw') }]);
   });
 
+  it('a conditional set writes and records only over the expected value', async () => {
+    const s = new MemoryPasswordCredentialStore();
+    const id = { type: 'user', id: 'u1' };
+    assert.equal(await s.set(id, 'h1', 'h0'), false);
+    assert.equal(await s.set(id, 'h1', null), true);
+    assert.equal(await s.set(id, 'h2', null), false);
+    assert.equal(await s.set(id, 'h2', 'h0'), false);
+    assert.equal(await s.set(id, 'h2', 'h1'), true);
+    assert.equal(await s.set({ type: 'service', id: 'u1' }, 'h3', 'h2'), false, 'the type is part of the key');
+    assert.equal(await s.get(id), 'h2');
+    assert.deepEqual(s.writes, [
+      { id, hash: 'h1' },
+      { id, hash: 'h2' },
+    ]);
+  });
+
   it('fakeHash and fakeVerify agree and never hold the password', () => {
     assert.match(fakeHash('pw'), /^fake\$[0-9a-f]{64}$/);
     assert.equal(fakeHash('pw').includes('pw'), false);

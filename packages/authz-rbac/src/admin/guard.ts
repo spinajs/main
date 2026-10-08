@@ -1,16 +1,18 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, isPermission, principalKey, resourceKey } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantClosure, grantsPermission, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
+import { AccountStatusSource } from './ports.js';
+import { assignmentStore, grantClosure, grantingPermissions, grantsPermission, honoured, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex, setRolesOf, surelyGrantsPermission } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
 
+/** The guard section as AUTHZ_CONFIGURATION_SCHEMA leaves it: every switch set (default on). */
 export interface AdminGuardConfig {
-  /** Required while preventSelfLockout or preventLastPrivilegedRemoval is on. */
+  /** Set while preventSelfLockout or preventLastPrivilegedRemoval is on. */
   readonly privilegedPermission?: Permission;
   readonly protectSystemRole: boolean;
   readonly preventEscalation: boolean;
@@ -18,27 +20,20 @@ export interface AdminGuardConfig {
   readonly preventLastPrivilegedRemoval: boolean;
 }
 
-const KEY = 'authz.admin.guard';
-const SWITCHES = ['protectSystemRole', 'preventEscalation', 'preventSelfLockout', 'preventLastPrivilegedRemoval'] as const;
-
-/** The `authz.admin.guard` section; an absent switch is on (fail closed). */
-export function readGuardConfig(section: unknown, where: string): AdminGuardConfig {
-  const fail = (key: string, expected: string, got: unknown): never => {
-    throw new AuthzConfigError(`${where}: configuration key ${KEY}${key} must be ${expected}, got ${quote(got)}`);
+// The schema is the gate; this floor holds for values that never went through it (runtime Configuration.set, unvalidated configs).
+export function guardSwitches(section: unknown, reader: string): AdminGuardConfig {
+  const raw: Record<string, unknown> = isPlainObject(section) ? section : {};
+  const cfg = {
+    protectSystemRole: raw.protectSystemRole !== false,
+    preventEscalation: raw.preventEscalation !== false,
+    preventSelfLockout: raw.preventSelfLockout !== false,
+    preventLastPrivilegedRemoval: raw.preventLastPrivilegedRemoval !== false,
   };
-  if (section !== undefined && !isPlainObject(section)) fail('', 'an object', section);
-  const s = (section ?? {}) as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const name of SWITCHES) {
-    const v = s[name] ?? true;
-    if (typeof v !== 'boolean') fail(`.${name}`, 'a boolean', v);
-    out[name] = v;
+  const needsPermission = cfg.preventSelfLockout || cfg.preventLastPrivilegedRemoval;
+  if (needsPermission && !isPermission(raw.privilegedPermission)) {
+    throw new AuthzConfigError(`${reader}: authz.admin.guard.privilegedPermission must name a permission while preventSelfLockout or preventLastPrivilegedRemoval is on`);
   }
-  if (out.preventSelfLockout || out.preventLastPrivilegedRemoval) {
-    if (!isPermission(s.privilegedPermission)) fail('.privilegedPermission', 'a permission name (the self-lockout and last-holder checks need it)', s.privilegedPermission);
-    out.privilegedPermission = s.privilegedPermission;
-  }
-  return out as unknown as AdminGuardConfig;
+  return { ...cfg, privilegedPermission: isPermission(raw.privilegedPermission) ? raw.privilegedPermission : undefined };
 }
 
 type Kind = AuthzCommand['kind'];
@@ -73,6 +68,8 @@ interface Target {
   readonly role: string;
   readonly scope: ResourceRef;
   readonly field: string;
+  /** Set when a set row gives the role: the role the command grants and the set it makes the subject a member of. */
+  readonly via?: { readonly role: string; readonly scope: ResourceRef; readonly set: { readonly role: string; readonly scope: ResourceRef } };
 }
 
 interface Call {
@@ -80,10 +77,21 @@ interface Call {
   readonly ctx: AdminContext;
   readonly cfg: AdminGuardConfig;
   readonly roles: RoleIndex;
-  readonly privileged: (role: string) => boolean;
+  /** setRolesOf, once per role. */
+  readonly sets: (role: string) => readonly string[];
   /** The actor's effective role per ladder and scope, asked once per command. */
   readonly ranks: Map<string, Promise<string | undefined>>;
 }
+
+/** What lies on a path to privilegedPermission, asked once per guard call. */
+interface Paths {
+  /** privilegedPermission and every permission that implies it. */
+  readonly permissions: readonly Permission[];
+  /** The role grants one of `permissions` at its own scope, conditions aside. */
+  readonly privileged: (role: string) => boolean;
+}
+
+type SetRow = Assignment & { readonly subject: Extract<AssignmentSubject, { set: unknown }> };
 
 const refuse = (code: string, message: string, field?: string): AuthzAdminFailure => new AuthzAdminFailure(code, message, field);
 const sameSubject = (s: AssignmentSubject, p: PrincipalRef): boolean => !isSetSubject(s) && principalKey(s) === principalKey(p);
@@ -91,27 +99,29 @@ const sameSubject = (s: AssignmentSubject, p: PrincipalRef): boolean => !isSetSu
 /**
  * The AdminGuard of authz.admin.guard.service (design §6.6.2, lane design §4.3). Runs inside the batch
  * transaction, so it reads the batch's own earlier writes. Never injects AuthzService: it checks through
- * ctx.authz and RbacAdminFacts, and reads authz.admin.guard on every call.
+ * ctx.authz and RbacAdminFacts, reads the permission registry through ctx.authz's models or the container
+ * (grantingPermissions), and reads authz.admin.guard on every call from the Configuration of the admin call's
+ * container (adminContainer), as the rest of the call does.
  */
 @Singleton()
 @Injectable(AdminGuard)
 export class DefaultAdminGuard extends AdminGuard {
+  protected log: HostLog = engineLog('authz-rbac');
+  private warnedNoAccountStatus = false;
+
   async check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
     const kind: unknown = isPlainObject(c) ? c.kind : undefined;
     // Unknown kinds reach no handler (not_found); the handler owns validation.
     if (typeof kind !== 'string' || !Object.hasOwn(GUARDED, kind) || !GUARDED[kind as Kind]) return;
-    const container = adminContainer(ctx);
-    const where = `Authz domain ${quote(ctx.domain)}`;
-    const configuration = (await container.resolve(Configuration)) as unknown as Configuration;
-    const cfg = readGuardConfig(configuration.get(['authz', 'admin', 'guard']), where);
+    const configuration = (await adminContainer(ctx).resolve(Configuration)) as Configuration;
+    const cfg = guardSwitches(configuration.get(['authz', 'admin', 'guard']), `Authz domain ${quote(ctx.domain)}`);
     const roles = await roleIndex(ctx);
-    const memo = new Map<string, boolean>();
-    const privileged = (role: string): boolean => {
-      if (cfg.privilegedPermission === undefined) return false;
-      if (!memo.has(role)) memo.set(role, roles.roles.has(role) && grantsPermission(roles, role, cfg.privilegedPermission));
-      return memo.get(role)!;
+    const setMemo = new Map<string, readonly string[]>();
+    const sets = (role: string): readonly string[] => {
+      if (!setMemo.has(role)) setMemo.set(role, setRolesOf(roles, role));
+      return setMemo.get(role)!;
     };
-    const call: Call = { actor, ctx, cfg, roles, privileged, ranks: new Map() };
+    const call: Call = { actor, ctx, cfg, roles, sets, ranks: new Map() };
     if (cfg.preventEscalation) await this.escalation(call, c);
     await this.removals(call, c);
   }
@@ -125,15 +135,19 @@ export class DefaultAdminGuard extends AdminGuard {
       return;
     }
     for (const t of await this.granted(call, c)) {
-      const what = `${principalKey(call.actor)} may not grant ${quote(t.role)} at ${quote(t.scope)}`;
-      if (!(await facts.covers(call.actor, t.role, t.scope, call.ctx))) throw refuse('escalation', `${what}: it does not hold every permission of the role there`, t.field);
+      const actor = principalKey(call.actor);
+      const { via } = t;
+      const what = via ? `${actor} may not grant ${quote(via.role)} at ${quote(via.scope)}: it makes the subject a member of ${quote(via.set.role)} at ${quote(via.set.scope)}, which holds ${quote(t.role)} at ${quote(t.scope)};` : `${actor} may not grant ${quote(t.role)} at ${quote(t.scope)}:`;
+      const theRole = via ? quote(t.role) : 'the role';
+      const [who, whose] = via ? ['the actor', "the actor's"] : ['it', 'its'];
+      if (!(await facts.covers(call.actor, t.role, t.scope, call.ctx))) throw refuse('escalation', `${what} ${who} does not hold every permission of ${theRole} there`, t.field);
       // Every ladder role the grant gives, through extends and implies too, must rank at or below the actor's own.
       const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, t.scope);
       for (const { name } of (await grantClosure(call.roles, t.role, holds)).defs) {
         const ladder = call.roles.ladderOf(name);
         if (ladder === undefined || (await holds(ladder, name))) continue;
-        const which = name === t.role ? 'the role' : `it gives ${quote(name)}, which`;
-        throw refuse('escalation', `${what}: ${which} ranks above its own on ladder ${quote(ladder)}`, t.field);
+        const which = name === t.role ? theRole : `${via ? theRole : 'it'} gives ${quote(name)}, which`;
+        throw refuse('escalation', `${what} ${which} ranks above ${whose} own on ladder ${quote(ladder)}`, t.field);
       }
     }
   }
@@ -187,11 +201,29 @@ export class DefaultAdminGuard extends AdminGuard {
     }
   }
 
-  /** Holding a subject set role at a scope also gives every role assigned to that set. */
   private async reach(call: Call, role: string, scope: ResourceRef, field: string): Promise<Target[]> {
-    if (call.roles.roles.get(role)?.subjectSet !== true) return [];
-    const { items } = await (await assignmentStore(call.ctx)).find({ subject: { set: { role, scope } }, at: call.ctx.now });
-    return items.map((a) => ({ role: a.role, scope: a.scope, field }));
+    const rows = await this.setRows(call, role, scope);
+    return rows.map((a) => ({ role: a.role, scope: a.scope, field, via: { role, scope, set: a.subject.set } }));
+  }
+
+  /** The live rows assigned to the sets a principal holding `role` at `scope` is a member of. */
+  private async setRows(call: Call, role: string, scope: ResourceRef): Promise<SetRow[]> {
+    const store = await assignmentStore(call.ctx);
+    const out: SetRow[] = [];
+    for (const set of call.sets(role)) out.push(...((await store.find({ subject: { set: { role: set, scope } }, at: call.ctx.now })).items as readonly SetRow[]));
+    return out;
+  }
+
+  /** The live principal rows at the set's scope (of `subject` only, if given) that make their subject a member of it, as the model counts them. */
+  private async setMembers(call: Call, set: { readonly role: string; readonly scope: ResourceRef }, subject?: PrincipalRef): Promise<Assignment[]> {
+    const store = await assignmentStore(call.ctx);
+    const out: Assignment[] = [];
+    for (const role of call.roles.roles.keys()) {
+      if (!call.sets(role).includes(set.role)) continue;
+      const { items } = await store.find({ scope: set.scope, role, ...(subject ? { subject: { type: subject.type, id: subject.id } } : {}), at: call.ctx.now });
+      out.push(...items.filter((a) => !isSetSubject(a.subject) && honoured(call.roles, a)));
+    }
+    return out;
   }
 
   /** A role a rule names (minRole, a string maxRole) must not rank above the actor's own at the rule scope. */
@@ -227,17 +259,24 @@ export class DefaultAdminGuard extends AdminGuard {
   private async removals(call: Call, c: AuthzCommand): Promise<void> {
     const { ctx, cfg, roles } = call;
     const planned = await plannedRemovals(c, ctx);
-    // Rows whose tags or expiry change count for protectSystemRole, besides the removed ones.
+    // Rows whose tags or expiry change count for protectSystemRole and the rank check, besides the removed ones.
     const touched: Assignment[] = [...planned.revoke, ...planned.expire];
     if (c.kind === 'assignment.setTags' || c.kind === 'assignment.addTags' || c.kind === 'assignment.removeTags' || c.kind === 'assignment.setExpiry') {
       const row = await (await assignmentStore(ctx)).byId(readId(c.id));
       if (row) touched.push(row);
     }
-    if (c.kind === 'link.update' && (c.tags !== undefined || c.expiresAt !== undefined) && planned.revoke.length === 0) touched.push(...((await linkGrants(readId(c.id), ctx, true)) ?? []));
+    const linkRows = c.kind === 'link.update' && (c.tags !== undefined || c.expiresAt !== undefined) && planned.revoke.length === 0 ? (await linkGrants(readId(c.id), ctx, true)) ?? [] : [];
+    touched.push(...linkRows);
 
     if (cfg.protectSystemRole) {
       const system = touched.find((a) => roles.roles.get(a.role)?.assignable === false);
       if (system) throw refuse('protected_role', `assignment ${quote(system.id)} holds the system role ${quote(system.role)}; only SYSTEM changes it`, idField(c));
+    }
+
+    if (cfg.preventEscalation) {
+      // A new link expiry ends its grant rows; an extension among them was already ranked as a grant.
+      const ending = [...planned.revoke, ...planned.expire, ...(c.kind === 'link.update' && c.expiresAt !== undefined ? linkRows : [])];
+      await this.removalRanks(call, c, new Set(planned.revoke.map((a) => a.id)), ending, touched);
     }
 
     const until = 'expiresAt' in c ? readExpiry(c.expiresAt) : undefined;
@@ -247,56 +286,145 @@ export class DefaultAdminGuard extends AdminGuard {
       ...planned.expire.filter((a) => !(a.expiresAt != null && until != null && until.getTime() > a.expiresAt.getTime())),
     ];
     if (removed.length === 0 || cfg.privilegedPermission === undefined) return;
-    if (cfg.preventSelfLockout && (await this.locksOut(call, removed))) throw refuse('self_lockout', `${principalKey(call.actor)} would lose ${quote(cfg.privilegedPermission)}`, idField(c));
-    if (cfg.preventLastPrivilegedRemoval && (await this.lastHolder(call, removed))) throw refuse('last_holder', `no principal would keep ${quote(cfg.privilegedPermission)} at GLOBAL`, idField(c));
+    const permissions = await grantingPermissions(ctx, cfg.privilegedPermission);
+    const memo = new Map<string, boolean>();
+    const privileged = (role: string): boolean => {
+      if (!memo.has(role)) memo.set(role, roles.roles.has(role) && grantsPermission(roles, role, permissions));
+      return memo.get(role)!;
+    };
+    const paths: Paths = { permissions, privileged };
+    if (cfg.preventSelfLockout && (await this.locksOut(call, paths, removed))) throw refuse('self_lockout', `${principalKey(call.actor)} would lose ${quote(cfg.privilegedPermission)}`, idField(c));
+    if (cfg.preventLastPrivilegedRemoval && (await this.lastHolder(call, paths, removed))) throw refuse('last_holder', `no principal would keep ${quote(cfg.privilegedPermission)} at GLOBAL`, idField(c));
   }
 
-  /** The actor reaches privilegedPermission through a removed row: its own, its set's, or a set membership. */
-  private async locksOut(call: Call, removed: readonly Assignment[]): Promise<boolean> {
-    const store = await assignmentStore(call.ctx);
+  /**
+   * Design §6.6.2: a row a command revokes, re-expires or edits holds no ladder role ranking above the actor's
+   * own at the row scope, over the closure its grant is ranked on (grantClosure: extends, lower ladder roles,
+   * implies). A removed or re-expired principal row also takes the roles of the subject sets it makes the
+   * principal a member of; each is ranked the same way, over its closure at its own scope. Expired rows count.
+   */
+  private async removalRanks(call: Call, c: AuthzCommand, revoked: ReadonlySet<string>, ending: readonly Assignment[], touched: readonly Assignment[]): Promise<void> {
+    if (touched.length === 0) return;
+    const facts = await this.facts(call.ctx);
+    const field = (a: Assignment): string | undefined => {
+      if (c.kind !== 'assignment.grant' && c.kind !== 'set.addMember') return idField(c);
+      return revoked.has(a.id) ? 'replaceLadder' : 'expiresAt';
+    };
+    const check = async (a: Assignment, role: string, scope: ResourceRef, via: string): Promise<void> => {
+      const ladder = call.roles.ladderOf(role);
+      if (ladder === undefined || (await this.ranksAtLeast(call, facts, ladder, role, scope))) return;
+      const row = isLinkSubject(a.subject) ? `link ${quote((a.subject as PrincipalRef).id)}` : `assignment ${quote(a.id)}`;
+      const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (${row})`;
+      throw refuse('escalation', `${what}: ${via} ranks above its own on ladder ${quote(ladder)}`, field(a));
+    };
+    const closureOf = async (role: string, scope: ResourceRef): Promise<readonly string[]> => {
+      const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, scope);
+      // The role itself first, defined or not, so a role its ladder lists but no store defines stays ranked.
+      return [...new Set([role, ...(await grantClosure(call.roles, role, holds)).defs.map((d) => d.name)])];
+    };
+    const closures = new Map<string, Promise<readonly string[]>>();
+    const ranked = (role: string, scope: ResourceRef): Promise<readonly string[]> => {
+      const key = `${role}\u0000${resourceKey(scope)}`;
+      if (!closures.has(key)) closures.set(key, closureOf(role, scope));
+      return closures.get(key)!;
+    };
+    for (const a of touched) {
+      for (const name of await ranked(a.role, a.scope)) await check(a, name, a.scope, name === a.role ? 'the role' : `the role gives ${quote(name)}, which`);
+    }
+    for (const a of ending) {
+      if (isSetSubject(a.subject)) continue;
+      for (const t of await this.setRows(call, a.role, a.scope)) {
+        const held = `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`;
+        for (const name of await ranked(t.role, t.scope)) await check(a, name, t.scope, name === t.role ? held : `${held} gives ${quote(name)}, which`);
+      }
+    }
+  }
+
+  /**
+   * A removed row lies on one of the actor's paths to privilegedPermission: an own row of a privileged role,
+   * an own row that makes the actor a member of a set holding a privileged row, or a privileged row of a set
+   * the actor is a member of. Another path does not save the removal: whether the model honours it (tags,
+   * provenance, relations, caps, its expiry) is beyond the guard, so an actor with two paths is refused too.
+   */
+  private async locksOut(call: Call, paths: Paths, removed: readonly Assignment[]): Promise<boolean> {
     for (const a of removed) {
       if (isSetSubject(a.subject)) {
-        if (!call.privileged(a.role)) continue;
-        const { items } = await store.find({ scope: a.subject.set.scope, role: a.subject.set.role, at: call.ctx.now });
-        if (items.some((m) => sameSubject(m.subject, call.actor))) return true;
+        if (paths.privileged(a.role) && (await this.setMembers(call, a.subject.set, call.actor)).length > 0) return true;
         continue;
       }
       if (!sameSubject(a.subject, call.actor)) continue;
-      if (call.privileged(a.role)) return true;
-      if (call.roles.roles.get(a.role)?.subjectSet === true) {
-        const { items } = await store.find({ subject: { set: { role: a.role, scope: a.scope } }, at: call.ctx.now });
-        if (items.some((s) => call.privileged(s.role))) return true;
-      }
+      if (paths.privileged(a.role)) return true;
+      if ((await this.setRows(call, a.role, a.scope)).some((s) => paths.privileged(s.role))) return true;
     }
     return false;
   }
 
   /**
-   * Every principal holding privilegedPermission at GLOBAL (a GLOBAL row of a role that grants it, directly
-   * or through a set it is a member of) would lose it. Nobody holding it before is no reason to refuse.
+   * A removed row lies on a path to privilegedPermission at GLOBAL (a GLOBAL row of a role that grants it or a
+   * permission implying it, to a principal or to a set the principal is a member of; rows the model ignores
+   * make no path), and no principal keeps a path the model surely honours: rows that avoid the removed ones, a
+   * grant without conditions (surelyGrantsPermission), no share link (it acts only inside its scope), and rows
+   * that last at least as long as the removed rows on a path would; and its account in service (anyInService).
    */
-  private async lastHolder(call: Call, removed: readonly Assignment[]): Promise<boolean> {
+  private async lastHolder(call: Call, paths: Paths, removed: readonly Assignment[]): Promise<boolean> {
     const store = await assignmentStore(call.ctx);
     const gone = new Set(removed.map((a) => a.id));
-    const before = new Set<string>();
-    const after = new Set<string>();
-    const path = (holder: AssignmentSubject, rows: readonly string[]) => {
+    const lost: Assignment[] = [];
+    const kept: { holder: PrincipalRef; global: Assignment; rows: readonly Assignment[] }[] = [];
+    const path = (holder: AssignmentSubject, global: Assignment, rows: readonly Assignment[]) => {
       if (isSetSubject(holder)) return;
-      const key = principalKey(holder);
-      before.add(key);
-      if (!rows.some((id) => gone.has(id))) after.add(key);
+      const hit = rows.filter((r) => gone.has(r.id));
+      if (hit.length > 0) lost.push(...hit);
+      else kept.push({ holder, global, rows });
     };
     for (const role of call.roles.roles.keys()) {
-      if (!call.privileged(role)) continue;
-      for (const a of (await store.find({ scope: GLOBAL, role, at: call.ctx.now })).items) {
+      if (!paths.privileged(role)) continue;
+      for (const a of (await store.find({ scope: GLOBAL, role, at: call.ctx.now })).items.filter((r) => honoured(call.roles, r))) {
         if (!isSetSubject(a.subject)) {
-          path(a.subject, [a.id]);
+          path(a.subject, a, [a]);
           continue;
         }
-        for (const m of (await store.find({ scope: a.subject.set.scope, role: a.subject.set.role, at: call.ctx.now })).items) path(m.subject, [a.id, m.id]);
+        for (const m of await this.setMembers(call, a.subject.set)) path(m.subject, a, [a, m]);
       }
     }
-    return before.size > 0 && after.size === 0;
+    if (lost.length === 0) return false;
+    const until = lost.some((r) => r.expiresAt == null) ? null : Math.max(...lost.map((r) => r.expiresAt!.getTime()));
+    const lasts = (r: Assignment) => r.expiresAt == null || (until !== null && r.expiresAt.getTime() >= until);
+    const sure = new Map<string, boolean>();
+    const surely = (role: string): boolean => {
+      if (!sure.has(role)) sure.set(role, surelyGrantsPermission(call.roles, role, paths.permissions, GLOBAL));
+      return sure.get(role)!;
+    };
+    // A set member's live row carries the GLOBAL set row's role, so that role decides for both kinds of path.
+    const holders = kept.filter(({ holder, global, rows }) => !isLinkSubject(holder) && surely(global.role) && rows.every(lasts)).map(({ holder }) => holder);
+    return holders.length === 0 || !(await this.anyInService(call, holders));
+  }
+
+  /**
+   * One AccountStatusSource call with the distinct holders; a holder it throws on, leaves out or reports out of
+   * service does not count. Without a registered source every holder counts.
+   */
+  private async anyInService(call: Call, holders: readonly PrincipalRef[]): Promise<boolean> {
+    const container = adminContainer(call.ctx);
+    if (!container.hasRegistered(AccountStatusSource)) {
+      this.warnNoAccountStatus();
+      return true;
+    }
+    const refs = [...new Map(holders.map((h) => [principalKey(h), { type: h.type, id: h.id }])).values()];
+    try {
+      const source = (await container.resolve(AccountStatusSource)) as AccountStatusSource;
+      const answers = await source.inService(refs);
+      return refs.some((r) => answers.get(principalKey(r)) === true);
+    } catch (e) {
+      this.log.warn(`DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${e instanceof Error ? `${e.name}: ${e.message}` : typeof e}`);
+      return false;
+    }
+  }
+
+  private warnNoAccountStatus(): void {
+    if (this.warnedNoAccountStatus) return;
+    this.warnedNoAccountStatus = true;
+    this.log.warn('DefaultAdminGuard: no AccountStatusSource is registered, so last_holder counts holders whose accounts are out of service (deactivated, banned, deleted)');
   }
 
   private async facts(ctx: AdminContext): Promise<RbacAdminFacts> {

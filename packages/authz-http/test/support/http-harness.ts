@@ -16,6 +16,18 @@ import { Access, AccessController, AllowAnonymous, ExplainController, ExplainCon
 import { startApp, stopApp } from './app.js';
 import type { TestApp } from './app.js';
 
+// The in-memory test configuration applies no schema defaults.
+const AUTHZ_HTTP_TEST_DEFAULTS: [string[], unknown][] = [
+  [['authz', 'http', 'services'], []],
+  [['authz', 'http', 'explainRoute', 'enabled'], false],
+  [['authz', 'http', 'explainRoute', 'permission'], 'authz:explain'],
+  [['authz', 'http', 'links', 'query'], 'link'],
+  [['authz', 'http', 'links', 'header'], 'X-Authz-Link'],
+  [['authz', 'http', 'links', 'cookie'], null],
+  [['authz', 'http', 'access', 'domain'], 'root'],
+  [['authz', 'http', 'admin', 'domain'], 'root'],
+];
+
 const PRINCIPAL_HEADER = 'x-behaviour-principal';
 const principals = new Map<string, Principal>();
 
@@ -174,6 +186,7 @@ export function httpHarness(opts: HttpHarnessOptions = {}): BehaviourHarness {
     register(host) {
       const world = host.world;
       currentLinks = world.rbac?.links;
+      for (const [path, value] of AUTHZ_HTTP_TEST_DEFAULTS) if (testHost.config().get(path) === undefined) host.setConfig(path, value);
       if (world.lane?.http?.env !== undefined) host.setConfig(['configuration', 'isProduction'], world.lane.http.env === 'production');
       for (const [key, value] of Object.entries(world.lane?.http?.config ?? {})) host.setConfig([key], value);
       host.setConfig(['authz', 'http', 'access', 'domain'], domain);

@@ -1,8 +1,10 @@
-import { BelongsTo, Connection, CreatedAt, DateTime as DT, Hidden, Model, ModelBase, Primary, Set, SingleRelation } from '@spinajs/orm';
-import { User } from '@spinajs/users';
+import { Connection, CreatedAt, DateTime as DT, Hidden, Json, Model, ModelBase, Primary, Set } from '@spinajs/orm';
+import type { TokenKind, TokenScope } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _default } from '@spinajs/util';
+
+export const TOKEN_KINDS: readonly string[] = ['pat', 'service', 'agent'] satisfies readonly TokenKind[];
 
 /**
  * Personal access token. Only the SHA-256 hash of the token is stored;
@@ -14,6 +16,12 @@ export class AccessToken extends ModelBase<AccessToken> {
   public constructor(data?: Partial<AccessToken>) {
     super(data);
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
+
+    // setDefaults() copies the raw column default from tableInfo, i.e. the SQL text "'pat'" with its quotes.
+    // Rows read from the db are built empty and hydrated afterwards, so this never rewrites a stored kind.
+    if (!TOKEN_KINDS.includes(this.Kind)) {
+      this.Kind = 'pat';
+    }
   }
 
   /**
@@ -77,14 +85,27 @@ export class AccessToken extends ModelBase<AccessToken> {
   public LastUsedAt?: DateTime<true>;
 
   @Hidden()
-  @BelongsTo('User')
-  public User!: SingleRelation<User>;
-
-  @Hidden()
   public user_id!: number;
+
+  public Kind!: TokenKind;
+
+  /**
+   * JSON `TokenScope`; null for a token without scope limits.
+   */
+  @Json()
+  public Scope?: TokenScope;
+
+  /**
+   * Set once the token is revoked. Optional for the reason given on `ExpiresAt`.
+   */
+  @DT()
+  public RevokedAt?: DateTime<true>;
+
+  public LastUsedIp?: string;
 
   /**
    * True when the token carries an expiration in the past.
+   * 3.0 code decides expiry from `ctx.now`, not from this getter.
    */
   public get IsExpired(): boolean {
     return !!this.ExpiresAt && this.ExpiresAt <= DateTime.now();

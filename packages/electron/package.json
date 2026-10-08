@@ -63,7 +63,8 @@
     "@spinajs/orm": "2.0.549",
     "@spinajs/orm-sql": "2.0.549",
     "@spinajs/log-common": "2.0.549",
-    "@spinajs/di": "2.0.549"
+    "@spinajs/di": "2.0.549",
+    "@spinajs/authz": "3.0.0-alpha.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

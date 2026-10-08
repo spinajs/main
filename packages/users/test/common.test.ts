@@ -127,9 +127,8 @@ export class TestConfiguration extends FrameworkConfiguration {
             Description: 'test',
           },
         ],
-        // `assertRolesExist` (actions.ts) checks roles against THIS map, resolved
-        // through the `AccessControl` DI singleton - not against the shipped
-        // `packages/users/src/config/users.ts` defaults. This suite runs via
+        // The 2.x `AccessControl` grants the legacy permission tests read, not the
+        // shipped `packages/users/src/config/users.ts` defaults. This suite runs via
         // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
         // (unlike eg. users-http/authn-token), so the configuration
         // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
@@ -189,6 +188,44 @@ export class TestConfiguration extends FrameworkConfiguration {
            * Should password expire after some time ?
            */
           passwordExpirationTime: 0,
+        },
+      },
+
+      // The root authz host of test/support/authz-host.ts: roles are GLOBAL assignments written
+      // through AuthzAdmin (DbAuthzAdminBackend) into the test database.
+      authz: {
+        permissions: {
+          'users:read': {},
+          'users:update': {},
+          'authz:assignments.manage': { types: ['project'] },
+          'user:read': { types: ['user'] },
+        },
+        rbac: {
+          roles: {
+            guest: {},
+            user: {},
+            normal: {},
+            editor: {},
+            'admin.users': { assignable: false, grants: ['users:read', 'users:update', 'authz:assignments.manage'] },
+            // May manage assignments and nothing else: AuthzAdmin's guard refuses it any role with more.
+            assigner: { grants: ['authz:assignments.manage'] },
+            'self-reader': { grants: [{ permission: 'user:read', relation: 'self' }, { permission: 'users:read', relation: 'self' }] },
+            admin: { extends: ['admin.users'] },
+          },
+          defaultRoles: ['user'],
+        },
+        admin: {
+          backend: 'DbAuthzAdminBackend',
+          // These suites may resolve their Configuration before authz's bootstrapper registers the core schema.
+          connection: 'default',
+          guard: {
+            service: 'DefaultAdminGuard',
+            privilegedPermission: 'users:update',
+            protectSystemRole: true,
+            preventEscalation: true,
+            preventSelfLockout: true,
+            preventLastPrivilegedRemoval: true,
+          },
         },
       },
 
@@ -270,8 +307,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           UserUnbanned: { connection: 'default-test-queue' },
           UserPasswordChanged: { connection: 'default-test-queue' },
           UserPasswordChangeRequest: { connection: 'default-test-queue' },
-          UserRoleGranted: { connection: 'default-test-queue' },
-          UserRoleRevoked: { connection: 'default-test-queue' },
           UserMetadataChange: { connection: 'default-test-queue' },
         },
 

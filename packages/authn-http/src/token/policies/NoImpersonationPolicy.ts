@@ -1,5 +1,6 @@
 import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
+import { NewInstance } from '@spinajs/di';
 // Same side-effect import both siblings carry. `req.storage.Impersonator` comes
 // from `@spinajs/authn-http`'s augmentation of `IActionLocalStoregeContext`,
 // which `@spinajs/authn-token`'s `interfaces.ts` pulls into the program ( type-only ).
@@ -29,6 +30,9 @@ import '@spinajs/authn-token';
  * operation that hands out lasting credentials has to be performed by the
  * account owner, not on their behalf.
  */
+// The 3.0 policy has this class name too and DI keys classes by name: a singleton would hand one class's instance
+// out for the other.
+@NewInstance()
 export class NoImpersonationPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;

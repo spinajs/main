@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
-import { AccessTokenGenerationProvider } from '../src/interfaces.js';
+import { AccessTokenGenerationProvider } from '../src/generation.js';
 import { SecureRandomTokenProvider } from '../src/generator.js';
 
 describe('SecureRandomTokenProvider', () => {
@@ -37,12 +37,36 @@ describe('SecureRandomTokenProvider', () => {
     expect(p.hash(t.Plaintext)).to.equal(t.Hash);
     expect(p.hash(t.Plaintext)).to.equal(p.hash(t.Plaintext));
   });
+
+  // An empty prefix or a length under 32 or not whole is refused by the authn schema (test/v3/config-schema.test.ts).
+  it('refuses to mint without a configured format or over 1024 characters', async () => {
+    const rows: Array<[unknown, unknown]> = [
+      [undefined, 32],
+      ['spt_', undefined],
+      ['spt_', 16],
+      ['spt_', 32.5],
+      // 4 + 1023 characters: TokenStrategy would never accept it
+      ['spt_', 767],
+    ];
+
+    for (const [prefix, length] of rows) {
+      const p = make();
+      Object.defineProperty(p, 'Prefix', { value: prefix, writable: true });
+      Object.defineProperty(p, 'Length', { value: length, writable: true });
+      const err = await p.generate().catch((e: unknown) => e);
+      expect(err, `prefix ${String(prefix)}, length ${String(length)}`).to.be.instanceOf(Error);
+      if (typeof prefix === 'string') {
+        expect((err as Error).constructor).to.equal(Error);
+        expect((err as Error).message).to.match(/authn\.token\.length|authn\.token\.prefix and/);
+      }
+    }
+  });
 });
 
 /**
- * Configuration whose `authn.token` block deliberately DIFFERS from the
- * `@Config` defaults baked into `SecureRandomTokenProvider`, so a token built
- * with the defaults cannot pass the assertion below.
+ * Configuration whose `authn.token.prefix` and `authn.token.length` differ
+ * from the defaults (`spt_`, 32), so a token built with the defaults cannot
+ * pass the assertion below.
  */
 class TokenConfigTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
@@ -55,7 +79,7 @@ class TokenConfigTestConfiguration extends FrameworkConfiguration {
         token: {
           generation: { service: 'SecureRandomTokenProvider' },
           prefix: 'tst_',
-          length: 16,
+          length: 48,
         },
       },
     };
@@ -94,10 +118,8 @@ describe('SecureRandomTokenProvider config wiring', function () {
 
     const token = await provider.generate();
 
-    // 16 random bytes base64url-encoded is 22 characters ( ceil(128 / 6) ),
-    // against 43 for the default 32 bytes - so this fails if the configured
-    // length is ignored.
-    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{22}$/);
+    // 48 random bytes base64url-encoded is 64 characters.
+    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{64}$/);
     expect(token.Hash).to.equal(createHash('sha256').update(token.Plaintext).digest('hex'));
   });
 });

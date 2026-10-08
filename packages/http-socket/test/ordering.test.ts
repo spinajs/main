@@ -7,7 +7,6 @@ import { SerialQueue } from '../src/queue.js';
 import { DI } from '@spinajs/di';
 import { SocketCommandStage } from '../src/interfaces.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
-import { assertOrderingConfig } from '../src/limits.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
 
 export const ordDone: string[] = [];
@@ -271,12 +270,5 @@ describe('socket ordered commands', function () {
     await a;
     await delay(50);
     expect(stage.Queue.Size).to.equal(0);
-  });
-
-  it('refuses a non-positive abort grace at startup', () => {
-    for (const bad of [0, -1, Number.NaN]) {
-      expect(() => assertOrderingConfig({ ordering: { abortGraceMs: bad } })).to.throw(RangeError);
-    }
-    expect(() => assertOrderingConfig({ ordering: { abortGraceMs: 1 } })).not.to.throw();
   });
 });

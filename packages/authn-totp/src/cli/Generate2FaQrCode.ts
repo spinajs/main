@@ -1,6 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import QRCode from 'qrcode';
 
 import { buildOtpAuthUrl } from '../2fa/otpUrl.js';

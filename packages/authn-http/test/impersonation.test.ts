@@ -374,6 +374,16 @@ describe('ImpersonationController', function () {
       expect(data(result).error.code).to.equal('E_PASSWORD_REQUIRED');
     });
 
+    it('401 E_PASSWORD_REQUIRED for any requirePassword but false set past the schema', async () => {
+      sinon.stub(controller as any, 'loadTarget').resolves(userTarget());
+      for (const value of [undefined, null, 0, '', 'false']) {
+        Object.defineProperty(controller, 'RequirePassword', { value, writable: true, configurable: true });
+        const result = await controller.start(adminCaller(), session({ ActiveRole: 'admin' }), new ImpersonateDto({ TargetUuid: 'user-uuid' }));
+        expect(result, String(value)).to.be.instanceOf(Unauthorized);
+        expect(data(result).error.code, String(value)).to.equal('E_PASSWORD_REQUIRED');
+      }
+    });
+
     it('401 E_PASSWORD_INVALID when password is wrong', async () => {
       const caller = adminCaller();
       sinon.stub(controller as any, 'loadTarget').resolves(userTarget());

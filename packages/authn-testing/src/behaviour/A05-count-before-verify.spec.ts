@@ -4,11 +4,19 @@ import type { ProbeBody } from '../harness/http.js';
 import { burst } from '../helpers/concurrency.js';
 import { ALICE, IP_A, IP_B, NOBODY, SPOOF_IP, WRONG, auth, expectAllowed, expectFailure, expectRefused, expectThrottled, isFailure, isThrottled, probe, pw, pwKeys, seedUser, send } from './steps.js';
 import { defineCase, defineRule } from './types.js';
-import type { AuthnRule } from './types.js';
+import type { AuthnRule, CaseKit } from './types.js';
 
 const LOGIN_ACCOUNT_1S = { authn: { throttle: { login: { account: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } };
 
-export const A05: AuthnRule = defineRule('A05', 'attempts are counted before verification, atomically per key', [
+/** More parallel requests than the default ip and account keys let through. */
+const PARALLEL = DEFAULT_THROTTLE.login.ip!.free + 10;
+
+/** Verifies, then fails the status check: the identity does not exist. */
+const ghost = { type: 'user', id: 'kit-ghost' } as const;
+
+const request = (k: CaseKit) => k.ctx({ purpose: 'request' });
+
+export const A05: AuthnRule = defineRule('A05', 'attempts are counted atomically per key: before verification, or after a failure for per-request strategies', [
   defineCase({
     name: 'A05 SR-05 parallel burst verifies only free attempts',
     facet: 'A05/store',
@@ -119,6 +127,55 @@ export const A05: AuthnRule = defineRule('A05', 'attempts are counted before ver
         expectThrottled(await auth(h, k, pw(ALICE.login, WRONG)), 1);
       }
       assert.strictEqual(h.spy.verifyCalls(), v);
+    },
+  }),
+  // K5: a per-request strategy (token, key) counts only its failures, so a busy client with a valid credential is not
+  // throttled; login methods keep the count before verify.
+  defineCase({
+    name: 'A05 parallel per-request calls with a valid credential all verify',
+    facet: 'A05/core',
+    needs: ['service', 'seed', 'attributed', 'spy'],
+    async run(h, k) {
+      const c = await h.attributed.credentials('per-request', await seedUser(h, ALICE));
+      const v0 = h.spy.verifyCalls();
+      const r = await burst(PARALLEL, () => h.service.authenticate(c, request(k)));
+      assert.strictEqual(r.count((x) => x.status === 'success'), PARALLEL, JSON.stringify(r.outcomes.find((o) => !o.ok || o.value.status !== 'success')));
+      assert.strictEqual(h.spy.verifyCalls() - v0, PARALLEL, 'verify calls');
+    },
+  }),
+  defineCase({
+    name: 'A05 per-request failures are counted and back off',
+    facet: 'A05/core',
+    needs: ['service', 'attributed', 'spy'],
+    config: LOGIN_ACCOUNT_1S,
+    async run(h, k) {
+      const c = await h.attributed.credentials('per-request', ghost);
+      expectFailure(await h.service.authenticate(c, request(k)), 'invalid_credentials');
+      const v = h.spy.verifyCalls();
+      for (let i = 0; i < 5; i++) {
+        expectThrottled(await h.service.authenticate(c, request(k)), 1, `refusal ${i + 1}`);
+      }
+      assert.strictEqual(h.spy.verifyCalls(), v, 'a throttled request verifies nothing');
+      k.clock.tick(1000);
+      expectFailure(await h.service.authenticate(c, request(k)), 'invalid_credentials', 'the slot at +1 s');
+      expectThrottled(await h.service.authenticate(c, request(k)), 1);
+    },
+  }),
+  defineCase({
+    name: 'A05 parallel interactive logins with a valid credential still count before verify',
+    facet: 'A05/core',
+    needs: ['service', 'seed', 'attributed', 'spy'],
+    async run(h, k) {
+      const free = DEFAULT_THROTTLE.login.account!.free;
+      const c = await h.attributed.credentials('interactive', await seedUser(h, ALICE));
+      const v0 = h.spy.verifyCalls();
+      const r = await burst(PARALLEL, () => auth(h, k, c));
+      assert.strictEqual(r.fulfilled().length, PARALLEL, 'no login rejects');
+      assert.strictEqual(h.spy.verifyCalls() - v0, free, 'verify calls');
+      assert.strictEqual(
+        r.count((x) => isThrottled(x, 1)),
+        PARALLEL - free,
+      );
     },
   }),
   defineCase({

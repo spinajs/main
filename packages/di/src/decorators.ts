@@ -1,9 +1,9 @@
 import { ResolveType } from './enums.js';
 import { IAutoinjectOptions, IInjectDescriptor } from './interfaces.js';
 import { Class } from './types.js';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 import * as DI from './root.js';
-import { isConstructor, isTypedArray } from './helpers.js';
+import { getTypeName, isChainArray, isConstructor, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
@@ -117,7 +117,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
               return i.Type === a;
             }
           } else {
-            return i.inject === a;
+            return !i.autoinject && i.inject === a;
           }
         })
       ) {
@@ -136,7 +136,8 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  * Automatically injects dependency based on reflected property type. Uses experimental typescript reflection api
  * If decorator is applied to array property all registered type instances are injected, otherwise only first / only that exists
  *
- * @param injectType - when injecting array of some type, type must be explicitly provided. Typescript reflection cant reflect declared array types
+ * @param injectType - when injecting array of some type, type must be explicitly provided. Typescript reflection cant reflect declared array types.
+ *                     `Array.chainOf(T)` injects the registrations of the resolving container and all its ancestors
  * @param mapFunc - when injecting array we sometimes need services mapped by some kind of key, so later we dont need to search o(n) elements for specific service, but reference by key/name
  * @example
  * ```javascript
@@ -158,11 +159,26 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  *
  * ```
  */
-export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
+export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array' || type.name === 'Map';
     let opt = options;
+
+    if (isChainArray(typeOrOptions)) {
+      if (!isArray) {
+        throw new Error(`@Autoinject(Array.chainOf(${getTypeName(typeOrOptions)})) needs an array or map property, ${String(propertyKey)} is not one`);
+      }
+
+      descriptor.inject.push({
+        autoinject: true,
+        autoinjectKey: propertyKey,
+        inject: typeOrOptions,
+        mapFunc: opt?.mapFunc,
+        options: opt?.options,
+      });
+      return;
+    }
 
     if (isConstructor(typeOrOptions)) {
       if (isArray && !typeOrOptions) {

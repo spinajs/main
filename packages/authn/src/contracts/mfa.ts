@@ -1,3 +1,4 @@
+import { SyncService } from '@spinajs/di';
 import type { IdentityRef } from './credentials.js';
 import type { AuthnFacts } from './principal.js';
 
@@ -23,8 +24,8 @@ export abstract class MfaStep {
   abstract disable(id: IdentityRef): Promise<void>;
 }
 
-/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. */
-export abstract class MfaPolicy {
+/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. A SyncService so an implementation can check its setup in `resolve()`. */
+export abstract class MfaPolicy extends SyncService {
   /** Names of the steps still to pass; empty: no MFA for this login. */
   abstract required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]>;
 }

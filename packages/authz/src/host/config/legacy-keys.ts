@@ -65,17 +65,12 @@ export function findLegacyKeys(rbac: unknown): LegacyKeyFinding[] {
   });
 }
 
-export function checkLegacyKeys(get: (path: string[]) => unknown, log: Pick<EngineLog, 'warn'>): void {
-  const rbac = get(['rbac']);
+export function checkLegacyKeys(rbac: unknown, reject: boolean, log: Pick<EngineLog, 'warn'>): void {
   if (rbac === undefined || rbac === null) return;
 
   const lines = findLegacyKeys(rbac).map((f) => `${f.path} -> ${f.to ?? 'removed'}${f.note && f.note !== 'removed' ? ` (${f.note})` : ''}`);
   const text = `Authz 3.x does not read the 2.x "rbac" configuration. Move these keys (the spinajs-authz-convert tool rewrites them): ${lines.join('; ')}`;
 
-  const config = get(['authz', 'config']);
-  if (config !== undefined && (config === null || typeof config !== 'object' || Array.isArray(config))) throw new AuthzConfigError('Authz configuration key authz.config must be an object');
-  const reject = config !== undefined && Object.hasOwn(config as object, 'rejectLegacyKeys') ? (config as Record<string, unknown>).rejectLegacyKeys : undefined;
-  if (reject !== undefined && typeof reject !== 'boolean') throw new AuthzConfigError('Authz configuration key authz.config.rejectLegacyKeys must be a boolean');
-  if (reject === true) throw new AuthzConfigError(text);
+  if (reject) throw new AuthzConfigError(text);
   log.warn(text);
 }

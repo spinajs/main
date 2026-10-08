@@ -4,7 +4,7 @@ import { Injectable } from '@spinajs/di';
 
 /**
  * Client IP address, as resolved by the RealIp middleware
- * (`req.storage.realIp`, X-Forwarded-For aware with socket fallback).
+ * (`req.storage.realIp`: X-Forwarded-For through http.trustProxy only, else the socket address).
  */
 @Injectable()
 export class IpRouteArgs extends RouteArgs {

@@ -142,6 +142,7 @@ describe('throttle contract', () => {
       expect(c.AuthnThrottle.members.map(({ doc: _doc, ...rest }) => rest)).to.deep.eq([
         { name: 'attempt', modifiers: ['abstract'], optional: false, params: ['keys', 'flow', 'ctx'] },
         { name: 'succeed', modifiers: ['abstract'], optional: false, params: ['keys', 'flow'] },
+        { name: 'checkConfiguration', modifiers: [], optional: true, params: ['configuration'] },
       ]);
     });
 
@@ -150,7 +151,8 @@ describe('throttle contract', () => {
       expect(c.doc).to.contain('Backoff, never a lock');
       expect(c.doc).to.contain('H31');
       const attempt = docOf(c.members, 'attempt');
-      expect(attempt).to.contain('Counts the attempt before verification and claims its slot atomically');
+      expect(attempt).to.contain('Counts the attempt and claims its slot atomically: before verification for interactive strategies, after a failure for');
+      expect(attempt).to.contain('per-request ones (K5)');
       expect(attempt).to.contain('a refused attempt is not counted');
       expect(attempt).to.contain('A05');
       expect(attempt).to.contain('A06');

@@ -1,5 +1,6 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { PasswordCredentialStore, PasswordService } from '@spinajs/authn/contracts';
@@ -42,11 +43,10 @@ export interface PasswordExpirationJobDeps {
  */
 @Injectable()
 export class PasswordExpirationJob {
-  // Code defaults: @spinajs/users still ships `authn.local.expiration` with its 2.x keys.
-  @Config('authn.local.expiration.enabled', { defaultValue: false })
+  @Config('authn.local.expiration.enabled')
   protected Enabled: boolean;
 
-  @Config('authn.local.expiration.maxAgeDays', { defaultValue: 31 })
+  @Config('authn.local.expiration.maxAgeDays')
   protected MaxAgeDays: number;
 
   @Logger('authn-local')
@@ -59,6 +59,7 @@ export class PasswordExpirationJob {
       return { idle: 'disabled', expired: 0, skipped: 0, failed: 0 };
     }
     const maxAgeDays = this.Deps ? (this.Deps.maxAgeDays ?? 31) : this.MaxAgeDays;
+    // A zero or negative age would expire every password at once (and NaN none), so it must stop the run, not pass the schema's word.
     if (typeof maxAgeDays !== 'number' || !Number.isFinite(maxAgeDays) || maxAgeDays <= 0) {
       throw new InvalidOption(`authn.local.expiration.maxAgeDays must be a positive number of days, got ${String(maxAgeDays)}`);
     }

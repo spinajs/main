@@ -25,7 +25,7 @@ export abstract class ScopeResolver {
   /** Attributes of one node for 'scope.<type>.*' and 'resource.*' refs (canvas: org policies, branch name). Must fill defaults. */
   attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
 }
-// Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
+// Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}. A type a boot-time adapter starts listing after boot is refused: using it throws AuthzConfigError.
 // A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
 
 export abstract class RelationResolver {

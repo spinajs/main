@@ -4,6 +4,8 @@ import { principalKey } from '@spinajs/authz';
 import type { Ceiling, Decision, Permission, Principal, PrincipalRef, PrincipalType, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import type { FakeRow } from '../fakes/index.js';
+import { agentPrincipal } from '../principals.js';
+import type { AgentOptions } from '../principals.js';
 import { readPath } from '../util.js';
 import { assertDecision, assertThrows, isThrows } from './expect.js';
 import type { BehaviourAuthz, LaneHandles, StepContext } from './harness.js';
@@ -116,14 +118,19 @@ export interface OrmModelSpec {
   readonly json?: readonly string[];
   readonly rows?: readonly FakeRow[];
   readonly junctions?: readonly OrmJunctionSpec[];
+  /** `@BelongsTo(target, column, 'id')` on the property `name` (RFC L4-1). */
+  readonly belongsTo?: readonly { readonly name: string; readonly target: string; readonly column: string }[];
 }
 
 export interface OrmWorld {
   readonly models: readonly OrmModelSpec[];
 }
 
-/** `model` names a model of `World.lane.orm` or one a lane package registers (`DbConfig`, `JobModel`). */
-export type OrmQuery = { readonly op: 'select'; readonly model: string; readonly where?: Readonly<Record<string, unknown>>; readonly clone?: boolean } | { readonly op: 'related'; readonly model: string; readonly id: string; readonly relation: string } | { readonly op: 'insert'; readonly model: string; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'update'; readonly model: string; readonly where: Readonly<Record<string, unknown>>; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'delete'; readonly model: string; readonly where: Readonly<Record<string, unknown>> };
+/**
+ * `model` names a model of `World.lane.orm` or one a lane package registers (`DbConfig`, `JobModel`).
+ * A select's `populate` names a `belongsTo` relation of the model, populated into the query (RFC L4-1).
+ */
+export type OrmQuery = { readonly op: 'select'; readonly model: string; readonly where?: Readonly<Record<string, unknown>>; readonly clone?: boolean; readonly populate?: string } | { readonly op: 'related'; readonly model: string; readonly id: string; readonly relation: string } | { readonly op: 'insert'; readonly model: string; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'update'; readonly model: string; readonly where: Readonly<Record<string, unknown>>; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'delete'; readonly model: string; readonly where: Readonly<Record<string, unknown>> };
 
 export interface FsProviderSpec {
   readonly name: string;
@@ -233,6 +240,8 @@ export interface OrmResult {
   readonly count?: number;
   /** Every SQL statement the query executed, in order. */
   readonly sql: readonly string[];
+  /** A select with `populate`: per row id it returned, the id of the populated target, null where the join found none. */
+  readonly populated?: Readonly<Record<string, string | null>>;
 }
 
 /** orm facet: queries run in the current ALS (as `authz().current()`); `rows` reads a table raw, unscoped. */
@@ -516,12 +525,14 @@ export interface OrmExpectation {
   readonly count?: number;
   /** Some executed statement has (true) or none has (false) a WHERE clause. */
   readonly where?: boolean;
+  /** Exactly `OrmResult.populated` (RFC L4-1). */
+  readonly populated?: Readonly<Record<string, string | null>>;
 }
 
 const WHERE = /\bwhere\b/i;
 
 export const orm = (q: OrmQuery, expect: OrmExpectation | LaneThrows): DoStep => {
-  const note = `orm ${q.op} ${q.model}${'where' in q && q.where ? ` ${short(q.where)}` : ''}${'id' in q ? ` ${q.id}.${q.relation}` : ''}`;
+  const note = `orm ${q.op} ${q.model}${'where' in q && q.where ? ` ${short(q.where)}` : ''}${'id' in q ? ` ${q.id}.${q.relation}` : ''}${'populate' in q && q.populate ? ` populate ${q.populate}` : ''}`;
   return {
     note,
     do: async (ctx) => {
@@ -536,6 +547,7 @@ export const orm = (q: OrmQuery, expect: OrmExpectation | LaneThrows): DoStep =>
           e.where,
           `${note}: WHERE in ${short(res.value.sql)}`,
         );
+      if (e.populated !== undefined) assert.deepEqual(res.value.populated, e.populated, `${note}: populated`);
     },
   };
 };
@@ -711,6 +723,12 @@ export const checkKept = (key: string, req: { readonly permission: Permission; r
     const d = await ctx.authz().check({ principal, permission: req.permission, ...(req.resource ? { resource: req.resource } : {}) });
     assertDecision(d, expect, `check ${key} ${req.permission}`);
   },
+});
+
+/** Keeps as `key` an agent `id` acting for the principal kept as `kept` (an app-built chain, RFC C5-1). */
+export const agentFor = (key: string, kept: string, id: string, opts: AgentOptions = {}): DoStep => ({
+  note: `agent ${id} for ${kept} kept as ${key}`,
+  do: async (ctx) => void stash(ctx).set(key, agentPrincipal(id, keptPrincipal(ctx, kept), opts)),
 });
 
 /** The decision's actor is the principal kept as `key`. */

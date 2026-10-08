@@ -3,6 +3,7 @@ import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';
@@ -90,7 +91,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
   @AutoinjectService('authn.session', SessionProvider)
   protected Store!: SessionProvider;
 
-  @Config('authn.session.pendingTtlSeconds', { defaultValue: 300 })
+  @Config('authn.session.pendingTtlSeconds')
   protected PendingTtlSeconds!: number;
 
   public async issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> {

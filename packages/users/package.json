@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./queue": {
+      "types": "./lib/mjs/queue/index.d.ts",
+      "import": "./lib/mjs/queue/index.js",
+      "require": "./lib/cjs/queue/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "queue": [
+        "lib/cjs/queue/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -52,9 +64,14 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/authn-local": "3.0.0-alpha.0",
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
+    "@spinajs/email": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/log": "2.0.549",
     "@spinajs/orm": "2.0.549",
@@ -64,15 +81,29 @@
     "@spinajs/validation": "2.0.549",
     "accesscontrol": "^2.2.1",
     "argon2": "^0.44.0",
-    "cron": "^2.2.0",
     "entropy-string": "^4.2.0",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
+  "peerDependencies": {
+    "@spinajs/authz-queue": "3.0.0-alpha.0"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authz-queue": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@spinajs/authn-testing": "3.0.0-alpha.0",
+    "@spinajs/authz-abac": "3.0.0-alpha.0",
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
+    "@spinajs/authz-queue": "3.0.0-alpha.0",
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
+    "@spinajs/orm-mssql": "2.0.549",
+    "@spinajs/orm-mysql": "2.0.549",
+    "@spinajs/orm-postgres": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
-    "@types/cron": "^2.0.0",
     "@types/entropy-string": "^4.2.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

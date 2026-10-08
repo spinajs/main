@@ -141,6 +141,9 @@ describe('SessionContextProvider', function () {
     await DI.resolve(Configuration);
     login = (await DI.resolve(LoginController)) as LoginController;
     activeRole = (await DI.resolve(ActiveRoleController)) as ActiveRoleController;
+    // No role asks for the password here; an unset list would ask for it on every switch. Set on the instance
+    // because sibling suites register their own TestConfiguration under the same DI name.
+    Object.defineProperty(activeRole, 'RolesRequiringPassword', { value: [], configurable: true, writable: true });
   });
 
   afterEach(() => {

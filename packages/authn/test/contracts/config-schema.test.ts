@@ -30,6 +30,7 @@ function appAjv(warnings: string[]): any {
     removeAdditional: true,
     useDefaults: true,
     coerceTypes: true,
+    $data: true,
   };
   const ajv = new (Ajv.default ?? Ajv)(options);
   (ajvMergePatch.default ?? ajvMergePatch)(ajv);
@@ -55,6 +56,22 @@ function refused(config: Json, instancePath: string): void {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+const TOTP_DEFAULTS = { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 };
+const LOCAL_DEFAULTS = {
+  hasher: { maxConcurrent: 8 },
+  pepper: { secret: null, version: 1 },
+  policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
+  generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
+  reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
+  invite: { ttlSeconds: 900 },
+  expiration: { enabled: false, maxAgeDays: 31 },
+};
+const SESSION_COOKIE_DEFAULTS = { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' };
+const SESSION_EXPIRATION_DEFAULTS = { ttl: 30, maxLifetime: 480 };
+const HTTP_DEFAULTS = { csrf: { enabled: true, allowedOrigins: [] } };
+const KEYS_DEFAULTS = { algorithms: ['EdDSA', 'ES256'], challenge: { ttlSeconds: 120, audience: null }, assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 }, httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } };
+const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
+
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
 const THROTTLE_DEFAULTS = {
   login: { account: LOGIN_ACCOUNT, ip: { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 } },
@@ -63,9 +80,10 @@ const THROTTLE_DEFAULTS = {
   reauth: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } },
   resetAfterSeconds: 86400,
   global: null as null | Json,
+  maxRows: 1_000_000,
 };
 
-// Design §22.5, with authn.oidc.providers holding one generic provider (discovery by issuer).
+// Design §22.5; authn.oidc has a schema of its own in @spinajs/authn-oidc.
 function example(): Json {
   return {
     strategies: [
@@ -95,6 +113,7 @@ function example(): Json {
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
     },
     throttle: { service: 'DbAuthnThrottle', ...clone(THROTTLE_DEFAULTS) },
+    config: { rejectLegacyKeys: false },
     freshAuth: { maxAgeSeconds: 300 },
     token: { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 },
     jwt: { issuers: [] },
@@ -105,17 +124,11 @@ function example(): Json {
     },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sinks: ['LogAuthnAuditSink', 'DbAuthnAuditSink'], sampleUse: 0.01, hashIdentifiers: true },
+    audit: { sampleUse: 0.01, hashIdentifiers: true },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
       routes: { prefix: 'auth' },
-    },
-    oidc: {
-      providers: {
-        corp: { issuer: 'https://id.example.com', clientId: 'spinajs-app', clientSecret: { secret: 'aws-parameters://authn/oidc/corp' } },
-      },
-      redirects: { success: '/', failure: '/login' },
     },
   };
 }
@@ -177,18 +190,16 @@ describe('authn.* configuration schema', () => {
 
   it('compiles under the app validator without strict-mode warnings', () => {
     ajv.compile(AUTHN_CONFIGURATION_SCHEMA);
-    expect(warnings).to.deep.eq([]);
+    expect(warnings, JSON.stringify(warnings)).to.deep.eq([]);
   });
 
-  it('declares every key of the design §22.5 example and authn.oidc', () => {
+  it('declares every key of the design §22.5 example', () => {
     const missing = leaves(example())
       .map(([p]) => p)
-      .filter((p) => !p.startsWith('oidc.providers.'))
       .filter((p) => !declared(p));
     expect(missing).to.deep.eq([]);
-    expect(declared('oidc.providers')).to.eq(true);
-    expect(declared('oidc.redirects.success')).to.eq(true);
-    expect(declared('oidc.redirects.failure')).to.eq(true);
+    // Two schemas on authn.oidc would report every violation twice; @spinajs/authn-oidc owns it.
+    expect(declared('oidc')).to.eq(false);
     expect(declared('config.rejectLegacyKeys')).to.eq(true);
     expect(declared('token.generation.service')).to.eq(true);
   });
@@ -197,7 +208,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq(example());
+      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 }, keys: KEYS_DEFAULTS });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -243,8 +254,8 @@ describe('authn.* configuration schema', () => {
       }
     });
 
-    it('accepts any otpauth algorithm name', () => {
-      expect(check({ mfa: { totp: { algorithm: 'sha-256' } } }).errors).to.deep.eq([]);
+    it('accepts the three TOTP algorithms', () => {
+      expect(check({ mfa: { totp: { algorithm: 'SHA256' } } }).errors).to.deep.eq([]);
     });
 
     it('takes tokens of at least 32 random bytes with a non-empty prefix (A14)', () => {
@@ -261,8 +272,8 @@ describe('authn.* configuration schema', () => {
   });
 
   describe('defaults', () => {
-    it('fills the throttle with the design §22.5 backoff when it is missing', () => {
-      expect(check({}).config).to.deep.eq({ throttle: THROTTLE_DEFAULTS });
+    it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -274,12 +285,19 @@ describe('authn.* configuration schema', () => {
       const r = check({ local: { hasher: {}, policy: {}, reset: {} }, session: { cookie: {} }, token: {}, impersonation: {}, audit: {}, http: { csrf: {} } });
       expect(r.errors).to.deep.eq([]);
       expect(r.config).to.deep.eq({
-        local: { hasher: { maxConcurrent: 8 }, policy: { minLength: 8, maxLength: 128 }, reset: { revokeTokens: true } },
-        session: { cookie: { sameSite: 'strict' }, hashIds: true },
-        token: { maxTtlDays: 90, agentMaxTtlMinutes: 1440 },
+        local: LOCAL_DEFAULTS,
+        session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true },
+        token: TOKEN_DEFAULTS,
+        jwt: { issuers: [] },
+        keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-        audit: { hashIdentifiers: true },
+        audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
+        strategies: [],
+        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS },
+        config: { rejectLegacyKeys: false },
+        freshAuth: { maxAgeSeconds: 300 },
+        linking: { jit: false, byVerifiedEmail: false },
         throttle: THROTTLE_DEFAULTS,
       });
     });
@@ -350,6 +368,7 @@ describe('authn.* configuration schema', () => {
       refused({ jwt: { issuers: [{ ...issuer, algorithms: ['none'] }] } }, '/jwt/issuers/0/algorithms/0');
       refused({ keys: { algorithms: ['RS256'] } }, '/keys/algorithms/0');
       refused({ mfa: { totp: { algorithm: '' } } }, '/mfa/totp/algorithm');
+      refused({ mfa: { totp: { algorithm: 'sha-256' } } }, '/mfa/totp/algorithm');
     });
 
     it('refuses a jwt issuer without keys, with both key sources, or with a skew over 60 s', () => {
@@ -402,19 +421,6 @@ describe('authn.* configuration schema', () => {
       refused({ local: { policy: { maxLength: 7 } } }, '/local/policy/maxLength');
       refused({ local: { policy: { maxLength: 129 } } }, '/local/policy/maxLength');
       expect(check({ local: { policy: { minLength: 12, maxLength: 64 } } }).ok).to.eq(true);
-    });
-
-    it('keeps oidc providers open but limits their names, as task 10 does', () => {
-      expect(check({ oidc: { providers: { 'a_b-9': { preset: 'google', anything: { nested: true } } } } }).ok).to.eq(true);
-      refused({ oidc: { providers: { 'Corp IdP': { issuer: 'https://id.example.com' } } } }, '/oidc/providers');
-      refused({ oidc: { providers: { ['a'.repeat(60)]: { issuer: 'https://id.example.com' } } } }, '/oidc/providers');
-      refused({ oidc: { providers: { corp: 'https://id.example.com' } } }, '/oidc/providers/corp');
-    });
-
-    it('refuses an oidc redirect that is not an app-relative path', () => {
-      refused({ oidc: { redirects: { success: '//evil.example.com' } } }, '/oidc/redirects/success');
-      refused({ oidc: { redirects: { failure: '/\\evil.example.com' } } }, '/oidc/redirects/failure');
-      refused({ oidc: { redirects: { failure: 'https://evil.example.com' } } }, '/oidc/redirects/failure');
     });
   });
 });

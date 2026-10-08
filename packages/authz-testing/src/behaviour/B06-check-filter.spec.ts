@@ -1,7 +1,7 @@
 import * as fc from 'fast-check';
 
 import { CORE_FILTER_OPS, GLOBAL } from '@spinajs/authz';
-import type { ResourceFilter, Value, Vote } from '@spinajs/authz';
+import type { FilterOp, ResourceFilter, Value, Vote } from '@spinajs/authz';
 
 import { row, vote } from '../arbitraries/index.js';
 import { FAKE_TUPLE_OP } from '../fakes/index.js';
@@ -23,12 +23,13 @@ const files = [
   { id: 'f3', owner: 'carol' },
 ];
 
-const fileAdapter = (compiles = CORE_FILTER_OPS) => ({
+// Leaves compiles out unless given, so an RBAC world's adapter also compiles the RBAC native ops (RFC L1-2).
+const fileAdapter = (compiles?: readonly FilterOp[]) => ({
   types: ['file'],
   rows: { file: files },
   parents: [[ref('file', 'f1'), P1] as const, [ref('file', 'f2'), P2] as const, [ref('file', 'f3'), P2] as const],
   relations: [OWNER],
-  compiles,
+  ...(compiles ? { compiles } : {}),
 });
 
 const ownerWorld: World = {

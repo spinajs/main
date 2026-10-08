@@ -47,6 +47,7 @@ const PUBLIC_API = [
   'ReadyStage',
   'Reason',
   'ReasonArg',
+  'SOCKET_CONFIGURATION_SCHEMA',
   'SOCKET_CONTROLLER_DESCRIPTOR',
   'SOCKET_DURATION_BUCKETS_SECONDS',
   'SOCKET_METRIC_KEY_COMMANDS',
@@ -66,6 +67,7 @@ const PUBLIC_API = [
   'SocketArgumentResolver',
   'SocketCommandContext',
   'SocketCommandStage',
+  'SocketConfigBootstrapper',
   'SocketConnection',
   'SocketController',
   'SocketDispatcher',
@@ -120,7 +122,7 @@ describe('@spinajs/http-socket public surface', () => {
   });
 
   it('keeps internal helpers out of the public surface', () => {
-    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest', 'ServerStream', 'assertStreamsConfig', 'isStreamResult']) {
+    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest', 'ServerStream', 'isStreamResult']) {
       expect(api, name).to.not.have.property(name);
     }
   });

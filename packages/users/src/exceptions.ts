@@ -45,6 +45,17 @@ export class UserNotActive extends AuthenticationException {}
 export class UserAlreadyExists extends RbacException {}
 
 /**
+ * Thrown by `create()` when a step after the grants failed: the account exists and keeps its roles, so a retry
+ * would get {@link UserAlreadyExists}. `data`: `user` (the Uuid), `resendInvite` (the invite was due and the invite
+ * call did not complete: send it with `PasswordService.invite`; false does not mean a mail went out, as an invite with
+ * no `PasswordMailer` completes without one), `error` (the failure's class; its message is left out, it may echo a
+ * secret).
+ */
+export class UserCreatedIncomplete extends RbacException {
+  public declare data: { user: string; resendInvite: boolean; error: string };
+}
+
+/**
  * Thrown when user metadata relation was not populated before use.
  */
 export class MetadataNotPopulated extends RbacException {}
@@ -60,7 +71,16 @@ export class MetadataNotFound extends RbacException {}
 export class EmailTemplateNotConfigured extends RbacException {}
 
 /**
+ * Thrown by the deprecated `changeUserPassword` when the stored password is no longer the one the caller loaded (a
+ * reset, an expiry or another change landed meanwhile): nothing was written. `data.user` is the Uuid.
+ */
+export class PasswordChangeConflict extends RbacException {}
+
+/**
  * Thrown when a password change / reset token has expired.
+ *
+ * @deprecated 3.0: nothing in users throws it; authn answers an expired secret like any invalid one (A11). R1 deletes
+ * it after N8a.
  */
 export class TokenExpired extends RbacException {}
 

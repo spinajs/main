@@ -1666,6 +1666,13 @@ export interface IBuilderMiddleware<T = any[]> {
  */
 export abstract class QueryMiddleware {
   /**
+   * Position in the pipeline: lower runs first, ties keep registration order. Both hooks
+   * follow it. authz scopes queries at 100 and intl-orm translates at 1000, so translation
+   * never runs on a query authz has not scoped yet.
+   */
+  public order = 0;
+
+  /**
    * Called from the builder's constructor, before the caller has added anything to it.
    *
    * @param query - the freshly constructed builder

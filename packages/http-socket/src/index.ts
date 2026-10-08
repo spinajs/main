@@ -22,3 +22,4 @@ export type { ISocketPolicyRequest } from './policies.js';
 export * from './access.js';
 export { SocketPrincipalGuard } from './principal-guard.js';
 export * from './metrics.js';
+export * from './schema.js';

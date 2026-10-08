@@ -4,7 +4,12 @@ import { TWO_FA_METATADATA_KEYS } from './2fa/Default2FaToken.js';
 
 export * from './interfaces.js';
 
-export * from './cli/EnableUser2Fa.js';
+export * from './cipher/index.js';
+export * from './store/index.js';
+export * from './step/index.js';
+export * from './service/index.js';
+
+export * from './cli/index.js';
 export * from './cli/Generate2FaQrCode.js';
 export * from './2fa/Default2FaToken.js';
 export * from './2fa/otpUrl.js';

@@ -1,16 +1,50 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
+
+export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
+
+/**
+ * Reads the Configuration owned by the nearest container (self or ancestor) that registers one.
+ * Never goes through `Container.get`'s parent walk: it matches by type name, so a same-named
+ * class in an ancestor would hand out the ancestor's instance.
+ */
+function getOwnConfiguration(container: IContainer): Configuration | null {
+  let owner: IContainer | undefined = container;
+  while (owner && !owner.Registry.ownsRegistration(Configuration)) {
+    owner = owner.Parent;
+  }
+  owner ??= DI.RootContainer;
+
+  const types = owner.getRegisteredTypes(Configuration, false) ?? [];
+  if (isFactory(types[types.length - 1])) {
+    // A factory result is never cached, so it can only be read by resolving it.
+    const resolved = owner.resolve(Configuration);
+    if (isPromise(resolved)) {
+      resolved.catch(() => undefined);
+      return null;
+    }
+    return resolved as Configuration;
+  }
+
+  return owner.get(Configuration, false);
+}
 
 /**
  * Injects configuration value into a class property.
  *
- * The decorated property is replaced with a lazy getter. Every read resolves the
- * {@link Configuration} service and calls `config.get(path, options.defaultValue)`,
+ * The decorated property is replaced with a lazy getter. Every read asks the
+ * {@link Configuration} of the container that built the instance, which must be resolved
+ * before the property is read, and calls `config.get(path, options.defaultValue)`,
  * so the property always reflects the current (possibly reloaded / watched) value
  * instead of a snapshot taken at construction time.
+ *
+ * Properties are read in `resolve()` or later. During the constructor or a field initializer
+ * the container is not injected yet, so the root Configuration is read (as for an instance
+ * built with `new`).
  *
  * Besides defining the getter, the decorator registers `{ path, options }` in the DI
  * container under `__configuration_property__`. Other modules listen for these
@@ -90,13 +124,23 @@ export function Config(path: string, options?: IConfigEntryOptions) {
     // register conf, so we can expose eg. in db if config is set
     DI.register({ path, options }).asValue('__configuration_property__');
 
-    const getter = () => {
-      const config = DI.get(Configuration)!;
-      return config.get(path, options ? options.defaultValue ?? undefined : undefined);
-    };
+    // The container is injected, not the (async) Configuration, so the class keeps resolving synchronously.
+    AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
+      if (!descriptor.inject.some((i) => i.autoinjectKey === CONFIGURATION_CONTAINER_KEY)) {
+        descriptor.inject.push({ autoinject: true, autoinjectKey: CONFIGURATION_CONTAINER_KEY, inject: Container, mapFunc: undefined });
+      }
+    })(target, key);
 
     Object.defineProperty(target, key, {
-      get: getter,
+      get(this: Record<string, IContainer | undefined>) {
+        const container = this[CONFIGURATION_CONTAINER_KEY];
+        const config = container ? getOwnConfiguration(container) : DI.get(Configuration);
+        if (!config) {
+          throw new InvalidOperation(`Cannot read configuration path ${path}: the Configuration of the container is not resolved`);
+        }
+
+        return config.get(path, options ? options.defaultValue ?? undefined : undefined);
+      },
       enumerable: false,
       configurable: false,
     });
@@ -125,10 +169,10 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         return x.ServiceName || x.constructor.name;
       },
       serviceFunc: (data: string | any[], container: IContainer) => {
-        const cfg = container.get(Configuration);
+        const cfg = getOwnConfiguration(container);
 
         if (!cfg) {
-          throw new Error(`Configuration service is not registered in DI container. Cannot autoinject service for property ${propertyKey.toString()}, path: ${data}`);
+          throw new InvalidOperation(`Cannot autoinject service for property ${propertyKey.toString()}, path: ${String(data)}: the Configuration of the container is not resolved`);
         }
 
         let cfgVal: any;

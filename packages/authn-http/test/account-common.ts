@@ -14,6 +14,8 @@ import compression from 'compression';
 
 import chaiSubset from 'chai-subset';
 
+import { registerRootSchemas } from './support/root-schemas.js';
+
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
@@ -28,6 +30,7 @@ export function dir(path: string) {
 
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
+    registerRootSchemas();
     await super.resolve();
 
     this.Config = {

@@ -202,6 +202,41 @@ export const A06: AuthnRule = defineRule('A06', 'backoff per key, never a lock',
     },
   }),
   defineCase({
+    name: "A06 a per-request success leaves other credentials' failures on the ip key",
+    facet: 'A06/core',
+    needs: ['service', 'seed', 'attributed'],
+    config: { authn: { throttle: { login: { ip: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } } } } },
+    async run(h, k) {
+      const request = () => k.ctx({ purpose: 'request' });
+      const good = await h.attributed.credentials('per-request', await seedUser(h, ALICE));
+      const ghost = (i: number) => h.attributed.credentials('per-request', { type: 'user', id: `kit-ghost-${i}` });
+      for (let i = 0; i < 3; i++) {
+        expectFailure(await h.service.authenticate(await ghost(i), request()), 'invalid_credentials', `ghost ${i + 1}`);
+        if (i < 2) expectSuccess(await h.service.authenticate(good, request()), `owner ${i + 1}`);
+      }
+      expectThrottled(await h.service.authenticate(await ghost(3), request()), 1, 'the ip key holds the three failures');
+      expectThrottled(await h.service.authenticate(good, request()), 1, 'a valid credential waits on the ip key too');
+    },
+  }),
+  // K6: a per-request credential id travels in clear (a key id), so its backoff is per credential and ip.
+  defineCase({
+    name: "A06 per-request failures from another ip never delay the credential's owner, and still back off the attacker",
+    facet: 'A06/core',
+    needs: ['service', 'seed', 'attributed'],
+    config: { authn: { throttle: { login: { account: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } },
+    async run(h, k) {
+      const at = (ip: string) => k.ctx({ purpose: 'request', ip });
+      const alice = await seedUser(h, ALICE);
+      const c = await h.attributed.credentials('per-request', alice);
+      await h.seed.setStatus(alice, { banned: true });
+      expectFailure(await h.service.authenticate(c, at(IP_B)), 'invalid_credentials', 'the attacker fails once');
+      expectThrottled(await h.service.authenticate(c, at(IP_B)), 1, 'the attacker backs off');
+      await h.seed.setStatus(alice, { banned: false });
+      expectSuccess(await h.service.authenticate(c, at(IP_A)), 'the owner from another ip');
+      expectThrottled(await h.service.authenticate(c, at(IP_B)), 1, 'the attacker still waits');
+    },
+  }),
+  defineCase({
     name: 'A06 MFA attempts count in the mfa flow',
     facet: 'A06/core',
     needs: ['service', 'seed', 'mfa'],

@@ -1,5 +1,5 @@
 import { AuthnService } from '@spinajs/authn/contracts';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -13,6 +13,8 @@ export interface FakeAuthnServiceDeps {
   /** Read at publish time, so a sink may be added after the service is built. */
   readonly sinks: readonly AuthnEventSink[];
   readonly principals: PrincipalFactory;
+  /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
+  readonly hooks?: () => readonly ExternalLoginHook[];
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -21,12 +23,18 @@ type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 const failure = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 const throttled = (retryAfterSeconds: number): Failure => ({ status: 'failure', reason: 'throttled', retryAfterSeconds });
 
+type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
+/** The optional `peek` of @spinajs/authn's PeekableThrottle: whether a delay holds any key, counting nothing. */
+type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) => Promise<Verdict>;
+
 /**
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
- * route by credential kind, count the attempt (strategy keys + ip) before verify, audit every failure with its real
- * reason, answer status refusals as invalid_credentials, link or provision external subjects, issue a pending
- * session when MFA is required, elevate on completeMfa, and re-authenticate without touching the session.
- * A fake, not N1's implementation.
+ * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
+ * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
+ * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
+ * any session, issue a pending session when MFA is required, elevate on completeMfa, and re-authenticate without
+ * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
 export class FakeAuthnService extends AuthnService {
   /** Subclasses may turn this off to claim the slot only after verification (the A05 mutation check). */
@@ -60,14 +68,22 @@ export class FakeAuthnService extends AuthnService {
     return [...base, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
   }
 
-  private async linkedIdentity(external: ExternalSubject): Promise<IdentityRef | null> {
+  /** Past an existing link, each way needs the global switch and the strategy's own `linkingFor` switch (K6). */
+  private async linkedIdentity(s: AuthenticationStrategy, external: ExternalSubject): Promise<IdentityRef | null> {
     const link = await this.d.links.find(external.provider, external.subject);
     if (link) return link.identity;
+    const linkingFor = (s as { linkingFor?: (e: ExternalSubject) => { jit?: unknown; byVerifiedEmail?: unknown } }).linkingFor;
+    let own: { jit?: unknown; byVerifiedEmail?: unknown } = {};
+    try {
+      if (typeof linkingFor === 'function') own = linkingFor.call(s, external) ?? {};
+    } catch {
+      own = {};
+    }
     let id: IdentityRef | null = null;
-    if (this.d.linking.byVerifiedEmail && external.emailVerified && external.email) {
+    if (this.d.linking.byVerifiedEmail && own.byVerifiedEmail === true && external.emailVerified && external.email) {
       id = await this.d.identities.findByLogin(external.email);
     }
-    if (!id && this.d.linking.jit && this.d.identities.provision) {
+    if (!id && this.d.linking.jit && own.jit === true && this.d.identities.provision) {
       id = await this.d.identities.provision(external);
     }
     if (id) await this.d.links.link(id, external);
@@ -84,25 +100,42 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return failure('unsupported_credentials');
     }
-    const keys = this.keysFor(s.throttleKeys(c, ctx), ctx);
-    const gate = async () => {
-      const t = await this.d.throttle.attempt(keys, 'login', ctx);
-      if (!t.allowed) {
-        await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });
-        return throttled(t.retryAfterSeconds);
-      }
-      return null;
+    // As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody
+    // elsewhere can hold it in backoff.
+    const prefix = s.interactive ? 'login:' : 'request:';
+    const own = s.throttleKeys(c, ctx).map((k) => {
+      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
+      if (k.kind !== 'account') return k;
+      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ctx.ip ?? ''}` };
+    });
+    const keys = this.keysFor(own, ctx);
+    const refuse = async (t: Verdict) => {
+      if (t.allowed) return null;
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });
+      return throttled(t.retryAfterSeconds);
     };
+    const peek = (this.d.throttle as { peek?: Peek }).peek;
+    if (this.countBeforeVerify && !s.interactive && typeof peek === 'function') {
+      const early = await refuse(await peek.call(this.d.throttle, keys, 'login', ctx));
+      if (early) return early;
+      const r = await this.settle(s, await s.verify(c, ctx), keys, ctx);
+      return r.status === 'success' ? r : ((await refuse(await this.d.throttle.attempt(keys, 'login', ctx))) ?? r);
+    }
+    const gate = async () => refuse(await this.d.throttle.attempt(keys, 'login', ctx));
     const early = this.countBeforeVerify ? await gate() : null;
     if (early) return early;
     const r = await s.verify(c, ctx);
     const late = this.countBeforeVerify ? null : await gate();
     if (late) return late;
+    return this.settle(s, r, keys, ctx);
+  }
+
+  private async settle(s: AuthenticationStrategy, r: StrategyOutcome, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
     if (!r.ok) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: r.reason });
       return failure(r.reason);
     }
-    const id = r.identity ?? (r.external ? await this.linkedIdentity(r.external) : null);
+    const id = r.identity ?? (r.external ? await this.linkedIdentity(s, r.external) : null);
     if (!id) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: 'not_linked' });
       return failure('not_linked');
@@ -111,6 +144,14 @@ export class FakeAuthnService extends AuthnService {
     if (refused) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
       return failure('invalid_credentials');
+    }
+    if (s.interactive && r.external && this.d.hooks) {
+      try {
+        for (const hook of this.d.hooks()) await hook.afterLogin(id, r.external);
+      } catch (err) {
+        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: 'hook_error', data: { error: err instanceof Error ? err.name : typeof err } });
+        return failure('invalid_credentials');
+      }
     }
     await this.d.throttle.succeed(keys, 'login');
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };

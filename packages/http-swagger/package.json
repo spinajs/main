@@ -26,7 +26,7 @@
     "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -68,6 +68,8 @@
     "swagger-ui-dist": "^5.0.0"
   },
   "devDependencies": {
+    "@spinajs/authz-http": "3.0.0-alpha.0",
+    "@spinajs/orm": "2.0.549",
     "cpx": "1.5.0"
   }
 }

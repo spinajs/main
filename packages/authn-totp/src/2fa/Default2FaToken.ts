@@ -1,6 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { User } from '@spinajs/users';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { TwoFactorAuthProvider } from "../interfaces.js";
 import * as OTPAuth from "otpauth";
@@ -12,6 +13,7 @@ export enum TWO_FA_METATADATA_KEYS {
     OTP = "2fa:otp",
 }
 
+/** @deprecated Use `TotpMfaStep`, which encrypts the secret and accepts each code once. */
 @Injectable(TwoFactorAuthProvider)
 export class Default2FaToken extends TwoFactorAuthProvider {
     @Config('authn.mfa.totp')

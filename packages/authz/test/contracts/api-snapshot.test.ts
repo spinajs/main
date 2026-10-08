@@ -477,7 +477,9 @@ describe('API snapshot of the frozen contracts', function () {
   });
 
   describe('the repository', () => {
-    it('matches the committed snapshots (--check)', () => {
+    it('matches the committed snapshots (--check)', function () {
+      // The check builds every package's declarations; alone it took 93-201 s on a loaded machine.
+      this.timeout(600_000);
       const res = spawnSync(process.execPath, [SCRIPT, '--check'], { cwd: REPO_ROOT, encoding: 'utf8' });
       expect(res.status, `${res.stdout}\n${res.stderr}`).to.eq(0);
     });

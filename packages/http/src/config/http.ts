@@ -80,17 +80,6 @@ const http = {
 
     },
     
-    /**
-     * Per-ip, per-route rate limiting ( ThrottleMiddleware ). Disabled by
-     * default - enable and add rules per app, eg. for the unauthenticated
-     * auth surface:
-     *   rules: [{ path: '/auth', methods: ['POST'], limit: 10, windowSeconds: 60 }]
-     */
-    throttle: {
-      enabled: false,
-      rules: [] as { path: string; methods?: string[]; limit: number; windowSeconds: number }[],
-    },
-
     ssl: {
       key: '',
       cert: '',
@@ -103,7 +92,9 @@ const http = {
     },
     port: 1337,
     middlewares: [
-      helmet(),
+      // helmet's default no-referrer makes browsers send `Origin: null` on same-origin
+      // form posts, which authn-http's CSRF guard (A22) refuses.
+      helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
       express.json({
         limit: '5mb',
         // Capture the exact received bytes for the @RawBody() route arg

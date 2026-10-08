@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { SocketException } from '@spinajs/http-socket-common';
-import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
+import { TokenBucket, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
 
 describe('socket limit primitives', () => {
   describe('payloadSize', () => {
@@ -93,65 +93,6 @@ describe('socket limit primitives', () => {
       expect((caught as SocketException).toWire()).to.deep.equal({ code: 'resource_exhausted', message: 'rate limit exceeded', retryable: true, retryAfterMs: 250 });
       now = 250;
       expect(() => assertRate(bucket)).not.to.throw();
-    });
-  });
-
-  describe('assertHooksConfig', () => {
-    it('refuses a connect hook timeout that is not a positive number', () => {
-      for (const bad of [0, -1, Number.NaN, undefined, '5']) {
-        expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: bad as number } }), String(bad)).to.throw(RangeError);
-      }
-      expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: 1 } })).not.to.throw();
-    });
-  });
-
-  describe('assertLimitsConfig', () => {
-    const ok: Parameters<typeof assertLimitsConfig>[0] = {
-      rate: { perSecond: 50, burst: 100 },
-      maxPayloadBytes: 1024 * 1024,
-      maxInFlightPerConnection: 32,
-      maxInFlightEventsPerConnection: 128,
-      auth: { required: false, revalidateMs: 60_000 },
-      transports: ['websocket', 'polling'],
-    };
-    const refuses = (patch: Record<string, unknown>, label: string) => expect(() => assertLimitsConfig({ ...ok, ...patch } as typeof ok), label).to.throw(RangeError);
-
-    it('accepts the defaults and an event cap equal to the burst', () => {
-      expect(() => assertLimitsConfig(ok)).not.to.throw();
-      expect(() => assertLimitsConfig({ ...ok, maxInFlightEventsPerConnection: 100 })).not.to.throw();
-    });
-
-    it('refuses an event cap that is not an integer or is below the burst', () => {
-      for (const bad of [0, -1, 1.5, 99, Number.NaN, undefined]) {
-        expect(() => assertLimitsConfig({ ...ok, maxInFlightEventsPerConnection: bad as number }), String(bad)).to.throw(RangeError);
-      }
-    });
-
-    it('refuses a payload limit that is not a finite integer above 0', () => {
-      for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, undefined, '1024']) {
-        refuses({ maxPayloadBytes: bad }, String(bad));
-      }
-    });
-
-    it('refuses a command in-flight cap that is not an integer above 0', () => {
-      for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, undefined, '32']) {
-        refuses({ maxInFlightPerConnection: bad }, String(bad));
-      }
-    });
-
-    it('refuses a revalidation interval that is not a finite number of at least 0, and accepts 0', () => {
-      for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, undefined, '60000']) {
-        refuses({ auth: { required: false, revalidateMs: bad } }, String(bad));
-      }
-      expect(() => assertLimitsConfig({ ...ok, auth: { required: false, revalidateMs: 0 } })).not.to.throw();
-    });
-
-    it('refuses an empty transport list or an unknown transport, and accepts either one alone', () => {
-      for (const bad of [[], ['webtransport'], ['websocket', 'flash'], 'websocket', null]) {
-        refuses({ transports: bad }, JSON.stringify(bad));
-      }
-      expect(() => assertLimitsConfig({ ...ok, transports: ['websocket'] })).not.to.throw();
-      expect(() => assertLimitsConfig({ ...ok, transports: ['polling'] })).not.to.throw();
     });
   });
 });

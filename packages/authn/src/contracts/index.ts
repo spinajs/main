@@ -16,3 +16,4 @@ export * from './keys.js';
 export * from './jws.js';
 export * from './extractor.js';
 export * from './hooks.js';
+export * from './fresh.js';

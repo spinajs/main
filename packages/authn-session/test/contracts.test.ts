@@ -360,7 +360,7 @@ describe('@spinajs/authn-session contracts', function () {
 
     it('imports only what the package may depend on', () => {
       const specs = ts.preProcessFile(readFileSync(SRC_FILE, 'utf8'), true, true).importedFiles.map((f) => f.fileName);
-      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/configuration', '@spinajs/di', 'luxon']);
+      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/authn/register-schema', '@spinajs/configuration', '@spinajs/di', 'luxon']);
     });
 
     it('docs carry the rules a reader needs', () => {
@@ -470,7 +470,8 @@ describe('@spinajs/authn-session contracts', function () {
     it('the configured service name is read from authn.session.expiration', () => {
       const meta = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, SessionProvider) as IInjectDescriptor<unknown>;
       const cfg = { [KEY]: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 } } as Record<string, unknown>;
-      const container = { get: () => ({ get: (path: string) => cfg[path] }) } as unknown as IContainer;
+      // What the owner lookup of AutoinjectService reads: a container that owns a resolved Configuration.
+      const container = { Registry: { ownsRegistration: () => true }, getRegisteredTypes: () => [], get: () => ({ get: (path: string) => cfg[path] }) } as unknown as IContainer;
       expect(meta.inject[0].serviceFunc!(KEY, container)).to.deep.eq({ service: 'SlidingCappedExpiration', options: cfg[KEY] });
     });
 
@@ -514,8 +515,9 @@ describe('@spinajs/authn-session contracts', function () {
         const before = p.before as Snapshot;
         const after = p.after as Snapshot;
         expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
-        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the pending TTL
-        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'] });
+        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the
+        // pending TTL; the authn schema those properties read is registered at import.
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object'] });
         expect(after.events).to.deep.eq(before.events);
       };
 

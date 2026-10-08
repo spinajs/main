@@ -119,6 +119,7 @@ class OwnerFieldPolicy extends OrmPermissionPolicy {
   }
 }
 
+/** @deprecated 3.0: @spinajs/authz-orm scoping (@AccessResource, OrmScopePolicy); runAs(SYSTEM, 'reason', fn) or @Unscoped('reason') instead of SkipModelPermissionCheck. R1 deletes it. */
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
   @Logger('RBAC')

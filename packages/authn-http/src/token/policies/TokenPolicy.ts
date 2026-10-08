@@ -49,6 +49,10 @@ import '@spinajs/authn-token';
  * this policy reads the same route permission metadata, and a route without it
  * silently inherits the controller-level default `['readOwn']` rather than
  * failing loudly.
+ *
+ * @deprecated 2.x API. No 3.0 controller uses it: a token request is a
+ * principal like any other and `@Access` checks it, with the token roles
+ * and `authz.token.*` applied inside RBAC. R1 removes it.
  */
 export class TokenPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {

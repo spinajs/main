@@ -7,5 +7,5 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*", "test/**/*"],
-  "references": [{ "path": "../authz/tsconfig.json" }, { "path": "../fs/tsconfig.json" }]
+  "references": [{ "path": "../authz/tsconfig.json" }, { "path": "../authz-abac/tsconfig.json" }, { "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../fs/tsconfig.json" }, { "path": "../http/tsconfig.json" }, { "path": "../authz-testing/tsconfig.json" }, { "path": "../log-common/tsconfig.json" }, { "path": "../orm/tsconfig.json" }, { "path": "../orm-sqlite/tsconfig.json" }, { "path": "../authz-rbac/tsconfig.json" }, { "path": "../fs-s3/tsconfig.json" }, { "path": "../orm-postgres/tsconfig.json" }, { "path": "../orm-mysql/tsconfig.json" }]
 }

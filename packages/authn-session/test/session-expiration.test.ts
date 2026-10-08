@@ -1,7 +1,9 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
+import shipped from '../src/config/session.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
 
 async function withConfig(expiration: unknown) {
@@ -115,15 +117,20 @@ describe('Session expiration strategy defaults', () => {
     uncacheOwned();
   });
 
-  it('without ttl and maxLifetime, the built-in defaults equal the shipped config: 30 and 480 minutes', async () => {
+  it('the schema defaults ttl and maxLifetime to the shipped config: 30 and 480 minutes', () => {
+    const expiration = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: { expiration: { properties: Record<string, { default?: unknown }> } } } } }).properties.session.properties.expiration.properties;
+    expect({ ttl: expiration.ttl.default, maxLifetime: expiration.maxLifetime.default }).to.deep.equal({ ttl: 30, maxLifetime: 480 });
+    expect(shipped.authn.session.expiration).to.deep.include({ ttl: 30, maxLifetime: 480 });
+  });
+
+  it('without a ttl and maxLifetime the schema filled, a session expires at once instead of living on', async () => {
+    // The test configuration merges its overrides after the schema check, as a runtime set would.
     await withConfig({ service: 'SlidingCappedExpiration', ttl: undefined, maxLifetime: undefined });
     const capped = await DI.resolve(SlidingCappedExpiration);
     const absolute = await DI.resolve(AbsoluteExpiration);
 
     const session = new UserSession();
-    closeTo(capped.initial(session), DateTime.now().plus({ minutes: 30 }));
-    session.Creation = DateTime.now().minus({ minutes: 470 });
-    closeTo(capped.renew(session), session.Creation.plus({ minutes: 480 }));
-    closeTo(absolute.initial(session), session.Creation.plus({ minutes: 30 }));
+    expect(capped.initial(session)!.toMillis()).to.be.at.most(DateTime.now().toMillis());
+    expect(absolute.initial(session)!.toMillis()).to.equal(session.Creation.toMillis());
   });
 });

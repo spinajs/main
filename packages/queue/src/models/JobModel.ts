@@ -112,6 +112,11 @@ export class JobModel<T = unknown> extends ModelBase {
 
   public Connection: string;
 
+  /** Principal type of the emitter ( `message.Initiator` ); null when the job was emitted without one. */
+  public InitiatorType?: string;
+
+  public InitiatorId?: string;
+
   @CreatedAt()
   public CreatedAt: DateTime;
 

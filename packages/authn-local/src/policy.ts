@@ -3,6 +3,7 @@ import AjvModule from 'ajv';
 import type { ValidateFunction } from 'ajv';
 import { Class, DI, Injectable, SyncService } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
 
@@ -74,25 +75,23 @@ export function isLoginLength(password: string): boolean {
 /** `check`, `policy` and the generator behind `PasswordService` (A04, SR-14). Passwords are never trimmed or normalised. */
 @Injectable()
 export class LocalPasswordPolicy extends SyncService {
-  @Config('authn.local.policy.minLength', { defaultValue: PASSWORD_MIN_LENGTH })
+  @Config('authn.local.policy.minLength')
   protected MinLength: number;
 
-  @Config('authn.local.policy.maxLength', { defaultValue: PASSWORD_MAX_LENGTH })
+  @Config('authn.local.policy.maxLength')
   protected MaxLength: number;
 
-  @Config('authn.local.policy.rule', { defaultValue: null })
+  @Config('authn.local.policy.rule')
   protected Rule: object | null;
 
-  @Config('authn.local.policy.description', { defaultValue: undefined as string | undefined })
+  @Config('authn.local.policy.description')
   protected Description: string | undefined;
 
-  // Code default instead of a shipped config value: @spinajs/users still ships this key, and its `characters` array would be
-  // concatenated with ours by the config merge.
-  @Config('authn.local.generator', { defaultValue: DEFAULT_GENERATOR })
+  @Config('authn.local.generator')
   protected Generator: GeneratorConfig;
 
   // A name read here and resolved below rather than @AutoinjectService, which logs a warning on every boot for the default null.
-  @Config('authn.local.policy.blocklist', { defaultValue: null })
+  @Config('authn.local.policy.blocklist')
   protected BlocklistName: string | null;
 
   private _settings?: PolicySettings;
@@ -142,13 +141,8 @@ export class LocalPasswordPolicy extends SyncService {
    */
   public generate(): string {
     const { minLength, maxLength } = this.settings;
-    const options = (this.Options ? this.Options.generator : this.Generator) ?? DEFAULT_GENERATOR;
-    const length = options.length ?? DEFAULT_GENERATOR.length;
-    const pool = [...new Set([...(options.characters ?? DEFAULT_GENERATOR.characters).join('')])];
-
-    if (!Number.isInteger(length) || length < 1 || pool.length === 0) {
-      throw new UnexpectedServerError('authn.local.generator must define a positive length and a non-empty character pool');
-    }
+    const { length, characters } = this.Options ? { ...DEFAULT_GENERATOR, ...this.Options.generator } : this.Generator;
+    const pool = [...new Set([...characters.join('')])];
 
     if (length < minLength || length > maxLength) {
       throw new UnexpectedServerError(`authn.local.generator.length ${length} is outside authn.local.policy bounds ${minLength}–${maxLength}`);
@@ -230,25 +224,15 @@ export class LocalPasswordPolicy extends SyncService {
     const minLength = options.minLength ?? PASSWORD_MIN_LENGTH;
     const maxLength = options.maxLength ?? PASSWORD_MAX_LENGTH;
 
-    for (const [key, value] of [
-      ['minLength', minLength],
-      ['maxLength', maxLength],
-    ] as const) {
-      if (typeof value !== 'number' || !Number.isInteger(value) || value < PASSWORD_MIN_LENGTH || value > PASSWORD_MAX_LENGTH) {
-        throw new InvalidOption(`authn.local.policy.${key} must be an integer from ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH}, got ${String(value)}`);
-      }
-    }
-
-    if (minLength > maxLength) {
-      throw new InvalidOption(`authn.local.policy.minLength ${minLength} is above maxLength ${maxLength}`);
+    // A seam or a raw config can skip the schema's minimum; a shorter one, or a NaN or string that no length is below,
+    // would accept weak passwords at set time.
+    if (!(Number.isInteger(minLength) && minLength >= PASSWORD_MIN_LENGTH)) {
+      throw new InvalidOption(`authn.local.policy.minLength must be at least ${PASSWORD_MIN_LENGTH}, got ${minLength}`);
     }
 
     const schema = options.rule ?? null;
     let rule: ValidateFunction | null = null;
     if (schema !== null) {
-      if (typeof schema !== 'object' || Array.isArray(schema)) {
-        throw new InvalidOption('authn.local.policy.rule must be a JSON schema object or null');
-      }
       try {
         rule = new Ajv().compile(schema);
       } catch (err) {

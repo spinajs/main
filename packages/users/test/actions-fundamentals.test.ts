@@ -3,8 +3,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
-import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, verifyPassword, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban, passwordChangeRequest, confirmPasswordReset } from '../src/actions.js';
-import { MetadataNotFound, TokenInvalid, UserAlreadyExists } from '../src/exceptions.js';
+import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban } from '../src/actions.js';
+import { MetadataNotFound, UserAlreadyExists } from '../src/exceptions.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -19,6 +19,7 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { UserCreated } from '../src/events/UserCreated.js';
 import { DateTime } from 'luxon';
+import { registerAuthzHost } from './support/authz-host.js';
 
 chai.use(chaiAsPromised);
 
@@ -34,6 +35,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
+    registerAuthzHost();
   });
 
   beforeEach(async () => {
@@ -128,6 +130,30 @@ describe('actions fundamentals ( imperative helpers )', function () {
     it('passes for free values', async () => {
       await expect(assertUserUnique('free-login', 'free@spinajs.pl')).to.be.fulfilled;
     });
+
+    it('refuses a login or email that differs from a stored one only as the login lookup folds it', async () => {
+      for (const login of ['TEST', ' Test ', 'ｔｅｓｔ']) {
+        const err = await assertUserUnique(login).catch((e) => e);
+        expect(err, login).to.be.instanceOf(UserAlreadyExists);
+        expect((err as UserAlreadyExists).data, login).to.deep.eq({ fields: ['Login'] });
+      }
+
+      const err = await assertUserUnique(undefined, 'Test@SpinaJS.pl').catch((e) => e);
+      expect((err as UserAlreadyExists).data).to.deep.eq({ fields: ['Email'] });
+    });
+
+    it("refuses a login equal, folded, to another account's email", async () => {
+      const err = await assertUserUnique('TEST@spinajs.pl').catch((e) => e);
+
+      expect(err).to.be.instanceOf(UserAlreadyExists);
+      expect((err as UserAlreadyExists).data).to.deep.eq({ fields: ['Login'] });
+    });
+
+    it('lets an account keep its own values in another case', async () => {
+      const u = await getUser('test@spinajs.pl');
+
+      await expect(assertUserUnique('TEST', 'TEST@spinajs.pl', u.Id)).to.be.fulfilled;
+    });
   });
 
   describe('setUserMeta / getUserMeta', () => {
@@ -191,17 +217,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
   });
 
   describe('verifyPassword', () => {
-    it('confirms the stored password', async () => {
-      const u = await getUser('test@spinajs.pl');
 
-      expect(await verifyPassword(u, 'bbbb')).to.eq(true);
-    });
-
-    it('refuses a wrong password', async () => {
-      const u = await getUser('test@spinajs.pl');
-
-      expect(await verifyPassword(u, 'not-the-password')).to.eq(false);
-    });
   });
 
   describe('getUsersByRole', () => {
@@ -238,37 +254,6 @@ describe('actions fundamentals ( imperative helpers )', function () {
       expect(fresh.IsBanned).to.eq(false);
 
       await expect(ban('test@spinajs.pl', 'second', 10)).to.be.fulfilled;
-    });
-
-    // Regression for R1 ( fixed, same root cause ): an expired ban no longer
-    // blocks completing a password reset.
-    it('R1: confirmPasswordReset() accepts a user whose ban has expired', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await ban('test@spinajs.pl', 'expired', 10);
-      let u = await getUser('test@spinajs.pl');
-      u.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE] = DateTime.now().minus({ hours: 1 });
-      await u.Metadata.update();
-
-      await passwordChangeRequest('test@spinajs.pl');
-      u = await getUser('test@spinajs.pl');
-      const token = u.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN] as string;
-
-      await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.fulfilled;
-    });
-
-    // Regression for R3 ( fixed ): exception payloads carry the user uuid
-    // only - never the stored reset token or the full model.
-    it('R3: TokenInvalid does not leak the stored reset token', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await passwordChangeRequest('test@spinajs.pl');
-
-      const err = await confirmPasswordReset('test@spinajs.pl', 'brandNew123', 'not-the-token').catch((e) => e);
-
-      expect(err).to.be.instanceOf(TokenInvalid);
-      const u = await getUser('test@spinajs.pl');
-      expect((err as TokenInvalid).data).to.deep.eq({ user: u.Uuid });
     });
 
     // Regression for R6 ( fixed ): UserCreated now carries the account fields

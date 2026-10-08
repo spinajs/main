@@ -171,15 +171,19 @@ export class PolicyIndex {
 
 /** Principal type (or a companion's), actor type and expiry: the targets a request decides at once. */
 export function targets(p: LoadedPolicy, req: Pick<DecisionRequest, 'principal' | 'actor'>, now: Date): boolean {
-  if (p.expiresAt && p.expiresAt.getTime() <= now.getTime()) return false;
-  if (p.principalTypes) {
-    const types = [req.principal.type, ...(req.principal.companions ?? []).map((c) => c.type)];
-    if (!types.some((t) => p.principalTypes!.has(t))) return false;
-  }
+  if (!targetsPrincipal(p, req, now)) return false;
   // As conditions read actor.*: without an actor the principal acts itself, so an agent acting on its
   // own (or under intersect) meets an actorTypes: ['agent'] policy too.
   if (p.actorTypes && !p.actorTypes.has((req.actor ?? req.principal).type)) return false;
   return true;
+}
+
+/** Principal type (or a companion's) and expiry: the targets of `targets` that do not depend on who acts. */
+export function targetsPrincipal(p: LoadedPolicy, req: Pick<DecisionRequest, 'principal'>, now: Date): boolean {
+  if (p.expiresAt && p.expiresAt.getTime() <= now.getTime()) return false;
+  if (!p.principalTypes) return true;
+  const types = [req.principal.type, ...(req.principal.companions ?? []).map((c) => c.type)];
+  return types.some((t) => p.principalTypes!.has(t));
 }
 
 /**

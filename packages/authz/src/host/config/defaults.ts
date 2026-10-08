@@ -1,5 +1,6 @@
 import { DEFAULT_COMBINE } from '../../engine/routes.js';
 
+/** The schema's root-level defaults, and the base every domain merges over (a Configuration that skips the schema starts from these). */
 export const AUTHZ_DEFAULTS = Object.freeze({
   combine: DEFAULT_COMBINE,
   fields: Object.freeze({ neverRead: Object.freeze(['Password']), write: Object.freeze({ mode: 'strip' as 'strip' | 'reject' }) }),

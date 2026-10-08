@@ -4,11 +4,19 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create } from '@spinajs/users';
+import { AuthProvider, BasicPasswordProvider, NO_PASSWORD, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 import { DateTime } from 'luxon';
+import { v4 as uuidv4 } from 'uuid';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
+
+// A bare `users` row rather than users' `create()`, which needs an authz host, a session issuer and a mailer this suite does not boot.
+async function insertOwner(mail: string, login: string): Promise<User> {
+  const owner = new User({ Email: mail, Login: login, Password: NO_PASSWORD, Uuid: uuidv4(), IsActive: true, CreatedAt: DateTime.now() });
+  await owner.insert();
+  return owner;
+}
 
 describe('AccessToken model', function () {
   this.timeout(15000);
@@ -35,7 +43,7 @@ describe('AccessToken model', function () {
     // below address their owner by a literal id rather than creating one, so
     // seed a user here - that keeps them passing when mocha is given a filter
     // that skips the tests which create their own owners.
-    await create('model@spinajs.com', 'model', ['user'], { password: 'password123' });
+    await insertOwner('model@spinajs.com', 'model');
   });
 
   after(async () => {
@@ -43,7 +51,7 @@ describe('AccessToken model', function () {
   });
 
   it('persists and loads a token with roles set and null expiry', async () => {
-    const { User: owner } = await create('owner@spinajs.com', 'owner', ['user'], { password: 'password123' });
+    const owner = await insertOwner('owner@spinajs.com', 'owner');
 
     const token = new AccessToken({
       Name: 'test token',
@@ -63,7 +71,7 @@ describe('AccessToken model', function () {
   });
 
   it('IsExpired is true for past ExpiresAt', async () => {
-    const { User: owner } = await create('owner2@spinajs.com', 'owner2', ['user'], { password: 'password123' });
+    const owner = await insertOwner('owner2@spinajs.com', 'owner2');
     const token = new AccessToken({
       Name: 'expired',
       Token: 'b'.repeat(64),
@@ -78,7 +86,7 @@ describe('AccessToken model', function () {
   });
 
   it('hides hash, ids and owner when dehydrated', async () => {
-    const { User: owner } = await create('owner3@spinajs.com', 'owner3', ['user'], { password: 'password123' });
+    const owner = await insertOwner('owner3@spinajs.com', 'owner3');
     const token = new AccessToken({
       Name: 'hidden fields',
       Token: 'c'.repeat(64),

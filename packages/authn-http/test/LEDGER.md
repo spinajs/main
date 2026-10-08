@@ -25,32 +25,42 @@ Token middleware adapt rows target `authn-http/test/ (src/token/)`, N8b's folder
 |---|---|
 | move | 0 |
 | adapt | 62 |
-| rewrite | 119 |
+| rewrite | 121 |
 | drop | 7 |
-| **total** | 188 |
+| **total** | 190 |
 
 Not ledgered: `authn-api-contract.test.ts` (23 its) is a 3.0 contract test that F6 added; it is not a 2.x test.
+
+`test/v3-app/` (N8a task 6, 3.0 tests, not ledgered) runs in a mocha process of its own (`.mocharc.v3-app.json`, the second half of `npm test`): the app as N8c wires it, with `registerAuthnHttpV3()` on the root, the 3.0 controllers scanned instead of the 2.x account ones, and neither the package barrel nor `@spinajs/users` loaded. The main process ignores the directory.
+
+## C1 merge (N8a task 9)
+
+After C1 the 2.x token suites cannot seed users with `users.create()` (it needs a booted authz host, and authn-http may not depend on `@spinajs/authz*`), and the 2.x code reads roles from nowhere C1 still fills: `User.Role` is a type-only stub, undefined on every user loaded from the database (`RbacUserFactory`, `validateToken`, `getOwner`). So `RbacMiddleware` throws on `User.Role.includes` for every session that names an `ActiveRole` (500), `RbacPolicy` sees no roles, and `LegacyOwnRolesTokenRolePolicy` spreads `undefined`. (Until Z1 renamed the legacy class to `LegacyOwnRolesTokenRolePolicy`, `service('rbac.token.rolePolicy', …)` also resolved authz-rbac's same-named class; that clash is gone.) Rows that need a user's roles therefore moved to `test/legacy-v2/` (excluded in `.mocharc.json`); the SR-16 pin seeds its user row directly (`seedUser` in `token-common.ts`).
 
 ## test/active-role.test.ts
 
 Active-role routes (`GET`/`POST /auth/active-role`) of the 2.x account controllers: role list, switch, password gate. Dominant class: rewrite (active-role switching semantics, B24/D14, A26); lane C3, replacement by T2. Rows 1 and 2 are split between `users/test/` and `authn-http/test/v3/` (D26); the others use fakes.
 
+Status (N8a task 6): the 3.0 routes (`src/v3/controllers/AuthnActiveRoleController.ts`, switched off until N8c) are tested in `test/v3-app/suites/active-role.ts` over the kit's `FakeRoleSource`, in the separate `test/v3-app` process; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 180 | ActiveRoleController > AC is wired through DI > controller AC contains grants from configuration | rewrite | C3 → T2 | users/test/ (C3 task 1; B24, A26): `RbacRoleSource` is wired through DI, replaces the `AccessControl` wiring; authn-http/test/v3/ (T2): the HTTP flow reads roles from a fake `RoleSource` (N8a task 8) |
-| 2 | 188 | ActiveRoleController > getActiveRole > returns active role and grants resolved from DI-backed AccessControl | rewrite | C3 → T2 | users/test/ (C3 task 3; B25, B24, A26): the role switch state answers `Access` (summary) instead of `Grants`; authn-http/test/v3/ (T2): the route returns the active role and the answer of a fake `RoleSource` (N8a task 8) |
-| 3 | 199 | ActiveRoleController > getActiveRole > falls back to first available role when session has no ActiveRole | rewrite | C3 → T2 | authn-http/test/v3/; no first-role fallback: without `ceiling.roles` every held role applies (B24, D14); 3.0 expectation differs |
-| 4 | 210 | ActiveRoleController > switchActiveRole > switches successfully when role is in user.Role and persists via SessionProvider | rewrite | C3 → T2 | authn-http/test/v3/; role held per `RoleSource`, not `User.Role` (H13); sets `ceiling.roles`, session rotated (A26, B24, A07) |
-| 5 | 228 | ActiveRoleController > switchActiveRole > regenerates the session on switch: new id issued, old id deleted, ssid cookie reset | rewrite | C3 → T2 | authn-http/test/v3/; rotation through `SessionIssuer`, new id and cookie (A07, A26) |
-| 6 | 251 | ActiveRoleController > switchActiveRole > returns BadRequest when requested role is not assigned to the user | rewrite | C3 → T2 | authn-http/test/v3/; role not held by the principal is refused (A26); error code `E_ROLE_NOT_ASSIGNED` may change |
-| 7 | 264 | ActiveRoleController > switchActiveRole > returns Unauthorized when role requires password but none supplied | rewrite | C3 → T2 | authn-http/test/v3/; `requirePassword` role needs fresh auth or inline re-authentication (A13, A26); 3.0 expectation differs from "password on every switch" |
-| 8 | 286 | ActiveRoleController > switchActiveRole > returns Unauthorized when supplied password is invalid | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20) |
-| 9 | 306 | ActiveRoleController > switchActiveRole > switches when password is required AND correctly verified by DI-resolved PasswordProvider | rewrite | C3 → T2 | authn-http/test/v3/; verified through the throttled fresh-auth path, not `PasswordProvider.verify` (A13, A26) |
-| 10 | 327 | ActiveRoleController > switchActiveRole > does not call PasswordProvider when switching to a role NOT listed in requirePassword | rewrite | C3 → T2 | authn-http/test/v3/; no re-authentication for a role without `requirePassword` (A26) |
+| 1 | 180 | ActiveRoleController > AC is wired through DI > controller AC contains grants from configuration | rewrite | C3 → T2 | users/test/ (C3 task 1; B24, A26): `RbacRoleSource` is wired through DI, replaces the `AccessControl` wiring; authn-http/test/v3/ (T2): the HTTP flow reads roles from a fake `RoleSource` (N8a task 8); N8a task 6: HTTP flow over a fake `RoleSource` in `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: the current role (none yet) and the roles RoleSource gives"); the `RbacRoleSource` wiring stays C3 |
+| 2 | 188 | ActiveRoleController > getActiveRole > returns active role and grants resolved from DI-backed AccessControl | rewrite | C3 → T2 | users/test/ (C3 task 3; B25, B24, A26): the role switch state answers `Access` (summary) instead of `Grants`; authn-http/test/v3/ (T2): the route returns the active role and the answer of a fake `RoleSource` (N8a task 8); N8a task 6: `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: ...", and `Access` from the extension on the switch: "A26 a held role: rotates the session, then sets ActiveRole; ...") |
+| 3 | 199 | ActiveRoleController > getActiveRole > falls back to first available role when session has no ActiveRole | rewrite | C3 → T2 | authn-http/test/v3/; no first-role fallback: without `ceiling.roles` every held role applies (B24, D14); 3.0 expectation differs; N8a task 6: `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: the current role (none yet) ..."): `ActiveRole: null`, no first-role fallback |
+| 4 | 210 | ActiveRoleController > switchActiveRole > switches successfully when role is in user.Role and persists via SessionProvider | rewrite | C3 → T2 | authn-http/test/v3/; role held per `RoleSource`, not `User.Role` (H13); sets `ceiling.roles`, session rotated (A26, B24, A07); N8a task 6: `test/v3-app/suites/active-role.ts` ("A26 a held role: rotates the session, then sets ActiveRole; the ceiling and the role-switch extensions follow") |
+| 5 | 228 | ActiveRoleController > switchActiveRole > regenerates the session on switch: new id issued, old id deleted, ssid cookie reset | rewrite | C3 → T2 | authn-http/test/v3/; rotation through `SessionIssuer`, new id and cookie (A07, A26); N8a task 6: `test/v3-app/suites/active-role.ts` (same case: rotate, then `set('ActiveRole')` on the new id, new cookie, old cookie dead) |
+| 6 | 251 | ActiveRoleController > switchActiveRole > returns BadRequest when requested role is not assigned to the user | rewrite | C3 → T2 | authn-http/test/v3/; role not held by the principal is refused (A26); error code `E_ROLE_NOT_ASSIGNED` may change; N8a task 6: `test/v3-app/suites/active-role.ts` ("a role the principal does not hold is refused 403 role_not_held and changes nothing"); 403, not 400 (the kit's A26 expects 401 or 403) |
+| 7 | 264 | ActiveRoleController > switchActiveRole > returns Unauthorized when role requires password but none supplied | rewrite | C3 → T2 | authn-http/test/v3/; `requirePassword` role needs fresh auth or inline re-authentication (A13, A26); 3.0 expectation differs from "password on every switch"; N8a task 6: `test/v3-app/suites/active-role.ts` ("a stale session without a password is refused 403 fresh_auth_required"); a fresh session needs no password |
+| 8 | 286 | ActiveRoleController > switchActiveRole > returns Unauthorized when supplied password is invalid | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20); N8a task 6: `test/v3-app/suites/active-role.ts` ("a wrong password answers the login failure body, no Retry-After, counted in the reauth flow", "another account's password never counts as fresh auth") |
+| 9 | 306 | ActiveRoleController > switchActiveRole > switches when password is required AND correctly verified by DI-resolved PasswordProvider | rewrite | C3 → T2 | authn-http/test/v3/; verified through the throttled fresh-auth path, not `PasswordProvider.verify` (A13, A26); N8a task 6: `test/v3-app/suites/active-role.ts` ("a stale session switches with the right password, counted in the reauth flow") |
+| 10 | 327 | ActiveRoleController > switchActiveRole > does not call PasswordProvider when switching to a role NOT listed in requirePassword | rewrite | C3 → T2 | authn-http/test/v3/; no re-authentication for a role without `requirePassword` (A26); N8a task 6: `test/v3-app/suites/active-role.ts` ("a role without requirePassword switches on a stale session with no password", "a fresh session switches without a password and verifies nothing") |
 
 ## test/descriptor-inheritance.test.ts
 
 2.x `@Resource`/`@Permission` controller descriptor inheritance. Dominant class: rewrite; plan T2 sends it to `authz-http/test/ported`.
+
+Status (N8a task 7): not touched by N8a; the 2.x descriptors stay live until N8c, and the ported tests are L5/T2 work.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -75,51 +85,57 @@ Active-role routes (`GET`/`POST /auth/active-role`) of the 2.x account controlle
 
 2.x `ImpersonationController` start, stop and state. Dominant class: rewrite (the 2.x impersonation rule is replaced by B26 and A20); lane C3, replacement by T2. Rows 4, 7 and 8 are split between `users/test/` (B26 guard cases) and `authn-http/test/v3/` (D26); the others use fakes.
 
+Status (N8a task 6): the 3.0 routes (`src/v3/controllers/AuthnImpersonationController.ts`, switched off until N8c) are tested in `test/v3-app/suites/impersonation.ts` over the kit's `FakeImpersonationGuard`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`. Every refusal of the service is one 403 `impersonation_refused` (it answers only `{ ok: false }`).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 236 | ImpersonationController > start > happy path: admin impersonates user with correct password | rewrite | C3 → T2 | authn-http/test/v3/; A20, B26, A13, A07; session keys `Impersonator` and `OriginalActiveRole` become `authn.impersonator` and the session handle; start event audited (A21) |
-| 2 | 288 | ImpersonationController > start > 409 Conflict when an impersonation is already active | rewrite | C3 → T2 | authn-http/test/v3/; a second impersonation while one is active (A20) |
-| 3 | 299 | ImpersonationController > start > 400 BadRequest when impersonating self | rewrite | C3 → T2 | authn-http/test/v3/; self-impersonation refused, equal sets fail the B26 strict subset (B26, A20) |
-| 4 | 309 | ImpersonationController > start > 403 Forbidden when caller lacks user:impersonate createAny | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): `user:impersonate` held through the authz summary, `AuthzImpersonationGuard`; authn-http/test/v3/ (T2): the 403 path with a fake `ImpersonationGuard` |
-| 5 | 319 | ImpersonationController > start > 404 NotFound when loadTarget returns undefined | rewrite | C3 → T2 | authn-http/test/v3/; unknown target (A20, B26) |
-| 6 | 330 | ImpersonationController > start > 404 NotFound when target is banned | rewrite | C3 → T2 | authn-http/test/v3/; banned target is refused (A20, B26) |
-| 7 | 341 | ImpersonationController > start > 403 E_TARGET_PROTECTED when target has a protected role | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): protected role refused by the guard; authn-http/test/v3/ (T2): the 403 `E_TARGET_PROTECTED` path with a fake `ImpersonationGuard` |
-| 8 | 353 | ImpersonationController > start > 403 E_PRIVILEGE_ESCALATION when target has grants admin lacks | rewrite | C3 → T2 | users/test/ (C3 task 2; B26, H18): target combined GLOBAL permissions must be a strict subset, equal refused, ABAC included; authn-http/test/v3/ (T2): the 403 `E_PRIVILEGE_ESCALATION` path with a fake `ImpersonationGuard` |
-| 9 | 365 | ImpersonationController > start > 401 E_PASSWORD_REQUIRED when requirePassword=true and no password supplied | rewrite | C3 → T2 | authn-http/test/v3/; fresh auth and an MFA-satisfied session required (A20, A13); 3.0 expectation differs from a password in the body |
-| 10 | 377 | ImpersonationController > start > 401 E_PASSWORD_INVALID when password is wrong | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20) |
-| 11 | 390 | ImpersonationController > start > skips password verification when requirePassword=false | rewrite | C3 → T2 | authn-http/test/v3/; A20 always needs fresh auth, so `authn.impersonation.requirePassword=false` can only skip the inline password; 3.0 expectation differs |
-| 12 | 405 | ImpersonationController > stop > restores original session and emits UserImpersonationEnded | rewrite | C3 → T2 | authn-http/test/v3/; stop restores the impersonator, rotates the session, audits the end (A20, A07, A21) |
-| 13 | 442 | ImpersonationController > stop > returns 400 when no impersonation is active | rewrite | C3 → T2 | authn-http/test/v3/; stop without an active impersonation (A20) |
-| 14 | 449 | ImpersonationController > stop > returns 400 E_IMPERSONATOR_GONE and cleans state when original cannot be loaded | rewrite | C3 → T2 | authn-http/test/v3/; `SR-06 banning the impersonator ends the impersonation`, A20 |
-| 15 | 470 | ImpersonationController > getState > returns Active=false when no impersonation | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, inactive (A20) |
-| 16 | 475 | ImpersonationController > getState > returns full impersonation state when active | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, active, `authn.impersonator` fact (A20, A23) |
+| 1 | 236 | ImpersonationController > start > happy path: admin impersonates user with correct password | rewrite | C3 → T2 | authn-http/test/v3/; A20, B26, A13, A07; session keys `Impersonator` and `OriginalActiveRole` become `authn.impersonator` and the session handle; start event audited (A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("A20 start: a new session for the target with authn.impersonator, ...") |
+| 2 | 288 | ImpersonationController > start > 409 Conflict when an impersonation is already active | rewrite | C3 → T2 | authn-http/test/v3/; a second impersonation while one is active (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("a nested start while impersonating is refused"); 403, not 409 |
+| 3 | 299 | ImpersonationController > start > 400 BadRequest when impersonating self | rewrite | C3 → T2 | authn-http/test/v3/; self-impersonation refused, equal sets fail the B26 strict subset (B26, A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("impersonating yourself, an unknown or a banned target is refused 403; ..."); 403, not 400 |
+| 4 | 309 | ImpersonationController > start > 403 Forbidden when caller lacks user:impersonate createAny | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): `user:impersonate` held through the authz summary, `AuthzImpersonationGuard`; authn-http/test/v3/ (T2): the 403 path with a fake `ImpersonationGuard`; N8a task 6: the 403 path with a fake guard in `test/v3-app/suites/impersonation.ts` ("the guard decides: a refusal is 403 impersonation_refused and the admin session survives") |
+| 5 | 319 | ImpersonationController > start > 404 NotFound when loadTarget returns undefined | rewrite | C3 → T2 | authn-http/test/v3/; unknown target (A20, B26); N8a task 6: `test/v3-app/suites/impersonation.ts` ("impersonating yourself, an unknown or a banned target ..."); 403, not 404 |
+| 6 | 330 | ImpersonationController > start > 404 NotFound when target is banned | rewrite | C3 → T2 | authn-http/test/v3/; banned target is refused (A20, B26); N8a task 6: `test/v3-app/suites/impersonation.ts` (same case); 403, not 404 |
+| 7 | 341 | ImpersonationController > start > 403 E_TARGET_PROTECTED when target has a protected role | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): protected role refused by the guard; authn-http/test/v3/ (T2): the 403 `E_TARGET_PROTECTED` path with a fake `ImpersonationGuard`; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the guard decides: ..."); the code is `impersonation_refused`, not `E_TARGET_PROTECTED` |
+| 8 | 353 | ImpersonationController > start > 403 E_PRIVILEGE_ESCALATION when target has grants admin lacks | rewrite | C3 → T2 | users/test/ (C3 task 2; B26, H18): target combined GLOBAL permissions must be a strict subset, equal refused, ABAC included; authn-http/test/v3/ (T2): the 403 `E_PRIVILEGE_ESCALATION` path with a fake `ImpersonationGuard`; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the guard decides: ..."); the code is `impersonation_refused`, not `E_PRIVILEGE_ESCALATION` |
+| 9 | 365 | ImpersonationController > start > 401 E_PASSWORD_REQUIRED when requirePassword=true and no password supplied | rewrite | C3 → T2 | authn-http/test/v3/; fresh auth and an MFA-satisfied session required (A20, A13); 3.0 expectation differs from a password in the body; N8a task 6: `test/v3-app/suites/impersonation.ts` ("a stale session without a password is refused 403 fresh_auth_required and verifies nothing"); a fresh session needs no password |
+| 10 | 377 | ImpersonationController > start > 401 E_PASSWORD_INVALID when password is wrong | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("a wrong password answers the login failure body with no Retry-After, counted once in the reauth flow") |
+| 11 | 390 | ImpersonationController > start > skips password verification when requirePassword=false | rewrite | C3 → T2 | authn-http/test/v3/; A20 always needs fresh auth, so `authn.impersonation.requirePassword=false` can only skip the inline password; 3.0 expectation differs; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the route still needs fresh auth ...; only the service skips its own check") |
+| 12 | 405 | ImpersonationController > stop > restores original session and emits UserImpersonationEnded | rewrite | C3 → T2 | authn-http/test/v3/; stop restores the impersonator, rotates the session, audits the end (A20, A07, A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("DELETE /auth/impersonate: a new session for the impersonator, the impersonation one ends") |
+| 13 | 442 | ImpersonationController > stop > returns 400 when no impersonation is active | rewrite | C3 → T2 | authn-http/test/v3/; stop without an active impersonation (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("DELETE without an impersonation is 400 not_impersonating and leaves the session alone") |
+| 14 | 449 | ImpersonationController > stop > returns 400 E_IMPERSONATOR_GONE and cleans state when original cannot be loaded | rewrite | C3 → T2 | authn-http/test/v3/; `SR-06 banning the impersonator ends the impersonation`, A20; N8a task 6: `test/v3-app/suites/impersonation.ts` ("SR-06 a banned impersonator: the next request, a stop included, finds the impersonation ended") |
+| 15 | 470 | ImpersonationController > getState > returns Active=false when no impersonation | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, inactive (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("GET /auth/impersonate: the state from authn.impersonator") |
+| 16 | 475 | ImpersonationController > getState > returns full impersonation state when active | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, active, `authn.impersonator` fact (A20, A23); N8a task 6: `test/v3-app/suites/impersonation.ts` (same case) |
 
 ## test/login-controller.test.ts
 
 Login with forced 2FA enrolment while the system switch is off (lockout regression). Class: rewrite; lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5) |
+| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5); N8a task 6: `test/v3-app/suites/mfa.ts` ("under authn.mfa.policy.force > a user enrolled in no step gets a pending session that reaches the enrolment routes and nothing else"), against a stub of N8b's enrolment route behind `PendingMfaEnrolment` |
 
 ## test/logout-handlers.test.ts
 
 Logout handler chain (impersonation handler, default handler, DI ordering). Dominant class: adapt; the two impersonation-state rows are rewrite; lane N8a.
 
+Status (N8a task 6): decided, the 3.0 logout (`AuthnLoginController.logout`) has no handler chain: it revokes the session, pending ones included, clears the cookie and the site data (`test/v3-app/suites/login.ts`, "A08 revokes the session, clears the cookie and the site data"); logging out of an impersonation is a plain revoke (N1). The adapt rows keep testing the live 2.x chain until N8c; the chain has no 3.0 counterpart, so R1 deletes them with the 2.x account code. the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 140 | Logout handler chain > ImpersonationLogoutHandler > Priority is 10 (runs early) | adapt | N8a | authn-http/test/; the handler chain stays in authn-http (design §4.1.1) |
-| 2 | 145 | Logout handler chain > ImpersonationLogoutHandler > returns null when session is null (defers) | adapt | N8a | authn-http/test/ |
-| 3 | 151 | Logout handler chain > ImpersonationLogoutHandler > returns null when no impersonation in session (defers) | adapt | N8a | authn-http/test/ |
-| 4 | 157 | Logout handler chain > ImpersonationLogoutHandler > reverts impersonation, saves session, emits event when active | rewrite | N8a → N8a | authn-http/test/v3/; logout of an impersonated session returns to the impersonator, rotates the id, audits the end (A20, A07, A21) |
-| 5 | 206 | Logout handler chain > ImpersonationLogoutHandler > defers to the default handler when the impersonator account is gone | rewrite | N8a → N8a | authn-http/test/v3/; impersonator account gone or revoked ends the impersonation and logs out (A20, SR-06) |
-| 6 | 244 | Logout handler chain > DefaultLogoutHandler > Priority is 999 (runs last) | adapt | N8a | authn-http/test/ |
-| 7 | 249 | Logout handler chain > DefaultLogoutHandler > deletes session and returns clear-cookie payload | adapt | N8a | authn-http/test/; logout deletes the session and clears the cookie (A08); cookie name follows A07 (`__Host-` outside dev and test) |
-| 8 | 263 | Logout handler chain > DefaultLogoutHandler > returns a result even with empty Ssid (no delete called) | adapt | N8a | authn-http/test/ |
-| 9 | 273 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > resolves both built-in handlers via DI | adapt | N8a | authn-http/test/ |
-| 10 | 279 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > sorts by Priority ascending — impersonation before default | adapt | N8a | authn-http/test/ |
-| 11 | 286 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > first non-null result short-circuits the chain | adapt | N8a | authn-http/test/ |
-| 12 | 312 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > null returns are skipped — next handler runs | adapt | N8a | authn-http/test/ |
+| 1 | 140 | Logout handler chain > ImpersonationLogoutHandler > Priority is 10 (runs early) | adapt | N8a | authn-http/test/; the handler chain stays in authn-http (design §4.1.1); N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 2 | 145 | Logout handler chain > ImpersonationLogoutHandler > returns null when session is null (defers) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 3 | 151 | Logout handler chain > ImpersonationLogoutHandler > returns null when no impersonation in session (defers) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 4 | 157 | Logout handler chain > ImpersonationLogoutHandler > reverts impersonation, saves session, emits event when active | rewrite | N8a → N8a | authn-http/test/v3/; logout of an impersonated session returns to the impersonator, rotates the id, audits the end (A20, A07, A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("A20 logout during impersonation ends it"); 3.0 expectation differs: the logout ends the impersonation and logs out, it does not return to the impersonator |
+| 5 | 206 | Logout handler chain > ImpersonationLogoutHandler > defers to the default handler when the impersonator account is gone | rewrite | N8a → N8a | authn-http/test/v3/; impersonator account gone or revoked ends the impersonation and logs out (A20, SR-06); N8a task 6: `test/v3-app/suites/impersonation.ts` ("SR-06 a banned impersonator: ...") |
+| 6 | 244 | Logout handler chain > DefaultLogoutHandler > Priority is 999 (runs last) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 7 | 249 | Logout handler chain > DefaultLogoutHandler > deletes session and returns clear-cookie payload | adapt | N8a | authn-http/test/; logout deletes the session and clears the cookie (A08); cookie name follows A07 (`__Host-` outside dev and test); N8a task 6: the 3.0 logout in `test/v3-app/suites/login.ts` ("A08 revokes the session, clears the cookie and the site data"); the chain itself until N8c/R1 |
+| 8 | 263 | Logout handler chain > DefaultLogoutHandler > returns a result even with empty Ssid (no delete called) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0; a logout without a session answers 401 (`test/v3-app/suites/login.ts`, "401 without a session") |
+| 9 | 273 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > resolves both built-in handlers via DI | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 10 | 279 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > sorts by Priority ascending — impersonation before default | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 11 | 286 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > first non-null result short-circuits the chain | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 12 | 312 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > null returns are skipped — next handler runs | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
 
 ## test/password-reset.test.ts
 
@@ -142,18 +158,22 @@ Password policy, reset request and reset redemption routes. Dominant class: adap
 
 Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2; lane N8a (target contradicts T2, see report).
 
+Status (N8a task 7): `AuthnMiddleware` (task 3, switched off until N8c) restores the session; each row names its case. The 2.x file stays and tests the live `RbacMiddleware`; N8c retires it (task 4 moved there) and moves the file to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 64 | RbacMiddleware sliding renewal > calls touch on an authenticated request | rewrite | N8a → T2 | authn-http/test/v3/; session restore and touch in `AuthnMiddleware` (A08); plan T2 names `authz-http/test/ported` but no authz code is involved |
-| 2 | 73 | RbacMiddleware sliding renewal > refreshes the ssid cookie when touch reports the expiry changed (sliding mode) | rewrite | N8a → T2 | authn-http/test/v3/; sliding renewal of the signed cookie (A07, A08, A24) |
-| 3 | 91 | RbacMiddleware sliding renewal > marks an authenticated response as uncacheable | rewrite | N8a → T2 | authn-http/test/v3/; `Cache-Control: no-store` on an authenticated response (A08) |
-| 4 | 101 | RbacMiddleware sliding renewal > leaves an anonymous response cacheable | rewrite | N8a → T2 | authn-http/test/v3/; anonymous response stays cacheable (A08) |
-| 5 | 110 | RbacMiddleware sliding renewal > does NOT refresh the cookie when touch reports no change (absolute mode) | rewrite | N8a → T2 | authn-http/test/v3/; absolute mode sets no cookie (A08) |
-| 6 | 130 | RbacMiddleware sliding renewal > issues a renewal cookie that survives cookie-parser and still restores the session | rewrite | N8a → T2 | authn-http/test/v3/; renewal cookie survives cookie-parser (A07) |
+| 1 | 64 | RbacMiddleware sliding renewal > calls touch on an authenticated request | rewrite | N8a → T2 | authn-http/test/v3/; session restore and touch in `AuthnMiddleware` (A08); plan T2 names `authz-http/test/ported` but no authz code is involved; N8a task 3: `test/v3/authn-middleware.test.ts` ("an active session restores into a principal with authn facts and no-store"); the idle expiry slides in `DefaultSessionIssuer.restore` (N8a-D7) |
+| 2 | 73 | RbacMiddleware sliding renewal > refreshes the ssid cookie when touch reports the expiry changed (sliding mode) | rewrite | N8a → T2 | authn-http/test/v3/; sliding renewal of the signed cookie (A07, A08, A24); N8a task 3: 3.0 expectation differs (N8a-D7): the session cookie is a browser-session cookie and AuthnMiddleware never sends it again; the issuer slides idle expiry on restore |
+| 3 | 91 | RbacMiddleware sliding renewal > marks an authenticated response as uncacheable | rewrite | N8a → T2 | authn-http/test/v3/; `Cache-Control: no-store` on an authenticated response (A08); N8a task 3: `test/v3/authn-middleware.test.ts` ("an active session restores into a principal with authn facts and no-store") |
+| 4 | 101 | RbacMiddleware sliding renewal > leaves an anonymous response cacheable | rewrite | N8a → T2 | authn-http/test/v3/; anonymous response stays cacheable (A08); N8a task 3: `test/v3/authn-middleware.test.ts` ("an anonymous request stays cacheable") |
+| 5 | 110 | RbacMiddleware sliding renewal > does NOT refresh the cookie when touch reports no change (absolute mode) | rewrite | N8a → T2 | authn-http/test/v3/; absolute mode sets no cookie (A08); N8a task 3: no cookie is sent in any mode (N8a-D7) |
+| 6 | 130 | RbacMiddleware sliding renewal > issues a renewal cookie that survives cookie-parser and still restores the session | rewrite | N8a → T2 | authn-http/test/v3/; renewal cookie survives cookie-parser (A07); N8a task 3: `test/v3/authn-middleware.test.ts` ("an express-signed cookie (s: prefix, req.signedCookies) restores too") |
 
 ## test/rbac-policy-unknown-role.test.ts
 
 `RbacPolicy` handling of roles missing from the grants. Class: rewrite; plan T2 sends it to `authz-http/test/ported`.
+
+Status (N8a task 7): not touched by N8a; the 2.x `RbacPolicy` stays live (deprecated) until N8c, and the ported tests are L5/T2 work.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -166,92 +186,112 @@ Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2;
 
 `SessionContextProvider` response schema contributions. Class: rewrite; plan T2 sends it to `authn-http/test/v3`.
 
+Status (N8a task 7): the bridge of task 4 moved to N8c; the 2.x file stays and tests the live provider until then.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22) |
-| 2 | 28 | SessionContextProvider schemas > publishes the properties of a provider registered after the schemas | rewrite | N8a → T2 | authn-http/test/v3/; response schemas include extension properties registered late (B25) |
+| 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22); N8a task 6: the 3.0 routes run every `AuthnResponseExtension` (`test/v3-app/suites/login.ts`, "logs in: ... the login extensions; ..."); no response schema contributions are built yet (N8c/T2) |
+| 2 | 28 | SessionContextProvider schemas > publishes the properties of a provider registered after the schemas | rewrite | N8a → T2 | authn-http/test/v3/; response schemas include extension properties registered late (B25); N8a task 6: as row 1; an extension registered before the first request answers (`test/v3-app` registers its recording extension at wiring time) |
 
 ## test/sessions-controller.test.ts
 
 Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
+Status (N8a task 6): re-pointed to the 3.0 routes (`src/v3/controllers/AuthnSessionsController.ts`) in `test/v3-app/suites/sessions.ts`; decided (task 6 review I2): the routes are refused while impersonating (403 `impersonating`), so an impersonator neither sees the target's devices nor ends its sessions, while the target sees the impersonation session in its own list (N2); revocations are audited as `session.revoke`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 62 | SessionsController > list > never returns a session id — only its opaque handle | adapt | N8a | authn-http/test/; list over `SessionIssuer.list`, ids hashed at rest (A07, A08) |
-| 2 | 72 | SessionsController > list > flags the session making the request | adapt | N8a | authn-http/test/ |
-| 3 | 82 | SessionsController > list > lists newest first and reports creation / expiry | adapt | N8a | authn-http/test/ |
-| 4 | 90 | SessionsController > list > only ever looks at the calling user own sessions | adapt | N8a | authn-http/test/; own sessions only (A08) |
-| 5 | 98 | SessionsController > revoke > ends the session behind a handle | adapt | N8a | authn-http/test/; revoke through `SessionIssuer.revoke` |
-| 6 | 105 | SessionsController > revoke > 404s on a handle that is not one of the user own sessions | adapt | N8a | authn-http/test/; IDOR guard: a foreign handle is a 404 (A08) |
-| 7 | 116 | SessionsController > revokeOthers > ends every session except the current one | adapt | N8a | authn-http/test/ |
-| 8 | 124 | SessionsController > revokeOthers > ends all of them when the caller presents no session id | adapt | N8a | authn-http/test/ |
+| 1 | 62 | SessionsController > list > never returns a session id — only its opaque handle | adapt | N8a | authn-http/test/; list over `SessionIssuer.list`, ids hashed at rest (A07, A08); N8a task 6: `test/v3-app/suites/sessions.ts` ("GET /user/sessions lists the caller own sessions, newest first, the current one flagged, never a raw id or storage key") |
+| 2 | 72 | SessionsController > list > flags the session making the request | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` (same case) |
+| 3 | 82 | SessionsController > list > lists newest first and reports creation / expiry | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` (same case); `Expires` becomes `LastSeen`: `SessionIssuer.list` gives no expiry |
+| 4 | 90 | SessionsController > list > only ever looks at the calling user own sessions | adapt | N8a | authn-http/test/; own sessions only (A08); N8a task 6: `test/v3-app/suites/sessions.ts` (same case, with another user's session present) |
+| 5 | 98 | SessionsController > revoke > ends the session behind a handle | adapt | N8a | authn-http/test/; revoke through `SessionIssuer.revoke`; N8a task 6: `test/v3-app/suites/sessions.ts` ("DELETE /user/sessions/:handle ends one own session; a foreign handle is 404") |
+| 6 | 105 | SessionsController > revoke > 404s on a handle that is not one of the user own sessions | adapt | N8a | authn-http/test/; IDOR guard: a foreign handle is a 404 (A08); N8a task 6: `test/v3-app/suites/sessions.ts` (same case) |
+| 7 | 116 | SessionsController > revokeOthers > ends every session except the current one | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` ("DELETE /user/sessions ends every other session and keeps the current one") |
+| 8 | 124 | SessionsController > revokeOthers > ends all of them when the caller presents no session id | adapt | N8a | authn-http/test/; N8a task 6: 3.0 expectation differs: without a session the routes answer 401 (`test/v3-app/suites/sessions.ts`, "needs a session principal: ...") |
 
 ## test/token-controller-roles.test.ts
 
-`/user/tokens/roles` and `/profiles` routes and role-policy driven create. Class: rewrite per plan T3 (token ceiling, B24); lane C5, replacement by T3. Open: 3.0 home of the token roles/profiles read routes is undecided (D26); integrator decides.
+`/user/tokens/roles` and `/profiles` routes and role-policy driven create. Class: rewrite per plan T3 (token ceiling, B24); lane C5, replacement by T3. Open: 3.0 home of the token roles/profiles read routes is undecided (D26); integrator decides. N8a task 2 (A22): the cookie requests with an unsafe method send `Origin: APP_ORIGIN` (`token-common.ts`), as a browser on the app does; intent and expected values unchanged, the files stay here.
+
+Status (C5): not moved yet. The file tests the live 2.x `AccessTokenController` under `src/token/` (N8b's folder), so N8b moves it to `test/legacy-v2/` when it replaces the routes; T3 writes the replacements. The policy side the routes read now exists: `loadTokenRoleRules` and `TokenRoleRules.allowedRoles|allowedProfiles` in authz-rbac (C5), for whichever lane hosts `/user/tokens/roles` and `/profiles` (proposed: C2).
+
+Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite; excluded in `.mocharc.json`). After C1 every row but row 5 failed: the 2.x stack reads no roles for a stored user (see "C1 merge" above). Row 5 passed and moved with its file.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24) |
-| 2 | 121 | AccessTokenController - scopes route > refuses a token-authenticated caller | rewrite | C5 → T3 | authn-http/test/v3/; token caller refused (`NoTokenAuthPolicy` kept; A13, A14); route home undecided (D26) |
-| 3 | 131 | AccessTokenController - scopes route > refuses an impersonated session | rewrite | C5 → T3 | authn-http/test/v3/; impersonated session refused (`NoImpersonationPolicy` kept; A20); route home undecided (D26) |
-| 4 | 142 | AccessTokenController - scopes route > answers the profiles route with the policy answer - none for the shipped default | rewrite | C5 → T3 | authz-rbac/test/ported/; profiles route answers the policy (B24, `attributes.profile`) |
-| 5 | 155 | AccessTokenController - scopes route > refuses an anonymous caller on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; anonymous refused on the profiles route (B10, B23); route home undecided (D26) |
-| 6 | 163 | AccessTokenController - scopes route > refuses a token-authenticated caller on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; token caller refused on the profiles route (A14); route home undecided (D26) |
-| 7 | 174 | AccessTokenController - scopes route > refuses an impersonated session on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; impersonated session refused on the profiles route (A20); route home undecided (D26) |
-| 8 | 197 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > reports the policy answer, not the callers own roles | rewrite | C5 → T3 | authz-rbac/test/ported/; policy answer, not the caller roles (B24) |
-| 9 | 215 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > accepts POST user/tokens with a role this route just reported, even though the caller does not hold it | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles ∩ owner roles ∩ role policy at use time (B24, B07); the creation check may differ from 2.x. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows. |
-| 10 | 264 | AccessTokenController - scopes route > profiles > GET user/tokens/profiles answers what the policy offers the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; profiles offered by the policy (B24) |
-| 11 | 274 | AccessTokenController - scopes route > profiles > narrows GET user/tokens/roles to the profile named in the query | rewrite | C5 → T3 | authz-rbac/test/ported/; roles narrowed to a profile (B24) |
-| 12 | 290 | AccessTokenController - scopes route > profiles > POST user/tokens pins the token to the requested profile, on the wire and in the row | rewrite | C5 → T3 | authn-http/test/v3/; profile pinned on the token, source of `attributes.profile` (B24, design §14); route home undecided (D26) |
-| 13 | 311 | AccessTokenController - scopes route > profiles > POST user/tokens refuses a profile the policy does not offer | rewrite | C5 → T3 | authn-http/test/v3/; a profile the policy does not offer is refused (B24); route home undecided (D26) |
-| 14 | 326 | AccessTokenController - scopes route > profiles > POST user/tokens validates roles against the profile, not the owner union | rewrite | C5 → T3 | authz-rbac/test/ported/; roles validated against the profile, not the owner union (B24) |
-| 15 | 345 | AccessTokenController - scopes route > profiles > accepts a create built from what the two routes just reported | rewrite | C5 → T3 | authn-http/test/v3/; create accepts what the routes reported (B24); create now needs fresh auth and an expiry (A13, A14); route home undecided (D26) |
-| 16 | 361 | AccessTokenController - scopes route > profiles > refuses an empty Profile at the DTO, rather than silently minting an unpinned token | rewrite | C5 → T3 | authn-http/test/v3/; DTO validation (A14); route home undecided (D26) |
+| 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 2 | 121 | AccessTokenController - scopes route > refuses a token-authenticated caller | rewrite | C5 → T3 | authn-http/test/v3/; token caller refused (`NoTokenAuthPolicy` kept; A13, A14); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 3 | 131 | AccessTokenController - scopes route > refuses an impersonated session | rewrite | C5 → T3 | authn-http/test/v3/; impersonated session refused (`NoImpersonationPolicy` kept; A20); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 4 | 142 | AccessTokenController - scopes route > answers the profiles route with the policy answer - none for the shipped default | rewrite | C5 → T3 | authz-rbac/test/ported/; profiles route answers the policy (B24, `attributes.profile`); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 5 | 155 | AccessTokenController - scopes route > refuses an anonymous caller on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; anonymous refused on the profiles route (B10, B23); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 6 | 163 | AccessTokenController - scopes route > refuses a token-authenticated caller on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; token caller refused on the profiles route (A14); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 7 | 174 | AccessTokenController - scopes route > refuses an impersonated session on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; impersonated session refused on the profiles route (A20); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 8 | 197 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > reports the policy answer, not the callers own roles | rewrite | C5 → T3 | authz-rbac/test/ported/; policy answer, not the caller roles (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 9 | 215 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > accepts POST user/tokens with a role this route just reported, even though the caller does not hold it | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles ∩ owner roles ∩ role policy at use time (B24, B07); the creation check may differ from 2.x. Decided (r6, D3): never above the owner; check time drops every token role the owner lacks (C5, `authz-rbac/test/token/`, B07.token, B24.token).; N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 10 | 264 | AccessTokenController - scopes route > profiles > GET user/tokens/profiles answers what the policy offers the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; profiles offered by the policy (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 11 | 274 | AccessTokenController - scopes route > profiles > narrows GET user/tokens/roles to the profile named in the query | rewrite | C5 → T3 | authz-rbac/test/ported/; roles narrowed to a profile (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 12 | 290 | AccessTokenController - scopes route > profiles > POST user/tokens pins the token to the requested profile, on the wire and in the row | rewrite | C5 → T3 | authn-http/test/v3/; profile pinned on the token, source of `attributes.profile` (B24, design §14); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 13 | 311 | AccessTokenController - scopes route > profiles > POST user/tokens refuses a profile the policy does not offer | rewrite | C5 → T3 | authn-http/test/v3/; a profile the policy does not offer is refused (B24); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 14 | 326 | AccessTokenController - scopes route > profiles > POST user/tokens validates roles against the profile, not the owner union | rewrite | C5 → T3 | authz-rbac/test/ported/; roles validated against the profile, not the owner union (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 15 | 345 | AccessTokenController - scopes route > profiles > accepts a create built from what the two routes just reported | rewrite | C5 → T3 | authn-http/test/v3/; create accepts what the routes reported (B24); create now needs fresh auth and an expiry (A13, A14); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
+| 16 | 361 | AccessTokenController - scopes route > profiles > refuses an empty Profile at the DTO, rather than silently minting an unpinned token | rewrite | C5 → T3 | authn-http/test/v3/; DTO validation (A14); route home undecided (D26); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
 
 ## test/token-controller.test.ts
 
-Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3; a few rows adapt, two drop; lane C5.
+Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3; a few rows adapt, two drop; lane C5. N8a task 2 (A22): the cookie requests with an unsafe method send `Origin: APP_ORIGIN` (`token-common.ts`), as a browser on the app does; intent and expected values unchanged, the files stay here.
+
+Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder): N8b moves the rewrite rows to `test/legacy-v2/` with its route change, handles the adapt rows and deletes the drop rows; T3 ports the rest. The check-time half of row 4 is covered by B07.token and B24.token in `authz-rbac/test/token/behaviour.test.ts` (C5).
+
+Status (N8a task 9): rows 1 and 10 stay here and pass; every other row is in `test/legacy-v2/token-controller.test.ts` (see "C1 merge" above). Adapt rows 3, 8 and 9 are parked there, not adapted: each needs a session or token user with roles, which the 2.x stack no longer has; the 3.0 counterparts are N8b's token routes (rows 3, 8, 9) and `test/v3/authn-policies.test.ts` ("NoTokenAuthPolicy", "NoImpersonationPolicy" rows). Drop rows 6 and 7 wait there for N8b.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 91 | AccessTokenController > rejects anonymous access | adapt | C5 | authn-http/test/ (`src/token/`); anonymous refused (B10, B23) |
-| 2 | 96 | AccessTokenController > creates a token and returns plaintext exactly once | rewrite | C5 → T3 | authn-http/test/v3/; plaintext shown once, wire shape kept; create needs an expiry and fresh auth, the 2.x test posts none (A14, A13, `SR-08 token without expiry refused`); the stranger-token-not-listed IDOR check goes to the T3 IDOR suite, as row 5 does |
-| 3 | 135 | AccessTokenController > returns ExpiresAt as an ISO instant too | adapt | C5 | authn-http/test/ (`src/token/`); ISO `ExpiresAt` within `maxTtlDays` (A14) |
-| 4 | 153 | AccessTokenController > rejects creating token with role caller does not hold | rewrite | C5 → T3 | authz-rbac/test/ported/; a role the owner lacks is refused by the token role policy (B24); like the row at line 215, the check may move to use time (B07: the ceiling drops roles the owner lacks), so the expectation may change. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows. |
-| 5 | 161 | AccessTokenController > deletes own token, foreign uuid not found | rewrite | C5 → T3 | authn-http/test/v3/; IDOR: a foreign token uuid is a 404 (keep verbatim in the T3 IDOR suite); revoke sets `RevokedAt`, the row is not deleted (A14) |
-| 6 | 177 | AccessTokenController > grants and revokes role on own token | drop | C5 | N8b token routes are list, create and revoke; `TokenService` and the routes have no role edit (N6 task 2, N8b task 3); grant and revoke role routes have no 3.0 counterpart |
-| 7 | 191 | AccessTokenController > refuses to revoke the last role with 400, not 500 | drop | C5 | Same: the revoke-role route is gone (N6 task 2, N8b task 3), so "last role" has no 3.0 case |
-| 8 | 203 | AccessTokenController > a valid access token cannot manage tokens | adapt | C5 | authn-http/test/ (`src/token/`); a token cannot manage tokens (`NoTokenAuthPolicy` kept; A13, A14) |
-| 9 | 220 | AccessTokenController > an impersonated session cannot mint or manage tokens | adapt | C5 | authn-http/test/ (`src/token/`); an impersonated session cannot mint or manage tokens, fixture sets `ImpersonatorId` (`NoImpersonationPolicy` kept; A20) |
+| 2 | 96 | AccessTokenController > creates a token and returns plaintext exactly once | rewrite | C5 → T3 | authn-http/test/v3/; plaintext shown once, wire shape kept; create needs an expiry and fresh auth, the 2.x test posts none (A14, A13, `SR-08 token without expiry refused`); the stranger-token-not-listed IDOR check goes to the T3 IDOR suite, as row 5 does; N8a task 9: `test/legacy-v2/token-controller.test.ts` |
+| 3 | 135 | AccessTokenController > returns ExpiresAt as an ISO instant too | adapt | C5 | authn-http/test/ (`src/token/`); ISO `ExpiresAt` within `maxTtlDays` (A14); N8a task 9: `test/legacy-v2/token-controller.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 4 | 153 | AccessTokenController > rejects creating token with role caller does not hold | rewrite | C5 → T3 | authz-rbac/test/ported/; a role the owner lacks is refused by the token role policy (B24); like the row at line 215, the check may move to use time (B07: the ceiling drops roles the owner lacks), so the expectation may change. Decided (r6, D3): never above the owner; check time drops every token role the owner lacks (C5, `authz-rbac/test/token/`, B07.token, B24.token).; N8a task 9: `test/legacy-v2/token-controller.test.ts` |
+| 5 | 161 | AccessTokenController > deletes own token, foreign uuid not found | rewrite | C5 → T3 | authn-http/test/v3/; IDOR: a foreign token uuid is a 404 (keep verbatim in the T3 IDOR suite); revoke sets `RevokedAt`, the row is not deleted (A14); N8a task 9: `test/legacy-v2/token-controller.test.ts` |
+| 6 | 177 | AccessTokenController > grants and revokes role on own token | drop | C5 | N8b token routes are list, create and revoke; `TokenService` and the routes have no role edit (N6 task 2, N8b task 3); grant and revoke role routes have no 3.0 counterpart; N8a task 9: `test/legacy-v2/token-controller.test.ts`; drop row, N8b deletes it |
+| 7 | 191 | AccessTokenController > refuses to revoke the last role with 400, not 500 | drop | C5 | Same: the revoke-role route is gone (N6 task 2, N8b task 3), so "last role" has no 3.0 case; N8a task 9: `test/legacy-v2/token-controller.test.ts`; drop row, N8b deletes it |
+| 8 | 203 | AccessTokenController > a valid access token cannot manage tokens | adapt | C5 | authn-http/test/ (`src/token/`); a token cannot manage tokens (`NoTokenAuthPolicy` kept; A13, A14); N8a task 9: `test/legacy-v2/token-controller.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 9 | 220 | AccessTokenController > an impersonated session cannot mint or manage tokens | adapt | C5 | authn-http/test/ (`src/token/`); an impersonated session cannot mint or manage tokens, fixture sets `ImpersonatorId` (`NoImpersonationPolicy` kept; A20); N8a task 9: `test/legacy-v2/token-controller.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
 | 10 | 263 | AccessTokenController > guards every route with both controller-scope policies in ONE mandatory group | rewrite | C5 → T3 | authn-http/test/v3/; guard layout: `NoTokenAuthPolicy` and `NoImpersonationPolicy` in one group, `RbacPolicy` replaced by `@Access` permissions (B23, C5 task 3) |
-| 11 | 308 | AccessTokenController > a valid access token cannot reach ANY route of this controller | rewrite | C5 → T3 | authn-http/test/v3/; no route of the controller reachable by token, route list changes (A13, A14, SR-08) |
+| 11 | 308 | AccessTokenController > a valid access token cannot reach ANY route of this controller | rewrite | C5 → T3 | authn-http/test/v3/; no route of the controller reachable by token, route list changes (A13, A14, SR-08); N8a task 9: `test/legacy-v2/token-controller.test.ts` |
 
 ## test/token-middleware.test.ts
 
 `TokenAuthMiddleware` bearer and `x-api-key` authentication. Mixed: rewrite per plan T3 where principal shape or order changes, adapt for the extractor behaviour, three drop; lane N8a.
 
+Status (N8a task 7): the 3.0 extractors and resolvers (task 3, switched off until N8c) are tested in `test/v3/authn-middleware.test.ts`; each row names its case. Rows 16 and 17 pin 2.x rules the 3.0 extractors share (C7, R1). The 2.x file stays and tests the live 2.x middleware; N8c retires `TokenAuthMiddleware` (task 4 moved there) and moves the file to `test/legacy-v2/`.
+
+Status (N8a task 9): rows 5, 6, 13 and 16 stay here and pass; rows 3 and 11 (drop) are deleted; the rest is in `test/legacy-v2/token-middleware.test.ts` (see "C1 merge" above). Adapt rows 4, 7, 9 and 10 are parked there, not adapted: each needs a token that validates, and `validateToken` finds no roles for the owner; their 3.0 cases are named in the rows (row 9: `TokenStrategy`, N6).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 112 | TokenAuthMiddleware > authenticates a valid Bearer token | rewrite | N8a → T3 | authn-http/test/v3/; a bearer token resolves to a `Principal` in `req.storage.AuthnPrincipal`, no `User` or `TokenAuth` (A14, A23, B24) |
-| 2 | 134 | TokenAuthMiddleware > keeps the whole effective role set authorizable, without pinning an active role | rewrite | N8a → T3 | authz-rbac/test/ported/; `ceiling.roles` = the token roles, no pinned active role (B24, B07) |
-| 3 | 151 | TokenAuthMiddleware > clears the guest active role RbacMiddleware left behind | drop | N8a | Relies on 2.x `RbacMiddleware` stamping the guest `ActiveRole`; 3.0 writes one principal and anonymous is only the fallback when there is none (B10) |
-| 4 | 161 | TokenAuthMiddleware > authenticates via fallback header | adapt | N8a | authn-http/test/ (`src/token/`); `x-api-key` extractor (N8a task 3) |
-| 5 | 171 | TokenAuthMiddleware > leaves request untouched without token header | adapt | N8a | authn-http/test/ (`src/token/`); no credential leaves `AuthnPrincipal` unset |
-| 6 | 181 | TokenAuthMiddleware > stays guest on invalid token, does not throw | adapt | N8a | authn-http/test/ (`src/token/`); an invalid token resolves to no principal and does not throw |
-| 7 | 198 | TokenAuthMiddleware > ignores a duplicated token header instead of failing the request | adapt | N8a | authn-http/test/ (`src/token/`); a duplicated header reads as no token |
-| 8 | 210 | TokenAuthMiddleware > does not override an existing session user | rewrite | N8a → T3 | authn-http/test/v3/; 3.0 order is key, token, session: a token wins over a session (N8a task 4, D26); 3.0 expectation differs |
-| 9 | 221 | TokenAuthMiddleware > updates LastUsedAt on successful auth | adapt | N8a | authn-http/test/ (`src/token/`); last-used stamp, throttled (N6 task 3) |
-| 10 | 234 | TokenAuthMiddleware > accepts a lowercase bearer scheme | adapt | N8a | authn-http/test/ (`src/token/`); lowercase bearer scheme |
-| 11 | 252 | TokenAuthMiddleware > narrowing Role does not persist when the controller later updates the user | drop | N8a | `User.Role` is removed (H13) and the principal is a separate object, so narrowing cannot persist through `user.update()` |
-| 12 | 274 | TokenAuthMiddleware > never logs the presented plaintext, and names the token by uuid when known | rewrite | N8a → T3 | authn-http/test/v3/; plaintext token never logged, rejections named by uuid (A14, A21) |
-| 13 | 316 | TokenAuthMiddleware > runs after RbacMiddleware | drop | N8a | Two middlewares ordered against each other no longer exist: one `AuthnMiddleware` resolves key, token, session (N8a task 4); the order is tested by the row at line 210 |
-| 14 | 325 | TokenAuthMiddleware > leaves Profile undefined on TokenAuth for a legacy token | rewrite | N8a → T3 | authn-http/test/v3/; a token without a profile leaves `attributes.profile` unset (B24, design §14) |
-| 15 | 354 | TokenAuthMiddleware > profiles > stamps the token profile on TokenAuth | rewrite | N8a → T3 | authn-http/test/v3/; the token profile becomes `attributes.profile` (B24, design §14) |
+| 1 | 112 | TokenAuthMiddleware > authenticates a valid Bearer token | rewrite | N8a → T3 | authn-http/test/v3/; a bearer token resolves to a `Principal` in `req.storage.AuthnPrincipal`, no `User` or `TokenAuth` (A14, A23, B24); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ceiling.roles and the profile attribute, no-store, ctx from ClientIp"); N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 2 | 134 | TokenAuthMiddleware > keeps the whole effective role set authorizable, without pinning an active role | rewrite | N8a → T3 | authz-rbac/test/ported/; `ceiling.roles` = the token roles, no pinned active role (B24, B07); N8a task 3: `test/v3/authn-middleware.test.ts` (same case: `ceiling.roles` from the strategy, no active role); the authorization part stays C5/T3; N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 3 | 151 | TokenAuthMiddleware > clears the guest active role RbacMiddleware left behind | drop | N8a | Relies on 2.x `RbacMiddleware` stamping the guest `ActiveRole`; 3.0 writes one principal and anonymous is only the fallback when there is none (B10); N8a task 9: deleted (drop; it failed after C1) |
+| 4 | 161 | TokenAuthMiddleware > authenticates via fallback header | adapt | N8a | authn-http/test/ (`src/token/`); `x-api-key` extractor (N8a task 3); N8a task 3: `test/v3/authn-middleware.test.ts` ("x-api-key gives a bearer credential"); N8a task 7: only an `authn.token.prefix` value ("R1 x-api-key takes only values with authn.token.prefix, ..."); N8a task 9: `test/legacy-v2/token-middleware.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 5 | 171 | TokenAuthMiddleware > leaves request untouched without token header | adapt | N8a | authn-http/test/ (`src/token/`); no credential leaves `AuthnPrincipal` unset; N8a task 3: `test/v3/authn-middleware.test.ts` ("an anonymous request stays cacheable": no principal, no session) |
+| 6 | 181 | TokenAuthMiddleware > stays guest on invalid token, does not throw | adapt | N8a | authn-http/test/ (`src/token/`); an invalid token resolves to no principal and does not throw; N8a task 3: `test/v3/authn-middleware.test.ts` ("a rejected bearer stops resolution: no other credential and no session answers") |
+| 7 | 198 | TokenAuthMiddleware > ignores a duplicated token header instead of failing the request | adapt | N8a | authn-http/test/ (`src/token/`); a duplicated header reads as no token; N8a task 3: `test/v3/authn-middleware.test.ts` ("a duplicated Authorization or api-key header gives no principal"; a repeated prefix bearer is a failing credential since task 7); N8a task 9: `test/legacy-v2/token-middleware.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 8 | 210 | TokenAuthMiddleware > does not override an existing session user | rewrite | N8a → T3 | authn-http/test/v3/authn-middleware.test.ts ("an active session ignores a bearer header"); the frozen `AuthnMiddleware` contract (api.ts, design §22.11 "as 2.x"): an active session ignores bearer credentials, so the 2.x expectation holds; key, token, session is the resolver order for a request without an active session (D26); N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 9 | 221 | TokenAuthMiddleware > updates LastUsedAt on successful auth | adapt | N8a | authn-http/test/ (`src/token/`); last-used stamp, throttled (N6 task 3); N8a task 3: no 3.0 counterpart in authn-http; `touchToken` is retired with `TokenAuthMiddleware` in N8c (N6 hand-off), the last-used stamp is `TokenStrategy`'s (N6); N8a task 9: `test/legacy-v2/token-middleware.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 10 | 234 | TokenAuthMiddleware > accepts a lowercase bearer scheme | adapt | N8a | authn-http/test/ (`src/token/`); lowercase bearer scheme; N8a task 3: `test/v3/authn-middleware.test.ts` ("a lowercase bearer scheme is accepted"); N8a task 9: `test/legacy-v2/token-middleware.test.ts`; adapt row parked there, it cannot pass on the 2.x stack after C1 (see status); open item for the owning lane |
+| 11 | 252 | TokenAuthMiddleware > narrowing Role does not persist when the controller later updates the user | drop | N8a | `User.Role` is removed (H13) and the principal is a separate object, so narrowing cannot persist through `user.update()`; N8a task 9: deleted (drop; it failed after C1) |
+| 12 | 274 | TokenAuthMiddleware > never logs the presented plaintext, and names the token by uuid when known | rewrite | N8a → T3 | authn-http/test/v3/; plaintext token never logged, rejections named by uuid (A14, A21); N8a task 3: `test/v3/authn-middleware.test.ts` ("passes the credentials of the first extractor that answers and never stores them on the request"); AuthnMiddleware logs no credential; naming a rejection by uuid is core audit (N6/T3); N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 13 | 316 | TokenAuthMiddleware > runs after RbacMiddleware | drop | N8a | Two middlewares ordered against each other no longer exist: one `AuthnMiddleware` resolves key, token, session (N8a task 4, moved to N8c); the order is tested by the row at line 210 |
+| 14 | 325 | TokenAuthMiddleware > leaves Profile undefined on TokenAuth for a legacy token | rewrite | N8a → T3 | authn-http/test/v3/; a token without a profile leaves `attributes.profile` unset (B24, design §14); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ... the profile attribute"); the unset case stays T3; N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 15 | 354 | TokenAuthMiddleware > profiles > stamps the token profile on TokenAuth | rewrite | N8a → T3 | authn-http/test/v3/; the token profile becomes `attributes.profile` (B24, design §14); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ceiling.roles and the profile attribute, ..."); N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
+| 16 | 193 | TokenAuthMiddleware > C7 leaves a bearer value without the token prefix alone: no lookup, no warning | rewrite | N8a | added in N8a task 3 (C7 hand-off); 3.0 intent already in authn-http/test/v3/authn-middleware.test.ts ("C7 an opaque bearer of another service gives no credentials"); goes with the file to legacy-v2 in N8c |
+| 17 | 212 | TokenAuthMiddleware > R1 an opaque bearer of another service does not hide our token in the fallback header | rewrite | N8a | added in N8a task 7 (task 3 review R1): one rule in both stacks, a credential header counts only with the token prefix; 3.0 intent in `test/v3/authn-middleware.test.ts` ("R1 an x-api-key value without authn.token.prefix gives no credentials; with an opaque bearer, our x-api-key authenticates (as 2.x)"); goes with the file to legacy-v2 in N8c; N8a task 9: `test/legacy-v2/token-middleware.test.ts` |
 
 ## test/token-policies.test.ts
 
 `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`. `TokenPolicy` rows rewrite or drop, the two kept policies adapt (C5 task 3); lane C5.
+
+Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is now `@deprecated` (R1 deletes it; its rewrite rows go to T3 and its drop rows go with R1); `NoTokenAuthPolicy` and `NoImpersonationPolicy` stay and their adapt rows pass unchanged. The file stays until R1. N8a task 5: the rows still test the 2.x classes, which the barrel exports until the N8c cutover; the 3.0 classes of the same names (`src/v3/index.ts`) have the counterparts named in rows 5-10.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -259,26 +299,30 @@ Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3;
 | 2 | 48 | token policies > TokenPolicy accepts token-authenticated request with matching grant | rewrite | C5 → T3 | authz-rbac/test/ported/; a token with a matching grant passes (B24) |
 | 3 | 54 | token policies > TokenPolicy rejects token-authenticated request without grant | rewrite | C5 → T3 | authz-rbac/test/ported/; a token without the grant gets 403 (B24, B07) |
 | 4 | 61 | token policies > TokenPolicy errors on route without rbac descriptor | drop | C5 | `TokenPolicy` and the route descriptor it reads are removed; the missing-metadata case has no 3.0 policy |
-| 5 | 83 | token policies > NoTokenAuthPolicy rejects token-authenticated request | adapt | C5 | authn-http/test/; `NoTokenAuthPolicy` kept (C5 task 3) |
-| 6 | 89 | token policies > NoTokenAuthPolicy passes session request | adapt | C5 | authn-http/test/; fixture sets a session principal |
-| 7 | 100 | token policies > NoTokenAuthPolicy passes guest request | adapt | C5 | authn-http/test/ |
-| 8 | 106 | token policies > NoImpersonationPolicy rejects an impersonated session | adapt | C5 | authn-http/test/; `NoImpersonationPolicy` kept, reads `authn.impersonator` instead of `storage.Impersonator` (A20) |
-| 9 | 114 | token policies > NoImpersonationPolicy passes an ordinary session | adapt | C5 | authn-http/test/ |
-| 10 | 125 | token policies > NoImpersonationPolicy passes guest request | adapt | C5 | authn-http/test/ |
+| 5 | 83 | token policies > NoTokenAuthPolicy rejects token-authenticated request | adapt | C5 | authn-http/test/; `NoTokenAuthPolicy` kept (C5 task 3); 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (token, agent and key 403) and the HTTP case |
+| 6 | 89 | token policies > NoTokenAuthPolicy passes session request | adapt | C5 | authn-http/test/; fixture sets a session principal; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (session, impersonation pass) |
+| 7 | 100 | token policies > NoTokenAuthPolicy passes guest request | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (none, pending pass) |
+| 8 | 106 | token policies > NoImpersonationPolicy rejects an impersonated session | adapt | C5 | authn-http/test/; `NoImpersonationPolicy` kept, reads `authn.impersonator` instead of `storage.Impersonator` (A20); 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (impersonation 403) and the HTTP case |
+| 9 | 114 | token policies > NoImpersonationPolicy passes an ordinary session | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (session pass) |
+| 10 | 125 | token policies > NoImpersonationPolicy passes guest request | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (none, pending pass) |
 
 ## test/token-policy-e2e.test.ts
 
 Token authentication plus RBAC grants through a real server. Class: rewrite per plan T3 (B24, B07); lane C5, replacement by T3.
 
+Status (C5): not moved yet: it drives the live 2.x token middleware and RBAC policy, which N8a/N8b retire; that lane moves it to `test/legacy-v2/` and T3 replaces it. The 3.0 behaviour it checks (token roles, never above the owner, excluded roles) runs end to end with RBAC in `authz-rbac/test/token/` (B07.token, B24.token, B37.token).
+
+Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite). After C1 every row but row 3 failed (see "C1 merge" above); row 3 passed and moved with its file.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 90 | TokenPolicy e2e > valid bearer token reaches the route | rewrite | C5 → T3 | authz-rbac/test/ported/ and authn-http/test/v3/; a token reaches an `@Access` route (B24, A14, B23) |
-| 2 | 102 | TokenPolicy e2e > valid fallback-header token reaches the route | rewrite | C5 → T3 | authn-http/test/v3/; an `x-api-key` token reaches the route (A14) |
-| 3 | 112 | TokenPolicy e2e > anonymous request is rejected | rewrite | C5 → T3 | authn-http/test/v3/; anonymous gets 401 (B10, B23) |
-| 4 | 117 | TokenPolicy e2e > expired token is rejected | rewrite | C5 → T3 | authn-http/test/v3/; an expired token never authenticates (A14) |
-| 5 | 139 | TokenPolicy e2e > token without required grant is rejected | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles narrower than the owner roles deny (B24, B07) |
-| 6 | 163 | TokenPolicy e2e > authorizes a multi-role token with the full effective set, not just its first role | rewrite | C5 → T3 | authz-rbac/test/ported/; the whole token role set applies (B24 `ceiling.roles`) |
-| 7 | 182 | TokenPolicy e2e > does not widen authorization beyond the token effective set | rewrite | C5 → T3 | authz-rbac/test/ported/; a ceiling never widens (B07) |
+| 1 | 90 | TokenPolicy e2e > valid bearer token reaches the route | rewrite | C5 → T3 | authz-rbac/test/ported/ and authn-http/test/v3/; a token reaches an `@Access` route (B24, A14, B23); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 2 | 102 | TokenPolicy e2e > valid fallback-header token reaches the route | rewrite | C5 → T3 | authn-http/test/v3/; an `x-api-key` token reaches the route (A14); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 3 | 112 | TokenPolicy e2e > anonymous request is rejected | rewrite | C5 → T3 | authn-http/test/v3/; anonymous gets 401 (B10, B23); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 4 | 117 | TokenPolicy e2e > expired token is rejected | rewrite | C5 → T3 | authn-http/test/v3/; an expired token never authenticates (A14); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 5 | 139 | TokenPolicy e2e > token without required grant is rejected | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles narrower than the owner roles deny (B24, B07); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 6 | 163 | TokenPolicy e2e > authorizes a multi-role token with the full effective set, not just its first role | rewrite | C5 → T3 | authz-rbac/test/ported/; the whole token role set applies (B24 `ceiling.roles`); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
+| 7 | 182 | TokenPolicy e2e > does not widen authorization beyond the token effective set | rewrite | C5 → T3 | authz-rbac/test/ported/; a ceiling never widens (B07); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` |
 
 ## test/two-factor-policy.test.ts
 
@@ -293,12 +337,14 @@ Token authentication plus RBAC grants through a real server. Class: rewrite per 
 
 Login-window 2FA verification and session regeneration. Class: rewrite (pending session, A09); lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 70 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > regenerates the session: new id issued, old id deleted, Authorized set, ssid cookie reset | rewrite | N8a → N8a | authn-http/test/v3/; MFA completion elevates the pending session and rotates the id (A07, A09, A10) |
-| 2 | 101 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > activates a pending enrolment before authorizing the session | rewrite | N8a → N8a | authn-http/test/v3/; a pending enrolment is activated on a valid code, state in `DbMfaStore` (A10, A12) |
-| 3 | 110 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > does not re-activate an account that already has 2fa on | rewrite | N8a → N8a | authn-http/test/v3/; an already enabled account is not re-activated (A10) |
-| 4 | 135 | TwoFactorAuthController — login window policies > requires the 2fa window and an unauthorized session together | rewrite | N8a → N8a | authn-http/test/v3/; MFA window routes accept only a pending session (A09); policy names change |
+| 1 | 70 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > regenerates the session: new id issued, old id deleted, Authorized set, ssid cookie reset | rewrite | N8a → N8a | authn-http/test/v3/; MFA completion elevates the pending session and rotates the id (A07, A09, A10); N8a task 6: `test/v3-app/suites/mfa.ts` ("A09 verify: elevates to aal2, rotates the id, keeps the stored client data, answers the mfa extensions") |
+| 2 | 101 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > activates a pending enrolment before authorizing the session | rewrite | N8a → N8a | authn-http/test/v3/; a pending enrolment is activated on a valid code, state in `DbMfaStore` (A10, A12); N8a task 6: the 3.0 login-window verify activates nothing; confirming an enrolment is the enrolment route of N8b (`/user/mfa/confirm`) |
+| 3 | 110 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > does not re-activate an account that already has 2fa on | rewrite | N8a → N8a | authn-http/test/v3/; an already enabled account is not re-activated (A10); N8a task 6: as row 2, N8b |
+| 4 | 135 | TwoFactorAuthController — login window policies > requires the 2fa window and an unauthorized session together | rewrite | N8a → N8a | authn-http/test/v3/; MFA window routes accept only a pending session (A09); policy names change; N8a task 6: `test/v3-app/suites/mfa.ts` ("the MFA routes take only a pending session: none 401, active 403") |
 
 ## test/two-factor-self-service.test.ts
 
@@ -346,29 +392,35 @@ System 2FA switch over a real HTTP request. Class: adapt; lane N8b.
 
 `LoginController.whoami` answer for active and mid-2FA sessions. Class: rewrite (pending whoami, SR-07, B25); lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`. The 3.0 whoami is `GET /auth` (2.x: `GET /auth/whoami`).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 142 | LoginController.whoami > reports Authorized: true for a fully authorized session | rewrite | N8a → N8a | authn-http/test/v3/; the whoami answer for an active session carries `Access` (B25); whether `Authorized` stays is for N8a to decide |
-| 2 | 162 | LoginController.whoami > sends every assigned role, not the flattened relation | rewrite | N8a → N8a | authn-http/test/v3/; the role list comes from the principal and `Access`, `User.Role` is removed (H13, B25) |
-| 3 | 171 | LoginController.whoami > reports Authorized: false for a session mid-2FA | rewrite | N8a → N8a | authn-http/test/v3/; `SR-07 pending whoami shows only MfaRequired` (A09, D25); 3.0 expectation differs |
-| 4 | 190 | LoginController.whoami > reports Authorized: true when the session carries no Authorized key | rewrite | N8a → N8a | authn-http/test/v3/; a 2.x row without `Authorized` is handled by N2 task 4 (pending vs active state); A07 lazy migration covers raw session ids only |
+| 1 | 142 | LoginController.whoami > reports Authorized: true for a fully authorized session | rewrite | N8a → N8a | authn-http/test/v3/; the whoami answer for an active session carries `Access` (B25); whether `Authorized` stays is for N8a to decide; N8a task 6: `test/v3-app/suites/login.ts` ("an active session: the principal summary and the whoami extensions"); decided: no `Authorized`, the summary carries `Authn.assurance` |
+| 2 | 162 | LoginController.whoami > sends every assigned role, not the flattened relation | rewrite | N8a → N8a | authn-http/test/v3/; the role list comes from the principal and `Access`, `User.Role` is removed (H13, B25); N8a task 6: the whoami summary lists no roles; `Access` (extension) and `GET /auth/active-role` (`test/v3-app/suites/active-role.ts`) do |
+| 3 | 171 | LoginController.whoami > reports Authorized: false for a session mid-2FA | rewrite | N8a → N8a | authn-http/test/v3/; `SR-07 pending whoami shows only MfaRequired` (A09, D25); 3.0 expectation differs; N8a task 6: `test/v3-app/suites/login.ts` ("SR-07 pending whoami shows only MfaRequired") |
+| 4 | 190 | LoginController.whoami > reports Authorized: true when the session carries no Authorized key | rewrite | N8a → N8a | authn-http/test/v3/; a 2.x row without `Authorized` is handled by N2 task 4 (pending vs active state); A07 lazy migration covers raw session ids only; N8a task 6: no 3.0 whoami case: the 2.x row is migrated by the issuer (`test/v3/authn-middleware.test.ts`, A07) |
 
 ## test/z-account-session-context.test.ts
 
 `SessionContextProvider` fields on whoami, login payload and role switch. Class: rewrite per plan T2; lane C3. Rows use fakes of the extension inputs; no `users` or `authz*` dependency in authn-http (D26).
 
+Status (N8a task 6): the extension runs are tested with a recording `AuthnResponseExtension` in `test/v3-app`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 166 | SessionContextProvider > adds provider fields to whoami, resolved for the session active role | rewrite | C3 → T2 | authn-http/test/v3/; `AuthnResponseExtension` runs on whoami (B25) |
-| 2 | 172 | SessionContextProvider > adds provider fields to the login-style payload | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on the login answer; `buildUserWithGrants` is deleted by C3 (B25) |
-| 3 | 178 | SessionContextProvider > adds provider fields to GET /auth/active-role | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on role switch, `GET /auth/active-role` is replaced (B25, A26) |
-| 4 | 184 | SessionContextProvider > resolves provider fields for the role switched to, not the one switched from | rewrite | C3 → T2 | authn-http/test/v3/; the extension resolves for the role switched to (A26, B25) |
+| 1 | 166 | SessionContextProvider > adds provider fields to whoami, resolved for the session active role | rewrite | C3 → T2 | authn-http/test/v3/; `AuthnResponseExtension` runs on whoami (B25); N8a task 6: `test/v3-app/suites/login.ts` ("an active session: the principal summary and the whoami extensions") |
+| 2 | 172 | SessionContextProvider > adds provider fields to the login-style payload | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on the login answer; `buildUserWithGrants` is deleted by C3 (B25); N8a task 6: `test/v3-app/suites/login.ts` ("logs in: the session cookie, the principal summary and the login extensions; ...") |
+| 3 | 178 | SessionContextProvider > adds provider fields to GET /auth/active-role | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on role switch, `GET /auth/active-role` is replaced (B25, A26); N8a task 6: 3.0 expectation differs: `GET /auth/active-role` runs no extension (no answer kind for it); the switch does (`test/v3-app/suites/active-role.ts`, "A26 a held role: ...") |
+| 4 | 184 | SessionContextProvider > resolves provider fields for the role switched to, not the one switched from | rewrite | C3 → T2 | authn-http/test/v3/; the extension resolves for the role switched to (A26, B25); N8a task 6: `test/v3-app/suites/active-role.ts` ("A26 a held role: ..."): the extension gets the principal with `ceiling.roles` = the new role |
 
 ## test/z-login-failure-parity.test.ts
 
 Failed logins give one answer (account enumeration). Class: adapt (A02); lane N8a.
 
+Status (N8a task 6): the 3.0 login's A02 rows are in `test/v3-app/suites/login.ts`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 89 | LoginController — failed logins are indistinguishable > answers Unauthorized for an email that is not registered | adapt | N8a | authn-http/test/; an unknown email gives 401 `E_AUTH_FAILED` (A02, SR-04) |
-| 2 | 101 | LoginController — failed logins are indistinguishable > answers Unauthorized for a registered email with the wrong password | adapt | N8a | authn-http/test/; a wrong password gives the same 401 (A02) |
+| 1 | 89 | LoginController — failed logins are indistinguishable > answers Unauthorized for an email that is not registered | adapt | N8a | authn-http/test/; an unknown email gives 401 `E_AUTH_FAILED` (A02, SR-04); N8a task 6: `test/v3-app/suites/login.ts` ("answers 401 with the one failure body: unknown account") |
+| 2 | 101 | LoginController — failed logins are indistinguishable > answers Unauthorized for a registered email with the wrong password | adapt | N8a | authn-http/test/; a wrong password gives the same 401 (A02); N8a task 6: `test/v3-app/suites/login.ts` ("answers 401 with the one failure body: wrong password") |

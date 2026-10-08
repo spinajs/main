@@ -75,17 +75,15 @@ describe('LocalPasswordPolicy', () => {
       expect(await p.check('a'.repeat(21))).to.deep.equal(['too_long']);
     });
 
-    for (const [label, opts] of [
-      ['minLength below 8', { minLength: 7 }],
-      ['maxLength above 128', { maxLength: 129 }],
-      ['minLength above maxLength', { minLength: 20, maxLength: 10 }],
-      ['a fractional minLength', { minLength: 8.5 }],
-      ['a string maxLength', { maxLength: '64' as unknown as number }],
-    ] as const) {
-      it(`refuses ${label} at first use`, () => {
-        expect(failure(() => new LocalPasswordPolicy(opts).resolve())).to.be.instanceOf(InvalidOption);
-      });
-    }
+    it('refuses a minLength below 8 at first use', () => {
+      expect(failure(() => new LocalPasswordPolicy({ minLength: 7 }).resolve())).to.be.instanceOf(InvalidOption);
+    });
+
+    it('refuses a minLength that is not an integer, which would let any length through', () => {
+      for (const minLength of [Number.NaN, 8.5, '12' as unknown as number]) {
+        expect(failure(() => new LocalPasswordPolicy({ minLength }).resolve()), String(minLength)).to.be.instanceOf(InvalidOption);
+      }
+    });
   });
 
   describe('login length (D5)', () => {
@@ -217,13 +215,8 @@ describe('LocalPasswordPolicy', () => {
       expect(seen.size).to.equal(50);
     });
 
-    it('an empty pool throws', () => {
-      expect(failure(() => policy({ generator: { length: 16, characters: [] } }).generate())).to.be.instanceOf(UnexpectedServerError);
-      expect(failure(() => policy({ generator: { length: 16, characters: ['', ''] } }).generate())).to.be.instanceOf(UnexpectedServerError);
-    });
-
-    it('a length below 1 throws', () => {
-      expect(failure(() => policy({ generator: { length: 0, characters: ['abc'] } }).generate())).to.be.instanceOf(UnexpectedServerError);
+    it('a seam generator with only a length keeps the default characters', () => {
+      expect(policy({ generator: { length: 12 } as never }).generate()).to.match(/^[a-zA-Z0-9]{12}$/);
     });
 
     it('a length outside the policy bounds throws', () => {

@@ -6,7 +6,7 @@ import { FakeClock, generateKeyPair, runStrategyConformance, signCompactJws } fr
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
 import type { KeyNonceStore } from '../src/nonce/index.js';
-import { keysOptions } from '../src/options/index.js';
+import { keysOptionsFor } from './support/keys-options.js';
 import { JwsAssertionStrategy, assertionIssuer } from '../src/strategies/index.js';
 import { bootSqlite, clearKeys } from './db.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
@@ -172,7 +172,7 @@ describe('JwsAssertionStrategy', () => {
 
   it('cannot be built without an audience', async () => {
     const p = await keysParts({}, 'memory');
-    assert.throws(() => new JwsAssertionStrategy(p.registry, p.verifier, new MemoryKeyNonceStore(), keysOptions()), /audience/);
+    await assert.rejects(new JwsAssertionStrategy(p.registry, p.verifier, new MemoryKeyNonceStore(), keysOptionsFor()).resolve(), /audience/);
   });
 });
 

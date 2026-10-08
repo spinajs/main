@@ -9,6 +9,7 @@ import { principalKey } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Logger, Log } from '@spinajs/log';
 
 type AttributeMap = Record<string, AttributeValue>;

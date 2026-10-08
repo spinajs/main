@@ -1,7 +1,5 @@
 import { SocketException } from '@spinajs/http-socket-common';
-import type { IConnectionRuntime, ISocketServerConfig, SocketTransport } from './interfaces.js';
-
-const TRANSPORTS: readonly SocketTransport[] = ['websocket', 'polling'];
+import type { IConnectionRuntime, ISocketServerConfig } from './interfaces.js';
 
 /**
  * Wire size of a command payload: the UTF-8 length of its JSON form plus the bytes of every
@@ -78,70 +76,6 @@ export function assertPayloadSize(payload: unknown, maxBytes: number): void {
 export function assertRate(bucket: TokenBucket): void {
   if (!bucket.take()) {
     throw new SocketException('resource_exhausted', 'rate limit exceeded', { retryAfterMs: bucket.retryAfterMs() });
-  }
-}
-
-export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate' | 'maxPayloadBytes' | 'maxInFlightPerConnection' | 'maxInFlightEventsPerConnection' | 'auth' | 'transports'>): void {
-  const { perSecond, burst } = options.rate;
-
-  if (!(perSecond > 0) || !(burst > 0)) {
-    throw new RangeError(`http.socket.rate.perSecond and burst must be positive numbers, got perSecond ${perSecond}, burst ${burst}`);
-  }
-
-  // a cap below the burst would drop events the rate limit lets through
-  const cap = options.maxInFlightEventsPerConnection;
-  if (!(Number.isInteger(cap) && cap > 0 && cap >= burst)) {
-    throw new RangeError(`http.socket.maxInFlightEventsPerConnection must be an integer of at least rate.burst ( ${burst} ), got ${String(cap)}`);
-  }
-
-  if (!(Number.isInteger(options.maxPayloadBytes) && options.maxPayloadBytes > 0)) {
-    throw new RangeError(`http.socket.maxPayloadBytes must be an integer above 0, got ${String(options.maxPayloadBytes)}`);
-  }
-
-  if (!(Number.isInteger(options.maxInFlightPerConnection) && options.maxInFlightPerConnection > 0)) {
-    throw new RangeError(`http.socket.maxInFlightPerConnection must be an integer above 0, got ${String(options.maxInFlightPerConnection)}`);
-  }
-
-  const revalidateMs = options.auth?.revalidateMs;
-  if (!(typeof revalidateMs === 'number' && Number.isFinite(revalidateMs) && revalidateMs >= 0)) {
-    throw new RangeError(`http.socket.auth.revalidateMs must be a finite number of at least 0, got ${String(revalidateMs)}`);
-  }
-
-  // undefined leaves socket.io's default
-  const transports: unknown = options.transports;
-  if (transports !== undefined && !(Array.isArray(transports) && transports.length > 0 && transports.every((t) => TRANSPORTS.includes(t as SocketTransport)))) {
-    throw new RangeError(`http.socket.transports must be a non-empty list of ${TRANSPORTS.map((t) => `'${t}'`).join(', ')}, got ${JSON.stringify(transports)}`);
-  }
-}
-
-export function assertHooksConfig(options: Pick<ISocketServerConfig, 'hooks'>): void {
-  const timeout = options.hooks?.connectTimeoutMs;
-
-  if (!(typeof timeout === 'number' && timeout > 0)) {
-    throw new RangeError(`http.socket.hooks.connectTimeoutMs must be a positive number, got ${String(timeout)}`);
-  }
-}
-
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
-
-export function assertStreamsConfig(options: Pick<ISocketServerConfig, 'streams'>): void {
-  const streams = options.streams;
-  const positiveInteger = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0;
-
-  if (!positiveInteger(streams?.maxCredits) || !positiveInteger(streams?.maxPerConnection)) {
-    throw new RangeError(`http.socket.streams.maxCredits and maxPerConnection must be integers above 0, got maxCredits ${String(streams?.maxCredits)}, maxPerConnection ${String(streams?.maxPerConnection)}`);
-  }
-
-  if (!(positiveInteger(streams.stallTimeoutMs) && streams.stallTimeoutMs <= MAX_TIMER_DELAY_MS)) {
-    throw new RangeError(`http.socket.streams.stallTimeoutMs must be an integer within 1 and ${MAX_TIMER_DELAY_MS}, got ${String(streams.stallTimeoutMs)}`);
-  }
-}
-
-export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'ordering'>): void {
-  const grace = options.ordering?.abortGraceMs;
-
-  if (!(typeof grace === 'number' && grace > 0)) {
-    throw new RangeError(`http.socket.ordering.abortGraceMs must be a positive number, got ${String(grace)}`);
   }
 }
 

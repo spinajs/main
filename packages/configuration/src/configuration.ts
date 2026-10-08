@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { join, normalize, resolve } from 'path';
-import Ajv from 'ajv';
+import Ajv, { ErrorObject } from 'ajv';
 import _ from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -20,10 +20,10 @@ import {
   ConfigVarProtocol,
   ConfigVar,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
+import { Autoinject, Class, Container, IContainer, Injectable, DI } from '@spinajs/di';
 
-import { InvalidConfiguration } from './exception.js';
-import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
+import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
+import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
 import config from './config/configuration.js';
 import './sources.js';
 
@@ -33,6 +33,63 @@ import { default as ajvKeywords } from 'ajv-keywords';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
+
+// A Configuration whose check ran but which DI has not cached yet (the microtasks after resolve() returns), by container.
+const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
+
+// The target of each lazy-var proxy load() builds, by proxy: copying a proxy property by property would load every var.
+const LAZY_TARGETS = new WeakMap<object, object>();
+
+function withLazyVars<T extends object>(obj: T): T {
+  const proxy = new Proxy(obj, {
+    get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
+  });
+  LAZY_TARGETS.set(proxy, obj);
+  return proxy;
+}
+
+// A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
+// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
+function copyForCheck(value: unknown): unknown {
+  return _.cloneDeepWith(value, function copy(v: unknown): unknown {
+    const target = typeof v === 'object' && v !== null ? LAZY_TARGETS.get(v) : undefined;
+    if (target) return withLazyVars(_.cloneDeepWith(target, copy));
+    if (Object.prototype.toString.call(v) === '[object Object]' && !_.isPlainObject(v)) return v;
+    return undefined;
+  });
+}
+
+const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
+
+// Ajv tags the sub-errors of a propertyNames check with `propertyName`; the check itself reports the key in `params`.
+const isNameError = (e: ErrorObject) => e.propertyName !== undefined;
+
+const keyOf = (e: ErrorObject) => {
+  const p = e.params as Record<string, unknown>;
+  return p.missingProperty ?? p.additionalProperty ?? p.propertyName;
+};
+
+function toViolations(module: string, schema: string, errors: ErrorObject[]): ConfigurationViolation[] {
+  const violations: ConfigurationViolation[] = [];
+
+  for (const e of errors) {
+    if (isNameError(e)) continue;
+
+    const segments = e.instancePath.split('/').filter((p) => p !== '').map(decodePointer);
+    const key = keyOf(e);
+    if (key !== undefined) segments.push(String(key));
+
+    let message = e.message ?? e.keyword;
+    if (e.keyword === 'propertyNames') {
+      const detail = errors.filter((n) => isNameError(n) && n.instancePath === e.instancePath && n.propertyName === key).map((n) => n.message ?? n.keyword);
+      message = `property name is invalid${detail.length ? `: ${detail.join(', ')}` : ''}`;
+    }
+
+    violations.push({ path: [module, ...segments].join('.'), schema, message });
+  }
+
+  return violations;
+}
 
 /**
  * HACK:
@@ -75,6 +132,9 @@ export class FrameworkConfiguration extends Configuration {
 
   protected ValidationSchemas: IConfigurationSchema[];
 
+  /** Schemas applied after boot that refused the loaded value, by schema; a read of their module throws. */
+  protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
+
   public get RootConfig() {
     return this.Config as IConfigLike;
   }
@@ -103,7 +163,21 @@ export class FrameworkConfiguration extends Configuration {
    * @param defaultValue - optional, if value at specified path not exists returns default value
    */
   public get<T>(path: string[] | string, defaultValue?: T): T {
+    if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
     return _.get(this.Config, path, defaultValue) as T;
+  }
+
+  // A schema applied after boot cannot fail the boot; reading the value it refused, or a part of it, must still fail.
+  private throwIfRefused(path: string[] | string) {
+    const segments = _.toPath(path);
+    // An empty path names no module (and reads nothing): it must not match every refused one.
+    if (segments.length === 0) return;
+    for (const { module, error } of this.RefusedModules.values()) {
+      const n = Math.min(module.length, segments.length);
+      if (_.isEqual(module.slice(0, n), segments.slice(0, n))) {
+        throw new InvalidConfiguration(error.message, error.validationExceptions, error.violations);
+      }
+    }
   }
 
   /**
@@ -169,8 +243,14 @@ export class FrameworkConfiguration extends Configuration {
     this.loadSources();
     await this.load();
 
-    this.validate();
-    this.configure();
+    try {
+      this.validate();
+      this.configure();
+    } catch (e) {
+      // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
+      if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
+      throw e;
+    }
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {
@@ -241,15 +321,7 @@ export class FrameworkConfiguration extends Configuration {
         return obj;
       }
 
-      return new Proxy(obj, {
-        get: (obj, prop) => {
-          if (obj[prop] instanceof ConfigVar) {
-            return obj[prop].get();
-          }
-
-          return obj[prop];
-        },
-      });
+      return withLazyVars(obj);
     };
 
     // omit system config prop couse dir dynamic loading.
@@ -361,36 +433,77 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected validate() {
-    this.ValidationSchemas.forEach((s) => {
-      const config = this.get(s.$configurationModule);
+    this.ValidationSchemas = this.schemasOfLineage();
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of this.ValidationSchemas) {
+      const r = this.checkModule(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
 
-      if (!config) {
-        InternalLogger.warn(
-          `Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`,
-          'Configuration',
-        );
-
-        return;
-      }
-
-      const result = this.Validator.validate(s, config);
-      if (!result) {
-        // @ts-ignore
-        this.Validator.errors.forEach((ve) => {
-          InternalLogger.error(
-            'Invalid configuration ! Message: %s, path: %s, keyword: %s, schemaPath: %s, configuration module: %s',
-            'Configuration',
-            ve.message,
-            ve.instancePath,
-            ve.keyword,
-            ve.schemaPath,
-            s.$configurationModule,
-          );
-        });
-
-        throw new InvalidConfiguration('Validation error', this.Validator.errors);
-      }
+    const container = this.Container;
+    CHECKED.set(container, this);
+    container.once('di.resolved.Configuration', () => {
+      if (CHECKED.get(container) === this) CHECKED.delete(container);
     });
+  }
+
+  /** The Configuration of `container` that has run its check but is not resolved (cached) yet. */
+  public static checkedIn(container: IContainer): FrameworkConfiguration | undefined {
+    return CHECKED.get(container);
+  }
+
+  /** Validates one module after boot; a refused module stays refused for reads until a later check passes. */
+  public validateModule(s: IConfigurationSchema) {
+    const key = schemaNameOf(s);
+    const r = this.checkModule(s);
+    try {
+      this.throwIfInvalid(r.errors, r.violations);
+    } catch (e) {
+      this.RefusedModules.set(key, { module: _.toPath(s.$configurationModule), error: e as InvalidConfiguration });
+      throw e;
+    }
+    this.RefusedModules.delete(key);
+  }
+
+  private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
+    if (violations.length === 0) return;
+    violations.forEach((v) => InternalLogger.error('Invalid configuration at %s ( schema %s ): %s', 'Configuration', v.path, v.schema, v.message));
+    throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+  }
+
+  private checkModule(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+    // Not this.get: a refused module is read here to check it again.
+    const config = _.get(this.Config, s.$configurationModule);
+
+    if (config === undefined) {
+      // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
+      const empty = {};
+      if (this.Validator.validate(s, empty)) {
+        this.set(s.$configurationModule, empty);
+      } else {
+        InternalLogger.warn(`Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`, 'Configuration');
+      }
+      return { errors: [], violations: [] };
+    }
+
+    // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
+    // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
+    // value whose copy passes gets its defaults and coercion.
+    if (this.Validator.validate(s, copyForCheck(config)) && this.Validator.validate(s, config)) {
+      return { errors: [], violations: [] };
+    }
+
+    const errors: ErrorObject[] = this.Validator.errors ?? [];
+    const schema = schemaNameOf(s);
+    let violations = toViolations(s.$configurationModule, schema, errors);
+    if (violations.length === 0) {
+      // An invalid configuration must never pass, whatever shape Ajv reported.
+      violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
+    }
+    return { errors, violations };
   }
 
   protected initValidator() {
@@ -412,6 +525,9 @@ export class FrameworkConfiguration extends Configuration {
 
       // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
       coerceTypes: true,
+
+      // allow rules across fields, eg. minimum: { $data: '1/min' }
+      $data: true,
     };
 
     // @ts-ignore
@@ -438,12 +554,17 @@ export class FrameworkConfiguration extends Configuration {
     // we use $configurationModule keyword to identify
     // to match config module with config schema
     this.Validator.addKeyword('$configurationModule');
+  }
 
-    /**
-     * load all registered configuration json schemas
-     * for config value validation
-     */
-    this.ValidationSchemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
+  // A child that registers a schema of its own must not hide the schemas of its ancestors.
+  private schemasOfLineage(): IConfigurationSchema[] {
+    const found: IConfigurationSchema[] = [];
+    for (let c: IContainer | undefined = this.Container; c; c = c.Parent) {
+      for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as IConfigurationSchema[]) {
+        if (!found.some((f) => sameSchema(f, s))) found.push(s);
+      }
+    }
+    return found;
   }
 
   protected dir(toJoin: string) {

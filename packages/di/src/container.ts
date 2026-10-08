@@ -1,10 +1,10 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { uniqueBy } from '@spinajs/util';
 import 'reflect-metadata';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
-import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
+import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { EventEmitter } from './events.js';
@@ -38,6 +38,15 @@ function resolveEach<I>(items: I[], fn: (item: I) => unknown): unknown[] {
 function resolverOf(type: Class<unknown>): ResolveType {
   const meta = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, type) as IInjectDescriptor<unknown> | undefined;
   return meta ? meta.resolver : ResolveType.Singleton;
+}
+
+/**
+ * A chain has no cache entry of its own: its elements are cached by the containers that own them.
+ */
+function rejectChain(service: unknown, method: string) {
+  if (isChainArray(service)) {
+    throw new InvalidArgument(`${method}() does not accept Array.chainOf(${getTypeName(service)}), use resolve()`);
+  }
 }
 
 /**
@@ -217,6 +226,8 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: TypedArray<T>, parent?: boolean): T[];
   public get<T>(service: string | Class<T>, parent?: boolean): T;
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
+    rejectChain(service, 'get');
+
     // get value registered as TypedArray ( mean to return all created instances )
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
       return this.cache.get(getTypeName(service.Type), parent) as T[];
@@ -239,6 +250,8 @@ export class Container extends EventEmitter implements IContainer {
    * @throws {@link InvalidArgument} when service is null or empty
    */
   public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
+    rejectChain(service, 'isResolved');
+
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
       return this.Cache.has(this.getCurrentType(service.Type, null as any, parent ?? true) ?? service, parent);
     }
@@ -270,11 +283,15 @@ export class Container extends EventEmitter implements IContainer {
    *
    * Resolves all instances of given class. Under single definition can be registered multiple implementations.
    *
-   * @param type - typed array of specified type. since TS does not expose array metadata and type its uses TypedArray<T> consctruct
+   * @param type - typed array of specified type. since TS does not expose array metadata and type its uses TypedArray<T> consctruct.
+   *               `Array.chainOf(T)` merges the registrations of this container and its ancestors, and returns a promise
+   *               when the base type or any element is an AsyncService, or when a resolution is pending
    * @param options - options passed to constructor / factory
    * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
    *
    */
+  public resolve<T>(type: ChainArray<T>, options?: unknown[], check?: boolean): ResolveChainResult<T>;
+  public resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
   public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
   public resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
 
@@ -299,6 +316,11 @@ export class Container extends EventEmitter implements IContainer {
       if (!this.hasRegistered(sourceType as any)) {
         throw new Error(`Type ${sourceName} is not registered at container`);
       }
+    }
+
+    // Constructor options are not passed on: chain elements are resolved by many containers.
+    if (isChainArray(type)) {
+      return this.resolveChain(type) as any;
     }
 
     if (isTypedArray(type)) {
@@ -349,19 +371,17 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): (Class<unknown> | Factory<unknown>)[] {
+    if (isChainArray(service)) {
+      return this.Registry.getTypesChain(service).map((e) => e.type);
+    }
+
     return this.Registry.getTypes(service, parent);
   }
 
-  public getRegisteredTypesChain<T>(service: string | Class<T> | TypedArray<T>): (Class<unknown> | Factory<unknown>)[] {
-    return this.Registry.getTypesChain(service).map((e) => e.type);
-  }
+  private resolveChain<T>(chain: ChainArray<T>): ResolveChainResult<T> {
+    const type = chain.Type;
 
-  public resolveChain<T>(type: Class<T>): ResolveChainResult<T> {
-    if (!type) {
-      throw new InvalidArgument('argument `type` cannot be null or undefined');
-    }
-
-    // The service class (not Array.ofType) is the source so the Array.ofType
+    // The service class (not the array) is the source so the Array.ofType
     // collection cache stays untouched.
     const resolved = resolveEach(this.Registry.getTypesChain(type), ({ type: entry, container }) => {
       const owner = container as Container;
@@ -376,7 +396,7 @@ export class Container extends EventEmitter implements IContainer {
 
     // An async element is a promise only on its first resolve; wrapping whenever
     // one is present keeps the result shape the same on every call.
-    const isAsyncBase = type === AsyncService || type.prototype instanceof AsyncService;
+    const isAsyncBase = typeof type !== 'string' && (type === AsyncService || type.prototype instanceof AsyncService);
     if (isAsyncBase || resolved.some((r) => isPromise(r) || isAsyncService(r))) {
       return Promise.all(resolved) as ResolveChainResult<T>;
     }
@@ -751,19 +771,22 @@ export class Container extends EventEmitter implements IContainer {
       descriptor.resolver = rootMeta.resolver;
     }
 
+    // Array.ofType(T) and Array.chainOf(T) are different dependencies of one constructor.
+    const injectKey = (x: IToInject<unknown>) => (isChainArray(x.inject) ? 'Array.chainOf:' : '') + getTypeName(x.inject);
+
     function geAllTypes(clz: Record<string, any>): void {
       if (!clz) return;
       const toInject: IInjectDescriptor<unknown> = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, clz);
       if (toInject) {
         toInject.inject.forEach((x) => {
-          const xTypeName = getTypeName(x.inject);
+          const xTypeName = injectKey(x);
 
           // if we do it by autoinject, skip filtering injection props
           // autoinject can have multiple fields of same type and its identified by prop key
           // we cannot override injection props in derived class
           if (x.autoinject === true) {
             descriptor.inject.push(x);
-          } else if (descriptor.inject.find((i) => getTypeName(i.inject) === xTypeName) === undefined) {
+          } else if (descriptor.inject.find((i) => !i.autoinject && injectKey(i) === xTypeName) === undefined) {
             descriptor.inject.push(x);
           }
         });

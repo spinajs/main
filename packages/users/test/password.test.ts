@@ -55,6 +55,14 @@ describe('Password provider tests', () => {
     expect(ok).to.be.true;
   });
 
+  it('answers false for a stored marker instead of throwing', async () => {
+    const provider = await DI.resolve(PasswordProvider);
+
+    for (const marker of ['!none', '!expired', '!anything']) {
+      expect(await provider.verify(marker, 'bbbb'), marker).to.eq(false);
+    }
+  });
+
   it('Should generate password', async () => {
     const provider = await DI.resolve(PasswordProvider);
     const password = provider.generate();

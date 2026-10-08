@@ -103,7 +103,7 @@ describe('@CurrentPrincipal and extractors in requests', function () {
     try {
       expect((await app.request().get('/extract/who')).body.principal).to.deep.include({ type: 'unattended' });
     } finally {
-      testHost.config().unset(['authz', 'principals', 'anonymous', 'enabled']);
+      testHost.config().set(['authz', 'principals', 'anonymous', 'enabled'], true);
     }
   });
 

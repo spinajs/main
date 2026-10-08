@@ -12,7 +12,7 @@ function dir(path: string) {
 
 // Only the CLI scan dir. A non-empty system.dirs.migrations would replace the orm's defaults in every app (see
 // authn-token's config); the migration and the models register through their decorators. The authn.keys defaults
-// live in code (keysOptions), because a shipped array would concatenate with the app's.
+// live in the authn schema.
 const authnKeys = {
   system: {
     dirs: {

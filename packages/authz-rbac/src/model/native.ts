@@ -1,10 +1,11 @@
 import { GLOBAL, NativeFilter, resourceKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, ResourceRef, ResourceType } from '@spinajs/authz';
 
-import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
+import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP } from '../contracts.js';
 import type { AssignmentStore } from '../contracts.js';
 import { expiryTime, subjectKey } from './assignments.js';
-import type { RbacExtension } from './evaluate.js';
+import type { RbacExtension, RbacSources } from './evaluate.js';
+import { RbacListEvaluator, RbacThresholdFilter } from './rules/native.js';
 import type { RbacModelOptions } from './model.js';
 import { assignmentProblem } from './roles.js';
 import type { RoleGraph } from './roles.js';
@@ -87,12 +88,19 @@ export function parseRbacAssignmentArgs(args: unknown): RbacAssignmentArgs {
  */
 export class RbacAssignmentFilter extends NativeFilter {
   readonly op = RBAC_ASSIGNMENT_OP;
+  // v1 and v2 (RbacListEvaluator) read who asks from `subjects`, `principal`, `companions` and `actor` only.
+  readonly principalInArgs = true;
 
   constructor(private readonly assignments: AssignmentStore, private readonly roles: () => RoleGraph | undefined) {
     super();
   }
 
-  async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
+  /** Set by rbacAssignmentExtension with `rules: true`: evaluates args v2. */
+  v2?: (args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext) => Promise<boolean>;
+
+  async matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
+    // Without rbacAssignmentExtension's rules option, v2 is an unsupported version like any other.
+    if (this.v2 && (args as { v?: unknown } | null)?.v === 2) return this.v2(args, subject, ref, ctx);
     const { subjects, roles } = parseRbacAssignmentArgs(args);
     if (roles.length === 0 || subjects.length === 0) return false;
     const graph = this.roles();
@@ -111,16 +119,20 @@ export class RbacAssignmentFilter extends NativeFilter {
     return false;
   }
 
-  // One store read per subject list and time within a request (ctx.cache is per request).
   private held(subjects: readonly RbacArgsSubject[], ctx: EvaluationContext): Promise<readonly Assignment[]> {
-    const key = `${RBAC_ASSIGNMENT_OP}:${ctx.now.getTime()}:${JSON.stringify(subjects)}`;
-    let load = ctx.cache.get(key) as Promise<readonly Assignment[]> | undefined;
-    if (!load) {
-      load = this.assignments.forSubjects(subjects as readonly AssignmentSubject[], ctx.now);
-      ctx.cache.set(key, load);
-    }
-    return load;
+    return heldAssignments(this.assignments, subjects, ctx);
   }
+}
+
+/** The subjects' assignments for a list filter: one store read per subject list and time within a request (ctx.cache is per request). */
+export function heldAssignments(store: AssignmentStore, subjects: readonly RbacArgsSubject[], ctx: EvaluationContext): Promise<readonly Assignment[]> {
+  const key = `${RBAC_ASSIGNMENT_OP}:${ctx.now.getTime()}:${JSON.stringify(subjects)}`;
+  let load = ctx.cache.get(key) as Promise<readonly Assignment[]> | undefined;
+  if (!load) {
+    load = store.forSubjects(subjects as readonly AssignmentSubject[], ctx.now);
+    ctx.cache.set(key, load);
+  }
+  return load;
 }
 
 /**
@@ -140,22 +152,35 @@ export function scopeMatcher(type: ResourceType, path: readonly ResourceRef[]): 
  * adapters compile the op (authz-orm's RbacOrmCompiler). `types` limits the native term to those
  * resource types; the others keep `under`. The op is still declared model-wide, so boot rule 4 refuses
  * it on any list-scoped type routed to this model whose adapter does not compile it.
+ *
+ * `rules: true` also lists rows under RBAC rules (args v2 and `native:rbac.threshold`, see
+ * rules/args.ts) and declares `native:rbac.threshold`, so the adapters of those types must compile
+ * both ops. Without it a type-level vote whose rows depend on rules fails closed.
  */
-export const rbacAssignmentExtension = (opts: RbacModelOptions, config: { readonly types?: readonly ResourceType[] } = {}): RbacExtension => {
+export const rbacAssignmentExtension = (opts: RbacModelOptions, config: { readonly types?: readonly ResourceType[]; readonly rules?: boolean } = {}): RbacExtension => {
   let graph: RoleGraph | undefined;
   const filter = new RbacAssignmentFilter(opts.assignments, () => graph);
   const types = config.types ? new Set(config.types) : undefined;
+  const covers = (type: ResourceType) => !types || types.has(type);
+  const lists = config.rules ? new RbacListEvaluator(opts.assignments) : undefined;
+  if (lists) filter.v2 = (args, subject, ref, ctx) => lists.assignment(args, subject, ref, ctx);
+  const threshold = lists ? new RbacThresholdFilter(lists) : undefined;
   return Object.freeze({
     compile: (compiled: RoleGraph) => {
       graph = compiled;
     },
-    residuals: Object.freeze([RBAC_ASSIGNMENT_OP]),
-    nativeFilters: () => [filter],
-    gather: (request: DecisionRequest) => (types && !types.has(request.resource.type) ? {} : { scopedResidual: 'native' as const }),
+    residuals: Object.freeze(lists ? [RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP] : [RBAC_ASSIGNMENT_OP]),
+    nativeFilters: () => (threshold ? [filter, threshold] : [filter]),
+    ...(lists ? { listsRules: covers } : {}),
+    gather: (request: DecisionRequest, _ctx: EvaluationContext, _input: unknown, sources: RbacSources) => {
+      lists?.attach(sources);
+      return covers(request.resource.type) ? { scopedResidual: 'native' as const } : {};
+    },
   });
 };
 
-function copySubject(s: AssignmentSubject): RbacArgsSubject {
+/** A subject in its canonical args form. */
+export function copySubject(s: AssignmentSubject): RbacArgsSubject {
   if ('set' in s) {
     const scope = s.set.scope;
     return { set: { role: s.set.role, scope: scope.id == null ? { type: scope.type } : { type: scope.type, id: scope.id } } };
@@ -163,7 +188,8 @@ function copySubject(s: AssignmentSubject): RbacArgsSubject {
   return { type: s.type, id: s.id };
 }
 
-function readSubject(v: unknown): AssignmentSubject | undefined {
+/** A subject read back from args; undefined for any other shape. */
+export function readSubject(v: unknown): AssignmentSubject | undefined {
   if (!isPlainObject(v)) return undefined;
   if ('set' in v) {
     const set = v.set;

@@ -1,4 +1,6 @@
+import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { MigrationTransactionMode } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import chai from 'chai';
@@ -57,12 +59,18 @@ export function dropOwnCompiledDirs(cfg: Configuration): void {
   }
 }
 
+/** As the authn bootstrapper does in an app: the schema fills the authn defaults the code no longer carries. */
+export function registerAuthnSchema(): void {
+  DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+}
+
 /**
  * Boots in-memory sqlite with rbac + this package's migrations and models.
  * No http server.
  */
 export class DbTestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
+    registerAuthnSchema();
     await super.resolve();
     dropOwnCompiledDirs(this);
   }

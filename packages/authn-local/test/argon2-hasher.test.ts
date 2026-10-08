@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { createHmac } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { DI } from '@spinajs/di';
-import { InvalidOption } from '@spinajs/exceptions';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER, PasswordHasher } from '../src/hasher.js';
@@ -263,28 +262,6 @@ describe('Argon2PasswordHasher', function () {
   });
 
   describe('pepper configuration', () => {
-    const bad = [
-      ['a version below 1', { secret: 's', version: 0 }],
-      ['a fractional version', { secret: 's', version: 1.5 }],
-      ['a previous entry without a secret', { secret: 's', version: 2, previous: [{ secret: '', version: 1 }] }],
-      ['a previous entry sharing the current version', { secret: 's', version: 2, previous: [{ secret: 't', version: 2 }] }],
-      ['two previous entries with one version', { secret: 's', version: 3, previous: [PEPPER_V1, { secret: 't', version: 1 }] }],
-      ['a current secret that is not a string', { secret: 42, version: 1 }],
-    ] as const;
-
-    for (const [label, pepper] of bad) {
-      it(`refuses ${label}`, async () => {
-        const h = new Argon2PasswordHasher({ pepper: pepper as any });
-        let error: unknown;
-        try {
-          await h.resolve();
-        } catch (e) {
-          error = e;
-        }
-        expect(error, label).to.be.instanceOf(InvalidOption);
-      });
-    }
-
     it('accepts no pepper with a previous one', async () => {
       await hasher({ pepper: { secret: null, version: 2, previous: [PEPPER_V1] } });
     });

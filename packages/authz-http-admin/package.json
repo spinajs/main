@@ -52,7 +52,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn-http": "3.0.0-alpha.0",
     "@spinajs/authz": "3.0.0-alpha.0",
     "@spinajs/authz-http": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
@@ -60,9 +59,11 @@
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/http": "2.0.549",
     "@spinajs/log": "2.0.549",
-    "@spinajs/orm-http": "2.0.549",
-    "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/validation": "2.0.549",
-    "lodash": "^4.17.21"
+    "@spinajs/validation": "2.0.549"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
+    "@spinajs/fs": "2.0.549",
+    "@spinajs/http-swagger": "2.0.549"
   }
 }

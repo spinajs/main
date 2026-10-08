@@ -12,6 +12,7 @@ import {
 import type { ISession } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { _ev } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { LoggedPolicy } from '../../policies/LoggedPolicy.js';
@@ -49,7 +50,7 @@ export class ImpersonationController extends BaseController {
   @Autoinject(SessionCookieFactory)
   protected SessionCookies: SessionCookieFactory;
 
-  @Config('authn.impersonation.requirePassword', { defaultValue: true })
+  @Config('authn.impersonation.requirePassword')
   protected RequirePassword: boolean;
 
   @Config('rbac.impersonation.protectedRoles', { defaultValue: ['system'] as string[] })
@@ -154,7 +155,8 @@ export class ImpersonationController extends BaseController {
       });
     }
 
-    if (this.RequirePassword) {
+    // The schema is the gate; a scanned controller can still read a value set past it, and only false turns this off.
+    if (this.RequirePassword !== false) {
       if (!payload.Password) {
         return new Unauthorized({
           error: { code: 'E_PASSWORD_REQUIRED', message: 'Password confirmation is required to start impersonation' },

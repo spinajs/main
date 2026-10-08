@@ -1,10 +1,11 @@
 import { expect } from 'chai';
+import * as fc from 'fast-check';
 import 'mocha';
 
-import { FALSE, GLOBAL, NativeFilter, TRUE, and, bindRefs, not, or, simplify } from '@spinajs/authz';
+import { Authorizer, FALSE, GLOBAL, NativeFilter, TRUE, and, bindRefs, not, or, simplify } from '@spinajs/authz';
 import type { EvaluationContext, ResourceFilter, ResourceRef, Value } from '@spinajs/authz';
 
-import { FakeRelationResolver, evaluateFilter, fakeEvaluationContext, isAllowed, userPrincipal, withAttributes } from '../src/index.js';
+import { FakePermissionRegistry, FakeRelationResolver, StaticModel, evaluateFilter, fakeEvaluationContext, fixtureDsl, isAllowed, userPrincipal, withAttributes } from '../src/index.js';
 import type { FilterEnv, Kleene } from '../src/index.js';
 
 const alice = userPrincipal('alice', { attributes: { pool: 'p1', level: 3, tags: ['a', 'b'], nested: { x: 1 } } });
@@ -117,11 +118,12 @@ describe('evaluateFilter (reference residual evaluator)', () => {
     });
 
     it('a type mismatch is UNKNOWN, so negation cannot turn it into access', async () => {
-      expect(await ev(cmp('size', 'eq', '10'))).to.eq(null);
-      expect(await ev(cmp('size', 'ne', '10'))).to.eq(null);
-      expect(await ev({ op: 'not', arg: cmp('size', 'eq', '10') })).to.eq(null);
+      expect(await ev(cmp('size', 'eq', '010'))).to.eq(null);
+      expect(await ev(cmp('size', 'ne', '010'))).to.eq(null);
+      expect(await ev({ op: 'not', arg: cmp('size', 'eq', '010') })).to.eq(null);
       expect(await ev(cmp('owner', 'lt', 5))).to.eq(null);
-      expect(await ev(cmp('flag', 'eq', 1))).to.eq(null);
+      expect(await ev(cmp('flag', 'eq', 2))).to.eq(null);
+      expect(await ev(cmp('flag', 'eq', 'true'))).to.eq(null);
       expect(await ev(cmp('meta', 'eq', 'x'))).to.eq(null);
       expect(await ev(cmp('list', 'eq', 1))).to.eq(null);
       expect(await ev(cmp('owner', 'eq', ['alice']))).to.eq(null);
@@ -162,7 +164,7 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev(cmp('owner', 'in', ['alice', 5]))).to.eq(true);
     });
 
-    it('order ops on numbers, strings (code point order) and booleans', async () => {
+    it('order ops on numbers and strings (code point order)', async () => {
       expect(await ev(cmp('size', 'lt', 11))).to.eq(true);
       expect(await ev(cmp('size', 'lte', 10))).to.eq(true);
       expect(await ev(cmp('size', 'gt', 10))).to.eq(false);
@@ -171,7 +173,6 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev(cmp('s', 'lt', 'a'), { s: 'Z' })).to.eq(true);
       // U+FFFF sorts below U+1F600 by code point, above it by UTF-16 unit
       expect(await ev(cmp('s', 'lt', '\u{1F600}'), { s: '￿' })).to.eq(true);
-      expect(await ev(cmp('flag', 'gt', false))).to.eq(true);
       expect(await ev(cmp('n', 'lt', 1), { n: Number.NaN })).to.eq(null);
     });
 
@@ -188,6 +189,17 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev(cmp('s', 'like', '100\\%'), { s: '100%' })).to.eq(true);
       expect(await ev(cmp('s', 'like', '100\\%'), { s: '1000' })).to.eq(false);
       expect(await ev(cmp('size', 'like', '1%'))).to.eq(null);
+    });
+
+    it('like: a pattern ending in a lone backslash is UNKNOWN, as the engine reads it (RFC L4-2)', async () => {
+      expect(await ev(cmp('s', 'like', 'a\\'), { s: 'a\\' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', 'a\\'), { s: 'a' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', '\\'), { s: '\\' })).to.eq(null);
+      expect(await ev({ op: 'not', arg: cmp('s', 'like', 'a\\') }, { s: 'a\\' })).to.eq(null);
+      expect(await ev({ op: 'not', arg: cmp('s', 'like', 'a\\') }, { s: 'b' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', 'a\\\\'), { s: 'a\\' })).to.eq(true);
+      expect(await ev(cmp('s', 'like', 'a\\\\\\'), { s: 'a\\' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', '😀\\'), { s: '😀\\' })).to.eq(null);
     });
 
     it('glob: * stops at /, ** crosses it', async () => {
@@ -223,6 +235,123 @@ describe('evaluateFilter (reference residual evaluator)', () => {
         err = e;
       }
       expect(err).to.be.instanceOf(TypeError);
+    });
+  });
+
+  describe('coercion, as the engine evaluates a residual (L3, L4 hand-off)', () => {
+    it('a canonical number string compares with a number as that number, either side', async () => {
+      expect(await ev(cmp('size', 'eq', '10'))).to.eq(true);
+      expect(await ev(cmp('size', 'ne', '10'))).to.eq(false);
+      expect(await ev({ op: 'not', arg: cmp('size', 'eq', '10') })).to.eq(false);
+      expect(await ev(cmp('size', 'gt', '9'))).to.eq(true);
+      expect(await ev(cmp('s', 'lt', 9), { s: '10' })).to.eq(false);
+      expect(await ev(cmp('s', 'eq', 10), { s: '10' })).to.eq(true);
+      expect(await ev(cmp('s', 'eq', -2.5), { s: '-2.5' })).to.eq(true);
+      expect(await ev(cmp('s', 'eq', 1e21), { s: '1e+21' })).to.eq(true);
+      expect(await ev(cmp('size', 'lt', { ref: 'env.limit' }), row, { env: { limit: '20' } })).to.eq(true);
+    });
+
+    it('a number string that is not canonical does not compare with a number', async () => {
+      for (const s of ['010', '10.0', '1e1', ' 10', '10 ', '', '-0', '1e21', 'NaN', 'Infinity', '0x0a']) {
+        for (const c of ['eq', 'ne', 'lt', 'gte']) {
+          expect(await ev(cmp('s', c, 10), { s }), `${JSON.stringify(s)} ${c} 10`).to.eq(null);
+          expect(await ev(cmp('n', c, s), { n: 10 }), `10 ${c} ${JSON.stringify(s)}`).to.eq(null);
+        }
+      }
+      expect(await ev(cmp('s', 'eq', 0), { s: '0' })).to.eq(true);
+      expect(await ev(cmp('n', 'eq', '0'), { n: -0 })).to.eq(true);
+    });
+
+    it('in / nin coerce each element the same way', async () => {
+      expect(await ev(cmp('size', 'in', ['9', '10']))).to.eq(true);
+      expect(await ev(cmp('s', 'in', [9, 10]), { s: '10' })).to.eq(true);
+      expect(await ev(cmp('size', 'nin', ['9', '11']))).to.eq(true);
+      expect(await ev(cmp('size', 'nin', ['10']))).to.eq(false);
+      expect(await ev(cmp('size', 'in', ['010']))).to.eq(null);
+      expect(await ev(cmp('size', 'nin', ['010']))).to.eq(null);
+      expect(await ev(cmp('size', 'in', ['010', '10']))).to.eq(true);
+    });
+
+    it('a boolean equals 0 and 1 only: eq, ne, in, nin', async () => {
+      expect(await ev(cmp('flag', 'eq', 1))).to.eq(true);
+      expect(await ev(cmp('flag', 'eq', 0))).to.eq(false);
+      expect(await ev(cmp('flag', 'ne', 0))).to.eq(true);
+      expect(await ev({ op: 'not', arg: cmp('flag', 'eq', 0) })).to.eq(true);
+      expect(await ev(cmp('n', 'eq', true), { n: 1 })).to.eq(true);
+      expect(await ev(cmp('n', 'eq', true), { n: 0 })).to.eq(false);
+      for (const n of [2, -1, 0.5]) {
+        expect(await ev(cmp('flag', 'eq', n)), `flag eq ${n}`).to.eq(null);
+        expect(await ev(cmp('n', 'ne', true), { n }), `${n} ne true`).to.eq(null);
+      }
+      expect(await ev(cmp('flag', 'in', [0, 1]))).to.eq(true);
+      expect(await ev(cmp('flag', 'in', [0]))).to.eq(false);
+      expect(await ev(cmp('flag', 'nin', [0]))).to.eq(true);
+      expect(await ev(cmp('flag', 'in', [2]))).to.eq(null);
+      expect(await ev(cmp('flag', 'in', ['1']))).to.eq(null);
+      expect(await ev(cmp('flag', 'eq', '1'))).to.eq(null);
+    });
+
+    it('booleans do not order: lt, lte, gt, gte are UNKNOWN, also against 0 and 1', async () => {
+      for (const c of ['lt', 'lte', 'gt', 'gte']) {
+        for (const v of [true, false, 0, 1]) {
+          expect(await ev(cmp('flag', c, v)), `flag ${c} ${String(v)}`).to.eq(null);
+          expect(await ev({ op: 'not', arg: cmp('flag', c, v) }), `not flag ${c} ${String(v)}`).to.eq(null);
+        }
+        expect(await ev(cmp('n', c, false), { n: 1 }), `1 ${c} false`).to.eq(null);
+      }
+    });
+
+    it('an invalid Date field is NULL; one outside the years 0000-9999 does not compare', async () => {
+      const invalid = { d: new Date(Number.NaN) };
+      expect(await ev(cmp('d', 'null'), invalid)).to.eq(true);
+      expect(await ev(cmp('d', 'notnull'), invalid)).to.eq(false);
+      expect(await ev(cmp('d', 'eq', 'x'), invalid)).to.eq(null);
+      const far = { d: new Date('+010000-01-01T00:00:00.000Z') };
+      expect(await ev(cmp('d', 'notnull'), far)).to.eq(true);
+      expect(await ev(cmp('d', 'gt', '2026-01-01T00:00:00.000Z'), far)).to.eq(null);
+      expect(await ev(cmp('d', 'eq', far.d.toISOString()), far)).to.eq(null);
+    });
+
+    it('a non-finite number literal is missing: UNKNOWN in every polarity', async () => {
+      for (const v of [Number.NaN, Infinity, -Infinity]) {
+        for (const c of ['eq', 'ne', 'lt']) {
+          expect(await ev(cmp('s', c, v), { s: '1' }), `${c} ${v}`).to.eq(null);
+          expect(await ev({ op: 'not', arg: cmp('size', c, v) }), `not ${c} ${v}`).to.eq(null);
+        }
+      }
+    });
+
+    it('agrees with the engine on cmp leaves over scalar fields and values (property)', async () => {
+      let current: ResourceFilter = TRUE;
+      const engine = new Authorizer({
+        domain: 'root',
+        registry: new FakePermissionRegistry(['doc:read']),
+        models: [new StaticModel({ name: 'm1', votes: () => ({ permitWhen: current }) })],
+        combine: fixtureDsl.combine('deny-overrides', 'm1'),
+      });
+      const allowed = async (f: ResourceFilter, subject: unknown): Promise<boolean> => {
+        current = f;
+        return (await engine.check({ principal: alice, permission: 'doc:read', resource: ref, subject }, { cache: new Map() })).allowed;
+      };
+      const engineTruth = async (f: ResourceFilter, subject: unknown): Promise<Kleene> => ((await allowed(f, subject)) ? true : (await allowed({ op: 'not', arg: f }, subject)) ? false : null);
+
+      const numberString = fc.oneof(fc.integer({ min: -20, max: 20 }).map(String), fc.double({ noNaN: true }).map(String), fc.constantFrom('010', '1.0', '1e21', '1e+21', '-0', ' 1', '', 'NaN', 'Infinity', '0x1'));
+      const scalar = fc.oneof(numberString, fc.string({ maxLength: 3 }), fc.integer({ min: -2, max: 2 }), fc.double(), fc.boolean());
+      const field = fc.oneof(scalar, fc.constant(null), fc.constant(undefined), fc.date({ noInvalidDate: false }), fc.constantFrom(new Date('2026-01-01T00:00:00.000Z'), new Date('+010000-01-01T00:00:00.000Z')));
+      const listItem = fc.oneof(numberString, fc.string({ maxLength: 3 }), fc.integer({ min: -2, max: 2 }));
+      const leaf = fc.oneof(
+        fc.record({ c: fc.constantFrom('eq', 'ne', 'lt', 'lte', 'gt', 'gte'), value: scalar }),
+        fc.record({ c: fc.constantFrom('in', 'nin'), value: fc.array(listItem, { minLength: 1, maxLength: 3 }) }),
+        fc.record({ c: fc.constantFrom('null', 'notnull'), value: fc.constant(undefined) }),
+      );
+      await fc.assert(
+        fc.asyncProperty(field, leaf, async (v, { c, value }) => {
+          const f = cmp('v', c, value as Value);
+          const subject = { v };
+          expect(await ev(f, subject), JSON.stringify({ v: v instanceof Date ? `Date(${v.getTime()})` : v, c, value })).to.eq(await engineTruth(f, subject));
+        }),
+        { numRuns: 500 },
+      );
     });
   });
 
@@ -302,7 +431,8 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd1' }] }, row, { ancestors })).to.eq(true);
       expect(await ev({ op: 'under', scopes: [ref] }, row, { ancestors })).to.eq(true);
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd2' }] }, row, { ancestors })).to.eq(false);
-      expect(await ev({ op: 'under', scopes: [{ type: 'folder' }] }, row, { ancestors })).to.eq(false);
+      expect(await ev({ op: 'under', scopes: [{ type: 'folder' }] }, row, { ancestors })).to.eq(true);
+      expect(await ev({ op: 'under', scopes: [{ type: 'project' }] }, row, { ancestors })).to.eq(false);
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd1' }] }, row, { ancestors: async () => null })).to.eq(null);
       expect(await ev({ op: 'under', scopes: [] }, row, { ancestors: async () => null })).to.eq(false);
     });

@@ -166,6 +166,17 @@ export declare abstract class CredentialExtractor {
 }
 ```
 
+## src/contracts/fresh.ts
+
+```ts
+import type { AuthnFacts } from "./principal.js";
+/**
+ * True when `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary included. A time after `now` or
+ * an invalid one is not fresh, nor is an impersonation: the impersonator must not act on the target's credentials (M6).
+ */
+export declare function isFresh(facts: Pick<AuthnFacts, "authenticatedAt" | "impersonator">, now: Date, maxAgeSeconds: number): boolean;
+```
+
 ## src/contracts/hooks.ts
 
 ```ts
@@ -190,8 +201,9 @@ export declare abstract class RoleSource {
 }
 /**
  * Registered with Array.ofType; runs after a successful external login (OIDC), e.g. an app's group sync through AuthzAdmin.
- * Runs after the identity is resolved and before the session is issued; a throw fails the login with the A02 answer (the reason
- * goes to audit). Earlier hooks are not rolled back, so hooks must be idempotent.
+ * AuthnService calls every hook for an interactive strategy's external outcome, after the identity is resolved and its status
+ * checked and before MFA and the session are issued; a throw fails the login with the A02 answer and issues no session (audit
+ * reason hook_error). Earlier hooks are not rolled back, so hooks must be idempotent.
  */
 export declare abstract class ExternalLoginHook {
     abstract afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void>;
@@ -226,8 +238,13 @@ export declare abstract class IdentityStore {
 export declare abstract class PasswordCredentialStore {
     /** The stored hash, or null when the identity has no password. */
     abstract get(id: IdentityRef): Promise<string | null>;
-    /** Stores the hash, never a raw password: hashing is the strategy's job (A03). */
-    abstract set(id: IdentityRef, hash: string): Promise<void>;
+    /**
+     * Stores the hash, never a raw password: hashing is the strategy's job (A03). With `expected`, writes only when the stored
+     * value is still `expected` (null: no password stored), as one atomic compare-and-set in the store, and answers whether it
+     * wrote: a mismatch answers false and does not throw. With `expected` undefined or omitted, writes unconditionally and
+     * answers true.
+     */
+    abstract set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean>;
 }
 ```
 
@@ -271,6 +288,7 @@ export * from "./keys.js";
 export * from "./jws.js";
 export * from "./extractor.js";
 export * from "./hooks.js";
+export * from "./fresh.js";
 ```
 
 ## src/contracts/jws.ts
@@ -508,6 +526,7 @@ export declare abstract class IdentityLinkStore {
 ## src/contracts/mfa.ts
 
 ```ts
+import { SyncService } from "@spinajs/di";
 import type { IdentityRef } from "./credentials.js";
 import type { AuthnFacts } from "./principal.js";
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
@@ -535,8 +554,8 @@ export declare abstract class MfaStep {
      */
     abstract disable(id: IdentityRef): Promise<void>;
 }
-/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. */
-export declare abstract class MfaPolicy {
+/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. A SyncService so an implementation can check its setup in `resolve()`. */
+export declare abstract class MfaPolicy extends SyncService {
     /** Names of the steps still to pass; empty: no MFA for this login. */
     abstract required(id: IdentityRef, facts: Pick<AuthnFacts, "method" | "strategy">): Promise<readonly string[]>;
 }
@@ -869,8 +888,10 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
     /**
      * Throttle keys this attempt counts against (account key needs the login string).
      * Non-interactive strategies (token, keys, jwt) return an account key and an account-ip key derived from the credential's stable id
-     * (e.g. token id, key id; never the raw secret), so succeed gives the attempt back and healthy API clients never back off.
-     * They count in the 'login' flow like every authenticate call.
+     * (e.g. token id, key id; never the raw secret). Non-interactive strategies count only their failures in the 'login' flow: the
+     * service peeks before verify and counts after a failure, so parallel requests on a valid credential never back off (K5), and it
+     * scopes their account key by the client ip, so failures sent from elsewhere never delay the credential's owner (K6). A parallel
+     * burst is verified in full, so they must take only unguessable credentials (128 bits or more, or signatures).
      */
     abstract throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[];
     /** Verify only; no session, no MFA, no events: AuthnService does those. Must take the same time for unknown accounts (A02). */
@@ -891,7 +912,8 @@ export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export declare abstract class AuthnThrottle {
     /**
-     * Counts the attempt before verification and claims its slot atomically; a refused attempt is not counted (A05, A06).
+     * Counts the attempt and claims its slot atomically: before verification for interactive strategies, after a failure for
+     * per-request ones (K5); a refused attempt is not counted (A05, A06).
      * A refusal means: verify nothing, answer as A02 with Retry-After = retryAfterSeconds.
      */
     abstract attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{
@@ -902,7 +924,62 @@ export declare abstract class AuthnThrottle {
     }>;
     /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). */
     abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
+    /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
+    checkConfiguration?(configuration: {
+        get<T>(path: string | string[]): T;
+    }): void | Promise<void>;
 }
+export interface BackoffParams {
+    readonly free: number;
+    readonly baseDelayMs: number;
+    readonly maxDelayMs: number;
+}
+/** A key kind without params does not gate in that flow. */
+export interface ThrottleFlowParams {
+    readonly account?: BackoffParams;
+    readonly ip?: BackoffParams;
+}
+export interface ThrottleParams {
+    readonly login: ThrottleFlowParams;
+    readonly mfa: ThrottleFlowParams;
+    readonly reset: ThrottleFlowParams;
+    readonly reauth: ThrottleFlowParams;
+    readonly resetAfterSeconds: number;
+    /** Off (null) unless configured: one attacker could slow every login. */
+    readonly global?: BackoffParams | null;
+}
+export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
+/** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
+export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
+/** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
+export declare function backoffDelayMs(p: BackoffParams, n: number): number;
+
+// values
+const THROTTLE_FLOWS = Object.freeze([
+    "login",
+    "mfa",
+    "reset",
+    "reauth"
+]);
+const DEFAULT_THROTTLE_PARAMS = Object.freeze({
+    login: Object.freeze({
+        account: backoff(5, 1000, 60000),
+        ip: backoff(20, 1000, 300000)
+    }),
+    mfa: Object.freeze({
+        account: backoff(3, 1000, 300000),
+        ip: backoff(20, 1000, 300000)
+    }),
+    reset: Object.freeze({
+        account: backoff(1, 60000, 3600000),
+        ip: backoff(5, 10000, 900000)
+    }),
+    reauth: Object.freeze({
+        account: backoff(3, 1000, 300000)
+    }),
+    resetAfterSeconds: 86400,
+    global: null
+});
 ```
 
 ## src/contracts/token.ts

@@ -1,7 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { Log } from '@spinajs/log-common';
 
 import { InProcessChangeBus, LogDecisionAudit, AuthzClock, SystemClock, isProduction, engineLog, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, TRUE } from '@spinajs/authz';
@@ -234,71 +233,36 @@ describe('isProduction', () => {
     }
   });
 
-  describe('with a resolved Configuration', () => {
-    let value: unknown;
-    let throws = false;
-    class FakeConfiguration {
-      get(): unknown {
-        if (throws) throw new Error('cfg');
-        return value;
-      }
-    }
-    let wasResolved = true;
-    before(async () => {
-      wasResolved = DI.has(Configuration);
-      DI.register(FakeConfiguration as never).as(Configuration as never);
-      await DI.resolve(Configuration);
-    });
-    after(() => {
-      DI.uncache(FakeConfiguration as never);
-      DI.unregister(FakeConfiguration as never);
-    });
-    beforeEach(() => {
-      throws = false;
-      value = undefined;
-    });
-
-    it('is the one in use', () => {
-      expect(wasResolved).to.equal(false);
-      expect(DI.get(Configuration)).to.be.instanceOf(FakeConfiguration);
-    });
-
-    it('a boolean value wins over the environment', () => {
-      process.env.APP_ENV = 'prod';
-      value = false;
-      expect(isProduction()).to.equal(false);
-      process.env.APP_ENV = 'dev';
-      value = true;
-      expect(isProduction()).to.equal(true);
-    });
-
-    it('a non-boolean value falls back to the environment', () => {
-      value = 'yes';
-      process.env.APP_ENV = 'prod';
-      expect(isProduction()).to.equal(true);
-      process.env.APP_ENV = 'dev';
-      expect(isProduction()).to.equal(false);
-    });
-
-    it('a throwing get falls back to the environment', () => {
-      throws = true;
-      process.env.APP_ENV = 'prod';
-      expect(isProduction()).to.equal(true);
-    });
+  it('the configured flag wins over the environment', () => {
+    process.env.APP_ENV = 'prod';
+    expect(isProduction(false)).to.equal(false);
+    process.env.APP_ENV = 'dev';
+    expect(isProduction(true)).to.equal(true);
   });
 
-  it('follows APP_ENV, then NODE_ENV, without a resolved Configuration', () => {
+  it('without a flag follows APP_ENV, then NODE_ENV', () => {
     process.env.APP_ENV = 'prod';
-    expect(isProduction()).to.equal(true);
+    expect(isProduction(undefined)).to.equal(true);
     process.env.APP_ENV = 'development';
     process.env.NODE_ENV = 'production';
-    expect(isProduction()).to.equal(false);
+    expect(isProduction(undefined)).to.equal(false);
     delete process.env.APP_ENV;
-    expect(isProduction()).to.equal(true);
+    expect(isProduction(undefined)).to.equal(true);
     process.env.NODE_ENV = 'dev';
-    expect(isProduction()).to.equal(false);
+    expect(isProduction(undefined)).to.equal(false);
     delete process.env.NODE_ENV;
-    expect(isProduction()).to.equal(false);
+    expect(isProduction(undefined)).to.equal(false);
+  });
+
+  it('a flag that is not a boolean follows the environment', () => {
+    process.env.APP_ENV = 'prod';
+    for (const flag of [0, '', null, 'false', 1]) {
+      expect(isProduction(flag as never), String(flag)).to.equal(true);
+    }
+    process.env.APP_ENV = 'dev';
+    for (const flag of [1, 'true']) {
+      expect(isProduction(flag as never), String(flag)).to.equal(false);
+    }
   });
 });
 

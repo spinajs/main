@@ -16,7 +16,8 @@
     { "path": "../http/tsconfig.mjs.json" },
     { "path": "../log/tsconfig.mjs.json" },
     { "path": "../orm/tsconfig.mjs.json" },
-    { "path": "../users/tsconfig.mjs.json" },
-    { "path": "../authn-http/tsconfig.mjs.json" },
+    { "path": "../authz/tsconfig.mjs.json" },
+    { "path": "../authz-http/tsconfig.mjs.json" },
+    { "path": "../authz-orm/tsconfig.mjs.json" },
     { "path": "../validation/tsconfig.mjs.json" }, { "path": "../orm-http/tsconfig.mjs.json" }]
 }

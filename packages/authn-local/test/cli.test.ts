@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Readable } from 'node:stream';
-import { DI } from '@spinajs/di';
+import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from '@spinajs/cli';
 import type { IArgument, ICommand, IOption } from '@spinajs/cli';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -48,7 +48,8 @@ class CliTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      authn: { local: { hasher: { maxConcurrent: 2 }, expiration: { enabled: true, maxAgeDays: 10 } } },
+      // This configuration is not booted through the schema, so the generator default is repeated here.
+      authn: { local: { hasher: { maxConcurrent: 2 }, expiration: { enabled: true, maxAgeDays: 10 }, generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', '0123456789'] } } },
     };
   }
 }
@@ -163,7 +164,7 @@ describe('authn-local cli commands', function () {
       const identities = DI.resolve(IdentityStore) as FakeIdentityStore;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
       const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
-      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
       const id = identities.add({ login });
       const hash = await hasher.hash(OLD);
       await passwords.set(id, hash);
@@ -256,10 +257,51 @@ describe('authn-local cli commands', function () {
       expect([...command.printed, ...command.logged, error.message].join('\n')).to.not.contain('Short-7');
     });
 
+    it("authn:password brings the identity store's backend up before the lookup", async () => {
+      const order: string[] = [];
+      const id: IdentityRef = { type: 'user', id: 'kate' };
+
+      class BootBackend extends AsyncService {
+        public booted = false;
+        public async resolve(): Promise<void> {
+          await new Promise((res) => setTimeout(res, 5));
+          this.booted = true;
+        }
+      }
+
+      class BootingIdentityStore extends FakeIdentityStore {
+        @Autoinject(BootBackend)
+        protected backend: BootBackend;
+
+        public async findByLogin(login: string) {
+          order.push(this.backend.booted ? 'lookup after boot' : 'lookup before boot');
+          return login === 'kate@example.com' ? id : null;
+        }
+      }
+
+      const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
+      const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
+      await passwords.set(id, await hasher.hash(OLD));
+      DI.register(BootingIdentityStore).as(IdentityStore);
+      DI.uncache(IdentityStore);
+      try {
+        const command = new ScriptedSetUserPassword(['Typed-Password-7\n']);
+        await command.execute('kate@example.com', {});
+
+        expect(order).to.deep.equal(['lookup after boot']);
+        expect(await hasher.verify(await passwords.get(id), 'Typed-Password-7')).to.equal(true);
+      } finally {
+        DI.unregister(BootingIdentityStore);
+        DI.uncache(BootingIdentityStore);
+        DI.uncache(BootBackend);
+        DI.uncache(IdentityStore);
+      }
+    });
+
     it('an unknown login fails the command without calling set or naming the login', async () => {
       const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
-      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
       const writes = passwords.writes.length;
       const events = sink.all().length;
       const original = service.set;

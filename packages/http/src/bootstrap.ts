@@ -1,6 +1,8 @@
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { registerConfigurationSchema } from '@spinajs/configuration';
 import { DateTimeHydrator } from './hydrators/DateTimeHydrator.js';
 import { DateTime } from 'luxon';
+import { HTTP_CONFIGURATION_SCHEMA } from './schemas/http.configuration.js';
 
 @Injectable(Bootstrapper)
 export class HttpBootstrapper extends Bootstrapper {
@@ -20,5 +22,13 @@ export class HttpBootstrapper extends Bootstrapper {
       },
       DateTime,
     );
+  }
+}
+
+/** Registers the http.* schema, so the configuration validates the merged tree and fills its defaults. */
+@Injectable(Bootstrapper)
+export class HttpConfigBootstrapper extends Bootstrapper {
+  public bootstrap(): void {
+    registerConfigurationSchema(HTTP_CONFIGURATION_SCHEMA);
   }
 }

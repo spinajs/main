@@ -6,6 +6,22 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*", "test/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.json" }]
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
+  "references": [
+    {
+      "path": "../authz/tsconfig.json"
+    },
+    {
+      "path": "../di/tsconfig.json"
+    },
+    {
+      "path": "../configuration/tsconfig.json"
+    },
+    {
+      "path": "../authz-rbac/tsconfig.json"
+    }
+  ]
 }

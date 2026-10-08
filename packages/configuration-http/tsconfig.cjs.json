@@ -15,7 +15,8 @@
     { "path": "../http/tsconfig.cjs.json" },
     { "path": "../log/tsconfig.cjs.json" },
     { "path": "../orm/tsconfig.cjs.json" },
-    { "path": "../users/tsconfig.cjs.json" },
-    { "path": "../authn-http/tsconfig.cjs.json" },
+    { "path": "../authz/tsconfig.cjs.json" },
+    { "path": "../authz-http/tsconfig.cjs.json" },
+    { "path": "../authz-orm/tsconfig.cjs.json" },
     { "path": "../validation/tsconfig.cjs.json" }, { "path": "../orm-http/tsconfig.cjs.json" }]
 }

@@ -1,5 +1,5 @@
 import { AuthorizationModel, FALSE, TRUE, compilePermissionGlob, or, principalKey, resourceKey } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, ModelCapabilities, PermissionDef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, ModelCapabilities, ModelInitContext, PermissionDef, PermissionRegistry, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import type { Assignment, AssignmentStore, AssignmentSubject, GrantDef, LadderDef, RoleDef } from '../../src/index.js';
 
@@ -35,6 +35,7 @@ export class TestRbacModel extends AuthorizationModel {
   private readonly roles: ReadonlyMap<string, RoleDef>;
   private readonly ladders: ReadonlyMap<string, LadderDef>;
   private readonly store: TestRbacModelOptions['assignments'];
+  private registry?: PermissionRegistry;
   private observed = '';
   private bumps = 0;
 
@@ -48,7 +49,15 @@ export class TestRbacModel extends AuthorizationModel {
     this.store = opts.assignments;
   }
 
-  init(): void {}
+  init(ctx: ModelInitContext): void {
+    this.registry = ctx.permissions;
+  }
+
+  /** As RbacModel.permissions(): DefaultAdminGuard reads permission implies from it. */
+  permissions(): PermissionRegistry {
+    if (!this.registry) throw new Error('TestRbacModel: permissions() before init');
+    return this.registry;
+  }
 
   applies(permission: PermissionDef): boolean {
     return [...this.roles.values()].some((r) => r.grants.some((g) => compilePermissionGlob(g.permission)(permission.name)));

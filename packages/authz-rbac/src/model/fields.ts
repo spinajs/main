@@ -58,6 +58,18 @@ export function voteFieldGlobs(unconditional: readonly (FieldGlobs | undefined)[
   return sets.reduce(intersectFieldGlobs);
 }
 
+/**
+ * `voteFieldGlobs` for a summary entry, which stands for every row the grants permit: the union
+ * over every grant that permits some row, conditional ones too, so the entry never shows fewer
+ * fields than the target gets on some row. `undefined` (every field) when no grant carries fields.
+ */
+export function summaryFieldGlobs(unconditional: readonly (FieldGlobs | undefined)[], conditional: readonly (FieldGlobs | undefined)[]): FieldGlobs | undefined {
+  const all = [...unconditional, ...conditional];
+  if (!all.some((s) => s !== undefined)) return undefined;
+  const sets = all.map((s) => s ?? EVERY_FIELD);
+  return { read: unionFieldGlobs(...sets.map((s) => s.read)), write: unionFieldGlobs(...sets.map((s) => s.write)) };
+}
+
 /** a ∩ b as a − (a − b), with the core's exact subtract (as the engine's FieldCombiner.intersect). */
 export function intersectFieldGlobs(a: FieldGlobs, b: FieldGlobs): FieldGlobs {
   const both = (x: readonly string[], y: readonly string[]) => subtractFieldGlobs(x, subtractFieldGlobs(x, y));

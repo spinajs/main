@@ -2,22 +2,28 @@ import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLo
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
-import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS } from './cache.js';
-import { createRbacExtensions, defaultSubjects, extendRbacInput, liveAssignments, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
+import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
+import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
+import { effectiveRole } from './ladder/steps.js';
+import { ruleStoreParts } from './rules/extension.js';
+import { unlessRowRules } from './rules/steps.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
 import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
+import { RbacSubjectResolver, groupPrincipalConfig } from './sets/resolver.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
+import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
 export interface RbacModelOptions {
   readonly roles: RoleStore;
   readonly assignments: AssignmentStore;
-  /** Default: the principal and its companions. */
+  /** Default: RbacSubjectResolver (principal, companions, group member set, subject sets), with `authz.rbac.groupPrincipal`. */
   readonly subjects?: SubjectResolver;
-  readonly rules?: RuleStore;
+  /** At most one in-memory store (ConfigRuleStore) and one other (DbRuleStore), design §8.5. */
+  readonly rules?: RuleStore | readonly RuleStore[];
   readonly links?: LinkStore;
-  /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. */
+  /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. The model adds tokenRoleExtension last either way. */
   readonly extensions?: readonly RbacExtension[];
   /** Default: the host log under the name 'authz-rbac'. */
   readonly log?: { warn(message: string): void };
@@ -34,8 +40,6 @@ interface Loaded {
   readonly assignments: AssignmentCache;
   readonly rolesCheckMs: number;
 }
-
-export const DEFAULT_ROLES_CHECK_SECONDS = 60;
 
 const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
   unknown_role: 'is not defined',
@@ -66,11 +70,16 @@ export class RbacModel extends AuthorizationModel {
   private lastRoleCheck = 0;
   /** A reload or version check failed and none has succeeded since. */
   private rolesBroken = false;
+  private defaultResolver?: RbacSubjectResolver;
 
   constructor(private readonly opts: RbacModelOptions) {
     super();
     this.log = opts.log ?? engineLog('authz-rbac');
-    this.extensions = opts.extensions ? Object.freeze([...opts.extensions]) : createRbacExtensions(opts);
+    // The token role rules run on every model and last: a later gather that returns fresh assignments
+    // or a fresh request would undo them, and an app that passes `extensions` must not lose them.
+    const given = opts.extensions ?? createRbacExtensions(opts);
+    const token = given.find(isTokenRoleExtension) ?? tokenRoleExtension(opts);
+    this.extensions = Object.freeze([...given.filter((e) => !isTokenRoleExtension(e)), token]);
     // Only the ops the votes emit: the boot refuses a declared native op without its filter (§6.5 rule 4).
     const residuals = [...new Set([...CORE_FILTER_OPS, ...this.extensions.flatMap((e) => e.residuals ?? [])])];
     this.capabilities = Object.freeze({
@@ -85,6 +94,7 @@ export class RbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     for (const ext of this.extensions) await ext.init?.(ctx);
+    if (!this.opts.subjects) this.defaultResolver = new RbacSubjectResolver({ groupPrincipal: groupPrincipalConfig(ctx) });
     const version = await this.opts.roles.version();
     const { roles, ladders } = await this.opts.roles.load();
     const graph = compileRoles(roles, ladders, { extraEdges: this.extraEdges() });
@@ -149,11 +159,17 @@ export class RbacModel extends AuthorizationModel {
    * - At `$global` each permission is judged per type T of its `types`, on `{ type: T }` (path
    *   `[{ type: T }, GLOBAL]`), so type and glob patterns and bare-type and scoped assignments count;
    *   a request on `$global` itself is concrete and would miss them. Listed when some T permits
-   *   and does not deny everything; `fields` is the union over the permitting Ts, so the entry
-   *   never shows fewer fields than some type gives.
+   *   and does not deny everything; `fields` is the union over the permitting Ts.
+   * - `fields` of each vote are those of every grant that permits some row (RBAC_SUMMARY_STEPS),
+   *   not the vote's own rule, which leaves out a conditional or scoped grant's fields when an
+   *   unconditional grant exists: the entry never shows fewer fields than the target gets on a row.
    * - At any other `at`, the permission is judged at `at`, if its `types` hold `at`'s type.
-   * - `roles` lists only the assignments that hold at `at` (at `$global`: GLOBAL ones); permissions
-   *   from bare-type or scoped assignments appear without their roles.
+   * - `roles` lists only the assignments that hold at `at` (at `$global`: GLOBAL ones), after
+   *   restrict and cap, each with its effective role; permissions from bare-type or scoped
+   *   assignments appear without their roles. At a bare type (`{ type }`), rules that apply per
+   *   row are not run, so `roles` there are before those rules (permissions are still conditional).
+   * - Rules that would apply per row of a type-level probe (RuleRowsError) are left out of that
+   *   probe, and its permissions are listed as conditional: rules only narrow, so nothing is lost.
    */
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
     await this.freshRoles();
@@ -161,7 +177,7 @@ export class RbacModel extends AuthorizationModel {
     const { registry } = this.state();
     const atGlobal = at.type === GLOBAL.type && at.id == null;
     const typed = (types: readonly string[]): ResourceRef[] => (atGlobal && types.length > 0 ? types.map((type) => ({ type })) : [at]);
-    const held = async (ref: ResourceRef) => liveAssignments(await readRbacInput({ principal, permission: ROLES_PROBE, resource: ref }, ctx, sources));
+    const held = async (ref: ResourceRef) => unlessRowRules(await readRbacInput({ principal, permission: ROLES_PROBE, resource: ref }, ctx, sources), (i) => liveAssignments(i)).value;
     const { live } = await held(at);
     const names = new Set<string>();
     for (const ref of typed([...new Set(registry.all().flatMap((d) => d.types))])) {
@@ -173,14 +189,20 @@ export class RbacModel extends AuthorizationModel {
       const def = registry.get(name);
       if (def === undefined || (!atGlobal && !def.types.includes(at.type))) continue;
       const votes: Vote[] = [];
-      for (const ref of typed(def.types)) votes.push(runRbacPipeline(await readRbacInput({ principal, permission: name, resource: ref }, ctx, sources)));
+      let exact = true;
+      for (const ref of typed(def.types)) {
+        const run = unlessRowRules(await readRbacInput({ principal, permission: name, resource: ref }, ctx, sources), (i) => runRbacPipeline(i, RBAC_SUMMARY_STEPS));
+        votes.push(run.value);
+        exact &&= run.exact;
+      }
       const permitting = votes.filter((v) => v.permitWhen.op !== 'false' && v.denyWhen.op !== 'true');
       if (permitting.length === 0) continue;
-      const conditional = !votes.every((v) => v.permitWhen.op === 'true' && v.denyWhen.op === 'false');
+      const conditional = !exact || !votes.every((v) => v.permitWhen.op === 'true' && v.denyWhen.op === 'false');
       const fields = permitting.every((v) => v.fields) ? { read: unionFieldGlobs(...permitting.map((v) => v.fields!.read ?? ['*'])), write: unionFieldGlobs(...permitting.map((v) => v.fields!.write ?? ['*'])) } : undefined;
       permissions.push({ name, conditional, ...(fields ? { fields } : {}) });
     }
-    const roles = live.map((l) => ({ role: l.role, scope: l.scope, ...(l.expiresAt ? { expiresAt: l.expiresAt.toISOString() } : {}) }));
+    const { ladders } = rbacTables(this.extensions, sources.roles, sources.grants);
+    const roles = live.map((l) => ({ role: effectiveRole(ladders, l), scope: l.scope, ...(l.expiresAt ? { expiresAt: l.expiresAt.toISOString() } : {}) }));
     return { model: this.name, roles, permissions };
   }
 
@@ -198,31 +220,45 @@ export class RbacModel extends AuthorizationModel {
    * request snapshot in `ctx` (then at ctx.now), else from the cache across requests (at the model clock),
    * ceiling.roles applied. Without ancestors, the path is `at` and
    * GLOBAL only (and, at a type, that type).
-   * @throws AuthzConfigError when the roles are stale, the subjects or an extension's gather need IO,
-   *   or the assignments are not cached (never a guess)
+   * @throws AuthzConfigError when the roles are stale, the subjects or an extension's gather need IO
+   *   (with a rule store that is not in memory, such as DbRuleStore, at every `at`, GLOBAL included),
+   *   the assignments are not cached, or `at` is not GLOBAL while an in-memory store has a live
+   *   rule (never a guess)
    */
   heldNow(principal: Principal, at: ResourceRef = GLOBAL, ctx?: EvaluationContext): readonly LiveAssignment[] {
     this.state();
     if (this.rolesFreshAt < this.roleMarks) throw new AuthzConfigError('rbac: the role definitions are stale and not reloaded yet; preload the principal or run a check first');
+    // Rules at ancestors, and rules that read their attributes or ranks, need the full path, which a synchronous read does not have.
+    const now = ctx?.now ?? this.clock().now();
+    if (!(at.type === GLOBAL.type && at.id == null) && this.rulesMayApply(now)) throw new AuthzConfigError(`rbac: rules need the full path of ${resourceKey(at)}; use RbacService.coversAt`);
     const loaded = this.state();
     const sources = this.sources();
-    const subjects = this.opts.subjects ? this.opts.subjects.subjects(principal) : defaultSubjects(principal);
+    const subjects = this.resolver().subjects(principal);
     if (isThenable(subjects)) {
       Promise.resolve(subjects).catch(() => undefined);
       throw new AuthzConfigError('rbac: the subject resolver needs IO; covers of a principal needs subjects it can answer at once');
     }
-    const now = ctx?.now ?? this.clock().now();
-    const rows = loaded.assignments.peek(subjects as readonly AssignmentSubject[], now, ctx);
-    if (rows === undefined) throw new AuthzConfigError(`rbac: the assignments of ${principal.type}:${principal.id} are not preloaded (or their cache entry expired); preload the principal first`);
+    const peek = (list: readonly AssignmentSubject[]) => {
+      const rows = loaded.assignments.peek(list, now, ctx);
+      if (rows === undefined) throw new AuthzConfigError(`rbac: the assignments of ${principal.type}:${principal.id} are not preloaded (or their cache entry expired); preload the principal first`);
+      return rows;
+    };
+    const rows = peek(subjects as readonly AssignmentSubject[]);
     const request: DecisionRequest = { principal, permission: ROLES_PROBE, resource: at };
     const path = at.id == null ? (resourcePath(at, NO_CONTEXT) as readonly ResourceRef[]) : [at, GLOBAL];
     const base: RbacInput = { request, now, path, subjects: subjects as readonly AssignmentSubject[], assignments: [...rows, ...configAssignments(loaded, subjects as readonly AssignmentSubject[])], roles: sources.roles, grants: sources.grants, ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}), ...(sources.onRefusedAssignment ? { onRefusedAssignment: sources.onRefusedAssignment } : {}) };
-    const input = extendRbacInput(request, NO_CONTEXT, sources, base);
+    // Subject sets read their rows through `load`: from the cache here, never the store.
+    const input = extendRbacInput(request, NO_CONTEXT, { ...sources, load: peek }, base);
     if (input instanceof Promise) {
       input.catch(() => undefined);
       throw new AuthzConfigError("rbac: an extension's gather needs IO; covers of a principal cannot answer at once");
     }
     return liveAssignments(input).live;
+  }
+
+  /** The link store of the options (share links, design §6.1.6). */
+  get linkStore(): LinkStore | undefined {
+    return this.opts.links;
   }
 
   /** The model clock's now (assignment cache TTL, covers). */
@@ -241,7 +277,7 @@ export class RbacModel extends AuthorizationModel {
       roles: loaded.graph,
       grants: this.grantIndex(),
       assignments: this.opts.assignments,
-      subjects: this.opts.subjects,
+      subjects: this.resolver(),
       rules: this.opts.rules,
       links: this.opts.links,
       extensions: this.extensions,
@@ -255,15 +291,15 @@ export class RbacModel extends AuthorizationModel {
   /**
    * Reloads stale roles (and checks the role store version every `cache.rolesCheckSeconds`), then
    * loads the assignments of the principal's subjects into the request (ctx.cache) and across
-   * requests (per subject, TTL).
+   * requests (per subject, TTL): through the gathering phase, so the subject sets the extensions
+   * add are loaded too (one store read for the principal and its companions, one for its sets).
    */
   async preload(principal: Principal, ctx: EvaluationContext): Promise<void> {
     const { rolesCheckMs } = this.state();
     const now = this.clock().now().getTime();
     if (rolesCheckMs > 0 && (now - this.lastRoleCheck >= rolesCheckMs || now < this.lastRoleCheck)) await this.checkRoleVersion();
     await this.ensureRoles();
-    const subjects = this.opts.subjects ? await this.opts.subjects.subjects(principal) : defaultSubjects(principal);
-    await this.state().assignments.read(subjects, ctx);
+    await readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, this.sources());
   }
 
   /**
@@ -364,6 +400,18 @@ export class RbacModel extends AuthorizationModel {
     return run;
   }
 
+  /** Whether the rule stores may hold a rule live at `now`: always with a store that is not in memory. */
+  private rulesMayApply(now: Date): boolean {
+    const { config, db } = ruleStoreParts(this.opts.rules);
+    if (db) return true;
+    return config ? config.all().some((r) => r.expiresAt == null || r.expiresAt.getTime() > now.getTime()) : false;
+  }
+
+  /** The SubjectResolver of the options, else the RbacSubjectResolver built at init. */
+  private resolver(): SubjectResolver {
+    return this.opts.subjects ?? this.defaultResolver ?? new RbacSubjectResolver();
+  }
+
   private clock(): { now(): Date } {
     return this.opts.clock ?? SYSTEM_CLOCK;
   }
@@ -387,19 +435,20 @@ export class RbacModel extends AuthorizationModel {
   }
 }
 
+// The configuration schema checks the shapes; whether a role exists and is assignable needs the role graph.
+// An unvalidated configuration still gets here, and a string would be read as one role name per character.
 function anonymousRoles(ctx: ModelInitContext, graph: RoleGraph): readonly string[] {
-  const value = ctx.config<unknown>('anonymousRoles', []);
-  if (!isNameList(value)) throw new AuthzConfigError('authz.rbac.anonymousRoles must be an array of role names');
+  const value = ctx.config<readonly string[]>('anonymousRoles', []);
+  if (!Array.isArray(value)) throw new AuthzConfigError('authz.rbac.anonymousRoles must be an array of role names');
   for (const role of value) refuseConfigRole(graph, role, 'authz.rbac.anonymousRoles');
   return Object.freeze([...value]);
 }
 
 function serviceRoles(ctx: ModelInitContext, graph: RoleGraph): ReadonlyMap<string, readonly string[]> {
-  const value = ctx.config<unknown>('serviceRoles', {});
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new AuthzConfigError("authz.rbac.serviceRoles must map principal keys ('service:<id>') to arrays of role names");
+  const value = ctx.config<Readonly<Record<string, readonly string[]>>>('serviceRoles', {});
   const out = new Map<string, readonly string[]>();
   for (const [key, roles] of Object.entries(value)) {
-    if (!isNameList(roles)) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] must be an array of role names`);
+    if (!Array.isArray(roles)) throw new AuthzConfigError(`authz.rbac.serviceRoles['${key}'] must be an array of role names`);
     for (const role of roles) refuseConfigRole(graph, role, `authz.rbac.serviceRoles['${key}']`);
     out.set(key, Object.freeze([...roles]));
   }
@@ -442,16 +491,14 @@ function configAssignments(loaded: Loaded, subjects: readonly AssignmentSubject[
 const SYSTEM_CLOCK = { now: () => new Date() };
 
 function cacheConfig(ctx: ModelInitContext): { ttlMs: number; maxEntries: number; rolesCheckMs: number } {
-  const ttl = ctx.config<unknown>('cache.assignmentsTtlSeconds', DEFAULT_ASSIGNMENTS_TTL_SECONDS);
-  if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl < 0) throw new AuthzConfigError('authz.rbac.cache.assignmentsTtlSeconds must be a finite number of seconds, 0 or more');
-  const max = ctx.config<unknown>('cache.maxSubjects', DEFAULT_MAX_CACHED_SUBJECTS);
-  if (typeof max !== 'number' || !Number.isInteger(max) || max < 0) throw new AuthzConfigError('authz.rbac.cache.maxSubjects must be an integer, 0 or more');
-  const check = ctx.config<unknown>('cache.rolesCheckSeconds', DEFAULT_ROLES_CHECK_SECONDS);
-  if (typeof check !== 'number' || !Number.isFinite(check) || check < 0) throw new AuthzConfigError('authz.rbac.cache.rolesCheckSeconds must be a finite number of seconds, 0 or more');
+  const ttl = ctx.config<number>('cache.assignmentsTtlSeconds', DEFAULT_ASSIGNMENTS_TTL_SECONDS);
+  const max = ctx.config<number>('cache.maxSubjects', DEFAULT_MAX_CACHED_SUBJECTS);
+  const check = ctx.config<number>('cache.rolesCheckSeconds', DEFAULT_ROLES_CHECK_SECONDS);
+  // An unvalidated configuration still gets here: NaN, Infinity or a string would keep assignments, or roles, unchecked forever.
+  if (!Number.isFinite(ttl)) throw new AuthzConfigError('authz.rbac.cache.assignmentsTtlSeconds must be a finite number of seconds');
+  if (!Number.isFinite(check)) throw new AuthzConfigError('authz.rbac.cache.rolesCheckSeconds must be a finite number of seconds');
   return { ttlMs: ttl * 1000, maxEntries: max, rolesCheckMs: check * 1000 };
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
 
 const isThenable = (v: unknown): v is PromiseLike<unknown> => typeof (v as { then?: unknown } | null | undefined)?.then === 'function';
 

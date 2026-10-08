@@ -102,6 +102,13 @@ class SuccessClearsIp extends ReferenceBackoffThrottle {
   }
 }
 
+/** M05e: failures are never counted. */
+class CountsNothing extends ReferenceBackoffThrottle {
+  async attempt(): Promise<{ allowed: true }> {
+    return { allowed: true };
+  }
+}
+
 /** M06d */
 class NoIdleReset extends ReferenceBackoffThrottle {
   constructor(params: ThrottleParams) {
@@ -175,6 +182,11 @@ const withThrottle =
   (make: (p: ThrottleParams) => AuthnThrottle): HarnessFactory =>
   (ctx) =>
     throttleHarness(ctx, make);
+/** The reference service over a throttle mutant (K5 cases). */
+const withFlowThrottle =
+  (make: (p: ThrottleParams) => AuthnThrottle): HarnessFactory =>
+  (ctx) =>
+    referenceHarness(ctx, undefined, { throttle: make });
 const withIssuer =
   (make: (o: MemorySessionOptions) => MemorySessionIssuer): HarnessFactory =>
   (ctx) =>
@@ -225,6 +237,24 @@ describe('mutation checks (design §10.4)', function () {
       "A06 a success on an own account leaves other accounts' failures on the ip key",
       throttle,
       withThrottle((p) => new SuccessClearsIp(p)),
+    ));
+  it('M05d per-request calls count before verify (no peek)', () =>
+    bites(
+      'A05 parallel per-request calls with a valid credential all verify',
+      reference,
+      withFlowThrottle((p) => Object.assign(new ReferenceBackoffThrottle(p), { peek: undefined })),
+    ));
+  it('M05e per-request failures not counted', () =>
+    bites(
+      'A05 per-request failures are counted and back off',
+      reference,
+      withFlowThrottle((p) => new CountsNothing(p)),
+    ));
+  it('M06f a per-request success clears the whole IP key', () =>
+    bites(
+      "A06 a per-request success leaves other credentials' failures on the ip key",
+      reference,
+      withFlowThrottle((p) => new SuccessClearsIp(p)),
     ));
   it('M06d no idle reset', () =>
     bites(

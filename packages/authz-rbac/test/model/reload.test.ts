@@ -283,8 +283,8 @@ describe('authz-rbac model: role definitions reload', () => {
       expect(await permits(model)).to.deep.equal(TRUE);
     });
 
-    it('refuses a malformed rolesCheckSeconds at init', async () => {
-      for (const rolesCheckSeconds of [-1, 'x', Infinity]) {
+    it('refuses a rolesCheckSeconds that is not a finite number at init (an unvalidated configuration)', async () => {
+      for (const rolesCheckSeconds of ['x', Infinity]) {
         expect((await failure(setup({ config: { cache: { rolesCheckSeconds } } })))?.message).to.contain('authz.rbac.cache.rolesCheckSeconds');
       }
     });

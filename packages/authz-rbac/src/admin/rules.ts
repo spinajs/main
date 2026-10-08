@@ -1,8 +1,10 @@
-import { AuthzAdminFailure, AuthzWriteHandler, assertAdminPermission, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, assertAdminPermission, BUILTIN_CONDITION_FUNCTIONS, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, ParsedCondition, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { RuleDef } from '../contracts.js';
+import { isRuleValueRef, ruleConditionFault, ruleShapeFault } from '../model/rules/compile.js';
+import type { RuleFault } from '../model/rules/compile.js';
 import { actorRef, checkPermissionName, event, invalid, isPlainObject, quote, readExpiry, readId, readPrincipal, readScope, readSubject, roleIndex, ruleStore } from './common.js';
 import { checkCondition } from './conditions.js';
 import type { RoleIndex } from './common.js';
@@ -49,7 +51,10 @@ function roleField(rule: Record<string, unknown>, key: 'minRole' | 'maxRole'): s
   const v = rule[key];
   if (v === undefined || v === null) return undefined;
   if (typeof v === 'string') return v;
-  if (isPlainObject(v) && typeof v.ref === 'string' && v.ref !== '') return undefined;
+  if (isPlainObject(v) && typeof v.ref === 'string' && v.ref !== '') {
+    if (!isRuleValueRef(v.ref)) throw new AuthzAdminFailure('rule_not_compilable', `${quote(v.ref)} is not a ref of the form scope.<type>.<path>, principal.<path>, actor.<path> or env.<path>`, `rule.${key}`);
+    return undefined;
+  }
   throw invalid(`rule.${key}`, `rule.${key} must be a role name or { ref }`);
 }
 
@@ -59,7 +64,12 @@ function stringList(v: unknown, field: string): void {
 
 function roleOnLadder(roles: RoleIndex, role: string, ladder: string | undefined, field: string): void {
   if (!roles.roles.has(role)) throw new AuthzAdminFailure('unknown_role', `role ${quote(role)} does not exist`, field);
+  if (ladder === undefined && roles.ladderOf(role) === undefined) throw new AuthzAdminFailure('unknown_role', `role ${quote(role)} is on no ladder`, field);
   if (ladder !== undefined && !roles.ladders.get(ladder)!.roles.includes(role) && roles.ladderOf(role) !== ladder) throw new AuthzAdminFailure('unknown_role', `role ${quote(role)} is not on ladder ${quote(ladder)}`, field);
+}
+
+function notCompilable(fault: RuleFault | undefined): void {
+  if (fault) throw new AuthzAdminFailure('rule_not_compilable', fault.message, `rule.${fault.field}`);
 }
 
 function knownLadder(roles: RoleIndex, ladder: unknown, field: string): string {
@@ -90,9 +100,11 @@ export class RbacRuleHandler extends AuthzWriteHandler {
       if (role !== undefined) roleOnLadder(roles, role, ladder, `rule.${key}`);
     }
     if (rule.at !== undefined) readId(rule.at, 'rule.at');
-    if (rule.kind === 'threshold' && rule.minRole === undefined) throw invalid('rule.minRole', 'a threshold rule needs minRole');
-    if (rule.kind === 'threshold' && rule.ladder !== undefined && rule.at === undefined) throw invalid('rule.at', 'a threshold rule names a ladder only with at');
+    if (rule.at !== undefined && rule.kind !== 'threshold') throw invalid('rule.at', 'only a threshold rule names at');
+    if (rule.kind === 'threshold' && rule.minRole == null) throw invalid('rule.minRole', 'a threshold rule needs minRole');
+    if (rule.kind === 'threshold' && rule.at !== undefined && rule.ladder === undefined) throw invalid('rule.ladder', 'a threshold rule names at only with a ladder');
     if (rule.kind === 'cap' && rule.maxRole === undefined && rule.stripTags !== true) throw invalid('rule.maxRole', 'a cap rule needs maxRole (null drops the assignment) or stripTags');
+    notCompilable(ruleShapeFault(rule));
     stringList(rule.resourceTypes, 'rule.resourceTypes');
     if (rule.permissions !== undefined) {
       if (!Array.isArray(rule.permissions)) throw invalid('rule.permissions', 'rule.permissions must be a list');
@@ -180,21 +192,24 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     const compiler = hasCompiler ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler) : undefined;
     // The core's DefaultConditionCompiler parses with its own functions; then it alone judges fn names. Any other compiler keeps the name check.
     const parses = compiler instanceof DefaultConditionCompiler;
-    const functions = !parses && container.hasRegistered(ConditionFunction) ? [...(await container.resolveChain(ConditionFunction))].map((f) => (f as ConditionFunction).name) : [];
+    const registered = !parses && container.hasRegistered(ConditionFunction) ? ([...(await container.resolve(Array.chainOf(ConditionFunction)))] as ConditionFunction[]) : [];
+    const functions = registered.map((f) => f.name);
     // No function registered: every fn is unknown, which matters only where conditions compile at all.
     const fnKnown = (name: string) => parses || (functions.length > 0 ? functions.includes(name) : !hasCompiler);
     for (const [field, condition] of conditions) checkCondition(condition, field, fnKnown);
     if (!compiler) throw new AuthzAdminFailure('rule_not_compilable', `authz domain ${quote(ctx.domain)} has no ConditionCompiler, so a rule condition cannot be evaluated`, conditions[0][0]);
-    if (parses) {
-      for (const [field, condition] of conditions) {
-        try {
-          compiler.parse(condition, field);
-        } catch (e) {
-          // The parse error names the field already (its where).
-          throw new AuthzAdminFailure('rule_not_compilable', e instanceof Error ? e.message : String(e), field);
-        }
+    // The rbac model parses rule conditions with the core grammar whatever compiler the domain has, so the rule must parse there too.
+    const parser = parses ? compiler : new DefaultConditionCompiler(registered.length > 0 ? registered : BUILTIN_CONDITION_FUNCTIONS);
+    const parsed = new Map<string, ParsedCondition>();
+    for (const [field, condition] of conditions) {
+      try {
+        parsed.set(field, parser.parse(condition, field));
+      } catch (e) {
+        // The parse error names the field already (its where).
+        throw new AuthzAdminFailure('rule_not_compilable', e instanceof Error ? e.message : String(e), field);
       }
     }
+    notCompilable(ruleConditionFault(rule.kind, parsed.get('rule.when'), parsed.get('rule.subjects.when')));
     const literal = rule.permissions?.find((p) => !p.includes('*'));
     const req: DecisionRequest = { principal: adminActor(ctx), permission: literal ?? MANAGE, resource: GLOBAL };
     for (const [field, condition] of conditions) {

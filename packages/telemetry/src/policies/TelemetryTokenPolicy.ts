@@ -1,8 +1,14 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+
 import { Config } from '@spinajs/configuration';
 import { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Injectable } from '@spinajs/di';
+
+import { configuredEnvOf, telemetrySkipsAuth } from './development.js';
+
+const digest = (value: string) => createHash('sha256').update(value).digest();
 
 /**
  * Shared-token guard for the telemetry endpoints. Reads the expected token from
@@ -13,7 +19,9 @@ import { Injectable } from '@spinajs/di';
  * because stock Prometheus / OTel-collector scrape configs can only send
  * `authorization.credentials` (a Bearer header), not arbitrary headers.
  *
- * Bypassed entirely in development.
+ * Skipped only under the explicit development opt-in (`telemetrySkipsAuth`).
+ *
+ * @deprecated set the slot to `'AccessPolicy'` and give the token to a service principal in `authz.http.services`.
  */
 @Injectable(BasePolicy)
 export class TelemetryTokenPolicy extends BasePolicy {
@@ -23,8 +31,11 @@ export class TelemetryTokenPolicy extends BasePolicy {
   @Config('telemetry.auth.token')
   protected Token: string;
 
-  @Config('configuration.isDevelopment')
-  protected isDev: boolean;
+  @Config('telemetry.auth.skipInDevelopment')
+  protected SkipInDevelopment: unknown;
+
+  @Config('configuration.isProduction')
+  protected IsProduction: unknown;
 
   protected HEADER_TOKEN_FIELD = 'x-metrics-token';
 
@@ -33,20 +44,29 @@ export class TelemetryTokenPolicy extends BasePolicy {
   }
 
   public async execute(req: Request): Promise<void> {
-    if (this.isDev) {
+    if (telemetrySkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
       return;
     }
 
     const token = req.headers[this.HEADER_TOKEN_FIELD] ?? this.bearerToken(req);
-    if (!token) {
+    if (typeof token !== 'string' || token.length === 0) {
       this.Log.warn(`No token is set for restricted area, header field: ${this.HEADER_TOKEN_FIELD} (or Authorization: Bearer), policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
       throw new Forbidden('access token is not set');
     }
 
-    if (token !== this.Token) {
+    if (!this.matches(token)) {
       this.Log.warn(`Invalid access token received, header field: ${this.HEADER_TOKEN_FIELD}, policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
       throw new Forbidden('invalid access token');
     }
+  }
+
+  /** Digests have one length, so the comparison time does not depend on where or whether the tokens differ. */
+  protected matches(presented: string): boolean {
+    const expected: unknown = this.Token;
+    if (typeof expected !== 'string' || expected.length === 0) {
+      return false;
+    }
+    return timingSafeEqual(digest(presented), digest(expected));
   }
 
   /** The credentials of an `Authorization: Bearer <token>` header, if present. */

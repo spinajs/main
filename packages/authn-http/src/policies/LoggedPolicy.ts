@@ -4,6 +4,8 @@ import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/h
 /**
  * Simple policy to only check if user is authorized ( do not check permissions for routes)
  * Usefull if we want to give acces for all logged users
+ *
+ * @deprecated 2.x; use the 3.0 `Authenticated` policy. R1 removes it.
  */
 export class LoggedPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {

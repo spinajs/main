@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
-import type { AuthzContribution, CompiledCondition, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
-import { PolicyIndex, loadPolicy, scopeFilter, targets } from './policies.js';
+import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
+import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -217,48 +218,76 @@ export class AbacModel extends AuthorizationModel {
 
   /**
    * H18 (design §6.2): the permissions this principal's permit policies give at `at`, with the
-   * conditions bound for the principal and now; an entry is conditional when a condition or the
-   * policy scope still depends on the resource. Deny policies add no entry: `summary` and
-   * `covers` check every candidate permission, and the checks apply them.
+   * conditions bound for the principal and now. `covers` reads a target's summary, so leaving out
+   * a permission the target may hold is the unsafe side; an entry is conditional when it may not
+   * hold for every row or in every session.
+   * - At `$global` each permission is judged per type T of its `types` (`$global` when none), on
+   *   the permits indexed for T; a scope other than `$global` holds below its node (conditional).
+   *   Listed when some T has a permit, unconditional when every T has an unconditional one.
+   * - `fields` (for `fields: true`) is the union over every permit found, conditional ones too
+   *   (`*` for a permit without fields).
+   * - At any other `at`, on `at`'s type with the scopes decided on the path of `at`.
+   * - A permit that fails only on `actorTypes`, matches `principalTypes` only through a
+   *   companion the principal carries now, or whose condition is FALSE now but reads the
+   *   session (`readsSession`), is listed conditional: an impersonated session has another actor,
+   *   other authn facts and a later time.
+   * Deny policies add no entry: `summary` and `covers` check every candidate permission, and the
+   * checks apply them.
    */
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
     await this.upTo(this.generation);
     const index = this.index();
-    const now = ctx.now;
-    const root = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
-    let ancestors: readonly ResourceRef[] | undefined = root ? [GLOBAL] : undefined;
-    if (!root && at.id !== undefined && at.id !== null) ancestors = (await ctx.ancestors(at)) ?? undefined;
+    const atGlobal = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
+    const ancestors = at.id !== undefined && at.id !== null ? (await ctx.ancestors(at)) ?? undefined : undefined;
     const out: { name: string; conditional: boolean; fields?: FieldSet }[] = [];
     for (const name of [...index.permissions()].sort()) {
       const def = ctx.permissions.get(name);
-      if (!def || (at.type !== GLOBAL.type && !def.types.includes(at.type))) continue;
-      const req: DecisionRequest = { principal, permission: name, resource: at, env: { now } };
-      const found: { conditional: boolean; p: LoadedPolicy }[] = [];
-      for (const p of index.candidates(name, at.type)) {
-        if (p.policy.effect !== 'permit' || !targets(p, req, now)) continue;
-        const scope = scopeFilter(p.policy.scope, ancestors);
-        if (scope === FALSE) continue;
-        let conditional = scope !== TRUE;
-        if (p.when) {
-          const c = await this.compile(p, req, ctx);
-          if (c.filter.op === 'false') continue;
-          if (c.filter.op !== 'true') conditional = true;
+      if (!def || (!atGlobal && !def.types.includes(at.type))) continue;
+      const req: DecisionRequest = { principal, permission: name, resource: at, env: { now: ctx.now } };
+      const judged = new Map<LoadedPolicy, boolean | undefined>();
+      const perType: { conditional: boolean; p: LoadedPolicy }[][] = [];
+      for (const type of atGlobal ? (def.types.length > 0 ? def.types : [GLOBAL.type]) : [at.type]) {
+        const found: { conditional: boolean; p: LoadedPolicy }[] = [];
+        for (const p of index.candidates(name, type)) {
+          if (!judged.has(p)) judged.set(p, await this.summaryJudgement(p, req, ctx, ancestors));
+          const conditional = judged.get(p);
+          if (conditional !== undefined) found.push({ conditional, p });
         }
-        found.push({ conditional, p });
+        perType.push(found);
       }
-      if (found.length === 0) continue;
-      // As the vote's field sets: the union over the unconditional permits, else the intersection over all.
-      const unconditional = found.filter((f) => !f.conditional);
-      const fields =
-        def.fields === true
-          ? fieldsOf(
-              found.map((f) => ({ p: f.p, when: f.conditional ? FALSE : TRUE, needsSubject: false })),
-              [],
-            )
-          : undefined;
-      out.push({ name, conditional: unconditional.length === 0, ...(fields ? { fields: { ...(fields.read ? { read: fields.read } : {}), ...(fields.write ? { write: fields.write } : {}) } } : {}) });
+      const listed = perType.filter((found) => found.length > 0);
+      if (listed.length === 0) continue;
+      // Not the vote's rule (union over the unconditional permits): on the rows where a conditional
+      // permit holds the target reads its fields too, and the entry must not show fewer.
+      const found = listed.flat();
+      const permitFields = (k: 'read' | 'write') => unionFieldGlobs(...found.map((f) => (f.p.policy.fields ? f.p.policy.fields[k] ?? [] : ['*'])));
+      const conditional = !perType.every((list) => list.some((f) => !f.conditional));
+      out.push({ name, conditional, ...(def.fields === true ? { fields: { read: permitFields('read'), write: permitFields('write') } } : {}) });
     }
     return { model: this.name, permissions: out };
+  }
+
+  /**
+   * For `summarize`: undefined when the permit never holds for the principal, else whether it is
+   * conditional. Without ancestors a scope is `under` it, so a scoped permit is conditional at
+   * `$global` and at a type ref. A condition that throws rejects the summary.
+   */
+  private async summaryJudgement(p: LoadedPolicy, req: DecisionRequest, ctx: EvaluationContext, ancestors: readonly ResourceRef[] | undefined): Promise<boolean | undefined> {
+    if (p.policy.effect !== 'permit' || !targetsPrincipal(p, req, ctx.now)) return undefined;
+    const scope = scopeFilter(p.policy.scope, ancestors);
+    if (scope === FALSE) return undefined;
+    const throughCompanion = p.principalTypes !== undefined && !p.principalTypes.has(req.principal.type);
+    let conditional = scope !== TRUE || throughCompanion || !targets(p, req, ctx.now);
+    if (p.when) {
+      const c = await this.compile(p, req, ctx);
+      if (c.filter.op === 'false') {
+        if (c.cacheable && !readsSession(p.when)) return undefined;
+        conditional = true;
+      } else if (c.filter.op !== 'true') {
+        conditional = true;
+      }
+    }
+    return conditional;
   }
 
   /**
@@ -404,6 +433,34 @@ function needsRow(c: ParsedCondition): boolean {
   }
 }
 
+/**
+ * Whether a condition may answer otherwise in another session of the same principal: it reads
+ * `actor.*`, `env.*`, `principal.*` beyond id, type and attributes (authn facts and the like), or
+ * calls a function (which sees the actor and env). Principal attributes come from the user store
+ * and stay the same under impersonation.
+ */
+function readsSession(c: ParsedCondition): boolean {
+  switch (c.kind) {
+    case 'all':
+    case 'any':
+      return c.items.some(readsSession);
+    case 'not':
+      return readsSession(c.item);
+    case 'fn':
+      return true;
+    case 'cmp':
+      return sessionPath(c.attr) || (c.operand.kind === 'ref' && sessionPath(c.operand.ref));
+  }
+}
+
+function sessionPath(p: ConditionPath): boolean {
+  if (p.root === 'actor' || p.root === 'env') return true;
+  if (p.root !== 'principal') return false;
+  const [head] = p.path;
+  if (head === 'attributes') return false;
+  return !(p.path.length === 1 && (head === 'id' || head === 'type'));
+}
+
 function reasonOf(e: Entry): DenyReason {
   if (e.needsSubject) return { code: 'needs_subject', policy: e.p.policy.id, sortKey: e.p.policy.id };
   return { code: e.p.policy.reason ?? 'policy', policy: e.p.policy.id, priority: e.p.priority, sortKey: e.p.policy.id };
@@ -433,28 +490,28 @@ function fieldsOf(permits: readonly Entry[], denies: readonly Entry[]): FieldSet
 
 /** Every ConditionFunction registered in root DI; the built-ins when DI holds none. */
 async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
-  const list = (await DI.resolveChain(ConditionFunction)) as readonly ConditionFunction[];
+  const list = (await DI.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
   return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
 }
 
-const STORE_NAMES = ['ConfigPolicyStore', 'DbPolicyStore'];
-
 /** The stores `authz.<model>.stores` names (design §8.3); DbPolicyStore resolves its connection on first use. */
 export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
-  const names = ctx.config<unknown>('stores', undefined);
-  const policies = ctx.config<unknown[]>('policies', []);
-  if (names === undefined) return [new ConfigPolicyStore(policies)];
-  if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) throw new AuthzConfigError(`authz.${model}.stores must be a list of store names (${STORE_NAMES.join(', ')})`);
-  return (names as string[]).map((name) => {
+  const names = ctx.config<readonly string[]>('stores', ABAC_DEFAULT_STORES);
+  const policies = ctx.config<readonly unknown[]>('policies', []);
+  // A runtime Configuration.set skips the schema: a string would be spread into one policy per character.
+  if (!Array.isArray(names)) throw new AuthzConfigError(`authz.${model}.stores must be a list of policy store names`);
+  if (!Array.isArray(policies)) throw new AuthzConfigError(`authz.${model}.policies must be a list of policies`);
+  return names.map((name) => {
     if (name === 'ConfigPolicyStore') return new ConfigPolicyStore(policies);
     if (name === 'DbPolicyStore') {
-      const connection = ctx.config<string>('connection', 'default');
+      const connection = ctx.config<string>('connection', ABAC_DEFAULT_CONNECTION);
       return new DbPolicyStore(async () => {
         const driver = (await DI.resolve(Orm)).Connections.get(connection);
         if (!driver) throw new AuthzConfigError(`authz.${model}.connection: no ORM connection named ${JSON.stringify(connection)}`);
         return driver;
       });
     }
-    throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${STORE_NAMES.join(', ')})`);
+    // AUTHZ_ABAC_CONFIGURATION_SCHEMA covers authz.abac only; a model under another name reads an unchecked section.
+    throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${ABAC_STORE_NAMES.join(', ')})`);
   });
 }

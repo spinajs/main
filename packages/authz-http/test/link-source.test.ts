@@ -53,7 +53,8 @@ describe('LinkPrincipalSource (B38 http)', function () {
     calls.length = 0;
   });
 
-  afterEach(() => testHost.config().unset(['authz', 'http', 'links']));
+  // Back to the schema defaults: the in-memory test configuration applies no schema.
+  afterEach(() => testHost.config().set(['authz', 'http', 'links'], { query: 'link', header: 'X-Authz-Link', cookie: null }));
 
   it('is the link source at order 110, after the authn principal', () => {
     const link = new LinkPrincipalSource();
@@ -89,6 +90,15 @@ describe('LinkPrincipalSource (B38 http)', function () {
 
     expect(res.body.principal).to.deep.include({ type: 'link', id: 'l1', companions: [{ type: 'user', id: 'alice' }] });
     expect(calls[0].companion).to.deep.include({ type: 'user', id: 'alice' });
+  });
+
+  it('produces no link principal when authz.http.links was never configured', async () => {
+    testHost.config().set(['authz', 'http', 'links'], undefined);
+    const res = await app.request().get('/links?link=tok-l1').set('x-user', 'alice');
+
+    expect(res.status).to.eq(200);
+    expect(res.body.principal).to.deep.include({ type: 'user', id: 'alice' });
+    expect(calls).to.deep.eq([]);
   });
 
   it('without a token the other sources decide', async () => {

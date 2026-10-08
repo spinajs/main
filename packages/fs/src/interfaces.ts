@@ -305,6 +305,16 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   }
 
   /**
+   * Returns a time-limited public URL to the file.
+   *
+   * Optional: providers without public URLs do not implement it.
+   *
+   * @param opts.until when the URL expires ( provider default when absent )
+   * @param opts.disposition content disposition the URL should serve the file with
+   */
+  public signedUrl?(path: string, opts?: { until?: DateTime; disposition?: string }): Promise<string>;
+
+  /**
    * -------------------------------------------------------------------------
    *
    * STATIC METHODS
@@ -462,6 +472,17 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public static isDir(path: URI): Promise<boolean> {
     return path.Fs.isDir(path.Path);
   }
+}
+
+/**
+ * Wraps every configured fs provider. fsService first publishes every raw provider, so
+ * providers that look up a backend by name in their own resolve() get the raw one, then
+ * replaces each entry with the result of the decorators, run in ascending `order`.
+ * When a decorator throws, every provider is unpublished and fsService fails to resolve.
+ */
+export abstract class FsDecorator {
+  abstract readonly order: number;
+  abstract decorate(instance: fs, config: IProviderConfiguration): fs;
 }
 
 /**

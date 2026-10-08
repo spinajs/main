@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { normalizeEnvironment } from '@spinajs/configuration-common';
+import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { Configuration } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 import type { ISession } from './contracts.js';
@@ -49,24 +49,21 @@ export interface ISessionCookieConfig {
 const COOKIE_CONTROL_KEYS = ['name', 'hostPrefix'];
 
 /** Shipped in `@spinajs/http`'s default config, so anyone can forge signatures made with it. */
-export const PUBLIC_DEFAULT_COOKIE_SECRET = '1234adreewD';
-
-/** Only these envs relax the cookie; an absent or unknown env is treated as production. */
-function isRelaxedEnv(env: string | undefined): boolean {
-  const normalized = normalizeEnvironment(env);
-  return normalized === 'dev' || normalized === 'test';
-}
+export const PUBLIC_DEFAULT_COOKIE_SECRET = AUTHN_PUBLIC_COOKIE_SECRET;
 
 function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): boolean {
   if (flag === undefined || flag === 'auto') {
-    return !isRelaxedEnv(env);
+    return !isLenientAuthnEnv(env);
   }
   return flag !== false && flag !== 'false';
 }
 
-/** The app env as the configuration resolved it (`--env`, `APP_ENV`, `NODE_ENV`, default development). */
+/**
+ * The app env as the configuration resolved it from `--env`, `APP_ENV` or `NODE_ENV`; undefined when it resolved
+ * development but no source names development (the fallback), so the cookie gets the production flags (SR-16).
+ */
 export function appEnvOf(config: Configuration): string | undefined {
-  return config.get<string | undefined>('process.env.APP_ENV');
+  return authnAppEnv(config);
 }
 
 /**
@@ -79,7 +76,7 @@ export function assertSessionCookieSecret(secret: string | undefined, env?: stri
   if (!secret) {
     throw new InvalidOption('http.cookie.secret is not set; session cookies cannot be signed');
   }
-  if (secret === PUBLIC_DEFAULT_COOKIE_SECRET && !isRelaxedEnv(env)) {
+  if (secret === PUBLIC_DEFAULT_COOKIE_SECRET && !isLenientAuthnEnv(env)) {
     throw new InvalidOption('http.cookie.secret is the public default shipped with @spinajs/http; set a secret of your own');
   }
 }

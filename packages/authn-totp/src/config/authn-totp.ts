@@ -21,11 +21,20 @@ const authnTotp = {
   },
   authn: {
     mfa: {
+      /**
+       * TOTP is off until the app turns it on (README, "Turning TOTP on"): add `{ name: 'totp', service: 'TotpMfaStep' }`
+       * to its own `authn.mfa.steps` (arrays concatenate across config files, so this package lists no step), set
+       * `authn.mfa.encryptionKey.secret` (the AES-256-GCM key: 32 bytes as 64 hex chars or base64/base64url; on
+       * rotation move the old key to `authn.mfa.encryptionKey.previous`) and import `@spinajs/authn-totp/db`.
+       *
+       * No `encryptionKey` default here: every app loads this file, and a null secret would stand in for one the app
+       * never set.
+       */
       totp: {
         /**
          * change this to your app name, it will be used as issuer in otpauth token
          */
-        issuer: 'Spinajs',
+        issuer: 'SpinaJS',
 
         /**
          * recommended defaults for rest
@@ -34,21 +43,8 @@ const authnTotp = {
         digits: 6,
         period: 30,
         window: 1,
+        recoveryCodes: 10,
       },
-    },
-  },
-  rbac: {
-    twoFactorAuth: {
-      enabled: true,
-
-      // `POST /user/2fa/reset` relies on this flag to recover an account that
-      // was left password-only after a reset was abandoned before the new
-      // secret was confirmed (see the docblock on `reset` in
-      // TwoFactorAuthUserController) — with it `false`, as it defaults here,
-      // that downgrade is silent and permanent for any consumer of this
-      // package that does not override it.
-      forceUser: false,
-      service: 'Default2FaToken',
     },
   },
 };

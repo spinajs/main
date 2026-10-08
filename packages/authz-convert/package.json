@@ -11,6 +11,9 @@
       "require": "./lib/cjs/index.js"
     }
   },
+  "bin": {
+    "spinajs-authz-convert": "./lib/mjs/bin.js"
+  },
   "type": "module",
   "private": false,
   "publishConfig": {
@@ -52,6 +55,13 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.549"
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/configuration": "2.0.549",
+    "@spinajs/di": "2.0.549",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@spinajs/authz-rbac": "3.0.0-alpha.0",
+    "ajv": "^8.12.0"
   }
 }

@@ -4,6 +4,10 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
 import { fs, getFs } from '@spinajs/fs';
+import { attachmentFile } from './attachments.js';
+// The jobs dir is scanned after boot, where no Bootstrapper of this package runs: the schema module registers itself.
+import './schemas/email.smtp.configuration.js';
+
 export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
 
@@ -11,6 +15,9 @@ export abstract class EmailSender extends AsyncService implements IMappableServi
   protected defaultTemplateFsName: string;
 
   protected defaultTemplateFs: fs;
+
+  @Config('fs.defaultProvider')
+  protected DefaultFileProvider: string;
 
   public get ServiceName() {
     return this.Options.name;
@@ -39,9 +46,13 @@ export class BlackHoleEmailSender extends EmailSender {
     super();
   }
 
-  public async send(_email: IEmail): Promise<void> {
-    this.Log.info(`Email ${_email.subject} sent to black hole`);
-    return;
+  /** Reads the attachments as a real transport would, so a refused read fails here as it would in production. */
+  public async send(email: IEmail): Promise<void> {
+    for (const a of email.attachements ?? []) {
+      await attachmentFile(a, this.DefaultFileProvider);
+    }
+
+    this.Log.info(`Email ${email.subject} sent to black hole`);
   }
 }
 
@@ -65,6 +76,12 @@ export interface IEmailAttachement {
    * Content-id if provided to embedd image in message
    */
   cid?: string;
+
+  /**
+   * The local file the email service already read through the attachment's filesystem. A transport sends it and does
+   * not read `path` again. Only the service sets it: it drops a value the caller passed, whatever `email.attachments.check` says.
+   */
+  file?: string;
 }
 
 /**
@@ -145,6 +162,13 @@ export interface IEmail {
   retryCount?: number;
 
   /**
+   * Secret values that `model` or `text` carries, e.g. a reset token or the link holding it. A mail with any is never queued:
+   * `sendDeferred` refuses it, the `EmailSent` event leaves out its model and text, and errors are logged and thrown with each
+   * value, raw and URI-encoded, replaced by `[redacted]`.
+   */
+  redact?: readonly string[];
+
+  /**
    * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
    */
   schedule?: {
@@ -183,6 +207,39 @@ export interface EmailConfiguration {
      */
     count?: number;
   };
+
+  /**
+   * Reset and invite mails sent by `EmailPasswordMailer`.
+   */
+  password?: PasswordMailConfiguration;
+
+  attachments?: {
+    /**
+     * Default true: `send` reads every attachment through its filesystem as the sending principal, before the
+     * transport. False leaves the reading to the transport (2.x), which reads as whoever runs it.
+     */
+    check?: boolean;
+  };
+}
+
+export interface PasswordMailPurposeConfiguration {
+  subject?: string;
+
+  /**
+   * Without a template the mail is a short plain-text body.
+   */
+  template?: string | IEmailTemplate;
+}
+
+export interface PasswordMailConfiguration {
+  /**
+   * Defaults to `email.defaultConnection`.
+   */
+  connection?: string;
+  from?: string;
+  lang?: string;
+  reset?: PasswordMailPurposeConfiguration;
+  invite?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

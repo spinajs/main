@@ -6,11 +6,13 @@ import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
+import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './hooks.js';
+export * from './tracking-hook.js';
 export * from './models/JobModel.js';
 export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
@@ -18,6 +20,7 @@ export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
+export * from './migrations/Queue_2026_10_03_00_00_00.js';
 export * from './helpers.js';
 export * from './fp.js';
 
@@ -62,6 +65,8 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
+    await runBeforeEmit(event);
+
     const connections = this.getConnectionsForMessage(event);
     let jobId: string | undefined;
 
@@ -144,7 +149,7 @@ export class DefaultQueueService extends QueueService {
               // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
               // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
               // concurrent double-receipt safe (second insert collides -> re-read).
-              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              let jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).first());
               if (!jModel) {
                 jModel = new JobModel();
                 jModel.JobId = ev.JobId;
@@ -158,13 +163,22 @@ export class DefaultQueueService extends QueueService {
                 // capture the dispatch-time attempt ceiling ( retries + 1 ) so it stays authoritative
                 // across redeliveries and consumers can render Attempt/MaxAttempts consistently.
                 jModel.MaxAttempts = ((ev as QueueJob).RetryCount ?? 0) + 1;
+                jModel.InitiatorType = ev.Initiator?.type;
+                jModel.InitiatorId = ev.Initiator?.id;
 
                 try {
-                  await jModel.insert();
+                  const row = jModel;
+                  await tracked(() => row.insert());
                 } catch (e) {
                   // concurrent first-receipt from another worker won the insert; re-read and continue.
-                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                  jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`)));
                 }
+              }
+
+              // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
+              if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
+                this.Log.warn(`Job ${ev.Name}:${ev.JobId} dropped: its initiator differs from the one that owns the tracking row`);
+                return;
               }
 
               // at-least-once delivery means a job can be redelivered after it already finished
@@ -187,9 +201,9 @@ export class DefaultQueueService extends QueueService {
 
               try {
                 // update executing state
-                await jModel.update();
+                await tracked(() => jModel.update());
 
-                jobResult = await ev.execute(onProgress);
+                jobResult = await runAroundHandle(ev, () => ev.execute(onProgress));
 
                 jModel.Result = jobResult;
                 jModel.Status = 'success';
@@ -211,12 +225,13 @@ export class DefaultQueueService extends QueueService {
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.LastError = err instanceof Error ? err.message : String(err);
 
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
                 // the hook must never mask the original error, so its own failure is only logged.
                 try {
-                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
+                  const failure = { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId };
+                  await runAroundHandle(ev, () => (ev as QueueJob).onFailed(err, failure));
                 } catch (hookErr) {
                   this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
                 }
@@ -226,7 +241,7 @@ export class DefaultQueueService extends QueueService {
                 throw err;
               }
 
-              await jModel.update();
+              await tracked(() => jModel.update());
 
               async function onProgress(p: number, meta?: IJobProgressMeta) {
                 const now = DateTime.now().toMillis();
@@ -250,7 +265,7 @@ export class DefaultQueueService extends QueueService {
                 lastProgress = p;
                 lastProgressAt = now;
                 jModel.Progress = p;
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
               }
@@ -263,7 +278,7 @@ export class DefaultQueueService extends QueueService {
             this.Log.trace(`Queue message ${event.name} processed`);
 
             if (callback) {
-              return callback(ev as T);
+              return runAroundHandle(ev, () => callback(ev as T));
             }
           }
         },

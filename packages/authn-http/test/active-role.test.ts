@@ -38,11 +38,13 @@ class TestConfiguration extends FrameworkConfiguration {
         // AutoinjectService('authn.local.hasher') will resolve a service whose
         // constructor.name matches this string. Same for auth / session.
         local: { hasher: { service: 'TestPasswordProvider' } },
-        session: { service: 'TestSessionProvider' },
+        session: { service: 'TestSessionProvider', cookie: { hostPrefix: false } },
+      },
+      authz: {
+        principals: { roleSwitch: { requirePassword: ['root'] } },
       },
       rbac: {
         auth: { service: 'TestAuthProvider' },
-        roleSwitch: { requirePassword: [] as string[] },
         grants: {
           admin: { Test: { 'read:any': ['*'] } },
           user: { Test: { 'read:own': ['*'] } },
@@ -322,6 +324,38 @@ describe('ActiveRoleController', function () {
       expect(session.Data.get('ActiveRole')).to.equal('admin');
       sinon.assert.calledOnceWithExactly(verifyStub, 'hashed-pass', 'correct');
       expect(sessionProvider.Saved).to.have.lengthOf(1);
+    });
+
+    it('asks for the password for a role listed under authz.principals.roleSwitch.requirePassword', async () => {
+      const result = await controller.switchActiveRole(buildUser(['root', 'user']), buildSession('user'), new SwitchRoleDto({ Role: 'root' }));
+
+      expect(result).to.be.instanceOf(Unauthorized);
+      expect(data(result).error.code).to.equal('E_PASSWORD_REQUIRED');
+      expect(sessionProvider.Saved).to.be.empty;
+    });
+
+    it('asks for the password for every role when no requirePassword list is configured', async () => {
+      for (const key of ['RolesRequiringPassword', 'LegacyRolesRequiringPassword']) {
+        Object.defineProperty(controller, key, { value: undefined, configurable: true, writable: true });
+      }
+
+      const result = await controller.switchActiveRole(buildUser(['admin', 'user']), buildSession('user'), new SwitchRoleDto({ Role: 'admin' }));
+
+      expect(result).to.be.instanceOf(Unauthorized);
+      expect(data(result).error.code).to.equal('E_PASSWORD_REQUIRED');
+      expect(sessionProvider.Saved).to.be.empty;
+    });
+
+    it('reads the 2.x rbac.roleSwitch.requirePassword only while the 3.0 key is unset', async () => {
+      Object.defineProperty(controller, 'RolesRequiringPassword', { value: undefined, configurable: true, writable: true });
+      Object.defineProperty(controller, 'LegacyRolesRequiringPassword', { value: ['admin'], configurable: true, writable: true });
+
+      const refused = await controller.switchActiveRole(buildUser(['admin', 'user']), buildSession('user'), new SwitchRoleDto({ Role: 'admin' }));
+      expect(refused).to.be.instanceOf(Unauthorized);
+
+      Object.defineProperty(controller, 'RolesRequiringPassword', { value: [], configurable: true, writable: true });
+      const allowed = await controller.switchActiveRole(buildUser(['admin', 'user']), buildSession('user'), new SwitchRoleDto({ Role: 'admin' }));
+      expect(allowed).to.be.instanceOf(Ok);
     });
 
     it('does not call PasswordProvider when switching to a role NOT listed in requirePassword', async () => {

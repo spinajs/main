@@ -265,7 +265,7 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
         const res = await app.request().get('/acc/public');
         expect(res.status).to.eq(401);
       } finally {
-        testHost.config().unset(['authz', 'principals', 'anonymous', 'enabled']);
+        testHost.config().set(['authz', 'principals', 'anonymous', 'enabled'], true);
       }
     });
 

@@ -1,4 +1,4 @@
-import { AuthzConfigError } from '../contracts/errors.js';
+import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
@@ -9,7 +9,7 @@ import type { Ceiling, Principal, PrincipalRef, ResourceRef, ResourceType } from
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { AccessSummary, CheckInput, DecisionAudit, DecisionCache } from '../contracts/service.js';
-import { subtractFieldGlobs } from '../contracts/fields.js';
+import { subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
 import { BUILTIN_COMBINATORS, normalizeVote } from './combinators.js';
 import { DEFAULT_COMBINE, compileRoutes } from './routes.js';
@@ -17,7 +17,7 @@ import type { CombineConfig, RouteTable } from './routes.js';
 import { defaultAttribute, evaluateResidual } from './evaluate.js';
 import type { SubjectEnv, Truth } from './evaluate.js';
 import { selectDenyReason, staticTruths } from './reasons.js';
-import { ceilingOutcome, mergeCeilings, readCeiling } from './ceiling.js';
+import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceiling.js';
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
@@ -125,6 +125,8 @@ interface Run {
   readonly bypass: boolean;
   /** summary() and covers(): not an access attempt, so nothing is audited. */
   readonly quiet?: boolean;
+  /** covers() on the holder: no cache reads, since a cached decision has no `firmFields`; stores as usual. */
+  readonly firm?: boolean;
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
@@ -194,6 +196,13 @@ interface Checked {
    * cache hits are not faulted.
    */
   readonly faulted: boolean;
+  /**
+   * Firm runs only: the fields the allow gives on every row it covers
+   * (`FieldCombiner.combine` with `firm`), within `decision.fields`. covers
+   * judges the holder by them: a conditional permit adds to the decision's
+   * fields though it may not hold on the target's rows (E1 final review I1).
+   */
+  readonly firmFields?: Fields;
 }
 
 /** An L1 decision entry; `generation` makes an invalidate drop it too. */
@@ -255,6 +264,8 @@ const NO_LOG: EngineLog = Object.freeze({ error() {}, warn() {}, debug() {} });
 const NO_FIELDS: Fields = Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) });
 const NO_ROLES: Readonly<Record<string, string>> = Object.freeze({});
 const GLOBAL_ANCESTORS: readonly ResourceRef[] = Object.freeze([GLOBAL]);
+// covers relies on an allow needing some model's permit, which only the built-ins promise (E1 final review I2).
+const BUILTIN_ALGORITHMS: ReadonlySet<string> = new Set(BUILTIN_COMBINATORS.map((c) => c.name));
 const SYSTEM_REF: PrincipalRef = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
 const UNATTENDED_REF: PrincipalRef = Object.freeze({ type: UNATTENDED.type, id: UNATTENDED.id });
 
@@ -289,6 +300,8 @@ export class Authorizer {
   private readonly resolverByType = new Map<ResourceType, ScopeResolver>();
   private readonly relationIndex = new Map<string, RelationResolver>();
   private readonly natives = new Map<string, NativeFilter>();
+  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them (RFC E2-2). */
+  private readonly argBoundNatives = new Set<string>();
   private readonly attributeDefaults: ReadonlyMap<ResourceType, Readonly<Record<string, unknown>>>;
   private readonly attributeStore: ScopeAttributeStore | undefined;
   private readonly conditions: ConditionCompiler;
@@ -354,6 +367,7 @@ export class Authorizer {
     for (const filter of options.nativeFilters ?? []) {
       if (this.natives.has(filter.op)) throw new AuthzConfigError(`${this.where}: two native filters for op ${quote(filter.op)}`);
       this.natives.set(filter.op, filter);
+      if (declaresPrincipalInArgs(filter)) this.argBoundNatives.add(filter.op);
     }
     const scopeAttributes: unknown = options.scopeAttributes === undefined ? {} : options.scopeAttributes;
     if (!isObject(scopeAttributes)) throw new AuthzConfigError(`${this.where}: scopeAttributes must be an object`);
@@ -430,12 +444,17 @@ export class Authorizer {
    * B25: a quiet check per candidate permission at `at`, sharing one scope.
    * Candidates: the registered names the routed models' summaries list, or
    * every permission checkable at `at` when some routed model gives no
-   * summary (none, a failure or a timeout). A check that throws or rests on
-   * an engine fault leaves its permission out, and so does every check left
+   * summary (none, a failure or a timeout). An allowed check gives the entry.
+   * A check that denies gives a conditional entry when a summary entry left
+   * by the principal's ceilings lists the name (RFC L1-3: a check at
+   * `$global` is concrete and misses grants below it), with the union of
+   * those entries' fields less neverRead. A check that throws or rests on an
+   * engine fault leaves its permission out, and so does every check left
    * when the call's deadline (DEADLINE_FACTOR × modelTimeoutMs) passes.
    */
   async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
     const ref = this.requireRef(at);
+    this.refuseLateType(ref.type);
     const gate = this.principalGate(principal);
     if (gate.kind === 'deny') return deepFreeze({ principal: gate.principal, models: [], permissions: [] });
     const { defs } = this.checkable(ref, 'summary');
@@ -450,6 +469,7 @@ export class Authorizer {
       const summaries = await this.modelSummaries(gate.principal, ref, defs, { ...run, nested: newNested() });
       out.models = summaries.list;
       const candidates = summaries.names === undefined ? defs : defs.filter((d) => summaries.names!.has(d.name));
+      const listed = this.summaryEntries(gate.principal, summaries.list, defs, run.instant) ?? new Map<Permission, SummaryItem[]>();
       const checked = await this.checkEach(gate.principal, candidates, ref, run, limit);
       const faulted = candidates
         .filter((_, i) => {
@@ -460,7 +480,16 @@ export class Authorizer {
       if (faulted.length > 0) this.logAt('error', `${this.where}: summary left out ${faulted.length} permission(s) whose decision rests on an engine fault: ${faulted.slice(0, 10).join(', ')}${faulted.length > 10 ? ', …' : ''}`);
       out.permissions = candidates.flatMap((def, i) => {
         const c = checked[i];
-        return c === undefined || c === THREW || c.faulted || !c.decision.allowed ? [] : [summaryEntry(def, c.decision.residual.op !== 'true', c.decision.fields)];
+        if (c === undefined || c === THREW || c.faulted) return [];
+        if (c.decision.allowed) return [summaryEntry(def, c.decision.residual.op !== 'true', c.decision.fields)];
+        const entries = listed.get(def.name);
+        if (entries === undefined) return [];
+        try {
+          return [summaryEntry(def, true, def.fields === true ? this.listedFields(entries) : NO_FIELDS)];
+        } catch (e) {
+          this.logAt('error', `${this.where}: summary left out ${def.name}: the fields its model summaries list could not be combined: ${describeError(e)}`);
+          return [];
+        }
       });
       return deepFreeze(out);
     } finally {
@@ -470,13 +499,27 @@ export class Authorizer {
 
   /**
    * B26: the holder's combined set at `at` strictly contains the target's,
-   * over every permission checkable at `at`. False for a target (or a holder
-   * other than SYSTEM) that the principal gate or the onBehalfOf resolution
-   * refuses, when any check throws or rests on an engine fault, when a field
-   * comparison throws, and past the call's deadline.
+   * over every permission checkable at `at`. At `$global` both are also
+   * checked on each type of the permission, since the `$global` node does not
+   * speak for the rows below it, and every comparison must hold on each of
+   * those refs (strictly above on any). RFC L1-3, asymmetric so that a
+   * summary can only shrink what the holder covers: the holder's set is its
+   * checks at `at`; the target's is its checks at `at` and the entries of
+   * every model routed for the permission (at `$global`, also for each of
+   * its types) after the target's ceilings. A summary entry needs an
+   * unconditional holder with its fields, and keeps an equal holder from being
+   * strictly above. The target's denies never drop an entry: a deny may rest
+   * on session facts (authn, actor) that change under impersonation. The
+   * holder's fields are those of its unconditional permits only (`firmFields`).
+   * False when a compared route plan uses a custom combinator, for a target
+   * (or a holder other than SYSTEM) that the principal gate or the
+   * onBehalfOf resolution refuses, when a model routed for the
+   * target gives no summary, when any check throws or rests on an engine
+   * fault, when a field comparison throws, and past the call's deadline.
    */
   async covers(holder: Principal, target: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<boolean> {
     const ref = this.requireRef(at);
+    this.refuseLateType(ref.type);
     // A refused principal's checks all deny, yet it may hold anything elsewhere (SYSTEM of a second authn copy).
     if (!this.admitted(target)) return false;
     if (holder === SYSTEM) return true;
@@ -484,25 +527,51 @@ export class Authorizer {
     const { defs, truncated } = this.checkable(ref, 'covers');
     if (truncated) return false;
     const run = this.quietRun(scope);
+    // After quietRun: a model version change recompiles the routes there.
+    const custom = this.customPlan(defs, ref);
+    if (custom) {
+      this.logAt('error', `${this.where}: covers is false: ${custom.def.name} on ${quote(custom.type)} uses the combinator ${quote(custom.algorithm)}, which may allow without a permit that a summary lists`);
+      return false;
+    }
     const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
     let strict = false;
     try {
+      const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
+      if (summarized === EXPIRED) {
+        this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+        return false;
+      }
+      if (summarized.names === undefined) {
+        this.logAt('error', `${this.where}: covers is false: a model routed for the target gave no summary`);
+        return false;
+      }
+      const listed = this.summaryEntries(target, summarized.list, defs, run.instant);
+      if (listed === undefined) {
+        this.logAt('error', `${this.where}: covers is false: the onBehalfOf chain of the target does not resolve`);
+        return false;
+      }
       for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
         const batch = defs.slice(i, i + SUMMARY_BATCH);
-        const pairs = await limit.race(Promise.all(batch.map((def) => Promise.all([this.quietCheck(holder, def, ref, run), this.quietCheck(target, def, ref, run)]))));
-        if (pairs === EXPIRED) {
+        const compared = await limit.race(Promise.all(batch.map((def) => Promise.all(comparedRefs(def, ref).map((r) => Promise.all([this.quietCheck(holder, def, r, run, true), this.quietCheck(target, def, r, run)]))))));
+        if (compared === EXPIRED) {
           this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
           return false;
         }
-        for (const [k, [h, t]] of pairs.entries()) {
+        for (const [k, pairs] of compared.entries()) {
+          const def = batch[k];
           // A denial on missing data is no proof that the target lacks the permission; a holder fault is refused too, to stay simple.
-          if (h.faulted || t.faulted) {
-            this.logAt('error', `${this.where}: covers is false: the ${h.faulted ? 'holder' : 'target'} check of ${batch[k].name} rests on an engine fault`);
+          const fault = pairs.find(([h, t]) => h.faulted || t.faulted);
+          if (fault) {
+            this.logAt('error', `${this.where}: covers is false: the ${fault[0].faulted ? 'holder' : 'target'} check of ${def.name} rests on an engine fault`);
             return false;
           }
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
-          if (t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision)) return false;
-          if (h.decision.allowed && !entryCovers(t.decision, h.decision)) strict = true;
+          if (pairs.some(([h, t]) => t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision, firmFieldsOf(h)))) return false;
+          const entries = listed.get(def.name) ?? [];
+          if (entries.some((e) => pairs.some(([h]) => !this.summaryCovered(h, e, def)))) return false;
+          // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
+          const blocked = (h: Checked) => entries.some((e) => !e.conditional || h.decision.residual.op !== 'true');
+          if (pairs.some(([h, t]) => h.decision.allowed && !entryCovers(t.decision, h.decision) && !blocked(h))) strict = true;
         }
       }
     } catch (e) {
@@ -630,9 +699,9 @@ export class Authorizer {
   }
 
   /**
-   * The summaries of the models routed for `defs` at `ref` that serve the
-   * principal the models run with. `names` is undefined when one of them gave
-   * no usable summary: then every checkable permission is a candidate.
+   * The summaries of the models routed for `defs` at `ref` (at `$global`, also
+   * at each of a permission's types) that serve the principal the models run
+   * with. `names` is undefined when one of them gave no usable summary.
    */
   private async modelSummaries(principal: Principal, ref: ResourceRef, defs: readonly PermissionDef[], run: Run): Promise<{ readonly list: readonly ModelSummary[]; readonly names: ReadonlySet<string> | undefined }> {
     let runAs: Principal;
@@ -646,7 +715,10 @@ export class Authorizer {
       return { list: [], names: undefined };
     }
     const routed = new Set<AuthorizationModel>();
-    for (const def of defs) for (const m of this.table.get(def.name, ref.type)?.models ?? []) routed.add(m);
+    for (const def of defs) {
+      // A check at $global is concrete: the models routed for the permission's types hold what lies below it.
+      for (const type of ref.type === GLOBAL_TYPE ? [ref.type, ...def.types] : [ref.type]) for (const m of this.table.get(def.name, type)?.models ?? []) routed.add(m);
+    }
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
     let complete = true;
@@ -711,8 +783,67 @@ export class Authorizer {
   }
 
   /** `run`: the call's quietRun; each check is its own call tree, so it gets its own nested record. */
-  private quietCheck(principal: Principal, def: PermissionDef, ref: ResourceRef, run: Run): Promise<Checked> {
-    return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested() }, { ref, subject: undefined }));
+  private quietCheck(principal: Principal, def: PermissionDef, ref: ResourceRef, run: Run, firm = false): Promise<Checked> {
+    return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested(), ...(firm ? { firm } : {}) }, { ref, subject: undefined }));
+  }
+
+  /**
+   * The summary entries for `defs` by name, under the ceilings of the
+   * principal's onBehalfOf resolution (the ones its checks apply); undefined
+   * when the resolution throws or denies.
+   */
+  private summaryEntries(principal: Principal, list: readonly ModelSummary[], defs: readonly PermissionDef[], instant: Date): Map<Permission, SummaryItem[]> | undefined {
+    let ceilings: readonly unknown[];
+    try {
+      const d = this.delegation(principal, undefined, this.config.maxDelegation);
+      if (d.denial) return undefined;
+      ceilings = d.ceilings;
+    } catch {
+      return undefined;
+    }
+    const names = new Set(defs.map((d) => d.name));
+    const out = new Map<Permission, SummaryItem[]>();
+    for (const summary of list) {
+      for (const entry of summary.permissions) {
+        if (!names.has(entry.name)) continue;
+        const kept = underCeilings(ceilings, entry, instant);
+        if (kept === undefined) continue;
+        const entries = out.get(entry.name);
+        if (entries) entries.push(kept);
+        else out.set(entry.name, [kept]);
+      }
+    }
+    return out;
+  }
+
+  /** The union of the entries' fields (none listed: every field), less neverRead. Throws AuthzConfigError past the field budget. */
+  private listedFields(entries: readonly SummaryItem[]): Fields {
+    const union = (k: 'read' | 'write') => subtractFieldGlobs(unionFieldGlobs(...entries.map((e) => e.fields?.[k] ?? ['*'])), this.config.neverRead);
+    return { read: union('read'), write: union('write') };
+  }
+
+  /**
+   * An entry has no residual to compare, so only an unconditional holder
+   * covers it, with every field it lists (none listed: every field but
+   * neverRead). `hide` only narrows the target, so it is not read.
+   */
+  private summaryCovered(holder: Checked, entry: SummaryItem, def: PermissionDef): boolean {
+    if (!holder.decision.allowed || holder.decision.residual.op !== 'true') return false;
+    if (def.fields !== true) return true;
+    const held = firmFieldsOf(holder);
+    const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.config.neverRead), held[k]).length === 0;
+    return inside('read') && inside('write');
+  }
+
+  /** The first route plan of `defs` at `ref` (at `$global`, also on each type) whose algorithm is not built in. */
+  private customPlan(defs: readonly PermissionDef[], ref: ResourceRef): { readonly def: PermissionDef; readonly type: ResourceType; readonly algorithm: string } | undefined {
+    for (const def of defs) {
+      for (const r of comparedRefs(def, ref)) {
+        const algorithm = this.table.get(def.name, r.type)?.algorithm;
+        if (algorithm !== undefined && !BUILTIN_ALGORITHMS.has(algorithm)) return { def, type: r.type, algorithm };
+      }
+    }
+    return undefined;
   }
 
   // ---- the check pipeline (design §10.1) ----
@@ -727,8 +858,9 @@ export class Authorizer {
     // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.
     const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
 
-    const def = this.registry.require(input.permission);
+    const def = this.requirePermission(input.permission);
     const { ref, subject } = resolved ?? (yield* this.resolveResource(input.resource, input.subject, def));
+    this.refuseLateType(ref.type);
     if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
       throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is checked on type ${quote(ref.type)}, which is not in its types (${def.types.join(', ')}) or $global`);
     }
@@ -739,7 +871,7 @@ export class Authorizer {
     const gate = this.principalGate(input.principal);
     if (gate.kind === 'system') {
       core('principal', 'SYSTEM: allowed without models');
-      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.allFields, models: [], votes: [] }), uncacheable: true, faulted: false };
+      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.allFields, models: [], votes: [] }), uncacheable: true, faulted: false, ...(run.firm ? { firmFields: this.allFields } : {}) };
     }
     if (gate.kind === 'deny') {
       core('principal', `denied before the models: ${gate.reason.code}`);
@@ -778,7 +910,7 @@ export class Authorizer {
     if (actor !== undefined) principals.push(actor);
     if (delegation.actor !== undefined) principals.push(delegation.actor);
     const tags = once(() => this.tagsOf(plan.models, principals, ref, ancestors, run));
-    if (key !== undefined) {
+    if (key !== undefined && run.firm !== true) {
       const hit = this.cached(key, run, def, ref, requester, parties.ref);
       if (hit) return hit;
     }
@@ -811,18 +943,39 @@ export class Authorizer {
     const bound = yield* this.bind(allow, binder);
     let residual = bound.residual;
     const coreDenials: DenyReason[] = [...ceiling.denials];
+    // Core contexts handed to native filters during the subject steps.
+    const cores: ModelContext[] = [];
+    let subjectFault = false;
+    let typeLevel: Checked | undefined;
     if (delegate) {
+      const strips = delegation.intersectKey !== principalKey(parties.ref);
       // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
-      const theirs = !delegate.allowed ? FALSE : delegation.intersectKey === principalKey(parties.ref) ? delegate.residual : stripPrincipalOps(delegate.residual);
+      // A kept principalInArgs native is evaluated below and in SQL with our principal, context and ctx.cache: right only because its args name the delegate and the filter keys its memos by them.
+      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual, this.argBoundNatives) : delegate.residual;
+      if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
+        // The filter strips the delegate's relation ops and its natives without principalInArgs, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
+        typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
+        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual, this.argBoundNatives) : FALSE;
+        let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
+        let holds = strip.op === 'true';
+        if (strip.op !== 'true' && strip.op !== 'false') {
+          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
+          if (!settled.ok) {
+            subjectFault = true;
+            this.logAt('error', `${this.where}: evaluating the stripped type-level residual of the delegate ${delegation.intersectKey} of ${label} against the subject failed: ${settled.error}`);
+          }
+          holds = settled.ok && settled.value === true;
+          truth = settled.ok ? (settled.value === undefined ? 'UNKNOWN' : String(settled.value)) : settled.error;
+        }
+        core('delegation', `intersect: the delegate's type-level residual, stripped, against the subject: ${truth}`, { residual: strip });
+        if (!holds) theirs = FALSE;
+      }
       if (theirs.op === 'false') coreDenials.push(Object.freeze({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey }));
       residual = and(residual, theirs);
     }
     core('combine', `allow ${residual.op === 'true' ? 'TRUE' : residual.op === 'false' ? 'FALSE' : 'residual'}`, { residual });
 
-    // Core contexts handed to native filters during the subject steps.
-    const cores: ModelContext[] = [];
     let subjectDenied = false;
-    let subjectFault = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
       const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
       const truth = settled.ok ? settled.value : undefined;
@@ -837,11 +990,13 @@ export class Authorizer {
 
     let allowed = residual.op !== 'false';
     let fields: Fields = NO_FIELDS;
+    let firmFields: Fields | undefined = run.firm ? NO_FIELDS : undefined;
     let fieldsFailed = false;
     let fieldsUncacheable = false;
     let fieldsFaulted = false;
     if (allowed) {
-      const f = yield* this.fieldsOf(plan.algorithm, votes, binder, delegate?.fields, label);
+      const firmDelegate = delegated?.firmFields ?? delegate?.fields;
+      const f = yield* this.fieldsOf(plan.algorithm, votes, binder, delegate?.fields, label, run.firm ? (firmDelegate ? { delegate: firmDelegate } : {}) : undefined);
       fieldsUncacheable = f.uncacheable;
       fieldsFaulted = f.faulted;
       if (f.failed) {
@@ -849,7 +1004,10 @@ export class Authorizer {
         residual = FALSE;
         allowed = false;
         fieldsFailed = true;
-      } else fields = f.fields;
+      } else {
+        fields = f.fields;
+        if (run.firm) firmFields = f.firm ?? NO_FIELDS;
+      }
     }
     let reason: DenyReason | undefined;
     let reasonsUncacheable = false;
@@ -871,9 +1029,9 @@ export class Authorizer {
     };
     if (parties.actorRef) outcome.actor = parties.actorRef;
     if (reason) outcome.reason = reason;
-    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil]);
+    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil, typeLevel?.decision.validUntil]);
     if (validUntil) outcome.validUntil = validUntil;
-    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
+    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || typeLevel?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
     if (faulted) {
       run.nested.faulted = true;
       // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
@@ -881,8 +1039,8 @@ export class Authorizer {
       // A marker here would fail every later summary/covers of the request; dropping the memos this decision wrote is enough.
       else for (const ctx of [...contexts.slice(0, votes.length), ...cores]) ctx.detachMemo();
     }
-    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
-    return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted }, key, run, tags);
+    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || typeLevel?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
+    return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted, ...(firmFields ? { firmFields } : {}) }, key, run, tags);
   }
 
   // ---- L1/L2 lookup and store (design §10.3) ----
@@ -1310,9 +1468,10 @@ export class Authorizer {
    * simplified allow, so their scope nodes are loaded first. `failed`: an
    * AuthzConfigError (glob budget, binder), which denies with model_error.
    * A degraded or failed load leaves its refs missing: the decision stands
-   * but is faulted and not cached.
+   * but is faulted and not cached. `firm` (firm runs) also gives `firm`,
+   * intersected with the delegate's firm fields.
    */
-  private *fieldsOf(algorithm: string, votes: readonly Vote[], binder: RefBinder, delegate: Fields | undefined, label: string): Pipeline<{ readonly fields: Fields; readonly failed: boolean; readonly faulted: boolean; readonly uncacheable: boolean }> {
+  private *fieldsOf(algorithm: string, votes: readonly Vote[], binder: RefBinder, delegate: Fields | undefined, label: string, firm?: { readonly delegate?: Fields }): Pipeline<{ readonly fields: Fields; readonly firm?: Fields; readonly failed: boolean; readonly faulted: boolean; readonly uncacheable: boolean }> {
     let uncacheable: boolean;
     let faulted: boolean;
     try {
@@ -1327,7 +1486,10 @@ export class Authorizer {
     }
     try {
       const own = this.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f));
-      return { fields: delegate ? this.fieldCombiner.intersect(own, delegate) : own, failed: false, faulted, uncacheable };
+      const fields = delegate ? this.fieldCombiner.intersect(own, delegate) : own;
+      if (!firm) return { fields, failed: false, faulted, uncacheable };
+      const firmOwn = this.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f), true);
+      return { fields, firm: firm.delegate ? this.fieldCombiner.intersect(firmOwn, firm.delegate) : firmOwn, failed: false, faulted, uncacheable };
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
       this.logAt('error', `${this.where}: combining the field sets of ${label} failed: ${describeError(e)}`);
@@ -1506,7 +1668,10 @@ export class Authorizer {
   private loadAncestors(ref: ResourceRef): MaybePromise<readonly ResourceRef[] | null> {
     if (ref.type === GLOBAL_TYPE && ref.id === undefined) return GLOBAL_ANCESTORS;
     if (ref.id === undefined) return Object.freeze([ref, GLOBAL]);
-    const source = this.adapterByType.get(ref.type) ?? this.resolverByType.get(ref.type);
+    const adapter = this.adapterByType.get(ref.type);
+    // An ancestor or scope node a model reads, not only the checked ref, may be of a late type.
+    if (!adapter) this.refuseLateType(ref.type);
+    const source = adapter ?? this.resolverByType.get(ref.type);
     if (!source) return Object.freeze([ref, GLOBAL]);
     const raw = source.ancestors(ref);
     return isThenable(raw) ? Promise.resolve(raw).then((list) => this.ancestorList(list, ref)) : this.ancestorList(raw, ref);
@@ -1552,6 +1717,7 @@ export class Authorizer {
   private async loadAttributes(ref: ResourceRef, load: NodeLoad): Promise<LoadedAttributes> {
     const adapter = this.adapterByType.get(ref.type);
     const resolver = this.resolverByType.get(ref.type);
+    if (!adapter) this.refuseLateType(ref.type);
     let own: unknown = {};
     if (adapter && typeof adapter.scopeAttributes === 'function') own = await this.attributeLoad(ref, load, `adapter ${quote(adapter.kind)}`, () => adapter.scopeAttributes!(ref));
     else if (resolver && typeof resolver.attributes === 'function') own = await this.attributeLoad(ref, load, 'the scope resolver', () => resolver.attributes!(ref));
@@ -1577,6 +1743,65 @@ export class Authorizer {
     if (r.kind === 'value') return r.value;
     this.logTimeout(node, `${this.where}: scope attributes of ${resourceKey(ref)} from ${source} timed out after ${this.config.modelTimeoutMs} ms; the node is unknown`);
     return TIMED_OUT;
+  }
+
+  /**
+   * Adapters such as authz-orm's list their types live, but the constructor
+   * indexed them once: a type listed only now has no adapter here (no load,
+   * ancestors or attributes), so every use of it throws until a reboot.
+   */
+  private refuseLateType(type: ResourceType): void {
+    const adapter = this.lateType(type);
+    if (adapter) throw this.lateTypeError(type, adapter, AuthzConfigError);
+  }
+
+  /** An unknown permission that a late type's adapter lists now throws the late-type error instead. */
+  private requirePermission(name: Permission): PermissionDef {
+    try {
+      return this.registry.require(name);
+    } catch (e) {
+      if (!(e instanceof UnknownPermission)) throw e;
+      for (const adapter of this.adapterList) {
+        let types: unknown;
+        try {
+          const listed: unknown = typeof adapter.permissions === 'function' ? adapter.permissions() : undefined;
+          const def: unknown = Array.isArray(listed) ? listed.find((d: unknown) => isObject(d) && d.name === name) : undefined;
+          types = isObject(def) ? def.types : undefined;
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(types)) continue;
+        for (const type of types) {
+          const late = typeof type === 'string' ? this.lateType(type) : undefined;
+          if (late) throw this.lateTypeError(type as ResourceType, late, UnknownPermission);
+        }
+      }
+      throw e;
+    }
+  }
+
+  /** The adapter whose live `types` lists `type` although the constructor did not index it; an adapter whose types cannot be read is passed over. */
+  private lateType(type: ResourceType): ResourceAdapter | undefined {
+    if (type === GLOBAL_TYPE || this.adapterByType.has(type)) return undefined;
+    for (const adapter of this.adapterList) {
+      try {
+        const types: unknown = adapter.types;
+        if (Array.isArray(types) && types.includes(type)) return adapter;
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  private lateTypeError(type: ResourceType, adapter: ResourceAdapter, kind: typeof AuthzConfigError): AuthzConfigError {
+    let name: unknown;
+    try {
+      name = adapter.kind;
+    } catch {
+      name = '<unreadable>';
+    }
+    return new kind(`${this.where}: resource type ${quote(type)} was registered with adapter ${quote(name)} after the domain booted; register it before boot, or boot the domain again`);
   }
 
   private requireRef(v: unknown): ResourceRef {
@@ -1712,6 +1937,15 @@ function principalCacheId(p: Principal): string {
     principalObjects.set(p, n);
   }
   return `object:${n}`;
+}
+
+// Duck-typed and read once: a filter from a second copy of this package, or a throwing getter (undeclared, so stripped).
+function declaresPrincipalInArgs(filter: NativeFilter): boolean {
+  try {
+    return filter.principalInArgs === true;
+  } catch {
+    return false;
+  }
 }
 
 /** The subject evaluator reads a native filter's throw as UNKNOWN, not a fault, so nothing else drops what it memoised before throwing. */
@@ -1875,6 +2109,34 @@ function summaryEntry(def: PermissionDef, conditional: boolean, fields: Fields):
   return def.fields === true ? { name: def.name, conditional, fields: { read: [...fields.read], write: [...fields.write] } } : { name: def.name, conditional };
 }
 
+type SummaryItem = ModelSummary['permissions'][number];
+
+/**
+ * A summary entry under its principal's ceilings, judged at GLOBAL and
+ * `instant`: dropped (undefined) when a ceiling's permissions, expiry or
+ * empty resources rule it out, or the ceiling is malformed; conditional
+ * when a ceiling's resources lie below GLOBAL.
+ */
+function underCeilings(ceilings: readonly unknown[], entry: SummaryItem, instant: Date): SummaryItem | undefined {
+  let conditional = entry.conditional;
+  for (const raw of ceilings) {
+    const read = readCeiling(raw);
+    if (!read.ok) return undefined;
+    if (read.ceiling === undefined) continue;
+    const { resources, ...rest } = read.ceiling;
+    if (ceilingOutcome(rest, entry.name, GLOBAL, undefined, instant).denials.length > 0) return undefined;
+    if (resources === undefined) continue;
+    if (resources.length === 0) return undefined;
+    if (!resources.some((r) => scopeCovers(r, GLOBAL))) conditional = true;
+  }
+  return conditional === entry.conditional ? entry : { ...entry, conditional };
+}
+
+/** The refs covers compares a permission on: at `$global`, also each of its types, whose type-level check stands for every row (B06). */
+function comparedRefs(def: PermissionDef, ref: ResourceRef): readonly ResourceRef[] {
+  return ref.type === GLOBAL_TYPE ? [ref, ...def.types.map((type) => Object.freeze({ type }))] : [ref];
+}
+
 /** A validated copy; a malformed ceiling (every check denies then) is left out. */
 function summaryCeiling(p: Principal): Ceiling | undefined {
   let raw: unknown;
@@ -1928,13 +2190,19 @@ const COMPARE_DEPTH = 256;
  * `big` covers `small`: nothing to cover, or `big` is unconditional or the
  * same tree without a relation or native node (those mean the current
  * principal, so equal trees still differ), and `small`'s fields are inside
- * `big`'s. Throws AuthzConfigError when the field budget runs out.
+ * `bigFields` (by default `big`'s). Throws AuthzConfigError when the field
+ * budget runs out.
  */
-function entryCovers(big: Decision, small: Decision): boolean {
+function entryCovers(big: Decision, small: Decision, bigFields: Fields = big.fields): boolean {
   if (!small.allowed) return true;
   if (!big.allowed) return false;
   if (big.residual.op !== 'true' && (readsPrincipal(big.residual, 0, { left: COMPARE_NODES }) || !sameTree(big.residual, small.residual, 0, { left: COMPARE_NODES }))) return false;
-  return subtractFieldGlobs(small.fields.read, big.fields.read).length === 0 && subtractFieldGlobs(small.fields.write, big.fields.write).length === 0;
+  return subtractFieldGlobs(small.fields.read, bigFields.read).length === 0 && subtractFieldGlobs(small.fields.write, bigFields.write).length === 0;
+}
+
+/** A holder check of covers; none recorded (not a firm run) counts as no field. */
+function firmFieldsOf(holder: Checked): Fields {
+  return holder.firmFields ?? NO_FIELDS;
 }
 
 function readsPrincipal(f: unknown, depth: number, nodes: { left: number }): boolean {

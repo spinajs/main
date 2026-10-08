@@ -507,6 +507,62 @@ describe('engine/delegation', () => {
       expect(Date.now() - started).to.be.lessThan(5000);
     });
 
+    describe('with a keep set (RFC E2-2)', () => {
+      const ip: ResourceFilter = { op: 'native:ip', args: { who: 'bob' } };
+      const keep = new Set(['native:geo']);
+
+      it('keeps a listed native leaf, by identity, under either polarity', () => {
+        expect(stripPrincipalOps(nat, keep)).to.equal(nat);
+        const negated = stripPrincipalOps({ op: 'not', arg: nat }, keep) as { op: 'not'; arg: ResourceFilter };
+        expect(negated.op).to.equal('not');
+        expect(negated.arg).to.equal(nat);
+        expect(stripPrincipalOps({ op: 'not', arg: { op: 'not', arg: nat } }, keep)).to.equal(nat);
+        const both = stripPrincipalOps({ op: 'and', args: [c('a'), nat] }, keep) as { args: readonly ResourceFilter[] };
+        expect(both.args[1]).to.equal(nat);
+      });
+
+      it('still strips relation leaves and unlisted natives by polarity', () => {
+        expect(stripPrincipalOps(rel, new Set(['relation', 'native:geo']))).to.equal(FALSE);
+        expect(stripPrincipalOps(ip, keep)).to.equal(FALSE);
+        expect(stripPrincipalOps({ op: 'and', args: [nat, ip] }, keep)).to.equal(FALSE);
+        expect(stripPrincipalOps({ op: 'or', args: [nat, ip] }, keep)).to.equal(nat);
+        expect(stripPrincipalOps({ op: 'or', args: [nat, { op: 'not', arg: rel }] }, keep)).to.equal(nat);
+        expect(stripPrincipalOps({ op: 'not', arg: { op: 'and', args: [nat, ip] } }, keep)).to.deep.equal({ op: 'not', arg: nat });
+        expect(stripPrincipalOps({ op: 'not', arg: { op: 'or', args: [nat, rel] } }, keep)).to.equal(FALSE);
+      });
+
+      it('an empty or missing keep set strips as before', () => {
+        expect(stripPrincipalOps(nat, new Set())).to.equal(FALSE);
+        expect(stripPrincipalOps(nat, undefined)).to.equal(FALSE);
+      });
+
+      it('a subtree shared under both polarities is memoised per polarity, the kept leaf in both', () => {
+        const shared: ResourceFilter = { op: 'and', args: [nat, { op: 'or', args: [c('a'), rel] }] };
+        const out = stripPrincipalOps({ op: 'or', args: [shared, { op: 'not', arg: shared }] }, keep) as { op: 'or'; args: readonly ResourceFilter[] };
+        expect(out).to.deep.equal({
+          op: 'or',
+          args: [
+            { op: 'and', args: [nat, c('a')] },
+            { op: 'not', arg: nat },
+          ],
+        });
+        expect((out.args[0] as { args: readonly ResourceFilter[] }).args[0]).to.equal(nat);
+        expect((out.args[1] as { arg: ResourceFilter }).arg).to.equal(nat);
+        // The same subtree twice under one polarity is stripped once and shared.
+        const twice = stripPrincipalOps(
+          {
+            op: 'or',
+            args: [
+              { op: 'and', args: [c('b'), shared] },
+              { op: 'and', args: [c('c'), shared] },
+            ],
+          },
+          keep,
+        ) as { args: readonly { args: readonly ResourceFilter[] }[] };
+        expect(twice.args[0].args[1]).to.equal(twice.args[1].args[1]);
+      });
+    });
+
     it('nesting deeper than the limit and cycles terminate fail-closed', () => {
       let deep: ResourceFilter = c('a');
       for (let i = 0; i < 10_000; i++) deep = { op: 'not', arg: { op: 'not', arg: deep } };
@@ -590,6 +646,32 @@ describe('engine/delegation', () => {
           }),
           { numRuns: 500 },
         );
+      });
+
+      it('with native:geo kept: never ranks above the original, keeps only native:geo and equals the original when no other principal op is present', () => {
+        const keep = new Set(['native:geo']);
+        const others = (f: ResourceFilter): boolean => {
+          if (f.op === 'relation' || (f.op.startsWith('native:') && f.op !== 'native:geo')) return true;
+          if (f.op === 'and' || f.op === 'or') return f.args.some(others);
+          if (f.op === 'not') return others(f.arg);
+          return false;
+        };
+        let exact = 0;
+        fc.assert(
+          fc.property(tree, assignmentArb, (f, at) => {
+            const out = stripPrincipalOps(f, keep);
+            expect(others(out)).to.equal(false);
+            const stripped = kleene(out, at);
+            const original = kleene(f, at);
+            expect(rank(stripped)).to.be.at.most(rank(original));
+            if (!others(f)) {
+              expect(stripped).to.equal(original);
+              if (JSON.stringify(f).includes('native:geo')) exact++;
+            }
+          }),
+          { numRuns: 500 },
+        );
+        expect(exact, 'trees holding only the kept native').to.be.greaterThan(0);
       });
 
       it('equals the original when no principal op is present', () => {

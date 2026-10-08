@@ -1,8 +1,9 @@
 import { Injectable, Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 import { Perf, PerfSink } from '@spinajs/log';
 
 import { Metrics } from './metrics.js';
+import { TELEMETRY_CONFIGURATION_SCHEMA } from './schema.js';
 
 /**
  * Wires the telemetry collection layer at startup:
@@ -14,11 +15,12 @@ import { Metrics } from './metrics.js';
  */
 @Injectable(Bootstrapper)
 export class TelemetryBootstrapper extends Bootstrapper {
-  public bootstrap(): void {
-    const cfg = DI.get(Configuration);
+  public async bootstrap(): Promise<void> {
+    registerConfigurationSchema(TELEMETRY_CONFIGURATION_SCHEMA);
+    const cfg = await DI.resolve(Configuration);
     const metrics = DI.get(Metrics) ?? DI.resolve(Metrics);
 
-    if (cfg?.get<boolean>('telemetry.collectDefaultMetrics', true)) {
+    if (cfg.get<boolean>('telemetry.collectDefaultMetrics', true)) {
       metrics.collectDefault();
     }
 
@@ -28,7 +30,7 @@ export class TelemetryBootstrapper extends Bootstrapper {
     // what the Perf facade uses — then hits that cache entry on its fast path,
     // returns it WITHOUT adding it to the `PerfSink` list, and the facade stays
     // blind to that sink. Resolving the array first creates them together.
-    const sinks = DI.resolve(Array.ofType(PerfSink));
+    const sinks = await DI.resolve(Array.ofType(PerfSink));
 
     // The array cache does not double as a per-type cache, so publish each
     // instance under its own type name too. Without this a later

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import 'mocha';
 
-import { GLOBAL, SYSTEM } from '@spinajs/authz';
+import { CORE_FILTER_OPS, GLOBAL, SYSTEM } from '@spinajs/authz';
 
 import { BEHAVIOUR_FIXTURES, BEHAVIOUR_RULES, FACETS, FakeRbacModel, FakeTupleModel, StaticModel, fixtureDsl, instantiateWorld, mergeFixtures, userPrincipal, validateCase, validateWorld } from '../../src/index.js';
 import type { Case, World } from '../../src/index.js';
@@ -190,5 +190,15 @@ describe('instantiateWorld', () => {
     assert.throws(() => kit.principal('zed'), /no principal "zed"/);
     assert.throws(() => kit.staticModel('rbac'), /not a StaticModel/);
     assert.throws(() => kit.model('m1', 'nowhere'), /no domain "nowhere"/);
+  });
+
+  it('in a world with rbac, an adapter that leaves compiles out also compiles the RBAC native ops (RFC L1-2)', () => {
+    const rbac = { roles: [role('viewer', ['file:read'])], assignments: [assignment('a1', alice, 'viewer')] };
+    const adapters = [{ types: ['file'] }, { types: ['doc'], compiles: [...CORE_FILTER_OPS] }, { types: ['blob'], compiles: undefined }];
+    const [plain, explicit, unscoped] = instantiateWorld({ ...world, adapters, rbac }).adapters;
+    assert.deepEqual(plain.compiles, [...CORE_FILTER_OPS, 'native:rbac.assignment', 'native:rbac.threshold']);
+    assert.deepEqual(explicit.compiles, CORE_FILTER_OPS);
+    assert.equal(unscoped.compiles, undefined);
+    assert.deepEqual(instantiateWorld({ ...world, adapters }).adapters[0].compiles, CORE_FILTER_OPS);
   });
 });

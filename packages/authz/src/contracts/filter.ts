@@ -19,7 +19,7 @@ export type ResourceFilter =
   | { readonly op: 'cmp'; readonly field: string; readonly cmp: 'eq' | 'ne' | 'in' | 'nin' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'glob' | 'wildcard' | 'null' | 'notnull'; readonly value?: Value }
   // the current principal holds `relation` on the row
   | { readonly op: 'relation'; readonly relation: string }
-  // the row has one of these as an ancestor (or is one)
+  // the row has one of these as an ancestor (or is one); a scope without id matches any node of its type
   | { readonly op: 'under'; readonly scopes: readonly ResourceRef[] }
   // compiled by a registered NativeFilter
   | { readonly op: `native:${string}`; readonly args?: unknown };

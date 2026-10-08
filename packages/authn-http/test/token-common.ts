@@ -2,7 +2,8 @@ import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
-import { SessionProvider, UserSession, User } from '@spinajs/users';
+import { BasicPasswordProvider, SessionProvider, UserSession, User } from '@spinajs/users';
+import { DateTime } from 'luxon';
 import * as cs from 'cookie-signature';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
@@ -11,12 +12,17 @@ import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
+import { registerRootSchemas } from './support/root-schemas.js';
 import { dropOwnCompiledDirs } from './token-db-common.js';
+import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 
 export const COOKIE_SECRET = 'authn-http-token-test-secret';
+
+/** The app's origin as a browser on it sends it; cookie requests with an unsafe method need it (A22). */
+export const APP_ORIGIN = 'http://localhost:8889';
 
 export function req() {
   return chai.request('http://localhost:8889/');
@@ -62,6 +68,7 @@ export function restoreHttpErrorMap() {
  */
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
+    registerRootSchemas();
     await super.resolve();
 
     // see `dropOwnCompiledDirs` - without it this package's shipped config adds
@@ -169,8 +176,12 @@ export class TestConfiguration extends FrameworkConfiguration {
 }
 
 /**
- * Creates an authorized session for the user and returns the signed `ssid`
- * cookie value ready for a `Cookie` header.
+ * Creates an authorized session for the user and returns the signed session
+ * cookie ready for a `Cookie` header.
+ *
+ * The name comes from the same helper `RbacMiddleware` reads it with, not a
+ * literal: with authn-session's shipped `hostPrefix: 'auto'` it may carry the
+ * `__Host-` prefix.
  *
  * `Authorized` is what `RbacPolicy` looks at, `User` carries the uuid the
  * `RbacUserFactory` reloads the row by - the same shape the login controller
@@ -203,7 +214,25 @@ export async function sessionCookieFor(user: User, impersonator?: User): Promise
 
   await provider.save(session);
 
-  return `ssid=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
+  const name = (await DI.resolve(SessionCookieFactory)).Name;
+  return `${name}=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
+}
+
+/**
+ * An active users row, inserted directly: since C1, `users.create()` assigns roles through
+ * `AuthzAdmin` and needs a booted authz host, which authn-http may not depend on. No roles:
+ * C1 dropped `users.Role`, and the 2.x code reads roles from nowhere else.
+ */
+export async function seedUser(email: string, login: string, password: string): Promise<User> {
+  const user = new User({
+    Email: email,
+    Login: login,
+    Password: await DI.resolve(BasicPasswordProvider).hash(password),
+    RegisteredAt: DateTime.now(),
+    IsActive: true,
+  });
+  await user.insert();
+  return user;
 }
 
 export function ctr() {

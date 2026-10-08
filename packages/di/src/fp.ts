@@ -1,4 +1,5 @@
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
+import type { ResolveChainResult } from './interfaces.js';
 import { resolve } from './root.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult } from './types.js';
 
@@ -6,6 +7,8 @@ export function _resolve<T>(type: string, options?: unknown[], check?: boolean):
 export function _resolve<T>(type: string, check?: boolean): () => T;
 export function _resolve<T>(type: Class<T>, check?: boolean): () => ResolveResult<T>;
 export function _resolve<T>(type: Class<T>, options?: unknown[] | boolean, check?: boolean): () => ResolveResult<T>;
+export function _resolve<T>(type: ChainArray<T>, check?: boolean): () => ResolveChainResult<T>;
+export function _resolve<T>(type: ChainArray<T>, options?: unknown[] | boolean, check?: boolean): () => ResolveChainResult<T>;
 export function _resolve<T>(type: TypedArray<T>, check?: boolean): () => ResolveArrayResult<T>;
 export function _resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): () => ResolveArrayResult<T>;
 export function _resolve<T extends Class<any>>(type: T, check?: boolean): () => ResolveResult<InferClass<T>>;
