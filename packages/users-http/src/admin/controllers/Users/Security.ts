@@ -1,50 +1,14 @@
-import { AutoinjectService } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
-import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/users';
-import type { ISession } from '@spinajs/users';
-import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
-import { FromModel } from '@spinajs/orm-http';
+import { BaseController, BasePath, Body, Del, Get, Ok, Param, Post } from '@spinajs/http';
+import { MethodNotImplemented } from '@spinajs/exceptions';
+import { activate, ban, deactivate, unban, userModel } from '@spinajs/users';
+import type { Principal } from '@spinajs/authz';
+import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { Schema } from '@spinajs/validation';
-import { disableUser2Fa, enableUser2Fa, resetUser2Fa } from '@spinajs/authn-totp';
-import { Log, Logger } from '@spinajs/log';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
-import { actorPrincipal } from '../../../services/actor.js';
-
-@Schema({
-  type: 'object',
-  $id: 'arrow.common.changePasswordDTO',
-  properties: {
-    password: { type: 'string', minLength: 8, maxLength: 128, description: 'New password (8–128 characters)' },
-    confirmPassword: { type: 'string', minLength: 8, maxLength: 128, description: 'Must match password' },
-  },
-  required: ['password', 'confirmPassword'],
-  allOf: [
-    {
-      if: {
-        properties: {
-          password: { type: 'string' },
-          confirmPassword: { type: 'string' },
-        },
-      },
-      then: {
-        properties: {
-          confirmPassword: { const: { $data: '1/password' } },
-        },
-      },
-    },
-  ],
-})
-export class ChangePasswordDto {
-  public password: string;
-  public confirmPassword: string;
-
-  constructor(data: any) {
-    Object.assign(this, data);
-  }
-}
+import { userActor } from '../../../services/actor.js';
+import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
 @Schema({
   type: 'object',
@@ -79,10 +43,24 @@ export interface IAdminSessionEntry {
   Expires: string | null;
 }
 
+/** The user `uuid` with its metadata (the ban lives there), for a caller holding `permission` on every user. */
+async function lifecycleTarget(caller: Principal, permission: 'users:update' | 'users:delete', uuid: string) {
+  await requireEveryUser(caller, permission);
+  return userRowFor(caller, permission, () => userModel().query().where('Uuid', uuid).populate('Metadata').first());
+}
+
+// users' 2.x session store no longer holds the 3.0 sessions: a listing would be empty and a forced logout would end
+// nothing. Until these routes move onto the SessionIssuer they refuse rather than pretend.
+function sessionRoutesPending(): MethodNotImplemented {
+  return new MethodNotImplemented('the admin session routes are not served until they move onto the 3.0 session issuer');
+}
+
 /**
- * User account security management (admin).
- * Administrative controls for user account security: passwords, 2FA, account
- * activation, bans, login lockouts and live sessions.
+ * User account lifecycle (admin).
+ * Activation, deactivation and bans. Each route sits on `@Access('users:<action>')` and needs a
+ * grant on every user: a conditional grant (e.g. `self`) changes no account's standing.
+ * Credential management (password, reset, expiry, two-factor) is served by authn-http under
+ * `/authn/admin/users/:uuid/*`.
  *
  * Every route that takes an account out of service goes through the
  * {@link AccountGuard} first — an administrator must not be able to lock themselves,
@@ -90,133 +68,9 @@ export interface IAdminSessionEntry {
  * @tags Admin Users
  */
 @BasePath('users/security')
-@Policy(AuthorizedPolicy)
-@Resource('users')
 export class Security extends BaseController {
-  @Logger('rbac-admin')
-  protected Log: Log;
-
-  @AutoinjectService('authn.session')
-  protected SessionProvider: SessionProvider;
-
   @Autoinject(AccountGuard)
   protected AccountGuard: AccountGuard;
-
-  /**
-   * Change user password (admin)
-   * Sets a new password for the specified user. Both password and confirmPassword must match.
-   * Minimum length is 8 characters. Every session of that user is destroyed — the credential
-   * they were opened with no longer exists.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 Password changed successfully
-   * @response 400 Passwords do not match or fail validation
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Patch('changePassword/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async changeUserPassword(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: ChangePasswordDto) {
-    await changeUserPassword(user, dto.password);
-    return new Ok();
-  }
-
-  /**
-   * Send a password reset link (admin)
-   * Issues a single-use reset token into the user's metadata and emits
-   * `UserPasswordChangeRequest` so the application can deliver it. The token itself is never
-   * returned. This is how a freshly created account is handed over to its owner — the
-   * temporary password generated at creation is deliberately discarded.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 Reset token issued
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Post('password-reset-request/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async requestPasswordReset(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await passwordChangeRequest(user);
-    return new Ok();
-  }
-
-  /**
-   * Expire a user password (admin)
-   * Makes the password unusable and ends the account's sessions; the account stays active so its
-   * owner can redeem a password reset.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 Password expired
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
-   * @response 404 User not found
-   */
-  @Post('expire-password/:user')
-  @Permission(['deleteAny', 'deleteOwn'])
-  public async expireUserPassword(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    const by = await actorPrincipal(actor);
-
-    // Nobody can log in until the reset, so it is guarded like every other way of taking an account out of service.
-    await this.AccountGuard.assertCanDisable(by, user, 'expire-password');
-    await expirePassword(user, by);
-
-    return new Ok();
-  }
-
-  /**
-   * Reset user two-factor authentication (admin)
-   * Clears the TOTP secret and disables 2FA for the specified user.
-   * Use this to help a user regain access when they lose their authenticator device.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 2FA reset successfully
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Patch('reset2fa/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async reset2faToken(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await resetUser2Fa(user);
-    return new Ok();
-  }
-
-  /**
-   * Enable two-factor authentication for a user (admin)
-   * Initializes a TOTP secret for the account. Returns whatever the configured
-   * two-factor provider produces for enrolment (an otpauth url for the default provider) —
-   * deliver it to the user over a channel you trust.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 2FA enabled
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Post('2fa/enable/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async enable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    return new Ok(await enableUser2Fa(user));
-  }
-
-  /**
-   * Disable two-factor authentication for a user (admin)
-   * Removes the TOTP secret and turns the second factor off for the account.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 2FA disabled
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Post('2fa/disable/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async disable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await disableUser2Fa(user);
-    return new Ok();
-  }
 
   /**
    * Deactivate user account (admin)
@@ -225,15 +79,18 @@ export class Security extends BaseController {
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 Account deactivated successfully
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Post('deactivate/:user')
-  @Permission(['deleteAny', 'deleteOwn'])
-  public async deactivateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'deactivate');
-    await deactivate(user);
+  @Access('users:delete')
+  public async deactivateUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+    const by = userActor(caller);
+    const target = await lifecycleTarget(by, 'users:delete', user);
+
+    await this.AccountGuard.assertCanDisable(by, target, 'deactivate');
+    await deactivate(target);
 
     return new Ok();
   }
@@ -244,14 +101,14 @@ export class Security extends BaseController {
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 Account activated successfully
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:update` on every user
    * @response 404 User not found
    */
   @Post('activate/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async activateUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await activate(user);
+  @Access('users:update')
+  public async activateUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+    await activate(await lifecycleTarget(caller, 'users:update', user));
     return new Ok();
   }
 
@@ -263,15 +120,18 @@ export class Security extends BaseController {
    * @param user User UUID path parameter
    * @response 200 Account banned
    * @response 400 Account is already banned
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Post('ban/:user')
-  @Permission(['deleteAny', 'deleteOwn'])
-  public async banUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: BanUserDto) {
-    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'ban');
-    await ban(user, dto?.reason, dto?.duration);
+  @Access('users:delete')
+  public async banUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() dto: BanUserDto) {
+    const by = userActor(caller);
+    const target = await lifecycleTarget(by, 'users:delete', user);
+
+    await this.AccountGuard.assertCanDisable(by, target, 'ban');
+    await ban(target, dto?.reason, dto?.duration);
 
     return new Ok();
   }
@@ -283,115 +143,58 @@ export class Security extends BaseController {
    * @param user User UUID path parameter
    * @response 200 Account unbanned
    * @response 400 Account is not banned
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:update` on every user
    * @response 404 User not found
    */
   @Post('unban/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async unbanUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await unban(user);
-    return new Ok();
-  }
-
-  /**
-   * Clear a login lockout (admin)
-   * Removes the failed-attempt counter and the lockout window opened by the login throttle,
-   * letting the user try again immediately. Without this the only remedy is waiting out
-   * `rbac.password.lockoutTime`.
-   * @security cookieAuth
-   * @param user User UUID path parameter
-   * @response 200 Lockout cleared
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
-   */
-  @Post('unlock/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async unlockUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await user.Metadata.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
-    await user.Metadata.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
-
-    this.Log.info(`Login lockout cleared`, { User: user.Uuid });
-
+  @Access('users:update')
+  public async unbanUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+    await unban(await lifecycleTarget(caller, 'users:update', user));
     return new Ok();
   }
 
   /**
    * List sessions of a user (admin)
-   * Returns every live session of the account, newest first, identified by an opaque handle.
+   * Not served yet: answers 500 until the route reads the 3.0 sessions.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @returns {IAdminSessionEntry[]} Live sessions of the user
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource
-   * @response 404 User not found
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:read`
    */
   @Get('sessions/:user')
-  @Permission(['readAny', 'readOwn'])
-  public async listSessions(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User): Promise<Ok<IAdminSessionEntry[]>> {
-    const sessions = await this.SessionProvider.listByUser(user.Id);
-
-    const entries = sessions.map((s) => this.toEntry(s)).sort((a, b) => (a.Created < b.Created ? 1 : -1));
-
-    return new Ok(entries, { Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] });
+  @Access('users:read')
+  public async listSessions(): Promise<Ok<IAdminSessionEntry[]>> {
+    throw sessionRoutesPending();
   }
 
   /**
    * Revoke one session of a user (admin)
-   * Ends a single session, addressed by the handle returned from the listing.
+   * Not served yet: answers 500 until the route ends 3.0 sessions.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @param handle Session handle as returned by `GET /users/security/sessions/:user`
-   * @response 200 Session revoked
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 No such session for this user
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:update`
    */
   @Del('sessions/:user/:handle')
-  @Permission(['updateAny', 'updateOwn'])
-  public async revokeSession(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User, @Param() handle: string): Promise<Ok | NotFound> {
-    // Resolved through THIS user's session list, so a handle belonging to
-    // somebody else cannot be revoked through their uuid.
-    const sessions = await this.SessionProvider.listByUser(user.Id);
-    const match = sessions.find((s) => hashSessionId(s.SessionId) === handle);
-
-    if (!match) {
-      return new NotFound({ error: { code: 'E_SESSION_NOT_FOUND', message: 'No such session' } });
-    }
-
-    await this.SessionProvider.delete(match.SessionId);
-
-    this.Log.info(`Session revoked by administrator`, { Session: handle, User: user.Uuid });
-
-    return new Ok(null, { Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] });
+  @Access('users:update')
+  public async revokeSession(): Promise<Ok> {
+    throw sessionRoutesPending();
   }
 
   /**
    * Force logout user (admin)
-   * Invalidates all active sessions for the specified user, immediately ending any current logins.
+   * Not served yet: answers 500 until the route ends 3.0 sessions.
    * @security cookieAuth
    * @param user User UUID path parameter
-   * @response 200 All sessions invalidated successfully
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on users resource
-   * @response 404 User not found
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:update`
    */
   @Del('sessions/:user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async logoutUser(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User) {
-    await this.SessionProvider.deleteByUser(user.Id);
-
-    this.Log.info(`All sessions revoked by administrator`, { User: user.Uuid });
-
-    return new Ok(null, { Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] });
-  }
-
-  protected toEntry(session: ISession): IAdminSessionEntry {
-    return {
-      Handle: hashSessionId(session.SessionId),
-      Created: session.Creation?.toISO() ?? '',
-      Expires: session.Expiration?.toISO() ?? null,
-    };
+  @Access('users:update')
+  public async logoutUser(): Promise<Ok> {
+    throw sessionRoutesPending();
   }
 }

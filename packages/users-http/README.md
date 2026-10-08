@@ -1,46 +1,51 @@
 # `@spinajs/users-http`
 
 HTTP API for user accounts: the signed-in user's profile (`GET /user`, on `@Access('user:read')`) and metadata routes (on `@Access('user.metadata:<action>')`), and an administrative API for
-listing and editing users, roles, passwords, two-factor authentication, bans, login lockouts and live sessions.
+listing and editing users, their roles, activation and bans.
 
-Every route sits behind `AuthorizedPolicy` plus a route-level `@Permission` on the `users` resource,
-so an application grants access with ordinary rbac grants:
+Every route sits on `@Access(...)` from `@spinajs/authz-http`. The admin routes check `users:read`, `users:create`,
+`users:update` or `users:delete` on the `users` type, so an application grants them with ordinary role grants
+(users' `admin.users` role holds `users:*`):
 
 ```js
-grants: {
-  admin: {
-    users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
+authz: {
+  rbac: {
+    roles: {
+      'user-admin': { grants: ['users:read', 'users:create', 'users:update', 'users:delete'] },
+    },
   },
 }
 ```
 
+A conditional grant (for example `{ permission: 'users:update', relation: 'self' }`) never reaches another user's
+record: `GET`, `PATCH` and `DELETE` of one user decide it again on that user's row, and the list, create, restore and
+the lifecycle routes (activate, deactivate, ban, unban) need a grant on every user. The routes that act through
+AuthzAdmin or the account guard (create, update, delete, deactivate, ban, assignable roles) need a signed-in user as the
+caller; a service principal is refused there.
+
 ## Routes
 
-| Method   | Path                                          | Permission  | What it does                                              |
-| -------- | --------------------------------------------- | ----------- | --------------------------------------------------------- |
-| `GET`    | `/users`                                      | `readAny`   | Paginated, filterable, sortable list. `X-Total-Count` header |
-| `GET`    | `/users/roles`                                | `readAny`   | Roles the caller is allowed to assign                     |
-| `GET`    | `/users/:uuid`                                | `readAny`   | One account                                               |
-| `GET`    | `/users/byLogin/:login`                       | `readAny`   | One account, addressed by login                           |
-| `POST`   | `/users`                                      | `createAny` | Create an account ( inactive, no password, invite sent )  |
-| `PATCH`  | `/users/:uuid`                                | `updateAny` | Partial update of login / email / role                    |
-| `DELETE` | `/users/:uuid`                                | `deleteAny` | Soft delete + session revocation                          |
-| `PATCH`  | `/users/:uuid/restore`                        | `deleteAny` | Clear `DeletedAt`                                         |
-| `GET`    | `/users/profile/:login`                       | `readAny`   | Profile through the configured `UserProfileProvider`      |
-| `PATCH`  | `/users/security/changePassword/:uuid`        | `updateAny` | Set a password. Revokes every session of that user        |
-| `POST`   | `/users/security/password-reset-request/:uuid`| `updateAny` | Issue a reset token and emit `UserPasswordChangeRequest`  |
-| `POST`   | `/users/security/expire-password/:uuid`       | `deleteAny` | Expire the password ( the account stays active )          |
-| `PATCH`  | `/users/security/reset2fa/:uuid`              | `updateAny` | Clear the TOTP secret                                     |
-| `POST`   | `/users/security/2fa/enable/:uuid`            | `updateAny` | Enrol 2FA, returns the enrolment url                      |
-| `POST`   | `/users/security/2fa/disable/:uuid`           | `updateAny` | Turn 2FA off                                              |
-| `POST`   | `/users/security/activate/:uuid`              | `updateAny` | Activate the account                                      |
-| `POST`   | `/users/security/deactivate/:uuid`            | `deleteAny` | Deactivate + revoke sessions                              |
-| `POST`   | `/users/security/ban/:uuid`                   | `deleteAny` | Ban for `duration` seconds + revoke sessions              |
-| `POST`   | `/users/security/unban/:uuid`                 | `updateAny` | Lift a ban                                                |
-| `POST`   | `/users/security/unlock/:uuid`                | `updateAny` | Clear a login-throttle lockout                            |
-| `GET`    | `/users/security/sessions/:uuid`              | `readAny`   | Live sessions, by opaque handle                           |
-| `DELETE` | `/users/security/sessions/:uuid/:handle`      | `updateAny` | Revoke one session                                        |
-| `DELETE` | `/users/security/sessions/:uuid`              | `updateAny` | Revoke every session of the user                          |
+| Method   | Path                                          | Permission     | What it does                                              |
+| -------- | --------------------------------------------- | -------------- | --------------------------------------------------------- |
+| `GET`    | `/users`                                      | `users:read`   | Paginated, filterable, sortable list. `X-Total-Count` header |
+| `GET`    | `/users/roles`                                | `users:read`   | Roles the caller is allowed to assign                     |
+| `GET`    | `/users/:uuid`                                | `users:read`   | One account                                               |
+| `GET`    | `/users/byLogin/:login`                       | `users:read`   | One account, addressed by login                           |
+| `POST`   | `/users`                                      | `users:create` | Create an account ( inactive, no password, invite sent )  |
+| `PATCH`  | `/users/:uuid`                                | `users:update` | Partial update of login / email / role                    |
+| `DELETE` | `/users/:uuid`                                | `users:delete` | Soft delete + session revocation                          |
+| `PATCH`  | `/users/:uuid/restore`                        | `users:delete` | Clear `DeletedAt`                                         |
+| `GET`    | `/users/profile/:login`                       | `users:read`   | Profile through the configured `UserProfileProvider`      |
+| `POST`   | `/users/security/activate/:uuid`              | `users:update` | Activate the account                                      |
+| `POST`   | `/users/security/deactivate/:uuid`            | `users:delete` | Deactivate + revoke sessions                              |
+| `POST`   | `/users/security/ban/:uuid`                   | `users:delete` | Ban for `duration` seconds + revoke sessions              |
+| `POST`   | `/users/security/unban/:uuid`                 | `users:update` | Lift a ban                                                |
+| `GET`    | `/users/security/sessions/:uuid`              | `users:read`   | Not served yet (answers 500): moves onto the 3.0 session issuer |
+| `DELETE` | `/users/security/sessions/:uuid/:handle`      | `users:update` | Not served yet (answers 500): moves onto the 3.0 session issuer |
+| `DELETE` | `/users/security/sessions/:uuid`              | `users:update` | Not served yet (answers 500): moves onto the 3.0 session issuer |
+
+Password, reset, password expiry and two-factor administration are served by `@spinajs/authn-http` under
+`/authn/admin/users/:uuid/*`. 3.0 has no login lockout to clear (authn throttles instead), so `unlock` is gone.
 
 The admin routes do not manage user metadata. `UserMetadataController` serves `/user/:uuid/metadata`, which validates one entry at
 a time. Another user's metadata needs an unconditional `user.metadata` grant (users' `admin.users`); users' `user` role
@@ -63,7 +68,7 @@ and removing the last holder of `privilegedPermission`. A refusal answers `403` 
 `not_assignable`, `wrong_scope_type`). A request without a caller is refused, never run as SYSTEM.
 The `Role` list filter matches the GLOBAL holders of the named roles; `Role` is not sortable.
 
-Delete, deactivate, ban and password expiry are not AuthzAdmin commands. They go through the
+Delete, deactivate and ban are not AuthzAdmin commands. They go through the
 `AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches.
 A `PATCH` that removes a role goes through it too (`assertCanDemote`): AuthzAdmin's last-holder rule
 counts deactivated, banned and deleted holders, the account guard counts only active ones.
@@ -72,7 +77,7 @@ counts deactivated, banned and deleted holders, the account guard counts only ac
 authz: {
   admin: {
     guard: {
-      // no self-deactivation, self-deletion, self-ban, own password expiry
+      // no self-deactivation, self-deletion, self-ban
       preventSelfLockout: true,
       // never take the last active account holding privilegedPermission out of service
       preventLastPrivilegedRemoval: true,
@@ -94,6 +99,11 @@ This package's config fragment declares the `users:read`, `users:create`, `users
 
 ## Breaking changes in this release
 
+- 3.0: the admin routes sit on `@Access('users:<action>')` instead of `AuthorizedPolicy` + `@Permission`;
+  `readOwn`/`updateOwn`-style grants become conditional grants decided on the addressed row.
+- 3.0: `changePassword`, `password-reset-request`, `expire-password`, `reset2fa`, `2fa/enable`, `2fa/disable`
+  and `unlock` under `/users/security` are gone (404); the credential routes live in `@spinajs/authn-http`.
+- 3.0: the admin session routes answer 500 until they move onto the 3.0 session issuer.
 - `activate`, `deactivate` and the forced logout moved off `GET`. They are now
   `POST /users/security/activate/:uuid`, `POST /users/security/deactivate/:uuid` and
   `DELETE /users/security/sessions/:uuid`.

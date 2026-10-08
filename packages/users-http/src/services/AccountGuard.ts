@@ -9,13 +9,12 @@ import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
 import { configuredRoleNames } from './user-roles.js';
 
 /** A route that takes an account out of service. */
-export type AccountDisableAction = 'delete' | 'deactivate' | 'ban' | 'expire-password';
+export type AccountDisableAction = 'delete' | 'deactivate' | 'ban';
 
 const VERB: Readonly<Record<AccountDisableAction, string>> = {
   delete: 'delete',
   deactivate: 'deactivate',
   ban: 'ban',
-  'expire-password': 'expire the password of',
 };
 
 const LOOKUP_CHUNK = 100;

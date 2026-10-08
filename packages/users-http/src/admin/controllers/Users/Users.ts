@@ -1,19 +1,20 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
-import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
+import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query } from '@spinajs/http';
+import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
-import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
-import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
 import { GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
-import type { AuthzCommand } from '@spinajs/authz';
+import type { AuthzCommand, Principal } from '@spinajs/authz';
+import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
-import { actorPrincipal, asHttpRefusal } from '../../../services/actor.js';
+import { asHttpRefusal, userActor } from '../../../services/actor.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
+import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
 /**
  * Columns a client may sort by.
@@ -268,12 +269,12 @@ const USER_FILTER: IColumnFilter<User>[] = [
 /**
  * User account management (admin).
  * Full CRUD operations for user accounts. Supports pagination, sorting, filtering,
- * and optional relation loading. All write operations require full authorization.
+ * and optional relation loading. Every route sits on `@Access('users:<action>')`. A route that
+ * addresses one user decides a conditional grant (e.g. `users:update` on `self`) again on that
+ * user's row; the list, create and restore need a grant on every user.
  * @tags Admin Users
  */
 @BasePath('users')
-@Policy(AuthorizedPolicy)
-@Resource('users')
 export class Users extends BaseController {
   @Autoinject(AccountGuard)
   protected AccountGuard: AccountGuard;
@@ -296,12 +297,13 @@ export class Users extends BaseController {
    * @param include Relations to include — currently supports: Metadata
    * @returns {User[]} Paginated list of user accounts, each with optional Metadata relation
    * @response 400 Sort column is not sortable
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:read` on every user (a conditional grant does not list)
    */
   @Get('/')
-  @Permission(['readAny', 'readOwn'])
+  @Access('users:read', { fields: 'filter' })
   public async list(
+    @CurrentPrincipal() caller: Principal,
     @Query() pagination?: PaginationDTO,
     @Query() order?: OrderDTO,
     @Query({
@@ -315,6 +317,9 @@ export class Users extends BaseController {
     @Filter(USER_FILTER)
     filter?: IFilterRequest,
   ) {
+    // The query cannot apply a residual, so a conditional grant is refused rather than listing everyone.
+    await requireEveryUser(caller, 'users:read');
+
     // ONE limit for both take and skip. They used to disagree — take fell back
     // to 10 while skip fell back to 0 — so any request that sent a page but no
     // limit silently got page 0 whatever it asked for.
@@ -378,16 +383,17 @@ export class Users extends BaseController {
    * List assignable roles (admin)
    * Returns the configured roles the caller may grant at GLOBAL: those AuthzAdmin accepts in a
    * dry-run grant by the caller. Non-assignable roles and anything granting more than the caller
-   * holds are left out, so a UI cannot offer an operation AuthzAdmin will refuse.
+   * holds are left out, so a UI cannot offer an operation AuthzAdmin will refuse. The answer is about
+   * the caller, not about any user, so any `users:read` grant reaches it.
    * @security cookieAuth
    * @returns {string[]} Role names the caller may assign
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource, or no caller
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:read`, or the caller is not a signed-in user
    */
   @Get('roles')
-  @Permission(['readAny', 'readOwn'])
-  public async assignableRoles(@CurrentUser() actor: User) {
-    return new Ok(await assignableRoles(await actorPrincipal(actor)));
+  @Access('users:read')
+  public async assignableRoles(@CurrentPrincipal() caller: Principal) {
+    return new Ok(await assignableRoles(userActor(caller)));
   }
 
   /**
@@ -397,14 +403,15 @@ export class Users extends BaseController {
    * @param user User UUID path parameter
    * @param include Relations to include — currently supports: Metadata
    * @returns {User} User account with optional Metadata relation
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:read` on this user
    * @response 404 User not found
    */
   @Get(':user')
-  @Permission(['readAny', 'readOwn'])
+  @Access('users:read', { fields: 'filter' })
   public async getSingleUser(
-    @FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User,
+    @CurrentPrincipal() caller: Principal,
+    @Param() user: string,
     @Query({
       type: 'array',
       items: {
@@ -414,9 +421,8 @@ export class Users extends BaseController {
     })
     include?: string[],
   ) {
-    // linter hack, to alow incldue param,it is used by FromModel qery arg
-    include;
-    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Uuid', user).populate(include ?? []).first());
+    return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
   /**
@@ -426,14 +432,15 @@ export class Users extends BaseController {
    * @param user User login name path parameter
    * @param include Relations to include — currently supports: Metadata
    * @returns {User} User account with optional Metadata relation
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:read` on this user
    * @response 404 User not found
    */
   @Get('byLogin/:user')
-  @Permission(['readAny', 'readOwn'])
+  @Access('users:read', { fields: 'filter' })
   public async getByLogin(
-    @FromModel({ queryField: 'Login', model: () => userModel() }) user: User,
+    @CurrentPrincipal() caller: Principal,
+    @Param() user: string,
     @Query({
       type: 'array',
       items: {
@@ -443,9 +450,8 @@ export class Users extends BaseController {
     })
     include?: string[],
   ) {
-    // linter hack, to alow incldue param,it is used by FromModel qery arg
-    include;
-    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
+    const found = await userRowFor(caller, 'users:read', () => userModel().query().where('Login', user).populate(include ?? []).first());
+    return new Ok(found.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
   /**
@@ -459,14 +465,15 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @returns {User} Created user account
    * @response 400 Validation error — missing required fields, invalid format, an empty, unknown or non-assignable role, a reserved login, or a protected metadata key
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — createAny permission required, no caller, or AuthzAdmin refused a requested role (escalation)
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:create` on every user, the caller is not a signed-in user, or AuthzAdmin refused a requested role (escalation)
    * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
-  @Permission(['createAny', 'createOwn'])
-  public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
-    const by = await actorPrincipal(actor);
+  @Access('users:create')
+  public async addUser(@CurrentPrincipal() caller: Principal, @Body() data: CreateUserDto) {
+    const by = userActor(caller);
+    await requireEveryUser(by, 'users:create');
     const roles = roleList(data.Role);
 
     try {
@@ -497,16 +504,17 @@ export class Users extends BaseController {
    * @param user User UUID path parameter
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required, no caller, AuthzAdmin refused the role change, or the account guard refused it (own privilege, last active privileged account)
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, or the account guard refused it (own privilege, last active privileged account)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
   @Patch(':user')
-  @Permission(['updateAny', 'updateOwn'])
-  public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
-    const by = await actorPrincipal(actor);
-    const renamed = !!data.Login && data.Login !== user.Login;
+  @Access('users:update')
+  public async updateUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() data: UpdateUserDto) {
+    const by = userActor(caller);
+    const target = await userRowFor(by, 'users:update', () => userModel().query().where('Uuid', user).populate('Metadata').first());
+    const renamed = !!data.Login && data.Login !== target.Login;
 
     if (renamed) {
       assertLoginNotReserved(data.Login!);
@@ -521,24 +529,24 @@ export class Users extends BaseController {
 
     let commands: AuthzCommand[] = [];
     if (next) {
-      const current = await globalRolesOf(user.Uuid);
-      commands = replacementCommands(user.Uuid, current, next);
+      const current = await globalRolesOf(target.Uuid);
+      commands = replacementCommands(target.Uuid, current, next);
 
       if (current.some((r) => !next.includes(r))) {
-        await this.AccountGuard.assertCanDemote(by, user, current.filter((r) => next.includes(r)));
+        await this.AccountGuard.assertCanDemote(by, target, current.filter((r) => next.includes(r)));
       }
     }
 
     await executeAsActor(by, commands, { reason: 'users-http:update', dryRun: true });
 
-    if (renamed || (data.Email && data.Email !== user.Email)) {
-      await this.asDuplicateResponse(() => assertUserUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id));
+    if (renamed || (data.Email && data.Email !== target.Email)) {
+      await this.asDuplicateResponse(() => assertUserUnique(data.Login !== target.Login ? data.Login : undefined, data.Email !== target.Email ? data.Email : undefined, target.Id));
     }
 
-    user.Login = data.Login ?? user.Login;
-    user.Email = data.Email ?? user.Email;
+    target.Login = data.Login ?? target.Login;
+    target.Email = data.Email ?? target.Email;
 
-    await user.update();
+    await target.update();
     await executeAsActor(by, commands, { reason: 'users-http:update' });
 
     return new Ok();
@@ -552,15 +560,18 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User deleted
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:delete` on this user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Del(':user')
-  @Permission(['deleteAny', 'deleteOwn'])
-  public async removeUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'delete');
-    await deleteUser(user);
+  @Access('users:delete')
+  public async removeUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+    const by = userActor(caller);
+    const target = await userRowFor(by, 'users:delete', () => userModel().query().where('Uuid', user).populate('Metadata').first());
+
+    await this.AccountGuard.assertCanDisable(by, target, 'delete');
+    await deleteUser(target);
 
     return new Ok();
   }
@@ -573,21 +584,17 @@ export class Users extends BaseController {
    * @param uuid User UUID path parameter
    * @response 200 User restored
    * @response 400 User is not deleted
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required on users resource
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — no `users:delete` on every user
    * @response 404 User not found
    */
   @Patch(':uuid/restore')
-  @Permission(['deleteAny', 'deleteOwn'])
-  public async restoreUser(@Param() uuid: string) {
-    // Loaded by hand rather than through @FromModel: every model query filters
-    // soft-deleted rows out by default, so the one row this route exists for is
-    // exactly the row @FromModel can never find.
-    const user = await userModel().query().withDeleted().where('Uuid', uuid).first();
+  @Access('users:delete')
+  public async restoreUser(@CurrentPrincipal() caller: Principal, @Param() uuid: string) {
+    await requireEveryUser(caller, 'users:delete');
 
-    if (!user) {
-      throw new ResourceNotFound(`User ${uuid} not found`);
-    }
+    // withDeleted: every model query filters soft-deleted rows out by default, and that is the one row this route exists for.
+    const user = await userRowFor(caller, 'users:delete', () => userModel().query().withDeleted().where('Uuid', uuid).first());
 
     if (!user.DeletedAt) {
       throw new InvalidArgument(`User ${uuid} is not deleted`);

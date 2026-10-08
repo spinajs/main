@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
 import { ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
-import type { IRbacDescriptor } from '@spinajs/authn-http';
+import { ACCESS_CLASS, accessDescriptorOf } from '@spinajs/authz-http';
 import { DataValidator } from '@spinajs/validation';
 
 import { CreateUserDto, UpdateUserDto, Users } from '../src/admin/controllers/Users/Users.js';
@@ -25,16 +25,19 @@ import { TestConfiguration } from './admin-common.js';
  * user could read any account ), and PATCH shared the creation schema ( so every
  * documented partial update was rejected ).
  *
- * These assertions read the descriptors the http and rbac decorators produce,
+ * These assertions read the descriptors the http and authz-http decorators produce,
  * and run the DTO schemas through the real validator. No server is started —
  * this is a contract test, not an end-to-end one.
  */
 
 const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
 
-const rbacDescriptor = (instance: object): IRbacDescriptor => Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance) as IRbacDescriptor;
-
 const routesOf = (instance: object): IRoute[] => [...controllerDescriptor(instance).Routes.values()];
+
+const accessOf = (instance: object, method: string) => {
+  const d = accessDescriptorOf(instance);
+  return { route: d?.Access.get(method), anonymous: !!d && (d.Anonymous.has(method) || d.Anonymous.has(ACCESS_CLASS)) };
+};
 
 describe('Admin route contract', function () {
   this.timeout(25000);
@@ -59,63 +62,58 @@ describe('Admin route contract', function () {
   });
 
   describe('authorization', () => {
-    /**
-     * `@Permission` is what attaches RbacPolicy to a route — the controller-level
-     * `@Policy(AuthorizedPolicy)` only proves somebody is logged in. A route
-     * without it is readable ( or writable ) by every authenticated account in
-     * the system, whatever their role.
-     */
-    it('every admin route declares a permission', () => {
+    /** The permission of each route: the 2.x verb (readAny → read, createAny → create, ...) on the `users` type. */
+    const PERMISSIONS: Record<string, string> = {
+      'Users.list': 'users:read',
+      'Users.assignableRoles': 'users:read',
+      'Users.getSingleUser': 'users:read',
+      'Users.getByLogin': 'users:read',
+      'Users.addUser': 'users:create',
+      'Users.updateUser': 'users:update',
+      'Users.removeUser': 'users:delete',
+      'Users.restoreUser': 'users:delete',
+      'Security.activateUser': 'users:update',
+      'Security.deactivateUser': 'users:delete',
+      'Security.banUser': 'users:delete',
+      'Security.unbanUser': 'users:update',
+      'Security.listSessions': 'users:read',
+      'Security.revokeSession': 'users:update',
+      'Security.logoutUser': 'users:update',
+      'Profile.getUserProfile': 'users:read',
+    };
+
+    /** A route without `@Access` is open to whatever its other policies let through; anonymous admin routes are never meant. */
+    it('every admin route sits on @Access, none allows anonymous callers', () => {
       const unguarded: string[] = [];
 
       for (const { name, instance } of controllers) {
-        const acl = rbacDescriptor(instance);
-
         for (const route of routesOf(instance)) {
-          if (!acl.Routes.has(String(route.Method))) {
+          const access = accessOf(instance, String(route.Method));
+          if (!access.route || access.anonymous) {
             unguarded.push(`${name}.${String(route.Method)}`);
           }
         }
       }
 
-      expect(unguarded, 'routes without @Permission are open to every logged-in user').to.deep.eq([]);
+      expect(unguarded, 'routes without @Access, or with @AllowAnonymous').to.deep.eq([]);
     });
 
-    it('every admin route is bound to the users resource', () => {
-      for (const { name, instance } of controllers) {
-        expect(rbacDescriptor(instance).Resource, `${name} is not bound to a resource`).to.eq('users');
-      }
-    });
-
-    /**
-     * Every write route now also accepts its `:own` twin — that is the point of
-     * this package's `RbacUserModel` token work: `:own` is safe on a write route
-     * BECAUSE every row-returning query is built from `userModel()`, so the rbac
-     * query middleware row-scopes it exactly like a read. What must never
-     * regress is the `:any` half — a route that lost it would only be reachable
-     * by a caller acting on their own row, which is a silent capability
-     * downgrade, not a widening.
-     */
-    it('write routes keep their :any permission alongside :own', () => {
-      const wrong: string[] = [];
+    it('every admin route checks one users permission, by the verb it had in 2.x', () => {
+      const seen: Record<string, string> = {};
 
       for (const { name, instance } of controllers) {
-        const acl = rbacDescriptor(instance);
-
         for (const route of routesOf(instance)) {
-          if (route.Type === RouteType.GET) {
-            continue;
-          }
-
-          const permissions = acl.Routes.get(String(route.Method))?.Permission ?? [];
-
-          if (!permissions.some((p) => p.endsWith('Any'))) {
-            wrong.push(`${name}.${String(route.Method)} -> ${permissions.join(',')}`);
-          }
+          seen[`${name}.${String(route.Method)}`] = accessOf(instance, String(route.Method)).route!.permissions.join(',');
         }
       }
 
-      expect(wrong, 'an admin write route must keep its :any permission — :own is additive here, not a replacement').to.deep.eq([]);
+      expect(seen).to.deep.eq(PERMISSIONS);
+    });
+
+    it('no admin route carries the 2.x @Permission or @Resource any more', () => {
+      for (const { name, instance } of controllers) {
+        expect(Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance), name).to.eq(undefined);
+      }
     });
   });
 
