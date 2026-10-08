@@ -116,6 +116,17 @@ export class AccessParitySocket extends BaseSocketController {
   }
 }
 
+@SocketController('acpd')
+@SocketAccess('note:list', { domain: 'tenant' })
+export class AcpDomainSocket extends BaseSocketController {
+  @Command('own')
+  @SocketAccess('note:read')
+  public async own() {
+    const s = store();
+    return { domain: s?.AuthzDecision?.domain ?? null, mark: s?.AuthzHttpRoute ?? null };
+  }
+}
+
 export const acpMarkWrites: unknown[] = [];
 
 /**
@@ -254,6 +265,10 @@ describe('@SocketAccess decides as authz-http AccessPolicy (G4)', function () {
 
   it("leaves the handler's own decision, not the class's, in the call store, with the AuthzHttpRoute mark of its domain", async () => {
     expect(resultOf(await command(alice, 'acp.own'))).to.deep.equal({ permission: 'note:read', domain: 'tenant', mark: { domain: 'tenant' } });
+  });
+
+  it("marks a handler rule without a domain with its class rule's domain, as authz-http's routeDomain, and decides it in root", async () => {
+    expect(resultOf(await command(alice, 'acpd.own'))).to.deep.equal({ domain: 'root', mark: { domain: 'tenant' } });
   });
 
   it("leaves the class's decision and mark for a handler without its own @SocketAccess", async () => {

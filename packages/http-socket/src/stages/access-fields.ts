@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, filterObject, readDomainConfig, subtractFieldGlobs } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
 import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
-import { ISocketAccess, socketAccessOf } from '../access.js';
+import { ISocketAccess, socketAccessDomain, socketAccessOf } from '../access.js';
 import { isStreamResult } from '../stream.js';
 
 /** The handler's own `@SocketAccess` rule, else its controller's: the one whose decision is in the call storage. */
@@ -61,7 +61,7 @@ export class AccessFieldsStage extends SocketCommandStage {
     }
 
     const result = await next();
-    const read = this.readable(ctx.storage.AuthzDecision, access.domain ?? 'root');
+    const read = this.readable(ctx.storage.AuthzDecision, socketAccessDomain(ctx.handler!.descriptor.Policies, ctx.handler!.controller.Descriptor?.Policies));
     const filter = (data: unknown): unknown => (data !== null && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer) ? filterObject(read, data) : data);
 
     return isStreamResult(result) ? filtered(result, filter) : filter(result);

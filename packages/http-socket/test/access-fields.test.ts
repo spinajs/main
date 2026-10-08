@@ -156,6 +156,17 @@ export class AccessFieldsBaseSocket extends BaseSocketController {
 @SocketAccess('note:read')
 export class AccessFieldsChildSocket extends AccessFieldsBaseSocket {}
 
+@SocketController('acfd')
+@SocketAccess('note:list', { domain: 'tenant' })
+export class AccessFieldsDomainSocket extends BaseSocketController {
+  @Command('alt')
+  @SocketAccess('note:write', { fields: 'filter' })
+  @SocketPolicy(AcfAllow)
+  public async alt() {
+    return { id: 'n1', secret: 's' };
+  }
+}
+
 describe("@SocketAccess fields: 'filter' (G4)", function () {
   this.timeout(15000);
 
@@ -242,6 +253,17 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
 
     expect(resultOf(await command(alice, 'acfx.tenant'))).to.not.have.property('secret');
     expect(resultOf(await command(alice, 'acfx.rootsecret'))).to.deep.equal({ id: 'n1', secret: 's' });
+  });
+
+  it("takes neverRead from the class rule's domain for a handler rule without one, as authz-http's routeDomain", async () => {
+    await t.close();
+    alice.close();
+    t = await startServer({ authz: { domains: { tenant: { parent: 'root', fields: { neverRead: ['secret'] } } } } });
+    (await DI.resolve(AuthzDomains)).create('tenant');
+    alice = await open(t, { auth: { clientId: 'acf-alice', token: 'good' } });
+
+    // the handler rule denies and another group admits: no decision, so its domain cannot name the neverRead
+    expect(resultOf(await command(alice, 'acfd.alt'))).to.deep.equal({ id: 'n1' });
   });
 
   it('passes a binary chunk of a stream unchanged and filters the object chunk after it', async () => {

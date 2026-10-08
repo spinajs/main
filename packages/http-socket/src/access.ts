@@ -1,9 +1,10 @@
 import { Class, DI, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy, IPolicyGroup } from '@spinajs/http';
-import type { IRoute } from '@spinajs/http';
+import type { IController, IRoute } from '@spinajs/http';
 import { AccessDenied, AuthzDomains, AuthzService, FALSE, ResourceAdapter, Unauthenticated, parsePermission } from '@spinajs/authz';
 import type { Decision, Permission, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
+import { BaseSocketController } from './controller.js';
 import { SocketPolicyGroup } from './decorators.js';
 import { ISocketControllerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from './interfaces.js';
 import { ISocketPolicyRequest } from './policies.js';
@@ -62,7 +63,12 @@ export function socketAccessOf(groups: readonly IPolicyGroup[] | undefined): ISo
   return undefined;
 }
 
-const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== null && typeof (v as ResourceRef).type === 'string' && Object.keys(v).every((k) => k === 'type' || k === 'id');
+/** The domain of a call's input mark and output filter: the handler rule's, else the class rule's, else root, as authz-http's `routeDomain`. */
+export function socketAccessDomain(handler: readonly IPolicyGroup[] | undefined, controller: readonly IPolicyGroup[] | undefined): string {
+  return socketAccessOf(handler)?.domain ?? socketAccessOf(controller)?.domain ?? 'root';
+}
+
+const isRef =(v: unknown): v is ResourceRef => typeof v === 'object' && v !== null && typeof (v as ResourceRef).type === 'string' && Object.keys(v).every((k) => k === 'type' || k === 'id');
 
 /**
  * Decides one `@SocketAccess` group as authz-http's AccessPolicy decides `@Access` ( design §11.2 ): unauthenticated ⇒
@@ -80,15 +86,19 @@ export class SocketAccessPolicy extends BasePolicy {
     return true;
   }
 
-  /** @param route - the socket gate's route: its `Policies` are the handler's own groups */
-  public async execute(req: unknown, route?: IRoute): Promise<void> {
+  /**
+   * @param route - the socket gate's route: its `Policies` are the handler's own groups
+   * @param controller - the socket controller: its `Descriptor.Policies` are the class's groups
+   */
+  public async execute(req: unknown, route?: IRoute, controller?: IController): Promise<void> {
     const call = req as ISocketPolicyRequest;
     const domain = this.access.domain ?? 'root';
     const deciding = this.access.scope === 'handler' || socketAccessOf(route?.Policies) === undefined;
 
     if (deciding) {
       // authz-http's AuthzInputFieldFilter reads this mark, so a call another policy group admitted still loses fields.neverRead
-      call.storage.AuthzHttpRoute = { domain, ...(this.access.unfilteredInput !== undefined ? { unfilteredInput: this.access.unfilteredInput } : {}) };
+      const marked = socketAccessDomain(route?.Policies, (controller as BaseSocketController | undefined)?.Descriptor?.Policies);
+      call.storage.AuthzHttpRoute = { domain: marked, ...(this.access.unfilteredInput !== undefined ? { unfilteredInput: this.access.unfilteredInput } : {}) };
       // the filter reads AuthzDomains with DI.get: while nothing resolved it, a configured write mode 'reject' would silently strip
       await DI.resolve(AuthzDomains);
     }
