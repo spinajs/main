@@ -650,3 +650,15 @@ test (see "N2 status" and `test/password.test.ts`).
 ## T1 status (task 7)
 
 `test/legacy-v2/` was removed by T1 task 7: every row of its five files (actions-fundamentals, actions, auth, cli, session-cookie) is mapped to an existing 3.0 test, written in `test/v3/role-grants.test.ts` or `test/v3/reset-flows.test.ts`, handed off, or dropped; the rows name the test. The `ignore` of `.mocharc.json` is gone.
+
+## test/http/a26-role-switch.test.ts
+
+New in 3.0, no 2.x rows: the kit's A26/http facet (`runAuthnBehaviour(['A26'], …)`, claimed) over one real http app per mocha process (`test/support/http-app.ts`, `test/support/authn-harness.ts`), with authn-http's 3.0 routes on users' `RbacRoleSource`, `UserPrincipalFactory`, `AccessResponseExtension`, `AuthzImpersonationGuard` and identity and password stores. The `test/http/**` suites run in their own mocha pass (`.mocharc.http.json`); `.mocharc.json` ignores them. Lane C3b (task 2a). The cases replace, for users' real role source, the role-switch rows authn-http's ledger leaves to T2 (`active-role` rows 1, 4–7 and 9).
+
+| # | Line | Test | Class | Lane | Target |
+|---|---|---|---|---|---|
+| 1 | 18 | A26 role switch over http on users RbacRoleSource (C3b) > users: A26/http > A26 role switch takes only held roles and rotates > A26 a held role is accepted and sets ceiling.roles | new | C3b | A26/http (`@spinajs/authn-testing`), claimed; roles held as GLOBAL assignments through `AuthzAdmin`, `requirePassword` from `authz.principals.roleSwitch.requirePassword` |
+| 2 | 18 | A26 role switch over http on users RbacRoleSource (C3b) > users: A26/http > A26 role switch takes only held roles and rotates > A26 a role the principal does not hold is refused | new | C3b | A26/http (`@spinajs/authn-testing`), claimed; roles held as GLOBAL assignments through `AuthzAdmin`, `requirePassword` from `authz.principals.roleSwitch.requirePassword` |
+| 3 | 18 | A26 role switch over http on users RbacRoleSource (C3b) > users: A26/http > A26 role switch takes only held roles and rotates > A26 the switch rotates the session | new | C3b | A26/http (`@spinajs/authn-testing`), claimed; roles held as GLOBAL assignments through `AuthzAdmin`, `requirePassword` from `authz.principals.roleSwitch.requirePassword` |
+| 4 | 18 | A26 role switch over http on users RbacRoleSource (C3b) > users: A26/http > A26 role switch takes only held roles and rotates > A26 a requirePassword role needs fresh auth: stale without password | new | C3b | A26/http (`@spinajs/authn-testing`), claimed; roles held as GLOBAL assignments through `AuthzAdmin`, `requirePassword` from `authz.principals.roleSwitch.requirePassword` |
+| 5 | 18 | A26 role switch over http on users RbacRoleSource (C3b) > users: A26/http > A26 role switch takes only held roles and rotates > A26 a requirePassword role needs fresh auth: stale with password | new | C3b | A26/http (`@spinajs/authn-testing`), claimed; roles held as GLOBAL assignments through `AuthzAdmin`, `requirePassword` from `authz.principals.roleSwitch.requirePassword` |
