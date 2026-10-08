@@ -41,7 +41,7 @@ const hasSessionHandle = (principal: Principal): boolean => typeof principal.aut
  * - TokenAuth: a marker for a per-request credential (a principal without a session handle), with the token's profile
  *   (principal.attributes.profile, set by TokenStrategy) when it has one.
  *
- * It never sets Session or ActiveRole, so a route behind the 2.x LoggedPolicy, AuthorizedPolicy or RbacPolicy answers
+ * It never sets Session or ActiveRole, so a route behind the 2.x AuthorizedPolicy or RbacPolicy answers
  * 401 until its lane moves it to the 3.0 policies.
  *
  * @deprecated 3.0: read req.storage.AuthnPrincipal (AuthnMiddleware) and use Authenticated and @Identity(). R1 deletes it.

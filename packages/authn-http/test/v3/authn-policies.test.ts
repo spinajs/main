@@ -244,7 +244,7 @@ describe('3.0 authn policies and route args', function () {
   });
 
   describe('exports', () => {
-    it('the barrel shadows every api.ts name with the 3.0 class, the five 2.x names included (N8c)', () => {
+    it('the barrel exports the 3.0 class under every api.ts name, not the api.ts contract class (N8c)', () => {
       for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
         expect(barrel[n], n).to.eq(v3[n]).and.not.eq(api[n]);
       }

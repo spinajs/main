@@ -1,6 +1,5 @@
 import { DI } from '@spinajs/di';
 
-
 /**
  * JSON schemas for the auth endpoints' RESPONSE bodies.
  *

@@ -14,7 +14,7 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
 const SCANNED_2X_DIRS: string[] = [];
 const SCANNED_2X_CONTROLLERS: string[] = [];
 
-/** The 2.x controllers the 3.0 ones replace: C3b deleted the account ones with their account/legacy files, R1bc deleted AccessTokenController. */
+/** The 2.x controllers the 3.0 ones replace, deleted from the source tree. */
 const DELETED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController'];
 
 /** The 2.x account controllers N8b parked in account/legacy: compiled, never scanned (N8b task 9). */

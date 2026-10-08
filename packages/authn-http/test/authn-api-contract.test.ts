@@ -168,7 +168,7 @@ describe('authn-http api stubs (api.ts)', function () {
       expect(sub.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
     });
 
-    it('the barrel exports every api name as the lane implementation, the five names the 2.x code also has included (N8c)', () => {
+    it('the barrel exports every api name as the lane implementation, not the api.ts contract class (N8c)', () => {
       const b = barrel as unknown as Record<string, unknown>;
       for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
         const stub = (api as Record<string, unknown>)[n];

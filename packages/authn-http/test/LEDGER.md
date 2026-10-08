@@ -376,6 +376,8 @@ Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite). After C1 
 
 Status (N8b task 7): nothing left for N8b; the 2.x token middleware it drives retires in N8c's switch-on commit (N8a-N8c checklist step 3).
 
+Status (R1bc): its fixture `test/support/TestTokenController.ts` is deleted with the 2.x `TokenPolicy`; the file was already gone (T3).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 90 | TokenPolicy e2e > valid bearer token reaches the route | rewrite | C5 → T3 | authz-rbac/test/ported/ and authn-http/test/v3/; a token reaches an `@Access` route (B24, A14, B23); N8a task 9: `test/legacy-v2/token-policy-e2e.test.ts` (deleted by T3); T3: test/v3-app/suites/token-e2e.ts "a bearer token reaches it and authenticates its owner with the token roles as ceiling ..."; authz half authz-rbac/test/ported/token/ceiling-e2e.test.ts (token-policy-e2e 1). Changed: the test route is behind `Authenticated` only (authn-http cannot load `@Access`) |
@@ -406,6 +408,8 @@ Login-window 2FA verification and session regeneration. Class: rewrite (pending 
 Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
 
 Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compiled, never scanned); the 3.0 routes in `src/v3/controllers/` are scanned; the file is `test/legacy-v2/two-factor-regenerate.test.ts`.
+
+Status (R1bc): the legacy-v2 file also imports the deleted `policies/NotAthorizedPolicy.js`; it already failed to compile (it imports the deleted `TwoFactorAuthController`) and does not run.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|

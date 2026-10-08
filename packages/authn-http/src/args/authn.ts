@@ -4,7 +4,7 @@ import type { IRouteArgsResult, IRouteCall, IRouteParameter, Request } from '@sp
 
 import type { AuthnIdentity } from '../api.js';
 
-// Not named like the 2.x SessionArg, SessionIdArg, ...: DI keys classes by name (N8a-D2). @spinajs/http resolves a route
+// DI keys classes by name (N8a-D2), so these are named apart from any other route arg. @spinajs/http resolves a route
 // arg by this name from the root container; registerAuthnHttpV3 registers them there.
 
 /**
