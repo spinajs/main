@@ -468,6 +468,13 @@ describe('Admin user controllers', function () {
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['admin']);
     });
 
+    it('drops reauthPassword from the DTO, so no later code can copy it into the model', async () => {
+      for (const data of [{ Email: 'reauth@spinajs.pl', reauthPassword: 'secret' }, { Role: ['user'], reauthPassword: 'secret' }]) {
+        await usersController.updateUser(await admin(), USER_UUID, data as any, undefined as any);
+        expect(data).to.not.have.property('reauthPassword');
+      }
+    });
+
     it('replaces the whole role list when one is sent', async () => {
       await usersController.updateUser(await admin(), USER_UUID, { Role: ['user', 'guest'] } as any, undefined as any);
 

@@ -11,17 +11,18 @@ import { globalRolesOf } from '../support/authz-host.js';
 import { startUsersHttpApp, stopUsersHttpApp } from '../support/http-app.js';
 import type { RoleDefs, UsersHttpApp } from '../support/http-app.js';
 import { ACCOUNT_PASSWORD, REAUTH_STRATEGIES } from '../support/reauth-strategy.js';
+import { TOKEN_STRATEGY, bearerTokenOf } from '../support/token-strategy.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * `PATCH /users/:uuid` changing the Email or Login of another account (review 3, H2; review 5, I1). The public password
- * reset goes to the e-mail address, so such a change hands the account over: it needs what authn-http's admin password
- * reset needs, fresh authentication and authn's CredentialAdminGuard (users': `users:credentials`, the target covered,
- * no protected role), asked before anything is written. Role-only changes and changes of one's own account are not
- * affected.
+ * `PATCH /users/:uuid` changing an Email or Login (review 3, H2; review 5, I1; review 5b, N1). The public password reset
+ * goes to the e-mail address, so such a change hands the account over: it needs fresh authentication, the caller's own
+ * account included, and for another account also authn's CredentialAdminGuard (users': `users:credentials`, the target
+ * covered, no protected role), as authn-http's admin password reset; both are asked before anything is written.
+ * Role-only changes are not affected.
  */
-describe('users-http v3: e-mail and login changes of other users need fresh auth and the credential admin guard', function () {
+describe('users-http v3: e-mail and login changes need fresh auth, and of other users the credential admin guard', function () {
   this.timeout(120000);
 
   let app: UsersHttpApp;
@@ -45,7 +46,7 @@ describe('users-http v3: e-mail and login changes of other users need fresh auth
         // Holds more than user-admin: user-admin does not cover it.
         'senior-admin': { grants: ['users:read', 'users:update', 'users:delete', 'users:credentials'] },
       }),
-      config: { 'authn.strategies': REAUTH_STRATEGIES },
+      config: { 'authn.strategies': [...REAUTH_STRATEGIES, TOKEN_STRATEGY] },
     });
 
     userAdmin = await app.seedUser({ login: 'user-admin', roles: ['user-admin'] });
@@ -120,7 +121,7 @@ describe('users-http v3: e-mail and login changes of other users need fresh auth
     expect(await globalRolesOf(t.Uuid)).to.deep.eq(['member']);
   });
 
-  it('leaves changes of the own account to users:update', async () => {
+  it('lets a fresh session change its own e-mail without the credential admin guard', async () => {
     const res = await (await app.signIn(lowerAdmin.Uuid)).patch(`/users/${lowerAdmin.Uuid}`, { Email: 'lower-admin-new@spinajs.test' });
 
     expect(res.status, res.text).to.eq(200);
@@ -189,7 +190,7 @@ describe('users-http v3: e-mail and login changes of other users need fresh auth
       expect(now.Login).to.eq(`reauth-${seq}`);
     });
 
-    it('is not asked for a role-only change, values sent unchanged, or the own account', async () => {
+    it('is not asked for a role-only change or values sent unchanged', async () => {
       const t = await member();
       const client = await stale(lowerAdmin.Uuid);
 
@@ -199,10 +200,50 @@ describe('users-http v3: e-mail and login changes of other users need fresh auth
 
       const same = await client.patch(`/users/${t.Uuid}`, { Email: t.Email, Login: t.Login });
       expect(same.status, same.text).to.eq(200);
+    });
 
-      const own = await client.patch(`/users/${lowerAdmin.Uuid}`, { Login: 'lower-admin-renamed' });
-      expect(own.status, own.text).to.eq(200);
+    // Review 5b, N1: else a stolen stale session moves its own address, then takes the account over by the public reset.
+    it('is asked for the own account too: a stale session gets 403 fresh_auth_required and writes nothing', async () => {
+      const own = await stored(userAdmin.Uuid);
+      const client = await stale(userAdmin.Uuid);
+
+      for (const body of [{ Email: `own-stale-${++seq}@evil.test` }, { Login: `own-stale-${seq}` }]) {
+        const res = await client.patch(`/users/${userAdmin.Uuid}`, body);
+        expect(res.status, res.text).to.eq(403);
+        expect(res.body.error, res.text).to.eq('fresh_auth_required');
+      }
+      await unchanged(own);
+    });
+
+    it('lets a stale session re-authenticate and change its own login, without the credential admin guard', async () => {
+      const res = await (await stale(lowerAdmin.Uuid)).patch(`/users/${lowerAdmin.Uuid}`, { Login: 'lower-admin-renamed', reauthPassword: ACCOUNT_PASSWORD });
+
+      expect(res.status, res.text).to.eq(200);
       expect((await stored(lowerAdmin.Uuid)).Login).to.eq('lower-admin-renamed');
+    });
+
+    it("refuses an impersonating session another account's e-mail (403 impersonating), with the password too, and writes nothing", async () => {
+      const t = await member();
+      const client = await app.signIn(userAdmin.Uuid, { impersonator: { type: 'user', id: protectedAdmin.Uuid } });
+
+      for (const body of [{ Email: `impersonated-${seq}@evil.test` }, { Email: `impersonated-${seq}@evil.test`, reauthPassword: ACCOUNT_PASSWORD }]) {
+        const res = await client.patch(`/users/${t.Uuid}`, body);
+        expect(res.status, res.text).to.eq(403);
+        expect(res.body.error, res.text).to.eq('impersonating');
+      }
+      await unchanged(t);
+    });
+
+    it("refuses a token principal another account's e-mail (403 session_required), with the password too, and writes nothing", async () => {
+      const t = await member();
+      const headers = { Authorization: `Bearer ${bearerTokenOf(userAdmin.Uuid)}` };
+
+      for (const body of [{ Email: `by-token-${seq}@evil.test` }, { Email: `by-token-${seq}@evil.test`, reauthPassword: ACCOUNT_PASSWORD }]) {
+        const res = await app.anonymous().patch(`/users/${t.Uuid}`, body, headers);
+        expect(res.status, res.text).to.eq(403);
+        expect(res.body.error, res.text).to.eq('session_required');
+      }
+      await unchanged(t);
     });
   });
 });

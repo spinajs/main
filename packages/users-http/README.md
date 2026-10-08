@@ -23,16 +23,18 @@ the lifecycle routes (activate, deactivate, ban, unban) need a grant on every us
 AuthzAdmin or the account guard (create, update, delete, deactivate, ban, assignable roles) need a signed-in user as the
 caller; a service principal is refused there.
 
-A `PATCH /users/:uuid` that changes the `Email` or `Login` of another account also needs fresh authentication and
-authn's `CredentialAdminGuard` (action `password-reset`), as `@spinajs/authn-http`'s admin password reset does: the
-public password reset goes to that address, so the change could hand the account over. Fresh authentication is a login
-within `authn.freshAuth.maxAgeSeconds`, or the caller's password in the body field `reauthPassword` (`403
-fresh_auth_required`, a wrong password the login failure `401`). Both are asked after the input checks (a reserved
-login, an empty role list: `400`) and before the account guard, the role dry run, the uniqueness check and any write.
-The guard answers as on the session routes below (`403 forbidden`, `protected_role`, `escalation`), and without a
-registered guard such a change is refused. A role-only change, an `Email` or `Login` sent unchanged, and a change of
-the caller's own account need only `users:update`. users' guard checks `users:credentials`, which `@spinajs/users`
-registers and its `admin.users` role grants through `users:*`.
+A `PATCH /users/:uuid` that changes an `Email` or `Login` also needs fresh authentication, the caller's own account
+included: the public password reset goes to that address, so the change could hand the account over, and a stolen
+session that is no longer fresh must not move its own address and then reset the password. Fresh authentication is a
+login within `authn.freshAuth.maxAgeSeconds`, or the caller's password in the body field `reauthPassword` (`403
+fresh_auth_required`, a wrong password the login failure `401`); a token or key caller gets `403 session_required` and
+an impersonating session `403 impersonating`. A change of another account also needs authn's `CredentialAdminGuard`
+(action `password-reset`), as `@spinajs/authn-http`'s admin password reset does. Both are asked after the input checks
+(a reserved login, an empty role list: `400`) and before the account guard, the role dry run, the uniqueness check and
+any write. The guard answers as on the session routes below (`403 forbidden`, `protected_role`, `escalation`), and
+without a registered guard such a change is refused. A role-only change and an `Email` or `Login` sent unchanged need
+only `users:update`. users' guard checks `users:credentials`, which `@spinajs/users` registers and its `admin.users`
+role grants through `users:*`.
 
 ## Routes
 
@@ -152,9 +154,9 @@ This package's config fragment declares the `users:read`, `users:create`, `users
 - 3.0: the session list and the per-handle revoke read the 3.0 `SessionIssuer` and need a session caller and the
   credential admin guard (see "Sessions of a user"); the revoke also needs fresh authentication. A list entry is
   `{ Handle, Created, LastSeen, Ip?, UserAgent? }` (`IAdminSessionEntry`); `Expires` is gone.
-- 3.0: changing the `Email` or `Login` of another account through `PATCH /users/:uuid` needs fresh authentication
-  and the credential admin guard (`users:credentials`, the target covered, no protected role) besides `users:update`;
-  the body takes `reauthPassword` for that.
+- 3.0: changing an `Email` or `Login` through `PATCH /users/:uuid` needs fresh authentication besides
+  `users:update`, the caller's own account included; the body takes `reauthPassword` for that. A change of another
+  account also needs the credential admin guard (`users:credentials`, the target covered, no protected role).
 - `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and
   `POST /users/security/deactivate/:uuid`.
 - `activate` now requires `updateAny` instead of `deleteAny`.

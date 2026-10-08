@@ -152,7 +152,7 @@ function roleList(role?: string | string[]): string[] {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
     Role: ROLE_FIELD,
-    reauthPassword: { type: 'string', description: "The caller's password, for fresh authentication when the e-mail or login of another account changes" },
+    reauthPassword: { type: 'string', description: "The caller's password, for fresh authentication when an e-mail or login changes" },
   },
   additionalProperties: false,
 })
@@ -504,17 +504,17 @@ export class Users extends BaseController {
    * the privileged permission from an account must also leave another account in service holding it
    * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
    * role leaves the login and email untouched too. An empty list is refused rather than applied.
-   * Changing the `Email` or `Login` of another account also needs fresh authentication (a login
-   * within authn.freshAuth.maxAgeSeconds, or the caller's password in the body field
-   * `reauthPassword`) and authn's CredentialAdminGuard (action `password-reset`; users':
-   * `users:credentials`, the target covered, no protected role): the password reset goes to that
-   * address.
+   * Changing an `Email` or `Login` also needs fresh authentication, the caller's own account
+   * included (a login within authn.freshAuth.maxAgeSeconds, or the caller's password in the body
+   * field `reauthPassword`): the password reset goes to that address. On another account it also
+   * needs authn's CredentialAdminGuard (action `password-reset`; users': `users:credentials`, the
+   * target covered, no protected role).
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
    * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
-   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, the account guard refused it (own privilege, last active privileged account), no fresh authentication for an e-mail or login change of another account (`fresh_auth_required`, `session_required`, `impersonating`), or the credential admin guard refused it (`forbidden`, `protected_role`, `escalation`)
+   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, the account guard refused it (own privilege, last active privileged account), no fresh authentication for an e-mail or login change (`fresh_auth_required`, `session_required`, `impersonating`), or the credential admin guard refused that change of another account (`forbidden`, `protected_role`, `escalation`)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
@@ -536,17 +536,23 @@ export class Users extends BaseController {
       throw new InvalidArgument('Role must name at least one role', 'Role');
     }
 
-    // The public password reset mails the address, and the login names the account at sign-in: changing either on another
-    // account can hand it over, so it takes what authn-http's admin password reset takes (fresh auth, then the guard),
-    // before the account guard, the role dry run, the uniqueness check and any write.
+    // The public password reset mails the address, and the login names the account at sign-in: changing either can hand
+    // the account over, the caller's own to whoever holds a stale session of it. So it takes fresh auth, on another
+    // account also authn-http's admin password reset guard, before the account guard, the role dry run, the uniqueness
+    // check and any write.
     const changesIdentity = (data.Email ?? target.Email) !== target.Email || (data.Login ?? target.Login) !== target.Login;
-    if (changesIdentity && target.Uuid !== by.id) {
+    if (changesIdentity) {
       const stale = await freshAuthRefusal(req, this);
       if (stale) {
         return stale;
       }
-      await assertCredentialAdmin(by, target.Uuid, 'password-reset');
+      // users' guard refuses the caller's own account.
+      if (target.Uuid !== by.id) {
+        await assertCredentialAdmin(by, target.Uuid, 'password-reset');
+      }
     }
+    // FreshAuth took it out of req.body only; the DTO keeps its own copy.
+    delete (data as { reauthPassword?: unknown }).reauthPassword;
 
     let commands: AuthzCommand[] = [];
     if (next) {
