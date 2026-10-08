@@ -471,24 +471,64 @@ describe('DurableQueue', () => {
     expect(acked.map((a) => a.result)).to.deep.equal([{ n: 2 }]);
   });
 
-  it('does not report on close an answered command whose outcome the store has not applied yet', async () => {
+  it('settles on close an answered command once the store has applied its outcome, in send order', async () => {
     serveDurable(server, 'docs.submit');
     const store = new MemoryOutboxStore();
-    let removing = false;
-    store.remove = () => {
-      removing = true;
-      return new Promise(() => undefined);
+    const remove = store.remove.bind(store);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let removing = 0;
+    store.remove = async (seq) => {
+      removing++;
+      if (seq === 1) {
+        await gate;
+      }
+      return remove(seq);
     };
     const { queue } = await onlineQueue(server, { store });
-    const acked: AckedCommand[] = [];
-    queue.events.on('acked', (event) => acked.push(event));
+    const acked: number[] = [];
+    queue.events.on('acked', (event) => acked.push((event.result as { n: number }).n));
 
-    const done = queue.submit('docs.submit', { n: 1 });
-    await until(() => removing);
+    const all = Promise.all([1, 2].map((n) => queue.submit('docs.submit', { n })));
+    await until(() => removing === 2);
     queue.close();
-
-    expect((await rejectionOf(done)).code).to.equal('unavailable');
+    await sleep(50);
+    // the entry of 1 is still in the store, and 2 waits for it
     expect(acked).to.deep.equal([]);
+
+    release();
+    // the write lands after close, so the next start will not find the entry: this is its only report
+    expect(await all).to.deep.equal([{ n: 1 }, { n: 2 }]);
+    expect(acked).to.deep.equal([1, 2]);
+    expect(await store.pending()).to.deep.equal([]);
+  });
+
+  it('rejects on close a command refused for good with its own error once the store has moved it to the failed list', async () => {
+    serveDurable(server, 'docs.submit', () => {
+      throw { code: 'invalid_argument', message: 'malformed op', retryable: false } as SocketError;
+    });
+    const store = new MemoryOutboxStore();
+    const fail = store.fail.bind(store);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let failing = false;
+    store.fail = async (entry) => {
+      failing = true;
+      await gate;
+      return fail(entry);
+    };
+    const { queue } = await onlineQueue(server, { store });
+    const failed: FailedCommand[] = [];
+    queue.events.on('failed', (event) => failed.push(event));
+
+    const done = rejectionOf(queue.submit('docs.submit', { n: 1 }));
+    await until(() => failing);
+    queue.close();
+    release();
+
+    expect((await done).code).to.equal('invalid_argument');
+    expect(failed.map((f) => f.error.code)).to.deep.equal(['invalid_argument']);
+    expect((await store.failed()).map((e) => (e.payload as { n: number }).n)).to.deep.equal([1]);
   });
 
   it('loads the store again on the next submit when the first load failed', async () => {

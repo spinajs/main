@@ -151,7 +151,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - **An `outbox` requires an explicit `clientId`.** `new SocketClient({ outbox })` without `clientId` throws a `RangeError` for any `outbox`, an explicit `MemoryOutboxStore` included; only the default store (no `outbox` option) works without one. Persisted keys start with `${clientId}:`, and a fresh random id after a reload would break exactly-once and ordering.
 - **Streams cannot be idempotent or ordered.** An async-generator handler declared `idempotent` or `ordered` is refused at startup. Another async iterable returned by such a command is answered `failed_precondition`, but only after the handler ran: its side effects have happened, and its key is released, so a resend runs it again. A stream reply is never stored.
 - **Unauthenticated outcomes are released, not stored.** An `unauthenticated` error releases the idempotency key, so the command runs after a re-login. A retryable error and the call's own abort release it too.
-- **A fire-and-forget `durable()` rejects.** Its promise rejects when the server refuses the command for good (it is then in the `failed` list) and when the client closes (the entry stays in the outbox). A caller that does not await it attaches a `catch`, or follows `acked` / `failed` instead; otherwise the rejection is unhandled.
+- **A fire-and-forget `durable()` rejects.** Its promise rejects when the server refuses the command for good (it is then in the `failed` list) and when the client closes before the server answered it (the entry stays in the outbox). A caller that does not await it attaches a `catch`, or follows `acked` / `failed` instead; otherwise the rejection is unhandled.
 - **`dispose()` drains**, up to `drainMs` (5 s by default) plus the flush windows described under Shutdown. Tests that close servers with handlers still running can set `http.socket.drainMs: 0`.
 - **The lifecycle events `acked`, `failed` and `held`** are routed to the client's own listeners. A server event with one of these names no longer reaches `client.on()`.
 
@@ -181,7 +181,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
   - keeps an `unauthenticated` command queued, emits `held` once, and sends nothing until the connection comes online again;
   - moves a command refused for good to the store's `failed` list and emits `failed`;
   - emits `acked` for each acknowledged command, also for those resumed from the outbox after a reload.
-- Callers and the `acked` / `failed` listeners hear about commands in send order. `close()` rejects waiting callers with a non-retryable `unavailable`; the entries stay in the store.
+- Callers and the `acked` / `failed` listeners hear about commands in send order. `close()` rejects the callers still waiting for an answer with a non-retryable `unavailable`; their entries stay in the store. A command the server already answered settles with that answer once the store has applied it, also after `close()`: the store write may land after the close, and the next start would then not find the entry.
 - `durable.maxPayloadBytes` (1 MiB) is checked before the command is persisted.
 - Stores, all passing one contract suite (`add` durable before the send, a `seq` that is never reused, a `failed` list kept until `clearFailed`):
   - `MemoryOutboxStore`, the default; it does not survive a reload;

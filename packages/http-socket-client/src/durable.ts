@@ -219,8 +219,8 @@ export class DurableQueue {
   }
 
   /**
-   * Rejects the callers still waiting; their entries stay in the store for the next start. Commands
-   * already answered and stored, but waiting for an earlier one, are reported first, in order.
+   * Rejects the callers still waiting for an answer; their entries stay in the store for the next start.
+   * Answered commands settle in send order once the store has applied their outcome, also after close.
    */
   public close(): void {
     if (this.closed) {
@@ -231,17 +231,23 @@ export class DurableQueue {
     this.unsubscribe();
     clearTimeout(this.pauseTimer);
 
-    for (const item of this.items.splice(0)) {
+    const unanswered: Item[] = [];
+    for (const item of this.items) {
       clearTimeout(item.timer);
       // a late reply must not touch the store: the entry is left for the next start, which replays it
       item.outstanding.clear();
-      // an outcome the store has not applied may still be undone by the next start, which replays the entry
-      if (item.outcome && item.stored) {
-        this.report(item, item.outcome);
-      } else {
-        item.reject?.(SocketException.fromWire(CLOSED));
+      if (!item.outcome) {
+        unanswered.push(item);
       }
     }
+
+    // An answered command's store write may land after close: rejecting it as left in the outbox would
+    // lose its outcome, as the next start would not find the entry. settle() reports it once the write is done.
+    this.items.splice(0, this.items.length, ...this.items.filter((item) => item.outcome));
+    for (const item of unanswered) {
+      item.reject?.(SocketException.fromWire(CLOSED));
+    }
+    this.settle();
   }
 
   /** Reads the store once; a failed read is tried again by the next submit() or the next time the connection comes online. */
