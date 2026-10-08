@@ -338,16 +338,19 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
         await lists(user('ann'), 'doc:audit', []);
       });
 
-      it('narrower than the check, as documented: a null maxRole ref, a scope pattern leaf, a resource leaf other than a pattern', async () => {
+      it('narrower than the check, as documented: a null maxRole ref, a scope pattern leaf; a resource leaf other than a pattern is refused at boot', async () => {
         await world.configure({ rules: [{ id: 'c1', kind: 'cap', scope: O('o2'), ladder: 'project', maxRole: { ref: 'scope.org.policies.none' } }], schemas: [{ scopeType: 'org', schema: {}, defaults: { policies: { none: null } } }], attributes: ATTRS });
         await world.assign([assignment(u('ann'), 'projectOnly', P('10'))]);
         // The null default makes maxRole null at o2 in the check, which drops ladder roles only; SQL cannot tell null from missing and refuses doc 2.
         await narrower(user('ann'), 'doc:edit', ['1', '7'], ['2']);
         await scenario([{ id: 't1', kind: 'threshold', scope: O('o1'), permissions: ['doc:edit'], minRole: 'maintainer', when: { attr: 'scope.org.policies.tag', wildcard: 'z*' } }], [assignment(u('ann'), 'editor', GLOBAL)]);
         await narrower(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8'], ['1', '3']);
-        await scenario([{ id: 't2', kind: 'threshold', scope: GLOBAL, permissions: ['doc:comment'], minRole: 'maintainer', resource: { attr: 'resource.name', eq: 'notes' } }], [assignment(u('ann'), 'editor', GLOBAL)]);
-        // doc 2 is 'notes' (denied), doc 8's name is null (UNKNOWN: denied).
-        await narrower(user('ann'), 'doc:comment', [], ['1', '3', '4', '5', '6', '7']);
+        // SQL reads it as UNKNOWN, which would deny every row: boot rule 11 refuses it (kit review M2).
+        const refused = await scenario([{ id: 't2', kind: 'threshold', scope: GLOBAL, permissions: ['doc:comment'], minRole: 'maintainer', resource: { attr: 'resource.name', eq: 'notes' } }], []).then(
+          () => undefined,
+          (e: Error) => e,
+        );
+        expect(refused?.message).to.match(/rule 11[\s\S]*type 'doc', rbac rule 't2': resource reads resource\.name with eq/);
       });
 
       it('a canvas-like set of a dozen caps and thresholds at GLOBAL (design §8.5 shapes): the terms stay within the SQLite parser stack', async () => {

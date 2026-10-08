@@ -1521,17 +1521,32 @@ export class RbacRulesSql {
   }
 }
 
+/** A `resource.*` read of a condition leaf, as the list terms meet it. */
+export interface RbacResourceRead {
+  /** `resource.<path>` as written. */
+  readonly attr: string;
+  /** The leaf is `{ attr, wildcard | glob: <string> }` and nothing else, the only shape `resourceLeaf` may decide. */
+  readonly pattern?: { readonly op: 'wildcard' | 'glob'; readonly literal: string };
+  /** The leaf's keys besides `attr`. */
+  readonly ops: readonly string[];
+}
+
+/** The `resource.*` leaves of a condition (through all/any/not); the core refuses a `resource.*` ref as a value. */
+export function rbacResourceReads(c: unknown): RbacResourceRead[] {
+  if (c === undefined || c === null || typeof c !== 'object') return [];
+  if (Array.isArray(c)) return c.flatMap(rbacResourceReads);
+  const n = c as Record<string, unknown>;
+  if (Array.isArray(n.all)) return n.all.flatMap(rbacResourceReads);
+  if (Array.isArray(n.any)) return n.any.flatMap(rbacResourceReads);
+  if (n.not !== undefined && Object.keys(n).length === 1) return rbacResourceReads(n.not);
+  if (typeof n.attr !== 'string' || n.attr.split('.')[0] !== 'resource') return [];
+  const ops = Object.keys(n).filter((k) => k !== 'attr');
+  const op = ops.length === 1 && (ops[0] === 'wildcard' || ops[0] === 'glob') ? ops[0] : undefined;
+  const literal = op === undefined ? undefined : n[op];
+  return [{ attr: n.attr, ops, ...(op !== undefined && typeof literal === 'string' ? { pattern: { op, literal } } : {}) }];
+}
+
 /** For each `resource.*` leaf of a bound condition: whether SQL can decide it (a wildcard, or a prefix glob, with a literal). */
 function resourceReads(c: BoundCondition | undefined): boolean[] {
-  if (c === undefined || c === null || typeof c !== 'object') return [];
-  if (Array.isArray(c)) return c.flatMap(resourceReads);
-  const n = c as Record<string, unknown>;
-  if (Array.isArray(n.all)) return (n.all as BoundCondition[]).flatMap(resourceReads);
-  if (Array.isArray(n.any)) return (n.any as BoundCondition[]).flatMap(resourceReads);
-  if (n.not !== undefined && Object.keys(n).length === 1) return resourceReads(n.not as BoundCondition);
-  if (typeof n.attr === 'string' && n.attr.split('.')[0] === 'resource') {
-    const pattern = typeof n.wildcard === 'string' || typeof n.glob === 'string';
-    return [pattern && Object.keys(n).length === 2];
-  }
-  return [];
+  return rbacResourceReads(c).map((r) => r.pattern !== undefined);
 }

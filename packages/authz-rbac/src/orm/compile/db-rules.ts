@@ -28,8 +28,9 @@ import type { RbacResourceField } from './stored-rule.js';
  * check refuses: not selecting a restrict, cap or threshold lists more. The definition itself is read as
  * JSON.parse and `rowToRule` read it: on Postgres by `->` (the last of repeated keys, escapes decoded; a text
  * JSON.parse refuses fails the list), on SQLite by json_extract; whatever `jsonUnlike` finds is `st` (a top level
- * that is not an object, an `allow` or `subjects.refs` that is not an array; on SQLite also JSON5, a repeated key,
- * an escape or a NUL).
+ * that is not an object, an `allow` or `subjects.refs` that is not an array or holds an entry that is neither a
+ * principal ref nor a `{ set: { role, scope } }` with a non-empty role; on SQLite also JSON5, a repeated key, an
+ * escape or a NUL).
  *
  * The columns of `authz_dr` (integers 0/1 unless said otherwise):
  * - `id`, `kind`; `ix`: the static path index of the rule's node, NULL for a type-only scope (a node holding '').

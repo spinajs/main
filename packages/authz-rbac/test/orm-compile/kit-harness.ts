@@ -43,8 +43,9 @@ import { withoutJit } from './route-world.js';
  *   Node"). For `<type>:read` the list also goes through authz-orm's middleware and must give the same rows.
  *   Lane handle `sqlPages` runs the same statement with ORDER BY id, LIMIT and OFFSET.
  *
- * Not mirrored (the setup throws): adapter relations, `world.rbac.links`, row values other than strings, numbers
- * and null.
+ * Not mirrored (the setup throws): adapter relations, adapter permissions, an adapter that is not list-scoped
+ * (`compiles: undefined`), `world.rbac.links`, row values other than strings, numbers and null, an ancestor chain
+ * holding a type twice or the row's own type, and chains of one type that order two scope types both ways.
  */
 
 export interface SqlKitStats {
@@ -175,14 +176,53 @@ function sqlType(kind: Kind, values: readonly unknown[], where: string): string 
 }
 
 /**
+ * The scope types of `type`'s rows in one order, nearest first, that keeps every row's ancestor chain in its order
+ * (authz-orm reads a row's ancestors as its non-NULL `@ScopeColumn`s in declaration order). Types no chain orders
+ * against each other keep their first-seen order.
+ * @throws when a chain holds a type twice or holds `type` itself (one column per type cannot mirror it), or when
+ *   two chains order two types differently (no one column order mirrors both)
+ */
+export function scopeColumnOrder(type: ResourceType, chains: readonly (readonly ResourceRef[])[]): ResourceType[] {
+  const seen: ResourceType[] = [];
+  const before = new Map<ResourceType, Set<ResourceType>>();
+  for (const chain of chains) {
+    const types = chain.map((r) => r.type);
+    const twice = types.find((t, i) => types.indexOf(t) !== i);
+    if (twice !== undefined) throw new Error(`sqlKitHarness: an ancestor chain of '${type}' holds '${twice}' twice (${chain.map(resourceKey).join(' → ')}); one scope column per type cannot mirror it`);
+    if (types.includes(type)) throw new Error(`sqlKitHarness: an ancestor chain of '${type}' holds the row's own type (${chain.map(resourceKey).join(' → ')}); one scope column per type cannot mirror it`);
+    types.forEach((t, i) => {
+      if (!seen.includes(t)) seen.push(t);
+      const set = before.get(t) ?? new Set<ResourceType>();
+      for (const later of types.slice(i + 1)) {
+        if (before.get(later)?.has(t)) throw new Error(`sqlKitHarness: the ancestor chains of '${type}' order '${t}' and '${later}' both ways; no one scope column order mirrors them`);
+        set.add(later);
+      }
+      before.set(t, set);
+    });
+  }
+  // Kahn's order over "nearer than", first-seen order among the ready ones.
+  const out: ResourceType[] = [];
+  const left = [...seen];
+  while (left.length > 0) {
+    const i = left.findIndex((t) => !left.some((u) => u !== t && before.get(u)?.has(t)));
+    if (i < 0) throw new Error(`sqlKitHarness: the ancestor chains of '${type}' order ${left.map((t) => `'${t}'`).join(', ')} in a cycle; no one scope column order mirrors them`);
+    out.push(...left.splice(i, 1));
+  }
+  return out;
+}
+
+/**
  * The world's adapter types as authz-orm models on `kind`'s connection, with their rows: `id` TEXT, the rows'
- * fields, one scope column per ancestor type (from `parents`, transitively), nearest first.
+ * fields, one scope column per ancestor type (from `parents`, transitively), nearest first (`scopeColumnOrder`).
  */
 export async function defineWorldModels(db: RootOrm, kind: Kind, world: World): Promise<Map<ResourceType, ModelClass>> {
   const out = new Map<ResourceType, ModelClass>();
   const parentOf = new Map<string, ResourceRef>();
   for (const a of world.adapters ?? []) {
     if (a.relations?.length) throw new Error('sqlKitHarness: adapter relations are not mirrored');
+    // The kit's FakeAdapter takes `compiles: undefined` as "not list-scoped"; authz-orm's adapter lists every type in SQL.
+    if ('compiles' in a && a.compiles === undefined) throw new Error(`sqlKitHarness: an adapter of ${a.types.map((t) => `'${t}'`).join(', ')} is not list-scoped (compiles: undefined), which the harness does not mirror`);
+    if (a.permissions?.length) throw new Error(`sqlKitHarness: adapter permissions (${a.permissions.map((p) => p.name).join(', ')}) are not mirrored; declare them in world.permissions`);
     for (const [child, parent] of a.parents ?? []) parentOf.set(resourceKey(child), parent);
   }
   const chain = (ref: ResourceRef): ResourceRef[] => {
@@ -199,8 +239,10 @@ export async function defineWorldModels(db: RootOrm, kind: Kind, world: World): 
     for (const type of a.types) {
       if (out.has(type)) throw new Error(`sqlKitHarness: two adapters serve '${type}'`);
       const rows = a.rows?.[type] ?? [];
-      const scopes: ResourceType[] = [];
-      for (const row of rows) for (const ref of chain({ type, id: row.id })) if (ref.type !== type && !scopes.includes(ref.type)) scopes.push(ref.type);
+      const scopes = scopeColumnOrder(
+        type,
+        rows.map((row) => chain({ type, id: row.id })),
+      );
       const fields = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((f) => f !== 'id');
       const columns: Record<string, string> = { id: 'TEXT' };
       for (const f of fields)

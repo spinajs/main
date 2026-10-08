@@ -481,6 +481,30 @@ describe('authz-rbac orm-compile: stored rules (DbRuleStore) in SQL', function (
         await lists(user('ann'), 'doc:edit', ['1', '2', '3', '4']);
       });
 
+      it('an allow or subjects.refs entry subjectToColumns cannot use refuses its path (kit review M1)', async () => {
+        const rows = [assignment(u('ann'), 'editor', O('o2')), assignment(u('ann'), 'editor', O('o1'))];
+        const restrict = rawRule({ id: 'r1', kind: 'restrict', scope: O('o2'), allow: [] }, { kind: 'restrict', allow: [] });
+        const text = (definition: string): RawRuleRow => ({ ...restrict, rule: { ...restrict.rule, definition } });
+        const allow = (entry: string) => `{"kind":"restrict","allow":[${entry}]}`;
+        const refs = (entry: string) => `{"kind":"restrict","allow":[],"subjects":{"refs":[${entry}]}}`;
+        // Entries held by no subject row: rowToRule drops them, the restrict keeps docs 2 and 4.
+        for (const definition of [allow('{"type":"user","id":"zed"}'), allow('{"set":{"role":"editor","scope":{"type":"org","id":"o9"}}}'), refs('{"type":"user","id":"zed"}')]) {
+          await scenario([], rows, [], [text(definition)]);
+          await lists(user('ann'), 'doc:edit', ['1', '2', '3', '4']);
+        }
+        // subjectToColumns throws on these, so the check refuses every row on the rule's path.
+        const thrown = ['5', 'null', '"ab"', 'true', '{"set":5}', '{"set":null}', '{"set":{"role":"","scope":{"type":"org","id":"o9"}}}', '{"set":{"role":7,"scope":{"type":"org","id":"o9"}}}', '{"set":{"role":"editor"}}'];
+        for (const definition of [...thrown.map(allow), refs('null'), refs('7'), refs('{"set":5}')]) {
+          await scenario([], rows, [], [text(definition)]);
+          await lists(user('ann'), 'doc:edit', ['1', '3']);
+        }
+        // Not thrown, dropped by rowToRule; refused here, narrower.
+        for (const definition of [allow('[]'), allow('{"type":5,"id":"zed"}'), allow('{"id":"zed"}'), allow('{"set":{"role":"editor","scope":"o9"}}'), refs('{"type":"user"}')]) {
+          await scenario([], rows, [], [text(definition)]);
+          await narrower(user('ann'), 'doc:edit', ['1', '3'], ['2', '4']);
+        }
+      });
+
       it('a row comparing a number attribute with a numeric string literal is inexact: refused where its choice matters (review M2)', async () => {
         // o1's level is 3: not "2" in the check. toSqlForm refuses the literal; a row written past the store holds it.
         const rows = [assignment(u('ann'), 'editor', GLOBAL), assignment(u('ann'), 'commenter', P('10'))];

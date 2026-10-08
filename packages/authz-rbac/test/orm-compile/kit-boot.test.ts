@@ -1,11 +1,15 @@
-import { GLOBAL } from '@spinajs/authz';
+import { GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
 import type { RuleDef } from '@spinajs/authz';
-import { BEHAVIOUR_FIXTURES, fixtureDsl, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
+import { BEHAVIOUR_FIXTURES, fakeModelInitContext, fixtureDsl, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { Case, World } from '@spinajs/authz-testing';
 import { expect } from 'chai';
 import 'mocha';
 
-import { sqlExpressibleGlob } from '../../src/orm/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '../../src/index.js';
+import type { RoleDef } from '../../src/index.js';
+import { rbacSqlBootProblems, sqlExpressibleGlob } from '../../src/orm/index.js';
+import type { RbacSqlBootColumns } from '../../src/orm/index.js';
+import { rbacHarness } from '../model/harness.js';
 import { KINDS } from '../orm/root-orm.js';
 import { sqlKitHarness } from './kit-harness.js';
 
@@ -26,15 +30,16 @@ const PERMISSIONS = [
   { name: 'note:read', types: ['note'] },
 ];
 
-function world(grantOn: readonly { type: string; id?: string }[] | undefined, rules: readonly Omit<RuleDef, 'source'>[] = []): World {
+function world(grantOn: readonly { type: string; id?: string }[] | undefined, rules: readonly Omit<RuleDef, 'source'>[] = [], adapter: object = {}): World {
   return {
     permissions: PERMISSIONS,
     principals: { alice },
     adapters: [
       {
         types: ['file', 'project'],
-        rows: { file: [{ id: 'f1', name: 'a/b' }], project: [{ id: 'p1' }] },
+        rows: { file: [{ id: 'f1', name: 'a/b', size: 3 }], project: [{ id: 'p1' }] },
         parents: [[ref('file', 'f1'), P1] as const],
+        ...adapter,
       },
     ],
     combine: combine('deny-overrides', 'rbac'),
@@ -70,7 +75,14 @@ const LOCAL = [
         ),
         refused('a glob with a * before its end', world([{ type: 'file', id: '*/b' }]), ["type 'file'", "rbac role 'viewer' grant 'file:read'", '"*/b"']),
         refused('a config threshold whose resource glob is more than a prefix', world(undefined, [threshold({ resource: { attr: 'resource.name', glob: 'a*b' } })]), ["type 'file'", "rbac rule 't1'", '"a*b"']),
-        refused('a config threshold whose when reads a field that is no column', world(undefined, [threshold({ when: { attr: 'resource.size', gt: 3 } })]), ["type 'file'", "rbac rule 't1'", 'resource.size']),
+        refused('a config threshold whose when reads a field that is no column', world(undefined, [threshold({ when: { attr: 'resource.weight', gt: 3 } })]), ["type 'file'", "rbac rule 't1'", 'resource.weight', 'not a column']),
+        // Review M2: leaves SQL can only read as UNKNOWN.
+        refused('a config threshold comparing a text column with eq', world(undefined, [threshold({ when: { attr: 'resource.name', eq: 'notes' } })]), ["type 'file'", "rbac rule 't1'", 'resource.name with eq']),
+        refused('a config threshold comparing an integer column', world(undefined, [threshold({ when: { attr: 'resource.size', gt: 3 } })]), ["type 'file'", "rbac rule 't1'", 'resource.size, which is not a text column']),
+        refused('a config threshold matching an integer column with a wildcard', world(undefined, [threshold({ resource: { attr: 'resource.size', wildcard: '3*' } })]), ["type 'file'", "rbac rule 't1'", 'resource.size, which is not a text column']),
+        refused('a config threshold reading a field of two segments', world(undefined, [threshold({ resource: { attr: 'resource.name.first', wildcard: 'a*' } })]), ["type 'file'", "rbac rule 't1'", 'resource.name.first: SQL reads only a field of one segment']),
+        // Review M7: a leaf under all, any and not.
+        refused('a config threshold whose resource glob sits under all, any and not', world(undefined, [threshold({ when: { all: [{ attr: 'principal.id', ne: 'x' }, { any: [{ attr: 'principal.id', eq: 'y' }, { not: { attr: 'resource.name', glob: 'a*b' } }] }] } })]), ["type 'file'", "rbac rule 't1'", '"a*b"']),
         refused('a config threshold whose resource glob is a ref', world(undefined, [threshold({ resource: { attr: 'resource.name', glob: { ref: 'principal.attributes.home' } } as never })]), ["type 'file'", "rbac rule 't1'", 'not a literal']),
         boots('control: the same rule limited to another type boots', world(undefined, [threshold({ resourceTypes: ['project'], when: { attr: 'resource.size', gt: 3 } })])),
         boots('control: a threshold whose permissions are on a type no SQL lists boots', world(undefined, [threshold({ permissions: ['note:read'], resource: { attr: 'resource.title', glob: 'a*b' } })])),
@@ -83,10 +95,73 @@ const LOCAL = [
   ]),
 ];
 
+// On the kit's in-memory adapters: one that calls itself 'orm' is list-scoped only with `compiles`.
+const FAKE = [
+  extension('B05', [
+    {
+      name: 'sql-l4b-fake',
+      facets: ['engine', 'boot', 'rbac', 'rules'],
+      lanes: ['L4b'],
+      note: "Rule 11 on adapters of kind 'orm' without authz-orm models: not list-scoped boots, list-scoped refuses (columns not loaded).",
+      cases: [boots("control: an adapter of kind 'orm' that is not list-scoped", world(undefined, [threshold({ resource: { attr: 'resource.name', wildcard: 'zz*' } })], { kind: 'orm', compiles: undefined })), refused("an adapter of kind 'orm' whose types have no loaded columns", world(undefined, [threshold({ resource: { attr: 'resource.name', wildcard: 'zz*' } })], { kind: 'orm' }), ["type 'file'", "rbac rule 't1'", "the columns of type 'file' are not loaded"])],
+    },
+  ]),
+];
+
+async function bootModel(roles: readonly RoleDef[], rules: readonly Omit<RuleDef, 'source'>[] = []): Promise<RbacModel> {
+  const registry = new PermissionRegistryImpl();
+  registry.register(PERMISSIONS, 'test');
+  registry.freeze();
+  const model = new RbacModel({ roles: new MemoryRoleStore(roles, [{ name: 'project', roles: ['viewer', 'maintainer'] }]), assignments: new MemoryAssignmentStore([]), rules: new ConfigRuleStore(rules.map((r) => ({ ...r, source: 'test' })) as RuleDef[]), log: { warn: () => undefined } });
+  await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
+  return model;
+}
+
+const TEXT = (...names: string[]): RbacSqlBootColumns => ({ names: ['id', ...names], text: ['id', ...names] });
+
+const LADDER_ROLES = [role('viewer', [{ permission: 'file:read', on: [{ type: 'file', id: '*/b' }] }], { ladder: 'project' }), role('maintainer', ['file:edit'], { ladder: 'project' })];
+
+const PLAIN_ROLES = [role('viewer', ['file:read', 'file:edit'], { ladder: 'project' }), role('maintainer', [], { ladder: 'project' })];
+
 describe('authz-rbac orm-compile: boot rule §6.5.11', () => {
   it('a glob SQL expresses is a fixed prefix and at most one trailing * or **', () => {
     for (const ok of ['a', 'a/*', 'a/**', '*', '**', '']) expect(sqlExpressibleGlob(ok), ok).to.equal(true);
     for (const no of ['a*b*', '*/b', 'a/*/c', 'a/***', '**/x', 'a**b']) expect(sqlExpressibleGlob(no), no).to.equal(false);
+  });
+
+  describe('rbacSqlBootProblems', () => {
+    it('reports a grant glob once, under the role that declares it, not under the roles that inherit it', async () => {
+      const model = await bootModel(LADDER_ROLES);
+      const problems = rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name')] });
+      expect(problems.map((p) => [p.type, p.source])).to.deep.equal([['file', "rbac role 'viewer' grant 'file:read'"]]);
+    });
+
+    it('needs the field as a text column of every model of the type', async () => {
+      const model = await bootModel(PLAIN_ROLES, [threshold({ resource: { attr: 'resource.name', wildcard: 'a*' } })]);
+      expect(rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name'), TEXT('name')] })).to.deep.equal([]);
+      expect(rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name'), TEXT()] }).map((p) => p.text)).to.deep.equal(["resource reads resource.name, which is not a column of type 'file'"]);
+      const text = rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name'), { names: ['id', 'name'], text: ['id'] }] });
+      expect(text.map((p) => p.text)).to.deep.equal(["resource reads resource.name, which is not a text column of type 'file' (SQL decides a resource.* read only as a literal wildcard, or a literal glob of a fixed prefix and one trailing * or **, on a text column)"]);
+    });
+
+    it('says the columns are not loaded for a type without a model or with a model without columns (review M5)', async () => {
+      const model = await bootModel(PLAIN_ROLES, [threshold({ when: { attr: 'resource.name', wildcard: 'a*' } })]);
+      const unloaded: RbacSqlBootColumns = { names: [], text: [] };
+      for (const columns of [[], [unloaded], [TEXT('name'), unloaded]]) {
+        const problems = rbacSqlBootProblems({ model, types: ['file'], columns: () => columns });
+        expect(problems.map((p) => p.text)).to.deep.equal(["when reads resource.*, but the columns of type 'file' are not loaded (boot the ORM before the authz domain)"]);
+      }
+    });
+
+    it('refuses a pattern holding a NUL', async () => {
+      const model = await bootModel(PLAIN_ROLES, [threshold({ resource: { attr: 'resource.name', wildcard: 'a\u0000*' } })]);
+      expect(rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name')] }).map((p) => p.text)).to.deep.equal(['resource matches resource.name with a wildcard holding a NUL, which SQL cannot decide']);
+    });
+  });
+
+  describe('on the kit adapters', function () {
+    this.timeout(120000);
+    runBehaviour(['B05.sql-l4b-fake'], () => rbacHarness({ facets: ['ladders', 'rules', 'conditions'], rules: (host) => new ConfigRuleStore(host.world.rbac?.rules ?? []) }), { strict: true, timeoutMs: 60000, fixtures: [...BEHAVIOUR_FIXTURES, ...FAKE] });
   });
 
   for (const kind of KINDS) {

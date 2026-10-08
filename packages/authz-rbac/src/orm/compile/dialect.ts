@@ -52,7 +52,10 @@ export interface RbacSqlDialect {
    * the store's `rowToRule` cannot use it. Both dialects: the top level is not an object (rowToRule throws on null;
    * an array or a scalar it reads as an empty definition, refused here too, narrower), or `allow` or
    * `subjects.refs` is present and not an array (rowToRule throws on a truthy one; a falsy one is refused too,
-   * narrower). SQLite: a NUL anywhere (json_valid reads up to it, JSON.parse refuses it), not RFC 8259 JSON
+   * narrower), or an entry of either is neither a principal ref (string `type` and `id`) nor `{ set: { role, scope } }`
+   * with a non-empty string `role` and an object `scope` (`subjectToColumns` throws on an entry that is no object, a
+   * `set` that is no object or has no such role, a missing scope; the other shapes are refused too, narrower).
+   * SQLite: a NUL anywhere (json_valid reads up to it, JSON.parse refuses it), not RFC 8259 JSON
    * (one-argument `json_valid` refuses the JSON5 the other json functions accept from 3.42), a key repeated in one
    * object (json_extract takes the first, JSON.parse the last), or a `\u` escape anywhere (json_extract does not
    * find a key spelled with one; a value with one is refused too, narrower). Postgres: a text it cannot parse fails
@@ -109,15 +112,26 @@ const sqlite: RbacSqlDialect = {
     const [a, b] = ['authz_jt', 'authz_ju'];
     const repeated = rsql`EXISTS (SELECT 1 FROM json_tree(${valid}) ${ident(a)}, json_tree(${valid}) ${ident(b)} WHERE ${ident(a, 'parent')} = ${ident(b, 'parent')} AND ${ident(a, 'key')} = ${ident(b, 'key')} AND ${ident(a, 'id')} < ${ident(b, 'id')})`;
     const notArray = (keys: readonly string[]) => rsql`(json_type(${valid}, ${jsonPath(keys)}) IS NOT NULL AND json_type(${valid}, ${jsonPath(keys)}) <> ${'array'})`;
-    const shape = rsql`(json_type(${valid}) IS NOT NULL AND json_type(${valid}) <> ${'object'}) OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])}`;
+    const e = 'authz_je';
+    const v = ident(e, 'value');
+    const type = (keys: readonly string[]) => rsql`json_type(${v}, ${jsonPath(keys)})`;
+    // The CASE keeps json_type off an entry that is no object: json_each gives a text entry as the text, not as JSON.
+    const unlikeEntry = rsql`(CASE WHEN ${ident(e, 'type')} IS NOT ${'object'} THEN 1 WHEN ${type(['set'])} IS NULL THEN NOT (${type(['type'])} IS ${'text'} AND ${type(['id'])} IS ${'text'}) ELSE NOT (${type(['set'])} IS ${'object'} AND ${type(['set', 'role'])} IS ${'text'} AND json_extract(${v}, ${jsonPath(['set', 'role'])}) IS NOT ${''} AND ${type(['set', 'scope'])} IS ${'object'}) END = 1)`;
+    const unlikeEntries = (keys: readonly string[]) => rsql`EXISTS (SELECT 1 FROM json_each(${valid}, ${jsonPath(keys)}) ${ident(e)} WHERE ${unlikeEntry})`;
+    const shape = rsql`(json_type(${valid}) IS NOT NULL AND json_type(${valid}) <> ${'object'}) OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])} OR ${unlikeEntries(['allow'])} OR ${unlikeEntries(['subjects', 'refs'])}`;
     return rsql`(instr(${doc}, char(0)) > 0 OR NOT json_valid(${doc}) OR instr(${doc}, ${'\\u'}) > 0 OR ${repeated} OR ${shape})`;
   },
 };
 
 /** `CAST(doc AS JSON) -> k1 -> … -> kn`: the JSON value at `keys`, SQL NULL when they name none. */
 function pgJson(doc: RbacSql, keys: readonly string[], lastAsText = false): RbacSql {
+  return pgAt(rsql`CAST(${doc} AS JSON)`, keys, lastAsText);
+}
+
+/** `json -> k1 -> … -> kn` (`->>` last when `lastAsText`). */
+function pgAt(json: RbacSql, keys: readonly string[], lastAsText = false): RbacSql {
   jsonPath(keys);
-  let out = rsql`CAST(${doc} AS JSON)`;
+  let out = json;
   keys.forEach((k, i) => {
     out = lastAsText && i === keys.length - 1 ? rsql`${out} ->> CAST(${k} AS TEXT)` : rsql`${out} -> CAST(${k} AS TEXT)`;
   });
@@ -152,7 +166,12 @@ const postgres: RbacSqlDialect = {
   jsonDoc: (doc) => doc,
   jsonUnlike: (doc) => {
     const notArray = (keys: readonly string[]) => rsql`(${pgJson(doc, keys)} IS NOT NULL AND json_typeof(${pgJson(doc, keys)}) <> ${'array'})`;
-    return rsql`(json_typeof(CAST(${doc} AS JSON)) <> ${'object'} OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])})`;
+    const v = rsql`${ident('authz_je', 'v')}`;
+    const type = (keys: readonly string[]) => rsql`json_typeof(${pgAt(v, keys)})`;
+    const unlikeEntry = rsql`(CASE WHEN json_typeof(${v}) IS DISTINCT FROM ${'object'} THEN TRUE WHEN ${pgAt(v, ['set'])} IS NULL THEN NOT (${type(['type'])} IS NOT DISTINCT FROM ${'string'} AND ${type(['id'])} IS NOT DISTINCT FROM ${'string'}) ELSE NOT (${type(['set'])} IS NOT DISTINCT FROM ${'object'} AND ${type(['set', 'role'])} IS NOT DISTINCT FROM ${'string'} AND ${pgAt(v, ['set', 'role'], true)} IS DISTINCT FROM ${''} AND ${type(['set', 'scope'])} IS NOT DISTINCT FROM ${'object'}) END)`;
+    // json_array_elements fails on a value that is no array: the CASE hands it NULL (no rows) instead.
+    const unlikeEntries = (keys: readonly string[]) => rsql`EXISTS (SELECT 1 FROM json_array_elements(CASE WHEN json_typeof(${pgJson(doc, keys)}) = ${'array'} THEN ${pgJson(doc, keys)} END) ${ident('authz_je')}(${ident('v')}) WHERE ${unlikeEntry})`;
+    return rsql`(json_typeof(CAST(${doc} AS JSON)) <> ${'object'} OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])} OR ${unlikeEntries(['allow'])} OR ${unlikeEntries(['subjects', 'refs'])})`;
   },
 };
 

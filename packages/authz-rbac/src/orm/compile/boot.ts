@@ -1,15 +1,20 @@
-import { AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzDomains, ResourceAdapter, parseCondition } from '@spinajs/authz';
-import type { AuthzContribution, ParsedCondition, PermissionRegistry, ResourceType } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzDomains, DefaultAuthzDomains, ResourceAdapter, parseCondition, readDomainConfig } from '@spinajs/authz';
+import type { AuthzContribution, PermissionRegistry, ResourceType } from '@spinajs/authz';
 import { accessResourceModels } from '@spinajs/authz-orm/native';
+import { Configuration } from '@spinajs/configuration';
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 import { extractModelDescriptor } from '@spinajs/orm';
+import type { ModelBase } from '@spinajs/orm';
 
 import type { RuleDef } from '../../contracts.js';
 import type { GrantIndex } from '../../model/grants.js';
 import { RbacModel } from '../../model/model.js';
 import type { CompiledPattern } from '../../model/patterns.js';
 import { RulesExtension } from '../../model/rules/extension.js';
+import { rbacDialectOf } from './dialect.js';
+import { rbacResourceFields, rbacResourceReads } from './rules.js';
+import type { RbacResourceRead } from './rules.js';
 
 /** One refusal of design §6.5 rule 11. */
 export interface RbacSqlBootProblem {
@@ -19,17 +24,26 @@ export interface RbacSqlBootProblem {
   readonly text: string;
 }
 
+/** The columns of one ORM model; no names: its table info is not loaded. */
+export interface RbacSqlBootColumns {
+  readonly names: readonly string[];
+  /** The columns SQL reads `resource.<field>` from (`rbacResourceFields`: text, no converter). */
+  readonly text: readonly string[];
+}
+
 export interface RbacSqlBootInput {
   readonly model: RbacModel;
   /** The list-scoped types whose lists run in SQL (authz-orm's adapter serves them). */
   readonly types: readonly ResourceType[];
-  /** Column names of each ORM model of `type`; a type of several models has one list per model. */
-  readonly columns: (type: ResourceType) => readonly (readonly string[])[];
+  /** The columns of each ORM model of `type`; a type of several models has one entry per model. */
+  readonly columns: (type: ResourceType) => readonly RbacSqlBootColumns[];
 }
 
 const ANY_FUNCTION = { has: () => true };
 
 const ORM_ADAPTER_KIND = 'orm';
+
+const SQL_PATTERNS = 'SQL decides a resource.* read only as a literal wildcard, or a literal glob of a fixed prefix and one trailing * or **, on a text column';
 
 /**
  * A glob SQL can express: a fixed prefix and at most one trailing `*` or `**` (the SQL form of DB rules,
@@ -58,26 +72,29 @@ function ruleTypes(rule: RuleDef, types: readonly ResourceType[], registry: Perm
   return admitted.filter((t) => on.has(t));
 }
 
-function resourceGlobs(c: ParsedCondition): Extract<ParsedCondition, { kind: 'cmp' }>[] {
-  switch (c.kind) {
-    case 'all':
-    case 'any':
-      return c.items.flatMap(resourceGlobs);
-    case 'not':
-      return resourceGlobs(c.item);
-    case 'cmp':
-      return c.attr.root === 'resource' && c.op === 'glob' ? [c] : [];
-    default:
-      return [];
+/** Why SQL cannot decide `read` as the evaluator does on rows of `type` (`RbacRulesSql.resourceLeaf`), if it cannot. */
+function readProblem(read: RbacResourceRead, type: ResourceType, models: readonly RbacSqlBootColumns[]): string | undefined {
+  const path = read.attr.split('.').slice(1);
+  if (path.length !== 1) return `reads ${read.attr}: SQL reads only a field of one segment`;
+  if (models.some((m) => !m.names.includes(path[0]))) return `reads ${read.attr}, which is not a column of type '${type}'`;
+  if (models.some((m) => !m.text.includes(path[0]))) return `reads ${read.attr}, which is not a text column of type '${type}' (${SQL_PATTERNS})`;
+  if (!read.pattern) {
+    const op = read.ops.length === 1 && (read.ops[0] === 'glob' || read.ops[0] === 'wildcard') ? read.ops[0] : undefined;
+    return op ? `matches ${read.attr} with a ${op} that is not a literal` : `reads ${read.attr} with ${read.ops.join(', ') || 'no op'} (${SQL_PATTERNS})`;
   }
+  const { op, literal } = read.pattern;
+  if (literal.includes('\u0000')) return `matches ${read.attr} with a ${op} holding a NUL, which SQL cannot decide`;
+  if (op === 'glob' && !sqlExpressibleGlob(literal)) return `matches ${read.attr} with the glob ${JSON.stringify(literal)}, more than a fixed prefix and one trailing * or **`;
+  return undefined;
 }
 
 /**
  * Design §6.5 rule 11 for one RBAC model: on the types whose lists run in SQL, a grant pattern that is a glob SQL
- * cannot express, and a config rule whose `when` or `resource` reads a `resource.*` field that is no column of the
- * type, or matches it with such a glob (or with a glob that is not a literal). DB rules meet the same limits when
- * they are written (`rule_not_compilable`). Globs on scope attributes are not covered: SQL reads them as
- * undecided leaves, which only refuse rows.
+ * cannot express, and a config rule with a `resource.*` read in its `when` or `resource` that SQL can only treat as
+ * UNKNOWN (`RbacRulesSql.resourceLeaf`): anything but a literal `wildcard`, or a literal `glob` of a fixed prefix
+ * and one trailing `*`/`**`, on a one-segment field that is a text column of every model of the type. DB rules meet
+ * the same limits when they are written (`rule_not_compilable`). Globs on scope attributes are not covered: SQL
+ * reads them as undecided leaves, which only refuse rows.
  */
 export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem[] {
   const { model } = input;
@@ -113,29 +130,36 @@ export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem
   const rules = model.extensions.flatMap((e) => (e instanceof RulesExtension && e.config ? e.config.all() : []));
   for (const rule of rules) {
     const source = `rbac rule '${rule.id}'`;
-    const parsed: [string, ParsedCondition][] = [];
+    const conditions: { key: string; reads: RbacResourceRead[]; unread: string[] }[] = [];
     for (const [key, c] of [
       ['when', rule.when],
       ['resource', rule.resource],
     ] as const) {
       if (c === undefined) continue;
+      let refs: readonly string[];
       try {
-        parsed.push([key, parseCondition(c, { functions: ANY_FUNCTION, where: `${source} ${key}` })]);
+        refs = parseCondition(c, { functions: ANY_FUNCTION, where: `${source} ${key}` }).facts.refs;
       } catch {
         // The rule checks of rule 9 refuse a condition that does not parse.
+        continue;
       }
+      const reads = rbacResourceReads(c);
+      // A resource ref outside the leaves (a function argument): SQL cannot decide it either.
+      const unread = [...new Set(refs.filter((r) => r.split('.')[0] === 'resource' && !reads.some((x) => x.attr === r)))];
+      if (reads.length > 0 || unread.length > 0) conditions.push({ key, reads, unread });
     }
+    if (conditions.length === 0) continue;
     for (const type of ruleTypes(rule, input.types, registry)) {
       const models = input.columns(type);
-      for (const [key, c] of parsed) {
-        const fields = [...new Set(c.facts.refs.filter((r) => r.split('.')[0] === 'resource').map((r) => r.split('.')[1] ?? ''))];
-        for (const field of fields) {
-          if (models.length === 0 || models.some((columns) => !columns.includes(field))) add({ type, source, text: `${key} reads resource.${field}, which is not a column of type '${type}'` });
-        }
-        for (const leaf of resourceGlobs(c)) {
-          const literal = leaf.operand.kind === 'literal' && typeof leaf.operand.value === 'string' ? leaf.operand.value : undefined;
-          if (literal === undefined) add({ type, source, text: `${key} matches ${leaf.attr.text} with a glob that is not a literal` });
-          else if (!sqlExpressibleGlob(literal)) add({ type, source, text: `${key} matches ${leaf.attr.text} with the glob ${JSON.stringify(literal)}, more than a fixed prefix and one trailing * or **` });
+      if (models.length === 0 || models.some((m) => m.names.length === 0)) {
+        for (const { key } of conditions) add({ type, source, text: `${key} reads resource.*, but the columns of type '${type}' are not loaded (boot the ORM before the authz domain)` });
+        continue;
+      }
+      for (const { key, reads, unread } of conditions) {
+        for (const ref of unread) add({ type, source, text: `${key} reads ${ref} where SQL cannot decide it` });
+        for (const read of reads) {
+          const why = readProblem(read, type, models);
+          if (why !== undefined) add({ type, source, text: `${key} ${why}` });
         }
       }
     }
@@ -143,10 +167,45 @@ export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem
   return [...out.values()];
 }
 
-/** Column names of an ORM model as its descriptor holds them after the table info loaded. */
-function columnNames(model: unknown): string[] {
+/** An ORM model's columns as its descriptor holds them after the table info loaded. */
+function modelColumns(model: Class<ModelBase>): RbacSqlBootColumns {
   const descriptor = extractModelDescriptor(model as never);
-  return (descriptor?.Columns ?? []).filter((c) => !c.Virtual && !c.Aggregate && typeof c.Name === 'string').map((c) => c.Name);
+  const names = (descriptor?.Columns ?? []).filter((c) => !c.Virtual && !c.Aggregate && typeof c.Name === 'string').map((c) => c.Name);
+  let text: string[] = [];
+  try {
+    text = rbacResourceFields(model, rbacDialectOf(descriptor?.Driver as never).name).map((f) => f.column);
+  } catch {
+    // A driver without rule blocks: its lists refuse, so no column is a text column here.
+  }
+  return { names, text };
+}
+
+/** The domain's models as the host merges them over the lineage (service.ts `mergeModels`): override by name, `disable`. */
+async function domainModels(domains: DefaultAuthzDomains, domain: string, container: IContainer): Promise<AuthorizationModel[]> {
+  const lineage = domains.lineage(domain);
+  const levels = lineage.map((n) => domains.container(n));
+  const owners = container.Registry.getTypesChain(AuthorizationModel).map((e) => e.container);
+  const chain = [...((await container.resolve(Array.chainOf(AuthorizationModel))) as AuthorizationModel[])];
+  const levelOf = owners.map((c) => levels.indexOf(c));
+  if (owners.length !== chain.length || levelOf.some((l) => l < 0)) throw new AuthzConfigError(`domain ${JSON.stringify(domain)}: rule 11 cannot match the models to the domain lineage`);
+  const name = (m: AuthorizationModel): string | undefined => (typeof (m as { name?: unknown }).name === 'string' ? (m as { name: string }).name : undefined);
+  let list: { model: AuthorizationModel; level: number }[] = [];
+  for (let level = 0; level < levels.length; level++) {
+    const configuration = (await levels[level].resolve(Configuration)) as Configuration;
+    const disabled = new Set(readDomainConfig(configuration.get<unknown>(['authz']), lineage.slice(0, level + 1)).disable);
+    list = list.filter((e) => {
+      const n = name(e.model);
+      return n === undefined || !disabled.has(n);
+    });
+    chain.forEach((model, i) => {
+      if (levelOf[i] !== level) return;
+      const n = name(model);
+      const at = n === undefined ? -1 : list.findIndex((e) => e.level < level && name(e.model) === n);
+      if (at >= 0) list[at] = { model, level };
+      else list.push({ model, level });
+    });
+  }
+  return list.map((e) => e.model);
 }
 
 /**
@@ -154,28 +213,39 @@ function columnNames(model: unknown): string[] {
  * domain may use there only grants and config rules that SQL can express. Registered in the root container when
  * authz-rbac loads, beside authz-orm's own contributor; a domain without authz-orm types or RbacModels passes.
  * A type whose models' columns are not loaded yet has no columns: a rule reading `resource.*` there is refused.
+ * Models are matched with `instanceof RbacModel`: an RbacModel of a second loaded copy of authz-rbac (CJS beside
+ * ESM) is not checked here, but by that copy's own registration of this class.
  */
 @Singleton()
 @Injectable(AuthzContributor)
 @Inject(Container)
 export class RbacSqlBootCheck extends AuthzContributor {
+  // The host asks every contributor again on each admin scope-attribute batch (`contributedSchemas`).
+  private readonly passed = new WeakMap<IContainer, readonly unknown[]>();
+
   constructor(private readonly container: IContainer) {
     super();
   }
 
   async contribute(domain: string): Promise<AuthzContribution> {
-    if (!this.container.isResolved(AuthzDomains)) return {};
-    const domains = this.container.get(AuthzDomains);
-    if (!domains) return {};
+    const domains = (await this.container.resolve(AuthzDomains)) as unknown;
+    if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('rule 11 needs DefaultAuthzDomains as the AuthzDomains singleton');
     const container = domains.container(domain);
     const adapters = (await container.resolve(Array.chainOf(ResourceAdapter))) as ResourceAdapter[];
     // authz-orm does not export its adapter class from the package root; its kind names it.
     const types = [...new Set(adapters.filter((a) => a.kind === ORM_ADAPTER_KIND && a.compiles !== undefined).flatMap((a) => [...a.types]))];
     if (types.length === 0) return {};
-    const models = [...new Set((await container.resolve(Array.chainOf(AuthorizationModel))) as AuthorizationModel[])].filter((m): m is RbacModel => m instanceof RbacModel);
-    const columns = (type: ResourceType) => accessResourceModels(type).map(columnNames);
+    const models = [...new Set(await domainModels(domains, domain, container))].filter((m): m is RbacModel => m instanceof RbacModel);
+    const classes = new Map(types.map((t) => [t, accessResourceModels(t)]));
+    const key = [...types, ...[...classes.values()].flat(), ...models.flatMap((m) => [m, m.roleGraph(), m.permissions(), ...m.extensions.map((e) => (e instanceof RulesExtension && e.config ? e.config.all() : e))])];
+    const last = this.passed.get(container);
+    if (last && last.length === key.length && last.every((k, i) => k === key[i])) return {};
+    const columns = (type: ResourceType) => (classes.get(type) ?? []).map(modelColumns);
     const problems = models.flatMap((model) => rbacSqlBootProblems({ model, types, columns }));
-    if (problems.length === 0) return {};
+    if (problems.length === 0) {
+      this.passed.set(container, key);
+      return {};
+    }
     const lines = problems.map((p) => `- type '${p.type}', ${p.source}: ${p.text}`);
     throw new AuthzConfigError(`domain ${JSON.stringify(domain)}: design §6.5 rule 11, lists of these types run in SQL, which cannot follow:\n${lines.join('\n')}`);
   }
