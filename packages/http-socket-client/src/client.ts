@@ -138,10 +138,15 @@ export class SocketClient {
     this.connection.disconnect();
   }
 
-  /** Terminal: rejects pending commands and releases the socket. */
-  public close(): void {
+  /**
+   * Terminal: rejects pending commands and releases the socket. Resolves once the outbox has no write of this
+   * client in flight and every answered durable command has been reported: await it before opening the next
+   * client or store on the same outbox, and keep the `acked` / `failed` listeners until then.
+   */
+  public close(): Promise<void> {
     this.controlled = true;
     this.connection.close();
+    return this.durableQueue.close();
   }
 
   /** The same client, typed by a contract shared with the server; no runtime cost. */

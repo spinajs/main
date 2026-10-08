@@ -123,6 +123,8 @@ export class DurableQueue {
   // the credentials ran out: nothing goes out before the next connection, which a re-login opens
   private heldUntilOnline = false;
   private closed = false;
+  private closing: Promise<void> | undefined;
+  private onReported: (() => void) | undefined;
 
   constructor(private readonly options: DurableQueueOptions) {
     const { window, ackTimeoutMs, maxPayloadBytes } = { ...DEFAULT_DURABLE, ...options.durable };
@@ -221,10 +223,12 @@ export class DurableQueue {
   /**
    * Rejects the callers still waiting for an answer; their entries stay in the store for the next start.
    * Answered commands settle in send order once the store has applied their outcome, also after close.
+   * Resolves once the store has no write of this queue in flight and every answered command has been
+   * reported: only then may the next queue open the same store, and the listeners be dropped.
    */
-  public close(): void {
-    if (this.closed) {
-      return;
+  public close(): Promise<void> {
+    if (this.closing) {
+      return this.closing;
     }
 
     this.closed = true;
@@ -244,10 +248,14 @@ export class DurableQueue {
     // An answered command's store write may land after close: rejecting it as left in the outbox would
     // lose its outcome, as the next start would not find the entry. settle() reports it once the write is done.
     this.items.splice(0, this.items.length, ...this.items.filter((item) => item.outcome));
+    const reported = new Promise<void>((resolve) => (this.onReported = resolve));
+    // an add begun before close still writes its entry, for the next start
+    this.closing = Promise.all([reported, this.adding]).then(() => undefined);
     for (const item of unanswered) {
       item.reject?.(SocketException.fromWire(CLOSED));
     }
     this.settle();
+    return this.closing;
   }
 
   /** Reads the store once; a failed read is tried again by the next submit() or the next time the connection comes online. */
@@ -277,7 +285,7 @@ export class DurableQueue {
 
   private onState(state: ConnectionState, previous: ConnectionState): void {
     if (state === 'closed') {
-      this.close();
+      void this.close();
       return;
     }
 
@@ -489,6 +497,10 @@ export class DurableQueue {
     while (this.items[0]?.state === 'done' && this.items[0].stored) {
       const item = this.items.shift()!;
       this.report(item, item.outcome!);
+    }
+
+    if (this.closed && this.items.length === 0) {
+      this.onReported?.();
     }
   }
 

@@ -15,6 +15,6 @@ try {
   const back = await notes.command('blob.get', { hash });
   console.log(`blob ${hash.slice(0, 12)}: ${new TextDecoder().decode(toBytes(back))}`);
 } finally {
-  notes.close();
+  await notes.close();
   await server.close();
 }

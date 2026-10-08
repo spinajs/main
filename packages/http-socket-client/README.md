@@ -22,7 +22,7 @@ const client = new SocketClient({
 
 - The client connects on its own unless `autoConnect: false`.
 - `client.state` is `'connecting' | 'online' | 'offline' | 'closed'`, and `client.on('state', (state, previous) => ...)` reports every change.
-- `disconnect()` goes offline until `connect()`. `close()` is final: it rejects everything pending.
+- `disconnect()` goes offline until `connect()`. `close()` is final: it rejects everything pending, except durable commands the server already answered (see Durable commands). It returns a promise; see below.
 
 **Reconnect.** The client retries with exponential backoff and jitter, and asks `auth()` again on every attempt. It stops in these cases:
 
@@ -73,7 +73,8 @@ await client.durable('docs.edit', { id, op }, { key: opId }).catch(() => undefin
 - The key is your `key` (1 to 256 printable ASCII characters, not starting with `${clientId}:`) or a generated `${clientId}:<nonce>`.
 - Any `outbox` option, an explicit `MemoryOutboxStore` included, requires an explicit `clientId` stored by the app (the constructor throws a `RangeError` otherwise): a new random id after a reload would break exactly-once and ordering. Without the option, the default `MemoryOutboxStore` is used; it does not survive a reload.
 - `durable()` rejects when the server refuses the command for good and when the client closes before the server answered it (the entry stays in the outbox). A command the server already answered settles with that answer once the outbox has applied it, also after `close()`. Attach a `catch` or follow `acked` / `failed`.
-- `acked` and `failed` fire in send order, also for entries resumed from the outbox after a reload.
+- `acked` and `failed` fire in send order, also for entries resumed from the outbox after a reload. The exception is `close()`: a command the server answered settles after the close, while an earlier one still unanswered is rejected and reported by the next client.
+- `await client.close()` before you open the next client or store on the same outbox, and keep your `acked` / `failed` listeners until it resolves. It resolves once the outbox has no write of this client in flight and every answered command has been reported. An answered command whose write lands after the close is reported only there: a resumed entry has no caller, and its `acked` is its only report. A `FileOutboxStore` opened on the same file while the old one still writes would overwrite that file from a stale copy, dropping new entries and bringing back removed ones.
 - `FileOutboxStore` keeps payloads as JSON, so its `add` (and `durable()`) rejects with a `TypeError` a payload that a JSON round trip would change: `Uint8Array`, `Buffer`, `ArrayBuffer`, `Date`, `Map`, `Set`, class instances, `NaN`/`Infinity`, `undefined` inside an array. Nothing is written. Encode such values yourself (bytes as base64, dates as ISO strings). An `undefined` property is allowed: the wire drops it too. `IndexedDbOutboxStore` and `MemoryOutboxStore` keep binary.
 
 ## Streams

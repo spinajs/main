@@ -212,6 +212,33 @@ describe('SocketClient durable commands', () => {
     expect(await outbox.pending()).to.have.length(0);
   });
 
+  it('close() resolves once the outbox has applied the outcome of every answered command', async () => {
+    serveDurable(server, 'docs.submit');
+    const outbox = new MemoryOutboxStore();
+    const remove = outbox.remove.bind(outbox);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let removing = false;
+    outbox.remove = async (seq) => {
+      removing = true;
+      await gate;
+      return remove(seq);
+    };
+    const client = makeClient(server, { outbox, clientId: 'close-1' });
+
+    const done = client.durable('docs.submit', { n: 1 });
+    await until(() => removing);
+    let closed = false;
+    const closing = client.close().then(() => (closed = true));
+    await sleep(50);
+    expect(closed).to.be.false;
+
+    release();
+    await closing;
+    expect(await done).to.deep.equal({ n: 1 });
+    expect(await outbox.pending()).to.deep.equal([]);
+  });
+
   it('lists acked and held among the lifecycle events', () => {
     expect([...LIFECYCLE_EVENTS]).to.include.members(['acked', 'failed', 'held']);
   });

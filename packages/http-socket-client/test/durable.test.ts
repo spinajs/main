@@ -1,8 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { CommandRequest, SocketError } from '@spinajs/http-socket-common';
 import { CommandDispatcher } from '../src/commands.js';
 import { DEFAULT_DURABLE, DurableQueue, type AckedCommand, type FailedCommand, type HeldCommand } from '../src/durable.js';
+import { FileOutboxStore } from '../src/node/file-outbox.js';
 import { MemoryOutboxStore, type OutboxInput, type OutboxStore } from '../src/outbox.js';
 import { closeAll, track } from './support/cleanup.js';
 import { rejectionOf } from './support/commands.js';
@@ -529,6 +534,160 @@ describe('DurableQueue', () => {
     expect((await done).code).to.equal('invalid_argument');
     expect(failed.map((f) => f.error.code)).to.deep.equal(['invalid_argument']);
     expect((await store.failed()).map((e) => (e.payload as { n: number }).n)).to.deep.equal([1]);
+  });
+
+  it('on close rejects an unanswered command, which stays in the store, and settles a later answered one once its write lands', async () => {
+    server.rawReplies.set('docs.mixed', async (request: CommandRequest) => {
+      if ((request.payload as { n: number }).n === 1) {
+        await sleep(300);
+      }
+      return { id: request.id, ok: true, result: request.payload };
+    });
+    const store = new MemoryOutboxStore();
+    const remove = store.remove.bind(store);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let removing = false;
+    store.remove = async (seq) => {
+      removing = true;
+      await gate;
+      return remove(seq);
+    };
+    const { queue } = await onlineQueue(server, { store });
+    const pendingNs = async () => (await store.pending()).map((e) => (e.payload as { n: number }).n);
+
+    const one = rejectionOf(queue.submit('docs.mixed', { n: 1 }));
+    const two = queue.submit('docs.mixed', { n: 2 });
+    await until(() => removing);
+    const closing = queue.close();
+
+    expect((await one).code).to.equal('unavailable');
+    expect(await pendingNs()).to.deep.equal([1, 2]);
+
+    release();
+    expect(await two).to.deep.equal({ n: 2 });
+    await closing;
+    // 1 is the next start's to send and report
+    expect(await pendingNs()).to.deep.equal([1]);
+  });
+
+  it('close() resolves once every answered command has been reported, resumed ones included', async () => {
+    serveDurable(server, 'docs.submit');
+    const store = new MemoryOutboxStore();
+    await store.add({ name: 'docs.submit', payload: { n: 0 }, key: 'op-0' });
+    const remove = store.remove.bind(store);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let removing = false;
+    store.remove = async (seq) => {
+      removing = true;
+      await gate;
+      return remove(seq);
+    };
+    const { queue } = await onlineQueue(server, { store });
+    const acked: unknown[] = [];
+    queue.events.on('acked', (event) => acked.push(event.result));
+
+    await until(() => removing);
+    let closed = false;
+    const closing = queue.close().then(() => (closed = true));
+    await sleep(50);
+    // a resumed command has no caller: the event is its only report, so the app keeps its listeners until close() resolves
+    expect(closed).to.be.false;
+    expect(acked).to.deep.equal([]);
+
+    release();
+    await closing;
+    expect(acked).to.deep.equal([{ n: 0 }]);
+  });
+
+  it('close() returns one promise, settled at once when nothing is in flight', async () => {
+    const { queue } = await onlineQueue(server);
+
+    const closing = queue.close();
+
+    expect(queue.close()).to.equal(closing);
+    await closing;
+  });
+
+  describe('closing over a FileOutboxStore', () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'spinajs-durable-close-'));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    /** Holds the renames that publish its writes while `hold()` is in effect, so a write stays in flight. */
+    const heldRenames = () => {
+      let held: Promise<void> | undefined;
+      let open: () => void = () => undefined;
+      const control = {
+        waiting: 0,
+        hold: () => {
+          held = new Promise<void>((resolve) => (open = resolve));
+        },
+        release: () => {
+          held = undefined;
+          open();
+        },
+        rename: async (from: string, to: string) => {
+          if (held) {
+            control.waiting++;
+            await held;
+            control.waiting--;
+          }
+          await rename(from, to);
+        },
+      };
+      return control;
+    };
+
+    it('resolves close() once the remove in flight has landed, so a store opened next reads the final file', async () => {
+      serveDurable(server, 'docs.submit');
+      server.ackFault = { kind: 'delay', ms: 100 };
+      const path = join(dir, 'outbox.json');
+      const renames = heldRenames();
+      const { queue } = await onlineQueue(server, { store: new FileOutboxStore(path, { rename: renames.rename }) });
+
+      const done = queue.submit('docs.submit', { n: 1 });
+      // added and sent; its reply is 100 ms away
+      await until(() => server.requests.length === 1);
+      renames.hold();
+      await until(() => renames.waiting === 1);
+      let closed = false;
+      const closing = queue.close().then(() => (closed = true));
+      await sleep(50);
+      expect(closed).to.be.false;
+
+      renames.release();
+      await closing;
+      expect(await done).to.deep.equal({ n: 1 });
+      expect(await new FileOutboxStore(path).pending()).to.deep.equal([]);
+    });
+
+    it('resolves close() once an add in flight has landed, so a store opened next resumes the command', async () => {
+      serveDurable(server, 'docs.submit');
+      const path = join(dir, 'outbox.json');
+      const renames = heldRenames();
+      const { queue } = await onlineQueue(server, { store: new FileOutboxStore(path, { rename: renames.rename }) });
+
+      renames.hold();
+      const done = rejectionOf(queue.submit('docs.submit', { n: 1 }));
+      await until(() => renames.waiting === 1);
+      let closed = false;
+      const closing = queue.close().then(() => (closed = true));
+      await sleep(50);
+      expect(closed).to.be.false;
+
+      renames.release();
+      await closing;
+      expect((await done).code).to.equal('unavailable');
+      expect((await new FileOutboxStore(path).pending()).map((e) => e.payload)).to.deep.equal([{ n: 1 }]);
+    });
   });
 
   it('loads the store again on the next submit when the first load failed', async () => {

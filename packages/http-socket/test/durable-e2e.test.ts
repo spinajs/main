@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AddressInfo } from 'node:net';
 import { DI, Injectable } from '@spinajs/di';
-import { SocketClient, type FailedOutboxEntry, type OutboxEntry, type OutboxInput, type OutboxStore, type SocketClientOptions } from '@spinajs/http-socket-client';
+import { SocketClient, type SocketClientOptions } from '@spinajs/http-socket-client';
 import { FileOutboxStore } from '@spinajs/http-socket-client/node';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, OnConnect, Payload, SocketController } from '../src/decorators.js';
@@ -207,41 +207,6 @@ export class DurableE2eReplayStore extends MemoryIdempotencyStore {
       this.replays++;
     }
     return held;
-  }
-}
-
-/** A store whose writes the test can wait for, as a closed tab's are finished before the next one starts. */
-class TrackedOutbox implements OutboxStore {
-  public busy = 0;
-
-  constructor(private readonly inner: OutboxStore) {}
-
-  public add<P>(input: OutboxInput<P>): Promise<OutboxEntry<P>> {
-    return this.track(() => this.inner.add(input));
-  }
-  public pending(): Promise<OutboxEntry[]> {
-    return this.track(() => this.inner.pending());
-  }
-  public remove(seq: number): Promise<void> {
-    return this.track(() => this.inner.remove(seq));
-  }
-  public fail(entry: FailedOutboxEntry): Promise<void> {
-    return this.track(() => this.inner.fail(entry));
-  }
-  public failed(): Promise<FailedOutboxEntry[]> {
-    return this.track(() => this.inner.failed());
-  }
-  public clearFailed(seqs?: readonly number[]): Promise<void> {
-    return this.track(() => this.inner.clearFailed(seqs));
-  }
-
-  private async track<T>(run: () => Promise<T>): Promise<T> {
-    this.busy++;
-    try {
-      return await run();
-    } finally {
-      this.busy--;
-    }
   }
 }
 
@@ -508,8 +473,7 @@ describe('W3 end to end: the real client against the real server', function () {
     const count = 150;
 
     try {
-      const first = new TrackedOutbox(new FileOutboxStore(path));
-      const a = client('e2e-file', { outbox: first });
+      const a = client('e2e-file', { outbox: new FileOutboxStore(path) });
       await online(a);
       const resolvedByA: number[] = [];
       const waiting = range(count).map((n) =>
@@ -523,10 +487,9 @@ describe('W3 end to end: the real client against the real server', function () {
       killConnections(t);
       await online(a);
       await runsReach(70);
-      a.close();
+      // the next client opens the file only once this one has no write in flight
+      await a.close();
       expect(await Promise.all(waiting)).to.include('unavailable');
-      // a reload starts once the old process is gone, and with it the writes it had begun
-      await waitFor(() => first.busy === 0, 10_000);
 
       const second = new FileOutboxStore(path);
       const ackedByB: number[] = [];
