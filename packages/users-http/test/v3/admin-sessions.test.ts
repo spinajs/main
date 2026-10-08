@@ -7,11 +7,13 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { AuthnAudit } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn-http';
 import { User } from '@spinajs/users';
 
 import { Security } from '../../src/admin/controllers/Users/Security.js';
 import { startUsersHttpApp, stopUsersHttpApp } from '../support/http-app.js';
 import type { HttpClient, Res, RoleDefs, UsersHttpApp } from '../support/http-app.js';
+import { ACCOUNT_PASSWORD, REAUTH_STRATEGIES } from '../support/reauth-strategy.js';
 
 const SERVICE_TOKEN = 'sessions-svc-' + 'Rk3Wq8Tn'.repeat(4);
 const UNKNOWN_UUID = '00000000-0000-4000-8000-000000000000';
@@ -53,6 +55,7 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
       }),
       config: {
         'authz.permissions.users:credentials': {},
+        'authn.strategies': REAUTH_STRATEGIES,
         'authz.http.services': [{ name: 'sessions-svc', header: 'X-Service-Token', token: SERVICE_TOKEN }],
         'authz.rbac.serviceRoles': { 'service:sessions-svc': ['session-admin'] },
       },
@@ -230,6 +233,30 @@ describe('users-http v3: admin session routes on the SessionIssuer', function ()
       expect(res.status, res.text).to.eq(403);
       expect(res.body.error).to.eq('fresh_auth_required');
       expect(await isLive(victim, t.Uuid)).to.eq(true);
+    });
+
+    it('answers a stale admin session with a wrong reauthPassword the login failure 401, and ends nothing', async () => {
+      const t = await target();
+      const victim = await app.signIn(t.Uuid);
+      const stale = await app.signIn(sessionAdmin.Uuid, { authenticatedAt: new Date(Date.now() - HOUR_MS) });
+
+      const res = await revoke(stale, t.Uuid, await handleOf(t.Uuid, victim), { reauthPassword: 'wrong-' + ACCOUNT_PASSWORD });
+
+      expect(res.status, res.text).to.eq(401);
+      expect(res.body).to.deep.eq(JSON.parse(JSON.stringify(AUTHN_FAILURE_BODY)));
+      expect(await isLive(victim, t.Uuid)).to.eq(true);
+    });
+
+    it('lets a stale admin session re-authenticate with reauthPassword and end the session', async () => {
+      const t = await target();
+      const victim = await app.signIn(t.Uuid);
+      const stale = await app.signIn(sessionAdmin.Uuid, { authenticatedAt: new Date(Date.now() - HOUR_MS) });
+
+      const res = await revoke(stale, t.Uuid, await handleOf(t.Uuid, victim), { reauthPassword: ACCOUNT_PASSWORD });
+
+      expect(res.status, res.text).to.eq(200);
+      expect(await isLive(victim, t.Uuid)).to.eq(false);
+      expect(published.find((e) => e.type === 'reauth'), JSON.stringify(published)).to.deep.include({ outcome: 'success', identity: { type: 'user', id: sessionAdmin.Uuid } });
     });
   });
 

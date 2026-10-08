@@ -106,7 +106,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
         await takeOut(ADMIN2_UUID);
         await seedRoles(USER_UUID, ['role-manager', 'admin-editor']);
 
-        await expect(world.users.updateUser(await principalOf(USER_UUID), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+        await expect(world.users.updateUser(await principalOf(USER_UUID), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
         expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
       });
@@ -115,7 +115,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
         await takeOut(ADMIN2_UUID);
         await seedRoles(USER_UUID, ['admin']);
 
-        const result = await world.users.updateUser(await principalOf(USER_UUID), ADMIN_UUID, { Role: ['user'] } as any);
+        const result = await world.users.updateUser(await principalOf(USER_UUID), ADMIN_UUID, { Role: ['user'] } as any, undefined as any);
 
         expect(result).to.be.instanceOf(Ok);
         expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['user']);

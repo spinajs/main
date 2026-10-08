@@ -7,6 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
+import { FreshAuth } from '@spinajs/authn-http';
 import { FilterableLogicalOperators, IFilterRequest } from '@spinajs/orm-http';
 import { User } from '@spinajs/users';
 import { SYSTEM, UNATTENDED } from '@spinajs/authz';
@@ -165,27 +166,32 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
   });
 
   describe('Users.updateUser', () => {
+    // Handlers called directly have no request; fresh auth for e-mail and login changes is pinned over http (identity-change-guard).
+    beforeEach(() => {
+      sinon.stub(FreshAuth.prototype, 'execute').resolves();
+    });
+
     it('refuses the non-assignable system role on a replacement', async () => {
-      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: 'system' } as any)).to.be.rejectedWith(InvalidArgument);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: 'system' } as any, undefined as any)).to.be.rejectedWith(InvalidArgument);
 
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses the whole replacement on one refused role and writes nothing, the login included', async () => {
-      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: 'renamed', Role: ['guest', 'superadmin'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: 'renamed', Role: ['guest', 'superadmin'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('answers an unknown role with InvalidArgument', async () => {
-      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: ['user', 'wizard'] } as any)).to.be.rejectedWith(InvalidArgument);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: ['user', 'wizard'] } as any, undefined as any)).to.be.rejectedWith(InvalidArgument);
 
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses to take the caller s own privileged role (self lockout)', async () => {
-      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
@@ -195,33 +201,33 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       await unseedRoles(ADMIN2_UUID, ['admin']);
       config().set('authz.admin.guard.preventSelfLockout', false);
 
-      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, /users:update/);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, /users:update/);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
 
     it('takes admin from an administrator while another one remains', async () => {
-      await world.users.updateUser(await admin(), ADMIN2_UUID, { Role: ['user'] } as any);
+      await world.users.updateUser(await admin(), ADMIN2_UUID, { Role: ['user'] } as any, undefined as any);
 
       expect(await globalRolesOf(ADMIN2_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses a reserved login on rename before any write', async () => {
-      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: '__system__', Role: ['guest'] } as any)).to.be.rejectedWith(InvalidArgument, /reserved/);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: '__system__', Role: ['guest'] } as any, undefined as any)).to.be.rejectedWith(InvalidArgument, /reserved/);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses a request without a caller and writes nothing', async () => {
-      await expect(world.users.updateUser(undefined as any, USER_UUID, { Login: 'nocaller', Role: ['guest'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(undefined as any, USER_UUID, { Login: 'nocaller', Role: ['guest'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('leaves the roles alone when no Role is sent', async () => {
-      await world.users.updateUser(await admin(), INACTIVE_UUID, { Login: 'stillinactive' } as any);
+      await world.users.updateUser(await admin(), INACTIVE_UUID, { Login: 'stillinactive' } as any, undefined as any);
 
       expect(await globalRolesOf(INACTIVE_UUID)).to.deep.eq(['user']);
     });

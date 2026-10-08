@@ -8,6 +8,7 @@ import { Configuration } from '@spinajs/configuration';
 import { SortOrder } from '@spinajs/orm';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
+import { FreshAuth } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
 import { NO_PASSWORD, PasswordProvider, SessionProvider, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
@@ -449,9 +450,17 @@ describe('Admin user controllers', function () {
   });
 
   describe('Users.updateUser', () => {
+    let freshAuth: sinon.SinonStub;
+
+    // Handlers called directly have no request; fresh auth for e-mail and login changes is pinned over http (identity-change-guard).
+    beforeEach(() => {
+      freshAuth = sinon.stub(FreshAuth.prototype, 'execute').resolves();
+    });
+
     it('updates login, email and role', async () => {
-      const result = await usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed', Email: 'renamed@spinajs.pl', Role: 'admin' } as any);
+      const result = await usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed', Email: 'renamed@spinajs.pl', Role: 'admin' } as any, undefined as any);
       expect(result).to.be.instanceOf(Ok);
+      expect(freshAuth.calledOnce, 'an e-mail or login change of another account asks fresh auth').to.eq(true);
 
       const updated = await byUuid(USER_UUID);
       expect(updated.Login).to.eq('renamed');
@@ -460,22 +469,23 @@ describe('Admin user controllers', function () {
     });
 
     it('replaces the whole role list when one is sent', async () => {
-      await usersController.updateUser(await admin(), USER_UUID, { Role: ['user', 'guest'] } as any);
+      await usersController.updateUser(await admin(), USER_UUID, { Role: ['user', 'guest'] } as any, undefined as any);
 
       expect(await globalRolesOf(USER_UUID)).to.have.members(['user', 'guest']);
+      expect(freshAuth.called, 'a role-only change needs no fresh auth').to.eq(false);
     });
 
     // The list is a REPLACEMENT, so dropping an entry is a revocation.
     it('revokes the roles a shorter list leaves out', async () => {
-      await usersController.updateUser(await admin(), USER_UUID, { Role: ['user', 'guest'] } as any);
+      await usersController.updateUser(await admin(), USER_UUID, { Role: ['user', 'guest'] } as any, undefined as any);
 
-      await usersController.updateUser(await admin(), USER_UUID, { Role: ['guest'] } as any);
+      await usersController.updateUser(await admin(), USER_UUID, { Role: ['guest'] } as any, undefined as any);
 
       expect(await globalRolesOf(USER_UUID)).to.deep.equal(['guest']);
     });
 
     it('keeps existing values for fields that are not sent', async () => {
-      await usersController.updateUser(await admin(), USER_UUID, { Login: 'onlylogin' } as any);
+      await usersController.updateUser(await admin(), USER_UUID, { Login: 'onlylogin' } as any, undefined as any);
 
       const updated = await byUuid(USER_UUID);
       expect(updated.Login).to.eq('onlylogin');
@@ -484,16 +494,16 @@ describe('Admin user controllers', function () {
     });
 
     it('rejects a login already taken by another account', async () => {
-      await expect(usersController.updateUser(await admin(), USER_UUID, { Login: 'admin' } as any)).to.be.rejectedWith(/already in use/);
+      await expect(usersController.updateUser(await admin(), USER_UUID, { Login: 'admin' } as any, undefined as any)).to.be.rejectedWith(/already in use/);
     });
 
     it('accepts a no-op update to the account s own login', async () => {
-      const result = await usersController.updateUser(await admin(), USER_UUID, { Login: 'user', Email: 'user@spinajs.pl' } as any);
+      const result = await usersController.updateUser(await admin(), USER_UUID, { Login: 'user', Email: 'user@spinajs.pl' } as any, undefined as any);
       expect(result).to.be.instanceOf(Ok);
     });
 
     it('does not touch other users', async () => {
-      await usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any);
+      await usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any, undefined as any);
 
       const adminUser = await byUuid(ADMIN_UUID);
       expect(adminUser.Login).to.eq('admin');

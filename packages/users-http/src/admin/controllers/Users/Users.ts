@@ -1,5 +1,6 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query } from '@spinajs/http';
+import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query, Req } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
@@ -14,6 +15,7 @@ import { Schema } from '@spinajs/validation';
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { asHttpRefusal, userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
+import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
 import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
@@ -150,6 +152,7 @@ function roleList(role?: string | string[]): string[] {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
     Role: ROLE_FIELD,
+    reauthPassword: { type: 'string', description: "The caller's password, for fresh authentication when the e-mail or login of another account changes" },
   },
   additionalProperties: false,
 })
@@ -501,21 +504,23 @@ export class Users extends BaseController {
    * the privileged permission from an account must also leave another account in service holding it
    * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
    * role leaves the login and email untouched too. An empty list is refused rather than applied.
-   * Changing the `Email` or `Login` of another account also needs authn's CredentialAdminGuard
-   * (action `password-reset`; users': `users:credentials`, the target covered, no protected role):
-   * the password reset goes to that address.
+   * Changing the `Email` or `Login` of another account also needs fresh authentication (a login
+   * within authn.freshAuth.maxAgeSeconds, or the caller's password in the body field
+   * `reauthPassword`) and authn's CredentialAdminGuard (action `password-reset`; users':
+   * `users:credentials`, the target covered, no protected role): the password reset goes to that
+   * address.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, the account guard refused it (own privilege, last active privileged account), or the credential admin guard refused an e-mail or login change of another account (`forbidden`, `protected_role`, `escalation`)
+   * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
+   * @response 403 Forbidden — no `users:update` on this user, the caller is not a signed-in user, AuthzAdmin refused the role change, the account guard refused it (own privilege, last active privileged account), no fresh authentication for an e-mail or login change of another account (`fresh_auth_required`, `session_required`, `impersonating`), or the credential admin guard refused it (`forbidden`, `protected_role`, `escalation`)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
   @Patch(':user')
   @Access('users:update')
-  public async updateUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() data: UpdateUserDto) {
+  public async updateUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() data: UpdateUserDto, @Req() req: Request) {
     const by = userActor(caller);
     const target = await userRowFor(by, 'users:update', () => userModel().query().where('Uuid', user).populate('Metadata').first());
     const renamed = !!data.Login && data.Login !== target.Login;
@@ -532,9 +537,14 @@ export class Users extends BaseController {
     }
 
     // The public password reset mails the address, and the login names the account at sign-in: changing either on another
-    // account can hand it over, so it takes what authn-http's admin password reset takes, before anything else is checked.
+    // account can hand it over, so it takes what authn-http's admin password reset takes (fresh auth, then the guard),
+    // before the account guard, the role dry run, the uniqueness check and any write.
     const changesIdentity = (data.Email ?? target.Email) !== target.Email || (data.Login ?? target.Login) !== target.Login;
     if (changesIdentity && target.Uuid !== by.id) {
+      const stale = await freshAuthRefusal(req, this);
+      if (stale) {
+        return stale;
+      }
       await assertCredentialAdmin(by, target.Uuid, 'password-reset');
     }
 

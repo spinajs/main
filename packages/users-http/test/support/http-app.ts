@@ -23,6 +23,8 @@ import { PrincipalMiddleware } from '@spinajs/authz-http';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 
 import { registerAuthzHost, seedRoles } from './authz-host.js';
+// Registers the password strategy a suite lists in `authn.strategies` (REAUTH_STRATEGIES) for fresh auth with a password.
+import './reauth-strategy.js';
 
 chai.use(chaiHttp);
 
@@ -128,7 +130,7 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
 }
 
 // What the app resolves into the root cache; uncached by key before it boots and when it stops, never DI.clearCache().
-const APP_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'UsersHttpTestRbac', 'RbacService'];
+const APP_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'DefaultAuthnService', 'AuthnService', 'StrategyRegistry', 'UsersHttpTestRbac', 'RbacService'];
 
 let running: { server: HttpServer; controllers: Class<BaseController>[]; port: number } | undefined;
 

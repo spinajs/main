@@ -195,14 +195,14 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
       it(`refuses to take admin from the last active administrator, the other one ${state}`, async () => {
         await takeOut();
 
-        await expect(world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+        await expect(world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
         expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
       });
     }
 
     it('takes admin while another active administrator remains', async () => {
-      const result = await world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['user'] } as any);
+      const result = await world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any);
 
       expect(result).to.be.instanceOf(Ok);
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['user']);
@@ -212,13 +212,13 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
       await seedRoles(ADMIN_UUID, ['superadmin']);
       await User.update({ IsActive: false }).where({ Uuid: ADMIN2_UUID });
 
-      await world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['superadmin'] } as any);
+      await world.users.updateUser(await manager(), ADMIN_UUID, { Role: ['superadmin'] } as any, undefined as any);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['superadmin']);
     });
 
     it('refuses an administrator removing its own privilege', async () => {
-      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, /your own account/);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, /your own account/);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
@@ -227,7 +227,7 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
       config().set('authz.admin.guard.preventSelfLockout', false);
       await User.update({ IsActive: false }).where({ Uuid: ADMIN2_UUID });
 
-      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });

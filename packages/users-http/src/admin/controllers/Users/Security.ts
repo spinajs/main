@@ -1,20 +1,21 @@
 import { Autoinject, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
-import type { IController, IResponseHeader, IRoute, Request } from '@spinajs/http';
-import { AuthenticationFailed, ResourceNotFound } from '@spinajs/exceptions';
+import type { IResponseHeader, Request } from '@spinajs/http';
+import { ResourceNotFound } from '@spinajs/exceptions';
 import { activate, ban, deactivate, unban, userModel } from '@spinajs/users';
 import type { Principal } from '@spinajs/authz';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AuthnAudit } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { AUTHN_FAILURE_BODY, Authenticated, FreshAuth, NoImpersonationPolicy, NoTokenAuthPolicy, authnFailureResponse } from '@spinajs/authn-http';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
+import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
 @Schema({
@@ -73,24 +74,6 @@ async function sessionsTarget(by: Principal, permission: 'users:read' | 'users:u
   const row = await userRowFor(by, permission, () => userModel().query().where('Uuid', uuid).first());
   await assertCredentialAdmin(by, row.Uuid, 'sessions');
   return { type: 'user', id: row.Uuid };
-}
-
-/**
- * authn-http's fresh auth (a recent login, or the caller's password in `reauthPassword`), run in the handler: http runs
- * a route's policies at once, so as a policy it would verify and count a password while `@Access` refuses. The package
- * exports the FreshAuth policy, not its `assertFreshAuth`. Answers the 401 of a failed re-authentication, else null.
- */
-async function freshAuthRefusal(req: Request, controller: IController): Promise<ReturnType<typeof authnFailureResponse> | null> {
-  try {
-    await ((await DI.resolve(FreshAuth)) as FreshAuth).execute(req, null as unknown as IRoute, controller);
-    return null;
-  } catch (err) {
-    // The thrown error's body carries a stack outside production; authn-http answers the same 401 body.
-    if (err instanceof AuthenticationFailed && (err as { error?: unknown }).error === AUTHN_FAILURE_BODY.error) {
-      return authnFailureResponse();
-    }
-    throw err;
-  }
 }
 
 /** The user `uuid` with its metadata (the ban lives there), for a caller holding `permission` on every user. */
