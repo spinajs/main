@@ -96,4 +96,26 @@ describe('the handshake client address behind trusted proxies (G5)', function ()
   it('refuses to start with a trust entry that is no address or CIDR', async () => {
     await expect(startServer({ http: { trustProxy: ['not-an-address'] } })).to.be.rejectedWith(/http\.trustProxy entry "not-an-address"/);
   });
+
+  it('a trust list that excludes the peer ignores X-Forwarded-For', async () => {
+    const { handshake } = await connectThrough({ http: { trustProxy: ['10.0.0.1'] } }, '203.0.113.7');
+
+    expect(handshake.address).to.equal('127.0.0.1');
+  });
+
+  it('authn.http.trustProxy: false does not fall back to http.trustProxy', async () => {
+    const { handshake } = await connectThrough({ authn: { http: { trustProxy: false } }, http: { trustProxy: 'loopback' } }, '203.0.113.7');
+
+    expect(handshake.address).to.equal('127.0.0.1');
+  });
+
+  it('walks across two trusted hops to the client', async () => {
+    const { handshake } = await connectThrough({ http: { trustProxy: ['127.0.0.1', '127.0.0.2'] } }, '203.0.113.7, 127.0.0.2');
+
+    expect(handshake.address).to.equal('203.0.113.7');
+  });
+
+  it('refuses to start with a bad authn.http.trustProxy entry', async () => {
+    await expect(startServer({ authn: { http: { trustProxy: ['not-an-address'] } } })).to.be.rejectedWith(/authn\.http\.trustProxy entry "not-an-address"/);
+  });
 });
