@@ -4,3 +4,5 @@ export * from './impersonation-guard.js';
 export * from './access-response.js';
 export * from './rbac-role-source.js';
 export * from './access-schema.js';
+export * from './credential-admin-guard.js';
+export * from './credential-admin-schema.js';
