@@ -3,11 +3,11 @@ import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
-import { AuthzService } from '@spinajs/authz';
+import { AuthzDomains, AuthzService } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketAccess } from '../src/access.js';
-import { ITestServer, command, open, resultOf, startServer } from './harness.js';
+import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 import { rawStream } from './stream-client.js';
 import { ScriptedSocketAuthz } from './scripted-authz.js';
 
@@ -70,6 +70,90 @@ export class AccessFieldsClassSocket extends BaseSocketController {
     return { ...ACF_NOTE };
   }
 }
+
+/** An async iterable that is not a generator: only its iterator's return() can release what it holds. */
+export const acfSources = { returned: 0, started: 0 };
+
+function closable(items: unknown[], hang = false): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator]() {
+      acfSources.started++;
+      let i = 0;
+      return {
+        next: () => (hang ? new Promise<IteratorResult<unknown>>(() => undefined) : Promise.resolve(i < items.length ? { done: false, value: items[i++] } : { done: true, value: undefined })),
+        return: async () => {
+          acfSources.returned++;
+          return { done: true, value: undefined };
+        },
+      };
+    },
+  };
+}
+
+@SocketController('acfx')
+export class AccessFieldsExtraSocket extends BaseSocketController {
+  @Command('ssn')
+  @SocketAccess('note:read', { fields: 'filter' })
+  public async ssn() {
+    return { ...ACF_NOTE, ssn: '123' };
+  }
+
+  @Command('tenant')
+  @SocketAccess('note:tenant', { fields: 'filter', domain: 'tenant' })
+  public async tenant() {
+    return { id: 'n1', secret: 's', Password: 'hash' };
+  }
+
+  @Command('rootsecret')
+  @SocketAccess('note:read', { fields: 'filter' })
+  public async rootsecret() {
+    return { id: 'n1', secret: 's' };
+  }
+
+  @Command('bytes')
+  @SocketAccess('note:read', { fields: 'filter' })
+  public async bytes() {
+    return (async function* () {
+      yield new Uint8Array([1, 2, 3]);
+      yield { ...ACF_NOTE };
+    })();
+  }
+
+  @Command('closable')
+  @SocketAccess('note:read', { fields: 'filter' })
+  public async closableSource() {
+    return closable([{ ...ACF_NOTE }]);
+  }
+
+  @Command('hanging')
+  @SocketAccess('note:read', { fields: 'filter' })
+  public async hanging() {
+    return closable([], true);
+  }
+}
+
+@SocketController('acfo')
+@SocketAccess('note:list', { fields: 'filter' })
+export class AccessFieldsOverrideSocket extends BaseSocketController {
+  @Command('own')
+  @SocketAccess('note:read')
+  public async own() {
+    return { ...ACF_NOTE };
+  }
+}
+
+/** Not registered: only its subclass is. */
+@SocketAccess('note:list', { fields: 'filter' })
+export class AccessFieldsBaseSocket extends BaseSocketController {
+  @Command('inherited')
+  public async inherited() {
+    return { ...ACF_NOTE };
+  }
+}
+
+@SocketController('acfs')
+@SocketAccess('note:read')
+export class AccessFieldsChildSocket extends AccessFieldsBaseSocket {}
 
 describe("@SocketAccess fields: 'filter' (G4)", function () {
   this.timeout(15000);
@@ -134,5 +218,80 @@ describe("@SocketAccess fields: 'filter' (G4)", function () {
 
   it('drops only fields.neverRead for a call another policy group admitted: there is no decision', async () => {
     expect(resultOf(await command(alice, 'acf.alt'))).to.deep.equal({ id: 'n1', title: 't', body: 'b' });
+  });
+
+  it('removes a configured fields.neverRead, not only the default', async () => {
+    await t.close();
+    alice.close();
+    ScriptedSocketAuthz.script = () => ({ allowed: true, fields: { read: ['*'], write: ['*'] } });
+    t = await startServer({ authz: { fields: { neverRead: ['ssn'] } } });
+    alice = await open(t, { auth: { clientId: 'acf-alice', token: 'good' } });
+
+    expect(resultOf(await command(alice, 'acfx.ssn'))).to.deep.equal({ id: 'n1', title: 't', body: 'b', Password: 'hash' });
+  });
+
+  it("uses the neverRead of the decision's domain lineage", async () => {
+    await t.close();
+    alice.close();
+    // a domain container resolves a fresh ScriptedSocketAuthz that answers as 'root'; the decision names its domain
+    ScriptedSocketAuthz.script = (input) => ({ allowed: true, ...(input.permission === 'note:tenant' ? { domain: 'tenant' } : {}), fields: { read: ['*'], write: ['*'] } });
+    t = await startServer({ authz: { domains: { tenant: { parent: 'root', fields: { neverRead: ['secret'] } } } } });
+    (await DI.resolve(AuthzDomains)).create('tenant');
+    alice = await open(t, { auth: { clientId: 'acf-alice', token: 'good' } });
+
+    expect(resultOf(await command(alice, 'acfx.tenant'))).to.not.have.property('secret');
+    expect(resultOf(await command(alice, 'acfx.rootsecret'))).to.deep.equal({ id: 'n1', secret: 's' });
+  });
+
+  it('passes a binary chunk of a stream unchanged and filters the object chunk after it', async () => {
+    const stream = rawStream(alice, 'acfx.bytes', null, 8);
+
+    await stream.reply;
+    await stream.finished;
+    expect(Array.from(new Uint8Array(stream.chunks[0].data as ArrayBuffer))).to.deep.equal([1, 2, 3]);
+    expect(stream.chunks[1].data).to.deep.equal({ id: 'n1', title: 't' });
+  });
+
+  it('filters the chunks that follow a credit wait', async () => {
+    const stream = rawStream(alice, 'acf.rows', null, 1);
+
+    await stream.reply;
+    await waitFor(() => stream.chunks.length === 1);
+    expect(stream.chunks[0].data).to.deep.equal({ id: 'n1', title: 't' });
+    stream.grant(1);
+    await waitFor(() => stream.chunks.length === 2);
+    expect(stream.chunks[1].data).to.deep.equal({ id: 'n2', title: 't' });
+    stream.grant(1);
+    await stream.finished;
+  });
+
+  it("lets a handler rule without fields override the class rule's filter", async () => {
+    expect(resultOf(await command(alice, 'acfo.own'))).to.deep.equal(ACF_NOTE);
+  });
+
+  it('lets a subclass @SocketAccess replace the inherited class rule', async () => {
+    expect(resultOf(await command(alice, 'acfs.inherited'))).to.deep.equal(ACF_NOTE);
+  });
+
+  describe('closing a stream result', () => {
+    beforeEach(() => {
+      acfSources.returned = 0;
+      acfSources.started = 0;
+    });
+
+    it("closes the handler's source when openStream refuses the stream", async () => {
+      expect(errorOf(await command(alice, 'acfx.closable')).code).to.equal('failed_precondition');
+      expect(acfSources.returned).to.equal(1);
+    });
+
+    it('closes the source on a cancel during a pending next()', async () => {
+      const stream = rawStream(alice, 'acfx.hanging', null, 4);
+
+      await stream.reply;
+      await waitFor(() => acfSources.started === 1);
+      await delay(50);
+      stream.cancel();
+      await waitFor(() => acfSources.returned === 1);
+    });
   });
 });

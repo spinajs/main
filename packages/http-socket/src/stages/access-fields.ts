@@ -11,16 +11,37 @@ function accessOf(handler: IRegisteredHandler | undefined): ISocketAccess | unde
   return handler ? (socketAccessOf(handler.descriptor.Policies) ?? socketAccessOf(handler.controller.Descriptor?.Policies)) : undefined;
 }
 
-async function* filtered(source: AsyncIterable<unknown>, filter: (chunk: unknown) => unknown): AsyncGenerator<unknown> {
-  for await (const chunk of source) {
-    yield filter(chunk);
-  }
+/**
+ * Not a generator: a generator's return() never reaches a source it has not started, and queues behind a pending next(),
+ * so the dispatcher's close of a refused or failed stream would leak what the source holds.
+ */
+function filtered(source: AsyncIterable<unknown>, filter: (chunk: unknown) => unknown): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<unknown> {
+      const iterator = source[Symbol.asyncIterator]();
+
+      return {
+        next: async (...args: [] | [undefined]) => {
+          const step = await iterator.next(...args);
+          return step.done ? step : { done: false, value: filter(step.value) };
+        },
+        return: async (value?: unknown) => (iterator.return ? iterator.return(value) : { done: true, value }),
+        throw: async (error?: unknown) => {
+          if (iterator.throw) {
+            return iterator.throw(error);
+          }
+          throw error;
+        },
+      };
+    },
+  };
 }
 
 /**
  * `@SocketAccess(…, { fields: 'filter' })`: the command result, or each chunk of a stream reply, limited to
  * `decision.fields.read` minus the domain's `fields.neverRead`, as authz-http's `fields: 'filter'` limits a response ( B17 ).
- * A call another policy group admitted has no decision, so only `neverRead` applies. Binary values pass unchanged.
+ * A call another policy group admitted has no decision, so only `neverRead` applies.
+ * A binary result or chunk passes unchanged; a binary value nested in an object goes through filterObject, as in HTTP's JSON.
  */
 @Injectable(SocketCommandStage)
 export class AccessFieldsStage extends SocketCommandStage {
@@ -28,6 +49,7 @@ export class AccessFieldsStage extends SocketCommandStage {
   protected Authz: unknown;
 
   public get Order(): number {
+    // after the policies left the decision; wraps the arguments and the handler
     return STAGE_ORDER.Policies + 50;
   }
 
