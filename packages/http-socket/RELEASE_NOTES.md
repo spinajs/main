@@ -274,7 +274,7 @@ Deferred from the W3 review. Each item is a ticket of its own.
 
 ## authz-v3 G3–G6 (known limits)
 
-- `subject: 'load'` answers `unknown_resource` for a missing row and `no_access` for an existing row the caller may not read, as authz-http does, so a caller with a conditional allow can tell which ids exist. Pending an owner ruling covering both packages.
+- `subject: 'load'` answers `unknown_resource` for a missing row and `no_access` for an existing row the caller may not read, as authz-http does, so a caller with a conditional allow can tell which ids exist. Owner ruling 2026-10-08: fixed in both packages together (see the follow-ups).
 - A custom `SessionIssuer` that is not a `DefaultSessionIssuer` ignores `peekingSessions`, so revalidation sweeps of idle connections still slide its sessions. Idle timeouts must exceed `revalidateMs`: a slide lands at the next check.
 - `allowAnonymous` and `unfilteredInput` apply only to the `@SocketAccess` rule that carries them. authz-http's `@AllowAnonymous` and `@UnfilteredInput` on a class cover every route; on a socket, a handler with its own rule still refuses an anonymous caller and still filters its payload unless that rule sets the option too.
 - A primitive payload (string, number, boolean) skips the input filters, while http checks a primitive body parameter by its name. Use a record payload for anything the decision restricts.
@@ -292,4 +292,5 @@ Deferred from the G3–G6 review. Each item is a ticket of its own.
 - **One trust-proxy precedence.** The `authn.http.trustProxy`, else `http.trustProxy` rule is written twice (http-socket `client-address.ts`, authn-http `client-ip.ts`); move it to `@spinajs/http`.
 - **One field-set helper.** `AccessFieldsStage.readable()` repeats the read half of authz-http's `decisionFields`; share one helper through `@spinajs/authz`.
 - **`peek` on the `SessionIssuer` contract.** A custom `SessionIssuer` ignores `peekingSessions`, so its sweeps slide sessions. Put `peek` on the contract and let the socket session source call it; that also removes the hazard of two `peekingSessions` AsyncLocalStorage copies when the ESM and CJS builds of authn-session both load.
+- **One answer for a missing and a forbidden row (owner ruling 2026-10-08).** `subject: 'load'` answers `unknown_resource` for a missing row and `no_access` for an existing row the caller may not read, in authz-http (`AccessPolicy`) and here (`SocketAccessPolicy`). Answer both with the same public reason, in both packages in one change, so a conditional allow no longer tells which ids exist.
 - **Release blocker: versions.** `@spinajs/http-socket` is at `2.0.549` while `@spinajs/http-socket-client` and `@spinajs/http-socket-common` are at `3.0.0-alpha.0`, and authn-http's `peerDependencies` pin `@spinajs/http-socket` to exactly `2.0.549`. Align them before release.
