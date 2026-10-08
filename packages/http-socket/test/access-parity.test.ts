@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
-import { AuthzDomains, AuthzService, ResourceAdapter } from '@spinajs/authz';
+import { AuthzDomains, AuthzService, DefaultAuthzDomains, ResourceAdapter } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 // registers authz-http's AuthzInputFieldFilter, which reads the AuthzHttpRoute mark
 import '@spinajs/authz-http';
@@ -13,6 +13,7 @@ import { Command, Payload, SocketController, SocketPolicy } from '../src/decorat
 import { SocketAccess, SocketAccessPolicy, fromPayload, socketAccessOf } from '../src/access.js';
 import { SocketAccessContributor } from '../src/access-contributor.js';
 import { ISocketCallStorage, ISocketControllerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from '../src/interfaces.js';
+import type { ISocketPolicyRequest } from '../src/policies.js';
 import { ITestServer, command, errorOf, open, resultOf, startServer } from './harness.js';
 import { ScriptedSocketAuthz, ScriptedSocketDomains } from './scripted-authz.js';
 
@@ -111,6 +112,45 @@ export class AccessParitySocket extends BaseSocketController {
   @Command('update')
   @SocketAccess('note:update', { resource: fromPayload('id', 'note') })
   public async update(@Payload() note: Record<string, unknown>) {
+    return note;
+  }
+}
+
+export const acpMarkWrites: unknown[] = [];
+
+/**
+ * Records the AuthzHttpRoute mark already written when its group runs, and every write after. It runs right after the
+ * class rule's synchronous start and before the handler's rule, so whatever order the writes race in, each one is seen.
+ */
+export class AcpMarkSpy extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(req: unknown): Promise<void> {
+    const storage = (req as ISocketPolicyRequest).storage;
+    let mark = storage.AuthzHttpRoute;
+    if (mark !== undefined) {
+      acpMarkWrites.push(mark);
+    }
+    Object.defineProperty(storage, 'AuthzHttpRoute', {
+      configurable: true,
+      enumerable: true,
+      get: () => mark,
+      set: (value: unknown) => {
+        acpMarkWrites.push(value);
+        mark = value;
+      },
+    });
+  }
+}
+
+@SocketController('acpu')
+@SocketAccess('note:list', { unfilteredInput: 'the class takes raw notes', also: [AcpMarkSpy] })
+export class AcpUnfilteredSocket extends BaseSocketController {
+  @Command('own')
+  @SocketAccess('note:read')
+  public async own(@Payload() note: Record<string, unknown>) {
     return note;
   }
 }
@@ -228,13 +268,24 @@ describe('@SocketAccess decides as authz-http AccessPolicy (G4)', function () {
     expect(resultOf(await command(alice, 'acp.password', { Password: 'new secret' }))).to.deep.equal({ Password: 'new secret' });
   });
 
-  it('B02 contributes every @SocketAccess permission to the boot checks of the domain it checks in', () => {
-    const ours = (domain: string) => (new SocketAccessContributor().contribute(domain).permissionRefs ?? []).filter((r) => r.source.startsWith('@SocketAccess on AccessParitySocket'));
+  it("writes no mark from a class rule that does not decide: a handler rule without unfilteredInput keeps the class's opt-out away", async () => {
+    acpMarkWrites.length = 0;
 
-    expect(ours('root')).to.deep.include.members([
+    expect(resultOf(await command(alice, 'acpu.own', { title: 't', Password: 'hash' }))).to.deep.equal({ title: 't' });
+    expect(acpMarkWrites).to.deep.equal([{ domain: 'root' }]);
+  });
+
+  it('B02 contributes every @SocketAccess permission to the boot checks of the domain it checks in', () => {
+    const ours = (domain: string) => (new SocketAccessContributor().contribute(domain).permissionRefs ?? []).filter((r) => r.source === '@SocketAccess on AccessParitySocket' || r.source.startsWith('@SocketAccess on AccessParitySocket.'));
+
+    expect(ours('root')).to.have.deep.members([
       { permission: 'note:list', type: 'note', source: '@SocketAccess on AccessParitySocket' },
+      { permission: 'note:read', source: '@SocketAccess on AccessParitySocket.nothing' },
       { permission: 'note:read', source: '@SocketAccess on AccessParitySocket.load' },
+      { permission: 'note:read', source: '@SocketAccess on AccessParitySocket.residual' },
       { permission: 'note:write', type: 'note', source: '@SocketAccess on AccessParitySocket.alt' },
+      { permission: 'note:read', type: 'note', source: '@SocketAccess on AccessParitySocket.password' },
+      { permission: 'note:update', source: '@SocketAccess on AccessParitySocket.update' },
     ]);
     expect(ours('tenant')).to.deep.equal([{ permission: 'note:read', type: 'note', source: '@SocketAccess on AccessParitySocket.own' }]);
   });
@@ -279,6 +330,10 @@ describe('authz-http reject mode on a @SocketAccess payload, AuthzDomains never 
 
   before(() => {
     DI.register(ScriptedSocketAuthz).as(AuthzService);
+    // The filter reads the write mode only through the host's AuthzDomains, so it must be the last one registered, whatever
+    // an earlier file left. register() skips a type already listed, so it is moved to the end; in a clean run nothing changes.
+    DI.unregister(DefaultAuthzDomains);
+    DI.register(DefaultAuthzDomains).as(AuthzDomains);
   });
 
   after(() => {
@@ -298,6 +353,10 @@ describe('authz-http reject mode on a @SocketAccess payload, AuthzDomains never 
   });
 
   it('refuses the field the decision does not let the caller write on the first call after start, instead of stripping it', async () => {
+    // only the policy may resolve it, else the case passes whether or not the policy does
+    DI.uncache(DefaultAuthzDomains);
+    expect(DI.RootContainer.isResolved(AuthzDomains)).to.equal(false);
+
     expect(errorOf(await command(alice, 'acp.update', { id: 'n1', title: 'new', owner: 'mallory' }))).to.deep.equal({ code: 'invalid_argument', message: 'fields not writable: owner', retryable: false, details: { error: 'fields_not_writable', fields: ['owner'] } });
   });
 });

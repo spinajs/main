@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
-import { AuthzService, SYSTEM, principalKey } from '@spinajs/authz';
+import { AuthzContributor, AuthzService, SYSTEM, principalKey } from '@spinajs/authz';
 import { SocketAccessContributor } from '../src/access-contributor.js';
 import { BaseSocketController } from '../src/controller.js';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
@@ -51,8 +51,12 @@ export class HostSocket extends BaseSocketController {
     hostEventSeen.set(conn.id, principalKey((await authz()).current()));
   }
 
+  // connect hooks run for every connection of the process; other files' connections would boot their AuthzService here
   @OnConnect()
   public async joined(@Connection() conn: SocketConnection) {
+    if (!conn.clientId.startsWith('host-')) {
+      return;
+    }
     hostSeen.set(conn.id, principalKey((await authz()).current()));
   }
 }
@@ -64,10 +68,13 @@ describe('authz-v3 host in socket handlers', function () {
   let alice: ClientSocket;
   let anonymous: ClientSocket;
 
-  // The @SocketAccess permissions of other files' controllers are not registered in this empty root, so B02 would fail
-  // its boot. Not restored: HostSocket's connect hook boots the root again on every later connection of the run.
+  // the @SocketAccess permissions of other files' controllers are not registered in this empty root, so B02 would fail its boot
   before(() => {
     DI.unregister(SocketAccessContributor);
+  });
+
+  after(() => {
+    DI.register(SocketAccessContributor).as(AuthzContributor);
   });
 
   beforeEach(async () => {
@@ -111,6 +118,17 @@ describe('authz-v3 host in socket handlers', function () {
     expect(hostSeen.get(alice.id!)).to.equal('user:1');
   });
 
+  it('leaves the connections of other test files to their own AuthzService: its connect hook asks none for them', async () => {
+    const other = await open(t, { auth: { clientId: 'nothost-alice', token: 'good' } });
+    try {
+      // a command waits for the connection's connect hooks
+      await command(other, 'host.me');
+      expect(hostSeen.has(other.id!)).to.equal(false);
+    } finally {
+      other.close();
+    }
+  });
+
   it('event handlers see the connection principal', async () => {
     alice.emit(WIRE_EVENTS.event, { name: 'host.probe', payload: null });
     anonymous.emit(WIRE_EVENTS.event, { name: 'host.probe', payload: null });
@@ -118,5 +136,11 @@ describe('authz-v3 host in socket handlers', function () {
 
     expect(hostEventSeen.get(alice.id!)).to.equal('user:1');
     expect(hostEventSeen.get(anonymous.id!)).to.equal('unattended:unattended');
+  });
+});
+
+describe('authz-v3 host in socket handlers, afterwards', function () {
+  it('leaves B02 on for the test files that run after it', () => {
+    expect(DI.getRegisteredTypes(AuthzContributor)).to.include(SocketAccessContributor);
   });
 });
