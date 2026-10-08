@@ -63,7 +63,6 @@ export function reviveCeiling(raw: unknown): Ceiling | undefined {
 export class StampedInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
   private warned: boolean;
 
-  /** `authz.queue.stampedInitiatorWarning`: `false` silences the one-time warning. */
   @Config('authz.queue.stampedInitiatorWarning')
   protected WarningSwitch: boolean;
 
@@ -85,8 +84,9 @@ export class StampedInitiatorPrincipalFactory extends InitiatorPrincipalFactory 
 
   async principalOf(initiator: Initiator): Promise<Principal> {
     if (!this.warned) {
+      const silenced = this.silenced();
       this.warned = true;
-      if (!this.silenced()) console.warn('authz-queue: jobs run as their initiator from the stamp alone; register an InitiatorPrincipalFactory that reloads the user so deactivated users stop acting');
+      if (!silenced) console.warn('authz-queue: jobs run as their initiator from the stamp alone; register an InitiatorPrincipalFactory that reloads the user so deactivated users stop acting');
     }
     if (initiator === null || typeof initiator !== 'object') return UNATTENDED;
     const { type, id, ceiling } = initiator as { type?: unknown; id?: unknown; ceiling?: unknown };
