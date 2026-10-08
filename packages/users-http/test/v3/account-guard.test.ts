@@ -21,7 +21,7 @@ import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, USER_UUID, bootAdminWorld, byUuid,
  * `authz.admin.guard` to them.
  */
 
-const LAST_HOLDER = /no active account holding 'users:update'/;
+const LAST_HOLDER = /no account in service holding 'users:update'/;
 
 describe('users-http v3: account guard on the lifecycle routes', function () {
   this.timeout(25000);
@@ -177,7 +177,7 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     expect((await byUuid(USER_UUID)).IsActive).to.eq(true);
   });
 
-  // AuthzAdmin's own last-holder rule counts every GLOBAL holder, out-of-service accounts included.
+  // AccountGuard decides a demotion before AuthzAdmin sees the batch; LAST_HOLDER is its refusal, not AuthzAdmin's last_holder.
   describe('role replacement (PATCH)', () => {
     /** USER may manage assignments and update the first administrator's record, and does not hold `users:update` on every user. */
     async function manager(): Promise<Principal> {

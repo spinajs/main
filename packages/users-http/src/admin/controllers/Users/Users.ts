@@ -497,7 +497,7 @@ export class Users extends BaseController {
    * `Role` takes one role name or a list of them and REPLACES the account's GLOBAL roles: one
    * AuthzAdmin batch, run as the caller, grants the added roles and revokes the ones left out, so
    * AuthzAdmin's guard decides escalation, self lockout and the last holder. A replacement that takes
-   * the privileged permission from an account must also leave another active account holding it
+   * the privileged permission from an account must also leave another account in service holding it
    * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
    * role leaves the login and email untouched too. An empty list is refused rather than applied.
    * @security cookieAuth

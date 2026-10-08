@@ -78,6 +78,9 @@ unbanned and undeleted. An account with an expired password or a pending invite 
 that is missing, throws or answers anything but a `Map` with `true` counts no witness, so the last
 privileged account stays. The target itself counts as privileged while its row is active, unbanned and
 undeleted, whatever the source says: a password reset or an accepted invite can still bring it back.
+The guard never asks the source about the target. It searches role by role, asks about at most 100
+holders per call and tries only the first in-service holder of each role, so a role every account
+holds usually costs one call.
 
 ```js
 authz: {
@@ -85,7 +88,7 @@ authz: {
     guard: {
       // no self-deactivation, self-deletion, self-ban
       preventSelfLockout: true,
-      // never take the last active account holding privilegedPermission out of service
+      // never take the last account in service holding privilegedPermission out of service
       preventLastPrivilegedRemoval: true,
       privilegedPermission: 'users:update',
     },
