@@ -111,8 +111,9 @@ Every command passes these stages in order. The first stage that fails answers w
 7. **Idempotency.** An `idempotent` command with an `idempotencyKey` replays the stored reply of a completed run of that key, or waits for a running one.
 8. **Ordering.** `ordered: 'connection' | 'client'` waits in a serial queue; `after` requires the named predecessor to have completed, in any mode. A stream handler cannot be `ordered`.
 9. **Policies.** `@SocketPolicy` / `@SocketAccess` answer `unauthenticated` or `forbidden`.
-10. **Arguments.** Extraction and ajv validation answer `invalid_argument`, with the validation errors in `details`.
-11. **Handler.** It runs with an `AbortSignal`.
+10. **Access fields.** `@SocketAccess(…, { fields: 'filter' })` limits the result, or each stream chunk, to the fields the decision lets the caller read.
+11. **Arguments.** The `ArgInputFilter`s, then extraction and ajv validation, answer `invalid_argument`, with the validation errors or the refused fields in `details`.
+12. **Handler.** It runs with an `AbortSignal`.
 
 Policies and arguments run inside an `ordered` command's queue place, so they see what the commands before it changed. A stage of your own is a DI class:
 
@@ -224,9 +225,12 @@ Rooms are a server decision; clients ask through ordinary commands. Push names m
 
 - **Principal sources.** A handshake is turned into an authz-v3 `Principal` by the registered `SocketPrincipalSource`s, in ascending `order`. The first non-null principal wins, and a throw refuses the handshake with `unauthenticated`.
 - **Built-in source.** `AuthnCredentialSource` (order 50) authenticates bearer tokens, keys and signatures through `@spinajs/authn`. The client sends a token as `auth.token`, because browsers cannot set WebSocket headers. Cookies are never read by this source.
+- **Session cookie.** `import '@spinajs/authn-http/socket'` registers `SessionSocketPrincipalSource` (order 40). It reads the signed session cookie of `@spinajs/authn-http` (the raw and the `s:` signed form, both verified with `http.cookie.secret`) and resolves the session as http does: an active session wins over bearer credentials, `ActiveRole` becomes `ceiling.roles`, impersonation and banned identities behave as in http, and a pending (pre-MFA) session is no principal. An active session whose principal resolves to null (ban, impersonation ended) refuses the handshake as `unauthenticated` even with `auth.required: false`, which is stricter than http, until the session is removed. Logout, revocation and every session id rotation (login, role switch, impersonation) close the socket at its next revalidation; the client reconnects with the new cookie. Prefer `transports: ['websocket']` with cookies: browsers always send `Origin` on a WebSocket upgrade.
+- **Session sliding.** Background revalidation sweeps never extend a session; a check after a client command or event, a handshake and a recovery do. Any command or event frame counts (app polling, durable-queue resends, refused or malformed commands); cancel and credit frames do not. A slide lands at the next check, up to `http.socket.auth.revalidateMs` late, so the session idle timeout must exceed `revalidateMs`. A custom `SessionIssuer` that is not a `DefaultSessionIssuer` ignores `peekingSessions`, so its sweeps still slide sessions.
 - **No credentials.** A connection without credentials runs as `UNATTENDED`, so authz denies it and scoped ORM queries fail closed. `http.socket.auth.required: true` refuses such handshakes instead.
 - **Origins.** A handshake from a browser page on another origin is refused with `forbidden` unless that origin is listed exactly in `http.socket.cors.origins` (empty by default).
 - **Revalidation.** Live connections re-check their principal every `http.socket.auth.revalidateMs` (60 s), and `ceiling.expiresAt` is always enforced. A revoked credential gets `unauthenticated`, and the server closes the connection with `sys.disconnect { reason: 'unauthenticated' }`.
+- **Behind proxies.** `handshake.address` is the client address: the socket's peer, or behind trusted proxy hops (`authn.http.trustProxy`, else `http.trustProxy`, as authn-http's `ClientIp`) the `X-Forwarded-For` entry they vouch for. `handshake.peerAddress` is the raw TCP peer. Addresses are normalized (trimmed, IPv4-mapped to IPv4) even with no trust setting. Without either setting the address is the peer, whatever `X-Forwarded-For` says. Socket `realIp` and policy `ip` follow this precedence, so they differ from http's `req.storage.realIp` (which uses `http.trustProxy` only) when the two settings differ. A socket-only app that never registers the schema of `@spinajs/authn` validates `authn.http.trustProxy` only through `parseTrustProxy`, which is more lenient than the schema; non-address entries still fail startup.
 
 A source of your own:
 
@@ -263,10 +267,17 @@ export class DocsSocket extends BaseSocketController {
 
 `SignedInPolicy` is a `BasePolicy` of your own. Policies receive an `ISocketPolicyRequest` (`body`, `params`, `storage`, `socketConnection` ...) in place of the express request.
 
-Input field filters. The `ArgInputFilter`s registered with `@spinajs/http` ( for example `AuthzInputFieldFilter` from `@spinajs/authz-http` ) run on `@Payload` arguments only, in commands, events and streams alike. Refusals ( a write the decision does not allow in `reject` mode ) reach the client as `invalid_argument`, with the http body's `error` code and `fields` in `details`. Known differences from HTTP:
+`@SocketAccess` decides as authz-http's `@Access`. Besides `resource`, `also`, `domain` and `allowAnonymous` it takes:
 
-- The filter parameter is named `payload`. For a payload that is not a record ( an array of primitives, say ), write globs match against `payload`.
-- A socket has no `AuthzHttpRoute` mark, so a command without `@SocketAccess` is not filtered at all, whereas HTTP still strips `neverRead` there. Pending G4 ( `@SocketAccess` decision parity ).
+- `subject: 'load'`: a conditional allow is checked again against the row the domain's `ResourceAdapter` loads; a missing row is denied with `unknown_resource`.
+- `fields: 'filter'`: the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead`. Only a top-level binary result or chunk passes unchanged; nested binary values are filtered like JSON, as in http. Without `fields: 'filter'` nothing is stripped from output, `neverRead` included, as in http.
+- `unfilteredInput: reason`: the payload skips authz-http's input field filter, as `@UnfilteredInput` does.
+
+`@SocketAccess` is declared once per place; on a subclass it replaces the inherited rule, as `@Access` does. The handler's own rule decides, else the controller's, and that decision is the one in `storage.AuthzDecision`. A resource extractor that finds nothing answers `invalid_argument`. `@SocketAccess` permissions take part in authz's B02 boot checks over socket controllers, so a permission not registered in the authz domain fails the boot. Socket extractors add no `type` to boot refs (unlike http), so boot rule 7 cannot catch a type/permission mismatch on sockets.
+
+Input field filters. The `ArgInputFilter`s registered with `@spinajs/http` run on `@Payload` arguments, in commands, events and streams alike. With `@spinajs/authz-http` loaded, a payload loses the fields its decision does not let the caller write; in `reject` mode the command is answered `invalid_argument` with `details { error: 'fields_not_writable', fields }`. A command without `@SocketAccess` is not filtered. The filter parameter is named `payload`: for a payload that is not a record, write globs match against `payload`.
+
+The 3.0 authn-http policies `Authenticated`, `NotLoggedPolicy`, `NoTokenAuthPolicy`, `NoImpersonationPolicy` and `MfaSatisfied`, exported by `@spinajs/authn-http/socket`, work as `@SocketPolicy`. Their refusals carry the stable code in `details.error` (`session_required`, `already_authenticated`, `impersonating` ...). `NoSession`, `FreshAuth` and `PendingMfaEnrolment` read `AuthnSession`, which socket calls do not carry, so they are not exported from `/socket`; `NoSession` is still importable from the package root and would always pass on a socket: do not attach it with `@SocketPolicy`.
 
 ## Configuration (`http.socket`)
 

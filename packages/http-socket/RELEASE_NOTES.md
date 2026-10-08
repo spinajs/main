@@ -26,11 +26,11 @@ The v2 API is gone. No package in the repo used it.
 
 - A connection without credentials runs as `UNATTENDED`: authz denies it, and scoped ORM queries fail closed. Set `http.socket.auth.required: true` to refuse such handshakes instead.
 - A `SocketPrincipalSource` that yields a system or unattended principal refuses the handshake as `internal`, as authz-http refuses such a `PrincipalSource`.
-- Bearer tokens (`auth.token` or `Authorization`), keys and signatures resolve through `@spinajs/authn` (`AuthnCredentialSource`). Cookies are never a socket credential.
+- Bearer tokens (`auth.token` or `Authorization`), keys and signatures resolve through `@spinajs/authn` (`AuthnCredentialSource`). Cookies are a socket credential only through the opt-in `SessionSocketPrincipalSource` of `@spinajs/authn-http/socket` (order 40); the origin guard refuses cross-site handshakes before any source runs.
 - Every command, event and hook runs with the principal in the AsyncLocalStorage store under `Principal`, so `AuthzService.current()` works in socket handlers.
-- `@SocketAccess(permission, { resource, also, domain, allowAnonymous })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.
+- `@SocketAccess(permission, { resource, also, domain, allowAnonymous, subject, fields, unfilteredInput })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.
 - `http.socket.cors.origins` (default `[]`) admits cross-origin pages. An empty list refuses every cross-origin handshake with `forbidden`.
-- `ArgInputFilter`s ( `AuthzInputFieldFilter` included ) run on `@Payload` arguments of commands, events and streams, and their refusals answer `invalid_argument` with the http `error` code and `fields` in `details`. The parameter is named `payload`, so write globs match `payload` for a non-record payload. A command without `@SocketAccess` is not filtered, unlike an HTTP route that still loses `neverRead` ( pending G4 ).
+- `ArgInputFilter`s ( `AuthzInputFieldFilter` included ) run on `@Payload` arguments of commands, events and streams, and their refusals answer `invalid_argument` with the http `error` code and `fields` in `details`. The parameter is named `payload`, so write globs match `payload` for a non-record payload.
 
 ### `SocketPrincipalSource.revalidate()` contract
 
@@ -49,6 +49,16 @@ The v2 API is gone. No package in the repo used it.
 
 - `to([])` and empty room names throw (socket.io would treat an empty set as every socket).
 - Names starting with `sys.` are reserved for server notices; pushing one throws.
+
+### authz-v3 follow-ups (G3–G6)
+
+- `ISocketHandshake.address` is now the client address through trusted proxies: the socket's peer, or, when that peer is a trusted proxy hop (`authn.http.trustProxy`, else `http.trustProxy`, the rule of authn-http's `ClientIp`), the `X-Forwarded-For` entry the trusted hops vouch for. Without either setting it is the peer, as before (SR-03). The raw peer is the new required `ISocketHandshake.peerAddress: string`; a handshake built by hand (tests, custom transports) must set both. `SocketServer` refuses to start with a malformed trust entry (`InvalidOption` naming the key).
+- `ISocketAccess` has a required `scope: 'handler' | 'class'`, which `@SocketAccess` sets. `ISocketAccessOptions` gains `subject`, `unfilteredInput` and `fields?: 'filter' | 'none'`; `AccessFieldsStage` runs at order 650.
+- A `@SocketAccess` resource extractor that returns `null` or `undefined` answers `invalid_argument` "the resource extractor of <command> found no resource". It used to fall back to the type-level resource.
+- When a handler and its controller both carry `@SocketAccess`, only the handler's decision is left in `storage.AuthzDecision`, as authz-http keeps only the route's own. Before, the last policy to finish won.
+- `@SocketAccess` permissions now feed authz's boot rule 7 (`SocketAccessContributor`): an unregistered permission fails the domain's boot (B02).
+- `SocketPrincipalSource.revalidate(handshake, principal, check?: ISocketRevalidation)`, with `ISocketRevalidation { trigger: 'sweep' | 'recovery' | 'command' | 'event'; active: boolean }`. `SocketPrincipalGuard.ensure(connection, trigger)` takes the trigger, and its protected `check` / `revalidate` / `ask` signatures changed (matters to subclasses). `ISocketAuthState.activeAt?: number` records the last client activity.
+- `@spinajs/authn-http/socket` exports `SessionSocketPrincipalSource`, `Authenticated`, `MfaSatisfied`, `NoImpersonationPolicy`, `NoTokenAuthPolicy` and `NotLoggedPolicy`. `@spinajs/authn-session` adds `DefaultSessionIssuer.peek` and `peekingSessions`.
 
 ## New
 
@@ -74,6 +84,14 @@ Live connections re-check their principal, so a revoked or expired credential st
 - A handler's own `runAs(principal, reason, fn)` switches the principal for `fn` only, also while other commands of the same connection run concurrently. It is audited when the domain's `audit.runAs` is enabled. The outer principal is current again after it returns.
 - The services of named domains (`AuthzDomains.service(name)`) read the same AsyncLocalStorage store, so their `current()` and `runAs` behave the same in socket handlers.
 - `ISocketCallStorage` now extends authz's `IAuthzAsyncStorage`, so `AuthzCache` and `Unscoped` are typed keys of the call store. This is a type-only change; the runtime exports are unchanged.
+
+### authz-v3 follow-ups (G3–G6)
+
+- **Input filters (G3).** Socket payloads pass through http's `ArgInputFilter`s, as an http body does. With `@spinajs/authz-http` loaded, its `AuthzInputFieldFilter` strips, or in `reject` mode refuses, the payload fields outside `decision.fields.write` and the domain's `fields.neverRead`, using the decision `@SocketAccess` left in the call store (B17). A command without `@SocketAccess` is not filtered; `unfilteredInput: reason` opts one out.
+- **Error details.** An error that carries the stable code http puts in its body (own prop `error`) or the refused `fields` answers them in `details`, for every `codeMapping` mapping and `InvalidArgumentMapping`: `forbidden { error: 'session_required' }`, `invalid_argument { error: 'fields_not_writable', fields: ['owner'] }`.
+- **`@SocketAccess` on authz-http's rules (G4).** `subject: 'load'` checks a conditional allow again against the row the domain's `ResourceAdapter` loads; a missing row is denied with `unknown_resource`. `fields: 'filter'` limits a result, or each stream chunk, to `decision.fields.read` minus `fields.neverRead` (`AccessFieldsStage`, order `STAGE_ORDER.Policies + 50`); only a top-level binary result or chunk passes unchanged. The policy writes authz-http's `AuthzHttpRoute` mark, so a call another policy group admitted still loses `fields.neverRead`. `socketAccessOf(groups)` returns the `@SocketAccess` rule of one scope. `@SocketAccess` is declared once per place and replaces the inherited rule on a subclass. Denials never carry a trace: sockets offer no explain.
+- **Session cookie (G6).** `import '@spinajs/authn-http/socket'` registers `SessionSocketPrincipalSource`. It restores the signed session cookie of authn-http (raw and `s:` forms, `http.cookie.secret`) and resolves it with authn-http's `SessionPrincipalResolver`, so impersonation, banned identities and `ActiveRole` (`ceiling.roles`) behave as in http. A pending (pre-MFA) session is no principal (SR-07). Revalidation restores the session again: logout, revocation or an id rotation (login, role switch, impersonation) closes the socket, and the client reconnects with its new cookie. Sweeps peek the session and never slide it; client commands and events, handshakes and recoveries slide its expiry (`maxLifetime` still ends it).
+- **authn-http policies (G5).** `Authenticated`, `NotLoggedPolicy`, `NoTokenAuthPolicy`, `NoImpersonationPolicy` and `MfaSatisfied` (the 3.0 classes, re-exported by `@spinajs/authn-http/socket`) work as `@SocketPolicy`. `NoSession`, `FreshAuth` and `PendingMfaEnrolment` need `AuthnSession`, which sockets do not have; they are not exported from `/socket`.
 
 ### Stream replies (W4)
 
@@ -224,6 +242,8 @@ It warns when `drainMs + 3 000` reaches `http.shutdownTimeout`. `SocketClient` t
 
 ## W3 resilience (known limits)
 
+- `subject: 'load'` answers `unknown_resource` for a missing row and `no_access` for an existing row the caller may not read, as authz-http does, so a caller with a conditional allow can tell which ids exist. Pending an owner ruling covering both packages.
+- A custom `SessionIssuer` that is not a `DefaultSessionIssuer` ignores `peekingSessions`, so its revalidation sweeps still slide sessions. Idle timeouts must exceed `revalidateMs`: a slide lands at the next check.
 - No idempotency store has a lease yet: a handler that never settles keeps its key running forever, and every resend of it waits or is refused. A shared store (Redis, ORM) needs to expire running claims.
 - A reply the store could not keep is still answered and its key released. A double run therefore needs both a store failure and a lost ack.
 - Exactly-once needs a keyed handler that rolls back when its signal aborts, for every abort reason (disconnect, cancel, deadline, shutdown), or that never throws the abort after it has committed. A handler that commits and then throws the abort reason (or another retryable error) releases its key, so a resend runs it again. Only the shutdown deadline marks the outcome as unknown and keeps the key. Check the signal before committing, and make the commit the last step.
