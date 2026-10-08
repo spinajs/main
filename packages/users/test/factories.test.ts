@@ -74,7 +74,7 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
       const guest = DI.resolve<User>('RbacGuestUserFactory');
 
       expect(guest.Login).to.eq('guest');
-      expect(guest.IsGuest).to.eq(true);
+      expect(guest.Id).to.not.exist;
       expect(guest.IsActive).to.eq(false);
       expect(guest.Role).to.eq(undefined);
     });

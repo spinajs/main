@@ -100,13 +100,6 @@ describe('roles as GLOBAL assignments (H13)', function () {
     });
   });
 
-  describe('IsGuest', () => {
-    it('is true only for a user that was never stored', async () => {
-      expect(new User({ Login: 'guest' }).IsGuest).to.eq(true);
-      expect((await User.query().whereLogin('test').firstOrFail()).IsGuest).to.eq(false);
-    });
-  });
-
   describe('create', () => {
     it('grants its roles as GLOBAL assignments of user:<Uuid>', async () => {
       const { User: u } = await create('assigned@spinajs.pl', 'assigned', ['user', ' editor ', 'user'], { password: 'passw0rd123' });
@@ -242,17 +235,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
       expect(await getUsersByRole(['normal'])).to.deep.eq([]);
     });
 
-    it('the deprecated withRole scope answers from assignments', async () => {
-      await grant('test@spinajs.pl', 'editor');
-
-      const users = await User.query().withRole(['editor']);
-      expect(users.map((x) => x.Login)).to.deep.eq(['test']);
-
-      await revoke('test@spinajs.pl', 'editor');
-      expect(await User.query().withRole(['editor'])).to.deep.eq([]);
-    });
-
-    it('withRole and getUsersByRole leave out expired, scoped and subject-set rows', async () => {
+    it('getUsersByRole leaves out expired, scoped and subject-set rows', async () => {
       const u = new User({ Email: 'excluded@spinajs.pl', Login: 'excluded', Password: 'x', IsActive: true });
       await u.insert();
       await insertAssignmentRow({ subject_type: 'user', subject_id: u.Uuid, role: 'editor', scope_type: GLOBAL.type, expires_at: new Date(Date.now() - 3600 * 1000) });
@@ -260,7 +243,6 @@ describe('roles as GLOBAL assignments (H13)', function () {
       // A subject set whose scope is this user's own ref: only the subject_role filter leaves it out.
       await insertAssignmentRow({ subject_type: 'user', subject_id: u.Uuid, subject_role: 'group.member', role: 'editor', scope_type: GLOBAL.type });
 
-      expect(await User.query().withRole(['editor'])).to.deep.eq([]);
       expect(await getUsersByRole(['editor'])).to.deep.eq([]);
     });
   });

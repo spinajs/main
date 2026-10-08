@@ -1,37 +1,11 @@
 import { DateTime } from 'luxon';
 import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
-import { AccessControl, Permission } from 'accesscontrol';
-import { DI } from '@spinajs/di';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
-import { GLOBAL } from '@spinajs/authz';
-import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 
 export class UserQueryScopes implements QueryScope {
-  /**
-   * Users holding any of `roles` as a live GLOBAL assignment of `user:<Uuid>`.
-   *
-   * It reads `authz_assignment` on the users' own connection, so it misses assignments that
-   * `authz.rbac.connection` keeps elsewhere.
-   *
-   * @deprecated 3.0: getUsersByRole() or AssignmentStore.holders(role, GLOBAL, at). R1 deletes it.
-   */
-  public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, roles: string[]) {
-    const r = _check_arg(_trim(), _non_empty())(roles, 'roles');
-    const holders = this.Driver.select()
-      .from(AUTHZ_ASSIGNMENT_TABLE)
-      .columns(['subject_id'])
-      .where({ subject_type: 'user', subject_role: '', scope_type: GLOBAL.type, scope_id: '' })
-      .whereIn('role', r)
-      .where(function () {
-        this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
-      });
-
-    return this.whereIn('Uuid', holders);
-  }
-
   /**
    *
    * Finds users with specified metadata key and value. If user has more metadata and one of them is matching it will be included as well
@@ -263,11 +237,6 @@ export function isReservedLogin(login: string): boolean {
 @Connection('default')
 @Model('users')
 export class UserBase extends ModelBase<UserBase> {
-  /** @deprecated 3.0: authz(); RbacService for introspection. R1 deletes it. */
-  protected get _ac(): AccessControl {
-    return DI.get<AccessControl>('AccessControl')!;
-  }
-
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
 
   public constructor(data?: Partial<User>) {
@@ -301,8 +270,8 @@ export class UserBase extends ModelBase<UserBase> {
 
   /**
    * Type only: authz-rbac's migrations copy the `users.Role` column into `authz_assignment` and
-   * drop it. Nothing in users sets it; only the deprecated 2.x checks (`can*`, `effectiveRoles`)
-   * still read a value a 2.x caller put on an instance in memory.
+   * drop it. Nothing in users sets it; only the deprecated 2.x code (`effectiveRoles`) still
+   * reads a value a 2.x caller put on an instance in memory.
    *
    * @deprecated 3.0: RbacService.rolesOf(principal) or AssignmentStore.forSubjects([user:<Uuid>]). R1 deletes it.
    */
@@ -354,15 +323,6 @@ export class UserBase extends ModelBase<UserBase> {
   })
   public Metadata!: MetadataRelation<UserMetadataBase, User>;
 
-  /**
-   * Only a user that was never stored, such as the guest factory's, is a guest.
-   *
-   * @deprecated 3.0: the anonymous principal of `@spinajs/authn`. R1 deletes it.
-   */
-  public get IsGuest(): boolean {
-    return !this.Id;
-  }
-
   public get IsBanned(): boolean {
     if (this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] !== true) {
       return false;
@@ -395,104 +355,6 @@ export class UserBase extends ModelBase<UserBase> {
     }
 
     return base as any;
-  }
-
-  /** @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it. */
-  public can(resource: string, permission: string): Permission {
-    resource = _check_arg(_trim(), _non_empty())(resource, 'resource');
-    permission = _check_arg(_trim(), _non_empty())(permission, 'permission');
-
-    return (this._ac.can(this.Role) as any)[permission](resource);
-  }
-
-  /**
-   * Shorthand for check if user can read any of specified resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canReadAny(resource: string) {
-    return this.can(resource, 'readAny');
-  }
-
-  /**
-   * Shortcut for check if user can read own resource
-   *
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canReadOwn(resource: string) {
-    return this.can(resource, 'readOwn');
-  }
-
-  /**
-   * Shortcut for check if user can update any resource
-   *
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canUpdateAny(resource: string) {
-    return this.can(resource, 'updateAny');
-  }
-
-  /**
-   * Shortcut for check if user can update own resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canUpdateOwn(resource: string) {
-    return this.can(resource, 'updateOwn');
-  }
-
-  /**
-   * Shortcut for check if user can delete any resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canDeleteAny(resource: string) {
-    return this.can(resource, 'deleteAny');
-  }
-
-  /**
-   * Shourtcut for check if user can delete own resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canDeleteOwn(resource: string) {
-    return this.can(resource, 'deleteOwn');
-  }
-
-  /**
-   * Shortcut for check if user can create any resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canCreateAny(resource: string) {
-    return this.can(resource, 'createAny');
-  }
-
-  /**
-   * Shourtcut for check if user can create own resource
-   * @param resource
-   * @returns
-   *
-   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
-   */
-  public canCreateOwn(resource: string) {
-    return this.can(resource, 'createOwn');
   }
 
   // this.query(), not UserBase.query(): the receiver class must build the query so subclasses registered as RbacUserModel are honoured
