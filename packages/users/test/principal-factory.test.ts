@@ -6,7 +6,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, ConfigurationSource } from '@spinajs/configuration';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
 import { Connection, Model, Orm, QueryMiddleware } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -232,11 +232,13 @@ describe('UserPrincipalFactory', function () {
 
     // authz-queue registers its hooks, bus and job resource on import; nothing outside this block may see them.
     before(async () => {
-      const added = trackRegistrations([QueueMessageHook, QueueTrackingHook, ChangeBus, 'InitiatorPrincipalFactory', QueryMiddleware, ResourceAdapter, AuthzContributor]);
+      const added = trackRegistrations([QueueMessageHook, QueueTrackingHook, ChangeBus, 'InitiatorPrincipalFactory', QueryMiddleware, ResourceAdapter, AuthzContributor, ConfigurationSource]);
       usersQueue = await import('../src/queue/index.js');
       authzQueue = await import('@spinajs/authz-queue');
       // The root domain of these tests has no queue to carry authz changes over.
       added.drop(ChangeBus);
+      // Its job:read grant names a permission the root domain here does not register.
+      added.drop(ConfigurationSource);
       undo = () => added.dropAll();
     });
 

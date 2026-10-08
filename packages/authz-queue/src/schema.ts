@@ -11,6 +11,8 @@ export const AUTHZ_QUEUE_CONFIGURATION_SCHEMA = {
   properties: {
     // The authz domain whose principal a message carries and whose runAs its handler uses.
     domain: { ...name, default: 'root' },
+    // Whether StampedInitiatorPrincipalFactory warns, once, that jobs run from the stamp alone; false for an app that accepts that.
+    stampedInitiatorWarning: { type: 'boolean', default: true },
   },
 };
 

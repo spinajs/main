@@ -6,7 +6,7 @@ import { bindConfiguration, bootConfiguration, testHost, violationPaths } from '
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, QueueChangeBus } from '../src/index.js';
+import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, QueueChangeBus, StampedInitiatorPrincipalFactory } from '../src/index.js';
 
 describe('authz-queue configuration through @Config', () => {
   const children: IContainer[] = [];
@@ -57,6 +57,66 @@ describe('authz-queue configuration through @Config', () => {
       for (const c of children.splice(0)) await c.dispose();
       await testHost.uninstallHost();
     }
+  });
+
+  describe('authz.queue.stampedInitiatorWarning', () => {
+    const warnings = async (factory: StampedInitiatorPrincipalFactory): Promise<number> => {
+      const original = console.warn;
+      let count = 0;
+      console.warn = () => {
+        count++;
+      };
+      try {
+        await factory.principalOf({ type: 'user', id: 'u1' });
+        await factory.principalOf({ type: 'user', id: 'u2' });
+      } finally {
+        console.warn = original;
+      }
+      return count;
+    };
+
+    it('defaults to true: warns once', async () => {
+      const child = await boot({});
+      expect((await child.resolve(Configuration)).get('authz.queue.stampedInitiatorWarning')).to.equal(true);
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), child))).to.equal(1);
+    });
+
+    it('false in config: never warns', async () => {
+      const child = await boot({ queue: { stampedInitiatorWarning: false } });
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), child))).to.equal(0);
+    });
+
+    it('is read per container, at the first principal', async () => {
+      const quiet = await boot({ queue: { stampedInitiatorWarning: false } });
+      const loud = await boot({});
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), quiet))).to.equal(0);
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), loud))).to.equal(1);
+    });
+
+    it('a value the schema never saw keeps the warning', async () => {
+      const child = await boot({});
+      (await child.resolve(Configuration)).set(['authz', 'queue', 'stampedInitiatorWarning'], 'no');
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), child))).to.equal(1);
+    });
+
+    it('the constructor option warn: false never reads the config', async () => {
+      const throwing = bindConfiguration(new StampedInitiatorPrincipalFactory({ warn: false }), {
+        get: () => {
+          throw new Error('config was read');
+        },
+      } as unknown as IContainer);
+      expect(await warnings(throwing)).to.equal(0);
+      expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: false }))).to.equal(0);
+    });
+
+    it('a new-built factory with no Configuration to read warns instead of throwing', async () => {
+      const lonely = bindConfiguration(new StampedInitiatorPrincipalFactory(), DI.RootContainer.child());
+      expect(await warnings(lonely)).to.equal(1);
+    });
+
+    it('refuses a non-boolean at boot', async () => {
+      expect(await violationPaths(boot({ queue: { stampedInitiatorWarning: {} } }))).to.include('authz.queue.stampedInitiatorWarning');
+    });
   });
 
   it('the bootstrapper registers both schemas', () => {
