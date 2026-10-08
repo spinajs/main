@@ -135,6 +135,8 @@ export interface RouteWorldOptions {
   readonly attributes?: ReadonlyArray<readonly [ResourceRef, Readonly<Record<string, unknown>>]>;
   /** Stored rules: the model gets a DbRuleStore beside its ConfigRuleStore, and these are written through it (`putWithLadders`). */
   readonly dbRules?: readonly Omit<RuleDef, 'source'>[];
+  /** The role definitions, default ROLES (the ladders stay LADDERS). */
+  readonly roles?: readonly RoleDef[];
 }
 
 /** An `authz_rule` row as a test writes it past the store (raw columns and its subject rows). */
@@ -209,7 +211,7 @@ export class RouteWorld {
     cfg.set(['authz', 'rbac'], { serviceRoles: SERVICE_ROLES, cache: { assignmentsTtlSeconds: 0 }, connection: RootOrm.connectionOf(this.kind) });
     const store = new MemoryAssignmentStore(this.store?.all() ?? []);
     const ruleStores: RuleStore[] = [...(opts.rules ? [new ConfigRuleStore(opts.rules as RuleDef[])] : []), ...(opts.dbRules ? [this.ruleStore] : [])];
-    const options: RbacModelOptions = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, log: { warn: () => undefined }, ...(ruleStores.length > 0 ? { rules: ruleStores } : {}) };
+    const options: RbacModelOptions = { roles: new MemoryRoleStore(opts.roles ?? ROLES, LADDERS), assignments: store, log: { warn: () => undefined }, ...(ruleStores.length > 0 ? { rules: ruleStores } : {}) };
     const model = new RbacModel({ ...options, extensions: [...createRbacExtensions(options), rbacAssignmentExtension(options, { rules: true })] });
     const container: IContainer = ds.create(name, 'root');
     container.register(testHost.instance(model)).as(AuthorizationModel);
