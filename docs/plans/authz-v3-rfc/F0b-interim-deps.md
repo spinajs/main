@@ -28,6 +28,11 @@ breaks §4.2.
 | `configuration-http` | `users`, `authn-http` | Controller policies and the `admin.configuration` grants use `@spinajs/users` and `authn-http` decorators. | C6 |
 | `orm-api` | `users`, `authn-http` | CRUD controllers use `AccessControl`, `User` and the `Permission` decorator. | L8 (package is deleted) |
 
+Status (R1bc, 2026-10-09): R1bc closed these edges: `authn-http` → `authn-token` as a runtime dependency (now a
+devDependency for tests), `authn-http` → `queue`, `authn-token` → `users` (now a devDependency for one test file),
+`authn-token` → `http` and `authn-token` → `queue`. Still open: `authn-http` → `users` and `authn-totp` (R1d,
+after C2b), `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` (C2b, R1d).
+
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
 `authz-http-admin` → `authz` and `authz-http`, `authz` → `authn`.
