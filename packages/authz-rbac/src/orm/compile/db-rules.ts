@@ -24,18 +24,19 @@ import type { RbacResourceField } from './stored-rule.js';
  * `resource_types`, `scope_types`, `subject_types`, `strip_tags`, `at_type`, `rank_ladder`, `rank_at`,
  * `when_path`, `when_op`, `when_value`, `max_ref`, `min_ref`, `resource_field`, `resource_like`,
  * `resource_not_like`, `resource_glob`, `resource_not_glob`, and the `allow` and `refs` entries from
- * `authz_rule_subject`. A row written past the store where they disagree with the definition (or e.g. with
- * `subjects.refs: null`, which the check ignores and SQL reads as a selector no subject row meets) may list rows
- * the check refuses: not selecting a restrict, cap or threshold lists more. The definition itself is read as
- * JSON.parse reads it: on Postgres by `->` (the last of repeated keys, escapes decoded; a text JSON.parse refuses
- * fails the list), on SQLite by json_extract where `jsonUnlike` finds no JSON5, repeated key or escape (else `st`).
+ * `authz_rule_subject`. A row written past the store where they disagree with the definition may list rows the
+ * check refuses: not selecting a restrict, cap or threshold lists more. The definition itself is read as
+ * JSON.parse and `rowToRule` read it: on Postgres by `->` (the last of repeated keys, escapes decoded; a text
+ * JSON.parse refuses fails the list), on SQLite by json_extract; whatever `jsonUnlike` finds is `st` (a top level
+ * that is not an object, an `allow` or `subjects.refs` that is not an array; on SQLite also JSON5, a repeated key,
+ * an escape or a NUL).
  *
  * The columns of `authz_dr` (integers 0/1 unless said otherwise):
  * - `id`, `kind`; `ix`: the static path index of the rule's node, NULL for a type-only scope (a node holding '').
  * - `st`: the check fails on the rule wherever it reads it (`compileRule` throws: a ladder or role the current
  *   roles do not hold, a kind/field mix the store refuses), or the definition holds what the SQL form cannot
  *   (`subjects.when`, `subjects.actorTypes`, a condition or ref outside the columns), or the dialect reads it
- *   otherwise than the check's JSON.parse (`jsonUnlike`: SQLite, JSON5, a repeated key or a `\u` escape): refused (narrower).
+ *   otherwise than the check's JSON.parse and rowToRule (`jsonUnlike`): refused (narrower).
  * - `ps`: the request-level selectors hold (principal types, refs; a threshold's permissions).
  * - `ab`: a scope type the rule reads has no node on the row's path (indeterminate, B39).
  * - `wc`: `when` as `storedWhenCode` (1, 0, NULL UNKNOWN, 2 inexact, 3 missing).

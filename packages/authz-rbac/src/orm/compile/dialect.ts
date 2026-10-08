@@ -48,12 +48,15 @@ export interface RbacSqlDialect {
   /** The text `doc` where the `json*` reads above may run on it (NULL elsewhere, which they read as nothing). */
   jsonDoc(doc: RbacSql): RbacSql;
   /**
-   * Two-valued for a non-NULL text `doc`: JSON.parse refuses it or reads it otherwise than the `json*` reads do.
-   * SQLite: not RFC 8259 JSON (one-argument `json_valid` refuses the JSON5 the other json functions accept from
-   * 3.42), a key repeated in one object (json_extract takes the first, JSON.parse the last), or a `\u` escape
-   * anywhere (json_extract does not find a key spelled with one; a value with one is refused too, narrower).
-   * Postgres: FALSE; a text it cannot parse fails the query, and `->` reads keys as JSON.parse does (escapes
-   * decoded, the last of repeated keys).
+   * Two-valued for a non-NULL text `doc`: JSON.parse refuses it or reads it otherwise than the `json*` reads do, or
+   * the store's `rowToRule` cannot use it. Both dialects: the top level is not an object (rowToRule throws on null;
+   * an array or a scalar it reads as an empty definition, refused here too, narrower), or `allow` or
+   * `subjects.refs` is present and not an array (rowToRule throws on a truthy one; a falsy one is refused too,
+   * narrower). SQLite: a NUL anywhere (json_valid reads up to it, JSON.parse refuses it), not RFC 8259 JSON
+   * (one-argument `json_valid` refuses the JSON5 the other json functions accept from 3.42), a key repeated in one
+   * object (json_extract takes the first, JSON.parse the last), or a `\u` escape anywhere (json_extract does not
+   * find a key spelled with one; a value with one is refused too, narrower). Postgres: a text it cannot parse fails
+   * the query, and `->` reads keys as JSON.parse does (escapes decoded, the last of repeated keys).
    */
   jsonUnlike(doc: RbacSql): RbacSql;
 }
@@ -105,7 +108,9 @@ const sqlite: RbacSqlDialect = {
     const valid = rsql`CASE WHEN json_valid(${doc}) THEN ${doc} END`;
     const [a, b] = ['authz_jt', 'authz_ju'];
     const repeated = rsql`EXISTS (SELECT 1 FROM json_tree(${valid}) ${ident(a)}, json_tree(${valid}) ${ident(b)} WHERE ${ident(a, 'parent')} = ${ident(b, 'parent')} AND ${ident(a, 'key')} = ${ident(b, 'key')} AND ${ident(a, 'id')} < ${ident(b, 'id')})`;
-    return rsql`(NOT json_valid(${doc}) OR instr(${doc}, ${'\\u'}) > 0 OR ${repeated})`;
+    const notArray = (keys: readonly string[]) => rsql`(json_type(${valid}, ${jsonPath(keys)}) IS NOT NULL AND json_type(${valid}, ${jsonPath(keys)}) <> ${'array'})`;
+    const shape = rsql`(json_type(${valid}) IS NOT NULL AND json_type(${valid}) <> ${'object'}) OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])}`;
+    return rsql`(instr(${doc}, char(0)) > 0 OR NOT json_valid(${doc}) OR instr(${doc}, ${'\\u'}) > 0 OR ${repeated} OR ${shape})`;
   },
 };
 
@@ -145,7 +150,10 @@ const postgres: RbacSqlDialect = {
   jsonHas: (doc, keys) => rsql`(${pgJson(doc, keys)} IS NOT NULL)`,
   jsonNull: (doc, keys) => rsql`(${pgJson(doc, keys)} IS NOT NULL AND json_typeof(${pgJson(doc, keys)}) = ${'null'})`,
   jsonDoc: (doc) => doc,
-  jsonUnlike: () => FALSE_SQL,
+  jsonUnlike: (doc) => {
+    const notArray = (keys: readonly string[]) => rsql`(${pgJson(doc, keys)} IS NOT NULL AND json_typeof(${pgJson(doc, keys)}) <> ${'array'})`;
+    return rsql`(json_typeof(CAST(${doc} AS JSON)) <> ${'object'} OR ${notArray(['allow'])} OR ${notArray(['subjects', 'refs'])})`;
+  },
 };
 
 /** By the connection's driver name, as authz-orm's `dialectFor`. */

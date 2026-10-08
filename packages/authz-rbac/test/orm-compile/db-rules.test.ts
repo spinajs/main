@@ -458,6 +458,29 @@ describe('authz-rbac orm-compile: stored rules (DbRuleStore) in SQL', function (
         }
       });
 
+      it('a definition rowToRule cannot use refuses its path: a top level that is no object, a non-array allow or subjects.refs, a NUL on SQLite (db re-review N1)', async () => {
+        // editor at o2 is not above the restrict's node: a restrict the store reads keeps docs 2 and 4.
+        const rows = [assignment(u('ann'), 'editor', O('o2')), assignment(u('ann'), 'editor', O('o1'))];
+        const restrict = rawRule({ id: 'r1', kind: 'restrict', scope: O('o2'), allow: [] }, { kind: 'restrict', allow: [] });
+        const text = (definition: string): RawRuleRow => ({ ...restrict, rule: { ...restrict.rule, definition } });
+        await scenario([], rows, [], [text('{"kind":"restrict","allow":[]}')]);
+        await lists(user('ann'), 'doc:edit', ['1', '2', '3', '4']);
+        // rowToRule throws on these, so the check refuses every row on the rule's path.
+        const thrown = ['null', '{"kind":"restrict","allow":5}', '{"kind":"restrict","allow":{}}', '{"kind":"restrict","allow":"ab"}', '{"kind":"restrict","allow":[],"subjects":{"refs":"x"}}', ...(kind === 'sqlite' ? ['{"kind":"restrict","allow":[]}\u0000x'] : [])];
+        for (const definition of thrown) {
+          await scenario([], rows, [], [text(definition)]);
+          await lists(user('ann'), 'doc:edit', ['1', '3']);
+        }
+        // Read by rowToRule as an empty definition (the columns' restrict): refused here, narrower.
+        for (const definition of ['[]', '"x"']) {
+          await scenario([], rows, [], [text(definition)]);
+          await narrower(user('ann'), 'doc:edit', ['1', '3'], ['2', '4']);
+        }
+        // A subjects value that is no object holds no refs for either side.
+        await scenario([], rows, [], [text('{"kind":"restrict","allow":[],"subjects":5}')]);
+        await lists(user('ann'), 'doc:edit', ['1', '2', '3', '4']);
+      });
+
       it('a row comparing a number attribute with a numeric string literal is inexact: refused where its choice matters (review M2)', async () => {
         // o1's level is 3: not "2" in the check. toSqlForm refuses the literal; a row written past the store holds it.
         const rows = [assignment(u('ann'), 'editor', GLOBAL), assignment(u('ann'), 'commenter', P('10'))];
