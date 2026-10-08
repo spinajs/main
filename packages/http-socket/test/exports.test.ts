@@ -62,6 +62,7 @@ const PUBLIC_API = [
   'SignalArg',
   'SizeStage',
   'SocketAccess',
+  'SocketAccessContributor',
   'SocketAccessPolicy',
   'SocketArg',
   'SocketArgumentResolver',
@@ -112,6 +113,7 @@ const PUBLIC_API = [
   'observeCommand',
   'observeStream',
   'payloadSize',
+  'socketAccessOf',
   'socketMetrics',
   'trackConnection',
 ];

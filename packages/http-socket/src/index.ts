@@ -20,6 +20,7 @@ export { SocketDispatcher } from './dispatcher.js';
 export { SocketPolicyGate } from './policies.js';
 export type { ISocketPolicyRequest } from './policies.js';
 export * from './access.js';
+export { SocketAccessContributor } from './access-contributor.js';
 export { SocketPrincipalGuard } from './principal-guard.js';
 export * from './metrics.js';
 export * from './schema.js';

@@ -1,4 +1,6 @@
-import { AuthzService, FALSE, TRUE } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { AuthzDomains, AuthzService, FALSE, ResourceAdapter, TRUE } from '@spinajs/authz';
 import type { AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 
 function unused(member: string): never {
@@ -87,5 +89,32 @@ export class ScriptedSocketAuthz extends AuthzService {
 
   public admin(): AuthzAdmin {
     return unused('ScriptedSocketAuthz.admin');
+  }
+}
+
+/** Named domains answer through ScriptedSocketAuthz; `container()` holds `adapters`, which `subject: 'load'` asks for rows. */
+export class ScriptedSocketDomains extends AuthzDomains {
+  public static adapters: Array<new () => ResourceAdapter> = [];
+
+  public async service(name: string): Promise<AuthzService> {
+    const service = new ScriptedSocketAuthz();
+    service.domain = name;
+    return service;
+  }
+
+  public create(): IContainer {
+    return unused('ScriptedSocketDomains.create');
+  }
+
+  public container(): IContainer {
+    const container = DI.RootContainer.child();
+    for (const adapter of ScriptedSocketDomains.adapters) {
+      container.register(adapter).as(ResourceAdapter);
+    }
+    return container;
+  }
+
+  public names(): readonly string[] {
+    return ['root', 'tenant'];
   }
 }

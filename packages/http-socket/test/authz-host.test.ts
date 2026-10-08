@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { AuthzService, SYSTEM, principalKey } from '@spinajs/authz';
+import { SocketAccessContributor } from '../src/access-contributor.js';
 import { BaseSocketController } from '../src/controller.js';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { Command, Connection, OnConnect, OnEvent, SocketController } from '../src/decorators.js';
@@ -62,6 +63,12 @@ describe('authz-v3 host in socket handlers', function () {
   let t: ITestServer;
   let alice: ClientSocket;
   let anonymous: ClientSocket;
+
+  // The @SocketAccess permissions of other files' controllers are not registered in this empty root, so B02 would fail
+  // its boot. Not restored: HostSocket's connect hook boots the root again on every later connection of the run.
+  before(() => {
+    DI.unregister(SocketAccessContributor);
+  });
 
   beforeEach(async () => {
     closeGate();
