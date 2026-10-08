@@ -209,6 +209,7 @@ export function tokenEndToEndSuite(): void {
     const u = await user();
     const old = await mint(u.ref, { expiresAt: new Date(Date.now() + 5 * MINUTE) });
     const uuid = (await h.tokens!.list(u.ref))[0].id;
+    clearLog();
     await later(5 * 60 + 1, async () => {
       await get(bearer(old.plaintext), GATED);
     });
