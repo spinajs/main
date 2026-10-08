@@ -39,10 +39,24 @@ export function resolveSocketErrorMapping(error: unknown): Constructor<SocketErr
   return null;
 }
 
+/**
+ * The stable code ( `error` ) and the refused `fields` that authz-http and authn-http put on an error: http spreads them
+ * into its response body, a socket answers them in `details`.
+ */
+function bodyDetails(error: Error): Record<string, unknown> {
+  const { error: code, fields } = error as { error?: unknown; fields?: unknown };
+  return {
+    ...(typeof code === 'string' ? { error: code } : {}),
+    ...(Array.isArray(fields) && fields.every((f) => typeof f === 'string') ? { fields: [...fields] } : {}),
+  };
+}
+
+const withDetails = (details: Record<string, unknown>) => (Object.keys(details).length > 0 ? { details } : {});
+
 export function codeMapping(code: ErrorCode): new () => { map(error: Error): SocketError } {
   return class extends SocketErrorMapping {
     public map(error: Error): SocketError {
-      return { code, message: error.message, retryable: DEFAULT_RETRYABLE[code] };
+      return { code, message: error.message, retryable: DEFAULT_RETRYABLE[code], ...withDetails(bodyDetails(error)) };
     }
   };
 }
@@ -51,7 +65,7 @@ export function codeMapping(code: ErrorCode): new () => { map(error: Error): Soc
 export class InvalidArgumentMapping extends SocketErrorMapping {
   public map(error: Error): SocketError {
     const field = (error as InvalidArgument).fieldName;
-    return { code: 'invalid_argument', message: error.message, retryable: false, ...(typeof field === 'string' ? { details: { field } } : {}) };
+    return { code: 'invalid_argument', message: error.message, retryable: false, ...withDetails({ ...(typeof field === 'string' ? { field } : {}), ...bodyDetails(error) }) };
   }
 }
 

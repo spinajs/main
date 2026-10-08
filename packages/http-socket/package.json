@@ -55,6 +55,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@spinajs/http-socket-client": "3.0.0-alpha.0",
+    "@spinajs/authz-http": "3.0.0-alpha.0",
     "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/authz-queue": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
