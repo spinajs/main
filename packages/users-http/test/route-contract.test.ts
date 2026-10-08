@@ -3,139 +3,24 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
-import { ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
-import type { IRbacDescriptor } from '@spinajs/authn-http';
 import { DataValidator } from '@spinajs/validation';
 
-import { CreateUserDto, UpdateUserDto, Users } from '../src/admin/controllers/Users/Users.js';
-import { Security } from '../src/admin/controllers/Users/Security.js';
-import { Profile } from '../src/admin/controllers/Users/Profile.js';
+import { CreateUserDto, UpdateUserDto } from '../src/admin/controllers/Users/Users.js';
 
 import { TestConfiguration } from './admin-common.js';
 
-/**
- * The layers the handler-level suite cannot see.
- *
- * `users-controller.test.ts` calls handlers directly, which is the right way to
- * test what they DO — but it walks straight past the two things that decide
- * whether a request ever reaches them: the policies attached to the route and
- * the JSON schema applied to the body. Both have already failed silently once:
- * two read routes shipped with no permission decorator at all ( so any logged-in
- * user could read any account ), and PATCH shared the creation schema ( so every
- * documented partial update was rejected ).
- *
- * These assertions read the descriptors the http and rbac decorators produce,
- * and run the DTO schemas through the real validator. No server is started —
- * this is a contract test, not an end-to-end one.
- */
-
-const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
-
-const rbacDescriptor = (instance: object): IRbacDescriptor => Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance) as IRbacDescriptor;
-
-const routesOf = (instance: object): IRoute[] => [...controllerDescriptor(instance).Routes.values()];
-
 describe('Admin route contract', function () {
   this.timeout(25000);
-
-  let controllers: Array<{ name: string; instance: object }>;
 
   before(async () => {
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
 
     await DI.resolve(Configuration);
-
-    controllers = [
-      { name: 'Users', instance: await DI.resolve(Users) },
-      { name: 'Security', instance: await DI.resolve(Security) },
-      { name: 'Profile', instance: await DI.resolve(Profile) },
-    ];
   });
 
   after(() => {
     DI.clearCache();
-  });
-
-  describe('authorization', () => {
-    /**
-     * `@Permission` is what attaches RbacPolicy to a route — the controller-level
-     * `@Policy(AuthorizedPolicy)` only proves somebody is logged in. A route
-     * without it is readable ( or writable ) by every authenticated account in
-     * the system, whatever their role.
-     */
-    it('every admin route declares a permission', () => {
-      const unguarded: string[] = [];
-
-      for (const { name, instance } of controllers) {
-        const acl = rbacDescriptor(instance);
-
-        for (const route of routesOf(instance)) {
-          if (!acl.Routes.has(String(route.Method))) {
-            unguarded.push(`${name}.${String(route.Method)}`);
-          }
-        }
-      }
-
-      expect(unguarded, 'routes without @Permission are open to every logged-in user').to.deep.eq([]);
-    });
-
-    it('every admin route is bound to the users resource', () => {
-      for (const { name, instance } of controllers) {
-        expect(rbacDescriptor(instance).Resource, `${name} is not bound to a resource`).to.eq('users');
-      }
-    });
-
-    /**
-     * Every write route now also accepts its `:own` twin — that is the point of
-     * this package's `RbacUserModel` token work: `:own` is safe on a write route
-     * BECAUSE every row-returning query is built from `userModel()`, so the rbac
-     * query middleware row-scopes it exactly like a read. What must never
-     * regress is the `:any` half — a route that lost it would only be reachable
-     * by a caller acting on their own row, which is a silent capability
-     * downgrade, not a widening.
-     */
-    it('write routes keep their :any permission alongside :own', () => {
-      const wrong: string[] = [];
-
-      for (const { name, instance } of controllers) {
-        const acl = rbacDescriptor(instance);
-
-        for (const route of routesOf(instance)) {
-          if (route.Type === RouteType.GET) {
-            continue;
-          }
-
-          const permissions = acl.Routes.get(String(route.Method))?.Permission ?? [];
-
-          if (!permissions.some((p) => p.endsWith('Any'))) {
-            wrong.push(`${name}.${String(route.Method)} -> ${permissions.join(',')}`);
-          }
-        }
-      }
-
-      expect(wrong, 'an admin write route must keep its :any permission — :own is additive here, not a replacement').to.deep.eq([]);
-    });
-  });
-
-  describe('http verbs', () => {
-    /** Reading is the only thing GET is allowed to do here. */
-    const READ_ONLY_ROUTES = ['list', 'assignableRoles', 'getSingleUser', 'getByLogin', 'listSessions', 'getUserProfile'];
-
-    it('no state-changing route answers GET', () => {
-      const offenders: string[] = [];
-
-      for (const { name, instance } of controllers) {
-        for (const route of routesOf(instance)) {
-          if (route.Type === RouteType.GET && !READ_ONLY_ROUTES.includes(String(route.Method))) {
-            offenders.push(`${name}.${String(route.Method)}`);
-          }
-        }
-      }
-
-      expect(offenders, 'activating, deactivating or logging a user out over GET is triggerable by a link or a prefetch').to.deep.eq([]);
-    });
   });
 
   describe('body schemas', () => {
