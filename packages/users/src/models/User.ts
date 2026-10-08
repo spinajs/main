@@ -217,7 +217,7 @@ export function isReservedMetadataKey(key: string): boolean {
  */
 export const NO_PASSWORD = '!none';
 
-/** Login of the system account the deprecated `RbacSystemUserFactory` returns. */
+/** Login of the framework's system account. */
 export const SYSTEM_LOGIN = '__system__';
 
 /**

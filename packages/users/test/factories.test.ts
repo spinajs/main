@@ -100,18 +100,6 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
     });
   });
 
-  describe('RbacSystemUserFactory', () => {
-    it(`finds the ${SYSTEM_LOGIN} account as SYSTEM`, async () => {
-      await new User({ Email: 'system@spinajs.pl', Login: SYSTEM_LOGIN, Password: 'x', IsActive: true }).insert();
-      const runAs = sinon.spy(await rootAuthz(), 'runAs');
-
-      const system = await DI.resolve<Promise<User>>('RbacSystemUserFactory');
-
-      expect(system.Login).to.eq(SYSTEM_LOGIN);
-      expect(runAs.firstCall.args.slice(0, 2)).to.deep.eq([SYSTEM, 'system-user']);
-    });
-  });
-
   describe('reserved logins', () => {
     for (const login of [SYSTEM_LOGIN, '__anything__']) {
       it(`create() refuses the login ${login}`, async () => {
