@@ -342,6 +342,8 @@ export function impersonationSuite(): void {
 
       const stop = await c.del('/auth/impersonate');
       expect(stop.status, JSON.stringify(stop.body)).to.eq(200);
+      expect(stop.body.Access.roles, 'the stop answer shows the restored switch').to.deep.eq(['editor']);
+      expect((await c.get('/auth')).body.Access.roles, 'whoami agrees').to.deep.eq(['editor']);
       expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq('editor');
       const back = (await probe(c)).principal;
       expect(back.id).to.eq(admin.ref.id);

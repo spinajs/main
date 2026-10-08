@@ -9,6 +9,7 @@ import type { Credentials } from '@spinajs/authn/contracts';
 import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied, assertFreshAuth } from '../index.js';
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
 import { isSessionPrincipal } from '../../policies/v3/principal.js';
+import { narrowedBySwitch } from '../../resolvers/session.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, contextOf, identityRefOf, stampClient } from '../routes.js';
 
@@ -105,12 +106,15 @@ export class AuthnImpersonationController extends BaseController {
     const back = await service.stop(session.handle, ctx);
     const sessions = await this.Container.resolve(SessionIssuer);
     const own = back ? await service.principalOf(back, ctx) : null;
-    if (!back || !own) {
+    const restored = back && own ? await sessions.restore(back.id) : null;
+    if (!back || !own || !restored) {
       // principalOf revokes only past the lifetime; a status refused since stop would leave this session live.
       if (back) await sessions.revoke(back);
       return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
     }
     await stampClient(sessions, back, req);
-    return new Ok(await answerFor(this.Container, 'impersonation', own), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });
+    // stop gave the actor its role switch back; answer with the principal the next request resolves to.
+    const narrowed = await narrowedBySwitch(this.Container, restored, own);
+    return new Ok(await answerFor(this.Container, 'impersonation', narrowed), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });
   }
 }

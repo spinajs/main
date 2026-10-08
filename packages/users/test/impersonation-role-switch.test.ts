@@ -57,13 +57,18 @@ describe('impersonation by an actor narrowed by a role switch (users guard, auth
   let sessions: MemorySessionIssuer;
   let events: RecordingEventSink;
 
-  before(() => {
+  before(async () => {
     registerUsersTestHost();
-  });
-
-  beforeEach(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     await bootUsersDb(configure);
+  });
+
+  after(() => {
+    sinon.restore();
+    releaseUsersHost();
+  });
+
+  beforeEach(() => {
     sessions = new MemorySessionIssuer();
     events = new RecordingEventSink();
     child = DI.RootContainer.child();
@@ -74,8 +79,6 @@ describe('impersonation by an actor narrowed by a role switch (users guard, auth
 
   afterEach(async () => {
     await child.dispose();
-    sinon.restore();
-    releaseUsersHost();
   });
 
   it('refuses an admin switched to a role that does not cover the target, and lets it start unswitched', async () => {

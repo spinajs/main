@@ -16,6 +16,14 @@ const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
 
+/** `principal` of `session`, narrowed by the session's role switch (D14): the principal every request on it resolves to. */
+export async function narrowedBySwitch(container: IContainer, session: Pick<Restored, 'identity' | 'facts' | 'data'>, principal: Principal): Promise<Principal> {
+  const ceiling = activeRoleCeiling(session.data);
+  if (!ceiling) return principal;
+  const factory = await container.resolve(PrincipalFactory);
+  return factory.principalOf(session.identity, session.facts, { ceiling });
+}
+
 /**
  * Order 100: req.storage.AuthnSession. Pending ⇒ null (D25, A09). Otherwise the session's user with its authn facts,
  * and ceiling.roles = [ActiveRole] after a role switch (D14). When the session yields no principal because its
@@ -40,10 +48,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
       return null;
     }
 
-    const ceiling = activeRoleCeiling(session.data);
-    if (!ceiling) return principal;
-    const factory = await this.Container.resolve(PrincipalFactory);
-    return factory.principalOf(session.identity, session.facts, { ceiling });
+    return narrowedBySwitch(this.Container, session, principal);
   }
 
   /** authn-http cannot see the users lifecycle actions, so a refused status found here ends the identity's sessions (N8a-D4). */
