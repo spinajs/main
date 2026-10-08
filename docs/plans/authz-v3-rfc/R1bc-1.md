@@ -2,8 +2,9 @@
 
 Status: proposed (R1bc, 2026-10-09)
 Owners of the change: the frozen file `packages/authn-http/src/api.ts` (and
-the api snapshot `packages/authn-http/etc/authn-http.api.md`), N8b (the lane
-file `packages/authn-http/src/policies/v3/principal.ts`), R1 (the grep gate).
+the api snapshot `packages/authn-http/etc/authn-http.api.md`) and
+`packages/authn-http/src/policies/v3/principal.ts`; plan §6 R1 gives both
+doc comments to R1 final, which applies the change.
 Not applied: R1bc may not edit frozen files.
 
 ## Problem
@@ -13,7 +14,7 @@ ends "Replaces LoggedPolicy and AuthorizedPolicy." The lane file
 `packages/authn-http/src/policies/v3/principal.ts:21` carries the same
 sentence.
 
-Plan §6 R1 has a grep gate: `LoggedPolicy|AuthorizedPolicy` over
+Plan §6 R1 has a grep gate: `\bLoggedPolicy\b|\bAuthorizedPolicy\b` over
 `packages/*/src` must come back empty, doc comments included. R1bc deleted
 `LoggedPolicy`. `AuthorizedPolicy` goes in R1d. These two lines keep both
 names in the gate's output after R1d, and `api.ts` is frozen, so no lane can
