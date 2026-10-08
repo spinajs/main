@@ -14,5 +14,6 @@ import { User } from '@spinajs/users';
 
 Install `@spinajs/authz-queue` (an optional peer dependency) and import `@spinajs/users/queue` (it loads authz-queue) so
 a job with `runAs: 'initiator'` reloads its user: one deactivated, banned or deleted since the job was queued runs it as
-`UNATTENDED`, and an active one gets its attributes. Installing authz-queue also loads its config fragment, which grants
-`job:read` to the `user` role; authz-rbac refuses that grant at boot unless the app imports authz-queue or this subpath.
+`UNATTENDED`, and an active one gets its attributes. Importing authz-queue (this subpath does) also grants the `user` role
+`job:read` on the jobs it started; installing it without an import adds nothing. Import it before the `Configuration`
+resolves, or the grant waits for the next resolve.
