@@ -1,10 +1,9 @@
 // Side effect imports - these modules register Injectables ( the token
-// generator, the token and JWT strategies and the token role policy ) the moment they
+// generator and the token and JWT strategies ) the moment they
 // are loaded, so they must run even if a consumer imports nothing from them.
 import './generator.js';
 import './strategy/TokenStrategy.js';
 import './jwt/JwtBearerStrategy.js';
-import './legacy/role-policy.js';
 
 export * from './generation.js';
 export * from './models/AccessToken.js';
@@ -19,9 +18,3 @@ export * from './cli/TokenCliCommand.js';
 export * from './cli/CreateToken.js';
 export * from './cli/DeleteToken.js';
 export * from './cli/DeleteExpiredTokens.js';
-
-export * from './legacy/interfaces.js';
-export * from './legacy/exceptions.js';
-export * from './legacy/role-policy.js';
-export * from './legacy/events/index.js';
-export * from './legacy/actions.js';

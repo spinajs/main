@@ -3,9 +3,10 @@ import type { IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import type { ITokenAuthInfo } from '@spinajs/authn-token';
 import type { Principal } from '@spinajs/authn/contracts';
 import type * as express from 'express';
+
+import type { ITokenAuthInfo } from '../interfaces.js';
 
 // Declares the 2.x request keys (User, Impersonator) on req.storage.
 import '../interfaces.js';
