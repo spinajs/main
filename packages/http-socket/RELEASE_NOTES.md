@@ -30,6 +30,7 @@ The v2 API is gone. No package in the repo used it.
 - Every command, event and hook runs with the principal in the AsyncLocalStorage store under `Principal`, so `AuthzService.current()` works in socket handlers.
 - `@SocketAccess(permission, { resource, also, domain, allowAnonymous })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.
 - `http.socket.cors.origins` (default `[]`) admits cross-origin pages. An empty list refuses every cross-origin handshake with `forbidden`.
+- `ArgInputFilter`s ( `AuthzInputFieldFilter` included ) run on `@Payload` arguments of commands, events and streams, and their refusals answer `invalid_argument` with the http `error` code and `fields` in `details`. The parameter is named `payload`, so write globs match `payload` for a non-record payload. A command without `@SocketAccess` is not filtered, unlike an HTTP route that still loses `neverRead` ( pending G4 ).
 
 ### `SocketPrincipalSource.revalidate()` contract
 

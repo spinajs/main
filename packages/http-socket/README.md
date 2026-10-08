@@ -263,6 +263,11 @@ export class DocsSocket extends BaseSocketController {
 
 `SignedInPolicy` is a `BasePolicy` of your own. Policies receive an `ISocketPolicyRequest` (`body`, `params`, `storage`, `socketConnection` ...) in place of the express request.
 
+Input field filters. The `ArgInputFilter`s registered with `@spinajs/http` ( for example `AuthzInputFieldFilter` from `@spinajs/authz-http` ) run on `@Payload` arguments only, in commands, events and streams alike. Refusals ( a write the decision does not allow in `reject` mode ) reach the client as `invalid_argument`, with the http body's `error` code and `fields` in `details`. Known differences from HTTP:
+
+- The filter parameter is named `payload`. For a payload that is not a record ( an array of primitives, say ), write globs match against `payload`.
+- A socket has no `AuthzHttpRoute` mark, so a command without `@SocketAccess` is not filtered at all, whereas HTTP still strips `neverRead` there. Pending G4 ( `@SocketAccess` decision parity ).
+
 ## Configuration (`http.socket`)
 
 | Key | Default | Meaning |

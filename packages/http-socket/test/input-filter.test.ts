@@ -4,7 +4,7 @@ import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { AuthenticationFailed, BadRequest, Forbidden } from '@spinajs/exceptions';
 import { ArgInputFilter, BasePolicy } from '@spinajs/http';
-import { AuthzService } from '@spinajs/authz';
+import { AuthzDomains, AuthzService } from '@spinajs/authz';
 // registers authz-http's AuthzInputFieldFilter as an ArgInputFilter
 import '@spinajs/authz-http';
 import { BaseSocketController } from '../src/controller.js';
@@ -129,5 +129,38 @@ describe('socket payloads through the ArgInputFilters; http error codes in detai
 
   it("answers a policy's stable code in details: unauthenticated", async () => {
     expect(errorOf(await command(alice, 'inf.caller'))).to.deep.equal({ code: 'unauthenticated', message: 'this route needs an authenticated caller', retryable: false, details: { error: 'unauthenticated' } });
+  });
+});
+
+describe('the real AuthzInputFieldFilter in reject mode (G3)', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let alice: ClientSocket;
+
+  before(() => {
+    DI.register(ScriptedSocketAuthz).as(AuthzService);
+  });
+
+  after(() => {
+    DI.unregister(ScriptedSocketAuthz);
+  });
+
+  beforeEach(async () => {
+    ScriptedSocketAuthz.checks = [];
+    ScriptedSocketAuthz.script = () => ({ allowed: true, fields: { read: ['*'], write: ['id', 'title'] } });
+    t = await startServer({ authz: { fields: { write: { mode: 'reject' } } } });
+    // decisionFields reads the config only through an already resolved host AuthzDomains
+    await DI.resolve(AuthzDomains);
+    alice = await open(t, { auth: { clientId: 'inf-alice', token: 'good' } });
+  });
+
+  afterEach(async () => {
+    alice.close();
+    await t.close();
+  });
+
+  it('refuses a payload field the decision does not let the caller write, with the stable code and the fields', async () => {
+    expect(errorOf(await command(alice, 'inf.update', { id: 'd1', title: 'new', owner: 'mallory' }))).to.deep.equal({ code: 'invalid_argument', message: 'fields not writable: owner', retryable: false, details: { error: 'fields_not_writable', fields: ['owner'] } });
   });
 });
