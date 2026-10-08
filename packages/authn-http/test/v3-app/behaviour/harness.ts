@@ -28,7 +28,7 @@ import type { Credentials, IdentityRef } from '@spinajs/authn/contracts';
 import { MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, SessionExpirationProvider, SessionProvider, sessionCookieName, appEnvOf } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, KIT_ATTRIBUTES, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
-import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
+import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HarnessFactory, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
 
 import { AuthnPrincipalResolver } from '../../../src/api.js';
 import { AUTHN_PROBE_PATH, resetAuthnProbeHits } from '../../v3/probe.js';
@@ -112,7 +112,12 @@ const attributedStrategy = (name: string, interactive: boolean): FakeStrategy =>
     },
   });
 
-const STRATEGIES = [
+export interface StrategyEntry {
+  readonly name: string;
+  readonly service: string;
+}
+
+export const STRATEGIES: readonly StrategyEntry[] = [
   { name: 'local', service: 'V3AppPasswordStrategy' },
   { name: 'kit-attributed-login', service: 'V3KitAttributedLogin' },
   { name: 'kit-attributed-request', service: 'V3KitAttributedRequest' },
@@ -135,10 +140,10 @@ function checkSupported(config: ConfigOverrides, supported: readonly string[]): 
   return leaves;
 }
 
-/** False where the factory would answer UnsupportedConfig, which makes the case pending. */
-export function supports(overrides: ConfigOverrides): boolean {
+/** False where the factory would answer UnsupportedConfig, which makes the case pending; `lane`: a lane's own keys. */
+export function supports(overrides: ConfigOverrides, lane: readonly string[] = []): boolean {
   try {
-    checkSupported(overrides, SUPPORTED_CONFIG);
+    checkSupported(overrides, [...SUPPORTED_CONFIG, ...lane]);
     return true;
   } catch (e) {
     if (e instanceof UnsupportedConfig) return false;
@@ -173,7 +178,7 @@ function removeKey(c: Configuration, path: string): void {
  * it; undo removes what did not exist before. An env is named through APP_ENV as well, because the configuration
  * counts 'development' as a fallback unless some env source names it.
  */
-function applyConfig(leaves: readonly string[], overrides: ConfigOverrides): () => void {
+function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, strategies: readonly StrategyEntry[] = STRATEGIES): () => void {
   const c = config();
   const saved: { path: string; value: unknown; missing: string | undefined }[] = [];
   const set = (path: string, value: unknown) => {
@@ -182,7 +187,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides): () 
   };
   const savedAppEnv = process.env.APP_ENV;
   try {
-    set('authn.strategies', STRATEGIES);
+    set('authn.strategies', strategies);
     set('authn.session.expiration.ttl', 30);
     set('authn.session.expiration.maxLifetime', 480);
     for (const path of leaves) {
@@ -262,14 +267,15 @@ function freshFakes(): CaseFakes {
   };
 }
 
-function tokenDb(): OrmDriver {
+/** The harness database: sqlite in memory, also the Orm's 'default' connection. */
+export function tokenDb(): OrmDriver {
   const connection = DI.get(Orm)?.Connections.get(DB_CONNECTION);
   if (!connection) throw new Error('the behaviour harness database is not booted');
   return connection;
 }
 
 /** A `users` row for the identity: authn-token's UsersTableTokenOwnerResolver maps token owners through that table. */
-async function insertUserRow(uuid: string): Promise<void> {
+export async function insertUserRow(uuid: string): Promise<void> {
   await tokenDb()
     .insert()
     .into('users')
@@ -285,7 +291,6 @@ async function bootTokenDb(): Promise<void> {
   if (users || stores.length !== 1 || stores[0] !== MemorySessionStore) {
     throw new Error(`@spinajs/users is loaded (${users}) or another SessionProvider is registered (${stores.map((t) => t.name).join(', ')})`);
   }
-  DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   const c = config();
   c.set('db', {
     DefaultConnection: DB_CONNECTION,
@@ -309,14 +314,24 @@ async function bootTokenDb(): Promise<void> {
 }
 
 let booted = false;
+let registered = false;
 
-/** Once per suite, before the first case (outside the kit's FakeClock). */
-export async function bootBehaviourApp(): Promise<void> {
+/**
+ * Once per suite, before the first case (outside the kit's FakeClock). A later suite may boot again after
+ * shutdownBehaviourApp, on a fresh database; `beforeDb` runs before the database boots, so the migrations it imports
+ * run on startup.
+ */
+export async function bootBehaviourApp(opts: { beforeDb?: () => Promise<void> } = {}): Promise<void> {
   if (booted) return;
   await bootApp();
   await switchHooksOn();
-  bind(AuthenticationStrategy, 'V3KitAttributedLogin', () => kitFakes().attributedLogin);
-  bind(AuthenticationStrategy, 'V3KitAttributedRequest', () => kitFakes().attributedRequest);
+  if (!registered) {
+    registered = true;
+    bind(AuthenticationStrategy, 'V3KitAttributedLogin', () => kitFakes().attributedLogin);
+    bind(AuthenticationStrategy, 'V3KitAttributedRequest', () => kitFakes().attributedRequest);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  }
+  await opts.beforeDb?.();
   await bootTokenDb();
   booted = true;
 }
@@ -329,6 +344,7 @@ export async function shutdownBehaviourApp(): Promise<void> {
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
   await stopApp();
+  booted = false;
 }
 
 function headerMap(raw: NodeJS.Dict<string | string[]>): Record<string, string> {
@@ -445,19 +461,51 @@ function bootPort(): BootPort {
   };
 }
 
+/**
+ * What a later lane puts over this harness (behaviour/n8b-harness.ts): its strategy list, config keys, route
+ * builders and ports, around the same app, fakes and per-case steps.
+ */
+export interface HarnessLane {
+  /** authn.strategies of every case, in place of STRATEGIES. */
+  readonly strategies: readonly StrategyEntry[];
+  /** Config keys the lane applies, over SUPPORTED_CONFIG. */
+  readonly supportedConfig: readonly string[];
+  /** Over ROUTES. */
+  readonly routes: Partial<HttpRoutes>;
+  /** Per case, after the case config, fakes and uncaching, before the server starts; may replace fakes. */
+  open(ctx: HarnessContext, fakes: AppFakes): Promise<void>;
+  /** The lane's ports over the N8a ones; a port set to undefined is removed. */
+  ports(base: Harness, fakes: AppFakes): Promise<Partial<Harness>>;
+  /** Per case, first on dispose, after a successful open. */
+  close(): Promise<void>;
+}
+
 /** The lane's harness factory for runAuthnBehaviour; bootBehaviourApp must have run. */
-export async function httpHarness(ctx: HarnessContext): Promise<Harness> {
+export const httpHarness: HarnessFactory = (ctx) => buildHarness(ctx);
+
+/** httpHarness with `lane` over it. */
+export const laneHttpHarness =
+  (lane: HarnessLane): HarnessFactory =>
+  (ctx) =>
+    buildHarness(ctx, lane);
+
+async function buildHarness(ctx: HarnessContext, lane?: HarnessLane): Promise<Harness> {
   if (!booted) throw new Error('bootBehaviourApp() has not run');
-  const leaves = checkSupported(ctx.config, SUPPORTED_CONFIG);
-  const undoConfig = applyConfig(leaves, ctx.config);
+  const leaves = checkSupported(ctx.config, lane ? [...SUPPORTED_CONFIG, ...lane.supportedConfig] : SUPPORTED_CONFIG);
+  const undoConfig = applyConfig(leaves, ctx.config, lane?.strategies);
   const fakes = freshFakes();
   let started = false;
+  let opened = false;
   const release = async () => {
-    if (started) await releaseHttpServer();
-    useFakes();
-    kit = null;
-    await uncacheCaseServices();
-    undoConfig();
+    try {
+      if (opened) await lane?.close();
+    } finally {
+      if (started) await releaseHttpServer();
+      useFakes();
+      kit = null;
+      await uncacheCaseServices();
+      undoConfig();
+    }
   };
   try {
     const { MemoryAuthnThrottle, AuthnImpersonationService } = await import('@spinajs/authn');
@@ -467,6 +515,10 @@ export async function httpHarness(ctx: HarnessContext): Promise<Harness> {
     await uncacheCaseServices();
     await tokenDb().del().from('rbac_access_tokens');
     resetAuthnProbeHits();
+    if (lane) {
+      await lane.open(ctx, fakes);
+      opened = true;
+    }
     started = true;
     await startServer();
 
@@ -478,7 +530,7 @@ export async function httpHarness(ctx: HarnessContext): Promise<Harness> {
     const endFor = async (id: IdentityRef) => {
       await (await impersonation()).endFor(id);
     };
-    const http: HttpPort = { send, origin: ORIGIN, sessionCookie: sessionCookie(), socketAddress: '127.0.0.1', probePath: `/${AUTHN_PROBE_PATH}`, routes: ROUTES, volatileBodyFields: [] };
+    const http: HttpPort = { send, origin: ORIGIN, sessionCookie: sessionCookie(), socketAddress: '127.0.0.1', probePath: `/${AUTHN_PROBE_PATH}`, routes: lane ? { ...ROUTES, ...lane.routes } : ROUTES, volatileBodyFields: [] };
 
     const h: Harness = {
       service,
@@ -522,6 +574,12 @@ export async function httpHarness(ctx: HarnessContext): Promise<Harness> {
       http,
       dispose: release,
     };
+    if (lane) {
+      const over = await lane.ports(h, fakes);
+      const out = { ...h, ...over } as Record<string, unknown>;
+      for (const [name, port] of Object.entries(over)) if (port === undefined) delete out[name];
+      return out as Harness;
+    }
     const given = Object.keys(h).filter((k) => k !== 'dispose').sort();
     if (given.join() !== [...PORTS].sort().join()) throw new Error(`PORTS lists ${[...PORTS].sort().join()}, the harness has ${given.join()}`);
     return h;

@@ -14,12 +14,20 @@
       "types": "./lib/mjs/db.d.ts",
       "import": "./lib/mjs/db.js",
       "require": "./lib/cjs/db.js"
+    },
+    "./service": {
+      "types": "./lib/mjs/service/index.d.ts",
+      "import": "./lib/mjs/service/index.js",
+      "require": "./lib/cjs/service/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "db": [
         "lib/cjs/db.d.ts"
+      ],
+      "service": [
+        "lib/cjs/service/index.d.ts"
       ]
     }
   },

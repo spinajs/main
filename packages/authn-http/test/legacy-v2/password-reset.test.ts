@@ -9,8 +9,8 @@ import { BadRequestResponse, Ok } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { InvalidCredentials, TokenExpired, TokenInvalid } from '@spinajs/users';
 
-import { PasswordResetController } from '../src/account/controllers/PasswordResetController.js';
-import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../src/account/dto/password-reset-dto.js';
+import { PasswordResetController } from '../../src/account/legacy/PasswordResetController.js';
+import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../../src/account/dto/password-reset-dto.js';
 
 chai.use(chaiAsPromised);
 

@@ -88,10 +88,10 @@ export class TestConfiguration extends FrameworkConfiguration {
           // `support/TestTokenController.ts` ) used by the end to end policy
           // suite; they are loaded exactly like the package's own ones.
           //
-          // `account/controllers` is listed too: the controller listing is memoized
-          // once per process ( `ListFromFiles` in reflection ), so every http suite
-          // in this package has to ask for the same directories.
-          controllers: [dir('./../src/v3/controllers'), dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
+          // The controller listing is memoized once per process ( `ListFromFiles`
+          // in reflection ), so every http suite in this package has to ask for the
+          // same directories. No 2.x controller dir: the shipped config scans none.
+          controllers: [dir('./../src/v3/controllers'), dir('./support')],
         },
       },
       // `@spinajs/http` contributes the providers its own machinery needs

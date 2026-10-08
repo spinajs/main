@@ -9,14 +9,14 @@ import { DateTime } from 'luxon';
 
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok, Unauthorized } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
-import { RbacPolicy } from '../src/policies/RbacPolicy.js';
+import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
 import { BadRequest } from '@spinajs/exceptions';
 import type { ISession } from '@spinajs/users';
 
-import { TwoFactorAuthUserController } from '../src/account/controllers/TwoFactorAuthUserController.js';
-import { TwoFactorAuthEnabled } from '../src/account/policies/2FaPolicy.js';
-import { ConfirmPasswordDto } from '../src/account/dto/confirm-password-dto.js';
-import { TokenDto } from '../src/account/dto/token-dto.js';
+import { TwoFactorAuthUserController } from '../../src/account/legacy/TwoFactorAuthUserController.js';
+import { TwoFactorAuthEnabled } from '../../src/account/policies/2FaPolicy.js';
+import { ConfirmPasswordDto } from '../../src/account/dto/confirm-password-dto.js';
+import { TokenDto } from '../../src/account/dto/token-dto.js';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
 
 /**

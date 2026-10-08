@@ -246,6 +246,12 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     expect(graph.filter((f) => f.includes('/src/account/legacy/'))).to.deep.eq([]);
   });
 
+  it('the barrel reaches no 2.x controller and no file importing the @spinajs/authn-totp root, which would register TotpService in every app (N8b task 9)', () => {
+    const graph = [...barrelGraph()];
+    expect(graph.filter((f) => /[\\/]src[\\/](account|token)[\\/]controllers[\\/]/.test(f))).to.deep.eq([]);
+    expect(graph.filter((f) => /from\s+'@spinajs\/authn-totp'/.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/\\/g, '/'))).to.deep.eq([]);
+  });
+
   it('the 2.x session and token middlewares are gone from the sources', () => {
     const defining = sourceFiles(join(PKG_ROOT, 'src')).filter((f) => /class (RbacMiddleware|TokenAuthMiddleware)\b/.test(readFileSync(f, 'utf8')));
     expect(defining).to.deep.eq([]);

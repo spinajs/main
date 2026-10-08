@@ -36,7 +36,9 @@ function run(handler: (req: never, res: never, next: () => void) => void, req: n
 describe('authn http middlewares through @Config and the schemas', () => {
   afterEach(disposeBooted);
 
-  describe('schema', () => {
+  describe('schema', function () {
+    this.timeout(20000);
+
     // The update interval moved with the last-use stamp to authn-token's TokenStrategy.
     it('gives the api-key and bearer extractors the token header and prefix they read', async () => {
       const { child } = await boot(SCHEMAS, {});

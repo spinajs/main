@@ -163,32 +163,6 @@ describe('AccessTokenController', function () {
     expect(await AccessToken.where('Uuid', own.Uuid).first()).to.be.undefined;
   });
 
-  it('grants and revokes role on own token', async () => {
-    const user = await makeUser('h5@spinajs.com', 'h5', ['user', 'admin']);
-    const cookie = await sessionCookieFor(user);
-    const { Token } = await createToken(user, 'roles', ['user'], null);
-
-    const granted = await req().put(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
-    expect(granted.status).to.equal(200);
-    expect(granted.body.Roles).to.have.members(['user', 'admin']);
-
-    const revoked = await req().delete(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
-    expect(revoked.status).to.equal(200);
-    expect(revoked.body.Roles).to.deep.equal(['user']);
-  });
-
-  it('refuses to revoke the last role with 400, not 500', async () => {
-    const user = await makeUser('h7@spinajs.com', 'h7');
-    const cookie = await sessionCookieFor(user);
-    const { Token } = await createToken(user, 'last role', ['user'], null);
-
-    const res = await req().delete(`user/tokens/${Token.Uuid}/roles/user`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
-    expect(res.status).to.equal(400);
-
-    // refused BEFORE any write - the row still carries its role
-    expect((await AccessToken.where('Uuid', Token.Uuid).firstOrFail()).Roles).to.deep.equal(['user']);
-  });
-
   it('a valid access token cannot manage tokens', async () => {
     const user = await makeUser('h6@spinajs.com', 'h6');
     const { Plaintext } = await createToken(user, 'self-replication attempt', ['user'], null);

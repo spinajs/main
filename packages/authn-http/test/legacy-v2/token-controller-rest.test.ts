@@ -7,14 +7,14 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, HttpServer, IControllerDescr
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
-import { ACL_CONTROLLER_DESCRIPTOR } from '../src/decorators.js';
-import { IRbacDescriptor } from '../src/interfaces.js';
-import { RbacPolicy } from '../src/policies/RbacPolicy.js';
+import { ACL_CONTROLLER_DESCRIPTOR } from '../../src/decorators.js';
+import { IRbacDescriptor } from '../../src/interfaces.js';
+import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
 
-import { req, restoreHttpErrorMap, useTestConfiguration } from './token-common.js';
-import { AccessTokenController } from '../src/token/controllers/AccessTokenController.js';
-import { NoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
-import { NoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
+import { req, restoreHttpErrorMap, useTestConfiguration } from '../token-common.js';
+import { AccessTokenController } from '../../src/token/controllers/AccessTokenController.js';
+import { NoTokenAuthPolicy } from '../../src/token/policies/NoTokenAuthPolicy.js';
+import { NoImpersonationPolicy } from '../../src/token/policies/NoImpersonationPolicy.js';
 import '@spinajs/authn-token';
 
 /**
