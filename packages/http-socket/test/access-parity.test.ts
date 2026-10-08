@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
@@ -303,6 +304,48 @@ describe('@SocketAccess decides as authz-http AccessPolicy (G4)', function () {
       { permission: 'note:update', source: '@SocketAccess on AccessParitySocket.update' },
     ]);
     expect(ours('tenant')).to.deep.equal([{ permission: 'note:read', type: 'note', source: '@SocketAccess on AccessParitySocket.own' }]);
+  });
+});
+
+/** Registered by the B02 warning test, after a boot read the controllers. */
+export class AcpLateSocket extends BaseSocketController {
+  @Command('read')
+  @SocketAccess('note:read')
+  public async read() {
+    return 'late';
+  }
+}
+
+describe('SocketServer and the boot checks of @SocketAccess (B02)', function () {
+  this.timeout(15000);
+
+  const b02Lines = (warn: sinon.SinonSpy) => warn.args.map((args) => String(args[0])).filter((line) => line.includes('B02'));
+
+  it('warns about the rules of a controller registered after the domain it checks in booted, until a boot sees it', async () => {
+    let t = await startServer();
+    // the logger is resolved once per class, so the next server logs through this one
+    const warn = sinon.spy((t.server as unknown as { Log: { warn: (...args: unknown[]) => void } }).Log, 'warn');
+    try {
+      await t.close();
+      // a root boot that ran before AcpLateSocket registered, as one does when SocketServer resolves after http.start()
+      new SocketAccessContributor().contribute('root');
+      SocketController('acpl')(AcpLateSocket);
+
+      t = await startServer();
+      const lines = b02Lines(warn);
+      expect(lines).to.have.length(1);
+      expect(lines[0]).to.include('@SocketAccess on AcpLateSocket.read (domain root)').and.not.include('AccessParitySocket');
+
+      await t.close();
+      new SocketAccessContributor().contribute('root');
+      warn.resetHistory();
+      t = await startServer();
+      expect(b02Lines(warn)).to.deep.equal([]);
+    } finally {
+      warn.restore();
+      await t.close();
+      DI.unregister(AcpLateSocket);
+    }
   });
 });
 

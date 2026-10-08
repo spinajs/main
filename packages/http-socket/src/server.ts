@@ -9,6 +9,7 @@ import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_E
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import type { ProxyTrust } from '@spinajs/http';
 import { SocketConnection, toHandshake } from './connection.js';
+import { missedByBoot } from './access.js';
 import { socketProxyTrust } from './client-address.js';
 import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
@@ -168,6 +169,10 @@ export class SocketServer extends AsyncService {
     await this.ControllerFiles;
     // a duplicate or orphan handler rejects here, before socket.io attaches: no partial routing
     await this.Registry.build();
+    const missed = missedByBoot();
+    if (missed.length > 0) {
+      this.Log.warn(`Socket controllers registered after their authz domain booted skip its boot checks (B02) until its next boot: ${missed.map((r) => `${r.source} (domain ${r.access.domain ?? 'root'})`).join(', ')}. Resolve SocketServer before http.start().`);
+    }
 
     const http = await this.Host.server();
     this.http = http;

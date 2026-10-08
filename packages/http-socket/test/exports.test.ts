@@ -125,7 +125,7 @@ describe('@spinajs/http-socket public surface', () => {
   });
 
   it('keeps internal helpers out of the public surface', () => {
-    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest', 'ServerStream', 'isStreamResult', 'socketAccessDomain']) {
+    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest', 'ServerStream', 'isStreamResult', 'socketAccessDomain', 'registeredSocketAccess', 'bootSocketAccess', 'missedByBoot']) {
       expect(api, name).to.not.have.property(name);
     }
   });

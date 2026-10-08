@@ -215,3 +215,49 @@ export function SocketAccess(permission: Permission | readonly Permission[], opt
     }
   };
 }
+
+export interface ISocketAccessRule {
+  readonly controller: Class<BaseSocketController>;
+  /** how boot errors name it: `@SocketAccess on DocsSocket.read` */
+  readonly source: string;
+  readonly access: ISocketAccess;
+}
+
+/** The `@SocketAccess` rules of every registered socket controller. */
+export function registeredSocketAccess(): ISocketAccessRule[] {
+  const rules: ISocketAccessRule[] = [];
+
+  for (const type of new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])) {
+    const controller = type as Class<BaseSocketController>;
+    const descriptor = Reflect.getMetadata(SOCKET_CONTROLLER_DESCRIPTOR, controller.prototype) as ISocketControllerDescriptor | undefined;
+    if (!descriptor) {
+      continue;
+    }
+
+    const scopes: Array<[string, readonly IPolicyGroup[]]> = [[`@SocketAccess on ${controller.name}`, descriptor.Policies], ...[...descriptor.Handlers.values()].map((h): [string, readonly IPolicyGroup[]] => [`@SocketAccess on ${controller.name}.${String(h.Method)}`, h.Policies])];
+    for (const [source, groups] of scopes) {
+      for (const member of groups.flat()) {
+        if (member.Type === SocketAccessPolicy) {
+          rules.push({ controller, source, access: member.Options[0] as ISocketAccess });
+        }
+      }
+    }
+  }
+
+  return rules;
+}
+
+// The controllers whose rules each domain's latest boot read: one registered later is checked by that domain's next boot only.
+const bootedWith = new Map<string, ReadonlySet<unknown>>();
+
+/** The rules `domain` checks at its boot ( B02 ); remembers which controllers that boot saw. */
+export function bootSocketAccess(domain: string): ISocketAccessRule[] {
+  const rules = registeredSocketAccess();
+  bootedWith.set(domain, new Set(rules.map((r) => r.controller)));
+  return rules.filter((r) => (r.access.domain ?? 'root') === domain);
+}
+
+/** The rules of controllers registered after the domain they check in booted: its boot checks skipped them. */
+export function missedByBoot(): ISocketAccessRule[] {
+  return registeredSocketAccess().filter((r) => bootedWith.get(r.access.domain ?? 'root')?.has(r.controller) === false);
+}
