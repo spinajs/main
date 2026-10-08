@@ -288,7 +288,7 @@ export class DocsSocket extends BaseSocketController {
 | `transports` | `['websocket', 'polling']` | engine.io transports; prefer `['websocket']` with cookie authentication |
 | `adapter` | `undefined` | socket.io adapter for several instances |
 
-`system.dirs.socketControllers` (default `[]`) lists the folders scanned for socket controllers. An invalid value stops the boot: the configuration schema (`SOCKET_CONFIGURATION_SCHEMA`) throws `InvalidConfiguration` with the path of each bad key, and `SocketServer` throws a `RangeError` for a bad `idempotency` or `shutdownRetryAfterMs`. `RELEASE_NOTES.md` lists the checks.
+`system.dirs.socketControllers` (default `[]`) lists the folders scanned for socket controllers. An invalid value stops the boot: the configuration schema (`SOCKET_CONFIGURATION_SCHEMA`) throws `InvalidConfiguration` with the path of each bad key, and `SocketServer` throws a `RangeError` for a bad `idempotency` or `shutdownRetryAfterMs`, or a `drainMs` above 2^31-1. `RELEASE_NOTES.md` lists the checks.
 
 ## Durable commands, shutdown and recovery
 

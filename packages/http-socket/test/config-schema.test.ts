@@ -20,6 +20,14 @@ describe('http.socket configuration schema', () => {
     await bootChild(socket({ rate: { perSecond: 50, burst: 100 }, maxInFlightEventsPerConnection: 100, auth: { required: false, revalidateMs: 0 }, drainMs: 0, transports: ['polling'] }), SOCKET_CONFIGURATION_SCHEMA);
   });
 
+  it('accepts the longest timer delays, a zero recovery window and a required handshake', async () => {
+    const longest = 2 ** 31 - 1;
+    await bootChild(
+      socket({ pingInterval: longest, pingTimeout: longest, hooks: { connectTimeoutMs: longest }, ordering: { abortGraceMs: longest }, recovery: { maxDisconnectionMs: 0 }, auth: { required: true, revalidateMs: 0 } }),
+      SOCKET_CONFIGURATION_SCHEMA,
+    );
+  });
+
   describe('a bad value fails the boot with the full path of the bad key', () => {
     const cases: Array<[string, Record<string, unknown>, string]> = [
       ['a zero rate', { rate: { perSecond: 0, burst: 100 } }, 'http.socket.rate.perSecond'],
@@ -58,6 +66,29 @@ describe('http.socket configuration schema', () => {
       ['a boolean revalidation interval', { auth: { required: false, revalidateMs: false } }, 'http.socket.auth.revalidateMs'],
       ['a null drain time', { drainMs: null }, 'http.socket.drainMs'],
       ['a boolean drain time', { drainMs: false }, 'http.socket.drainMs'],
+      ['a missing rate block', { rate: undefined }, 'http.socket.rate'],
+      ['a missing payload limit', { maxPayloadBytes: undefined }, 'http.socket.maxPayloadBytes'],
+      ['a missing command cap', { maxInFlightPerConnection: undefined }, 'http.socket.maxInFlightPerConnection'],
+      ['a missing event cap', { maxInFlightEventsPerConnection: undefined }, 'http.socket.maxInFlightEventsPerConnection'],
+      ['a missing auth block', { auth: undefined }, 'http.socket.auth'],
+      ['a zero stall timeout', { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 0 } }, 'http.socket.streams.stallTimeoutMs'],
+      ['a fractional stall timeout', { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 1.5 } }, 'http.socket.streams.stallTimeoutMs'],
+      // and true as 1 ms
+      ['a true revalidation interval', { auth: { required: false, revalidateMs: true } }, 'http.socket.auth.revalidateMs'],
+      ['a true drain time', { drainMs: true }, 'http.socket.drainMs'],
+      ['a true ping interval', { pingInterval: true }, 'http.socket.pingInterval'],
+      ['a true ping timeout', { pingTimeout: true }, 'http.socket.pingTimeout'],
+      ['a true connect hook timeout', { hooks: { connectTimeoutMs: true } }, 'http.socket.hooks.connectTimeoutMs'],
+      ['a true abort grace', { ordering: { abortGraceMs: true } }, 'http.socket.ordering.abortGraceMs'],
+      ['a null recovery window', { recovery: { maxDisconnectionMs: null } }, 'http.socket.recovery.maxDisconnectionMs'],
+      ['a boolean recovery window', { recovery: { maxDisconnectionMs: false } }, 'http.socket.recovery.maxDisconnectionMs'],
+      // setTimeout runs a longer delay after 1 ms
+      ['a ping interval above the longest timer delay', { pingInterval: 2 ** 31 }, 'http.socket.pingInterval'],
+      ['a ping timeout above the longest timer delay', { pingTimeout: 2 ** 31 }, 'http.socket.pingTimeout'],
+      ['a connect hook timeout above the longest timer delay', { hooks: { connectTimeoutMs: 2 ** 31 } }, 'http.socket.hooks.connectTimeoutMs'],
+      ['an abort grace above the longest timer delay', { ordering: { abortGraceMs: 2 ** 31 } }, 'http.socket.ordering.abortGraceMs'],
+      ['an auth switch given as a string', { auth: { required: 'true', revalidateMs: 0 } }, 'http.socket.auth.required'],
+      ['an auth switch given as a number', { auth: { required: 1, revalidateMs: 0 } }, 'http.socket.auth.required'],
     ];
 
     for (const [label, patch, path] of cases) {

@@ -113,16 +113,18 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `maxInFlightEventsPerConnection` is not an integer of at least `rate.burst`;
 - `maxPayloadBytes` is not a finite integer above 0;
 - `maxInFlightPerConnection` is not an integer above 0;
+- `auth.required` is not `true` or `false`;
 - `auth.revalidateMs` is not a finite number of at least 0;
 - `drainMs` is not a finite number of at least 0;
 - `transports` is empty, repeats a transport, or holds anything but `'websocket'` and `'polling'`;
-- `hooks.connectTimeoutMs` is not a positive number;
-- `ordering.abortGraceMs` is not a positive number;
+- `hooks.connectTimeoutMs` or `ordering.abortGraceMs` is not a number within (0, 2^31-1];
+- `path` is empty, or `pingInterval` or `pingTimeout` is not an integer within 1 and 2^31-1;
+- `recovery.maxDisconnectionMs` is not a finite number of at least 0;
 - `streams.maxCredits` or `streams.maxPerConnection` is not an integer above 0;
 - `streams.stallTimeoutMs` is not an integer within 1 and 2^31-1;
 - `rate`, `auth.revalidateMs`, `hooks`, `ordering`, `streams` or another required key is missing.
 
-The configuration coerces types, as everywhere in spinajs: a numeric string is read as its number. `NaN` and `Infinity` are refused. `null` and booleans are refused for `auth.revalidateMs` and `drainMs`, where coercion would read `null` and `false` as 0 and turn revalidation or the drain off.
+The configuration coerces types, as everywhere in spinajs: a numeric string is read as its number. `NaN` and `Infinity` are refused. `auth.required` takes only `true` or `false`. `null` and booleans are refused for `auth.revalidateMs`, `drainMs`, `recovery.maxDisconnectionMs`, `hooks.connectTimeoutMs`, `ordering.abortGraceMs`, `pingInterval` and `pingTimeout`, where coercion would read `null` and `false` as 0, which turns revalidation, the drain or recovery off, and `true` as 1 ms.
 
 `SocketServer` itself refuses to start with a `RangeError` for a bad `idempotency`, `shutdownRetryAfterMs` or a `drainMs` above 2^31-1, and warns when the drain may outlast `http.shutdownTimeout`; see W3 resilience (startup checks).
 
