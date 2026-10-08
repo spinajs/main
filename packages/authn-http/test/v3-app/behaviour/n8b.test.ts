@@ -9,8 +9,9 @@ import { clearLog, logLines } from '../app.js';
 import { mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
 import { keyRoutesSuite } from '../suites/keys.js';
 import { tokenRoutesSuite } from '../suites/tokens.js';
+import { credentialAdminRoutesSuite } from '../suites/credential-admin.js';
 import { ROUTES, supports } from './harness.js';
-import { KEY_ROUTES, MFA_ROUTES, N8B_PORTS, N8B_SUPPORTED_CONFIG, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
+import { ADMIN_ROUTES, KEY_ROUTES, MFA_ROUTES, N8B_PORTS, N8B_SUPPORTED_CONFIG, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
 
 /** Plan §N8b task 7. */
 const PLAN_LIST = ['A10', 'A11', 'A13', 'A14', 'A17', 'A25', 'A30', 'A32'] as const;
@@ -21,8 +22,8 @@ const RULES = ['A09', ...PLAN_LIST] as const;
 /** The kit README's facets of N8b ("Lane → facets"). */
 const N8B_FACETS: readonly Facet[] = ['A10/core', 'A10/http', 'A11/local', 'A11/http', 'A13/local', 'A13/http', 'A14/http', 'A17/core', 'A17/http', 'A25/http', 'A30/local', 'A30/http', 'A32/http'];
 
-/** Every facet of N8b but A25/http (task 5, blocked on RFC N8b-1), and A09/http. */
-const CLAIM: readonly Facet[] = ['A09/http', ...N8B_FACETS.filter((f) => f !== 'A25/http')];
+/** Every facet of N8b, and A09/http. */
+const CLAIM: readonly Facet[] = ['A09/http', ...N8B_FACETS];
 
 /**
  * The facets left pending here, the needs the lane does not supply and the lane that owns each. Every other facet of
@@ -30,16 +31,14 @@ const CLAIM: readonly Facet[] = ['A09/http', ...N8B_FACETS.filter((f) => f !== '
  */
 const EXPECTED_PENDING: Readonly<Record<string, { owner: string; needs: readonly string[] }>> = {
   'A10/totp': { owner: 'N5', needs: ['mfaStorage'] },
-  'A11/store': { owner: 'N4', needs: ['secretStorage'] },
   'A17/jws': { owner: 'N7', needs: ['jws'] },
-  'A25/http': { owner: 'N8b task 5, blocked on RFC N8b-1', needs: ['actors', 'http.routes.adminMfaReset', 'http.routes.adminPasswordReset', 'http.routes.adminSessionsRevoke', 'http.routes.adminTokensRevoke', 'secretStorage', 'targetGuard'] },
 };
 
-/** SR cases of RULES that stay pending: A10/totp's (N5) and A25/http's (task 5). */
-const PENDING_SR = ['A10 SR-09 TOTP secret encrypted at rest', "A25 SR-10 lower admin cannot reset a higher admin's password", 'A25 SR-10 admin MFA reset returns no secret'];
+/** SR cases of RULES that stay pending: A10/totp's (N5). */
+const PENDING_SR = ['A10 SR-09 TOTP secret encrypted at rest'];
 
 // mfa.recovery: the runner checks the mfa step for recovery methods, which authn-totp's TotpMfaStep has.
-const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES, ...TOKEN_ROUTES, ...KEY_ROUTES } : need === 'fakeDate' || need === 'mfa.recovery' || (N8B_PORTS as readonly string[]).includes(need));
+const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES, ...TOKEN_ROUTES, ...KEY_ROUTES, ...ADMIN_ROUTES } : need === 'fakeDate' || need === 'mfa.recovery' || (N8B_PORTS as readonly string[]).includes(need));
 
 const ALICE = { login: 'lane-alice@example.test', password: 'Lane-Alice-Pass-1' };
 
@@ -62,7 +61,7 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
     await shutdownN8bApp();
   });
 
-  it('runs the plan list in this one call; only A25/http (task 5) and facets of other lanes stay pending', () => {
+  it('runs the plan list in this one call; only facets of other lanes stay pending', () => {
     const planned = planCases([...RULES]);
     expect([...new Set(planned.map((p) => p.kase.facet))]).to.include.members([...N8B_FACETS]);
     const missing = new Map<string, Set<string>>();
@@ -104,6 +103,11 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
   describe('key routes on authn-keys (task 4)', function () {
     this.timeout(60000);
     keyRoutesSuite();
+  });
+
+  describe('credential admin routes (task 5)', function () {
+    this.timeout(60000);
+    credentialAdminRoutesSuite();
   });
 
   describe('lane cases on authn-local and authn-orm', function () {

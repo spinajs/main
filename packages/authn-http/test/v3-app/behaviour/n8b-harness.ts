@@ -2,9 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnEvent, AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
-import { totpFromProvisioning } from '@spinajs/authn-testing';
+import { AuthnEventSink, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
 import type { LocalPasswordService, PasswordMail } from '@spinajs/authn-local';
 import type { AuthnFromUserMetadata_2026_10_02_00_01_00, DbMfaStore, DbSecretStore } from '@spinajs/authn-orm';
@@ -126,6 +126,12 @@ async function secretRows(): Promise<SecretRowView[]> {
   return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: fromUtcColumn(r.expires_at)!, created_at: fromUtcColumn(r.created_at)!, used_at: fromUtcColumn(r.used_at) ?? null }));
 }
 
+/** authn-orm's `<type>:<id>` identity column; the id may hold more colons. */
+function identityOf(key: string): IdentityRef {
+  const at = key.indexOf(':');
+  return { type: key.slice(0, at), id: key.slice(at + 1) };
+}
+
 async function metadataKeys(uuid: string): Promise<string[]> {
   const db = tokenDb();
   const [user] = (await db.select().from('users').where('Uuid', uuid)) as { Id: number }[];
@@ -164,7 +170,7 @@ export const passwordPart: LanePart = {
   strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
   supportedConfig: ['authn.local.reset.revokeTokens', 'authn.local.reset.ttlSeconds', 'authn.local.invite.ttlSeconds'],
   routes: PASSWORD_ROUTES,
-  ports: ['password', 'passwordStore', 'outbox', 'secrets', 'migration'],
+  ports: ['password', 'passwordStore', 'outbox', 'secrets', 'secretStorage', 'migration'],
   async open(c) {
     const l = loaded(local, 'authn-local');
     for (const type of [PasswordService, l.LocalPasswordService, l.PasswordHasher, l.Argon2PasswordHasher, l.LocalPasswordPolicy]) DI.uncache(type as unknown as Class<unknown>);
@@ -194,6 +200,9 @@ export const passwordPart: LanePart = {
       password: service,
       passwordStore: c.fakes.passwords,
       secrets: state.secrets,
+      secretStorage: {
+        rows: async () => (await secretRows()).map((r) => ({ identity: identityOf(r.identity), purpose: r.purpose, hash: r.secret_hash, expiresAt: r.expires_at, usedAt: r.used_at })),
+      },
       outbox: {
         async secretFor(id, purpose) {
           await service.drain();
@@ -519,8 +528,91 @@ export const keysPart: LanePart = {
   },
 };
 
+const adminPath = (target: IdentityRef, action: string): string => `/authn/admin/users/${encodeURIComponent(target.id)}/${action}`;
+
+export const ADMIN_ROUTES: Partial<HttpRoutes> = {
+  adminPasswordReset: (target) => ({ method: 'POST', path: adminPath(target, 'password-reset') }),
+  adminMfaReset: (target) => ({ method: 'POST', path: adminPath(target, 'mfa-reset') }),
+  adminSessionsRevoke: (target) => ({ method: 'DELETE', path: adminPath(target, 'sessions') }),
+  adminTokensRevoke: (target) => ({ method: 'DELETE', path: adminPath(target, 'tokens') }),
+};
+
+interface AdminState {
+  /** Identities that hold users:credentials. */
+  readonly rights: Set<string>;
+  /** The kit's targetGuard port: the target rule users' guard asks AuthzTargetGuard for. */
+  readonly targets: FakeImpersonationGuard;
+  readonly calls: { actor: Principal; target: IdentityRef; action: CredentialAdminAction }[];
+}
+
+let adminState: AdminState | undefined;
+let adminBound = false;
+let admins = 0;
+
+const adminNow = (): AdminState => loaded(adminState, 'the admin part');
+
+/** The calls the lane's CredentialAdminGuard got in this case. */
+export const laneAdminGuardCalls = (): AdminState['calls'] => adminNow().calls;
+
+/**
+ * Stands in for users' AuthzCredentialAdminGuard: an impersonating actor or one without users:credentials is
+ * `forbidden`, then the targetGuard port decides.
+ */
+class N8bCredentialAdminGuard extends CredentialAdminGuard {
+  public async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<{ ok: true } | { ok: false; code: 'forbidden' | 'protected_role' | 'escalation' | 'not_found' }> {
+    const state = adminNow();
+    state.calls.push({ actor, target, action });
+    if (actor.authn?.impersonator !== undefined || !state.rights.has(actor.id)) return { ok: false, code: 'forbidden' };
+    return state.targets.allowed(actor, target);
+  }
+}
+
+/**
+ * The credential admin routes behind the lane's CredentialAdminGuard. Registered on the first boot of the lane and never
+ * removed, so test/v3-app/auth-admin.test.ts, which needs the group off, sorts before behaviour/.
+ */
+export const adminPart: LanePart = {
+  name: 'admin',
+  async beforeDb() {
+    if (!adminBound) {
+      adminBound = true;
+      const guard = new N8bCredentialAdminGuard();
+      bind(CredentialAdminGuard, 'N8bCredentialAdminGuard', () => guard);
+    }
+  },
+  routes: ADMIN_ROUTES,
+  ports: ['actors', 'targetGuard'],
+  async open() {
+    adminState = { rights: new Set(), targets: new FakeImpersonationGuard(), calls: [] };
+  },
+  async addPorts(c, base) {
+    const state = adminNow();
+    const seed = base.seed!;
+    // TotpService (adminReset's mfa.disable) resolves its sinks with Array.ofType, which skips N8a's factory sink behind
+    // the events port; the class recorder gets every event. Only for A25, so the other rules' event counts stay as claimed.
+    const events = c.ctx.rule === 'A25' ? { events: { all: () => [...laneEvents], clear: () => void (laneEvents.length = 0) } } : {};
+    return {
+      ...events,
+      targetGuard: state.targets,
+      actors: {
+        async admin({ credentialsRight }) {
+          admins++;
+          const login = `lane-admin-${admins}@example.test`;
+          const password = `Lane-Admin-Pass-${admins}`;
+          const ref = await seed.user({ login, password });
+          if (credentialsRight) state.rights.add(ref.id);
+          return { ref, login, password };
+        },
+      },
+    };
+  },
+  async close() {
+    adminState = undefined;
+  },
+};
+
 /** The lane's parts; later tasks append theirs. */
-export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart, keysPart];
+export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart, keysPart, adminPart];
 
 /** The config keys the parts apply over N8a's. */
 export const N8B_SUPPORTED_CONFIG: readonly string[] = PARTS.flatMap((p) => p.supportedConfig ?? []);

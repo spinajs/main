@@ -9,13 +9,24 @@ import { fileURLToPath } from 'node:url';
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHILD = join(PKG_ROOT, 'test', 'v3', 'route-groups-app.cjs');
 
-type Group = 'password' | 'mfa' | 'tokens' | 'keys';
-type Package = 'local' | 'totp' | 'token' | 'keys';
+type Group = 'password' | 'mfa' | 'tokens' | 'keys' | 'admin';
+/** `admin`: a CredentialAdminGuard, as users registers one. */
+type Package = 'local' | 'totp' | 'token' | 'keys' | 'admin';
 
-/** Design §22.11: each N8b route group and the strategy package whose service switches it on. */
-const PACKAGE_OF: Record<Group, Package> = { password: 'local', mfa: 'totp', tokens: 'token', keys: 'keys' };
+/** Design §22.11: each N8b route group and the strategy package (or hook) whose service switches it on. */
+const PACKAGE_OF: Record<Group, Package> = { password: 'local', mfa: 'totp', tokens: 'token', keys: 'keys', admin: 'admin' };
 const GROUPS = Object.keys(PACKAGE_OF) as Group[];
-const ALL: Package[] = ['local', 'totp', 'token', 'keys'];
+const ALL: Package[] = ['local', 'totp', 'token', 'keys', 'admin'];
+
+const ADMIN_TARGET = '/authn/admin/users/00000000-0000-4000-8000-000000000000';
+
+/** Each credential admin route is also off without its own service; the session issuer is always there. */
+const ADMIN_ROUTE_PACKAGE: Record<string, Package | null> = {
+  [`POST ${ADMIN_TARGET}/password-reset`]: 'local',
+  [`POST ${ADMIN_TARGET}/mfa-reset`]: 'totp',
+  [`DELETE ${ADMIN_TARGET}/sessions`]: null,
+  [`DELETE ${ADMIN_TARGET}/tokens`]: 'token',
+};
 
 interface Answer {
   group: Group;
@@ -29,7 +40,7 @@ interface Boot {
   usersModules: string[];
   bootstrappers: string[];
   sessionProviders: string[];
-  registered: Record<'PasswordService' | 'TotpService' | 'TokenService' | 'KeyRegistry', boolean>;
+  registered: Record<'PasswordService' | 'TotpService' | 'TokenService' | 'KeyRegistry' | 'CredentialAdminGuard', boolean>;
   routes: string[];
   controllers: string[];
   anonymous: Record<string, Answer>;
@@ -59,6 +70,7 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   'DELETE /user/keys/some-kid': { status: 401, error: 'unauthenticated' },
   'POST /auth/keys/challenge': { status: 401, error: 'unauthenticated' },
   'POST /auth/keys/login': { status: 401, error: 'E_AUTH_FAILED' },
+  ...Object.fromEntries(Object.keys(ADMIN_ROUTE_PACKAGE).map((route) => [route, { status: 401, error: 'unauthenticated' }])),
 };
 
 /** The routes N8b mounts (password 4, MFA 5, tokens 3, keys 5), as express lists them. */
@@ -67,9 +79,10 @@ const N8B_ROUTES: Record<Group, string[]> = {
   mfa: ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'],
   tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid'],
   keys: ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'],
+  admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
 
-const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnImpersonationController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokensController'];
+const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokensController'];
 
 interface Case {
   mode: 'esm' | 'cjs';
@@ -84,6 +97,7 @@ const CASES: Case[] = [
   { mode: 'esm', packages: ['totp'] },
   { mode: 'esm', packages: ['token'] },
   { mode: 'esm', packages: ['keys'] },
+  { mode: 'esm', packages: ['admin'] },
   { mode: 'esm', packages: ALL },
   { mode: 'cjs', packages: [] },
   { mode: 'cjs', packages: ALL },
@@ -91,6 +105,8 @@ const CASES: Case[] = [
 
 const label = (c: Case) => `${c.mode.toUpperCase()} ${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;
 const isOn = (c: Case, g: Group) => c.packages.includes(PACKAGE_OF[g]);
+/** A route of a group that is on, and for a credential admin route its own service too. */
+const routeOn = (c: Case, g: Group, route: string): boolean => isOn(c, g) && (g !== 'admin' || ADMIN_ROUTE_PACKAGE[route] === null || c.packages.includes(ADMIN_ROUTE_PACKAGE[route]!));
 /** Express matches `:a` and `:b` alike, so two routes that differ only in a parameter name clash. */
 const routeShape = (route: string): string => route.replace(/:\w+/g, ':param');
 
@@ -148,15 +164,16 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
         expect([...b.controllers].sort()).to.deep.eq(V3_CONTROLLERS);
         expect(readdirSync(cacheDirs.get(c)!), 'the controller cache of this child alone').to.not.be.empty;
-        expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys') });
+        expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys'), CredentialAdminGuard: isOn(c, 'admin') });
       });
 
       it('an anonymous call gets 404 not_found from every route of a group that is off, before any authentication policy, and the route answer of every group that is on', () => {
         const b = boots.get(c)!;
         expect(Object.keys(b.anonymous)).to.have.members(Object.keys(OPEN));
         for (const [route, answer] of Object.entries(b.anonymous)) {
-          const expected = isOn(c, answer.group) ? OPEN[route] : { status: 404, error: 'not_found' };
-          expect({ status: answer.status, error: answer.error }, `${route} (${answer.group} ${isOn(c, answer.group) ? 'on' : 'off'})`).to.deep.eq(expected);
+          const on = routeOn(c, answer.group, route);
+          const expected = on ? OPEN[route] : { status: 404, error: 'not_found' };
+          expect({ status: answer.status, error: answer.error }, `${route} (${answer.group} ${on ? 'on' : 'off'})`).to.deep.eq(expected);
         }
       });
 

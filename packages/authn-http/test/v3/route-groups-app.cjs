@@ -24,6 +24,7 @@ const loadFile = (path) => load(ESM ? pathToFileURL(path).href : path);
 const lib = (pkg, file) => join(WORKSPACE, pkg, 'lib', FORMAT, file);
 
 const USER = { login: 'route-groups@example.test', password: 'Route-Groups-Pass-1' };
+const ADMIN_TARGET = '/authn/admin/users/00000000-0000-4000-8000-000000000000';
 
 /**
  * Every N8b route: method, path, the body a session sends (a re-authentication wherever a route takes one), and the
@@ -54,6 +55,12 @@ const ROUTES = {
     ['DELETE', '/user/keys/some-kid'],
     ['POST', '/auth/keys/challenge', { purpose: 'register' }],
     ['POST', '/auth/keys/login', { keyId: 'some-kid', challengeId: 'x', signature: 'y' }],
+  ],
+  admin: [
+    ['POST', `${ADMIN_TARGET}/password-reset`, { sendReset: false, reauthPassword: USER.password }],
+    ['POST', `${ADMIN_TARGET}/mfa-reset`, { reauthPassword: USER.password }],
+    ['DELETE', `${ADMIN_TARGET}/sessions`, { reauthPassword: USER.password }],
+    ['DELETE', `${ADMIN_TARGET}/tokens`, { reauthPassword: USER.password }],
   ],
 };
 
@@ -158,6 +165,8 @@ async function main() {
     if (p === 'local') await load('@spinajs/authn-local');
     else if (p === 'token') await loadFile(lib('authn-token', join('service', 'index.js')));
     else if (p === 'keys') await load('@spinajs/authn-keys');
+    // users' AuthzCredentialAdminGuard needs @spinajs/users; any guard switches the group on.
+    else if (p === 'admin') bind(contracts.CredentialAdminGuard, 'RouteGroupsCredentialAdminGuard', { allowed: async () => ({ ok: false, code: 'forbidden' }) });
     else if (p === 'totp') {
       await load('@spinajs/authn-totp/service');
       // TotpMfaStep needs a store for login's enrolment check; nobody is enrolled here.
@@ -233,6 +242,7 @@ async function main() {
     TotpService: DI.RootContainer.hasRegistered('TotpService'),
     TokenService: DI.RootContainer.hasRegistered(contracts.TokenService),
     KeyRegistry: DI.RootContainer.hasRegistered(contracts.KeyRegistry),
+    CredentialAdminGuard: DI.RootContainer.hasRegistered(contracts.CredentialAdminGuard),
   };
 
   await server.stop();
