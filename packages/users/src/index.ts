@@ -1,22 +1,18 @@
 import ac from 'accesscontrol';
 import { AccessControl } from 'accesscontrol';
 
-import { AsyncLocalStorage } from 'async_hooks';
-
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
 import { PasswordMailer } from '@spinajs/authn-local';
 
-import type { IRbacAsyncStorage } from './interfaces.js';
 import { USERS_ACCESS_CONFIGURATION_SCHEMA } from './authn/access-schema.js';
 
 import './auth.js';
 import './password.js';
 import './session.js';
 import './session-expiration.js';
-import './ownership.js';
-import { SYSTEM_LOGIN, User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
+import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { runAsSystem } from './system.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { RBAC_USER_MODEL, userModel } from './model-token.js';
@@ -41,7 +37,6 @@ export * from './permission-service.js';
 export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
-export * from './ownership.js';
 export * from './model-token.js';
 export * from './cli/RbacCliCommand.js';
 export * from './principal/index.js';
@@ -124,22 +119,5 @@ export class RbacBootstrapper extends Bootstrapper {
         IsActive: conf!.get('authz.principals.anonymous.enabled', false),
       });
     }).as('RbacGuestUserFactory');
-
-    /**
-     * The {@link SYSTEM_LOGIN} account, as the registered user model: machine-token policies put it in
-     * `storage.User`, where the application's hooks expect their own model.
-     *
-     * @deprecated 3.0: the `SYSTEM` principal of `@spinajs/authz`. R1 deletes it.
-     */
-    DI.register(async (_) => {
-      const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
-      const lookup = () => userModel().select().where('Login', SYSTEM_LOGIN).firstOrFail();
-
-      // The 2.x ORM middleware does not know runAs and would scope the lookup by the caller in the
-      // surrounding store; the skip goes into a nested store so the caller's own context is kept.
-      const unscoped = store ? () => store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup) : lookup;
-
-      return await runAsSystem('system-user', unscoped);
-    }).as('RbacSystemUserFactory');
   }
 }

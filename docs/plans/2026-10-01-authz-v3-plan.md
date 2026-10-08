@@ -1857,9 +1857,20 @@ every `LEDGER.md` line has a target test name or a drop reason.
   `authn.config.rejectLegacyKeys` → `true`.
 - **Depends on:** C1–C9, T1–T4, (r3) N8b.
 - **Tasks:** delete; build; full test run; grep gates:
-  `rg -n "accesscontrol|notation|IGrantsMap|PermissionScope|SkipModelPermission|probeGrant|@Permission\(|@Resource\(|RbacPolicy|LoggedPolicy|AuthorizedPolicy|@spinajs/rbac" packages/*/src`
-  must be empty; (r4, H29) dependency direction (design §4.2), each gate
-  must hold:
+  `rg -n "from '(accesscontrol|notation)'|IGrantsMap|PermissionScope|SkipModelPermission|probeGrant|@Permission\(|@Resource\(|\bRbacPolicy\b|\bLoggedPolicy\b|\bAuthorizedPolicy\b|@spinajs/rbac" packages/*/src --glob '!packages/authz-convert/**' --glob '!**/*.md'`
+  must be empty, doc comments included (reword a comment that still names
+  a 2.x API). Three 3.0 doc comments hit it and no earlier R1 step removes
+  them, so R1 final rewords them: `authn-http/src/api.ts:23`
+  (`Authenticated`, "Replaces LoggedPolicy and AuthorizedPolicy"; frozen,
+  so it needs an RFC and a regenerated `etc/authn-http.api.md`),
+  `authn-http/src/policies/v3/principal.ts:21` (the same sentence) and
+  `authz-http/src/access/decorators.ts:33` (`@Permission`, `RbacPolicy`).
+  `rg -l '"(accesscontrol|notation)"' packages/*/package.json` must be
+  empty too. (R1a) The gate leaves out `authz-convert`, which reads
+  2.x names as text on purpose, and matches imports rather than the bare
+  word `notation`, which hits "annotation" and "dot notation" in `http`,
+  `http-swagger` and `configuration-aws-secretmanager-protocol`;
+  (r4, H29) dependency direction (design §4.2), each gate must hold:
   - `rg -l '"@spinajs/(authz|users)' packages/authn*/package.json` is
     empty (no exception any more);
   - `rg -n '"@spinajs/authn' packages/authz*/package.json` prints one line,

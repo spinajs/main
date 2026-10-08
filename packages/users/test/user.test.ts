@@ -1,7 +1,5 @@
 import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { AccessControl } from 'accesscontrol';
-import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadata } from '../src/index.js';
@@ -138,22 +136,6 @@ describe('User model tests', function () {
 
       expect(user).to.be.not.null;
       expect((user as any).Login).to.eq('2fast4you');
-    });
-  });
-
-  describe('the deprecated 2.x AccessControl', () => {
-    it('a user is built without reading the 2.x AccessControl; only the deprecated can* read it', () => {
-      DI.get<AccessControl>('AccessControl')!.setGrants({ editor: { Article: { 'read:any': ['*'] } } });
-      const get = sinon.spy(DI.RootContainer, 'get');
-      try {
-        const user = new User({ Role: ['editor'] });
-        expect(get.calledWith('AccessControl')).to.eq(false);
-
-        expect(user.canReadAny('Article').granted).to.be.true;
-        expect(get.calledWith('AccessControl')).to.eq(true);
-      } finally {
-        get.restore();
-      }
     });
   });
 

@@ -9,7 +9,8 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import { v4 as uuidv4 } from 'uuid';
 
-import { PasswordProvider, RBAC_USER_MODEL, SYSTEM_LOGIN, User } from '../../src/index.js';
+import { PasswordProvider, RBAC_USER_MODEL, SYSTEM_LOGIN, User, userModel } from '../../src/index.js';
+import { runAsSystem } from '../../src/system.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost } from '../support/users-db.js';
 
 chai.use(chaiAsPromised);
@@ -38,9 +39,12 @@ export class ScopeUserModelToNothing extends QueryMiddleware {
 
 const caller = (): Principal => ({ type: 'user', id: uuidv4(), authenticated: true, source: 'session', attributes: {}, ceiling: { roles: ['normal'] } });
 
-// Ported from users legacy-v2/system-user-factory.test.ts rows 1-4 (B09, B20): the factory runs under runAs(SYSTEM). The 2.x
-// OrmPermissionPolicy and AccessControl setup becomes a query middleware that scopes the model to nothing outside SYSTEM.
-describe('RbacSystemUserFactory', function () {
+const findSystemAccount = () => runAsSystem('system-user', () => userModel().select().where('Login', SYSTEM_LOGIN).firstOrFail());
+
+// Ported from users legacy-v2/system-user-factory.test.ts rows 1-4 (B09, B20). The 2.x OrmPermissionPolicy and AccessControl
+// setup becomes a query middleware that scopes the model to nothing outside SYSTEM. RbacSystemUserFactory is gone (R1a): the
+// cases drive the lookup it made, runAsSystem + userModel(), directly.
+describe('runAsSystem lookup of the system account', function () {
   this.timeout(30000);
 
   before(() => {
@@ -72,7 +76,7 @@ describe('RbacSystemUserFactory', function () {
   });
 
   it('returns an instance of the registered user model, not the base class', async () => {
-    const system = await DI.resolve<User>('RbacSystemUserFactory');
+    const system = await findSystemAccount();
 
     expect(system).to.be.instanceOf(AppUserModel);
     expect(system.Login).to.eq(SYSTEM_LOGIN);
@@ -80,7 +84,7 @@ describe('RbacSystemUserFactory', function () {
 
   it('is not row-scoped by the registered model rbac hook', async () => {
     // Inside a scoped request context the scope WOULD apply (the control below), yet the system lookup still finds its account.
-    const system = await runWithPrincipal(caller(), async () => DI.resolve<User>('RbacSystemUserFactory'));
+    const system = await runWithPrincipal(caller(), findSystemAccount);
 
     expect(system).to.be.instanceOf(AppUserModel);
     expect(system.Login).to.eq(SYSTEM_LOGIN);
@@ -99,7 +103,7 @@ describe('RbacSystemUserFactory', function () {
 
     const seen = await runWithPrincipal(principal, async () =>
       store.run({ ...store.getStore(), User: legacy, ActiveRole: 'normal' }, async () => {
-        await DI.resolve<User>('RbacSystemUserFactory');
+        await findSystemAccount();
         return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string; SkipModelPermissionCheck?: boolean } };
       }),
     );
@@ -108,7 +112,7 @@ describe('RbacSystemUserFactory', function () {
     expect(seen.principal.ceiling?.roles).to.deep.equal(['normal']);
     expect(seen.store.User).to.eq(legacy);
     expect(seen.store.ActiveRole).to.eq('normal');
-    // the skip belongs to the factory's own nested context, never to the caller's
+    // the system lookup never switches the 2.x row-scope skip on in the caller's context
     expect(seen.store.SkipModelPermissionCheck).to.eq(undefined);
   });
 });

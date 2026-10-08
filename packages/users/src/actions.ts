@@ -19,7 +19,7 @@ import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
-import { DEFAULT_ROLES_KEY, assignGlobalRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
+import { DEFAULT_ROLES_KEY, assignGlobalRoles, globalRoleHolders, userRef } from './role-assignments.js';
 import { PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
@@ -769,54 +769,6 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 
   await ev(new UserDeleted(u));
   await sendUserEmail(u, 'deleted');
-}
-
-/**
- * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` by `actor`.
- * As SYSTEM, a role the user already holds at GLOBAL is left as it is, expiry and tags included; another
- * actor always goes through AuthzAdmin. An unknown or unassignable role is an `InvalidArgument` (field `role`).
- *
- * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
- * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
- * caller that passes no actor must check first; pass the caller's principal to have the guard run.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param role - role name to grant
- * @param actor - who grants it; default SYSTEM
- * @returns the user
- */
-export async function grant(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
-  role = _check_arg(_trim(), _non_empty())(role, 'role');
-
-  const u = await getUser(identifier);
-
-  // AuthzAdmin's grant is an upsert: it would reset the expiry and tags of the held assignment. Only
-  // SYSTEM skips it; for another actor the answer would tell an unchecked caller which roles a user holds.
-  if (actor !== SYSTEM || !(await holdsGlobalRole(u.Uuid, role))) {
-    await assignGlobalRoles(u.Uuid, [role], { reason: 'users:grant', field: 'role', actor });
-  }
-
-  return u;
-}
-
-/**
- * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` by `actor`.
- *
- * @deprecated 3.0: AuthzAdmin.execute(actor, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role }]) or AuthzAdmin.revoke(actor, id). R1 deletes it.
- * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
- * caller that passes no actor must check first; pass the caller's principal to have the guard run.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param role - role name to revoke
- * @param actor - who revokes it; default SYSTEM
- * @returns the user
- */
-export async function revoke(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
-  role = _check_arg(_trim(), _non_empty())(role, 'role');
-
-  const u = await getUser(identifier);
-
-  await revokeGlobalRole(u.Uuid, role, { reason: 'users:revoke', field: 'role', actor });
-
-  return u;
 }
 
 /**

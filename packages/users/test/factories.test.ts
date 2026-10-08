@@ -74,7 +74,7 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
       const guest = DI.resolve<User>('RbacGuestUserFactory');
 
       expect(guest.Login).to.eq('guest');
-      expect(guest.IsGuest).to.eq(true);
+      expect(guest.Id).to.not.exist;
       expect(guest.IsActive).to.eq(false);
       expect(guest.Role).to.eq(undefined);
     });
@@ -97,18 +97,6 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
       } finally {
         conf.set('authz.principals.anonymous.enabled', before);
       }
-    });
-  });
-
-  describe('RbacSystemUserFactory', () => {
-    it(`finds the ${SYSTEM_LOGIN} account as SYSTEM`, async () => {
-      await new User({ Email: 'system@spinajs.pl', Login: SYSTEM_LOGIN, Password: 'x', IsActive: true }).insert();
-      const runAs = sinon.spy(await rootAuthz(), 'runAs');
-
-      const system = await DI.resolve<Promise<User>>('RbacSystemUserFactory');
-
-      expect(system.Login).to.eq(SYSTEM_LOGIN);
-      expect(runAs.firstCall.args.slice(0, 2)).to.deep.eq([SYSTEM, 'system-user']);
     });
   });
 

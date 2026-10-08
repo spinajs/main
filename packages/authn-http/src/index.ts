@@ -12,16 +12,11 @@ export * from './transformers.js';
 export * from './route-args.js';
 export * from './session-context.js';
 
-export * from "./policies/AllowGuest.js";
-export * from "./policies/BlockGuest.js";
 export * from "./policies/LoggedPolicy.js";
 export * from "./policies/NotLoggedPolicy.js";
 export * from "./policies/RbacPolicy.js";
 export * from "./policies/NotAthorizedPolicy.js";
 export * from "./policies/AuthorizedPolicy.js";
-
-export * from "./controllers/GrantsController.js";
-
 
 export * from './account/index.js';
 export * from './token/index.js';
