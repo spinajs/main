@@ -6,7 +6,4 @@ export * from './services/SessionCookies.js';
 export * from './services/grants.js';
 export * from './services/ImpersonationService.js';
 
-export * from './dto/impersonate-dto.js';
 export * from './dto/password-policy-schema.js';
-export * from './dto/switchRole-dto.js';
-export * from './dto/userLogin-dto.js';
