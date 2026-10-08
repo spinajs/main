@@ -16,7 +16,6 @@ import { Authenticated, AuthnMiddleware, AuthnPrincipalResolver, AuthnSession, C
 import type { AuthnIdentity } from '../src/api.js';
 import * as barrel from '../src/index.js';
 import { FromSession as MovedFromSession, SessionId as MovedSessionId } from '../src/decorators.js';
-import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../src/policies/NotLoggedPolicy.js';
 import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
 import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
 import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
@@ -179,7 +178,6 @@ describe('authn-http api stubs (api.ts)', function () {
       }
       expect(barrel.FromSession).to.not.eq(MovedFromSession);
       expect(barrel.SessionId).to.not.eq(MovedSessionId);
-      expect(barrel.NotLoggedPolicy).to.not.eq(MovedNotLoggedPolicy);
     });
 
     it('imports only @spinajs/authn/contracts, @spinajs/http and express', () => {

@@ -13,7 +13,6 @@ import { DefaultSessionIssuer, MemorySessionStore } from '@spinajs/authn-session
 import * as barrel from '../../src/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { AuthorizedPolicy } from '../../src/policies/AuthorizedPolicy.js';
-import { LoggedPolicy } from '../../src/policies/LoggedPolicy.js';
 import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
 import { Permission, Resource } from '../../src/decorators.js';
 
@@ -338,11 +337,10 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
       return (await runBridge(containerWith(users_), await storageOf(kind))).storage;
     }
 
-    it('2.x AuthorizedPolicy, LoggedPolicy and RbacPolicy (@Permission) refuse an active 3.0 session: no 2.x Session', async () => {
+    it('2.x AuthorizedPolicy and RbacPolicy (@Permission) refuse an active 3.0 session: no 2.x Session', async () => {
       for (const kind of ['session', 'impersonation', 'token', 'none'] as const) {
         const storage = await bridged(kind);
         expect(await outcome(new AuthorizedPolicy(), storage), `AuthorizedPolicy ${kind}`).to.eq('401');
-        expect(await outcome(new LoggedPolicy(), storage), `LoggedPolicy ${kind}`).to.eq('401');
         expect(await outcome(new RbacPolicy(), storage, new LegacyRoutes() as unknown as IController), `RbacPolicy ${kind}`).to.eq('401');
       }
     });
