@@ -86,7 +86,7 @@ describe('Query builder clone() statement rebinding', () => {
 
     query.populate('Group');
 
-    expect(sql(query)).to.equal('SELECT `$RelationModel$`.* FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable3` as `$Group$` ON `$RelationModel$`.group_id = `$Group$`.Id WHERE `$RelationModel$`.`Id` = ?');
+    expect(sql(query)).to.equal('SELECT `$RelationModel$`.* FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable3` as `$Group$` ON `$RelationModel$`.`group_id` = `$Group$`.`Id` WHERE `$RelationModel$`.`Id` = ?');
     expect(sql(cloned)).to.equal('SELECT * FROM `RelationTable` WHERE `Id` = ?');
   });
 
