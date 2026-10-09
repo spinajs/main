@@ -22,8 +22,8 @@ breaks §4.2.
 | `authn-http` | `queue` | `ImpersonationService` and `ImpersonationController` emit the impersonation events on `@spinajs/queue`. | N8a (events go through the authn audit and event sinks) |
 | `authz-http-admin` | `users` | `src/legacy/**` (`Roles`, `DefaultRoleGuard`) use `User`, `grant`, `revoke`, `AccessControl`. | C4 (deletes `src/legacy/**`), R1 |
 | `authz-http-admin` | `authn-http` | `Roles` uses `AuthorizedPolicy`, `Permission`, `Resource` and the `User` route argument. | C4 (routes read the principal through `@Access` and `AuthzAdmin`), R1 |
-| `users-http` | `authn-totp` | `Security` calls `enableUser2Fa`, `disableUser2Fa`, `resetUser2Fa`. | C2 (credential routes leave `Security`), N8b (credential admin) |
-| `users-http` | `authz-http-admin` | `Users` and `Security` take `RoleGuard` and register `DefaultRoleGuard` by side effect. | C2, C4 (guard lives inside `AuthzAdmin`) |
+| `users-http` | `authn-totp` | `Security` calls `enableUser2Fa`, `disableUser2Fa`, `resetUser2Fa`. | C2 (credential routes leave `Security`), N8b (credential admin). Closed (C2b task 7): no `src` import; one test file still reads authn-totp's metadata keys, a devDependency |
+| `users-http` | `authz-http-admin` | `Users` and `Security` take `RoleGuard` and register `DefaultRoleGuard` by side effect. | C2, C4 (guard lives inside `AuthzAdmin`). Closed (C2b task 7): not a dependency of users-http any more |
 | `session-provider-db`, `session-provider-redis`, `session-provider-dynamodb` | `users` | Providers extend `SessionProvider` and use `UserSession`, which still live in `users`. | N2 (types move to `authn-session`) |
 | `configuration-http` | `users`, `authn-http` | Controller policies and the `admin.configuration` grants use `@spinajs/users` and `authn-http` decorators. | C6 |
 | `orm-api` | `users`, `authn-http` | CRUD controllers use `AccessControl`, `User` and the `Permission` decorator. | L8 (package is deleted) |
@@ -31,7 +31,7 @@ breaks §4.2.
 Status (R1bc, 2026-10-09): R1bc closed these edges: `authn-http` → `authn-token` as a runtime dependency (now a
 devDependency for tests), `authn-http` → `queue`, `authn-token` → `users` (now a devDependency for one test file),
 `authn-token` → `http` and `authn-token` → `queue`. Still open: `authn-http` → `users` and `authn-totp` (R1d,
-after C2b), `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` (C2b, R1d).
+after C2b), `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` is closed as a runtime edge (C2b task 7; devDependency for one test).
 
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,

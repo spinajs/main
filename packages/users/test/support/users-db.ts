@@ -72,6 +72,7 @@ const USERS_HOST_KEYS = [
   'UserResourceAdapter',
   'UserSelfRelation',
   'UsersSelfRelation',
+  'UserMetadataOwnerRelation',
   'ConfigScopeAttributeSchemas',
   'OrmAuthzContributor',
   'DefaultRolesBootCheck',

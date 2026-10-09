@@ -10,6 +10,12 @@ import { User } from '@spinajs/users';
 // TODO: DEMONSTRATE API
 ```
 
+## Credential administration
+
+users registers `users:credentials` (the default `authz.credentials.permission` of its credential admin guard), and its
+`admin.users` role holds it through `users:*` by design (§8.2, §22.11, A25): the guard, not a missing right, keeps a user
+administrator off accounts it does not cover (SR-10); revoke the permission from that role to narrow it.
+
 ## Jobs run as their initiator
 
 Install `@spinajs/authz-queue` (an optional peer dependency) and import `@spinajs/users/queue` (it loads authz-queue) so

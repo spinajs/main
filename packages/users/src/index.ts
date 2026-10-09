@@ -41,6 +41,7 @@ export * from './model-token.js';
 export * from './cli/RbacCliCommand.js';
 export * from './principal/index.js';
 export * from './self-relation.js';
+export * from './metadata-owner-relation.js';
 export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
 export * from './identity/index.js';

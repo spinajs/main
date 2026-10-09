@@ -2,7 +2,9 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
+import type { Principal } from '@spinajs/authz';
+import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserPrincipalFactory } from '@spinajs/users';
 
 import { Users } from '../../src/admin/controllers/Users/Users.js';
 import { Security } from '../../src/admin/controllers/Users/Security.js';
@@ -79,3 +81,14 @@ async function seedAccounts(): Promise<void> {
 }
 
 export const byUuid = (uuid: string) => User.where({ Uuid: uuid }).populate('Metadata').firstOrFail() as Promise<User>;
+
+/** The principal of user `uuid`, as the handlers get it from `@CurrentPrincipal()`. */
+export async function principalOf(uuid: string): Promise<Principal> {
+  return ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf(await byUuid(uuid));
+}
+
+/** The principal of user `uuid` signed in with a password session: what the credential admin guard asks of an actor. */
+export async function signedInPrincipalOf(uuid: string): Promise<Principal> {
+  const facts: AuthnFacts = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(), sessionHandle: `test-session-${uuid}` };
+  return ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf({ type: 'user', id: uuid } as IdentityRef, facts, {});
+}
