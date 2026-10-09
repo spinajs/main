@@ -86,7 +86,7 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr()?.Controllers;
-    expect(controllers?.length).to.eq(19);
+    expect(controllers?.length).to.eq(20);
   });
 
   it('should server static files', async () => {

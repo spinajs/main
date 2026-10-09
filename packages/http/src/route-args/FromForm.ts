@@ -314,8 +314,9 @@ export class FromJsonFile extends FromFile {
     let parsed: unknown;
     try {
       parsed = JSON.parse(content.toString());
-    } catch (err) {
-      throw new BadRequest(`Uploaded JSON file is invalid: ${(err as Error).message}`);
+    } catch {
+      // The parser message quotes the file content.
+      throw new BadRequest('Uploaded JSON file is invalid');
     }
 
     return {
