@@ -178,4 +178,20 @@ describe('http: no request value in 400 bodies or logs', function () {
       expect(res.body.fieldName).to.eq('credentials');
     });
   });
+
+  describe('an XML body that is not valid XML', () => {
+    for (const [name, raw, secret] of [
+      ['a secret tag name', '<root><Zq7xmlTagGv4Np></root>', 'Zq7xmlTagGv4Np'],
+      ['a secret attribute', '<root Zq7xmlAttrWc8Ky></root>', 'Zq7xmlAttrWc8Ky'],
+      ['an unclosed secret tag', '<root><Zq7xmlOpenHs2Df>', 'Zq7xmlOpenHs2Df'],
+    ]) {
+      it(`answers 400 for ${name}, echoing nothing`, async () => {
+        const res = await req().post('secret-echo/xml').set('Accept', 'application/json').set('Content-Type', 'application/xml').send(raw);
+
+        expect(res.status, res.text).to.eq(400);
+        expect(res.body.message).to.eq('request body is not valid XML');
+        expectNowhere(res, [secret]);
+      });
+    }
+  });
 });

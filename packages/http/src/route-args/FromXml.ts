@@ -4,6 +4,9 @@ import { Injectable } from '@spinajs/di';
 import { BadRequest } from '@spinajs/exceptions';
 import { XMLParser, XMLValidator, X2jOptions } from 'fast-xml-parser';
 
+// The parser's messages quote tag and attribute names from the input.
+const INVALID_XML_MESSAGE = 'request body is not valid XML';
+
 /**
  * Parses an XML request body into a plain object.
  *
@@ -32,17 +35,16 @@ export class FromXmlRouteArgs extends RouteArgs {
       return { CallData: callData, Args: await this.filterInput(body, param, route) };
     }
 
-    const valid = XMLValidator.validate(body);
-    if (valid !== true) {
-      throw new BadRequest(`Invalid XML body: ${valid.err?.msg ?? 'malformed XML'}`);
+    if (XMLValidator.validate(body) !== true) {
+      throw new BadRequest(INVALID_XML_MESSAGE);
     }
 
     const parser = new XMLParser({ ignoreAttributes: false, ...(param.Options ?? {}) });
     let parsed: unknown;
     try {
       parsed = parser.parse(body);
-    } catch (err) {
-      throw new BadRequest(`Invalid XML body: ${(err as Error).message}`);
+    } catch {
+      throw new BadRequest(INVALID_XML_MESSAGE);
     }
     return { CallData: callData, Args: await this.filterInput(parsed, param, route) };
   }
