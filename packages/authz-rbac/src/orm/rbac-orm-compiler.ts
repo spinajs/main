@@ -64,8 +64,8 @@ interface BuilderLinks {
  * principal only from its args, never from the request principal it is handed (RFC E2-2).
  *
  * Postgres: the rule terms have a high estimated cost and with the default `jit_above_cost` the server
- * JIT-compiles every list query for seconds (25-30 s measured for 3.4 ms of work). Hosts set `jit = off`, or a
- * `jit_above_cost` above these plans' cost, for the role or database of the authz connection.
+ * JIT-compiles every list query for seconds (25-30 s measured for 3.4 ms of work). Hosts set `jit = off` for the
+ * role or database of the authz connection; a higher `jit_above_cost` is no fix, the cost grows with the rows.
  *
  * Stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`): a term is one `WITH … AS MATERIALIZED`,
  * which needs Postgres 12 or SQLite 3.35 (an older server fails every such list with a syntax error). SQLite works

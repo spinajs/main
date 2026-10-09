@@ -208,7 +208,7 @@ On PostgreSQL 12 and later, a large native term (authz-rbac's rule terms: many c
 a high estimated cost, a few rows) passes the default `jit_above_cost`, and the server JIT-compiles
 every list query: measured 25-30 s per query, 13 s of it JIT, for 3.4 ms of work. Hosts turn JIT off
 for the connection authz lists through (`ALTER ROLE <role> SET jit = off`, or the same per
-database), or raise `jit_above_cost` above the plans' cost.
+database). Raising `jit_above_cost` is no fix: the plans' cost grows with the rows listed.
 
 authz-rbac's terms over stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`) are
 one `WITH … AS MATERIALIZED` each, which needs PostgreSQL 12 or SQLite 3.35 or later (an older server

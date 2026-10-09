@@ -774,8 +774,7 @@ export class RbacRulesSql {
   }
 
   /**
-   * One row, 
-: the config thresholds' pattern leaves and the stored ones'; NULL for none (a bound that is never
+   * One row, `n`: the config thresholds' pattern leaves and the stored ones'; NULL for none (a bound that is never
    * read: a leaf being bounded counts itself, unless it is a stored rule the row skips). A table of its own, so the
    * bounds stay shallow for SQLite's parser stack.
    */
