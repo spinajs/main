@@ -248,7 +248,7 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
 
   it('the barrel reaches no file importing @spinajs/users, so importing it registers none of its providers', () => {
     const graph = [...barrelGraph()];
-    expect(graph.filter((f) => /(from\s+|import\(\s*)'@spinajs\/users'/.test(readFileSync(f, 'utf8')))).to.deep.eq([]);
+    expect(graph.filter((f) => /(from\s+|import\s*\(?\s*)'@spinajs\/users(\/[^']*)?'/.test(readFileSync(f, 'utf8')))).to.deep.eq([]);
   });
 
   it('the 2.x session and token middlewares and the request-keys bridge are gone from the sources', () => {

@@ -97,7 +97,8 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       const victim = await newUser();
       // The public POST /auth/password/reset-request runs this action. authn-local keeps the secret in its own
       // store, so a reset token row is one a 2.x writer left behind.
-      await ((await DI.resolve(PasswordService)) as PasswordService).requestReset(victim.Email, { now: new Date(), purpose: 'request' });
+      const requested = await ((await DI.resolve(PasswordService)) as PasswordService).requestReset(victim.Email, { now: new Date(), purpose: 'request' });
+      expect(requested.status).to.eq('accepted');
       expect(await rowOf(victim, 'user:pwd_reset:token'), 'the reset request writes no secret to the metadata').to.not.exist;
       const token = 'a-2x-reset-token-worth-stealing';
       await plant(victim, 'user:pwd_reset:token', token);

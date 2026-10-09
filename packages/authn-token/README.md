@@ -76,4 +76,5 @@ create (a token that grants nothing); no roles means no role ceiling.
 
 ## 2.x API
 
-The 2.x token API (`createToken`, `validateToken`, `touchToken` and the rest) is gone. `TokenService` replaces it.
+The 2.x token API (`createToken`, `validateToken`, `touchToken` and the rest) is gone.
+`TokenService` replaces it.

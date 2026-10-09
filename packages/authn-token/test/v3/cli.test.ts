@@ -147,7 +147,7 @@ describe('token cli commands', function () {
     return AccessToken.where('Uuid', uuid).first();
   }
 
-  /** A row written straight through the model, as the 2.x API or another process would. */
+  /** A row written straight through the model, as a 2.x install or another process would. */
   async function stored(rowId: number, name: string, fields: Partial<AccessToken>): Promise<AccessToken> {
     const t = new AccessToken({ Name: name, Token: sha256(randomUUID()), Roles: [], Kind: 'pat', CreatedAt: DateTime.now() as DateTime<true>, user_id: rowId, ...fields });
     await t.insert();
