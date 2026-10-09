@@ -17,6 +17,10 @@ ORM adapter for SpinaJS authorization.
   only: `fn` gets the row of the checked ref, loaded through the adapter when the subject is not
   that row.
 - `authz.orm.domain` (default `root`) names the domain whose `AuthzService` scopes queries.
+- `authz.orm.allowJit` (default `false`): on Postgres, authz-orm refuses a connection with
+  `jit = on` (Postgres's default; rule lists then take seconds) at domain boot or at its first
+  scoped query. Turn jit off for the app's role or database (`ALTER ROLE … SET jit = off`), or
+  start the process with `PGOPTIONS='-c jit=off'`.
 - Queries run as the ALS principal. `authz().runAs(SYSTEM, reason, fn)` and a route's
   `@Unscoped(reason)` run unscoped (audited); without a principal (UNATTENDED) a query on a scoped
   model throws `AccessDenied`.

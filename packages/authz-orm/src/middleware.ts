@@ -253,11 +253,12 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
     if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder), this.domain);
     const scope = scopes.get(builder);
     // Never for a builder that reaches no scope: the check's own SHOW runs through here.
-    if (scope || reached(builder).scoped) await assertJitOff(builder.Driver, () => this.AllowJit);
+    const reach = scope ? undefined : reached(builder);
+    if (scope || reach!.scoped) await assertJitOff(builder.Driver, () => this.AllowJit);
     await gate(builder, scope, this.domain);
     if (scope?.slot && !scope.slot.resolved) await fill(scope.slot, builder, scope);
     // Relation queries and sub-queries compile into this query without an execution hook of their own.
-    for (const slot of reached(builder).slots) {
+    for (const slot of (reach ?? reached(builder)).slots) {
       const owner = scopes.get(slot.target as object);
       if (owner === undefined || slot.resolved) continue;
       if (!exempt()) assertBuiltFor(owner, currentPrincipal());

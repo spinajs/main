@@ -2159,13 +2159,15 @@ and freezes merges until the checkpoint is green.
    `jit = off`, with and without other tenants' rows in the authz tables
    (bench `L4B_BENCH_BACKGROUND=90`): the list over 1,000 files with rules
    p50 ≤ 1.5 s, a 50-row page (first and middle, `updated_at DESC`) p50
-   ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot unless the app sets
-   `authz.orm.allowJit` (startup check); ≤ 2 × the plain `EXISTS` query
-   stays the 3.1 target and needs the set-based rewrite of the rule SQL
-   (rules worked out once per scope node: L4b report "Release gate 7",
+   ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot (or the first query
+   that reaches a scoped model) unless the app sets
+   `authz.orm.allowJit: true` (startup check); ≤ 2 × the plain `EXISTS`
+   query stays the 3.1 target and needs the set-based rewrite of the rule
+   SQL (rules worked out once per scope node:
    `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status
    2026-10-09: FAIL**: every page misses the p50 limit by 2.3 to 21 times
-   (G7 report); session
+   (RESULTS.md "Release gate 7 for 3.0"; without other tenants only, bg90
+   not run, as the page fails already); session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

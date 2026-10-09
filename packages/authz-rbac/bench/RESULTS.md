@@ -4,8 +4,8 @@ How the bench works and how to run it: `BASELINE.md`.
 
 ## Release gate 7 for 3.0: absolute limits (G7)
 
-Run 2026-10-09 on branch `authz/G7-gate7` (base `authz-v3-refactor` 9b11af9f7), `--filter=postgres.jit-off`,
-no background tenants. Limits (the human's option (b) of 2026-10-09, plan §12 item 7): the 1,000-file list p50
+Run 2026-10-09 on branch `authz/G7-gate7` (base `authz-v3-refactor` 9b11af9f7), code of a0f8fb173 (before the
+jit check), `--filter=postgres.jit-off`, no background tenants. Limits (the human's option (b) of 2026-10-09, plan §12 item 7): the 1,000-file list p50
 ≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms; Postgres with `jit = off`, with and without other tenants.
 
 **Verdict: the 3.0 limits FAIL on the page.** Every page, first and middle, of every principal misses the 100 ms
@@ -42,7 +42,7 @@ What the numbers say, load aside:
   nothing suggests a quiet machine would bring these pages near 100 ms.
 - Where the principal sees most rows (member-all, 760), the first page is cheaper than the list (230 ms against
   779 ms) but still over the limit; the middle page at offset 400 costs about two thirds of the list (if Postgres
-  walks `canvas_file_recent`, it tests about 600 rows; the plan was not checked).
+  walks `canvas_file_recent`, it tests about 600 rows; the query plan was not checked).
 - The plain `EXISTS` page stays under 100 ms for the four principals whose numbers the load spared.
 
 Passing the page limit needs the set-based rewrite described under "Why it fails" (work the rules out once per
@@ -54,8 +54,8 @@ Run 2026-10-09 on branch `authz/L4b-rules-sql`.
 
 **Verdict: the 3.1 target (≤ 2 × the plain `EXISTS`, the r3 gate 7) FAILS** in every setting measured. With
 `jit = off` (the setting a host needs, see below) the list takes 2.4 to 60 times the plain `EXISTS` (p50, all
-runs), 0.2 to 1.2 s for 1,000 files; with the server default `jit = on` it takes 4 s to 100 s. Every list was checked exact (the rows single checks allow) before it was timed, so the
-cost is that of the rule terms, not of a wrong plan shape. Passing needs a different SQL shape (below); the index
+runs), 0.2 to 1.2 s for 1,000 files; with the server default `jit = on` it takes 4 s to 100 s. Every list was
+checked exact (the rows single checks allow) before it was timed, so the cost is that of the rule terms, not of a wrong plan shape. Passing needs a different SQL shape (below); the index
 change of this task makes the lists independent of how many other tenants share the authz tables, but does not
 change the verdict.
 
