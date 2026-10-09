@@ -4,6 +4,8 @@ import _ from 'lodash';
 import { DI, Constructor } from '@spinajs/di';
 import { ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { ServerError } from './response-methods/serverError.js';
+import { BadRequestResponse } from './response-methods/badRequest.js';
+import { BadRequest } from '@spinajs/exceptions';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
@@ -30,6 +32,14 @@ export function __resolve_error_response__(errorMap: Map<string, Constructor<Htt
     return null;
 }
 
+const BODY_PARSE_FAILED_MESSAGE = 'request body is not valid JSON';
+
+// body-parser forwards its errors with a string `type` and, on parse and verify failures, the raw request
+// text as `body`. A parse failure's message quotes the input too.
+function isBodyParserError(err: any): boolean {
+    return typeof err === 'object' && err !== null && typeof err.type === 'string' && Object.prototype.hasOwnProperty.call(err, 'body');
+}
+
 export function __handle_error__() {
 
     const logger = DI.resolve(Log, ['http']);
@@ -50,33 +60,46 @@ export function __handle_error__() {
             return next();
         }
 
-        const error: any = {
-            /**
-             * By default Error object dont copy values like message ( they are not enumerable )
-             * It only copies custom props added to Error ( via inheritance )
-             */
-            ...err,
-
-            // make sure error message is added
-            message: err.message,
-        };
-
-        // in dev mode add stack trace for debugging. In production the stack is
-        // omitted entirely rather than serialized as an empty object.
-        if (!isProductionEnv) {
-            error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
-        }
-
-        logger.error(err, `Error in controller ${req.method} at path ${req.originalUrl}`);
-
-
+        let error: any;
         let response: HttpResponse | null = null;
-        const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
-        if (httpResponse) {
-            response = new httpResponse(error);
+
+        if (isBodyParserError(err) && err.type === 'entity.parse.failed') {
+            logger.warn(`Request body parse failure (${err.type}) at ${req.method} ${req.path}`);
+
+            error = { message: BODY_PARSE_FAILED_MESSAGE };
+            const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(BODY_PARSE_FAILED_MESSAGE)) : null;
+            response = httpResponse ? new httpResponse(error) : new BadRequestResponse(error);
         } else {
-            logger.warn(`Error type ${err.constructor?.name} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
-            response = new ServerError(error);
+            error = {
+                /**
+                 * By default Error object dont copy values like message ( they are not enumerable )
+                 * It only copies custom props added to Error ( via inheritance )
+                 */
+                ...err,
+
+                // make sure error message is added
+                message: err.message,
+            };
+
+            if (isBodyParserError(err)) {
+                delete error.body;
+            }
+
+            // in dev mode add stack trace for debugging. In production the stack is
+            // omitted entirely rather than serialized as an empty object.
+            if (!isProductionEnv) {
+                error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
+            }
+
+            logger.error(err, `Error in controller ${req.method} at path ${req.originalUrl}`);
+
+            const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
+            if (httpResponse) {
+                response = new httpResponse(error);
+            } else {
+                logger.warn(`Error type ${err.constructor?.name} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
+                response = new ServerError(error);
+            }
         }
 
         response

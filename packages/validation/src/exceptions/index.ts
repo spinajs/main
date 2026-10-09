@@ -21,11 +21,6 @@ export interface IValidationErrorDetail {
   message: string;
   
   /**
-   * The actual value that failed validation (if available)
-   */
-  value?: any;
-  
-  /**
    * Additional parameters related to the validation rule
    */
   params?: Record<string, any>;
@@ -33,7 +28,10 @@ export interface IValidationErrorDetail {
 
 /**
  * The exception that is thrown when JSON entity is checked against schema and is invalid
- * 
+ *
+ * It never holds a value of the validated data: details report the path, the rule, the message and the
+ * rule params, so a 400 built from it cannot echo a password or a token back.
+ *
  * @example
  * ```typescript
  * try {
@@ -42,7 +40,7 @@ export interface IValidationErrorDetail {
  *   if (err instanceof ValidationFailed) {
  *     // Access detailed error information
  *     console.log(err.details);
- *     // [{ field: '/email', rule: 'format', message: '/email must be a valid email', value: 'invalid-email' }]
+ *     // [{ field: '/email', rule: 'format', message: '/email must be a valid email', params: { format: 'email' } }]
  *     
  *     // Get human-readable summary
  *     console.log(err.getSummary());
@@ -51,10 +49,7 @@ export interface IValidationErrorDetail {
  *     // Get errors for specific field
  *     const emailErrors = err.getFieldErrors('/email');
  *     
- *     // Access the data that failed
- *     console.log(err.data);
- *     
- *     // Access the expected schema
+ *     // Access the expected schema (server side only: it is not serialised)
  *     console.log(err.schema);
  *     
  *     // Get requirements for a specific field
@@ -64,59 +59,31 @@ export interface IValidationErrorDetail {
  * ```
  */
 export class ValidationFailed extends Exception {
+  /**
+   * The AJV errors, reduced to `instancePath`, `schemaPath`, `keyword`, `params`, `message` and `propertyName`
+   */
   public parameter: IValidationError[];
-  
+
   /**
-   * The data that failed validation
+   * The schema that was used for validation. Not enumerable, so neither a spread nor JSON carries it.
    */
-  public data: any;
-  
-  /**
-   * The schema that was used for validation
-   */
-  public schema: any;
-  
+  public declare schema: any;
+
   /**
    * Detailed information about each validation failure
    */
   public details: IValidationErrorDetail[];
 
-  constructor(message: string, validationErrors: IValidationError[], data?: any, schema?: any) {
+  constructor(message: string, validationErrors: IValidationError[], schema?: any) {
     super(message);
-    this.parameter = validationErrors;
-    this.data = data;
-    this.schema = schema;
-    this.details = this.buildDetailedErrors(validationErrors, data);
-  }
-
-  /**
-   * Builds detailed error information from AJV validation errors
-   */
-  private buildDetailedErrors(errors: IValidationError[], data: any): IValidationErrorDetail[] {
-    return errors.map((error) => {
-      const detail: IValidationErrorDetail = {
-        field: error.instancePath || '(root)',
-        rule: error.keyword,
-        message: this.buildErrorMessage(error),
-        params: error.params,
-      };
-
-      // Try to extract the actual value that failed validation
-      if (data && error.instancePath) {
-        try {
-          const path = error.instancePath.split('/').filter(p => p.length > 0);
-          let value = data;
-          for (const segment of path) {
-            value = value?.[segment];
-          }
-          detail.value = value;
-        } catch {
-          // If we can't extract the value, just skip it
-        }
-      }
-
-      return detail;
-    });
+    Object.defineProperty(this, 'schema', { value: schema, writable: true, configurable: true, enumerable: false });
+    this.parameter = validationErrors.map((error) => sanitizeError(error, schema));
+    this.details = this.parameter.map((error) => ({
+      field: error.instancePath || '(root)',
+      rule: error.keyword,
+      message: this.buildErrorMessage(error),
+      params: error.params,
+    }));
   }
 
   /**
@@ -165,10 +132,6 @@ export class ValidationFailed extends Exception {
           `    Message: ${detail.message}`,
         ];
         
-        if (detail.value !== undefined) {
-          parts.push(`    Value: ${JSON.stringify(detail.value)}`);
-        }
-        
         if (detail.params && Object.keys(detail.params).length > 0) {
           parts.push(`    Params: ${JSON.stringify(detail.params)}`);
         }
@@ -179,15 +142,10 @@ export class ValidationFailed extends Exception {
 
     let result = `${this.message}\n\nValidation errors:\n${detailedErrors}`;
     
-    // Optionally include schema information if available
+    // Only `$id`: an old 3-argument JavaScript caller passes the request data where the schema goes, and its
+    // `title` or `description` fields would end up here.
     if (this.schema) {
-      const schemaId = (this.schema as any).$id || (this.schema as any).title || 'inline schema';
-      result += `\n\nExpected schema: ${schemaId}`;
-      
-      // Include schema description if available
-      if ((this.schema as any).description) {
-        result += `\nDescription: ${(this.schema as any).description}`;
-      }
+      result += `\n\nExpected schema: ${(this.schema as any).$id || 'inline schema'}`;
     }
     
     return result;
@@ -239,3 +197,112 @@ export class ValidationFailed extends Exception {
 
 /* eslint-disable */
 export interface IValidationError extends ErrorObject {}
+/* eslint-enable */
+
+// Keywords whose params and message carry the rule's value, which a `$data` rule takes from the request.
+const VALUE_BEARING_KEYWORDS = new Set([
+  'const',
+  'enum',
+  'pattern',
+  'format',
+  'required',
+  'multipleOf',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'formatMinimum',
+  'formatMaximum',
+  'formatExclusiveMinimum',
+  'formatExclusiveMaximum',
+]);
+
+const sanitized = new WeakSet<IValidationError>();
+
+/**
+ * Reduces an AJV error to `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`), so
+ * no request value can travel with it:
+ *
+ * - drops verbose mode's `data`, `schema` and `parentSchema`;
+ * - for a rule written as `{ $data: pointer }`, whose params and message AJV builds from another field of the
+ *   request (a password confirmation `const`, a `maxLength` read from a field), replaces params with
+ *   `{ $data: pointer }` and the message with one naming only the keyword and the pointer;
+ * - drops the `discriminator` `tagValue`, which is the request's tag value.
+ *
+ * The rule is found through the verbose `parentSchema` when present. Otherwise `schema`, when given, is searched
+ * along the error's local `schemaPath`; when that path leads elsewhere and the schema uses `$data` anywhere, the
+ * params and message of the value-bearing keywords are dropped.
+ */
+export function sanitizeError(error: IValidationError, schema?: unknown): IValidationError {
+  if (sanitized.has(error)) {
+    return error;
+  }
+
+  const clean: IValidationError = {
+    instancePath: error.instancePath,
+    schemaPath: error.schemaPath,
+    keyword: error.keyword,
+    params: error.params,
+  };
+
+  if (error.message !== undefined) {
+    clean.message = error.message;
+  }
+
+  if (error.propertyName !== undefined) {
+    clean.propertyName = error.propertyName;
+  }
+
+  const rule = error.parentSchema ? error.parentSchema[error.keyword] : schemaNodeAt(schema, error.schemaPath);
+
+  if (isDataRef(rule)) {
+    clean.params = { $data: rule.$data };
+    clean.message = `must pass "${error.keyword}" against the value at $data "${rule.$data}"`;
+  } else if (rule === undefined && !error.parentSchema && VALUE_BEARING_KEYWORDS.has(error.keyword) && usesData(schema)) {
+    clean.params = {};
+    clean.message = `must pass "${error.keyword}" keyword validation`;
+  } else if (error.keyword === 'discriminator' && clean.params && 'tagValue' in clean.params) {
+    clean.params = { ...clean.params };
+    delete clean.params.tagValue;
+  }
+
+  sanitized.add(clean);
+  return clean;
+}
+
+function isDataRef(node: unknown): node is { $data: string } {
+  return typeof node === 'object' && node !== null && typeof (node as { $data?: unknown }).$data === 'string';
+}
+
+// `undefined` when the path is not local to `schema` (a `$ref` into another schema) or leads nowhere.
+function schemaNodeAt(schema: unknown, schemaPath: string): unknown {
+  if (!schema || typeof schemaPath !== 'string' || !schemaPath.startsWith('#/')) {
+    return undefined;
+  }
+
+  let node: any = schema;
+  for (const segment of schemaPath.slice(2).split('/')) {
+    const key = decodeURIComponent(segment).replace(/~1/g, '/').replace(/~0/g, '~');
+    if (node === null || typeof node !== 'object' || !(key in node)) {
+      return undefined;
+    }
+    node = node[key];
+  }
+
+  return node;
+}
+
+function usesData(schema: unknown, seen = new Set<unknown>()): boolean {
+  if (schema === null || typeof schema !== 'object' || seen.has(schema)) {
+    return false;
+  }
+  seen.add(schema);
+
+  return isDataRef(schema) || Object.values(schema).some((v) => usesData(v, seen));
+}
