@@ -7,7 +7,7 @@ import type { IRouteArgsResult, IRouteCall, IRouteParameter, Request } from '@sp
 import { userModel } from '@spinajs/users';
 import type { User } from '@spinajs/users';
 
-/** Route arg of {@link CurrentUser}. Not named `UserArg`: http resolves a route arg by its class name, and authn-http's 2.x one has that name. */
+/** Route arg of {@link CurrentUser}. http resolves a route arg by its class name, so the name must not clash with another package's. */
 @Injectable()
 export class CurrentUserArg extends RouteArgs {
   public get SupportedType(): string {

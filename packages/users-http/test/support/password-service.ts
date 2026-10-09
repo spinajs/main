@@ -1,7 +1,8 @@
 import { PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation, PrincipalRef } from '@spinajs/authn/contracts';
-import { DI } from '@spinajs/di';
-import { PasswordProvider, User } from '@spinajs/users';
+import { User } from '@spinajs/users';
+
+import { testHasher } from './hasher.js';
 
 export interface PasswordCall {
   readonly method: 'set' | 'invite' | 'requestReset' | 'redeemReset' | 'expire';
@@ -19,7 +20,7 @@ export function resetPasswordCalls(): void {
 }
 
 /**
- * The PasswordService users calls in the admin suites: `set` hashes with the legacy provider into users.Password,
+ * The PasswordService users calls in the admin suites: `set` hashes with authn-local's hasher into users.Password,
  * `expire` writes authn-local's marker; the invite and reset calls only record.
  */
 export class TestPasswordService extends PasswordService {
@@ -34,7 +35,7 @@ export class TestPasswordService extends PasswordService {
       return { status: 'rejected', violations };
     }
 
-    const hash = await ((await DI.resolve(PasswordProvider)) as PasswordProvider).hash(newPassword);
+    const hash = await testHasher.hash(newPassword);
     await User.query().Driver.update().in(User.getModelDescriptor().TableName).update({ Password: hash }).where('Uuid', id.id);
     return { status: 'set' };
   }

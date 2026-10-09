@@ -9,9 +9,10 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import { v4 as uuidv4 } from 'uuid';
 
-import { PasswordProvider, RBAC_USER_MODEL, SYSTEM_LOGIN, User, userModel } from '../../src/index.js';
+import { RBAC_USER_MODEL, SYSTEM_LOGIN, User, userModel } from '../../src/index.js';
 import { runAsSystem } from '../../src/system.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost } from '../support/users-db.js';
+import { testHasher } from '../support/hasher.js';
 
 chai.use(chaiAsPromised);
 
@@ -57,13 +58,12 @@ describe('runAsSystem lookup of the system account', function () {
 
     DI.register(AppUserModel).asValue(RBAC_USER_MODEL, true);
 
-    const provider = await DI.resolve(PasswordProvider);
     const existing = await User.select().where('Login', SYSTEM_LOGIN).first();
     if (!existing) {
       await new User({
         Email: '__system__@spinajs.pl',
         Login: SYSTEM_LOGIN,
-        Password: await provider.hash('bbbb'),
+        Password: await testHasher.hash('bbbb'),
         IsActive: true,
         Uuid: 'system-uuid-fixture',
       }).insert();
@@ -104,7 +104,7 @@ describe('runAsSystem lookup of the system account', function () {
     const seen = await runWithPrincipal(principal, async () =>
       store.run({ ...store.getStore(), User: legacy, ActiveRole: 'normal' }, async () => {
         await findSystemAccount();
-        return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string; SkipModelPermissionCheck?: boolean } };
+        return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string } };
       }),
     );
 
@@ -112,7 +112,5 @@ describe('runAsSystem lookup of the system account', function () {
     expect(seen.principal.ceiling?.roles).to.deep.equal(['normal']);
     expect(seen.store.User).to.eq(legacy);
     expect(seen.store.ActiveRole).to.eq('normal');
-    // the system lookup never switches the 2.x row-scope skip on in the caller's context
-    expect(seen.store.SkipModelPermissionCheck).to.eq(undefined);
   });
 });

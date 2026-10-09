@@ -33,6 +33,21 @@ devDependency for tests), `authn-http` → `queue`, `authn-token` → `users` (n
 `authn-token` → `http` and `authn-token` → `queue`. Still open: `authn-http` → `users` and `authn-totp` (R1d,
 after C2b), `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` is closed as a runtime edge (C2b task 7; devDependency for one test).
 
+Status (R1d, 2026-10-09): R1d closed `authn-http` → `users` (no longer declared; `test/v3/di-name-clash.test.ts` still loads it through the workspace). `authn-http` → `authn-totp`
+remains as a 3.0 edge: the MFA enrolment routes (`src/mfa/gate.ts`) and the credential admin routes
+(`src/admin/gate.ts`) call `TotpService` directly (a type import plus a lazy `import()`), while design §4.2 has authn-http call the strategy packages through the service contracts in
+`@spinajs/authn`. That deviation is N8b's open point, left to R1 final.
+App-visible: importing `@spinajs/authn-http` no longer loads `@spinajs/users`, which registers `PrincipalFactory`,
+`IdentityStore`, the impersonation and credential admin guards and the event sinks. An app must import
+`@spinajs/users` itself; without it the app fails closed (no `PrincipalFactory`, impersonation answers `no_guard`,
+the admin route group stays off).
+
+Status (R1d task 4, 2026-10-09): R1d closed `authn-totp` → `users`, `http` and `queue` (the 2.x 2FA
+actions, `Default2FaToken` and the `User2Fa*` events are deleted; `MfaReset` extends `CliCommand` and
+autoinjects `Orm` itself) and `users-http` → `authn-totp` (the devDependency is gone; `sr-metadata-guard` plants
+the 2.x secret row directly). App-visible: importing `@spinajs/authn-totp` no longer loads `@spinajs/users` either;
+`authn:mfa-reset` then throws "needs a registered IdentityStore" until the app imports `@spinajs/users`.
+
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
 `authz-http-admin` → `authz` and `authz-http`, `authz` → `authn`.

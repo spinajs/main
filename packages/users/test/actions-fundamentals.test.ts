@@ -1,8 +1,7 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
+import { User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
 import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban } from '../src/actions.js';
 import { MetadataNotFound, UserAlreadyExists } from '../src/exceptions.js';
 import { Configuration } from '@spinajs/configuration';
@@ -31,10 +30,8 @@ describe('actions fundamentals ( imperative helpers )', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 
@@ -216,15 +213,11 @@ describe('actions fundamentals ( imperative helpers )', function () {
     });
   });
 
-  describe('verifyPassword', () => {
-
-  });
-
   describe('getUsersByRole', () => {
     it('finds users carrying the role', async () => {
       sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-      await create('byrole@spinajs.pl', 'byrole', ['admin'], { password: 'bbbb1234' });
+      await create({ Email: 'byrole@spinajs.pl', Login: 'byrole', Password: 'bbbb1234' }, ['admin']);
 
       const users = await getUsersByRole(['admin']);
       expect(users.some((u) => u.Email === 'byrole@spinajs.pl')).to.eq(true);
@@ -261,7 +254,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
     it('R6: UserCreated carries the account fields it declares', async () => {
       const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-      await create('evt@spinajs.pl', 'evt-login', ['admin'], { password: 'bbbb1234' });
+      await create({ Email: 'evt@spinajs.pl', Login: 'evt-login', Password: 'bbbb1234' }, ['admin']);
 
       const evt = eStub.args.map((a) => a[0] as any).find((e) => e instanceof UserCreated) as UserCreated;
       expect(evt).to.not.be.undefined;

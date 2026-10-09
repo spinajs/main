@@ -117,9 +117,6 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
       },
       rbac: {
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
         twoFactorAuth: {
           enabled: true,
           forceUser: false,
@@ -167,9 +164,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: {
               pattern: '^(?=.*\\d).{8,}$',
               type: 'string',

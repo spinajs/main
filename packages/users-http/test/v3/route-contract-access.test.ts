@@ -9,7 +9,7 @@ import { Configuration } from '@spinajs/configuration';
 import { parsePermission } from '@spinajs/authz';
 import { accessDescriptorOf, ACCESS_CLASS, AccessPolicy } from '@spinajs/authz-http';
 import type { IAccessRule } from '@spinajs/authz-http';
-import { ACL_CONTROLLER_DESCRIPTOR, Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
 
 import { Users } from '../../src/admin/controllers/Users/Users.js';
@@ -19,6 +19,9 @@ import { UserController } from '../../src/controllers/UserController.js';
 import { UserMetadataController } from '../../src/controllers/UserMetadataController.js';
 import { TestConfiguration } from '../admin-common.js';
 import { ownedCache } from '../support/owned-cache.js';
+
+// Global-registry key the removed 2.x @Resource/@Permission decorators stored their descriptor under.
+const ACL_CONTROLLER_DESCRIPTOR = Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 
 const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
 

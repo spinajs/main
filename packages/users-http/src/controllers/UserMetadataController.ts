@@ -8,6 +8,7 @@ import type { IFilterRequest } from '@spinajs/orm-http';
 
 import { CurrentUser } from '../args/current-user.js';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
+import '../dto/metadata-entry-schema.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
 import { UserMetadataService } from '../services/UserMetadataService.js';
 import { addressedMetadata, ownMetadata } from '../services/metadata-scope.js';

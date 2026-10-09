@@ -7,7 +7,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '../src/index.js';
+import { User } from '../src/index.js';
 import { FindUser } from '../src/cli/FindUser.js';
 import { CreateUser } from '../src/cli/CreateUser.js';
 import { SYSTEM } from '@spinajs/authz';
@@ -28,10 +28,8 @@ describe('rbac cli commands', function () {
   this.timeout(15000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 

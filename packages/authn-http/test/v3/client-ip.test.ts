@@ -9,7 +9,6 @@ import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
 
 import * as barrel from '../../src/index.js';
 import * as api from '../../src/api.js';
@@ -71,8 +70,6 @@ describe('ClientIp (A05, SR-03)', function () {
     DI.unregister(ClientIpConfiguration);
     DI.register(ClientIpConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) await b.bootstrap();

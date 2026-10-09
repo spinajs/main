@@ -5,8 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import { DefaultQueueService } from '@spinajs/queue';
-import { User, UserMetadataBase, issuePasswordResetToken } from '@spinajs/users';
-import { Default2FaToken, TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
+import { PasswordService } from '@spinajs/authn/contracts';
+import { User, UserMetadataBase } from '@spinajs/users';
 import { runAuthnBehaviour } from '@spinajs/authn-testing';
 import type { Harness, MetadataActor, MetadataPort, SeedPort } from '@spinajs/authn-testing';
 
@@ -21,6 +21,9 @@ import type { HttpClient, Res, UsersHttpApp } from './support/http-app.js';
  * `/user/metadata`) or as an admin (users' `admin` role, on `/user/:uuid/metadata`), and must fail closed. The A12/api
  * facet of the authn kit runs over the same routes through a {@link MetadataPort} adapter.
  */
+
+/** The keys the 2.x authn-totp wrote; users has no constant for them. */
+const TWO_FA_KEYS = { TOKEN: '2fa:token', OTP: '2fa:otp', ENABLED: '2fa:enabled' } as const;
 
 type IdentityRef = Parameters<MetadataPort['seedRaw']>[0];
 
@@ -94,7 +97,7 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       const victim = await newUser();
       // The public POST /auth/password/reset-request runs this action. authn-local keeps the secret in its own
       // store, so a reset token row is one a 2.x writer left behind.
-      await issuePasswordResetToken(victim.Uuid);
+      await ((await DI.resolve(PasswordService)) as PasswordService).requestReset(victim.Email, { now: new Date(), purpose: 'request' });
       expect(await rowOf(victim, 'user:pwd_reset:token'), 'the reset request writes no secret to the metadata').to.not.exist;
       const token = 'a-2x-reset-token-worth-stealing';
       await plant(victim, 'user:pwd_reset:token', token);
@@ -109,13 +112,12 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
 
     it('SR-01 owner reads own 2fa secret', async () => {
       const owner = await newUser();
-      const totp = DI.resolve(Default2FaToken);
-      await totp.beginEnrolment(await byUuid(owner.Uuid));
-      const secret = (await rowOf(owner, TWO_FA_METATADATA_KEYS.TOKEN))!.Value as string;
-      expect(secret, 'precondition: the secret is stored').to.be.a('string').and.not.empty;
+      const secret = 'JBSWY3DPEHPK3PXP';
+      await plant(owner, TWO_FA_KEYS.TOKEN, secret);
+      await plant(owner, TWO_FA_KEYS.OTP, `otpauth://totp/SpinaJS:${owner.Email}?secret=${secret}&issuer=SpinaJS`);
       const client = await app.signIn(owner.Uuid);
 
-      for (const key of [TWO_FA_METATADATA_KEYS.TOKEN, TWO_FA_METATADATA_KEYS.OTP]) {
+      for (const key of [TWO_FA_KEYS.TOKEN, TWO_FA_KEYS.OTP]) {
         expect((await client.get(`/user/metadata/${key}`)).status, key).to.eq(404);
       }
 
@@ -127,16 +129,16 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
 
     it('SR-02 2fa:enabled write by owner', async () => {
       const owner = await newUser();
-      await plant(owner, TWO_FA_METATADATA_KEYS.ENABLED, true);
+      await plant(owner, TWO_FA_KEYS.ENABLED, true);
       const client = await app.signIn(owner.Uuid);
 
       // 2.x: POST /user/metadata {Key:'2fa:enabled', Value:false} turned 2FA off without the password
       expect((await client.post('/user/metadata', dto('2fa:enabled', false))).status).to.eq(400);
       expect((await client.post('/user/metadata', dto('2FA:Enabled', false))).status).to.eq(400);
 
-      const row = await rowOf(owner, TWO_FA_METATADATA_KEYS.ENABLED);
+      const row = await rowOf(owner, TWO_FA_KEYS.ENABLED);
       expect(row!.Value).to.eq(true);
-      expect((await rowsOf(owner)).map((m) => m.Key)).to.deep.eq([TWO_FA_METATADATA_KEYS.ENABLED]);
+      expect((await rowsOf(owner)).map((m) => m.Key)).to.deep.eq([TWO_FA_KEYS.ENABLED]);
     });
 
     it('SR-02 admin plants a known 2fa secret', async () => {

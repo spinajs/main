@@ -12,9 +12,10 @@ import * as sinon from 'sinon';
 // The package entry does not export the cli commands; the built file is the module `@spinajs/authn-local` resolves to.
 import { SetUserPassword } from '../../../authn-local/lib/mjs/cli/SetUserPassword.js';
 
-import { PasswordProvider, UserPasswordAgeSource, UserPasswordStore } from '../../src/index.js';
+import { UserPasswordAgeSource, UserPasswordStore } from '../../src/index.js';
 import { TEST_USER_UUID } from '../migration/rbac.migration.js';
 import { passwordCalls, resetPasswordCalls } from '../support/password-service.js';
+import { testHasher } from '../support/hasher.js';
 import { registerUsersTestHost, releaseUsersHost, storedUser } from '../support/users-db.js';
 
 const PIPED = 'Piped-Password-3';
@@ -71,8 +72,7 @@ describe('a cli command that resolves only the IdentityStore', function () {
 
     expect(DI.get(Orm)).to.not.be.undefined;
     expect(passwordCalls.map((c) => [c.method, c.id])).to.deep.eq([['set', { type: 'user', id: TEST_USER_UUID }]]);
-    const hasher = (await DI.resolve(PasswordProvider)) as PasswordProvider;
-    expect(await hasher.verify((await storedUser(TEST_USER_UUID)).Password, PIPED)).to.eq(true);
+    expect(await testHasher.verify((await storedUser(TEST_USER_UUID)).Password, PIPED)).to.eq(true);
   });
 
   // authn:password-expire resolves only PasswordExpirationJob, which reads the age source first.

@@ -76,12 +76,7 @@
     "@spinajs/log": "2.0.549",
     "@spinajs/orm": "2.0.549",
     "@spinajs/queue": "2.0.549",
-    "@spinajs/reflection": "2.0.549",
     "@spinajs/util": "2.0.549",
-    "@spinajs/validation": "2.0.549",
-    "accesscontrol": "^2.2.1",
-    "argon2": "^0.44.0",
-    "entropy-string": "^4.2.0",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
@@ -107,8 +102,7 @@
     "@spinajs/orm-mssql": "2.0.549",
     "@spinajs/orm-mysql": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",
-    "@spinajs/orm-sqlite": "2.0.549",
-    "@types/entropy-string": "^4.2.0"
+    "@spinajs/orm-sqlite": "2.0.549"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

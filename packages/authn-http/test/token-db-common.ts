@@ -98,7 +98,6 @@ export class DbTestConfiguration extends FrameworkConfiguration {
             'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
           },
         },
-        auth: { service: 'SimpleDbAuthProvider' },
         password: {
           passwordExpirationTime: 0,
         },
@@ -110,9 +109,7 @@ export class DbTestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' },
           },
           reset: { ttlSeconds: 60 * 60 },

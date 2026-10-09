@@ -15,7 +15,6 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -201,8 +200,6 @@ describe('3.0 authn policies and route args', function () {
     DI.unregister(PolicySuiteConfiguration);
     DI.register(PolicySuiteConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) await b.bootstrap();

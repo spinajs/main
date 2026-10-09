@@ -11,9 +11,8 @@ import { AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
 import usersConfig from '../src/config/users.js';
-import { AuthProvider, MemorySessionStore, SessionProvider, SimpleDbAuthProvider, User, UserMetadata, UserPrincipalFactory, UserResourceAdapter, UserSession } from '../src/index.js';
-import { activate, changeUserPassword, create, login, verifyPassword } from '../src/actions.js';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { User, UserMetadata, UserPrincipalFactory, UserResourceAdapter } from '../src/index.js';
+import { activate, create } from '../src/actions.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { bootUsersDb, registerUsersTestHost } from './support/users-db.js';
 
@@ -84,52 +83,6 @@ describe('the configuration users ships', function () {
     // The detector is live: the 2.x lockout key users used to ship fails the same boot.
     const legacy = _.mergeWith({}, merged, { rbac: { password: { blockAfterAttempts: 5 } } }, mergeArrays);
     expect(() => checkAuthnLegacyKeys(getter(legacy), { warn: () => undefined })).to.throw(/rbac\.password\.blockAfterAttempts/);
-  });
-
-  describe('the deprecated 2.x code, without the authn keys users used to ship', () => {
-    before(() => {
-      registerUsersTestHost();
-    });
-
-    // What an application gets now: the authn packages' 3.0 shapes (objects without a 2.x service), no rbac tree.
-    const authnShapes = (config: Configuration) => {
-      config.set('authn.local', { hasher: { maxConcurrent: 8 }, policy: { minLength: 8, maxLength: 128, blocklist: null } });
-      config.set('authn.session', { pendingTtlSeconds: 300 });
-      config.set('rbac', undefined);
-    };
-
-    afterEach(() => {
-      sinon.restore();
-      DI.clearCache();
-    });
-
-    it('logs in, verifies and changes a password through the 2.x defaults', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
-      await bootUsersDb(authnShapes);
-
-      const provider = (await DI.resolve(AuthProvider)) as SimpleDbAuthProvider;
-      expect(provider).to.be.instanceOf(SimpleDbAuthProvider);
-      const user = await provider.authenticate('test@spinajs.pl', 'bbbb');
-      expect(user.Uuid).to.eq(TEST_USER_UUID);
-
-      expect(await login('test@spinajs.pl', 'bbbb')).to.have.property('Uuid', TEST_USER_UUID);
-      expect(await verifyPassword(user, 'bbbb')).to.eq(true);
-
-      await expect(changeUserPassword(user, 'short')).to.be.rejectedWith(InvalidArgument);
-      await changeUserPassword(user, 'n3wpassword');
-      expect(await verifyPassword(await User.query().where('Uuid', TEST_USER_UUID).firstOrFail(), 'n3wpassword')).to.eq(true);
-    });
-
-    it('builds the legacy session store with the 2.x expiration', async () => {
-      await bootUsersDb(authnShapes);
-
-      const store = (await DI.resolve(SessionProvider)) as MemorySessionStore;
-      const session = new UserSession({ UserId: 1 });
-      await store.save(session);
-
-      expect(store).to.be.instanceOf(MemorySessionStore);
-      expect(session.Expiration).to.not.eq(undefined);
-    });
   });
 
   describe('roles, booted in a real root authz host', () => {

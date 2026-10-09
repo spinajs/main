@@ -4,8 +4,7 @@ import { UserMetadataBase } from '@spinajs/users';
 import { Filterable } from '@spinajs/orm-http';
 
 /**
- * The metadata model the list route filters through. It extends the base model, not users' `UserMetadata`, which still
- * carries the 2.x `@OrmResource`. Not an authz-orm `@AccessResource`: that would gate every non-SYSTEM query on
+ * The metadata model the list route filters through. Not an authz-orm `@AccessResource`: that would gate every non-SYSTEM query on
  * `users_metadata` through users' own models, and `UserMetadataService` decides each row itself.
  */
 @Connection('default')
