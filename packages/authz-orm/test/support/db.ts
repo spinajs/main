@@ -85,18 +85,22 @@ export class TestDb {
       if (pgOptions === undefined) delete process.env.PGOPTIONS;
       else process.env.PGOPTIONS = pgOptions;
     };
-    let orm: Orm;
+    let orm: Orm | undefined;
     try {
       orm = await DI.resolve(Orm);
+      const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
+      db.ownsInstall = ownsInstall;
+      db.restoreConfig = restoreConfig;
+      if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
+      return db;
     } catch (e) {
+      if (orm) {
+        DI.RootContainer.uncache(Orm);
+        await orm.dispose().catch(() => undefined);
+      }
       restoreConfig();
       throw e;
     }
-    const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
-    db.ownsInstall = ownsInstall;
-    db.restoreConfig = restoreConfig;
-    if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
-    return db;
   }
 
   driver(dialect: Dialect = 'sqlite'): OrmDriver {
@@ -176,10 +180,13 @@ export class TestDb {
   }
 
   async close(): Promise<void> {
-    await this.clear();
-    DI.RootContainer.uncache(Orm);
-    await this.orm.dispose();
-    this.restoreConfig();
+    try {
+      await this.clear();
+      DI.RootContainer.uncache(Orm);
+      await this.orm.dispose();
+    } finally {
+      this.restoreConfig();
+    }
     if (this.ownsInstall) await testHost.uninstallHost();
   }
 }

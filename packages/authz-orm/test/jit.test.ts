@@ -7,7 +7,7 @@ import type { Principal } from '@spinajs/authz';
 import { StaticModel, bindConfiguration, bootConfiguration, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { ModelBase, QueryContext, updateModelDescriptor } from '@spinajs/orm';
+import { BelongsTo, ModelBase, QueryContext, updateModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 
@@ -31,11 +31,11 @@ interface FakeDriver {
   readonly driver: OrmDriver;
   /** The statements the check ran. */
   readonly calls: string[];
-  /** What the next SHOW answers: a value of jit, or an error it rejects with. */
-  answer: string | Error;
+  /** What the next SHOW answers: a value of jit, no row (null), or an error it rejects with. */
+  answer: string | null | Error;
 }
 
-function fakeDriver(answer: string | Error, options: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): FakeDriver {
+function fakeDriver(answer: string | null | Error, options: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): FakeDriver {
   const fake: FakeDriver = {
     calls: [],
     answer,
@@ -45,7 +45,8 @@ function fakeDriver(answer: string | Error, options: Record<string, unknown> = {
       schema: () => ({
         raw: (sql: string) => {
           fake.calls.push(sql);
-          return fake.answer instanceof Error ? Promise.reject(fake.answer) : Promise.resolve([{ jit: fake.answer }]);
+          if (fake.answer instanceof Error) return Promise.reject(fake.answer);
+          return Promise.resolve(fake.answer === null ? [] : [{ jit: fake.answer }]);
         },
       }),
     } as unknown as OrmDriver,
@@ -154,6 +155,33 @@ describe('authz-orm: the Postgres jit check', function () {
     expect(pg.calls).to.deep.equal(['SHOW jit', 'SHOW jit']);
   });
 
+  it('names a connection without a Name without printing undefined', async () => {
+    const pg = fakeDriver('on', { Name: undefined });
+    modelOn(pg.driver);
+
+    const e = await failure((await contributor()).contribute());
+
+    expect(e).to.be.instanceOf(AuthzConfigError);
+    expect((e as Error).message)
+      .to.contain('runs with jit = on')
+      .and.not.contain('undefined');
+  });
+
+  for (const [what, answer] of [
+    ['no row', null],
+    ['another value', 'auto'],
+  ] as const) {
+    it(`fails closed when SHOW jit answers ${what}`, async () => {
+      const pg = fakeDriver(answer);
+      modelOn(pg.driver);
+
+      const e = await failure((await contributor()).contribute());
+
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect((e as Error).message).to.contain('could not read jit on Postgres connection "pg1"');
+    });
+  }
+
   it('runs nothing on a SQLite driver', async () => {
     const sqlite = fakeDriver('on', { Driver: 'orm-driver-sqlite' });
     modelOn(sqlite.driver);
@@ -211,6 +239,18 @@ function invoiceWorld(dialect: () => Dialect) {
         dialect(),
       )) as Invoice;
     },
+    /** A plain model whose `invoice` relation reads the scoped Invoice. */
+    async defineNote(Invoice: Invoice): Promise<Invoice> {
+      return (await db.define(
+        {
+          name: 'JitNote',
+          columns: { invoice_id: 'TEXT' },
+          rows: [{ id: 'n1', invoice_id: 'i1' }],
+          decorate: (_cls, proto) => BelongsTo(Invoice as never, 'invoice_id', 'id')(proto, 'invoice'),
+        },
+        dialect(),
+      )) as Invoice;
+    },
     /** Boots a new domain under root that reads TYPE through owner, and points authz.orm.domain at it. */
     async boot(): Promise<void> {
       const ds = await testHost.domains();
@@ -259,36 +299,94 @@ describe('authz-orm: the jit check at the first scoped query', function () {
     return Object.assign(fake, { driver });
   }
 
-  /** A scoped list whose builder names `driver` as its connection, as the middleware sees it; it runs on sqlite. */
-  const list = (Invoice: { query(): object }, driver: OrmDriver) =>
+  /** The query `build` makes, run as alice with `driver` as the connection the middleware sees; it runs on sqlite. */
+  const listOf = (build: () => object, driver: OrmDriver) =>
     runWithPrincipal(alice, async () => {
-      const q = Invoice.query();
+      const q = build();
       Object.defineProperty(q, 'Driver', { value: driver });
       return ids((await (q as PromiseLike<ModelBase[]>)) as ModelBase[]);
     });
 
-  it('refuses a scoped query on a driver with jit on before it runs, and every later one', async () => {
-    const Invoice = await world.defineInvoice();
-    await world.boot();
-    const pg = lateDriver('on');
+  const list = (Invoice: { query(): object }, driver: OrmDriver) => listOf(() => Invoice.query(), driver);
+
+  /** The builders `fn` sends to the sqlite connection. */
+  async function executedBy(fn: () => Promise<void>): Promise<unknown[]> {
     const sqlite = world.db.driver('sqlite') as unknown as { execute(b: unknown): Promise<unknown> };
     const executed: unknown[] = [];
     sqlite.execute = function (this: unknown, b: unknown) {
       executed.push(b);
       return Object.getPrototypeOf(sqlite).execute.call(this, b);
     };
-
     try {
-      for (let i = 0; i < 2; i++) {
-        const e = await failure(list(Invoice, pg.driver));
-        expect(e).to.be.instanceOf(AuthzConfigError);
-        expect((e as Error).message).to.contain('Postgres connection "pg-late" runs with jit = on');
-      }
+      await fn();
     } finally {
       delete (sqlite as { execute?: unknown }).execute;
     }
+    return executed;
+  }
+
+  const refusedForJit = (e: unknown) => {
+    expect(e).to.be.instanceOf(AuthzConfigError);
+    expect((e as Error).message).to.contain('Postgres connection "pg-late" runs with jit = on');
+  };
+
+  it('refuses a scoped query on a driver with jit on before it runs, and every later one', async () => {
+    const Invoice = await world.defineInvoice();
+    await world.boot();
+    const pg = lateDriver('on');
+
+    const executed = await executedBy(async () => {
+      for (let i = 0; i < 2; i++) refusedForJit(await failure(list(Invoice, pg.driver)));
+    });
+
     expect(pg.calls).to.deep.equal(['SHOW jit']);
     expect(executed).to.deep.equal([]);
+  });
+
+  it('refuses a plain query that populates a scoped relation on a driver with jit on, before it runs', async () => {
+    const Invoice = await world.defineInvoice();
+    const Note = await world.defineNote(Invoice);
+    await world.boot();
+    const pg = lateDriver('on');
+
+    const executed = await executedBy(async () => {
+      refusedForJit(await failure(listOf(() => (Note.query() as unknown as { populate(r: string): object }).populate('invoice'), pg.driver)));
+    });
+
+    expect(pg.calls).to.deep.equal(['SHOW jit']);
+    expect(executed).to.deep.equal([]);
+  });
+
+  it('runs no SHOW for a plain query that reaches no scoped model', async () => {
+    const Invoice = await world.defineInvoice();
+    const Note = await world.defineNote(Invoice);
+    await world.boot();
+    const pg = lateDriver('on');
+
+    expect(await listOf(() => Note.query(), pg.driver)).to.deep.equal(['n1']);
+    expect(pg.calls).to.deep.equal([]);
+  });
+
+  it('asks once for two first queries at the same time, and refuses both', async () => {
+    const Invoice = await world.defineInvoice();
+    await world.boot();
+    const pg = lateDriver('on');
+
+    const [a, b] = await Promise.all([failure(list(Invoice, pg.driver)), failure(list(Invoice, pg.driver))]);
+
+    refusedForJit(a);
+    refusedForJit(b);
+    expect(pg.calls).to.deep.equal(['SHOW jit']);
+  });
+
+  it('refuses jit on when authz.orm.allowJit is truthy but not true', async () => {
+    const Invoice = await world.defineInvoice();
+    await world.boot();
+    // The root config's set skips the schema, as an unvalidated config source would.
+    world.setConfig(['authz', 'orm', 'allowJit'], 'true');
+    const pg = lateDriver('on');
+
+    refusedForJit(await failure(list(Invoice, pg.driver)));
   });
 
   it('lists on a driver with jit off and asks once across the boot and many queries', async () => {

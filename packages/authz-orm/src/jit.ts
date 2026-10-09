@@ -30,13 +30,19 @@ function jitOf(driver: OrmDriver): Promise<unknown> {
 
 const ident = (value: unknown, fallback: string): string => (typeof value === 'string' && value !== '' ? `"${value.replace(/"/g, '""')}"` : fallback);
 
+const connection = (o: DriverOptions): string => (typeof o.Name === 'string' && o.Name !== '' ? `Postgres connection ${JSON.stringify(o.Name)}` : 'a Postgres connection without a Name');
+
+const answered = (jit: unknown): string => (jit === undefined ? 'no row' : typeof jit === 'string' ? JSON.stringify(jit) : String(jit));
+
 /**
- * Refuses a Postgres driver whose sessions run with `jit = on`, unless `allowJit` (`authz.orm.allowJit`) is true.
- * Any other driver passes without a statement.
+ * Refuses a Postgres driver whose sessions run with `jit = on`, unless `allowJit` (`authz.orm.allowJit`) is true,
+ * and one whose `SHOW jit` answers neither `on` nor `off`. Any other driver passes without a statement.
  */
 export async function assertJitOff(driver: unknown, allowJit: () => unknown): Promise<void> {
   if (!isPostgres(driver) || allowJit() === true) return;
-  if ((await jitOf(driver)) !== 'on') return;
+  const jit = await jitOf(driver);
+  if (jit === 'off') return;
   const o = optionsOf(driver)!;
-  throw new AuthzConfigError(`authz-orm: Postgres connection ${JSON.stringify(String(o.Name))} runs with jit = on, which makes authorized lists take seconds; run ALTER ROLE ${ident(o.User, '<role>')} SET jit = off or ALTER DATABASE ${ident(o.Database, '<db>')} SET jit = off, or start the process with PGOPTIONS='-c jit=off', or set authz.orm.allowJit: true to accept slow lists`);
+  if (jit !== 'on') throw new AuthzConfigError(`authz-orm: the jit check could not read jit on ${connection(o)}: SHOW jit answered ${answered(jit)}`);
+  throw new AuthzConfigError(`authz-orm: ${connection(o)} runs with jit = on, which makes authorized lists take seconds; run ALTER ROLE ${ident(o.User, '<role>')} SET jit = off or ALTER DATABASE ${ident(o.Database, '<db>')} SET jit = off, or start the process with PGOPTIONS='-c jit=off', or set authz.orm.allowJit: true to accept slow lists`);
 }
