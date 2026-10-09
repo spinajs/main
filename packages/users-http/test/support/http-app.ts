@@ -281,13 +281,7 @@ export async function stopUsersHttpApp(): Promise<void> {
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
   for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
-  for (const c of controllers) {
-    // unregister() takes the class out of every list, its own name's too, and DI.resolve(c) of a list left empty
-    // fails (the admin suites resolve these controllers by class), so a class registered under itself stays so.
-    const self = (DI.getRegisteredTypes(c) ?? []).includes(c);
-    DI.unregister(c);
-    if (self) DI.register(c).asSelf();
-  }
+  for (const c of controllers) DI.unregister(c);
   DI.uncache(BaseController);
   // Middlewares keep what they resolved at boot (PrincipalMiddleware: the root AuthzService).
   await DI.get(PrincipalMiddleware)?.dispose();
