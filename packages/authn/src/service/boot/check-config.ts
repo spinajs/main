@@ -57,7 +57,7 @@ const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.viol
 
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
- * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys with rejectLegacyKeys) and what boot accepts but an operator
+ * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys unless rejectLegacyKeys is false) and what boot accepts but an operator
  * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development).
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {

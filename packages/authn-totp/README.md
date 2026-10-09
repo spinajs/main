@@ -30,7 +30,7 @@ links stop working, and the 2.x failed-login count and lock go with
 `user:login:*`.
 
 The package ships no 2.x `rbac.twoFactorAuth` keys: with
-`authn.config.rejectLegacyKeys` on they would fail every boot.
+`authn.config.rejectLegacyKeys` on (the default) they would fail every boot.
 
 `authn:mfa-reset <login>` removes an account's enrolment and recovery codes and
 prints no secret.

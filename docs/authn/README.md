@@ -556,26 +556,6 @@ one.
   the cookie.
 - Every start, end and expiry is audited.
 
-> **TODO(N8a/C3):** the impersonation routes (`GET/POST/DELETE /auth/impersonate`) and
-> `AuthzImpersonationGuard`, the `ImpersonationGuard` that `users` registers. Until they land,
-> `authn-http` still reads `rbac.impersonation.protectedRoles`, and nothing reads
-> `authz.impersonation.protectedRoles`. The same holds for every other `rbac.*` key that merged code
-> reads. **Keep each one next to its converted key until its lane merges:**
->
-> | `rbac.*` key | Read today by | Moves in |
-> |---|---|---|
-> | `impersonation.protectedRoles` | `authn-http` `ImpersonationController` | N8a, C3 |
-> | `twoFactorAuth.enabled`, `.forceUser` | `authn-http` `LoginController`, `TwoFactorAuth*Controller`, `2FaPolicy`; no package ships them now | N8a, N8b |
-> | `twoFactorAuth.service` | `authn-totp` 2.x actions (`Default2FaToken` when unset); no package ships it now | R1 |
-> | `roleSwitch.requirePassword` | `authn-http` `ActiveRoleController` | N8a, C3 |
-> | `auth.service` | `authn-http` `LoginController`; `users` actions | C1, N8a |
-> | `admin.roleGuard.*`, `roles`, `systemRole` | `authz-http-admin` `DefaultRoleGuard`; `users-http` `Users.ts`, `Security.ts` | C2, C4 |
-> | `grants`, `roles`, `roleColumn`, `requireKnownRole`, `defaultRole`, `enableGuestAccount`, `systemRole`, `password.blockAfterAttempts`, `password.lockoutTime`, `timeline.*` | `users` (bootstrap, actions, `User`, CLI) | C1 |
-> | `token.rolePolicy` | `authn-token` `src/legacy/actions.ts` | R1 |
->
-> The full table, with what each default does, is in step 2 of the
-> [migration guide](../authz/migration-guide.md#step-2-config).
-
 ## Package set per app type
 
 | App type | Packages |
@@ -653,9 +633,9 @@ Keys the schema adds to the sample above: `authn.throttle.maxRows`, `authn.token
 `authn.audit.hashKey`, `authn.audit.sinkTimeoutMs` and `authn.config.rejectLegacyKeys`.
 `AuthnConfigBootstrapper` registers the schema.
 
-**Old keys.** `authn.config.rejectLegacyKeys` (default `false`) controls the 2.x key detector. The
-boot always warns about the keys it finds. With the switch on, it fails instead. The warning names each
-key, never a value. The detector reports these `rbac.*` keys:
+**Old keys.** `authn.config.rejectLegacyKeys` (default `true`) controls the 2.x key detector. Boot
+fails on the keys it finds and points at `spinajs-authz-convert`. With the switch `false`, it only warns.
+The message names each key, never a value. The detector reports these `rbac.*` keys:
 
 | 2.x | 3.0 |
 |---|---|

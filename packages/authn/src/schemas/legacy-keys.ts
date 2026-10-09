@@ -60,5 +60,5 @@ const rows: AuthnLegacyKey[] = [
   { from: 'rbac.actions', to: 'users.actions', scope: 'subtree', family: 'users' },
 ];
 
-/** Design §22.5 "Old keys", one row per 2.x key, plus rbac.token.generation, which F0b moved too. The detector ships off (authn.config.rejectLegacyKeys); R1 turns it on. */
+/** Design §22.5 "Old keys", one row per 2.x key, plus rbac.token.generation, which F0b moved too. The detector fails boot on them unless authn.config.rejectLegacyKeys is false. */
 export const AUTHN_LEGACY_KEYS: readonly AuthnLegacyKey[] = Object.freeze(rows.map((r) => Object.freeze(r)));

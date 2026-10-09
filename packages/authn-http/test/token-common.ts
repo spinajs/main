@@ -99,35 +99,6 @@ export class TestConfiguration extends FrameworkConfiguration {
         middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser()],
         AcceptHeaders: 1,
       },
-      rbac: {
-        defaultRole: 'guest',
-        // A guest that is not active cannot satisfy any grant, so an anonymous
-        // request is rejected by the route policy rather than served.
-        enableGuestAccount: false,
-        roles: [
-          { Name: 'admin', Description: 'Administrator' },
-          { Name: 'user', Description: 'Simple account' },
-          { Name: 'guest', Description: 'Guest account' },
-        ],
-        grants: {
-          admin: {
-            users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'test.resource': { 'read:any': ['*'] },
-          },
-          user: {
-            user: { 'read:own': ['*'], 'update:own': ['*'] },
-            'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
-            'test.resource': { 'read:own': ['*'] },
-          },
-          // `guest` is deliberately left WITHOUT any grant on `test.resource` -
-          // the end to end suite uses a guest scoped token to prove that a valid
-          // token still gets a 403 when its roles do not carry the grant.
-        },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
       authn: {
         session: {
           service: 'MemorySessionStore',

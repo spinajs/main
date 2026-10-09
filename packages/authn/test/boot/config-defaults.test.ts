@@ -40,7 +40,7 @@ describe('authn shipped config', () => {
 
   it('ships only the keys whose 3.0 shape authn owns', () => {
     expect(Object.keys(shipped)).to.deep.eq(['authn']);
-    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'config', 'freshAuth', 'impersonation', 'linking', 'mfa', 'strategies', 'throttle']);
+    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'freshAuth', 'impersonation', 'linking', 'mfa', 'strategies', 'throttle']);
     expect(Object.keys(authn.mfa)).to.deep.eq(['policy']);
   });
 
@@ -66,13 +66,13 @@ describe('authn shipped config', () => {
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
-    expect(authn.config).to.deep.eq({ rejectLegacyKeys: false });
+    expect(authn).to.not.have.property('config');
   });
 
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, config: { rejectLegacyKeys: true }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
   });
 });
 
@@ -96,7 +96,7 @@ describe('authn schema (task 8 edits)', () => {
   });
 
   it('gives authn.config its default', () => {
-    expect(check({}).config.config).to.deep.eq({ rejectLegacyKeys: false });
+    expect(check({}).config.config).to.deep.eq({ rejectLegacyKeys: true });
   });
 
   it('names the pepper and MFA key paths in full on a boot', async () => {
