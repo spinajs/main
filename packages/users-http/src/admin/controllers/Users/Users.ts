@@ -583,20 +583,30 @@ export class Users extends BaseController {
    * Delete user (admin)
    * Soft-deletes the account (`DeletedAt` is stamped, the row is kept) and destroys every
    * session it holds, so a deleted user stops acting immediately rather than when their
-   * cookie happens to expire.
+   * cookie happens to expire. Ending every session of the target is what authn-http's
+   * `DELETE /authn/admin/users/:uuid/sessions` does, so this asks what it asks: fresh authentication
+   * (a login within authn.freshAuth.maxAgeSeconds, or the caller's password in the body field
+   * `reauthPassword`), then authn's CredentialAdminGuard with its action `sessions` (users':
+   * `users:credentials`, the target covered, no protected role, never the caller's own account),
+   * before the account guard and any write. A restore gives access back and asks neither.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User deleted
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:delete` on this user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
+   * @response 403 Forbidden — no `users:delete` on this user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
    * @response 404 User not found
    */
   @Del(':user')
   @Access('users:delete')
-  public async removeUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+  public async removeUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Req() req: Request) {
     const by = userActor(caller);
+    const stale = await freshAuthRefusal(req, this);
+    if (stale) {
+      return stale;
+    }
     const target = await userRowFor(by, 'users:delete', () => userModel().query().where('Uuid', user).populate('Metadata').first());
 
+    await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'delete');
     await deleteUser(target);
 

@@ -24,6 +24,7 @@ import { requireEveryUser, userRowFor } from '../../../services/users-access.js'
   properties: {
     reason: { type: 'string', maxLength: 255, description: 'Why the account is banned. Stored in user metadata.' },
     duration: { type: 'number', minimum: 1, description: 'Ban duration in seconds. Defaults to 24h.' },
+    reauthPassword: { type: 'string', description: "The caller's password, for fresh authentication" },
   },
 })
 export class BanUserDto {
@@ -86,9 +87,13 @@ async function lifecycleTarget(caller: Principal, permission: 'users:update' | '
  * User account lifecycle and sessions (admin).
  * Activation, deactivation and bans. Each route sits on `@Access('users:<action>')` and needs a
  * grant on every user: a conditional grant (e.g. `self`) changes no account's standing.
+ * Deactivating and banning end every session of the target, as authn-http's
+ * `DELETE /authn/admin/users/:uuid/sessions` does, so they also ask what it asks: fresh
+ * authentication, then authn's CredentialAdminGuard with its action `sessions` (users':
+ * `users:credentials`, the target covered, no protected role, never the caller's own account),
+ * before the AccountGuard and any write. Activating and unbanning give access back and ask neither.
  * Listing a user's sessions and ending one of them also need what authn-http's credential admin
- * routes need: a session caller that is not impersonating and authn's CredentialAdminGuard
- * (users': `users:credentials`, the target covered, no protected role).
+ * routes need: a session caller that is not impersonating and authn's CredentialAdminGuard.
  * authn-http serves `POST /authn/admin/users/:uuid/password-reset`, `POST .../mfa-reset`,
  * `DELETE .../sessions` (the forced logout of every session) and `DELETE .../tokens`; 3.0 has no
  * admin route to set a password, expire one or enable two-factor.
@@ -106,20 +111,26 @@ export class Security extends BaseController {
   /**
    * Deactivate user account (admin)
    * Marks the user account as inactive and destroys its sessions, preventing login without
-   * deleting the record.
+   * deleting the record. Needs fresh authentication: a login within authn.freshAuth.maxAgeSeconds,
+   * or the caller's password in the body field `reauthPassword`.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 Account deactivated successfully
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
    * @response 404 User not found
    */
   @Post('deactivate/:user')
   @Access('users:delete')
-  public async deactivateUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
+  public async deactivateUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Req() req: Request) {
     const by = userActor(caller);
+    const stale = await freshAuthRefusal(req, this);
+    if (stale) {
+      return stale;
+    }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
+    await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'deactivate');
     await deactivate(target);
 
@@ -146,21 +157,26 @@ export class Security extends BaseController {
   /**
    * Ban a user (admin)
    * Bans the account for `duration` seconds (24h when omitted), records the reason, and
-   * destroys every session it holds.
+   * destroys every session it holds. Needs fresh authentication, as deactivation does.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 Account banned
    * @response 400 Account is already banned
-   * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, or refused by the account guard (own account, last privileged account)
+   * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
    * @response 404 User not found
    */
   @Post('ban/:user')
   @Access('users:delete')
-  public async banUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() dto: BanUserDto) {
+  public async banUser(@CurrentPrincipal() caller: Principal, @Param() user: string, @Body() dto: BanUserDto, @Req() req: Request) {
     const by = userActor(caller);
+    const stale = await freshAuthRefusal(req, this);
+    if (stale) {
+      return stale;
+    }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
+    await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'ban');
     await ban(target, dto?.reason, dto?.duration);
 

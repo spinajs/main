@@ -15,6 +15,7 @@ import { resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, seedRoles, unseedRoles } from '../support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
 import { ownedCache } from '../support/owned-cache.js';
+import { NO_REQUEST, passLifecycleGates } from '../support/lifecycle-gates.js';
 
 /**
  * The lifecycle routes that take an account out of service (delete, deactivate, ban) are
@@ -44,6 +45,7 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     world = await bootAdminWorld();
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
     resetPasswordCalls();
+    passLifecycleGates();
   });
 
   afterEach(() => {
@@ -62,9 +64,9 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
 
   /** Every route the guard covers, run by `actor` against `target`. */
   const routes: Array<[string, (actor: Principal, target: string) => Promise<unknown>]> = [
-    ['deactivate', (actor, target) => world.security.deactivateUser(actor, target)],
-    ['ban', (actor, target) => world.security.banUser(actor, target, {} as any)],
-    ['delete', (actor, target) => world.users.removeUser(actor, target)],
+    ['deactivate', (actor, target) => world.security.deactivateUser(actor, target, NO_REQUEST)],
+    ['ban', (actor, target) => world.security.banUser(actor, target, {} as any, NO_REQUEST)],
+    ['delete', (actor, target) => world.users.removeUser(actor, target, NO_REQUEST)],
   ];
 
   /** Leaves `admin` as the only account holding `admin`; admin2 keeps an account with `user` that may still close accounts. */
@@ -108,37 +110,37 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
 
   it('fails closed when a check is on but no privilegedPermission is configured', async () => {
     config().set('authz.admin.guard', { service: 'DefaultAdminGuard' });
-    await expect(world.security.deactivateUser(await admin2(), ADMIN_UUID)).to.be.rejectedWith(AuthzConfigError, /authz.admin.guard.privilegedPermission/);
+    await expect(world.security.deactivateUser(await admin2(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(AuthzConfigError, /authz.admin.guard.privilegedPermission/);
   });
 
   it('keeps a check on for a non-boolean switch value', async () => {
     config().set('authz.admin.guard.preventSelfLockout', 0);
-    await expect(world.security.deactivateUser(await admin(), ADMIN_UUID)).to.be.rejectedWith(Forbidden, /your own account/);
+    await expect(world.security.deactivateUser(await admin(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, /your own account/);
   });
 
   it('does not count an inactive administrator as the remaining one', async () => {
     await User.update({ IsActive: false }).where({ Uuid: ADMIN2_UUID });
 
-    await expect(world.security.deactivateUser(await clerk(), ADMIN_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+    await expect(world.security.deactivateUser(await clerk(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
   });
 
   it('does not count a banned administrator as the remaining one', async () => {
     await ban(await byUuid(ADMIN2_UUID), 'test', 3600);
 
-    await expect(world.security.banUser(await clerk(), ADMIN_UUID, {} as any)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+    await expect(world.security.banUser(await clerk(), ADMIN_UUID, {} as any, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
   });
 
   it('does not count a deleted administrator as the remaining one', async () => {
     await (await byUuid(ADMIN2_UUID)).destroy();
 
-    await expect(world.users.removeUser(await clerk(), ADMIN_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+    await expect(world.users.removeUser(await clerk(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
   });
 
   it('counts an administrator privileged through a role the target does not hold', async () => {
     await unseedRoles(ADMIN2_UUID, ['admin']);
     await seedRoles(ADMIN2_UUID, ['superadmin']);
 
-    const result = await world.security.deactivateUser(await admin2(), ADMIN_UUID);
+    const result = await world.security.deactivateUser(await admin2(), ADMIN_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
@@ -147,7 +149,7 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     const authz = (await DI.resolve(AuthzService)) as AuthzService;
     const runAs = sinon.spy(authz, 'runAs');
 
-    await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+    await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
     expect(runAs.calledWith(SYSTEM, 'users-http-account-guard')).to.eq(true);
   });
@@ -159,13 +161,13 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     await seedRoles(ADMIN_UUID, ['clerk']);
 
     // Were self-editor's `users:update` on its own record privileged, nobody else holds it and this would be refused.
-    const result = await world.security.deactivateUser(await admin(), USER_UUID);
+    const result = await world.security.deactivateUser(await admin(), USER_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
 
   it('lets an account without the privilege go even when it is the last of its kind', async () => {
-    const result = await world.security.deactivateUser(await admin(), USER_UUID);
+    const result = await world.security.deactivateUser(await admin(), USER_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
@@ -174,13 +176,13 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
     await demoteSecondAdmin();
     config().set('authz.admin.guard.preventLastPrivilegedRemoval', false);
 
-    const result = await world.security.deactivateUser(await admin2(), ADMIN_UUID);
+    const result = await world.security.deactivateUser(await admin2(), ADMIN_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
 
   it('refuses a request without a caller', async () => {
-    await expect(world.security.deactivateUser(undefined as any, USER_UUID)).to.be.rejectedWith(Forbidden);
+    await expect(world.security.deactivateUser(undefined as any, USER_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden);
 
     expect((await byUuid(USER_UUID)).IsActive).to.eq(true);
   });

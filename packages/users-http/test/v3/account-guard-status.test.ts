@@ -16,6 +16,7 @@ import { resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, rootAdmin, seedRoles } from '../support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
 import { ownedCache } from '../support/owned-cache.js';
+import { NO_REQUEST, passLifecycleGates } from '../support/lifecycle-gates.js';
 
 /**
  * AccountGuard counts a witness only when the registered AccountStatusSource answers exactly `true` for it, so an
@@ -46,6 +47,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
     world = await bootAdminWorld();
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
     resetPasswordCalls();
+    passLifecycleGates();
   });
 
   afterEach(() => {
@@ -78,9 +80,9 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
   ];
 
   const routes: Array<[string, (actor: Principal, target: string) => Promise<unknown>]> = [
-    ['deactivate', (actor, target) => world.security.deactivateUser(actor, target)],
-    ['ban', (actor, target) => world.security.banUser(actor, target, {} as any)],
-    ['delete', (actor, target) => world.users.removeUser(actor, target)],
+    ['deactivate', (actor, target) => world.security.deactivateUser(actor, target, NO_REQUEST)],
+    ['ban', (actor, target) => world.security.banUser(actor, target, {} as any, NO_REQUEST)],
+    ['delete', (actor, target) => world.users.removeUser(actor, target, NO_REQUEST)],
   ];
 
   async function expectInService(uuid: string): Promise<void> {
@@ -138,7 +140,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
     await outOfService[0][1](ADMIN2_UUID);
     await outOfService[1][1](ADMIN_UUID);
 
-    await expect(world.security.deactivateUser(await clerk(), ADMIN2_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+    await expect(world.security.deactivateUser(await clerk(), ADMIN2_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
     await expectInService(ADMIN2_UUID);
   });
@@ -146,7 +148,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
   it('lets an administrator with an expired password go while another is in service', async () => {
     await outOfService[0][1](ADMIN2_UUID);
 
-    const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+    const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
@@ -163,7 +165,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
       it(`refuses when it ${how}`, async () => {
         sinon.stub(UserAccountStatusSource.prototype, 'inService').callsFake(answer);
 
-        await expect(world.security.deactivateUser(await admin(), ADMIN2_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+        await expect(world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
         await expectInService(ADMIN2_UUID);
       });
@@ -176,7 +178,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
     sinon.stub(UserAccountStatusSource.prototype, 'inService').callsFake(async (refs) => new Map(refs.map((r) => [principalKey(r), true])));
     await User.update({ IsActive: false }).where({ Uuid: ADMIN2_UUID });
 
-    await expect(world.security.deactivateUser(await clerk(), ADMIN_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+    await expect(world.security.deactivateUser(await clerk(), ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
     await expectInService(ADMIN_UUID);
   });
@@ -193,7 +195,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
     await new User({ Uuid: last, Email: 'last@spinajs.pl', Login: 'last', Password: 'not-expired', IsActive: true }).insert();
     await seedRoles(last, ['admin']);
 
-    const result = await world.security.deactivateUser(await clerk(), ADMIN_UUID);
+    const result = await world.security.deactivateUser(await clerk(), ADMIN_UUID, NO_REQUEST);
 
     expect(result).to.be.instanceOf(Ok);
   });
@@ -237,7 +239,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
       await thirdAdmin();
       const inService = sinon.spy(UserAccountStatusSource.prototype, 'inService');
 
-      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
       expect(result).to.be.instanceOf(Ok);
       // `user` comes before `admin` in the role list and USER holds both, so the `admin` holders are never asked about.
@@ -249,7 +251,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
       const firstSlice = new Set((await holders('user', ADMIN2_UUID)).slice(0, 100).map(key));
       const inService = sinon.spy(UserAccountStatusSource.prototype, 'inService');
 
-      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
       expect(result).to.be.instanceOf(Ok);
       const asked = calls(inService);
@@ -265,7 +267,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
       const order = await holders('admin', ADMIN2_UUID);
       const inService = sinon.spy(UserAccountStatusSource.prototype, 'inService');
 
-      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
       expect(result).to.be.instanceOf(Ok);
       const asked = calls(inService);
@@ -280,7 +282,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
       const later = new Set(order.slice(100).map(key));
       const inService = sinon.stub(UserAccountStatusSource.prototype, 'inService').callsFake(async (refs) => new Map(refs.map((r) => [principalKey(r), later.has(principalKey(r))])));
 
-      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID);
+      const result = await world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
 
       expect(result).to.be.instanceOf(Ok);
       const asked = calls(inService);
@@ -299,13 +301,13 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
     });
 
     it('counts no witness and refuses to take a privileged account out of service', async () => {
-      await expect(world.security.deactivateUser(await admin(), ADMIN2_UUID)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
+      await expect(world.security.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST)).to.be.rejectedWith(Forbidden, LAST_HOLDER);
 
       await expectInService(ADMIN2_UUID);
     });
 
     it('still lets an account without the privilege go', async () => {
-      const result = await world.security.deactivateUser(await admin(), USER_UUID);
+      const result = await world.security.deactivateUser(await admin(), USER_UUID, NO_REQUEST);
 
       expect(result).to.be.instanceOf(Ok);
     });

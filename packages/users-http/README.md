@@ -23,6 +23,16 @@ the lifecycle routes (activate, deactivate, ban, unban) need a grant on every us
 AuthzAdmin or the account guard (create, update, delete, deactivate, ban, assignable roles) need a signed-in user as the
 caller; a service principal is refused there.
 
+Delete, deactivate and ban end every session of the target and keep it out, which is what `@spinajs/authn-http`'s
+forced logout `DELETE /authn/admin/users/:uuid/sessions` does. So they ask what it asks, in this order, before the
+account guard and any write: fresh authentication (a login within `authn.freshAuth.maxAgeSeconds`, or the caller's
+password in the body field `reauthPassword`; `403 fresh_auth_required`, a wrong password the login failure `401`, a
+token or key caller `403 session_required`, an impersonating session `403 impersonating`), then authn's
+`CredentialAdminGuard` with the action `sessions` (users': `users:credentials`, the target covered, no protected role;
+`403 forbidden`, `protected_role`, `escalation`; without a registered guard every call is refused). users' guard
+refuses the caller's own account (`403 forbidden`), so the account guard's self-lockout rule is reached only behind an
+application guard that admits it. Activate, unban and restore give access back and ask neither.
+
 A `PATCH /users/:uuid` that changes an `Email` or `Login` also needs fresh authentication, the caller's own account
 included: the public password reset goes to that address, so the change could hand the account over, and a stolen
 session that is no longer fresh must not move its own address and then reset the password. Fresh authentication is a
@@ -46,12 +56,12 @@ role grants through `users:*`.
 | `GET`    | `/users/byLogin/:login`                       | `users:read`   | One account, addressed by login                           |
 | `POST`   | `/users`                                      | `users:create` | Create an account ( inactive, no password, invite sent )  |
 | `PATCH`  | `/users/:uuid`                                | `users:update` | Partial update of login / email / role                    |
-| `DELETE` | `/users/:uuid`                                | `users:delete` | Soft delete + session revocation                          |
+| `DELETE` | `/users/:uuid`                                | `users:delete` + credential admin guard + fresh auth | Soft delete + session revocation |
 | `PATCH`  | `/users/:uuid/restore`                        | `users:delete` | Clear `DeletedAt`                                         |
 | `GET`    | `/users/profile/:login`                       | `users:read`   | Profile through the configured `UserProfileProvider`      |
 | `POST`   | `/users/security/activate/:uuid`              | `users:update` | Activate the account                                      |
-| `POST`   | `/users/security/deactivate/:uuid`            | `users:delete` | Deactivate + revoke sessions                              |
-| `POST`   | `/users/security/ban/:uuid`                   | `users:delete` | Ban for `duration` seconds + revoke sessions              |
+| `POST`   | `/users/security/deactivate/:uuid`            | `users:delete` + credential admin guard + fresh auth | Deactivate + revoke sessions |
+| `POST`   | `/users/security/ban/:uuid`                   | `users:delete` + credential admin guard + fresh auth | Ban for `duration` seconds + revoke sessions |
 | `POST`   | `/users/security/unban/:uuid`                 | `users:update` | Lift a ban                                                |
 | `GET`    | `/users/security/sessions/:uuid`              | `users:read` + credential admin guard | The user's live sessions, newest first, by handle |
 | `DELETE` | `/users/security/sessions/:uuid/:handle`      | `users:update` + credential admin guard + fresh auth | End one session of the user |
@@ -138,7 +148,8 @@ and removing the last holder of `privilegedPermission`. A refusal answers `403` 
 `not_assignable`, `wrong_scope_type`). A request without a caller is refused, never run as SYSTEM.
 The `Role` list filter matches the GLOBAL holders of the named roles; `Role` is not sortable.
 
-Delete, deactivate and ban are not AuthzAdmin commands. They go through the
+Delete, deactivate and ban are not AuthzAdmin commands. After fresh authentication and the credential admin guard
+(see the top of this file) they go through the
 `AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches.
 A `PATCH` that removes a role goes through it too (`assertCanDemote`), before AuthzAdmin sees the batch.
 
@@ -194,6 +205,11 @@ This package's config fragment declares the `users:read`, `users:create`, `users
 - 3.0: changing an `Email` or `Login` through `PATCH /users/:uuid` needs fresh authentication besides
   `users:update`, the caller's own account included; the body takes `reauthPassword` for that. A change of another
   account also needs the credential admin guard (`users:credentials`, the target covered, no protected role).
+- 3.0: `DELETE /users/:uuid`, `POST /users/security/deactivate/:uuid` and `POST /users/security/ban/:uuid` need
+  fresh authentication (the body takes `reauthPassword`) and the credential admin guard (action `sessions`:
+  `users:credentials`, the target covered, no protected role) besides `users:delete`. A `users:delete` holder can no
+  longer disable an administrator it does not cover, and under users' guard nobody disables their own account
+  through them, whatever `preventSelfLockout` says.
 - 3.0: `users:*` covers `users:credentials`, which the credential admin guard asks. A role manager holding single
   `users:<action>` grants without `users:credentials` can no longer hand out `admin.users`.
 - `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and

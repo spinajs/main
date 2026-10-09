@@ -20,6 +20,7 @@ import { Profile } from '../src/admin/controllers/Users/Profile.js';
 import { globalRolesOf } from './support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld, signedInPrincipalOf } from './support/admin-world.js';
 import { ownedCache } from './support/owned-cache.js';
+import { NO_REQUEST, passLifecycleGates } from './support/lifecycle-gates.js';
 
 /**
  * Integration tests for the admin user-management controllers.
@@ -217,7 +218,8 @@ describe('Admin user controllers', function () {
     });
 
     it('lists soft-deleted accounts when the request filters on DeletedAt', async () => {
-      await usersController.removeUser(await admin(), USER_UUID);
+      passLifecycleGates();
+      await usersController.removeUser(await admin(), USER_UUID, NO_REQUEST);
 
       const live = await usersController.list(await admin());
       expect((await body<any[]>(live)).map((u: any) => u.Login)).to.not.include('user');
@@ -451,7 +453,8 @@ describe('Admin user controllers', function () {
     // login is a conflict rather than a fresh registration — and used to be a
     // driver error instead of one.
     it('reports a conflict for a login held by a soft-deleted account', async () => {
-      await usersController.removeUser(await admin(), USER_UUID);
+      passLifecycleGates();
+      await usersController.removeUser(await admin(), USER_UUID, NO_REQUEST);
 
       await expect(usersController.addUser(await admin(), { Login: 'user', Email: 'reused@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(/already in use/);
     });
@@ -526,12 +529,14 @@ describe('Admin user controllers', function () {
   });
 
   describe('Users.removeUser / restoreUser', () => {
+    beforeEach(passLifecycleGates);
+
     it('soft deletes the account and drops its sessions', async () => {
       const user = await byUuid(USER_UUID);
       const sessionProvider = await DI.resolve(SessionProvider);
       const spy = sinon.stub(sessionProvider, 'deleteByUser').resolves();
 
-      const result = await usersController.removeUser(await admin(), USER_UUID);
+      const result = await usersController.removeUser(await admin(), USER_UUID, NO_REQUEST);
       expect(result).to.be.instanceOf(Ok);
 
       const deleted = await User.query().withDeleted().where('Uuid', USER_UUID).first();
@@ -542,7 +547,7 @@ describe('Admin user controllers', function () {
     });
 
     it('restores a deleted account without activating it', async () => {
-      await usersController.removeUser(await admin(), INACTIVE_UUID);
+      await usersController.removeUser(await admin(), INACTIVE_UUID, NO_REQUEST);
 
       const result = await usersController.restoreUser(await admin(), INACTIVE_UUID);
       expect(result).to.be.instanceOf(Ok);
@@ -563,20 +568,24 @@ describe('Admin user controllers', function () {
     it('refuses to delete the caller s own account', async () => {
       const actor = await admin();
 
-      await expect(usersController.removeUser(actor, ADMIN_UUID)).to.be.rejectedWith(/your own account/);
+      await expect(usersController.removeUser(actor, ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(/your own account/);
     });
   });
 
   describe('Account guard', () => {
+    beforeEach(passLifecycleGates);
+
     it('allows removing an administrator while another one remains', async () => {
-      const result = await securityController.deactivateUser(await admin(), ADMIN2_UUID);
+      const result = await securityController.deactivateUser(await admin(), ADMIN2_UUID, NO_REQUEST);
       expect(result).to.be.instanceOf(Ok);
     });
   });
 
   describe('Security', () => {
+    beforeEach(passLifecycleGates);
+
     it('deactivates an active account', async () => {
-      const result = await securityController.deactivateUser(await admin(), USER_UUID);
+      const result = await securityController.deactivateUser(await admin(), USER_UUID, NO_REQUEST);
       expect(result).to.be.instanceOf(Ok);
 
       expect((await byUuid(USER_UUID)).IsActive).to.eq(false);
@@ -585,7 +594,7 @@ describe('Admin user controllers', function () {
     it('refuses to deactivate the caller s own account', async () => {
       const actor = await admin();
 
-      await expect(securityController.deactivateUser(actor, ADMIN_UUID)).to.be.rejectedWith(/your own account/);
+      await expect(securityController.deactivateUser(actor, ADMIN_UUID, NO_REQUEST)).to.be.rejectedWith(/your own account/);
     });
 
     it('activates an inactive account', async () => {
@@ -596,7 +605,7 @@ describe('Admin user controllers', function () {
     });
 
     it('bans and unbans an account', async () => {
-      const banned = await securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any);
+      const banned = await securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any, NO_REQUEST);
       expect(banned).to.be.instanceOf(Ok);
 
       let user = await byUuid(USER_UUID);
@@ -615,7 +624,7 @@ describe('Admin user controllers', function () {
     it('refuses to ban the caller s own account', async () => {
       const actor = await admin();
 
-      await expect(securityController.banUser(actor, ADMIN_UUID, {} as any)).to.be.rejectedWith(/your own account/);
+      await expect(securityController.banUser(actor, ADMIN_UUID, {} as any, NO_REQUEST)).to.be.rejectedWith(/your own account/);
     });
   });
 
