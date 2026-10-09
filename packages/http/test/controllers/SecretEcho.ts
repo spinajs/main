@@ -70,6 +70,11 @@ export class SecretEcho extends BaseController {
   }
 
   @Get()
+  public nothing(): undefined {
+    return undefined;
+  }
+
+  @Get()
   public bigint(@Query() id: bigint) {
     return new Ok({ id: String(id) });
   }

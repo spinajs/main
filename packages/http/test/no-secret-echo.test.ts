@@ -184,6 +184,16 @@ describe('http: no request value in 400 bodies or logs', function () {
       expectNowhere(res, secrets);
       expectKeysLogged();
     });
+
+    it('reach neither the 404 of an action returning nothing nor its log line', async () => {
+      const res = await req().get(`secret-echo/nothing?${query}`).set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(404);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+      const marker = 'Resource not found GET:/secret-echo/nothing?token=[redacted]';
+      expect(logLines().some((line) => line.includes(marker)), `no log line holds ${marker}`).to.eq(true);
+    });
   });
 
   describe('a JSON route arg that is not valid JSON', () => {
