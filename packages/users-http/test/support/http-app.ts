@@ -53,6 +53,8 @@ export interface UsersHttpAppOptions {
   readonly roles?: (shipped: RoleDefs) => RoleDefs;
   /** Values set after the package defaults load (dotted path → value), e.g. `authz.http.services`. */
   readonly config?: Readonly<Record<string, unknown>>;
+  /** Added to `authz.permissions` by name; a name may hold dots, which a `config` path cannot. */
+  readonly permissions?: Readonly<Record<string, unknown>>;
 }
 
 let options: UsersHttpAppOptions | undefined;
@@ -76,6 +78,7 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
     const providers = (this.get<{ name?: string }[]>(['fs', 'providers']) ?? []).filter((p) => p.name !== '__fs_controller_cache__');
     this.set(['fs', 'providers'], [...providers, { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-users-http-test-cache') }]);
     for (const [path, value] of Object.entries(opts.config ?? {})) this.set(path.split('.'), value);
+    for (const [name, def] of Object.entries(opts.permissions ?? {})) this.set(['authz', 'permissions', name], def);
   }
 
   protected onLoad(): unknown {
