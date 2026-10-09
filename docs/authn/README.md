@@ -360,18 +360,9 @@ throws only for a fault. Rules:
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
 `rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
 
-**Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so
-`authn.config.rejectLegacyKeys: true` passes on its config (a test boots the shipped configs with the
-switch on). It still ships `authn.mfa.totp` and the `User2Fa*` queue routes. The 2.x code
-(`Default2FaToken`, `TwoFactorAuthProvider`, the 2.x actions) stays, marked `@deprecated`, until R1.
-
-> **TODO(N8a/N8b):** the routes. Nothing in `authn-totp` mounts any. N8a and N8b wire
-> `/user/mfa/*` (begin, confirm, disable, regenerate) and the admin reset to `TotpService`, and
-> `/auth/mfa/verify` and `/auth/mfa/recovery` to `completeMfa`. The 2.x routes of `authn-http`
-> (`/user/2fa*`, `/auth/2fa/*`) still read `rbac.twoFactorAuth.*`. With no such key set, `enabled`
-> is `false`, so users who enrolled through 2.x log in with the password alone, and `2FaPolicy` finds
-> no config and answers 500 on the 2.x 2FA routes (it fails closed). An app that stays on the 2.x
-> login sets `rbac.twoFactorAuth.enabled` (and `forceUser`) itself until N8a/N8b replace those routes.
+**Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so the
+legacy-key detector (on by default) passes on its config. The 2.x 2FA code and routes are gone; an
+app that still sets `rbac.twoFactorAuth.*` fails boot until it moves the keys.
 
 ## Tokens
 
@@ -652,12 +643,8 @@ The message names each key, never a value. The detector reports these `rbac.*` k
 | `rbac.token.{prefix,length,generation,headerName,lastUsedUpdateInterval}` | `authn.token.*` |
 | `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` |
 
-`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*` and belong to the `users` detector.
-
-> **TODO(C1):** with the switch on, boot fails today even for clean app config, because packages
-> still ship some of these keys: `users` (`rbac.auth.service`, `rbac.password.blockAfterAttempts`,
-> `rbac.password.lockoutTime`) and `authn-http` (`rbac.password.blockAfterAttempts`). `authn-totp` no
-> longer ships any. Leave the switch `false` until those lanes merge.
+`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*`; the `authz` detector reports them.
+No package ships a `rbac.*` key.
 
 ## Testing
 
