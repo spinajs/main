@@ -4,17 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { Container, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
-import { BasePolicy, ServerMiddleware } from '@spinajs/http';
-import type { IController, IRoute, Request } from '@spinajs/http';
+import { ServerMiddleware } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import type { AuthnFacts, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { DefaultSessionIssuer, MemorySessionStore } from '@spinajs/authn-session';
 
 import * as barrel from '../../src/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
-import { AuthorizedPolicy } from '../../src/policies/AuthorizedPolicy.js';
-import { RbacPolicy } from '../../src/policies/RbacPolicy.js';
-import { Permission, Resource } from '../../src/decorators.js';
 
 type Kind = 'none' | 'pending' | 'session' | 'impersonation' | 'token' | 'agent' | 'key' | 'service';
 
@@ -32,14 +28,6 @@ interface Run {
   resTouched: Set<string>;
   error: unknown;
   warnings: string[];
-}
-
-@Resource('user')
-class LegacyRoutes {
-  @Permission(['readOwn'])
-  public profile() {
-    return null;
-  }
 }
 
 const GUEST: FakeUser = Object.freeze({ Uuid: 'guest', Login: 'guest' });
@@ -83,19 +71,6 @@ async function runBridge(container: IContainer, storage: Record<string, unknown>
   const handler = bridgeIn(container, warnings).before()!;
   const error = await new Promise<unknown>((resolve) => handler(req as unknown as Request, res as never, (e?: unknown) => resolve(e)));
   return { storage, reads, storageReads, storageWrites, resTouched, error, warnings };
-}
-
-const route = { Method: 'profile' } as unknown as IRoute;
-
-async function outcome(policy: BasePolicy, storage: Record<string, unknown>, instance: IController = {} as IController): Promise<string> {
-  try {
-    await policy.execute({ storage } as unknown as Request, route, instance);
-    return 'pass';
-  } catch (e) {
-    if (e instanceof Forbidden) return '403';
-    if (e instanceof AuthenticationFailed) return '401';
-    throw e;
-  }
 }
 
 describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrincipal (N8c-D3)', function () {
@@ -328,20 +303,6 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
         ).to.deep.eq([]);
         expect(r.storage, kind).to.not.have.any.keys('ActiveRole', 'Session');
         expect([...r.resTouched], kind).to.deep.eq([]);
-      }
-    });
-  });
-
-  describe('the 2.x policies over what the bridge writes (fail closed)', () => {
-    async function bridged(kind: Kind, users_: Map<string, FakeUser> = users): Promise<Record<string, unknown>> {
-      return (await runBridge(containerWith(users_), await storageOf(kind))).storage;
-    }
-
-    it('2.x AuthorizedPolicy and RbacPolicy (@Permission) refuse an active 3.0 session: no 2.x Session', async () => {
-      for (const kind of ['session', 'impersonation', 'token', 'none'] as const) {
-        const storage = await bridged(kind);
-        expect(await outcome(new AuthorizedPolicy(), storage), `AuthorizedPolicy ${kind}`).to.eq('401');
-        expect(await outcome(new RbacPolicy(), storage, new LegacyRoutes() as unknown as IController), `RbacPolicy ${kind}`).to.eq('401');
       }
     });
   });

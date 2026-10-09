@@ -1,18 +1,4 @@
-// Side-effect import, not `export *`: this module registers the auth response
-// schemas under the interface names the controllers annotate with, and the
-// classes-free registration means there is nothing to re-export. Importing it
-// here is what guarantees the registration has happened by the time the swagger
-// builder asks for those names.
-import './dto/auth-responses.js';
-
-export * from './decorators.js';
 export * from './interfaces.js';
-export * from './transformers.js';
-export * from './route-args.js';
-
-export * from "./policies/RbacPolicy.js";
-export * from "./policies/AuthorizedPolicy.js";
-
 
 export * from './api.js';
 // api.ts declares these five names; the explicit export picks the 3.0 implementations over `export * from './api.js'`.

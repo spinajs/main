@@ -111,7 +111,7 @@ const CJS = `
 `;
 
 // An app that never imports the barrel loads the package through its controller scan: a scanned 3.0 controller
-// imports v3/index.js, a scanned 2.x controller registrations.js.
+// imports v3/index.js.
 const SCAN_ENTRY = (entry: string) => `
   const di = await import('@spinajs/di');
   const http = await import('@spinajs/http');
@@ -220,13 +220,11 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     });
   }
 
-  for (const entry of ['v3/index.js', 'registrations.js']) {
-    it(`loading only ${entry}, as the controller scan does, registers AuthnMiddleware and the bridge`, () => {
-      const middlewares = run<string[]>('module', SCAN_ENTRY(entry));
-      expect(count(middlewares, 'AuthnMiddleware')).to.eq(1);
-      expect(count(middlewares, 'LegacyStorageBridge')).to.eq(1);
-    });
-  }
+  it('loading only v3/index.js, as the controller scan does, registers AuthnMiddleware and the bridge', () => {
+    const middlewares = run<string[]>('module', SCAN_ENTRY('v3/index.js'));
+    expect(count(middlewares, 'AuthnMiddleware')).to.eq(1);
+    expect(count(middlewares, 'LegacyStorageBridge')).to.eq(1);
+  });
 
   it('loaded after HttpServer was resolved (too late to join its middlewares), it logs an error naming the fix', () => {
     const errors = run<string[]>('module', LATE_LOAD(true));

@@ -70,6 +70,8 @@ Status (N8c task 4): the 2.x descriptors stay live: users-http and the 2.x contr
 
 Status (T2): done. All 16 cases are ported to `packages/authz-http/test/ported/descriptor-inheritance.test.ts` over `@Access` / `@AllowAnonymous` on `ACCESS_DESCRIPTOR`; the 2.x file is deleted. Re-decided from the design: row 7 (no default permission, B01: a class without `@Access` has no rule), row 8 (an empty list cannot be declared, `@Access([])` throws), row 9 (the absence of a class rule is inherited), row 6 (a subclass that declares anonymous access but no permission keeps the inherited rule), row 13 (`ownAccessDescriptor` is the setter).
 
+Status (R1d): the 2.x `@Resource`/`@Permission` decorators and `ACL_CONTROLLER_DESCRIPTOR` (`src/decorators.ts`) are deleted; `@Access`/`@AllowAnonymous` of authz-http replace them. The rows stay; their file is already gone.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 173 | rbac controller descriptor inheritance > leaves the package controller descriptor untouched | rewrite | N8a → T2 | authz-http/test/ported/; descriptor metadata of `@Access` on `ACCESS_DESCRIPTOR` (B23, L5 task 4); T2: ported to packages/authz-http/test/ported/descriptor-inheritance.test.ts ("leaves the package controller descriptor untouched") |
@@ -209,6 +211,8 @@ Status (N8c task 4): `RbacPolicy` stays exported and deprecated; each route it g
 
 Status (T2): done. Ported to `packages/authz-http/test/ported/rbac-policy-unknown-role.test.ts` over the authz service and `AccessPolicy` with a `FakeRbacModel` principal holding a role the model does not know (B12, B23); the 2.x file is deleted. Row 1 maps to the first and third tests, rows 2 and 3 to the second (one check function in 3.0 instead of three), row 4 to the fourth. `FakeRbacModel` cannot throw; the real model is covered by `authz-rbac/test/model/model.test.ts`.
 
+Status (R1d): `src/policies/RbacPolicy.ts` and `AuthorizedPolicy.ts` are deleted; authz-http `AccessPolicy` (via `@Access`) and authn-http `Authenticated` replace them. The rows stay; their file is already gone.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 37 | RbacPolicy - unknown role handling > checkRoutePermission does not throw for an unknown role and reports not granted | rewrite | N8a → T2 | authz-http/test/ported/; an unknown role never throws and never grants (B12; B02 is the opposite case, an unregistered permission throws); T2: ported to packages/authz-http/test/ported/rbac-policy-unknown-role.test.ts ("a request of a principal holding a known and an unknown role is allowed on the route the known role grants") |
@@ -227,6 +231,8 @@ Status (N8c task 4): only the moved 2.x controllers (`src/account/legacy/`) read
 Status (T2): closed as drop (class stays rewrite in the table above). The frozen `AuthnResponseExtension` contract (`authn/src/contracts/hooks.ts`) has no response-schema contribution, so there is no 3.0 counterpart of `SessionContextProvider.Properties`. The extensions run on every answer (`test/v3-app/suites/login.ts`). The 2.x file is deleted; the provider itself goes with R1. Hand-off: swagger schemas of the auth answers do not list extension fields (needs an RFC if wanted).
 
 Status (R1bc): `SessionContextProvider`, `sessionContextProperties` and `resolveSessionContext` are deleted with `src/session-context.ts`; the 3.0 counterpart is `AuthnResponseExtension` (authn contracts).
+
+Status (R1d): the 2.x response schemas in `src/dto/auth-responses.ts` are deleted (the `IUserMetadataEntry` schema moved to users-http). The rows stay; their file is already gone.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -516,6 +522,8 @@ Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compi
 Status (T2): done. Rows are covered by `test/v3-app/suites/login.ts` (whoami, login) and `active-role.ts` (role switch). `test/legacy-v2/z-account-session-context.test.ts` is deleted.
 
 Status (R1bc): `SessionContextProvider` is deleted; the three 2.x response schemas in `src/dto/auth-responses.ts` no longer spread its properties.
+
+Status (R1d): `src/dto/auth-responses.ts` is deleted with the 2.x response types in `src/interfaces.ts`; the rows stay, their file is already gone.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
