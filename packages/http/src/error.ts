@@ -9,6 +9,7 @@ import { BadRequest } from '@spinajs/exceptions';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
+import { redactUrl } from './util/redact-url.js';
 /**
  * The response registered for an exception, or for the nearest MAPPED class it inherits from.
  *
@@ -91,7 +92,7 @@ export function __handle_error__() {
                 error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
             }
 
-            logger.error(err, `Error in controller ${req.method} at path ${req.originalUrl}`);
+            logger.error(err, `Error in controller ${req.method} at path ${redactUrl(req.originalUrl)}`);
 
             const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
             if (httpResponse) {

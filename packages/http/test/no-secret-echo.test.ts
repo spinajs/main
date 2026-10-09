@@ -141,6 +141,34 @@ describe('http: no request value in 400 bodies or logs', function () {
     });
   });
 
+  describe('secrets in the query string', () => {
+    const secrets = ['Zq7qsTokenBd4Lc', 'Zq7qsPasswdMx8Qe', 'Zq7qsCodeTw2Hy', 'Zq7qsBareJn5Sv'];
+    const query = `token=${secrets[0]}&password=${secrets[1]}&code=${secrets[2]}&${secrets[3]}`;
+
+    function expectKeysLogged() {
+      const lines = logLines();
+      for (const key of ['token=[redacted]', 'password=[redacted]', 'code=[redacted]']) {
+        expect(lines.some((line) => line.includes(key)), `no log line names ${key}`).to.eq(true);
+      }
+    }
+
+    it('reach no log line of a failing route', async () => {
+      const res = await req().post(`secret-echo/account?${query}`).set('Accept', 'application/json').send({ reauthPassword: 'short' });
+
+      expect(res.status, res.text).to.eq(400);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+    });
+
+    it('reach neither the 404 nor its log line', async () => {
+      const res = await req().get(`secret-echo/no-such-route?${query}`).set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(404);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+    });
+  });
+
   describe('a JSON route arg that is not valid JSON', () => {
     it('answers 400, echoing nothing', async () => {
       const res = await req().post('secret-echo/credentials').set('Accept', 'application/json').set('x-credentials', '{"password":Zq7hdrPw}').send({});
