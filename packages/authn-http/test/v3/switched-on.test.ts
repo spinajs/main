@@ -235,7 +235,7 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     expect(run<string[]>('module', LATE_LOAD(false)), 'loaded before the server').to.deep.eq([]);
   });
 
-  it('the barrel reaches no file of src/v3/controllers or src/account/legacy, so no import loads a 3.0 or a moved 2.x controller', () => {
+  it('the barrel reaches no file of src/v3/controllers, so no import loads a 3.0 controller', () => {
     const graph = [...barrelGraph()].map((f) => f.replace(/\\/g, '/'));
     expect(
       graph.some((f) => f.endsWith('/src/v3/responses.ts')),
@@ -243,7 +243,6 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     ).to.eq(true);
     expect(graph.filter((f) => f.includes('/src/v3/controllers/'))).to.deep.eq([]);
     expect(graph.filter((f) => f.endsWith('/src/v3/routes.ts'))).to.deep.eq([]);
-    expect(graph.filter((f) => f.includes('/src/account/legacy/'))).to.deep.eq([]);
   });
 
   it('the barrel reaches no 2.x controller and no file importing the @spinajs/authn-totp root, which would register TotpService in every app (N8b task 9)', () => {

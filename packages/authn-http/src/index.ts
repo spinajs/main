@@ -13,7 +13,6 @@ export * from './route-args.js';
 export * from "./policies/RbacPolicy.js";
 export * from "./policies/AuthorizedPolicy.js";
 
-export * from './account/index.js';
 
 export * from './api.js';
 // api.ts declares these five names; the explicit export picks the 3.0 implementations over `export * from './api.js'`.

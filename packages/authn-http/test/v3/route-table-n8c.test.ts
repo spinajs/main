@@ -15,13 +15,10 @@ const SCANNED_2X_DIRS: string[] = [];
 const SCANNED_2X_CONTROLLERS: string[] = [];
 
 /** The 2.x controllers the 3.0 ones replace, deleted from the source tree. */
-const DELETED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController'];
-
-/** The 2.x account controllers N8b parked in account/legacy: compiled, never scanned (N8b task 9). */
-const PARKED_2X = ['PasswordResetController', 'TwoFactorAuthUserController'];
+const DELETED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
 
 /** Every 2.x credential controller 3.0 retires (`RETIRED_2X` of .authz-sdd/N8b-N8c-addendum.md). */
-const RETIRED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', ...PARKED_2X];
+const RETIRED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
 
 interface Mounted {
   controller: string;
@@ -72,9 +69,8 @@ describe('the N8c controller swap (route table)', function () {
 
   it('token/controllers is gone, and the retired set equals the addendum RETIRED_2X', async () => {
     expect(existsSync(join(SRC, 'token', 'controllers')), 'token/controllers is gone').to.eq(false);
-    expect(existsSync(join(SRC, 'account', 'controllers')), 'account/controllers is gone').to.eq(false);
-    expect(controllersOf(await routesOf('account/legacy'))).to.deep.eq([...PARKED_2X].sort());
-    expect([...DELETED_2X, ...PARKED_2X].sort()).to.deep.eq([...RETIRED_2X].sort());
+    expect(existsSync(join(SRC, 'account')), 'src/account is gone').to.eq(false);
+    expect([...DELETED_2X].sort()).to.deep.eq([...RETIRED_2X].sort());
   });
 
   it('after N8c: the 3.0 controllers and the scanned 2.x ones register no method and path twice', async () => {

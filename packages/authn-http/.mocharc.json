@@ -6,8 +6,7 @@
     "test/**/*.test.ts"
   ],
   "ignore": [
-    "test/v3-app/**",
-    "test/legacy-v2/**"
+    "test/v3-app/**"
   ],
   "node-option": [
     "experimental-specifier-resolution=node",

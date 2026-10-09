@@ -2,9 +2,8 @@ import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
-import { BasicPasswordProvider, SessionProvider, UserSession, User } from '@spinajs/users';
+import { BasicPasswordProvider, User } from '@spinajs/users';
 import { DateTime } from 'luxon';
-import * as cs from 'cookie-signature';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
@@ -14,7 +13,6 @@ import cookieParser from 'cookie-parser';
 
 import { registerRootSchemas } from './support/root-schemas.js';
 import { dropOwnCompiledDirs } from './token-db-common.js';
-import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -169,37 +167,6 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
     };
   }
-}
-
-/**
- * Creates a 2.x authorized session for the user and returns the signed session
- * cookie ready for a `Cookie` header, in the shape the 2.x login wrote.
- *
- * Only the suites parked in `legacy-v2/` use it: the 2.x `RbacMiddleware` that
- * read this session is gone since N8c, and the 3.0 session layer revokes a 2.x
- * row that carries an `ActiveRole` (N8c-D2).
- *
- * @param user - the user the session acts AS ( the impersonation target, when
- *               `impersonator` is given )
- * @param impersonator - administrator who started an impersonation of `user`,
- *                       stored under the 2.x `Impersonator` session key.
- */
-export async function sessionCookieFor(user: User, impersonator?: User): Promise<string> {
-  const provider = await DI.resolve(SessionProvider);
-  const session = new UserSession();
-  session.UserId = user.Id;
-  session.Data.set('User', user.Uuid);
-  session.Data.set('Authorized', true);
-  session.Data.set('ActiveRole', user.Role[0]);
-
-  if (impersonator) {
-    session.Data.set('Impersonator', impersonator.Uuid);
-  }
-
-  await provider.save(session);
-
-  const name = (await DI.resolve(SessionCookieFactory)).Name;
-  return `${name}=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
 }
 
 /**
