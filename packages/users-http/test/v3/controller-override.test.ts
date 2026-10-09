@@ -13,9 +13,8 @@ import { startUsersHttpApp, stopUsersHttpApp } from '../support/http-app.js';
 import type { UsersHttpApp } from '../support/http-app.js';
 
 /**
- * An application replacing a controller that ships inside a package: it subclasses `UserController` and mounts the
- * subclass instead. Registering the subclass `.as(UserController)` is not done here: it leaves empty registry entries
- * behind that break `DI.resolve` of the admin controllers in the suites that run after this one.
+ * An application replacing a controller that ships inside a package: it subclasses `UserController` and registers the
+ * subclass as the base; users-http itself is untouched.
  */
 class AppUserController extends UserController {
   // The answer shape is the application's own, so the return type is widened past the package's.
@@ -34,12 +33,17 @@ describe('users-http v3: controller override end to end', function () {
 
   before(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
-    app = await startUsersHttpApp({ controllers: [AppUserController] });
+    DI.register(AppUserController).as(UserController);
+    // The harness mounts what a controller scan registers, UserController; the line above makes it resolve to the subclass.
+    app = await startUsersHttpApp({ controllers: [UserController] });
     me = await app.seedUser({ login: 'me', email: 'me@spinajs.test', roles: ['user'] });
   });
 
   after(async () => {
     await stopUsersHttpApp();
+    // unregister() leaves an empty list under the key, which DI.resolve(UserController) cannot follow; same repair as stopUsersHttpApp.
+    DI.unregister(AppUserController);
+    DI.register(UserController).asSelf();
     sinon.restore();
   });
 
@@ -69,8 +73,8 @@ describe('users-http v3: controller override end to end', function () {
 
     expect([...mounted.Descriptor.Routes.keys()]).to.include('tokenProfiles');
 
-    // 401, not 404: the inherited route is mounted and its inherited guard runs.
-    const res = await app.anonymous().get('/user/tokens/profiles');
-    expect(res.status, res.text).to.eq(401);
+    // 401, not 404: the inherited route is mounted and its inherited guard runs; an unmounted path is 404.
+    expect((await app.anonymous().get('/user/tokens/profiles')).status).to.eq(401);
+    expect((await app.anonymous().get('/user/no-such-route')).status).to.eq(404);
   });
 });
