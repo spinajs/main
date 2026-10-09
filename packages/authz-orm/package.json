@@ -21,6 +21,16 @@
       "require": "./lib/cjs/audit/index.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "native": [
+        "lib/cjs/native.d.ts"
+      ],
+      "audit": [
+        "lib/cjs/audit/index.d.ts"
+      ]
+    }
+  },
   "type": "module",
   "private": false,
   "publishConfig": {
