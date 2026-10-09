@@ -19,7 +19,7 @@ L2_REQUIRE_PG=1 L4B_BENCH_BACKGROUND=90 npm run bench -- --filter=postgres.jit-o
 - Prints the kit's table, then the gate table (each list against its reference, p50 and p99 ratios); writes one
   `bench/out/<name>.json` per scenario (git-ignored) with every repeat and the environment, and prints what each
   database holds (row counts, server version, `jit*` settings, the authz tables' indexes).
-- Postgres JIT off takes about 12 minutes, JIT on about an hour (each list compiles for seconds), SQLite about 15
+- Postgres JIT off takes about 15 minutes, JIT on about two hours (each list compiles for seconds), SQLite about 35
   minutes. Run one mode at a time on a quiet machine: other suites on the same Postgres server skew the numbers.
 - The runner and the timing come from the kit (`packages/authz-testing/bench/lib.ts`, imported, not copied): the
   kit's runner reads only its own `scenarios/` directory, so this bench has its own `run.ts` with the gate table.
@@ -61,12 +61,12 @@ org with external sharing off, file grants in a fifth org), `link` (a share link
 
 `scenarios/01-canvas-file-list.ts`, named `canvas[.bg<n>].<postgres.jit-off|postgres.jit-on|sqlite>.<principal>.<op>`:
 
-| op | times |
-| --- | --- |
-| `list` | (a) the list as an app runs it: `File.query()` under the principal; authz-orm's middleware filters `project:read` (args v2 with the config rules and `dbRules`, `native:rbac.threshold`) and compiles it; one statement |
-| `exists` | (b) the reference: the r2 `native:rbac.assignment` v1 term (design §6.1.3, the plain `EXISTS`) for the same principal without rules: the list's subjects and every role its routes accept, compiled by authz-orm on the same table and run |
-| `list-sql` | (a), the statement only: its text and bindings run on the driver (no filter, no compile) |
-| `exists-sql` | (b), the statement only |
+| op           | times                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list`       | (a) the list as an app runs it: `File.query()` under the principal; authz-orm's middleware filters `project:read` (args v2 with the config rules and `dbRules`, `native:rbac.threshold`) and compiles it; one statement                    |
+| `exists`     | (b) the reference: the r2 `native:rbac.assignment` v1 term (design §6.1.3, the plain `EXISTS`) for the same principal without rules: the list's subjects and every role its routes accept, compiled by authz-orm on the same table and run |
+| `list-sql`   | (a), the statement only: its text and bindings run on the driver (no filter, no compile)                                                                                                                                                   |
+| `exists-sql` | (b), the statement only                                                                                                                                                                                                                    |
 
 The gate table compares `list` with `exists` and `list-sql` with `exists-sql`, p50 and p99, each over the median of
 the repeats; a row passes at ≤ 2 for both.
