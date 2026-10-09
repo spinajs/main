@@ -37,6 +37,11 @@ remains as a 3.0 edge: the MFA enrolment routes call `TotpService` directly (a t
 `import()`), while design §4.2 has authn-http call the strategy packages through the service contracts in
 `@spinajs/authn`. That deviation is N8b's open point, left to R1 final.
 
+Status (R1d task 4, 2026-10-09): R1d closed `authn-totp` → `users`, `http` and `queue` (the 2.x 2FA
+actions, `Default2FaToken` and the `User2Fa*` events are deleted; `MfaReset` extends `CliCommand` and
+autoinjects `Orm` itself) and `users-http` → `authn-totp` (the devDependency is gone; `sr-metadata-guard` plants
+the 2.x secret row directly).
+
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
 `authz-http-admin` → `authz` and `authz-http`, `authz` → `authn`.
