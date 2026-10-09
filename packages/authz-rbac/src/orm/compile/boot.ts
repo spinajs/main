@@ -41,6 +41,9 @@ export interface RbacSqlBootInput {
 
 const ANY_FUNCTION = { has: () => true };
 
+// What the rule binding reads from the request (model/rules/bind.ts); a function reading any other root stays a function.
+const REQUEST_ROOTS: ReadonlySet<string> = new Set(['principal', 'actor', 'env']);
+
 const ORM_ADAPTER_KIND = 'orm';
 
 const SQL_PATTERNS = 'SQL decides a resource.* read only as a literal wildcard, or a literal glob of a fixed prefix and one trailing * or **, on a text column';
@@ -107,7 +110,8 @@ function readProblem(read: RbacResourceRead, type: ResourceType, models: readonl
  * Design §6.5 rule 11 for one RBAC model: on the types whose lists run in SQL, a grant pattern that is a glob SQL
  * cannot express, and a config rule with a `resource.*` read in its `when` or `resource` that SQL can only treat as
  * UNKNOWN (`RbacRulesSql.resourceLeaf`): anything but a literal `wildcard`, or a literal `glob` of a fixed prefix
- * and one trailing `*`/`**`, on a one-segment field that is a text column of every model of the type. DB rules meet
+ * and one trailing `*`/`**`, on a one-segment field that is a text column of every model of the type; and a function
+ * whose arguments read anything but `principal`, `actor` and `env` (`resource.*`, `scope.*`). DB rules meet
  * the same limits when they are written (`rule_not_compilable`). Globs on scope attributes are not covered: SQL
  * reads them as undecided leaves, which only refuse rows.
  */
@@ -159,19 +163,20 @@ export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem
         continue;
       }
       const reads = rbacResourceReads(c);
-      // The binding cannot fold a function reading resource.*, and the compiler refuses it, whatever the leaves read.
-      const unread = [...new Set(functionRefs(parsed).filter((r) => r.split('.')[0] === 'resource'))];
+      // The binding folds a function only when it reads the request alone; the compiler refuses any other.
+      const unread = [...new Set(functionRefs(parsed).filter((r) => !REQUEST_ROOTS.has(r.split('.')[0])))];
       if (reads.length > 0 || unread.length > 0) conditions.push({ key, reads, unread });
     }
     if (conditions.length === 0) continue;
     for (const type of ruleTypes(rule, input.types, registry)) {
       const models = input.columns(type);
-      if (models.length === 0 || models.some((m) => m.names.length === 0)) {
-        for (const { key } of conditions) add({ type, source, text: `${key} reads resource.*, but the columns of type '${type}' are not loaded (boot the ORM before the authz domain)` });
-        continue;
-      }
+      const loaded = models.length > 0 && models.every((m) => m.names.length > 0);
       for (const { key, reads, unread } of conditions) {
         for (const ref of unread) add({ type, source, text: `${key} reads ${ref} in a function argument, which SQL cannot decide` });
+        if (!loaded) {
+          if (reads.length > 0) add({ type, source, text: `${key} reads resource.*, but the columns of type '${type}' are not loaded (boot the ORM before the authz domain)` });
+          continue;
+        }
         for (const read of reads) {
           const why = readProblem(read, type, models);
           if (why !== undefined) add({ type, source, text: `${key} ${why}` });

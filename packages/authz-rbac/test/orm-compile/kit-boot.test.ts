@@ -106,6 +106,8 @@ const LOCAL = [
           ]),
           ["type 'file'", "rbac rule 't1'", 'resource.name in a function argument'],
         ),
+        // Kit re-review n1: a function reading scope.* is not folded by the binding either.
+        refused('a config threshold whose function reads scope.*', world(undefined, [threshold({ when: { fn: 'glob', args: { value: { ref: 'scope.project.tag' }, pattern: 'a*' } } } as never)]), ["type 'file'", "rbac rule 't1'", 'scope.project.tag in a function argument']),
         refused('a config threshold whose resource glob is a ref', world(undefined, [threshold({ resource: { attr: 'resource.name', glob: { ref: 'principal.attributes.home' } } as never })]), ["type 'file'", "rbac rule 't1'", 'not a literal']),
         boots('control: the same rule limited to another type boots', world(undefined, [threshold({ resourceTypes: ['project'], when: { attr: 'resource.size', gt: 3 } })])),
         boots('control: a threshold whose permissions are on a type no SQL lists boots', world(undefined, [threshold({ permissions: ['note:read'], resource: { attr: 'resource.title', glob: 'a*b' } })])),
@@ -189,6 +191,21 @@ describe('authz-rbac orm-compile: boot rule §6.5.11', () => {
       }
       const scoped = await bootModel(PLAIN_ROLES, [threshold({ when: { fn: 'glob', args: { value: { ref: 'principal.id' }, pattern: 'a*' } } } as never)]);
       expect(rbacSqlBootProblems({ model: scoped, types: ['file'], columns: () => [TEXT('name')] })).to.deep.equal([]);
+    });
+
+    it('refuses a function argument reading scope.*, in a threshold and in a restrict rule (kit re-review n1)', async () => {
+      const fn = (ref: string) => ({ fn: 'glob', args: { value: { ref }, pattern: 'a*' } });
+      const restrict = { id: 'r1', kind: 'restrict', scope: P1, when: { any: [{ attr: 'scope.project.open', eq: true }, { not: fn('scope.project.tag') }] } } as never;
+      const model = await bootModel(PLAIN_ROLES, [threshold({ when: { all: [fn('principal.id'), fn('scope.org.tag')] } } as never), restrict]);
+      const want = [
+        ["rbac rule 't1'", 'when reads scope.org.tag in a function argument, which SQL cannot decide'],
+        ["rbac rule 'r1'", 'when reads scope.project.tag in a function argument, which SQL cannot decide'],
+      ];
+      expect(rbacSqlBootProblems({ model, types: ['file'], columns: () => [TEXT('name')] }).map((p) => [p.source, p.text])).to.deep.equal(want);
+      // No resource.* read: the columns not being loaded is no reason to name.
+      expect(rbacSqlBootProblems({ model, types: ['file'], columns: () => [] }).map((p) => [p.source, p.text])).to.deep.equal(want);
+      const request = await bootModel(PLAIN_ROLES, [threshold({ when: { all: [fn('actor.id'), fn('env.ip')] } } as never)]);
+      expect(rbacSqlBootProblems({ model: request, types: ['file'], columns: () => [TEXT('name')] })).to.deep.equal([]);
     });
 
     it('refuses a pattern holding a NUL', async () => {
