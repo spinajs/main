@@ -118,6 +118,9 @@ export class TestConfiguration extends FrameworkConfiguration {
           express.json({
             limit: '5mb',
             verify: (req: any, _res: any, buf: Buffer) => {
+              if (req.headers['x-test-refuse-body']) {
+                throw new Error('request body refused');
+              }
               req.rawBody = buf;
             },
           }),

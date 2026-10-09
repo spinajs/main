@@ -24,6 +24,25 @@ export class SecretDto {
   }
 }
 
+export const CONFIRM_DTO_SCHEMA = {
+  type: 'object',
+  properties: {
+    password: { type: 'string' },
+    confirm: { type: 'string', const: { $data: '1/password' } },
+  },
+  required: ['password', 'confirm'],
+};
+
+@Schema(CONFIRM_DTO_SCHEMA)
+export class ConfirmDto {
+  password: string;
+  confirm: string;
+
+  constructor(data: Partial<ConfirmDto>) {
+    Object.assign(this, data);
+  }
+}
+
 export interface SecretCredentials {
   password: string;
 }
@@ -35,10 +54,9 @@ export class SecretEcho extends BaseController {
     return new Ok({ ok: !!dto });
   }
 
-  // What body-parser forwards when an `express.json({ verify })` callback throws.
   @Post()
-  public verifyRefused(@Body() dto: SecretDto) {
-    throw Object.assign(new Error('request body refused'), { status: 403, type: 'entity.verify.failed', body: JSON.stringify(dto) });
+  public confirm(@Body() dto: ConfirmDto) {
+    return new Ok({ ok: !!dto });
   }
 
   @Post()

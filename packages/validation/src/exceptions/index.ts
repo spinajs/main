@@ -77,7 +77,7 @@ export class ValidationFailed extends Exception {
   constructor(message: string, validationErrors: IValidationError[], schema?: any) {
     super(message);
     Object.defineProperty(this, 'schema', { value: schema, writable: true, configurable: true, enumerable: false });
-    this.parameter = validationErrors.map(sanitizeError);
+    this.parameter = validationErrors.map((error) => sanitizeError(error, schema));
     this.details = this.parameter.map((error) => ({
       field: error.instancePath || '(root)',
       rule: error.keyword,
@@ -142,15 +142,10 @@ export class ValidationFailed extends Exception {
 
     let result = `${this.message}\n\nValidation errors:\n${detailedErrors}`;
     
-    // Optionally include schema information if available
+    // Only `$id`: an old 3-argument JavaScript caller passes the request data where the schema goes, and its
+    // `title` or `description` fields would end up here.
     if (this.schema) {
-      const schemaId = (this.schema as any).$id || (this.schema as any).title || 'inline schema';
-      result += `\n\nExpected schema: ${schemaId}`;
-      
-      // Include schema description if available
-      if ((this.schema as any).description) {
-        result += `\nDescription: ${(this.schema as any).description}`;
-      }
+      result += `\n\nExpected schema: ${(this.schema as any).$id || 'inline schema'}`;
     }
     
     return result;
@@ -204,19 +199,110 @@ export class ValidationFailed extends Exception {
 export interface IValidationError extends ErrorObject {}
 /* eslint-enable */
 
-// AJV's verbose mode adds `data`, `schema` and `parentSchema` to each error: the first is the request value.
-function sanitizeError(error: IValidationError): IValidationError {
+// Keywords whose params and message carry the rule's value, which a `$data` rule takes from the request.
+const VALUE_BEARING_KEYWORDS = new Set([
+  'const',
+  'enum',
+  'pattern',
+  'format',
+  'required',
+  'multipleOf',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'formatMinimum',
+  'formatMaximum',
+  'formatExclusiveMinimum',
+  'formatExclusiveMaximum',
+]);
+
+const sanitized = new WeakSet<IValidationError>();
+
+/**
+ * Reduces an AJV error to `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`), so
+ * no request value can travel with it:
+ *
+ * - drops verbose mode's `data`, `schema` and `parentSchema`;
+ * - for a rule written as `{ $data: pointer }`, whose params and message AJV builds from another field of the
+ *   request (a password confirmation `const`, a `maxLength` read from a field), replaces params with
+ *   `{ $data: pointer }` and the message with one naming only the keyword and the pointer;
+ * - drops the `discriminator` `tagValue`, which is the request's tag value.
+ *
+ * The rule is found through the verbose `parentSchema` when present. Otherwise `schema`, when given, is searched
+ * along the error's local `schemaPath`; when that path leads elsewhere and the schema uses `$data` anywhere, the
+ * params and message of the value-bearing keywords are dropped.
+ */
+export function sanitizeError(error: IValidationError, schema?: unknown): IValidationError {
+  if (sanitized.has(error)) {
+    return error;
+  }
+
   const clean: IValidationError = {
     instancePath: error.instancePath,
     schemaPath: error.schemaPath,
     keyword: error.keyword,
     params: error.params,
-    message: error.message,
   };
+
+  if (error.message !== undefined) {
+    clean.message = error.message;
+  }
 
   if (error.propertyName !== undefined) {
     clean.propertyName = error.propertyName;
   }
 
+  const rule = error.parentSchema ? error.parentSchema[error.keyword] : schemaNodeAt(schema, error.schemaPath);
+
+  if (isDataRef(rule)) {
+    clean.params = { $data: rule.$data };
+    clean.message = `must pass "${error.keyword}" against the value at $data "${rule.$data}"`;
+  } else if (rule === undefined && !error.parentSchema && VALUE_BEARING_KEYWORDS.has(error.keyword) && usesData(schema)) {
+    clean.params = {};
+    clean.message = `must pass "${error.keyword}" keyword validation`;
+  } else if (error.keyword === 'discriminator' && clean.params && 'tagValue' in clean.params) {
+    clean.params = { ...clean.params };
+    delete clean.params.tagValue;
+  }
+
+  sanitized.add(clean);
   return clean;
+}
+
+function isDataRef(node: unknown): node is { $data: string } {
+  return typeof node === 'object' && node !== null && typeof (node as { $data?: unknown }).$data === 'string';
+}
+
+// `undefined` when the path is not local to `schema` (a `$ref` into another schema) or leads nowhere.
+function schemaNodeAt(schema: unknown, schemaPath: string): unknown {
+  if (!schema || typeof schemaPath !== 'string' || !schemaPath.startsWith('#/')) {
+    return undefined;
+  }
+
+  let node: any = schema;
+  for (const segment of schemaPath.slice(2).split('/')) {
+    const key = decodeURIComponent(segment).replace(/~1/g, '/').replace(/~0/g, '~');
+    if (node === null || typeof node !== 'object' || !(key in node)) {
+      return undefined;
+    }
+    node = node[key];
+  }
+
+  return node;
+}
+
+function usesData(schema: unknown, seen = new Set<unknown>()): boolean {
+  if (schema === null || typeof schema !== 'object' || seen.has(schema)) {
+    return false;
+  }
+  seen.add(schema);
+
+  return isDataRef(schema) || Object.values(schema).some((v) => usesData(v, seen));
 }

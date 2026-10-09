@@ -228,8 +228,8 @@ older `@spinajs/validation` has no such method at all.
 
 ## `ValidationFailed` error details
 
-`validate` throws `ValidationFailed` on failure. Beyond the raw AJV `parameter` errors it exposes helpers for
-inspecting what went wrong:
+`validate` throws `ValidationFailed` on failure. Beyond the AJV errors in `parameter` (reduced to path, keyword,
+params and message) it exposes helpers for inspecting what went wrong:
 
 ```typescript
 try {
@@ -254,3 +254,7 @@ message generation is disabled (`messages: false`).
 The exception never holds a value of the validated data: no `details[].value`, no `data`, and `parameter`
 keeps only `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`) of each AJV
 error, also with AJV's `verbose` option. A 400 built from it cannot echo a password or a token back.
+A rule written with `$data` (`confirm: { const: { $data: '1/password' } }`) reports `params: { $data: '1/password' }`
+and a message naming only the keyword and the pointer, since AJV would build both from the referenced field;
+the `discriminator` `tagValue` is dropped. `tryValidate` and `validateSchema` return errors reduced the same way
+(the exported `sanitizeError` does it).

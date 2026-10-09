@@ -83,13 +83,30 @@ describe('http: no request value in 400 bodies or logs', function () {
       const password = 'Zq7Hw9x';
       const newPassword = 'Zq7newpassMc6Fj!';
 
-      for (const body of [{ reauthPassword, password }, { reauthPassword, newPassword }, { reauthPassword: 12345678, password: 'Zq7passwdUe2Ka' }]) {
+      const cases: [object, string[]][] = [
+        [{ reauthPassword, password }, [reauthPassword, password]],
+        [{ reauthPassword, newPassword }, [reauthPassword, newPassword]],
+        [{ reauthPassword: { nested: 'Zq7reauthObj' }, password: 'Zq7passwdUe2Ka' }, ['Zq7reauthObj', 'Zq7passwdUe2Ka']],
+      ];
+
+      for (const [body, sent] of cases) {
         const res = await req().post('secret-echo/account').set('Accept', 'application/json').send(body);
 
         expect(res.status, res.text).to.eq(400);
         expect(res.body.details, res.text).to.be.an('array').that.is.not.empty;
-        expectNowhere(res, [reauthPassword, password, newPassword, 'Zq7passwdUe2Ka']);
+        expectNowhere(res, sent);
       }
+    });
+
+    it('400 without the password when a $data confirmation fails', async () => {
+      const password = 'Zq7confirmPwHt6Rv';
+      const confirm = 'Zq7confirmTypoBn2';
+
+      const res = await req().post('secret-echo/confirm').set('Accept', 'application/json').send({ password, confirm });
+
+      expect(res.status, res.text).to.eq(400);
+      expect(res.body.details.map((d: { field: string }) => d.field)).to.include('/confirm');
+      expectNowhere(res, [password, confirm]);
     });
   });
 
@@ -108,10 +125,16 @@ describe('http: no request value in 400 bodies or logs', function () {
     }
   });
 
-  describe('another error carrying the body-parser body', () => {
+  describe('an express.json verify failure, which carries the body-parser body', () => {
     it('sends no body', async () => {
-      const res = await req().post('secret-echo/verifyRefused').set('Accept', 'application/json').send({ reauthPassword: 'Zq7verifyNb3Lw' });
+      const res = await req()
+        .post('secret-echo/account')
+        .set('Accept', 'application/json')
+        .set('x-test-refuse-body', '1')
+        .send({ reauthPassword: 'Zq7verifyNb3Lw' });
 
+      // body-parser's 403 is a plain Error, which the error map does not know.
+      expect(res.status, res.text).to.eq(500);
       expect(res.body.type, res.text).to.eq('entity.verify.failed');
       expect(res.body).to.not.have.property('body');
       expectNowhere(res, ['Zq7verifyNb3Lw']);
