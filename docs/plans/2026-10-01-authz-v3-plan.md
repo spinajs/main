@@ -955,7 +955,9 @@ After G1 the rule in §1.3 applies.
      Postgres, 2,000 runs; `check(subject = row)` ⇔ row in `filter`;
      MySQL and MSSQL in the nightly job.
   9. Bench: 1,000 canvas files, `file:read` list ≤ 2× the plain `EXISTS`
-     query on Postgres (release gate 7).
+     query on Postgres (release gate 7). (G7) For 3.0 the gate is absolute
+     limits on the list and a 50-row page (§12 item 7); the ratio is the
+     3.1 target.
 - **Acceptance:** B06 and B44 on SQLite and Postgres with the full canvas
   config of design §8.5; K1 list conformance (task 9 there) green.
 - **Merge order:** after L1b and L2; before K1's final run and X1.
@@ -2152,8 +2154,18 @@ and freezes merges until the checkpoint is green.
    legacy-key detectors on.
 7. Bench: warm `check` p99 ≤ 2 × 2.0.546 `probeGrant` p99; `checkMany(30)`
    warm ≤ 1 ms (also for the canvas config on a 5-level path); ORM select
-   overhead ≤ 10 % against the bench model; (r3) canvas `file:read` list over
-   1,000 files with rules ≤ 2 × the plain `EXISTS` query on Postgres; session
+   overhead ≤ 10 % against the bench model; (G7, the human's option (b) of
+   2026-10-09, replacing the r3 ratio) canvas `file:read` on Postgres with
+   `jit = off`, with and without other tenants' rows in the authz tables
+   (bench `L4B_BENCH_BACKGROUND=90`): the list over 1,000 files with rules
+   p50 ≤ 1.5 s, a 50-row page (first and middle, `updated_at DESC`) p50
+   ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot unless the app sets
+   `authz.orm.allowJit` (startup check); ≤ 2 × the plain `EXISTS` query
+   stays the 3.1 target and needs the set-based rewrite of the rule SQL
+   (rules worked out once per scope node: L4b report "Release gate 7",
+   `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status
+   2026-10-09: FAIL**: every page misses the p50 limit by 2.3 to 21 times
+   (G7 report); session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

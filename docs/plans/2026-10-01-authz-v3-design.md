@@ -2638,9 +2638,15 @@ write handler. Config rules may use any condition: their `principal.*`,
 **Sizes.** For canvas `file:read` over a project: one outer `EXISTS` per
 grant route (≤ 3), each with ≤ 3 correlated sub-queries, plus 7 threshold
 clauses; all keyed by indexed columns (`authz_assignment_scope`,
-`authz_rule_scope`, the `authz_scope_attribute` primary key). Gate: listing
-1,000 files on Postgres takes at most twice the r2 plain `EXISTS` query
-(plan release gate 7).
+`authz_rule_scope`, the `authz_scope_attribute` primary key). Gate for 3.0
+(G7, plan release gate 7): on Postgres with `jit = off`, with and without
+other tenants' rows, listing 1,000 files takes p50 ≤ 1.5 s and a 50-row page
+p50 ≤ 100 ms, p99 ≤ 250 ms. These statements need `jit = off`: authz-orm
+checks `SHOW jit` once per Postgres connection and fails boot with an
+`AuthzConfigError` while it is on, unless `authz.orm.allowJit` is true.
+Target for 3.1: at most twice the r2 plain `EXISTS` query, which needs the
+rules worked out once per scope node instead of once per row (L4b report,
+"Release gate 7").
 
 **Work.** Plan lane L4b (5–6 dev-days) plus +1 day in L2 for the SQL-form
 columns and `authz_rule_subject`; L4 loses its post-check task (−1 day).
