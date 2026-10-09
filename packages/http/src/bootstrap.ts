@@ -8,7 +8,7 @@ import { HTTP_CONFIGURATION_SCHEMA } from './schemas/http.configuration.js';
 export class HttpBootstrapper extends Bootstrapper {
   bootstrap(): void | Promise<void> {
     // register Datetime hydrator at http startup
-    const types = DI.getRegisteredTypes(DateTimeHydrator);
+    const types = DI.getRegisteredTypes(DateTimeHydrator) ?? [];
 
     // take last registered
     const dtHydrator = types[types.length - 1];

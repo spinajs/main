@@ -164,7 +164,7 @@ export class DefaultAccountGuard extends AccountGuard {
 
   /** The uuids the AccountStatusSource answers exactly `true` for, asked in one call; undefined when it is missing or fails. */
   protected async inService(uuids: readonly string[]): Promise<ReadonlySet<string> | undefined> {
-    // A DI.unregister leaves the key with an empty list, so the list is checked, not the key.
+    // Never registered (null) and fully unregistered (empty list) both mean none.
     const registered = DI.getRegisteredTypes(AccountStatusSource);
     if (!registered || registered.length === 0) {
       if (!this.warnedNoStatusSource) {

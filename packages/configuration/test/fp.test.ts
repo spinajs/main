@@ -86,6 +86,13 @@ describe('configuration fp', () => {
       await expect(_service('fp.service.bad', FpTestServiceBase)()).to.be.rejectedWith(/NoSuchService/);
     });
 
+    it('names the service when no implementation of the type was ever registered', async () => {
+      class NeverRegisteredBase {}
+      cfg.set('fp.service.never', { service: 'NoSuchService' });
+
+      await expect(_service('fp.service.never', NeverRegisteredBase)()).to.be.rejectedWith(/NoSuchService is not registered for type NeverRegisteredBase/);
+    });
+
     it('rejects with configuration path when config entry missing', async () => {
       await expect(_service('fp.service.missing', FpTestServiceBase)()).to.be.rejectedWith(/fp\.service\.missing/);
     });
