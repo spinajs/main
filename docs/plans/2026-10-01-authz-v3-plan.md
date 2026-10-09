@@ -2161,7 +2161,7 @@ and freezes merges until the checkpoint is green.
    p50 ≤ 1.5 s, a 50-row page (first and middle, `updated_at DESC`) p50
    ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot (or the first query
    that reaches a scoped model) unless the app sets
-   `authz.orm.allowJit: true` (startup check); ≤ 2 × the plain `EXISTS`
+   `authz.orm.allowJit: true` (jit check); ≤ 2 × the plain `EXISTS`
    query stays the 3.1 target and needs the set-based rewrite of the rule
    SQL (rules worked out once per scope node:
    `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status

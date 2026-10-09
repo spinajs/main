@@ -5,8 +5,9 @@ How the bench works and how to run it: `BASELINE.md`.
 ## Release gate 7 for 3.0: absolute limits (G7)
 
 Run 2026-10-09 on branch `authz/G7-gate7` (base `authz-v3-refactor` 9b11af9f7), code of a0f8fb173 (before the
-jit check), `--filter=postgres.jit-off`, no background tenants. Limits (the human's option (b) of 2026-10-09, plan §12 item 7): the 1,000-file list p50
-≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms; Postgres with `jit = off`, with and without other tenants.
+jit check), `--filter=postgres.jit-off`, no background tenants. Limits (the human's option (b) of 2026-10-09,
+plan §12 item 7): the 1,000-file list p50 ≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms; Postgres with
+`jit = off`, with and without other tenants.
 
 **Verdict: the 3.0 limits FAIL on the page.** Every page, first and middle, of every principal misses the 100 ms
 p50 limit, by 2.3 to 21 times, and the 250 ms p99 limit (lowest p99 346 ms). The list limit holds for five
@@ -55,9 +56,9 @@ Run 2026-10-09 on branch `authz/L4b-rules-sql`.
 **Verdict: the 3.1 target (≤ 2 × the plain `EXISTS`, the r3 gate 7) FAILS** in every setting measured. With
 `jit = off` (the setting a host needs, see below) the list takes 2.4 to 60 times the plain `EXISTS` (p50, all
 runs), 0.2 to 1.2 s for 1,000 files; with the server default `jit = on` it takes 4 s to 100 s. Every list was
-checked exact (the rows single checks allow) before it was timed, so the cost is that of the rule terms, not of a wrong plan shape. Passing needs a different SQL shape (below); the index
-change of this task makes the lists independent of how many other tenants share the authz tables, but does not
-change the verdict.
+checked exact (the rows single checks allow) before it was timed, so the cost is that of the rule terms, not of
+a wrong plan shape. Passing needs a different SQL shape (below); the index change of this task makes the lists
+independent of how many other tenants share the authz tables, but does not change the verdict.
 
 ### Environment
 
