@@ -1,7 +1,6 @@
 import { BelongsTo, Connection, Hidden, Model, MetadataModel, SingleRelation } from '@spinajs/orm';
 import _ from 'lodash';
 import type { User } from './User.js';
-import { OrmResource, ResourceOwner } from '../decorators.js';
 
 /**
  * Unsafe metadata orm model
@@ -29,21 +28,12 @@ export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
   public User: SingleRelation<User>;
 
   @Hidden()
-  // Deprecated 2.x scoping, kept with @OrmResource below until R1 deletes both. users-http's metadata routes query
-  // UserMetadataBase and decide each row through the `owner` relation of `user.metadata` instead.
-  @ResourceOwner()
   public user_id: number;
 }
 
 
-// NOTE: @Model is required next to @OrmResource — without it the Orm never
-// picks this class up as a model, so its descriptor keeps only the columns
-// declared by decorators. Anything relying on the real table description
-// ( insert-or-update conflict columns, primary key aware deletes ) then fails
-// even though the very same table works through UserMetadataBase.
 @Connection('default')
 @Model('users_metadata')
-@OrmResource('user.metadata')
 export class UserMetadata extends UserMetadataBase {
 
 }

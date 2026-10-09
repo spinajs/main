@@ -55,8 +55,7 @@ const notFound = () => new ResourceNotFound('Metadata entry not found');
  * `user_id` predicate on every query, and every row the caller reads or writes is decided by
  * `scope.admits`, so a conditional `@Access` decision is applied on the row.
  *
- * The queries use the base metadata model: users' `UserMetadata` still carries the 2.x
- * `@OrmResource`, whose query middleware would decide these rows by the 2.x grants.
+ * The queries use the base metadata model and add no model-level scope: the service decides each row itself.
  *
  * Reserved keys ({@link isReservedMetadataKey}: 2FA secrets, reset and invite tokens, ban and
  * throttle state) do not exist for this API (design A12, SR-01, SR-02): no list shows them, and

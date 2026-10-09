@@ -46,7 +46,6 @@ const USERS_HOST_KEYS = [
   '__orm_db_value_converters__',
   'QueryMiddleware',
   'AuthzQueryMiddleware',
-  'RbacModelPermissionMiddleware',
   'ScopeUserModelToNothing',
   'PerfSink',
   'LogMetricSink',

@@ -104,7 +104,7 @@ describe('runAsSystem lookup of the system account', function () {
     const seen = await runWithPrincipal(principal, async () =>
       store.run({ ...store.getStore(), User: legacy, ActiveRole: 'normal' }, async () => {
         await findSystemAccount();
-        return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string; SkipModelPermissionCheck?: boolean } };
+        return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string } };
       }),
     );
 
@@ -112,7 +112,5 @@ describe('runAsSystem lookup of the system account', function () {
     expect(seen.principal.ceiling?.roles).to.deep.equal(['normal']);
     expect(seen.store.User).to.eq(legacy);
     expect(seen.store.ActiveRole).to.eq('normal');
-    // the system lookup never switches the 2.x row-scope skip on in the caller's context
-    expect(seen.store.SkipModelPermissionCheck).to.eq(undefined);
   });
 });

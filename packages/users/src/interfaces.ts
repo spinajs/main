@@ -1,7 +1,6 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
 import { legacyService } from './legacy-services.js';
-import { IModelDescriptor } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 /** @deprecated 3.0: ISession of @spinajs/authn-session (Subject, State). R1 deletes it after N8a and C2. */
@@ -264,20 +263,6 @@ export type SessionProvider<T extends ISession = ISession> = LegacySessionProvid
 /** @deprecated 3.0: permission names '<resource>:<action>' and relations of @spinajs/authz. R1 deletes it. */
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
-/** @deprecated 3.0: @AccessResource and @Owner of @spinajs/authz-orm. R1 deletes it. */
-export interface IRbacModelDescriptor extends IModelDescriptor {
-  RbacResource: string;
-
-  OwnerField: string;
-
-  /**
-   * Where the :own rbac constraints land when the model is populated as a relation:
-   * - 'where' ( default ) - parent query WHERE, effectively narrowing a LEFT JOIN to an inner one
-   * - 'join' - the relation LEFT JOIN ON clause, parent rows are kept and non matching relation rows are null
-   */
-  RbacRelationScope?: 'where' | 'join';
-}
-
 /**
  * What a client may tell the user about the password rule BEFORE they submit
  * one - the human-facing counterpart of {@link PasswordValidationProvider.check}.
@@ -355,16 +340,6 @@ export interface IRbacAsyncStorage<U = User> {
   Session?: ISession;
 
   /**
-   * Controller route permission context
-   * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
-   *
-   * eg. we want to read only current user data but it has admin privlidges too....
-   *
-   * @deprecated 3.0: relations of @spinajs/authz decide own versus any. R1 deletes it.
-   */
-  PermissionScope?: PermissionType;
-
-  /**
    * Currently selected role from User.Role list. When set, all request-bound
    * permission checks (rbac query middleware, RbacPolicy) use this single role
    * instead of the full role array. The user may switch via /auth/active-role.
@@ -379,14 +354,4 @@ export interface IRbacAsyncStorage<U = User> {
    * Unset on regular (non-impersonated) requests.
    */
   Impersonator?: U;
-
-  /**
-   * When set, RbacModelPermissionMiddleware skips injecting permission
-   * constraints into query builders for this execution context.
-   * Set via @SkipModelPermission() decorator for controller actions
-   * that are assumed safe to execute without rbac query filtering.
-   *
-   * @deprecated 3.0: runAs(SYSTEM, 'reason', fn) or @Unscoped('reason'). R1 deletes it.
-   */
-  SkipModelPermissionCheck?: boolean;
 }
