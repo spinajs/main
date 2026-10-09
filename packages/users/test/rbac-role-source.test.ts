@@ -131,24 +131,27 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
   describe('which roles need the password (N8a-D9)', () => {
     const flags = async (ref: IdentityRef) => Object.fromEntries((await source.rolesOf(await signedIn(ref))).map((r) => [r.role, r.requirePassword]));
 
-    it('asks for the password for every role when neither key is set', async () => {
+    it('asks for the password for every role when the key is unset', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, undefined);
 
       expect(await flags(ref)).to.deep.eq({ member: true, support: true });
     });
 
-    it('reads the 2.x rbac.roleSwitch.requirePassword while the 3.0 key is unset', async () => {
-      const ref = await user('support', 'member');
-      await setConfig(PASSWORD_KEY, undefined);
-      await setConfig(LEGACY_PASSWORD_KEY, ['support']);
+    for (const unset of [undefined, null]) {
+      for (const legacy of [false, [], ['support']]) {
+        it(`ignores a 2.x rbac.roleSwitch.requirePassword of ${JSON.stringify(legacy)} with the 3.0 key ${String(unset)}: every role asks for the password`, async () => {
+          const ref = await user('support', 'member');
+          await setConfig(PASSWORD_KEY, unset);
+          await setConfig(LEGACY_PASSWORD_KEY, legacy);
 
-      expect(await flags(ref)).to.deep.eq({ member: false, support: true });
-    });
+          expect(await flags(ref)).to.deep.eq({ member: true, support: true });
+        });
+      }
+    }
 
-    it('takes the 3.0 key over the 2.x one, an empty list included', async () => {
+    it('flags exactly the roles of the 3.0 list, an empty list included', async () => {
       const ref = await user('support', 'member');
-      await setConfig(LEGACY_PASSWORD_KEY, ['support', 'member']);
 
       await setConfig(PASSWORD_KEY, ['member']);
       expect(await flags(ref)).to.deep.eq({ member: true, support: false });
@@ -165,27 +168,27 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       }
     });
 
-    it('takes a null 3.0 key as unset', async () => {
+    it('takes a null 3.0 key as unset, a 2.x list beside it included', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, null);
 
-      expect(await flags(ref), 'neither').to.deep.eq({ member: true, support: true });
+      expect(await flags(ref), 'alone').to.deep.eq({ member: true, support: true });
 
       await setConfig(LEGACY_PASSWORD_KEY, ['member']);
-      expect(await flags(ref), '2.x').to.deep.eq({ member: true, support: false });
+      expect(await flags(ref), 'with a 2.x list').to.deep.eq({ member: true, support: true });
     });
 
-    it('rejects a malformed 2.x key while it is read, and ignores it once the 3.0 key is set', async () => {
+    it('ignores a malformed 2.x key, with the 3.0 key unset and with it set', async () => {
       const ref = await user('member');
       await setConfig(PASSWORD_KEY, undefined);
 
       for (const bad of ['support', [''], [1], { support: true }]) {
         await setConfig(LEGACY_PASSWORD_KEY, bad);
-        await expect(source.rolesOf(await signedIn(ref)), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /rbac\.roleSwitch\.requirePassword/);
+        expect(await flags(ref), JSON.stringify(bad)).to.deep.eq({ member: true });
       }
 
-      await setConfig(PASSWORD_KEY, ['member']);
-      expect(await flags(ref)).to.deep.eq({ member: true });
+      await setConfig(PASSWORD_KEY, []);
+      expect(await flags(ref)).to.deep.eq({ member: false });
     });
   });
 

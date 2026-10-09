@@ -187,7 +187,7 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
         roleSwitch: {
           type: 'object',
           properties: {
-            // null counts as unset: the 2.x key then applies.
+            // null counts as unset: every role then asks for the password.
             requirePassword: { anyOf: [{ type: 'array', items: ROLE_NAME }, { type: 'null' }] },
           },
         },

@@ -26,13 +26,16 @@ describe('authz.principals.roleSwitch.requirePassword', () => {
     });
   }
 
-  it('RbacRoleSource reads the 3.0 and the 2.x key from the container that builds it', async () => {
+  it('RbacRoleSource reads the 3.0 key from the container that builds it, and nothing of a 2.x key beside it', async () => {
     const { child } = await bootChild({ authz: { principals: { roleSwitch: { requirePassword: ['support'] } } }, rbac: { roleSwitch: { requirePassword: ['member'] } } }, AUTHZ_CONFIGURATION_SCHEMA);
     // A root singleton: DI hands it the root container, so the test hands it the child's.
     const source = new RbacRoleSource();
     (source as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
 
     expect(read(source, 'RequirePassword')).to.deep.equal(['support']);
-    expect(read(source, 'LegacyRequirePassword')).to.deep.equal(['member']);
+    const readValues = Object.entries(Object.getOwnPropertyDescriptors(RbacRoleSource.prototype))
+      .filter(([, d]) => d.get)
+      .map(([key]) => read(source, key));
+    expect(readValues).to.deep.include(['support']).and.not.deep.include(['member']);
   });
 });
