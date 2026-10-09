@@ -179,6 +179,24 @@ describe('http: no request value in 400 bodies or logs', function () {
     });
   });
 
+  describe('a bigint route arg that is not an integer', () => {
+    it('answers 400 naming the field, echoing nothing', async () => {
+      const res = await req().get('secret-echo/bigint?id=Zq7bigSecretFk6Ub').set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(400);
+      expect(res.body.fieldName, res.text).to.eq('id');
+      expect(res.body.message).to.eq("Argument 'id' is not a valid integer");
+      expectNowhere(res, ['Zq7bigSecretFk6Ub']);
+    });
+
+    it('still accepts an integer', async () => {
+      const res = await req().get('secret-echo/bigint?id=9007199254740993').set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(200);
+      expect(res.body.id).to.eq('9007199254740993');
+    });
+  });
+
   describe('an XML body that is not valid XML', () => {
     for (const [name, raw, secret] of [
       ['a secret tag name', '<root><Zq7xmlTagGv4Np></root>', 'Zq7xmlTagGv4Np'],
