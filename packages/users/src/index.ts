@@ -13,9 +13,8 @@ import './password.js';
 import './session.js';
 import './session-expiration.js';
 import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
-import { runAsSystem } from './system.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
-import { RBAC_USER_MODEL, userModel } from './model-token.js';
+import { RBAC_USER_MODEL } from './model-token.js';
 
 export * from './interfaces.js';
 export * from './exceptions.js';
@@ -88,37 +87,5 @@ export class RbacBootstrapper extends Bootstrapper {
         ac.setGrants(grants);
       }
     });
-
-    /**
-     * The user of a legacy session, read by Uuid.
-     *
-     * @deprecated 3.0: `UserPrincipalFactory.principalOf`. R1 deletes it.
-     */
-    DI.register((_: IContainer, userUUID: string) => {
-      return runAsSystem('session-restore', () =>
-        userModel()
-          .where({
-            Uuid: userUUID,
-          })
-          .populate('Metadata')
-          .isActiveUser()
-          .firstOrFail(),
-      );
-    }).as('RbacUserFactory');
-
-    /**
-     * A never-stored guest, active while `authz.principals.anonymous.enabled`.
-     *
-     * @deprecated 3.0: the anonymous principal with `authz.rbac.anonymousRoles`. R1 deletes it.
-     */
-    DI.register((_) => {
-      const conf = DI.get(Configuration);
-
-      return new (userModel())({
-        Login: 'guest',
-        Email: 'guest@spinajs.com',
-        IsActive: conf!.get('authz.principals.anonymous.enabled', false),
-      });
-    }).as('RbacGuestUserFactory');
   }
 }

@@ -2,8 +2,6 @@ import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
-import { BasicPasswordProvider, User } from '@spinajs/users';
-import { DateTime } from 'luxon';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
@@ -167,23 +165,6 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
     };
   }
-}
-
-/**
- * An active users row, inserted directly: since C1, `users.create()` assigns roles through
- * `AuthzAdmin` and needs a booted authz host, which authn-http may not depend on. No roles:
- * C1 dropped `users.Role`, and the 2.x code reads roles from nowhere else.
- */
-export async function seedUser(email: string, login: string, password: string): Promise<User> {
-  const user = new User({
-    Email: email,
-    Login: login,
-    Password: await DI.resolve(BasicPasswordProvider).hash(password),
-    RegisteredAt: DateTime.now(),
-    IsActive: true,
-  });
-  await user.insert();
-  return user;
 }
 
 export function ctr() {

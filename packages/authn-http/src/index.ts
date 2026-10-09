@@ -1,5 +1,3 @@
-export * from './interfaces.js';
-
 export * from './api.js';
 // api.ts declares these five names; the explicit export picks the 3.0 implementations over `export * from './api.js'`.
 export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
@@ -16,7 +14,5 @@ export { Identity, AuthnSession } from './args/authn.js';
 export * from './extractors/index.js';
 // Loading it registers the 3.0 layer on the root container.
 export { registerAuthnHttpV3 } from './v3/register.js';
-// RbacMiddleware: the 2.x name, kept for code that stubs or orders against it.
-export { LegacyStorageBridge, LegacyStorageBridge as RbacMiddleware } from './middleware/legacy-bridge.js';
 // For authn-oidc (N10): the one 401 body of a failed authentication and the session cookie helpers.
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';

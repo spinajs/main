@@ -16,7 +16,6 @@ import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spin
 import type { Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
 import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SessionHandle, SignedRequest, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -212,8 +211,6 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     DI.unregister(AuthnMiddlewareConfiguration);
     DI.register(AuthnMiddlewareConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) await b.bootstrap();

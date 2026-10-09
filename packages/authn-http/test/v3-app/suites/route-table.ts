@@ -43,7 +43,7 @@ export function routeTableSuite(): void {
   it('the wiring is the N8c one: AuthnMiddleware without the 2.x middlewares, and authn-session the only session store', async () => {
     const names = (DI.getRegisteredTypes(ServerMiddleware) ?? []).map((t) => t.name);
     expect(names).to.include.members(['ClientIp', 'CsrfOriginGuard', 'AuthnMiddleware']);
-    expect(names).to.not.include.members(['RbacMiddleware', 'TokenAuthMiddleware']);
+    expect(names).to.not.include.members(['RbacMiddleware', 'TokenAuthMiddleware', 'LegacyStorageBridge']);
     expect(DI.getRegisteredTypes(SessionProvider)).to.deep.eq([MemorySessionStore]);
     const issuer = (await DI.resolve(SessionIssuer)) as unknown as { Store: unknown };
     expect(issuer.Store).to.be.instanceOf(MemorySessionStore);

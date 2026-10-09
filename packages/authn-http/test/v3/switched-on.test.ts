@@ -26,8 +26,8 @@ interface Run {
   n10: { body: unknown; functions: string[] };
   /** Per colliding name: the barrel gives the 3.0 class of ./v3/index.js, not the api.ts stub. */
   barrelIsV3: Record<string, boolean>;
-  orders: { AuthnMiddleware: number; LegacyStorageBridge: number | null };
-  rbacMiddlewareIsTheBridge: boolean;
+  orders: { AuthnMiddleware: number };
+  bridgeExported: boolean;
   tokenAuthMiddlewareExported: boolean;
   /** CJS only: loaded module files under v3/controllers; null in ESM, which lists no loaded modules. */
   loadedV3Controllers: string[] | null;
@@ -65,16 +65,13 @@ const BODY = `
     functions: ['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie'].filter((n) => typeof pkg[n] === 'function'),
   };
   const barrelIsV3 = Object.fromEntries(COLLIDING.map((n) => [n, typeof pkg[n] === 'function' && pkg[n] === v3[n] && pkg[n] !== api[n]]));
-  const orders = {
-    AuthnMiddleware: new pkg.AuthnMiddleware().Order,
-    LegacyStorageBridge: typeof pkg.LegacyStorageBridge === 'function' ? new pkg.LegacyStorageBridge().Order : null,
-  };
-  const rbacMiddlewareIsTheBridge = typeof pkg.RbacMiddleware === 'function' && pkg.RbacMiddleware === pkg.LegacyStorageBridge;
+  const orders = { AuthnMiddleware: new pkg.AuthnMiddleware().Order };
+  const bridgeExported = ['LegacyStorageBridge', 'RbacMiddleware', 'ITokenAuthInfo'].some((n) => n in pkg);
   const tokenAuthMiddlewareExported = 'TokenAuthMiddleware' in pkg;
   const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
   const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f)) : null;
   await pkg.registerAuthnHttpV3();
-  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, barrelIsV3, orders, rbacMiddlewareIsTheBridge, tokenAuthMiddlewareExported, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
+  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, barrelIsV3, orders, bridgeExported, tokenAuthMiddlewareExported, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
 `;
 
 const ESM = `
@@ -184,7 +181,7 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
         r = run(inputType, body);
       });
 
-      it('importing the package registers the authn services, AuthnMiddleware once, the extractors, resolvers, route args and the bridge, and no 2.x middleware', () => {
+      it('importing the package registers the authn services, AuthnMiddleware once, the extractors, resolvers, route args, and no 2.x middleware', () => {
         expect(r.cliFiles, 'the shipped cli dir').to.include('AuthnCheckConfig.js');
         if (r.loadedAuthnRoot !== null) expect(r.loadedAuthnRoot, 'modules of the @spinajs/authn root').to.not.be.empty;
         expect(r.loaded.AuthnService).to.include('DefaultAuthnService');
@@ -194,7 +191,7 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
         expect(r.loaded.AuthnPrincipalResolver).to.have.members(['KeyPrincipalResolver', 'TokenPrincipalResolver', 'SessionPrincipalResolver']);
         expect(r.loaded.RouteArgs).to.deep.eq(ROUTE_ARG_NAMES);
         expect(count(r.loaded.ServerMiddleware, 'AuthnMiddleware'), 'AuthnMiddleware once').to.eq(1);
-        expect(count(r.loaded.ServerMiddleware, 'LegacyStorageBridge'), 'the bridge once').to.eq(1);
+        expect(r.loaded.ServerMiddleware).to.not.include('LegacyStorageBridge');
         expect(r.loaded.ServerMiddleware).to.not.include('RbacMiddleware');
         expect(r.loaded.ServerMiddleware).to.not.include('TokenAuthMiddleware');
       });
@@ -203,10 +200,10 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
         expect(r.afterExplicitCall).to.deep.eq(r.loaded);
       });
 
-      it('the barrel gives the 3.0 classes under the five colliding names; the bridge runs after AuthnMiddleware and keeps the RbacMiddleware name as an alias; no TokenAuthMiddleware', () => {
+      it('the barrel gives the 3.0 classes under the five colliding names; AuthnMiddleware runs at order 5; no request-keys bridge, no RbacMiddleware alias, no TokenAuthMiddleware', () => {
         expect(r.barrelIsV3).to.deep.eq(Object.fromEntries(COLLIDING.map((n) => [n, true])));
-        expect(r.orders).to.deep.eq({ AuthnMiddleware: 5, LegacyStorageBridge: 6 });
-        expect(r.rbacMiddlewareIsTheBridge).to.eq(true);
+        expect(r.orders).to.deep.eq({ AuthnMiddleware: 5 });
+        expect(r.bridgeExported).to.eq(false);
         expect(r.tokenAuthMiddlewareExported).to.eq(false);
       });
 
@@ -220,10 +217,10 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     });
   }
 
-  it('loading only v3/index.js, as the controller scan does, registers AuthnMiddleware and the bridge', () => {
+  it('loading only v3/index.js, as the controller scan does, registers AuthnMiddleware and no bridge', () => {
     const middlewares = run<string[]>('module', SCAN_ENTRY('v3/index.js'));
     expect(count(middlewares, 'AuthnMiddleware')).to.eq(1);
-    expect(count(middlewares, 'LegacyStorageBridge')).to.eq(1);
+    expect(count(middlewares, 'LegacyStorageBridge')).to.eq(0);
   });
 
   it('loaded after HttpServer was resolved (too late to join its middlewares), it logs an error naming the fix', () => {
@@ -249,8 +246,8 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     expect(graph.filter((f) => /from\s+'@spinajs\/authn-totp'/.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/\\/g, '/'))).to.deep.eq([]);
   });
 
-  it('the 2.x session and token middlewares are gone from the sources', () => {
-    const defining = sourceFiles(join(PKG_ROOT, 'src')).filter((f) => /class (RbacMiddleware|TokenAuthMiddleware)\b/.test(readFileSync(f, 'utf8')));
+  it('the 2.x session and token middlewares and the request-keys bridge are gone from the sources', () => {
+    const defining = sourceFiles(join(PKG_ROOT, 'src')).filter((f) => /class (RbacMiddleware|TokenAuthMiddleware|LegacyStorageBridge)\b/.test(readFileSync(f, 'utf8')));
     expect(defining).to.deep.eq([]);
   });
 });

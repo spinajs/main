@@ -9,14 +9,12 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
-import { SYSTEM } from '@spinajs/authz';
 import { join, normalize, resolve } from 'path';
 
 import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, SYSTEM_LOGIN, User, isReservedLogin } from '../src/index.js';
 import { assertUserUnique, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
-import { TEST_USER_UUID } from './migration/rbac.migration.js';
-import { registerAuthzHost, rootAuthz } from './support/authz-host.js';
+import { registerAuthzHost } from './support/authz-host.js';
 
 chai.use(chaiAsPromised);
 
@@ -24,7 +22,7 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-describe('users DI factories (deprecated, 2.x consumers)', function () {
+describe('users bootstrap: reserved logins, 2.x AccessControl', function () {
   this.timeout(30000);
 
   before(() => {
@@ -49,55 +47,6 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
   afterEach(() => {
     sinon.restore();
     DI.clearCache();
-  });
-
-  describe('RbacUserFactory', () => {
-    it('restores an active user by Uuid, with metadata, as SYSTEM', async () => {
-      const runAs = sinon.spy(await rootAuthz(), 'runAs');
-
-      const user = await DI.resolve<Promise<User>>('RbacUserFactory', [TEST_USER_UUID]);
-
-      expect(user.Login).to.eq('test');
-      expect(user.Metadata['test:test']).to.eq('test');
-      expect(runAs.firstCall.args.slice(0, 2)).to.deep.eq([SYSTEM, 'session-restore']);
-    });
-
-    it('does not restore an inactive user', async () => {
-      const inactive = await User.query().whereLogin('test-notactive').firstOrFail();
-
-      await expect(DI.resolve<Promise<User>>('RbacUserFactory', [inactive.Uuid])).to.be.rejected;
-    });
-  });
-
-  describe('RbacGuestUserFactory', () => {
-    it('builds a never-stored guest without roles, inactive unless authz.principals.anonymous.enabled', async () => {
-      const guest = DI.resolve<User>('RbacGuestUserFactory');
-
-      expect(guest.Login).to.eq('guest');
-      expect(guest.Id).to.not.exist;
-      expect(guest.IsActive).to.eq(false);
-      expect(guest.Role).to.eq(undefined);
-    });
-
-    it('stays inactive when the key is unset under a schema-validating configuration', async () => {
-      const conf = DI.get(Configuration)!;
-
-      // proves the authz schema is applied: its defaults are filled, the anonymous switch is not
-      expect(conf.get('authz.engine.modelTimeoutMs')).to.be.a('number');
-      expect(conf.get('authz.principals.anonymous.enabled')).to.eq(undefined);
-      expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(false);
-    });
-
-    it('is active when authz.principals.anonymous.enabled is true', async () => {
-      const conf = DI.get(Configuration)!;
-      const before = conf.get('authz.principals.anonymous.enabled');
-      conf.set('authz.principals.anonymous.enabled', true);
-      try {
-        expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(true);
-      } finally {
-        conf.set('authz.principals.anonymous.enabled', before);
-      }
-    });
   });
 
   describe('reserved logins', () => {

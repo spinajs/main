@@ -30,8 +30,12 @@ breaks §4.2.
 
 Status (R1bc, 2026-10-09): R1bc closed these edges: `authn-http` → `authn-token` as a runtime dependency (now a
 devDependency for tests), `authn-http` → `queue`, `authn-token` → `users` (now a devDependency for one test file),
-`authn-token` → `http` and `authn-token` → `queue`. Still open: `authn-http` → `users` and `authn-totp` (R1d,
-after C2b), `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` is closed as a runtime edge (C2b task 7; devDependency for one test).
+`authn-token` → `http` and `authn-token` → `queue`. Still open: `authn-totp` → `users`, `http` and `queue` (R1d), `users-http` → `authn-totp` is closed as a runtime edge (C2b task 7; devDependency for one test).
+
+Status (R1d, 2026-10-09): R1d closed `authn-http` → `users` (no longer declared; `test/v3/di-name-clash.test.ts` still loads it through the workspace). `authn-http` → `authn-totp`
+remains as a 3.0 edge: the MFA enrolment routes call `TotpService` directly (a type import plus a lazy
+`import()`), while design §4.2 has authn-http call the strategy packages through the service contracts in
+`@spinajs/authn`. That deviation is N8b's open point, left to R1 final.
 
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
