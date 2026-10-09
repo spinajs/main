@@ -394,6 +394,9 @@ export function sqlKitHarness(opts: SqlKitHarnessOptions): BehaviourHarness & { 
       const c = host.container;
       const connection = RootOrm.connectionOf(opts.kind);
       host.setConfig(['authz', 'orm', 'domain'], domain);
+      // A check reads the DB stores per row; under a loaded machine the default 2 s model timeout turns a slow
+      // check into model_error, a refusal the list does not share. A world that sets its own timeout keeps it.
+      if ((world.config?.engine as { modelTimeoutMs?: number } | undefined)?.modelTimeoutMs === undefined) host.setConfig(['authz', 'domains', domain, 'engine', 'modelTimeoutMs'], 120000);
       if (rbac.roles) host.setConfig(['authz', 'rbac', 'roles'], roleConfig(rbac.roles as readonly RoleDef[]));
       if (rbac.ladders) host.setConfig(['authz', 'rbac', 'ladders'], ladderConfig(rbac.ladders as readonly LadderDef[]));
       host.setConfig(['authz', 'rbac', 'rules'], rbac.rules ?? []);
