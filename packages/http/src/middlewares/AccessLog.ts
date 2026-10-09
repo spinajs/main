@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { redactUrl } from '../util/redact-url.js';
 
 /**
  * Emits one structured log line per HTTP request.
@@ -38,9 +39,10 @@ export class AccessLog extends ServerMiddleware {
     return (req, res, next) => {
       const startedAt = Date.now();
       res.on('finish', () => {
-        log.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`, {
+        const path = redactUrl(req.originalUrl);
+        log.info(`${req.method} ${path} ${res.statusCode} ${Date.now() - startedAt}ms`, {
           method: req.method,
-          path: req.originalUrl,
+          path,
           status: res.statusCode,
           ms: Date.now() - startedAt,
           ip: req.storage?.realIp,

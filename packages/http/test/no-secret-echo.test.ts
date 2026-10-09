@@ -126,18 +126,73 @@ describe('http: no request value in 400 bodies or logs', function () {
   });
 
   describe('an express.json verify failure, which carries the body-parser body', () => {
-    it('sends no body', async () => {
+    it('answers 400 with a fixed message when the hook throws a plain Error', async () => {
       const res = await req()
-        .post('secret-echo/account')
+        .post('secret-echo/account?token=Zq7verifyQsMf5Ra')
         .set('Accept', 'application/json')
         .set('x-test-refuse-body', '1')
         .send({ reauthPassword: 'Zq7verifyNb3Lw' });
 
-      // body-parser's 403 is a plain Error, which the error map does not know.
-      expect(res.status, res.text).to.eq(500);
-      expect(res.body.type, res.text).to.eq('entity.verify.failed');
+      expect(res.status, res.text).to.eq(400);
+      expect(res.body.message, res.text).to.eq('request body was refused');
+      expect(res.body).to.not.have.property('type');
       expect(res.body).to.not.have.property('body');
-      expectNowhere(res, ['Zq7verifyNb3Lw']);
+      expect(res.body).to.not.have.property('stack');
+      expectNowhere(res, ['Zq7verifyNb3Lw', 'Zq7verifyQsMf5Ra', 'request body refused']);
+
+      const lines = logLines().filter((line) => line.includes('entity.verify.failed'));
+      expect(lines, logLines().join('\n')).to.have.length(1);
+      expect(lines[0]).to.include('POST').and.to.include('/secret-echo/account?token=[redacted]');
+    });
+
+    it('keeps the mapped answer of an app exception, without the body', async () => {
+      const res = await req()
+        .post('secret-echo/account')
+        .set('Accept', 'application/json')
+        .set('x-test-forbid-body', '1')
+        .send({ reauthPassword: 'Zq7forbidVc2Jt' });
+
+      expect(res.status, res.text).to.eq(403);
+      expect(res.body).to.not.have.property('body');
+      expectNowhere(res, ['Zq7forbidVc2Jt']);
+    });
+  });
+
+  describe('secrets in the query string', () => {
+    const secrets = ['Zq7qsTokenBd4Lc', 'Zq7qsPasswdMx8Qe', 'Zq7qsCodeTw2Hy', 'Zq7qsBareJn5Sv'];
+    const query = `token=${secrets[0]}&password=${secrets[1]}&code=${secrets[2]}&${secrets[3]}`;
+
+    function expectKeysLogged() {
+      const lines = logLines();
+      for (const key of ['token=[redacted]', 'password=[redacted]', 'code=[redacted]']) {
+        expect(lines.some((line) => line.includes(key)), `no log line names ${key}`).to.eq(true);
+      }
+    }
+
+    it('reach no log line of a failing route', async () => {
+      const res = await req().post(`secret-echo/account?${query}`).set('Accept', 'application/json').send({ reauthPassword: 'short' });
+
+      expect(res.status, res.text).to.eq(400);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+    });
+
+    it('reach neither the 404 nor its log line', async () => {
+      const res = await req().get(`secret-echo/no-such-route?${query}`).set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(404);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+    });
+
+    it('reach neither the 404 of an action returning nothing nor its log line', async () => {
+      const res = await req().get(`secret-echo/nothing?${query}`).set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(404);
+      expectNowhere(res, secrets);
+      expectKeysLogged();
+      const marker = 'Resource not found GET:/secret-echo/nothing?token=[redacted]';
+      expect(logLines().some((line) => line.includes(marker)), `no log line holds ${marker}`).to.eq(true);
     });
   });
 
@@ -149,5 +204,39 @@ describe('http: no request value in 400 bodies or logs', function () {
       expectNowhere(res, ['Zq7hdrPw']);
       expect(res.body.fieldName).to.eq('credentials');
     });
+  });
+
+  describe('a bigint route arg that is not an integer', () => {
+    it('answers 400 naming the field, echoing nothing', async () => {
+      const res = await req().get('secret-echo/bigint?id=Zq7bigSecretFk6Ub').set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(400);
+      expect(res.body.fieldName, res.text).to.eq('id');
+      expect(res.body.message).to.eq("Argument 'id' is not a valid integer");
+      expectNowhere(res, ['Zq7bigSecretFk6Ub']);
+    });
+
+    it('still accepts an integer', async () => {
+      const res = await req().get('secret-echo/bigint?id=9007199254740993').set('Accept', 'application/json');
+
+      expect(res.status, res.text).to.eq(200);
+      expect(res.body.id).to.eq('9007199254740993');
+    });
+  });
+
+  describe('an XML body that is not valid XML', () => {
+    for (const [name, raw, secret] of [
+      ['a secret tag name', '<root><Zq7xmlTagGv4Np></root>', 'Zq7xmlTagGv4Np'],
+      ['a secret attribute', '<root Zq7xmlAttrWc8Ky></root>', 'Zq7xmlAttrWc8Ky'],
+      ['an unclosed secret tag', '<root><Zq7xmlOpenHs2Df>', 'Zq7xmlOpenHs2Df'],
+    ]) {
+      it(`answers 400 for ${name}, echoing nothing`, async () => {
+        const res = await req().post('secret-echo/xml').set('Accept', 'application/json').set('Content-Type', 'application/xml').send(raw);
+
+        expect(res.status, res.text).to.eq(400);
+        expect(res.body.message).to.eq('request body is not valid XML');
+        expectNowhere(res, [secret]);
+      });
+    }
   });
 });

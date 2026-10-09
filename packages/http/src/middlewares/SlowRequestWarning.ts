@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { redactUrl } from '../util/redact-url.js';
 
 /**
  * Logs a warning when a request exceeds a configurable duration threshold.
@@ -38,9 +39,10 @@ export class SlowRequestWarning extends ServerMiddleware {
       res.on('finish', () => {
         const ms = Date.now() - startedAt;
         if (ms >= threshold) {
-          log.warn(`Slow request: ${req.method} ${req.originalUrl} took ${ms}ms (threshold ${threshold}ms)`, {
+          const path = redactUrl(req.originalUrl);
+          log.warn(`Slow request: ${req.method} ${path} took ${ms}ms (threshold ${threshold}ms)`, {
             method: req.method,
-            path: req.originalUrl,
+            path,
             ms,
             threshold,
             status: res.statusCode,

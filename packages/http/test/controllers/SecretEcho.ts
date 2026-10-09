@@ -1,5 +1,5 @@
 import { Schema } from '@spinajs/validation';
-import { BaseController, BasePath, Body, Header, Ok, Post } from '../../src/index.js';
+import { BaseController, BasePath, Body, FromXml, Get, Header, Ok, Post, Query } from '../../src/index.js';
 
 export const SECRET_DTO_SCHEMA = {
   type: 'object',
@@ -62,5 +62,20 @@ export class SecretEcho extends BaseController {
   @Post()
   public credentials(@Header('x-credentials') credentials: SecretCredentials) {
     return new Ok({ ok: !!credentials });
+  }
+
+  @Post()
+  public xml(@FromXml() doc: object) {
+    return new Ok({ ok: !!doc });
+  }
+
+  @Get()
+  public nothing(): undefined {
+    return undefined;
+  }
+
+  @Get()
+  public bigint(@Query() id: bigint) {
+    return new Ok({ id: String(id) });
   }
 }

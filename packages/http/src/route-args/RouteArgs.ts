@@ -211,8 +211,8 @@ export abstract class RouteArgs implements IRouteArgs {
       case 'BigInt':
         try {
           return BigInt(arg);
-        } catch (err) {
-          throw new InvalidArgument(`Argument '${param.Name}' is not a valid integer`, err);
+        } catch {
+          throw new InvalidArgument(`Argument '${param.Name}' is not a valid integer`, param.Name);
         }
       case 'Boolean':
         // A JSON body can deliver a real boolean; return it as-is instead of
