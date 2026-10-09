@@ -51,6 +51,9 @@ export const T0 = new Date('2026-10-01T12:00:00.000Z');
 
 export const SIZES = Object.freeze({ orgs: 10, projectsPerOrg: 5, filesPerProject: 20, groupsPerOrg: 3 });
 
+/** The canvas dashboard's "recent files" page: `updated_at DESC, id ASC`, 50 rows. */
+export const PAGE_SIZE = 50;
+
 // The policy shapes of state.json's orgs (ACME, STRICT, OPEN) and one with external sharing off.
 const POLICIES: readonly Record<string, unknown>[] = [{}, { agents_allowed: false, viewers_may_download: false, editors_may_invite: false, addons_for_guests: false, guest_max_role: 'maintainer' }, { public_links: false, max_link_role: 'viewer', maintainers_may_delete: true }, { external_sharing: false, external_max_role: 'viewer' }];
 
@@ -96,7 +99,8 @@ export interface CanvasState {
   readonly orgs: readonly { readonly id: string; readonly policies: Readonly<Record<string, unknown>> }[];
   readonly groups: readonly { readonly id: string; readonly org: string }[];
   readonly projects: readonly { readonly id: string; readonly org: string }[];
-  readonly files: readonly { readonly id: string; readonly project: string; readonly org: string; readonly name: string }[];
+  /** `updated_at`: ISO time, distinct per file, neither in id nor in insert order. */
+  readonly files: readonly { readonly id: string; readonly project: string; readonly org: string; readonly name: string; readonly updated_at: string }[];
   readonly assignments: readonly BenchAssignment[];
   readonly rules: readonly Omit<RuleDef, 'source'>[];
   readonly principals: readonly BenchPrincipal[];
@@ -127,7 +131,7 @@ export function canvasState(seed = 7, background = 0): CanvasState {
   const orgs: { id: string; policies: Record<string, unknown> }[] = [];
   const groups: { id: string; org: string }[] = [];
   const projects: { id: string; org: string }[] = [];
-  const files: { id: string; project: string; org: string; name: string }[] = [];
+  const files: { id: string; project: string; org: string; name: string; updated_at: string }[] = [];
   const externals = Array.from({ length: 30 }, newUser);
   let links = 0;
 
@@ -190,7 +194,7 @@ export function canvasState(seed = 7, background = 0): CanvasState {
       for (let f = 0; f < SIZES.filesPerProject; f++) {
         const file = uuid('c1', ++fileCount);
         const F = { type: 'file', id: file };
-        if (tenant) files.push({ id: file, project, org, name: `design ${fileCount}` });
+        if (tenant) files.push({ id: file, project, org, name: `design ${fileCount}`, updated_at: '' });
         if (f === 0) linkAt(F, 'commenter', []);
         if (f % 3 === 0) assign({ type: 'user', id: pick([...members, ...guests, ...fileGuests]) }, pick(FILE_ROLES), F, pick(ADDONS));
         if (f % 10 === 5) assign({ type: 'user', id: pick(externals) }, pick(FILE_ROLES), F);
@@ -205,6 +209,15 @@ export function canvasState(seed = 7, background = 0): CanvasState {
       }
     }
   }
+
+  // A generator of its own, so the authz data stays what the seed gave before files had a time.
+  const minutes = files.map((_, i) => i + 1);
+  const shuffle = prng(seed ^ 0x5eed);
+  for (let i = minutes.length - 1; i > 0; i--) {
+    const j = Math.floor(shuffle() * (i + 1));
+    [minutes[i], minutes[j]] = [minutes[j], minutes[i]];
+  }
+  files.forEach((f, i) => (f.updated_at = new Date(T0.getTime() - minutes[i] * 60_000).toISOString()));
 
   const principals: BenchPrincipal[] = [
     { name: 'owner', principal: user(bench.owner), note: 'org.owner of org 1 (implies maintainer, bypasses restrict and cap)' },
@@ -236,13 +249,13 @@ async function defineCanvasModels(db: RootOrm, kind: Kind, state: CanvasState): 
   const specs: { type: string; scopes: string[]; rows: Record<string, unknown>[]; read?: string }[] = [
     { type: 'org', scopes: [], rows: state.orgs.map((o) => ({ id: o.id })) },
     { type: 'project', scopes: ['org'], rows: state.projects.map((p) => ({ id: p.id, org_id: p.org })) },
-    { type: 'file', scopes: ['project', 'org'], rows: state.files.map((f) => ({ id: f.id, name: f.name, project_id: f.project, org_id: f.org })), read: PERMISSION },
+    { type: 'file', scopes: ['project', 'org'], rows: state.files.map((f) => ({ id: f.id, name: f.name, project_id: f.project, org_id: f.org, updated_at: f.updated_at })), read: PERMISSION },
     { type: 'group', scopes: ['org'], rows: state.groups.map((g) => ({ id: g.id, org_id: g.org })) },
   ];
   const out = new Map<string, ModelClass>();
   for (const spec of specs) {
     const columns: Record<string, string> = { id: 'TEXT' };
-    for (const c of Object.keys(spec.rows[0])) columns[c] = 'TEXT';
+    for (const c of Object.keys(spec.rows[0])) columns[c] = c === 'updated_at' ? 'TIMESTAMP' : 'TEXT';
     const model = await db.define(
       {
         name: `Canvas_${spec.type}`,
@@ -255,6 +268,7 @@ async function defineCanvasModels(db: RootOrm, kind: Kind, state: CanvasState): 
       },
       kind,
     );
+    if (spec.type === 'file') await db.raw(kind, `CREATE INDEX canvas_file_recent ON "${db.table(model)}" (updated_at DESC, id)`);
     out.set(spec.type, model);
   }
   return out;
@@ -362,10 +376,12 @@ export interface CanvasBench {
   readonly file: ModelClass;
   /** The list of `project:read` on files through authz-orm's query middleware, as an app lists. */
   list(principal: Principal): Promise<string[]>;
-  /** A residual compiled by authz-orm on the file table and run, outside any principal's scope. */
-  run(residual: ResourceFilter, principal: Principal): Promise<string[]>;
-  /** The statements one list ran. */
-  statements(principal: Principal, residual?: ResourceFilter): Promise<Statement[]>;
+  /** One page of that list, `updated_at DESC, id ASC`, `PAGE_SIZE` rows from `offset`. */
+  page(principal: Principal, offset: number): Promise<string[]>;
+  /** A residual compiled by authz-orm on the file table and run, outside any principal's scope; with `offset`, one page of it as `page` orders it. */
+  run(residual: ResourceFilter, principal: Principal, offset?: number): Promise<string[]>;
+  /** The statements one list (one page with `offset`) ran. */
+  statements(principal: Principal, residual?: ResourceFilter, offset?: number): Promise<Statement[]>;
   /** One statement as the driver runs it. */
   execute(s: Statement): Promise<unknown[]>;
   /** Postgres: sets `jit` for the bench database and reconnects the pool so every session has it. */
@@ -408,6 +424,9 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
       async register(host) {
         const c = host.container;
         host.setConfig(['authz', 'orm', 'domain'], DOMAIN);
+        // As the SQL kit harness: on a loaded machine a check that reads the DB stores outlasts the default 2 s
+        // model timeout and becomes model_error, a refusal the list does not share, and the oracle check fails.
+        host.setConfig(['authz', 'domains', DOMAIN, 'engine', 'modelTimeoutMs'], 120000);
         host.setConfig(['authz', 'rbac', 'ladders'], CANVAS_CONFIG.rbac.ladders);
         host.setConfig(['authz', 'rbac', 'roles'], CANVAS_CONFIG.rbac.roles);
         host.setConfig(['authz', 'rbac', 'rules'], CANVAS_CONFIG.rbac.rules);
@@ -444,10 +463,11 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
     await db.raw(kind, 'ANALYZE');
     const file = models.get('file')!;
 
-    const run = async (residual: ResourceFilter, principal: Principal): Promise<string[]> => {
+    const paged = (q: any, offset: number | undefined) => (offset === undefined ? q : q.orderByDescending('updated_at').orderBy('id').take(PAGE_SIZE).skip(offset));
+    const run = async (residual: ResourceFilter, principal: Principal, offset?: number): Promise<string[]> => {
       if (residual.op === 'false') return [];
       return runWithPrincipal(SYSTEM, async () => {
-        const q = (file as unknown as { query(): any }).query();
+        const q = paged((file as unknown as { query(): any }).query(), offset);
         compileResidual(residual, q, { model: file, principal, op: 'read' });
         return idsOf(await q);
       });
@@ -463,9 +483,10 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
         return jit;
       },
       list: (principal) => runWithPrincipal(principal, async () => idsOf(await (file as unknown as { query(): any }).query())),
+      page: (principal, offset) => runWithPrincipal(principal, async () => idsOf(await paged((file as unknown as { query(): any }).query(), offset))),
       run,
-      async statements(principal, residual) {
-        const { statements } = await capture(driver, () => (residual ? run(residual, principal) : bench.list(principal)));
+      async statements(principal, residual, offset) {
+        const { statements } = await capture(driver, () => (residual ? run(residual, principal, offset) : offset === undefined ? bench.list(principal) : bench.page(principal, offset)));
         return statements;
       },
       execute: (s) => rawQuery(driver, s.sql, [...s.bindings], QueryContext.Select),
@@ -487,10 +508,10 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
         if (kind === 'postgres') {
           out.server = ((await db.raw(kind, 'SELECT version() AS v')) as { v: string }[])[0].v;
           out.settings = await db.raw(kind, "SELECT name, setting FROM pg_settings WHERE name IN ('jit', 'jit_above_cost', 'jit_inline_above_cost', 'jit_optimize_above_cost', 'work_mem', 'shared_buffers', 'random_page_cost', 'max_parallel_workers_per_gather')");
-          out.indexes = await db.raw(kind, "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE tablename IN ('authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_scope_attribute') ORDER BY tablename, indexname");
+          out.indexes = await db.raw(kind, "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE tablename IN ('authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_scope_attribute') OR indexname = 'canvas_file_recent' ORDER BY tablename, indexname");
         } else {
           out.server = `sqlite ${((await db.raw(kind, 'SELECT sqlite_version() AS v')) as { v: string }[])[0].v}`;
-          out.indexes = await db.raw(kind, "SELECT tbl_name AS tablename, name AS indexname, sql AS indexdef FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_scope_attribute') ORDER BY tbl_name, name");
+          out.indexes = await db.raw(kind, "SELECT tbl_name AS tablename, name AS indexname, sql AS indexdef FROM sqlite_master WHERE type = 'index' AND (tbl_name IN ('authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_scope_attribute') OR name = 'canvas_file_recent') ORDER BY tbl_name, name");
         }
         return out;
       },
