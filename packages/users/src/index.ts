@@ -1,8 +1,5 @@
-import ac from 'accesscontrol';
-import { AccessControl } from 'accesscontrol';
-
-import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
+import { Injectable, Bootstrapper, DI } from '@spinajs/di';
+import { registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
 import { PasswordMailer } from '@spinajs/authn-local';
 
@@ -29,10 +26,7 @@ export * from './migrations/RBACRegisteredAt_2026_07_28_00_00_00.js';
 export * from './migrations/UsersPasswordSetAt_2026_10_04_00_00_00.js';
 export * from './events/index.js';
 export * from './actions.js';
-export * from './permission-service.js';
-export * from './util.js';
 export * from './profile.js';
-export * from './impersonation.js';
 export * from './model-token.js';
 export * from './cli/RbacCliCommand.js';
 export * from './principal/index.js';
@@ -42,11 +36,6 @@ export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
 export * from './identity/index.js';
 export * from './authn/index.js';
-
-// fix error `The requested module 'accesscontrol' is a CommonJS module`
-const { Permission } = ac;
-/** @deprecated 3.0: authz(); RBAC introspection through RbacService. R1 deletes them. */
-export { AccessControl, Permission };
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
@@ -73,16 +62,5 @@ export class RbacBootstrapper extends Bootstrapper {
     if (!DI.RootContainer.hasRegistered(PasswordMailer)) {
       DI.register(EmailPasswordMailer).as(PasswordMailer);
     }
-
-    /** @deprecated 3.0: roles and grants live in `authz.rbac`; users no longer reads it. R1 deletes it. */
-    const ac = new AccessControl();
-    DI.register(ac).asValue('AccessControl');
-    // users ships no rbac.grants any more: only an application still on the 2.x checks sets them.
-    DI.once('di.resolved.Configuration', (_: IContainer, configuration: Configuration) => {
-      const grants = configuration.get('rbac.grants');
-      if (grants) {
-        ac.setGrants(grants);
-      }
-    });
   }
 }

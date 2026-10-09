@@ -32,7 +32,6 @@ const USERS_HOST_KEYS = [
   'RbacBootstrapper',
   '__configurationSchema__',
   'RbacUserModel',
-  'AccessControl',
   'ConfigurationSource',
   'JsFileSource',
   'JsonFileSource',

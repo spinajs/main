@@ -107,7 +107,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
       await u.insert();
 
       const read = await User.query().whereLogin('plain').firstOrFail();
-      expect(read.Role).to.eq(undefined);
+      expect((read as unknown as { Role?: unknown }).Role).to.eq(undefined);
     });
   });
 

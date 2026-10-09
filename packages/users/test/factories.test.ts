@@ -80,8 +80,4 @@ describe('users bootstrap: reserved logins, 2.x AccessControl', function () {
       expect(isReservedLogin('_system_')).to.eq(false);
     });
   });
-
-  it("keeps the deprecated 'AccessControl' registration for 2.x consumers", () => {
-    expect(DI.get('AccessControl')).to.not.eq(undefined);
-  });
 });

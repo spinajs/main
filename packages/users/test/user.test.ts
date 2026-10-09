@@ -304,7 +304,6 @@ describe('User model tests', function () {
         Email: 'test@spinajs.pl',
         Login: 'tesssst',
         Password: await provider.hash('bbbb'),
-        Role: ['admin'],
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
       });
@@ -319,7 +318,6 @@ describe('User model tests', function () {
         Email: 'tessssst@spinajs.pl',
         Login: 'tesw222ssst',
         Password: await provider.hash('bbbb'),
-        Role: ['admin'],
         IsActive: true,
         Uuid: TEST_USER_UUID,
       });
@@ -334,7 +332,6 @@ describe('User model tests', function () {
         Email: 'test-22222@spinajs.pl',
         Login: 'test',
         Password: await provider.hash('bbbb'),
-        Role: ['admin'],
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
       });

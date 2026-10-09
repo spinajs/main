@@ -269,15 +269,6 @@ export class UserBase extends ModelBase<UserBase> {
   public Login!: string;
 
   /**
-   * Type only: authz-rbac's migrations copy the `users.Role` column into `authz_assignment` and
-   * drop it. Nothing in users sets it; only the deprecated 2.x code (`effectiveRoles`) still
-   * reads a value a 2.x caller put on an instance in memory.
-   *
-   * @deprecated 3.0: RbacService.rolesOf(principal) or AssignmentStore.forSubjects([user:<Uuid>]). R1 deletes it.
-   */
-  public declare Role: string[];
-
-  /**
    * User creation date
    */
   @CreatedAt()

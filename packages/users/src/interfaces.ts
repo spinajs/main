@@ -260,9 +260,6 @@ export const SessionProvider = LegacySessionProvider;
 /** @deprecated 3.0: LegacySessionProvider, renamed so DI never mixes it with authn-session's. R1 deletes it. */
 export type SessionProvider<T extends ISession = ISession> = LegacySessionProvider<T>;
 
-/** @deprecated 3.0: permission names '<resource>:<action>' and relations of @spinajs/authz. R1 deletes it. */
-export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
-
 /**
  * What a client may tell the user about the password rule BEFORE they submit
  * one - the human-facing counterpart of {@link PasswordValidationProvider.check}.
@@ -338,15 +335,6 @@ export interface IRbacAsyncStorage<U = User> {
   User?: U;
 
   Session?: ISession;
-
-  /**
-   * Currently selected role from User.Role list. When set, all request-bound
-   * permission checks (rbac query middleware, RbacPolicy) use this single role
-   * instead of the full role array. The user may switch via /auth/active-role.
-   *
-   * @deprecated 3.0: principal.ceiling?.roles (role switch, authn). R1 deletes it.
-   */
-  ActiveRole?: string;
 
   /**
    * Original user when an impersonation is active. `User` then holds the
