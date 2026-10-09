@@ -11,13 +11,14 @@ import { Ok } from '@spinajs/http';
 import { FreshAuth } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
-import { NO_PASSWORD, PasswordProvider, SessionProvider, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
+import { NO_PASSWORD, SessionProvider, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
 
 import { Users } from '../src/admin/controllers/Users/Users.js';
 import { Security } from '../src/admin/controllers/Users/Security.js';
 import { Profile } from '../src/admin/controllers/Users/Profile.js';
 
 import { globalRolesOf } from './support/authz-host.js';
+import { testHasher } from './support/hasher.js';
 import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld, signedInPrincipalOf } from './support/admin-world.js';
 import { ownedCache } from './support/owned-cache.js';
 import { NO_REQUEST, passLifecycleGates } from './support/lifecycle-gates.js';
@@ -171,8 +172,7 @@ describe('Admin user controllers', function () {
     });
 
     it('caps the page size, so the endpoint cannot be turned into a table dump', async () => {
-      const pwd = (await DI.resolve(PasswordProvider)) as PasswordProvider;
-      const hash = await pwd.hash('bulk1234');
+      const hash = await testHasher.hash('bulk1234');
 
       for (let i = 0; i < 101; i++) {
         await new User({

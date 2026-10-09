@@ -1,57 +1,31 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, NO_PASSWORD, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
-import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
+import { DateTime } from 'luxon';
 
-import { DbTestConfiguration } from './db-common.js';
+import { bootV3Db, insertUserRow, shutdownV3Db } from './v3/db.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 
-// A bare `users` row rather than users' `create()`, which needs an authz host, a session issuer and a mailer this suite does not boot.
-async function insertOwner(mail: string, login: string): Promise<User> {
-  const owner = new User({ Email: mail, Login: login, Password: NO_PASSWORD, Uuid: uuidv4(), IsActive: true, CreatedAt: DateTime.now() });
-  await owner.insert();
-  return owner;
-}
+// A bare `users` row: the suite boots only this package's migrations.
+const insertOwner = async (): Promise<{ Id: number }> => ({ Id: await insertUserRow(uuidv4()) });
 
 describe('AccessToken model', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.setESMModuleSupport();
+    await bootV3Db();
 
-    DI.register(DbTestConfiguration).as(Configuration);
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
-
-    // rbac wires its AccessControl instance and user factories from a
-    // bootstrapper; nothing runs bootstrappers for us outside a real app.
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Configuration);
-    await DI.resolve(Orm);
-
-    // `rbac_access_tokens.user_id` references `users`, and the Profile tests
-    // below address their owner by a literal id rather than creating one, so
-    // seed a user here - that keeps them passing when mocha is given a filter
-    // that skips the tests which create their own owners.
-    await insertOwner('model@spinajs.com', 'model');
+    // The Profile tests below address their owner by a literal id rather than creating one, so seed a user here -
+    // that keeps them passing when mocha is given a filter that skips the tests which create their own owners.
+    await insertOwner();
   });
 
   after(async () => {
-    DI.clearCache();
+    await shutdownV3Db();
   });
 
   it('persists and loads a token with roles set and null expiry', async () => {
-    const owner = await insertOwner('owner@spinajs.com', 'owner');
+    const owner = await insertOwner();
 
     const token = new AccessToken({
       Name: 'test token',
@@ -71,7 +45,7 @@ describe('AccessToken model', function () {
   });
 
   it('IsExpired is true for past ExpiresAt', async () => {
-    const owner = await insertOwner('owner2@spinajs.com', 'owner2');
+    const owner = await insertOwner();
     const token = new AccessToken({
       Name: 'expired',
       Token: 'b'.repeat(64),
@@ -86,7 +60,7 @@ describe('AccessToken model', function () {
   });
 
   it('hides hash, ids and owner when dehydrated', async () => {
-    const owner = await insertOwner('owner3@spinajs.com', 'owner3');
+    const owner = await insertOwner();
     const token = new AccessToken({
       Name: 'hidden fields',
       Token: 'c'.repeat(64),

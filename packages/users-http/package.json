@@ -67,6 +67,7 @@
     "@spinajs/validation": "2.0.549"
   },
   "devDependencies": {
+    "@spinajs/authn-local": "3.0.0-alpha.0",
     "@spinajs/authn-session": "3.0.0-alpha.0",
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",

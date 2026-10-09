@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -15,7 +14,7 @@ import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { v4 as uuidv4 } from 'uuid';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, User } from '../src/index.js';
+import { User } from '../src/index.js';
 import { create, getUsersByRole } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
@@ -72,10 +71,8 @@ describe('roles as GLOBAL assignments (H13)', function () {
   this.timeout(30000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 

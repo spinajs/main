@@ -7,16 +7,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
-import { AuthProvider, BasicPasswordProvider, NO_PASSWORD, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User } from '../../src/index.js';
+import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../../src/index.js';
 import { TestConfiguration } from '../common.test.js';
 import { registerAuthzHost } from './authz-host.js';
 
 /** The registrations the Orm-backed users suites make in `before()`. */
 export function registerUsersTestHost(): void {
-  DI.register(SimpleDbAuthProvider).as(AuthProvider);
   DI.register(TestConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  DI.register(BasicPasswordProvider).as(PasswordProvider);
   registerAuthzHost();
 }
 

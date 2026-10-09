@@ -10,10 +10,8 @@ import { dir, dropOwnCompiledDirs, registerAuthnSchema } from '../db-common.js';
 const CONNECTION = 'sqlite';
 
 /**
- * In-memory sqlite with this package's migrations, for the 3.0 suites. Never
- * imports `@spinajs/users`: its migrations only run when a legacy suite in
- * the same mocha process has imported it (`.mocharc.json` loads every spec,
- * so in `npm test` they always do).
+ * In-memory sqlite with this package's migrations, for the 3.0 suites. No
+ * `users` table exists until {@link insertUserRow} creates it.
  */
 export class V3DbConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -59,7 +57,7 @@ function uncacheOwn(): void {
   DI.uncache(SqliteOrmDriver);
 }
 
-// `@spinajs/users`, imported by the legacy suites, registers its RoleSource and IdentityStore at import; the 3.0
+// An earlier suite may leave a RoleSource or IdentityStore registered; the 3.0
 // suites register their own or assert there is none. Unregistering alone leaves an empty entry, which DI resolves
 // differently from an unregistered port, so the port is registered as itself: what DI records when it resolves one.
 const FOREIGN_PORTS = [RoleSource, IdentityStore] as Class<unknown>[];
@@ -122,9 +120,8 @@ export function v3Connection(): OrmDriver {
 
 /**
  * Inserts a `users` row and returns its `Id`. Creates the table when missing,
- * with the columns `@spinajs/users`' `RBACInitial_2022_06_28_01_13_00` leaves
- * after authz-rbac's `AuthzRbacDropUserRole` (no `Role`), because those
- * migrations only run when some suite imported the package.
+ * with the columns `@spinajs/users` leaves after its migrations and authz-rbac's
+ * `AuthzRbacDropUserRole` (no `Role`); this package does not depend on users.
  */
 export async function insertUserRow(uuid: string): Promise<number> {
   const connection = v3Connection();

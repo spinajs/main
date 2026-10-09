@@ -124,7 +124,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           // the end to end suite uses a guest scoped token to prove that a valid
           // token still gets a 403 when its roles do not carry the grant.
         },
-        auth: { service: 'SimpleDbAuthProvider' },
         password: {
           passwordExpirationTime: 0,
         },
@@ -136,8 +135,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: { secure: false },
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
-          policy: { service: 'BasicPasswordValidationProvider', rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' } },
+          policy: { rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' } },
           reset: { ttlSeconds: 60 * 60 },
         },
         token: {

@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -11,7 +10,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, SYSTEM_LOGIN, User, isReservedLogin } from '../src/index.js';
+import { SYSTEM_LOGIN, User, isReservedLogin } from '../src/index.js';
 import { assertUserUnique, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { registerAuthzHost } from './support/authz-host.js';
@@ -26,10 +25,8 @@ describe('users bootstrap: reserved logins, 2.x AccessControl', function () {
   this.timeout(30000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 

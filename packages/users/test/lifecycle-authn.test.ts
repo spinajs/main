@@ -8,11 +8,12 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { SYSTEM, UNATTENDED, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
-import { LoginAttemptsExceeded, PasswordChangeConflict, PasswordProvider, SessionProvider, TokenInvalid, USER_COMMON_METADATA, User, UserIsBanned, UserMetadataBase, UserPasswordStore, UserSession } from '../src/index.js';
+import { LoginAttemptsExceeded, PasswordChangeConflict, SessionProvider, TokenInvalid, USER_COMMON_METADATA, User, UserIsBanned, UserMetadataBase, UserPasswordStore, UserSession } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { _set_user_meta, activate, ban, changeUserPassword, confirmPasswordReset, create, deactivate, deleteUser, expirePassword, issuePasswordResetToken, passwordChangeRequest, revokeUserTokens, setUserMeta } from '../src/actions.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
+import { testHasher } from './support/hasher.js';
 import { RecordingSessionIssuer, registerRecordingSessionIssuer } from './support/session-issuer.js';
 import { RecordingTokenService, registerRecordingTokenService } from './support/token-service.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
@@ -66,7 +67,7 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
       ['changeUserPassword', (u: User) => changeUserPassword(u, 'n3wpassword')],
     ] as const) {
       it(`${title} revokes every authn session of user:<Uuid>, impersonations included, and the 2.x ones`, async () => {
-        const { user } = await seedUser({ login: `revoke-${title}`, password: await ((await DI.resolve(PasswordProvider)) as PasswordProvider).hash('0ldpassword') });
+        const { user } = await seedUser({ login: `revoke-${title}`, password: await testHasher.hash('0ldpassword') });
         const issuer = (await DI.resolve(SessionIssuer)) as RecordingSessionIssuer;
         const own = await issuer.issue(userRef(user), FACTS);
         const other = await issuer.issue({ type: 'user', id: TEST_USER_UUID }, { ...FACTS, impersonator: userRef(user) });
@@ -182,7 +183,7 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
     }
 
     it('changeUserPassword keeps the tokens (H32)', async () => {
-      const { user } = await seedUser({ login: 'tokens-change', password: await ((await DI.resolve(PasswordProvider)) as PasswordProvider).hash('0ldpassword') });
+      const { user } = await seedUser({ login: 'tokens-change', password: await testHasher.hash('0ldpassword') });
 
       await changeUserPassword(await storedUser(user.Uuid), 'n3wpassword');
 
@@ -232,11 +233,10 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
 
   describe('changeUserPassword (deprecated, K3b race)', () => {
     it('writes only over the hash the caller loaded: a reset landing meanwhile wins and it throws', async () => {
-      const provider = (await DI.resolve(PasswordProvider)) as PasswordProvider;
-      const { user } = await seedUser({ login: 'race', password: await provider.hash('0ldpassword') });
+      const { user } = await seedUser({ login: 'race', password: await testHasher.hash('0ldpassword') });
       const loaded = await storedUser(user.Uuid);
 
-      const reset = await provider.hash('r3setpassword');
+      const reset = await testHasher.hash('r3setpassword');
       await new UserPasswordStore().set({ type: 'user', id: user.Uuid }, reset);
 
       const err = await changeUserPassword(loaded, 'n3wpassword').catch((e) => e);
@@ -247,15 +247,14 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
     });
 
     it('sets the password over the loaded hash, stamps PasswordSetAt and writes no metadata', async () => {
-      const provider = (await DI.resolve(PasswordProvider)) as PasswordProvider;
-      const { user } = await seedUser({ login: 'change-ok', password: await provider.hash('0ldpassword') });
+      const { user } = await seedUser({ login: 'change-ok', password: await testHasher.hash('0ldpassword') });
       user.Metadata[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = 3;
       await user.Metadata.update();
 
       await changeUserPassword(await storedUser(user.Uuid), 'n3wpassword');
 
       const stored = await storedUser(user.Uuid);
-      expect(await provider.verify(stored.Password, 'n3wpassword')).to.eq(true);
+      expect(await testHasher.verify(stored.Password, 'n3wpassword')).to.eq(true);
       expect(stored.PasswordSetAt).to.not.eq(null);
       expect((await metadataKeys(user.Id)).filter((k) => AUTH_STATE.test(k))).to.deep.eq([]);
     });
@@ -265,10 +264,9 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
 
       await changeUserPassword(await storedUser(user.Uuid), ' n3wpassword ');
 
-      const provider = (await DI.resolve(PasswordProvider)) as PasswordProvider;
       const stored = (await storedUser(user.Uuid)).Password;
-      expect(await provider.verify(stored, ' n3wpassword ')).to.eq(true);
-      expect(await provider.verify(stored, 'n3wpassword')).to.eq(false);
+      expect(await testHasher.verify(stored, ' n3wpassword ')).to.eq(true);
+      expect(await testHasher.verify(stored, 'n3wpassword')).to.eq(false);
     });
 
     it("checks the new password with PasswordService.check, authn's policy", async () => {
@@ -287,7 +285,7 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
 
       await changeUserPassword(await storedUser(user.Uuid), 'n3wpassword');
 
-      expect(await ((await DI.resolve(PasswordProvider)) as PasswordProvider).verify((await storedUser(user.Uuid)).Password, 'n3wpassword')).to.eq(true);
+      expect(await testHasher.verify((await storedUser(user.Uuid)).Password, 'n3wpassword')).to.eq(true);
     });
   });
 

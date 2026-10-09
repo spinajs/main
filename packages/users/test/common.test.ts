@@ -180,9 +180,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         },
         defaultRole: 'guest',
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
         password: {
           /**
            * Should password expire after some time ?
@@ -241,14 +238,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
-
-          // authn.local.generator is deliberately absent: BasicPasswordProvider.generate()
-          // (src/password.ts) falls back to an in-code default that mirrors this exact
-          // value, so tests that auto-generate a password (eg. create() without a
-          // `password` option) still exercise a real, working generate() call.
+          // authn.local.generator is deliberately absent: the shipped default applies.
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: {
               // UNCOMMENT ONE OF BELOW OR MODIFY
               // VALIDATION RULE IS JSON SCHEMA

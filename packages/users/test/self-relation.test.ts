@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -12,7 +11,7 @@ import { GLOBAL, RelationResolver, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, User, UserPrincipalFactory, UserSelfRelation, UsersSelfRelation } from '../src/index.js';
+import { User, UserPrincipalFactory, UserSelfRelation, UsersSelfRelation } from '../src/index.js';
 import { activate, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
@@ -97,10 +96,8 @@ describe('self relation', function () {
 
   describe('through a real host', () => {
     before(() => {
-      DI.register(SimpleDbAuthProvider).as(AuthProvider);
       DI.register(TestConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-      DI.register(BasicPasswordProvider).as(PasswordProvider);
       registerAuthzHost();
     });
 

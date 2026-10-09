@@ -1,8 +1,7 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
+import { User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
 import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban } from '../src/actions.js';
 import { MetadataNotFound, UserAlreadyExists } from '../src/exceptions.js';
 import { Configuration } from '@spinajs/configuration';
@@ -31,10 +30,8 @@ describe('actions fundamentals ( imperative helpers )', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 

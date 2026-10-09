@@ -69,7 +69,6 @@
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
-    "@spinajs/users": "3.0.0-alpha.0",
     "cookie-signature": "^1.2.2"
   }
 }

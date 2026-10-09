@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -15,11 +14,12 @@ import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, InvalidCredentials, PasswordProvider, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA, verifyPassword } from '../src/index.js';
+import { AuthProvider, InvalidCredentials, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA } from '../src/index.js';
 import { create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
+import { testHasher } from './support/hasher.js';
 
 chai.use(chaiAsPromised);
 
@@ -46,10 +46,8 @@ describe('create(user, roles?)', function () {
   let emit: sinon.SinonStub;
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 
@@ -138,7 +136,7 @@ describe('create(user, roles?)', function () {
 
       expect(passwordCalls).to.have.lengthOf(1);
       expect(passwordCalls[0]).to.deep.include({ method: 'set', id: { type: 'user', id: u.Uuid }, password: 'passw0rd123', actor: { type: SYSTEM.type, id: SYSTEM.id } });
-      expect(await verifyPassword(await User.query().whereLogin('pw').firstOrFail(), 'passw0rd123')).to.eq(true);
+      expect(await testHasher.verify((await User.query().whereLogin('pw').firstOrFail()).Password, 'passw0rd123')).to.eq(true);
     });
 
     it('that breaks the policy refuses the create with the 2.x error, before anything is written', async () => {

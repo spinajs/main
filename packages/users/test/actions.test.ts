@@ -1,8 +1,7 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, _user_update, USER_COMMON_METADATA, UserBanned, UserUnbanned, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
+import { User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, _user_update, USER_COMMON_METADATA, UserBanned, UserUnbanned, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../src/exceptions.js';
@@ -35,10 +34,8 @@ describe('User model tests', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 

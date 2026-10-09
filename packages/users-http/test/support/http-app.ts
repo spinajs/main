@@ -20,7 +20,7 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 // Loading it registers the 3.0 authn layer (AuthnMiddleware, resolvers, route args) on the root container, as in an app.
 import '@spinajs/authn-http';
 import { PrincipalMiddleware } from '@spinajs/authz-http';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
+import { User } from '@spinajs/users';
 
 import { registerAuthzHost, seedRoles } from './authz-host.js';
 // Registers the password strategy a suite lists in `authn.strategies` (REAUTH_STRATEGIES) for fresh auth with a password.
@@ -223,8 +223,6 @@ export async function startUsersHttpApp(opts: UsersHttpAppOptions): Promise<User
   DI.setESMModuleSupport();
   DI.register(UsersHttpAppConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-  DI.register(BasicPasswordProvider).as(PasswordProvider);
-  DI.register(SimpleDbAuthProvider).as(AuthProvider);
   registerAuthzHost();
   release();
   restoreErrorMap();
