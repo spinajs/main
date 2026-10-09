@@ -164,7 +164,8 @@ export class RbacPathSql {
       types.set(n.type, [...(types.get(n.type) ?? []), empty]);
     }
     if (types.size === 0) return FALSE_SQL;
-    return andSql(rsql`${type} IS NOT NULL AND ${id} IS NOT NULL AND ${id} = ${''}`, orSql(...[...types].map(([t, empties]) => andSql(rsql`${type} = ${t}`, orSql(...empties)))));
+    // One arm per type, each with `scope_type = t AND scope_id = ''`, so an OR beside `onPathNode` can be read by key.
+    return orSql(...[...types].map(([t, empties]) => andSql(rsql`${type} IS NOT NULL AND ${id} IS NOT NULL AND ${type} = ${t} AND ${id} = ${''}`, orSql(...empties))));
   }
 
   /** `x` names a node of the path. */

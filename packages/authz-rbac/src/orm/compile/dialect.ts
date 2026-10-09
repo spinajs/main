@@ -156,8 +156,10 @@ const postgres: RbacSqlDialect = {
     const exact = rsql`(CASE WHEN ${holds} THEN ${c} = CAST(CAST(${c} AS BIGINT) AS DOUBLE PRECISION) ELSE ${FALSE_SQL} END)`;
     return { holds, exact, text: rsql`CASE WHEN ${exact} THEN CAST(CAST(${c} AS BIGINT) AS TEXT) END`, findable: holds };
   },
-  // "C" compares byte by byte, also against a column with a nondeterministic collation.
-  sameText: (a, b) => rsql`${a} = ${b} COLLATE ${collation('C')}`,
+  // The database's default collation is deterministic, so its = compares byte by byte as "C" does, also against a
+  // column with a nondeterministic collation; unlike "C" it is the collation of the authz tables' indexes, so a
+  // stored scope_id is looked up by key.
+  sameText: (a, b) => rsql`${a} = ${b} COLLATE ${collation('default')}`,
   textBefore: (a, b) => rsql`${a} < ${b} COLLATE ${collation('C')}`,
   bmpOnly: (text) => rsql`NOT (${text} ~ ${`[${ASTRAL}]`})`,
   jsonString: (doc, keys) => rsql`CASE WHEN json_typeof(${pgJson(doc, keys)}) = ${'string'} THEN ${pgJson(doc, keys, true)} END`,

@@ -366,6 +366,9 @@ describe('authz-rbac orm-compile: stored rules (DbRuleStore) in SQL', function (
         );
         await lists(user('ann'), 'doc:edit', ['1', '2', '3', '4', '5', '7', '8']);
         await lists(user('ann'), 'doc:read', ALL);
+        // A node holding '' matches only the type-only scope, not a rule at another id of its type: doc 6 (org '') keeps edit.
+        await scenario([{ id: 'c2', kind: 'cap', scope: O('o1'), ladder: 'project', maxRole: 'viewer' }], [assignment(u('ann'), 'editor', GLOBAL)]);
+        await lists(user('ann'), 'doc:edit', ['2', '4', '5', '6', '7', '8']);
         const typeOnlyTeam = { set: { role: 'team.member', scope: at('team') } };
         await scenario([{ id: 'r1', kind: 'restrict', scope: O('o1'), allow: [typeOnlyTeam] }], [assignment(u('gus'), 'team.member', at('team')), assignment(typeOnlyTeam, 'editor', GLOBAL), assignment(u('gus'), 'viewer', GLOBAL)]);
         await narrower(user('gus'), 'doc:edit', ['2', '4', '5', '6', '7', '8'], ['1', '3']);
