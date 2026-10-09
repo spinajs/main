@@ -1,21 +1,16 @@
 import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
-import type { IResponseHeader, Request } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import { Config } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { Principal } from '@spinajs/authz';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { ACCESS_DOMAIN_KEY } from '@spinajs/users';
 import type { User } from '@spinajs/users';
 
 import { CurrentUser } from '../args/current-user.js';
 import { ownUser } from '../services/own-user.js';
+import { NO_STORE, SESSION_CALLER } from '../services/session-callers.js';
 import { assertTokenRoutesOn, offeredTokenProfiles, offeredTokenRoles } from '../services/token-offer.js';
-
-/** The callers authn-http's `POST /user/tokens` serves: a session, not a token or key, and not an impersonation. */
-const TOKEN_CREATORS = [Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy];
-
-const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
 
 const PROFILE_MAX_LENGTH = 128;
 
@@ -65,7 +60,7 @@ export class UserController extends BaseController {
    * @response 500 The token role rules or policies cannot be read: nothing is offered
    */
   @Get('tokens/roles')
-  @Access('user:read', { resource: ownUser, subject: 'load', also: TOKEN_CREATORS })
+  @Access('user:read', { resource: ownUser, subject: 'load', also: SESSION_CALLER })
   public async tokenRoles(@CurrentPrincipal() caller: Principal, @Req() req: Request) {
     assertTokenRoutesOn();
     const profile = profileOf(req);
@@ -83,7 +78,7 @@ export class UserController extends BaseController {
    * @response 500 The profile policy cannot be read: nothing is offered
    */
   @Get('tokens/profiles')
-  @Access('user:read', { resource: ownUser, subject: 'load', also: TOKEN_CREATORS })
+  @Access('user:read', { resource: ownUser, subject: 'load', also: SESSION_CALLER })
   public async tokenProfiles(@CurrentPrincipal() caller: Principal) {
     assertTokenRoutesOn();
     return new Ok({ Profiles: await offeredTokenProfiles(caller) }, { Headers: [NO_STORE] });

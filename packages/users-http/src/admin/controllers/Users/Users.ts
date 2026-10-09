@@ -1,4 +1,4 @@
-import { Autoinject } from '@spinajs/di';
+import { Autoinject, DI } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
@@ -6,7 +6,7 @@ import { SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
-import { GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
+import { AuthzService, GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, Principal } from '@spinajs/authz';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
@@ -17,7 +17,7 @@ import { asHttpRefusal, userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
-import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
+import { everyUserRow, requireEveryUser, userRowFor } from '../../../services/users-access.js';
 
 /**
  * Columns a client may sort by.
@@ -488,8 +488,11 @@ export class Users extends BaseController {
         throw err;
       }
 
-      // A retry would only get a 409: answer with the account that exists.
-      const created = await userModel().query().where('Uuid', err.data.user).populate('Metadata').firstOrFail();
+      // A retry would only get a 409: answer with the account that exists. As SYSTEM: the caller may not read the new
+      // row through a scoped user model.
+      const uuid = err.data.user;
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const created = await authz.runAs(SYSTEM, 'users-http-created-row', () => userModel().query().where('Uuid', uuid).populate('Metadata').firstOrFail());
       return new Ok({ ...created.dehydrateWithRelations({ dateTimeFormat: 'iso' }), Incomplete: { resendInvite: err.data.resendInvite } });
     }
   }
@@ -628,10 +631,8 @@ export class Users extends BaseController {
   @Patch(':uuid/restore')
   @Access('users:delete')
   public async restoreUser(@CurrentPrincipal() caller: Principal, @Param() uuid: string) {
-    await requireEveryUser(caller, 'users:delete');
-
     // withDeleted: every model query filters soft-deleted rows out by default, and that is the one row this route exists for.
-    const user = await userRowFor(caller, 'users:delete', () => userModel().query().withDeleted().where('Uuid', uuid).first());
+    const user = await everyUserRow(caller, 'users:delete', () => userModel().query().withDeleted().where('Uuid', uuid).first());
 
     if (!user.DeletedAt) {
       throw new InvalidArgument(`User ${uuid} is not deleted`);

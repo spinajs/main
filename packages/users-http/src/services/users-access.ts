@@ -25,6 +25,21 @@ export async function requireEveryUser(principal: Principal, permission: Permiss
 }
 
 /**
+ * The row `lookup` finds (run as SYSTEM), for a caller holding `permission` on every user ({@link requireEveryUser}):
+ * the restore and the lifecycle routes. That grant covers every row, so nothing is decided again on the row.
+ */
+export async function everyUserRow(principal: Principal, permission: Permission, lookup: () => Promise<User | undefined | null>): Promise<User> {
+  await requireEveryUser(principal, permission);
+
+  const authz = (await DI.resolve(AuthzService)) as AuthzService;
+  const row = await authz.runAs(SYSTEM, 'users-http-admin-row', lookup);
+  if (!row) {
+    throw new ResourceNotFound('User not found');
+  }
+  return row;
+}
+
+/**
  * The row `lookup` finds (run as SYSTEM: the application's user model may be scoped), once the caller may apply
  * `permission` to it. `@Access` decides the `users` type only; a conditional decision there is decided again on the row,
  * as the caller. For such a caller a missing row answers 403 like a refused one, so it cannot probe for accounts.

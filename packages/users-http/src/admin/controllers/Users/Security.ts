@@ -1,7 +1,7 @@
 import { Autoinject, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
-import type { IResponseHeader, Request } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { activate, ban, deactivate, unban, userModel } from '@spinajs/users';
 import type { Principal } from '@spinajs/authz';
@@ -9,14 +9,14 @@ import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { AuthnAudit } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
-import { requireEveryUser, userRowFor } from '../../../services/users-access.js';
+import { NO_STORE, SESSION_CALLER } from '../../../services/session-callers.js';
+import { everyUserRow, userRowFor } from '../../../services/users-access.js';
 
 @Schema({
   type: 'object',
@@ -54,11 +54,6 @@ export interface IAdminSessionEntry {
   UserAgent?: string;
 }
 
-const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
-
-/** The policies of authn-http's credential admin routes: a session caller (no token, key or signature) not impersonating. */
-const SESSION_ADMIN = [Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy];
-
 async function sessionIssuer(): Promise<SessionIssuer> {
   if (!DI.RootContainer.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) {
     throw Object.assign(new ResourceNotFound('the admin session routes are off: no SessionIssuer is registered'), { error: 'not_found' });
@@ -78,9 +73,8 @@ async function sessionsTarget(by: Principal, permission: 'users:read' | 'users:u
 }
 
 /** The user `uuid` with its metadata (the ban lives there), for a caller holding `permission` on every user. */
-async function lifecycleTarget(caller: Principal, permission: 'users:update' | 'users:delete', uuid: string) {
-  await requireEveryUser(caller, permission);
-  return userRowFor(caller, permission, () => userModel().query().where('Uuid', uuid).populate('Metadata').first());
+function lifecycleTarget(caller: Principal, permission: 'users:update' | 'users:delete', uuid: string) {
+  return everyUserRow(caller, permission, () => userModel().query().where('Uuid', uuid).populate('Metadata').first());
 }
 
 /**
@@ -213,7 +207,7 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Get('sessions/:user')
-  @Access('users:read', { also: SESSION_ADMIN })
+  @Access('users:read', { also: SESSION_CALLER })
   public async listSessions(@CurrentPrincipal() caller: Principal, @Param() user: string): Promise<Ok<IAdminSessionEntry[]>> {
     const issuer = await sessionIssuer();
     const subject = await sessionsTarget(userActor(caller), 'users:read', user);
@@ -245,7 +239,7 @@ export class Security extends BaseController {
    * @response 404 User not found, or no session of this user has that handle (`session_not_found`)
    */
   @Del('sessions/:user/:handle')
-  @Access('users:update', { also: SESSION_ADMIN })
+  @Access('users:update', { also: SESSION_CALLER })
   public async revokeSession(@Req() req: Request, @CurrentPrincipal() caller: Principal, @Param() user: string, @Param() handle: string) {
     const by = userActor(caller);
     const issuer = await sessionIssuer();

@@ -37,7 +37,7 @@ export class UserMetadataController extends BaseController {
      * @param user User UUID path parameter
      * @param pagination.page Page number (zero-based)
      * @param pagination.limit Number of entries per page
-     * @param order.column Column to sort by (default: Id)
+     * @param order.column Column to sort by (default: Id). One of Id, Key, Type; any other answers 400
      * @param order.order Sort direction: ASC or DESC (default: DESC)
      * @returns {IUserMetadataEntry[]} Paginated list of metadata entries for the user
      * @response 401 Unauthorized — no signed-in principal
@@ -156,7 +156,7 @@ export class UserMetadataController extends BaseController {
      * @security cookieAuth
      * @param pagination.page Page number (zero-based)
      * @param pagination.limit Number of entries per page
-     * @param order.column Column to sort by (default: Id)
+     * @param order.column Column to sort by (default: Id). One of Id, Key, Type; any other answers 400
      * @param order.order Sort direction: ASC or DESC (default: DESC)
      * @returns {IUserMetadataEntry[]} Paginated list of own metadata entries
      * @response 401 Unauthorized — no signed-in principal

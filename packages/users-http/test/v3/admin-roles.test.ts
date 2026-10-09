@@ -10,7 +10,7 @@ import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
 import { FreshAuth } from '@spinajs/authn-http';
 import { FilterableLogicalOperators, IFilterRequest } from '@spinajs/orm-http';
 import { User } from '@spinajs/users';
-import { SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { AuthzService, SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from '../support/password-service.js';
@@ -159,9 +159,12 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
     it('answers 200 with the created account when a step after the grants failed', async () => {
       sinon.stub(TestPasswordService.prototype, 'invite').rejects(new Error('mailer down'));
+      const runAs = sinon.spy((await DI.resolve(AuthzService)) as AuthzService, 'runAs');
 
       const result = await world.users.addUser(await admin(), { Login: 'halfway', Email: 'halfway@spinajs.pl', Role: 'user' } as any);
       expect(result).to.be.instanceOf(Ok);
+      // The caller may not be allowed to read the new row through a scoped user model.
+      expect(runAs.calledWith(SYSTEM, 'users-http-created-row'), 'the created row is read as SYSTEM').to.eq(true);
 
       const data = await body<any>(result);
       const created = await User.query().whereLogin('halfway').firstOrFail();

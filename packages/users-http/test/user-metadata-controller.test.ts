@@ -95,6 +95,13 @@ describe('UserMetadataController', function () {
       expect(keysOf(asc)).to.deep.eq(['user:niceName', 'user:phone']);
     });
 
+    it('answers 400 for a column it does not sort by, as the user list does', async () => {
+      for (const column of ['Value', 'user_id', 'NoSuchColumn']) {
+        const res = await client.get(`/user/metadata${q({ order: { column, order: SortOrder.ASC } })}`);
+        expect(res.status, `${column}: ${res.text}`).to.eq(400);
+      }
+    });
+
     it('returns a single own entry by key', async () => {
       expect((await client.get('/user/metadata/user:niceName')).body.Value).to.eq('Owner');
     });

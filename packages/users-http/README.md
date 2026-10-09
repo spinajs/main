@@ -82,7 +82,8 @@ role grants through `users:*`.
 `/user` and the token routes answer 403 to a service, agent or other non-user principal. The metadata permissions are
 decided on each entry's row: users' `user` role holds them with the `owner` relation (its own entries only), `admin.users`
 unconditionally. Reserved keys (credential state such as `2fa:token`) are never listed; a read, update or delete of one
-answers 404 as for a missing entry, and a write of one is refused.
+answers 404 as for a missing entry, and a write of one is refused. A metadata list sorts by `Id`, `Key` or `Type`;
+any other `order.column` answers 400.
 
 ## Sessions of a user
 
@@ -210,6 +211,8 @@ This package's config fragment declares the `users:read`, `users:create`, `users
   `users:credentials`, the target covered, no protected role) besides `users:delete`. A `users:delete` holder can no
   longer disable an administrator it does not cover, and under users' guard nobody disables their own account
   through them, whatever `preventSelfLockout` says.
+- 3.0: the metadata lists sort by `Id`, `Key` or `Type` only; another `order.column` answers 400 (it used to sort
+  by `Value` or `user_id`, and answer 500 for an unknown column).
 - 3.0: `users:*` covers `users:credentials`, which the credential admin guard asks. A role manager holding single
   `users:<action>` grants without `users:credentials` can no longer hand out `admin.users`.
 - `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and

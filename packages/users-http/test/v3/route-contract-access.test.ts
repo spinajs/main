@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { parsePermission } from '@spinajs/authz';
-import { accessDescriptorOf, ACCESS_CLASS } from '@spinajs/authz-http';
+import { accessDescriptorOf, ACCESS_CLASS, AccessPolicy } from '@spinajs/authz-http';
 import type { IAccessRule } from '@spinajs/authz-http';
 import { ACL_CONTROLLER_DESCRIPTOR, Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
@@ -186,6 +186,25 @@ describe('users-http v3: admin route contract', function () {
         for (const route of routesOf(instance)) {
           if (!ruleOf(instance, route)) wrong.push(`${name}.${String(route.Method)}: no @Access`);
           if (isAnonymous(instance, route)) wrong.push(`${name}.${String(route.Method)}: anonymous`);
+        }
+      }
+
+      expect(wrong).to.deep.eq([]);
+    });
+
+    // http ORs separate policy groups, so a @Policy group beside the @Access one would be a second way in.
+    it('every route has one policy group, the @Access one, and no class carries a policy group', () => {
+      const wrong: string[] = [];
+
+      for (const { name, instance } of [...controllers, ...ownControllers]) {
+        const classGroups = controllerDescriptor(instance).Policies;
+        if (classGroups.length > 0) wrong.push(`${name}: ${classGroups.length} class policy group(s)`);
+
+        for (const route of routesOf(instance)) {
+          const groups = route.Policies;
+          if (groups.length !== 1 || groups[0][0]?.Type !== AccessPolicy) {
+            wrong.push(`${name}.${String(route.Method)}: ${groups.map((g) => g.map((p) => (p.Type as { name?: string }).name).join('+')).join(' | ')}`);
+          }
         }
       }
 

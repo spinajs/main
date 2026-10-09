@@ -12,12 +12,6 @@ import { configuredRoleNames } from './user-roles.js';
 /** A route that takes an account out of service. */
 export type AccountDisableAction = 'delete' | 'deactivate' | 'ban';
 
-const VERB: Readonly<Record<AccountDisableAction, string>> = {
-  delete: 'delete',
-  deactivate: 'deactivate',
-  ban: 'ban',
-};
-
 const LOOKUP_CHUNK = 100;
 
 /**
@@ -54,10 +48,9 @@ export class DefaultAccountGuard extends AccountGuard {
 
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
     const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
-    const verb = VERB[action];
 
     if (cfg.preventSelfLockout && isSelf(actor, target)) {
-      throw new Forbidden(`Cannot ${verb} your own account`);
+      throw new Forbidden(`Cannot ${action} your own account`);
     }
 
     if (!cfg.preventLastPrivilegedRemoval || cfg.privilegedPermission === undefined) {
@@ -66,7 +59,7 @@ export class DefaultAccountGuard extends AccountGuard {
 
     const current = await this.reload(target);
     if ((await this.privilegedNow(current, cfg.privilegedPermission)) && !(await this.hasWitness(current, cfg.privilegedPermission))) {
-      throw new Forbidden(`Cannot ${verb} this account: it would leave no account in service holding '${cfg.privilegedPermission}'`);
+      throw new Forbidden(`Cannot ${action} this account: it would leave no account in service holding '${cfg.privilegedPermission}'`);
     }
   }
 

@@ -19,6 +19,20 @@ const CREATE = 'user.metadata:create';
 const UPDATE = 'user.metadata:update';
 const DELETE = 'user.metadata:delete';
 
+// `order.column` reaches the query as an identifier: an unknown column would be a driver error (500), not a 400.
+const SORTABLE_COLUMNS = ['Id', 'Key', 'Type'];
+
+function sortColumn(order?: OrderDTO): string {
+  const column = order?.column;
+  if (!column) {
+    return 'Id';
+  }
+  if (!SORTABLE_COLUMNS.includes(column)) {
+    throw new InvalidArgument(`Cannot sort by '${column}'. Sortable columns are: ${SORTABLE_COLUMNS.join(', ')}`);
+  }
+  return column;
+}
+
 /**
  * Which column an "Id or Key" identifier addresses.
  *
@@ -55,6 +69,7 @@ export class UserMetadataService {
   /** Paginated, filtered, ordered listing of one user's metadata, without reserved keys and rows the caller may not read. */
   public async list(scope: MetadataScope, pagination?: PaginationDTO, order?: OrderDTO, filter?: IFilterRequest) {
     const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
+    const column = sortColumn(order);
 
     // Excluded in the query, not after it, so a page holds `limit` visible entries.
     const reserved = (await this.rowsOf(scope.ownerId)).filter((m) => isReservedMetadataKey(m.Key)).map((m) => m.Id);
@@ -69,7 +84,7 @@ export class UserMetadataService {
       .filter(filter?.filters ?? [], filter?.op)
       .take(limit)
       .skip(limit * (pagination?.page ?? 0))
-      .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC);
+      .order(column, order?.order ?? SortOrder.DESC);
 
     // A reserved row written between the two queries.
     const visible = rows.filter((m) => !isReservedMetadataKey(m.Key));
