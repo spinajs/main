@@ -3,8 +3,8 @@ import _ from 'lodash';
 import type { User } from './User.js';
 
 /**
- * Unsafe metadata orm model
- * It can access all metadata without RBAC permission check.
+ * The users_metadata row model. It applies no access check; callers such as
+ * users-http's `UserMetadataService` decide each row.
  */
 @Connection('default')
 @Model('users_metadata')
@@ -32,6 +32,7 @@ export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
 }
 
 
+// Own @Model: without it the Orm never registers the subclass and its descriptor lacks the table columns.
 @Connection('default')
 @Model('users_metadata')
 export class UserMetadata extends UserMetadataBase {

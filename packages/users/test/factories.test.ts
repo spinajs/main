@@ -21,7 +21,7 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-describe('users bootstrap: reserved logins, 2.x AccessControl', function () {
+describe('users bootstrap: reserved logins', function () {
   this.timeout(30000);
 
   before(() => {

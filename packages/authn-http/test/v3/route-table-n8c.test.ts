@@ -14,9 +14,6 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
 const SCANNED_2X_DIRS: string[] = [];
 const SCANNED_2X_CONTROLLERS: string[] = [];
 
-/** The 2.x controllers the 3.0 ones replace, deleted from the source tree. */
-const DELETED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
-
 /** Every 2.x credential controller 3.0 retires (`RETIRED_2X` of .authz-sdd/N8b-N8c-addendum.md). */
 const RETIRED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
 
@@ -63,14 +60,13 @@ describe('the N8c controller swap (route table)', function () {
   it('the scanned 2.x dirs hold only the 2.x controllers that stay; the deleted ones are gone from the sources', async () => {
     const scanned = (await Promise.all(SCANNED_2X_DIRS.map(routesOf))).flat();
     expect(controllersOf(scanned)).to.deep.eq(SCANNED_2X_CONTROLLERS);
-    const defining = new RegExp(`class (${DELETED_2X.join('|')})\\b`);
+    const defining = new RegExp(`class (${RETIRED_2X.join('|')})\\b`);
     expect(sourceFiles(SRC).filter((f) => defining.test(readFileSync(f, 'utf8')))).to.deep.eq([]);
   });
 
-  it('token/controllers is gone, and the retired set equals the addendum RETIRED_2X', async () => {
+  it('token/controllers and src/account are gone', async () => {
     expect(existsSync(join(SRC, 'token', 'controllers')), 'token/controllers is gone').to.eq(false);
     expect(existsSync(join(SRC, 'account')), 'src/account is gone').to.eq(false);
-    expect([...DELETED_2X].sort()).to.deep.eq([...RETIRED_2X].sort());
   });
 
   it('after N8c: the 3.0 controllers and the scanned 2.x ones register no method and path twice', async () => {

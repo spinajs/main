@@ -526,7 +526,7 @@ describe('v3 step: TotpMfaStep range floor', () => {
 });
 
 describe('v3 step: TotpMfaStep through DI', () => {
-  // @spinajs/users' UserIdentityStore, registered by this package's src import, needs a booted Orm.
+  // Keeps the step away from whatever IdentityStore other files in this run registered.
   class NoIdentities extends Identities {
     constructor() {
       super({});

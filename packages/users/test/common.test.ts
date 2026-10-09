@@ -127,58 +127,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             Description: 'test',
           },
         ],
-        // The 2.x `AccessControl` grants the legacy permission tests read, not the
-        // shipped `packages/users/src/config/users.ts` defaults. This suite runs via
-        // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
-        // (unlike eg. users-http/authn-token), so the configuration
-        // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
-        // and the shipped defaults never merge in here. `admin`, `guest` and
-        // `admin.users` below are therefore copied verbatim from that shipped
-        // config, not invented, so every role a test assigns stays a real one.
-        grants: {
-          normal: {
-            Test: {
-              'read:own': ['*'],
-            },
-            clients: {
-              'read:own': ['*'],
-            },
-          },
-          guest: {
-            UserBase: {
-              'read:own': ['*'],
-            },
-          },
-          'admin.users': {
-            users: {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-            'user.metadata': {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-          },
-          admin: {
-            $extend: ['admin.users'],
-          },
-          // Exercises `grant()`/`revoke()` (actions.test.ts) with a role distinct
-          // from `admin`/`guest`. A generic content-editor role, mirroring the one
-          // `user.test.ts` already uses for its own (separately scoped)
-          // AccessControl instance.
-          editor: {
-            Article: {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-          },
-        },
         defaultRole: 'guest',
         password: {
           /**

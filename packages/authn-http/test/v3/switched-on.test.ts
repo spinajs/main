@@ -246,6 +246,11 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
     expect(graph.filter((f) => /from\s+'@spinajs\/authn-totp'/.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/\\/g, '/'))).to.deep.eq([]);
   });
 
+  it('the barrel reaches no file importing @spinajs/users, so importing it registers none of its providers', () => {
+    const graph = [...barrelGraph()];
+    expect(graph.filter((f) => /(from\s+|import\(\s*)'@spinajs\/users'/.test(readFileSync(f, 'utf8')))).to.deep.eq([]);
+  });
+
   it('the 2.x session and token middlewares and the request-keys bridge are gone from the sources', () => {
     const defining = sourceFiles(join(PKG_ROOT, 'src')).filter((f) => /class (RbacMiddleware|TokenAuthMiddleware|LegacyStorageBridge)\b/.test(readFileSync(f, 'utf8')));
     expect(defining).to.deep.eq([]);

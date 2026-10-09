@@ -36,9 +36,8 @@ export class RbacBootstrapper extends Bootstrapper {
 
     /**
      * Credential-bearing metadata never leaves the server in a dehydrated user.
-     * Seeded here rather than as the field initialiser so an application ( or
-     * another package, eg. authn-totp adding its 2FA keys ) can append to
-     * the list without having to restate this one. De-duplicated because tests
+     * Seeded here rather than as the field initialiser so an application can
+     * append to the list without having to restate this one. De-duplicated because tests
      * run bootstrappers repeatedly against a live static.
      */
     UserMetadataBase._hiddenKeys = [...new Set([...UserMetadataBase._hiddenKeys, ...USER_SECURITY_METADATA_KEYS])];

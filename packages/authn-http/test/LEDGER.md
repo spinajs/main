@@ -190,9 +190,9 @@ Status (N8a task 7): `AuthnMiddleware` (task 3, switched off until N8c) restores
 
 Status (N8c task 4): `RbacMiddleware` (`src/middlewares.ts`) is deleted. `AuthnMiddleware` serves every request and the deprecated `LegacyStorageBridge` (also exported as `RbacMiddleware`) derives the 2.x request keys from `req.storage.AuthnPrincipal` (`test/v3/legacy-bridge.test.ts`). The file is `test/legacy-v2/rbac-middleware.test.ts`; it imports the deleted module.
 
-Status (R1d): the bridge named above is deleted together with `test/v3/legacy-bridge.test.ts` (its keys `User`, `Impersonator` and `TokenAuth` are gone). `AuthnMiddleware` is the only request middleware; `test/v3/switched-on.test.ts` asserts there is no `RbacMiddleware`, `TokenAuthMiddleware` or `LegacyStorageBridge`. The file stays deleted; no row changes.
-
 Status (T2): done. Rows 1, 3, 4 and 6 are covered by `test/v3/authn-middleware.test.ts`; rows 2 and 5 by its case "sends no cookie for an authenticated request" (N8a-D7, expectation changed by design: no renewal cookie in either mode) and the idle slide in `authn-session/test/issuer.test.ts` ("SR-session idle timeout: an idle session expires and use slides the deadline"). `test/legacy-v2/rbac-middleware.test.ts` is deleted.
+
+Status (R1d): the bridge named above is deleted together with `test/v3/legacy-bridge.test.ts` (its keys `User`, `Impersonator` and `TokenAuth` are gone). `AuthnMiddleware` is the only authn middleware; `test/v3/switched-on.test.ts` asserts there is no `RbacMiddleware`, `TokenAuthMiddleware` or `LegacyStorageBridge`. The file stays deleted; no row changes.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -369,9 +369,9 @@ Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is
 
 Status (N8c task 4): the barrel now exports the 3.0 `NoTokenAuthPolicy` and `NoImpersonationPolicy`. The rows import the 2.x classes from `src/token/policies/` and pass; over the bridge's keys the 2.x classes still refuse a per-request principal and an impersonation (`test/v3/legacy-bridge.test.ts`).
 
-Status (R1d): the `LegacyStorageBridge` (and its `RbacMiddleware` alias) is deleted with `test/v3/legacy-bridge.test.ts`; nothing reads the 2.x request keys any more. The sources the rows name were deleted earlier (R1d); `test/v3/switched-on.test.ts` asserts the bridge export and registration are gone.
-
 Status (R1bc): file deleted with the 2.x `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`; rows 1-4 are closed by T3, rows 5-10 are covered by the 3.0 matrix in `test/v3/authn-policies.test.ts`.
+
+Status (R1d): the `LegacyStorageBridge` (and its `RbacMiddleware` alias) is deleted with `test/v3/legacy-bridge.test.ts`; nothing reads the 2.x request keys any more. The sources the rows name were deleted earlier (R1bc); `test/v3/switched-on.test.ts` asserts the bridge export and registration are gone.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
