@@ -236,9 +236,8 @@ try {
   validator.validate(schema, data);
 } catch (err) {
   if (err instanceof ValidationFailed) {
-    err.details;            // [{ field, rule, message, value?, params? }, ...]
-    err.data;               // the data that failed
-    err.schema;             // the schema used for validation
+    err.details;            // [{ field, rule, message, params? }, ...]
+    err.schema;             // the schema used for validation (not enumerable: never serialised)
 
     err.getSummary();       // "field: message; field: message"
     err.getFieldErrors('/user');            // errors for a field (exact + nested prefix match)
@@ -251,3 +250,7 @@ try {
 `details[].field` is the failing JSON pointer (`/user/email`, or `(root)` for the top level), `rule` is the
 AJV keyword (`required`, `type`, `format`, ...), and `message` falls back to a readable string when AJV
 message generation is disabled (`messages: false`).
+
+The exception never holds a value of the validated data: no `details[].value`, no `data`, and `parameter`
+keeps only `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`) of each AJV
+error, also with AJV's `verbose` option. A 400 built from it cannot echo a password or a token back.

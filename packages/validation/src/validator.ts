@@ -270,9 +270,7 @@ export class DataValidator extends AsyncService {
         case 'empty_schema':
           throw new InvalidArgument('objects schema is not set');
         default: {
-          const validatedData = data !== null && data !== undefined ? data : schemaOrData;
-          const usedSchema = this.resolveSchema(schemaOrData, data);
-          throw new ValidationFailed('validation error', errors ?? [], validatedData, usedSchema);
+          throw new ValidationFailed('validation error', errors ?? [], this.resolveSchema(schemaOrData, data));
         }
       }
     }

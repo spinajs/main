@@ -21,11 +21,6 @@ export interface IValidationErrorDetail {
   message: string;
   
   /**
-   * The actual value that failed validation (if available)
-   */
-  value?: any;
-  
-  /**
    * Additional parameters related to the validation rule
    */
   params?: Record<string, any>;
@@ -33,7 +28,10 @@ export interface IValidationErrorDetail {
 
 /**
  * The exception that is thrown when JSON entity is checked against schema and is invalid
- * 
+ *
+ * It never holds a value of the validated data: details report the path, the rule, the message and the
+ * rule params, so a 400 built from it cannot echo a password or a token back.
+ *
  * @example
  * ```typescript
  * try {
@@ -42,7 +40,7 @@ export interface IValidationErrorDetail {
  *   if (err instanceof ValidationFailed) {
  *     // Access detailed error information
  *     console.log(err.details);
- *     // [{ field: '/email', rule: 'format', message: '/email must be a valid email', value: 'invalid-email' }]
+ *     // [{ field: '/email', rule: 'format', message: '/email must be a valid email', params: { format: 'email' } }]
  *     
  *     // Get human-readable summary
  *     console.log(err.getSummary());
@@ -51,10 +49,7 @@ export interface IValidationErrorDetail {
  *     // Get errors for specific field
  *     const emailErrors = err.getFieldErrors('/email');
  *     
- *     // Access the data that failed
- *     console.log(err.data);
- *     
- *     // Access the expected schema
+ *     // Access the expected schema (server side only: it is not serialised)
  *     console.log(err.schema);
  *     
  *     // Get requirements for a specific field
@@ -64,59 +59,31 @@ export interface IValidationErrorDetail {
  * ```
  */
 export class ValidationFailed extends Exception {
+  /**
+   * The AJV errors, reduced to `instancePath`, `schemaPath`, `keyword`, `params`, `message` and `propertyName`
+   */
   public parameter: IValidationError[];
-  
+
   /**
-   * The data that failed validation
+   * The schema that was used for validation. Not enumerable, so neither a spread nor JSON carries it.
    */
-  public data: any;
-  
-  /**
-   * The schema that was used for validation
-   */
-  public schema: any;
-  
+  public declare schema: any;
+
   /**
    * Detailed information about each validation failure
    */
   public details: IValidationErrorDetail[];
 
-  constructor(message: string, validationErrors: IValidationError[], data?: any, schema?: any) {
+  constructor(message: string, validationErrors: IValidationError[], schema?: any) {
     super(message);
-    this.parameter = validationErrors;
-    this.data = data;
-    this.schema = schema;
-    this.details = this.buildDetailedErrors(validationErrors, data);
-  }
-
-  /**
-   * Builds detailed error information from AJV validation errors
-   */
-  private buildDetailedErrors(errors: IValidationError[], data: any): IValidationErrorDetail[] {
-    return errors.map((error) => {
-      const detail: IValidationErrorDetail = {
-        field: error.instancePath || '(root)',
-        rule: error.keyword,
-        message: this.buildErrorMessage(error),
-        params: error.params,
-      };
-
-      // Try to extract the actual value that failed validation
-      if (data && error.instancePath) {
-        try {
-          const path = error.instancePath.split('/').filter(p => p.length > 0);
-          let value = data;
-          for (const segment of path) {
-            value = value?.[segment];
-          }
-          detail.value = value;
-        } catch {
-          // If we can't extract the value, just skip it
-        }
-      }
-
-      return detail;
-    });
+    Object.defineProperty(this, 'schema', { value: schema, writable: true, configurable: true, enumerable: false });
+    this.parameter = validationErrors.map(sanitizeError);
+    this.details = this.parameter.map((error) => ({
+      field: error.instancePath || '(root)',
+      rule: error.keyword,
+      message: this.buildErrorMessage(error),
+      params: error.params,
+    }));
   }
 
   /**
@@ -164,10 +131,6 @@ export class ValidationFailed extends Exception {
           `    Rule: ${detail.rule}`,
           `    Message: ${detail.message}`,
         ];
-        
-        if (detail.value !== undefined) {
-          parts.push(`    Value: ${JSON.stringify(detail.value)}`);
-        }
         
         if (detail.params && Object.keys(detail.params).length > 0) {
           parts.push(`    Params: ${JSON.stringify(detail.params)}`);
@@ -239,3 +202,21 @@ export class ValidationFailed extends Exception {
 
 /* eslint-disable */
 export interface IValidationError extends ErrorObject {}
+/* eslint-enable */
+
+// AJV's verbose mode adds `data`, `schema` and `parentSchema` to each error: the first is the request value.
+function sanitizeError(error: IValidationError): IValidationError {
+  const clean: IValidationError = {
+    instancePath: error.instancePath,
+    schemaPath: error.schemaPath,
+    keyword: error.keyword,
+    params: error.params,
+    message: error.message,
+  };
+
+  if (error.propertyName !== undefined) {
+    clean.propertyName = error.propertyName;
+  }
+
+  return clean;
+}

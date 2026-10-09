@@ -23,9 +23,7 @@ describe('ValidationFailed', () => {
         message: 'must match format "email"',
       });
 
-      const ex = new ValidationFailed('validation error', [error], {
-        user: { email: 'not-an-email' },
-      });
+      const ex = new ValidationFailed('validation error', [error]);
 
       expect(ex.details).to.have.lengthOf(1);
       const [detail] = ex.details;
@@ -35,23 +33,23 @@ describe('ValidationFailed', () => {
       expect(detail.params).to.deep.equal({ format: 'email' });
     });
 
-    it('extracts nested value at instancePath', () => {
+    it('reports no value for the field at instancePath', () => {
       const error = err({
         instancePath: '/user/email',
         keyword: 'format',
         params: { format: 'email' },
-      });
+        data: 'bad-value',
+      } as Partial<IValidationError>);
 
-      const ex = new ValidationFailed('validation error', [error], {
-        user: { email: 'bad-value' },
-      });
+      const ex = new ValidationFailed('validation error', [error]);
 
-      expect(ex.details[0].value).to.equal('bad-value');
+      expect(ex.details[0]).to.not.have.property('value');
+      expect(JSON.stringify(ex)).to.not.contain('bad-value');
     });
 
     it('uses (root) for empty instancePath', () => {
       const error = err({ instancePath: '', keyword: 'type', params: { type: 'object' } });
-      const ex = new ValidationFailed('validation error', [error], 'not-an-object');
+      const ex = new ValidationFailed('validation error', [error]);
       expect(ex.details[0].field).to.equal('(root)');
     });
   });
@@ -139,7 +137,7 @@ describe('ValidationFailed', () => {
       },
     };
 
-    const ex = new ValidationFailed('validation error', [err({ instancePath: '/email' })], {}, schema);
+    const ex = new ValidationFailed('validation error', [err({ instancePath: '/email' })], schema);
 
     it('returns the schema node for an existing top-level field', () => {
       const req = ex.getFieldRequirements('email');
@@ -162,7 +160,6 @@ describe('ValidationFailed', () => {
       const ex = new ValidationFailed(
         'validation error',
         [err({ instancePath: '/email', keyword: 'format', params: { format: 'email' }, message: 'must be email' })],
-        { email: 'bad' },
         schema,
       );
 
