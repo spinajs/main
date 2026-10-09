@@ -85,6 +85,8 @@ export async function createPgDatabase(suite: string): Promise<string> {
 
   try {
     await admin.schema().createDatabase(name);
+    // authz-orm refuses a connection with jit on unless authz.orm.allowJit; a host turns jit off like this.
+    await rawQuery(admin, `ALTER DATABASE "${name}" SET jit = off`, [], QueryContext.Schema);
   } finally {
     await admin.disconnect();
   }

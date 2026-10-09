@@ -14,7 +14,7 @@ const boot = (kind: Kind): Promise<CanvasBench> => {
   let b = benches.get(kind);
   if (!b) {
     b = bootCanvasBench(kind, 7, BACKGROUND).then(async (bench) => {
-      // The database default is on; verification and warm-up run with it off unless a scenario says otherwise.
+      // Verification and warm-up run with jit off unless a scenario says otherwise.
       if (kind === 'postgres') await bench.setJit(false);
       return bench;
     });

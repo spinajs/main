@@ -12,6 +12,7 @@ import { buildResidual, compileResidual } from './compile/compiler.js';
 import type { QueryOp, ResidualContext } from './compile/compiler.js';
 import { carryVetted, scopeManyToManyExists, unvettedJunction } from './exists.js';
 import { authorizeInsert, relationsOf } from './insert.js';
+import { assertJitOff } from './jit.js';
 import { relationPrincipalOf, serviceConfig } from './principal.js';
 import { entryOf, registeredClasses, registryVersion, scopePolicyOf } from './registry.js';
 import type { ModelClass, QueryKind, ResourceEntry } from './registry.js';
@@ -235,6 +236,9 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
   @Config('authz.orm.domain')
   protected Domain: string;
 
+  @Config('authz.orm.allowJit')
+  protected AllowJit: boolean;
+
   // Read when a scoped model needs it, not on every query.
   private readonly domain = (): string => this.Domain;
 
@@ -248,6 +252,7 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
     guard(builder);
     if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder), this.domain);
     const scope = scopes.get(builder);
+    if (scope) await assertJitOff(builder.Driver, () => this.AllowJit);
     await gate(builder, scope, this.domain);
     if (scope?.slot && !scope.slot.resolved) await fill(scope.slot, builder, scope);
     // Relation queries and sub-queries compile into this query without an execution hook of their own.

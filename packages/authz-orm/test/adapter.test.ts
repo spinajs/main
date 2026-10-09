@@ -351,7 +351,7 @@ describe('authz-orm OrmResourceAdapter', function () {
   it('the contributor names the join-scoped types', async () => {
     await db.define({ name: 'Joined', columns: { v: 'TEXT' }, decorate: (cls) => AccessResource('ad-joined', { relationScope: 'join' })(cls) });
     await db.define({ name: 'Plain', columns: { v: 'TEXT' }, decorate: (cls) => AccessResource('ad-plain')(cls) });
-    const { joinTypes } = new OrmAuthzContributor().contribute();
+    const { joinTypes } = await new OrmAuthzContributor().contribute();
     expect(joinTypes).to.include('ad-joined');
     expect(joinTypes).to.not.include('ad-plain');
   });

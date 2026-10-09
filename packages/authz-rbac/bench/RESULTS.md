@@ -208,6 +208,9 @@ this task could make safely.
 - **`jit = off` for the authz connection is required on Postgres**: `ALTER ROLE <app role> SET jit = off` (or
   `ALTER DATABASE <db> SET jit = off`). A high `jit_above_cost` instead would have to exceed the plans' cost,
   which grows with the rows listed (about 400 per row here), so it is no stable alternative.
+- authz-orm enforces this: it runs `SHOW jit` once per Postgres connection and fails the boot (and every scoped
+  query) with `AuthzConfigError` while jit is on, unless `authz.orm.allowJit` is true. `PGOPTIONS='-c jit=off'` in
+  the process environment also works: node-postgres reads it as the connection's `options`.
 - `SET LOCAL jit = off` around the list is **not possible through authz-orm**: its native compilers only add a
   WHERE fragment to the model's query, and its middleware neither owns the statement's connection nor opens a
   transaction (`PostgresOrmDriver` takes a pooled client per statement outside a transaction, so a `SET` from the

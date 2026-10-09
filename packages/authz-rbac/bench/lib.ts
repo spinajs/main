@@ -417,6 +417,7 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
     undo.push(testHost.registerInRoot(RbacScopeAttributeSource, testHost.instance(new BenchAttributeSource(() => served))));
 
     const connection = RootOrm.connectionOf(kind);
+    let allowJit: (on: boolean) => void = () => undefined;
     harness = hostHarness({
       domain: DOMAIN,
       facets: ['rbac', 'ladders', 'rules', 'conditions', 'list', 'sql', 'abac', 'scopeAttributes'],
@@ -424,6 +425,7 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
       async register(host) {
         const c = host.container;
         host.setConfig(['authz', 'orm', 'domain'], DOMAIN);
+        allowJit = (on) => host.setConfig(['authz', 'orm', 'allowJit'], on);
         // As the SQL kit harness: on a loaded machine a check that reads the DB stores outlasts the default 2 s
         // model timeout and becomes model_error, a refusal the list does not share, and the oracle check fails.
         host.setConfig(['authz', 'domains', DOMAIN, 'engine', 'modelTimeoutMs'], 120000);
@@ -492,6 +494,8 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
       execute: (s) => rawQuery(driver, s.sql, [...s.bindings], QueryContext.Select),
       async setJit(on) {
         if (kind !== 'postgres') throw new Error('bench: jit is a Postgres setting');
+        // JIT on is measured on purpose: authz-orm refuses such a connection unless allowed.
+        allowJit(on);
         await db.raw(kind, `DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET jit = ${on ? 'on' : 'off'}', current_database()); END $$`);
         // Only sessions opened after ALTER DATABASE read it: a new pool, the old one ended (its clients released).
         await driver.disconnect();

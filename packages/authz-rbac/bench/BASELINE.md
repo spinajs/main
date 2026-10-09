@@ -107,4 +107,5 @@ not share, which failed that check once.
 
 JIT: the bench database is its own (`l2_l4b_bench_postgres_<hex>`, dropped at the end); the bench sets `jit` with
 `ALTER DATABASE … SET jit = on|off` on it and reconnects the pool (new sessions read it; `SHOW jit` is checked).
-Nothing is set on the server.
+The database starts with `jit = off`; JIT on sets `authz.orm.allowJit: true`, since authz-orm refuses such a
+connection otherwise. Nothing is set on the server.

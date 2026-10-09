@@ -54,7 +54,8 @@ export class TestDb {
     });
   }
 
-  static async open(opts: { postgres?: boolean } = {}): Promise<TestDb> {
+  /** `database`: a throwaway Postgres database to use instead of the shared one, run with its own jit setting. */
+  static async open(opts: { postgres?: boolean; database?: string } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -66,21 +67,35 @@ export class TestDb {
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }];
     // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
     // that name on the search path makes the joined and the unqualified spelling one table.
-    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Options: { Schema: POSTGRES.Database } });
+    const database = opts.database ?? POSTGRES.Database;
+    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
+    // authz-orm refuses a connection with jit on, and the shared database is not ours to ALTER: its sessions get jit
+    // off as a host's would, through the pool's PGOPTIONS (pg reads it when it opens a connection).
+    const pgOptions = process.env.PGOPTIONS;
+    if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections });
 
-    const orm = await DI.resolve(Orm);
-    const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
-    if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${POSTGRES.Database}"`, [], 'postgres');
-    db.ownsInstall = ownsInstall;
-    db.restoreConfig = () => {
+    const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {
         if (v === undefined) cfg.unset(k);
         else cfg.set(k, v);
       }
+      if (pgOptions === undefined) delete process.env.PGOPTIONS;
+      else process.env.PGOPTIONS = pgOptions;
     };
+    let orm: Orm;
+    try {
+      orm = await DI.resolve(Orm);
+    } catch (e) {
+      restoreConfig();
+      throw e;
+    }
+    const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
+    db.ownsInstall = ownsInstall;
+    db.restoreConfig = restoreConfig;
+    if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
     return db;
   }
 
