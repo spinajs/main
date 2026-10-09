@@ -56,6 +56,24 @@ role grants through `users:*`.
 | `GET`    | `/users/security/sessions/:uuid`              | `users:read` + credential admin guard | The user's live sessions, newest first, by handle |
 | `DELETE` | `/users/security/sessions/:uuid/:handle`      | `users:update` + credential admin guard + fresh auth | End one session of the user |
 
+## Routes of the signed-in user and metadata
+
+| Method   | Path                                   | Permission              | What it does                                              |
+| -------- | -------------------------------------- | ----------------------- | --------------------------------------------------------- |
+| `GET`    | `/user`                                | `user:read` (own row)   | The caller's record with its metadata, limited to the fields its roles read |
+| `GET`    | `/user/tokens/roles`                   | `user:read` (own row)   | Roles a new token may carry (see below)                   |
+| `GET`    | `/user/tokens/profiles`                | `user:read` (own row)   | Profiles a new token may be pinned to                     |
+| `GET`    | `/user/metadata`, `/user/metadata/:key` | `user.metadata:read`    | The caller's own metadata, paginated / one entry          |
+| `POST`   | `/user/metadata`                       | `user.metadata:create`  | Add an entry (an existing key is an update)               |
+| `PATCH`  | `/user/metadata/:id`                   | `user.metadata:update`  | Update an entry                                           |
+| `DELETE` | `/user/metadata/:id`                   | `user.metadata:delete`  | Delete an entry                                           |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/user/:uuid/metadata[/...]` | the same, per row | The metadata of another user                              |
+
+`/user` and the token routes answer 403 to a service, agent or other non-user principal. The metadata permissions are
+decided on each entry's row: users' `user` role holds them with the `owner` relation (its own entries only), `admin.users`
+unconditionally. Reserved keys (credential state such as `2fa:token`) are never listed; a read, update or delete of one
+answers 404 as for a missing entry, and a write of one is refused.
+
 ## Sessions of a user
 
 The two session routes read and end the sessions of authn's `SessionIssuer`. Besides `@Access` (decided on the
@@ -78,10 +96,10 @@ administrator can tell the devices apart before ending one. A handle that is not
 `404 session_not_found`. Answers carry `Cache-Control: no-store`. An ended session is audited as `session.revoke`
 (reason `admin`, the caller as actor, the handle).
 
-`@spinajs/authn-http` serves `/authn/admin/users/:uuid/{password-reset,mfa-reset,sessions,tokens}`; its
-`DELETE /authn/admin/users/:uuid/sessions` ends every session of a user, impersonations included. 3.0 has no admin route
-to set a password, expire one or enable two-factor (the owner enrols), and no login lockout to clear (authn throttles
-instead), so `unlock` is gone.
+`@spinajs/authn-http` serves four admin routes under `/authn/admin/users/:uuid`: `POST password-reset` (sends the reset),
+`POST mfa-reset`, `DELETE sessions` (ends every session of the user, impersonations included) and `DELETE tokens`
+(revokes every token of the user). 3.0 has no admin route to set a password, expire one or enable two-factor (the owner
+enrols), and no login lockout to clear (authn throttles instead), so `unlock` is gone.
 
 The admin routes do not manage user metadata. `UserMetadataController` serves `/user/:uuid/metadata`, which validates one entry at
 a time. Another user's metadata needs an unconditional `user.metadata` grant (users' `admin.users`); users' `user` role
@@ -164,6 +182,9 @@ This package's config fragment declares the `users:read`, `users:create`, `users
   `readOwn`/`updateOwn`-style grants become conditional grants decided on the addressed row.
 - 3.0: `changePassword`, `password-reset-request`, `expire-password`, `reset2fa`, `2fa/enable`, `2fa/disable`
   and `unlock` under `/users/security` are gone (404); the credential routes live in `@spinajs/authn-http`.
+- 3.0: the exports `ChangePasswordDto`, `PasswordDto` and the `'expire-password'` action are gone with their routes.
+- 3.0: `GET /user/refresh` is `GET /user`; `GET /user/grants` (see `GET /user/access` of `@spinajs/authz-http`) and
+  `PATCH /user/password` (`@spinajs/authn-http`) answer 404.
 - 3.0: the forced logout `DELETE /users/security/sessions/:uuid` is gone (404). Clients call
   `DELETE /authn/admin/users/:uuid/sessions` of `@spinajs/authn-http`, which answers `{ revoked }` (the count)
   and needs `users:credentials` and fresh authentication.
@@ -173,6 +194,8 @@ This package's config fragment declares the `users:read`, `users:create`, `users
 - 3.0: changing an `Email` or `Login` through `PATCH /users/:uuid` needs fresh authentication besides
   `users:update`, the caller's own account included; the body takes `reauthPassword` for that. A change of another
   account also needs the credential admin guard (`users:credentials`, the target covered, no protected role).
+- 3.0: `users:*` covers `users:credentials`, which the credential admin guard asks. A role manager holding single
+  `users:<action>` grants without `users:credentials` can no longer hand out `admin.users`.
 - `activate` and `deactivate` moved off `GET`. They are now `POST /users/security/activate/:uuid` and
   `POST /users/security/deactivate/:uuid`.
 - `activate` now requires `updateAny` instead of `deleteAny`.
