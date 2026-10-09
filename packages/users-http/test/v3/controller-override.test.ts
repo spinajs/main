@@ -41,9 +41,7 @@ describe('users-http v3: controller override end to end', function () {
 
   after(async () => {
     await stopUsersHttpApp();
-    // unregister() leaves an empty list under the key, which DI.resolve(UserController) cannot follow; same repair as stopUsersHttpApp.
     DI.unregister(AppUserController);
-    DI.register(UserController).asSelf();
     sinon.restore();
   });
 
