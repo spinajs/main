@@ -141,7 +141,7 @@ describe('self relation', function () {
     });
 
     it("on users, a ref keyed by the numeric Id opens the own row and not another user's", async () => {
-      const { User: created } = await create('selfie@spinajs.pl', 'selfie', ['self-reader'], { password: 'passw0rd123' });
+      const { User: created } = await create({ Email: 'selfie@spinajs.pl', Login: 'selfie', Password: 'passw0rd123' }, ['self-reader']);
       await activate(created.Uuid);
       const own = await User.query().whereLogin('selfie').populate('Metadata').firstOrFail();
       const other = await User.query().whereLogin('test').firstOrFail();

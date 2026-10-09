@@ -109,7 +109,7 @@ describe('UserResourceAdapter', function () {
 
   describe("end to end: a 'self' grant on user:read", () => {
     async function selfReader() {
-      const { User: created } = await create('reader@spinajs.pl', 'reader', ['self-reader'], { password: 'passw0rd123' });
+      const { User: created } = await create({ Email: 'reader@spinajs.pl', Login: 'reader', Password: 'passw0rd123' }, ['self-reader']);
       await activate(created.Uuid);
       const own = await User.query().whereLogin('reader').populate('Metadata').firstOrFail();
       const me = await ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf(own);

@@ -14,7 +14,7 @@ import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, InvalidCredentials, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA } from '../src/index.js';
+import { User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA } from '../src/index.js';
 import { create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -202,11 +202,10 @@ describe('create(user, roles?)', function () {
       expect(passwordCalls[0].actor).to.deep.eq({ type: 'user', id: admin.Uuid });
     });
 
-    it('leaves an account the legacy login refuses as invalid credentials, not a server error', async () => {
-      await create({ Email: 'nologin@spinajs.pl', Login: 'nologin' });
+    it('leaves an invited account with a stored value that no password verifies against', async () => {
+      const { User: invited } = await create({ Email: 'nologin@spinajs.pl', Login: 'nologin' });
 
-      const auth = (await DI.resolve(AuthProvider)) as SimpleDbAuthProvider;
-      await expect(auth.authenticate('nologin@spinajs.pl', 'passw0rd123')).to.be.rejectedWith(InvalidCredentials);
+      expect(await testHasher.verify((await User.query().where('Uuid', invited.Uuid).firstOrFail()).Password, 'passw0rd123')).to.eq(false);
     });
 
     it('that fails to invite says the account exists, with its Uuid, so the invite can be sent again', async () => {
@@ -256,17 +255,6 @@ describe('create(user, roles?)', function () {
       await expect(create({ Email: 'nopw2@spinajs.pl', Login: 'nopw2' })).to.be.rejectedWith(InvalidOption, /PasswordService/);
       await nothingWritten('nopw1');
       await nothingWritten('nopw2');
-    });
-  });
-
-  describe('the deprecated positional form', () => {
-    it('still creates the user with its roles and password', async () => {
-      const { User: u } = await create('positional@spinajs.pl', 'positional', ['editor'], { password: 'passw0rd123', metadata: { 'user:phone': '5' } });
-
-      expect(await globalRolesOf(u.Uuid)).to.deep.eq(['editor']);
-      expect(passwordCalls.map((c) => c.method)).to.deep.eq(['set']);
-      const user = await User.query().whereLogin('positional').populate('Metadata').firstOrFail();
-      expect(user.Metadata['user:phone']).to.eq('5');
     });
   });
 

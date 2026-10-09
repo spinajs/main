@@ -150,7 +150,7 @@ describe('UserAccountStatusSource: accounts in service for the admin guard', fun
     }
 
     async function assigner(): Promise<Principal> {
-      const { User: u } = await create('assigner@spinajs.pl', 'assigner', ['assigner'], { password: 'passw0rd123' });
+      const { User: u } = await create({ Email: 'assigner@spinajs.pl', Login: 'assigner', Password: 'passw0rd123' }, ['assigner']);
       return userPrincipal(u.Uuid);
     }
 

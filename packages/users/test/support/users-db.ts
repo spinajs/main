@@ -49,8 +49,6 @@ const USERS_HOST_KEYS = [
   'SchemaSource',
   'FileSystemSource',
   'DataValidator',
-  'BasicPasswordValidationProvider',
-  'BasicPasswordProvider',
   'ModelHydrator',
   'DbPropertyHydrator',
   'NonDbPropertyHydrator',

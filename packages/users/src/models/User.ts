@@ -156,8 +156,8 @@ export enum USER_COMMON_METADATA {
   USER_PWD_RESET_LAST_ATTEMPT = 'user:pwd_reset:last_attempt',
 
   /**
-   * Set by `create()` on an account whose password it generated, burned by
-   * `confirmPasswordReset()`. It marks an account that has never been activated and is
+   * Set by `create()` on an account created without a password, burned when the
+   * invite is redeemed. It marks an account that has never been activated and is
    * waiting for its owner to set the first password — which is the only case where a
    * reset may touch an inactive user.
    */

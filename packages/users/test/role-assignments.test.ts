@@ -110,13 +110,13 @@ describe('roles as GLOBAL assignments (H13)', function () {
 
   describe('create', () => {
     it('grants its roles as GLOBAL assignments of user:<Uuid>', async () => {
-      const { User: u } = await create('assigned@spinajs.pl', 'assigned', ['user', ' editor ', 'user'], { password: 'passw0rd123' });
+      const { User: u } = await create({ Email: 'assigned@spinajs.pl', Login: 'assigned', Password: 'passw0rd123' }, ['user', ' editor ', 'user']);
 
       expect(await globalRolesOf(u.Uuid)).to.have.members(['user', 'editor']);
     });
 
     it('refuses an unknown role through AuthzAdmin and writes nothing', async () => {
-      const err = await refusal(create('ghost@spinajs.pl', 'ghost', ['user', 'not-a-role'], { password: 'passw0rd123' }));
+      const err = await refusal(create({ Email: 'ghost@spinajs.pl', Login: 'ghost', Password: 'passw0rd123' }, ['user', 'not-a-role']));
 
       expect(err.fieldName).to.eq('roles');
       expect(err.errorCode).to.eq('unknown_role');
@@ -124,7 +124,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
     });
 
     it('refuses a role that is not assignable', async () => {
-      const err = await refusal(create('unassignable@spinajs.pl', 'unassignable', ['admin.users'], { password: 'passw0rd123' }));
+      const err = await refusal(create({ Email: 'unassignable@spinajs.pl', Login: 'unassignable', Password: 'passw0rd123' }, ['admin.users']));
 
       expect(err.errorCode).to.eq('not_assignable');
       expect(await User.query().whereLogin('unassignable').first()).to.not.exist;
@@ -136,11 +136,11 @@ describe('roles as GLOBAL assignments (H13)', function () {
         return args[2]?.dryRun ? execute.apply(this, args) : Promise.reject(new Error('assignment store down'));
       });
 
-      await expect(create('rollback@spinajs.pl', 'rollback', ['user'], { password: 'passw0rd123', metadata: { 'user:phone': '123' } })).to.be.rejectedWith('assignment store down');
+      await expect(create({ Email: 'rollback@spinajs.pl', Login: 'rollback', Password: 'passw0rd123', Metadata: { 'user:phone': '123' } }, ['user'])).to.be.rejectedWith('assignment store down');
       expect(await User.query().withDeleted().whereLogin('rollback').first(), 'no row, not even a soft-deleted one').to.not.exist;
 
       stub.restore();
-      const { User: u } = await create('rollback@spinajs.pl', 'rollback', ['user'], { password: 'passw0rd123' });
+      const { User: u } = await create({ Email: 'rollback@spinajs.pl', Login: 'rollback', Password: 'passw0rd123' }, ['user']);
       expect(await globalRolesOf(u.Uuid)).to.deep.eq(['user']);
     });
   });
@@ -169,7 +169,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
     });
 
     it("assign with an actor runs AuthzAdmin's guard: no escalation", async () => {
-      const { User: assigner } = await create('assigner@spinajs.pl', 'assigner', ['assigner'], { password: 'passw0rd123' });
+      const { User: assigner } = await create({ Email: 'assigner@spinajs.pl', Login: 'assigner', Password: 'passw0rd123' }, ['assigner']);
       const actor = userPrincipal(assigner.Uuid);
 
       const target = new User({ Email: 'target@spinajs.pl', Login: 'target', Password: 'x', IsActive: true });
@@ -183,7 +183,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
     });
 
     it('assign with an unprivileged actor is refused even for a held role, so it reveals nothing', async () => {
-      const { User: plain } = await create('plain-actor@spinajs.pl', 'plain-actor', ['user'], { password: 'passw0rd123' });
+      const { User: plain } = await create({ Email: 'plain-actor@spinajs.pl', Login: 'plain-actor', Password: 'passw0rd123' }, ['user']);
 
       const err = await adminFailure(assignGlobal(TEST_USER_UUID, 'admin', userPrincipal(plain.Uuid)));
 

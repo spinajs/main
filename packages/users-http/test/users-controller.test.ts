@@ -11,7 +11,7 @@ import { Ok } from '@spinajs/http';
 import { FreshAuth } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
-import { NO_PASSWORD, SessionProvider, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
+import { NO_PASSWORD, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
 
 import { Users } from '../src/admin/controllers/Users/Users.js';
 import { Security } from '../src/admin/controllers/Users/Security.js';
@@ -531,19 +531,13 @@ describe('Admin user controllers', function () {
   describe('Users.removeUser / restoreUser', () => {
     beforeEach(passLifecycleGates);
 
-    it('soft deletes the account and drops its sessions', async () => {
-      const user = await byUuid(USER_UUID);
-      const sessionProvider = await DI.resolve(SessionProvider);
-      const spy = sinon.stub(sessionProvider, 'deleteByUser').resolves();
-
+    it('soft deletes the account', async () => {
       const result = await usersController.removeUser(await admin(), USER_UUID, NO_REQUEST);
       expect(result).to.be.instanceOf(Ok);
 
       const deleted = await User.query().withDeleted().where('Uuid', USER_UUID).first();
       expect(deleted!.DeletedAt, 'row must be kept and stamped').to.be.not.null;
       expect(await User.query().where('Uuid', USER_UUID).first(), 'deleted rows must be invisible to ordinary queries').to.not.exist;
-
-      sinon.assert.calledWith(spy, user.Id);
     });
 
     it('restores a deleted account without activating it', async () => {

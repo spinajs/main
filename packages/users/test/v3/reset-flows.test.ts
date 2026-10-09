@@ -1,5 +1,4 @@
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { createHash, randomUUID } from 'node:crypto';
@@ -10,9 +9,8 @@ import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalPasswordStrategy, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
 
-import { QueueAuthnEventSink, TokenInvalid, USER_COMMON_METADATA, User, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
-import { ban, confirmPasswordReset, deactivate, deleteUser, issuePasswordResetToken } from '../../src/actions.js';
-import { TestPasswordService } from '../support/password-service.js';
+import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
+import { ban, deactivate, deleteUser } from '../../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
 
 const OLD = 'Old-Password-1';
@@ -198,26 +196,6 @@ describe('reset and invite over the users stores', function () {
 
       expect(await x.service.redeemReset('string-marker@spinajs.pl', x.secretOf(ref, 'invite'), NEW, ctx())).to.deep.eq({ status: 'invalid' });
       expect((await storedUser(user.Uuid)).IsActive).to.not.be.ok;
-    });
-  });
-
-  describe('the 2.x wrappers', () => {
-    // Changed (A11, SR-09): the failure carries no data. 2.x put the user uuid in it; 3.0 names neither the user nor the secret.
-    it('R3: confirmPasswordReset refuses a wrong secret with a TokenInvalid that does not carry it', async () => {
-      sinon.stub(TestPasswordService.prototype, 'redeemReset').resolves({ status: 'invalid' });
-
-      const err = await confirmPasswordReset('test@spinajs.pl', NEW, 'not-the-token').catch((e: unknown) => e);
-
-      expect(err).to.be.instanceOf(TokenInvalid);
-      expect(JSON.stringify({ message: (err as Error).message, data: (err as TokenInvalid).data })).to.not.contain('not-the-token');
-    });
-
-    // Changed (A11): an explicit wait time is ignored; authn.local.reset.ttlSeconds rules the lifetime.
-    it('issuePasswordResetToken ignores an explicit wait time and reports the configured lifetime', async () => {
-      const { waitTime, token } = await issuePasswordResetToken('test@spinajs.pl', 900);
-
-      expect(waitTime).to.eq(DI.get(Configuration)!.get<number>('authn.local.reset.ttlSeconds', 3600));
-      expect(token).to.eq('');
     });
   });
 });
