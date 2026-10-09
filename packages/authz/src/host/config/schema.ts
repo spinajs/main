@@ -182,7 +182,7 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     principals: {
       type: 'object',
       properties: {
-        // No default: the deprecated 2.x guest factory reads this key with its own false default, 3.x readers fall back to true.
+        // No default: readers take unset and null as true.
         anonymous: { type: 'object', properties: { enabled: { type: 'boolean' } } },
         roleSwitch: {
           type: 'object',
