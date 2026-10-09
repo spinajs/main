@@ -167,4 +167,6 @@ describe('canvas C6 on SQLite: branch protection comes from the authz_rule rows'
   });
 });
 
-runBehaviour(['B40.sqlite'], () => canvasHarness({ store: 'sqlite' }), { strict: true, fixtures: [...BEHAVIOUR_FIXTURES, B40Sqlite] });
+// A case takes under 1 s of CPU, but up to 22 s of wall time when the machine runs other suites at once; past
+// mocha's 30 s the next case meets the timed-out case's domain still open.
+runBehaviour(['B40.sqlite'], () => canvasHarness({ store: 'sqlite' }), { strict: true, fixtures: [...BEHAVIOUR_FIXTURES, B40Sqlite], timeoutMs: 180000 });
