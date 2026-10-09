@@ -52,7 +52,8 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
     }
 
     const bootstrap = async () => (await DI.resolve(Array.ofType(Bootstrapper))).find((b) => b instanceof RbacBootstrapper)!.bootstrap();
-    const mailerTypes = () => DI.RootContainer.Registry.getTypes(PasswordMailer).map((t) => t as unknown);
+    // An unregister that empties the key drops it (di c673c88f0), so getTypes answers null.
+    const mailerTypes = () => (DI.RootContainer.Registry.getTypes(PasswordMailer) ?? []).map((t) => t as unknown);
 
     afterEach(() => {
       DI.unregister(AppMailer);
