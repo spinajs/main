@@ -18,7 +18,7 @@ export function authenticatedPrincipal(req: Request): Principal {
 /** Only a session principal carries its hashed session handle; a per-request credential (token, JWT, key, signature) never does. */
 export const isSessionPrincipal = (principal: Principal): boolean => typeof principal.authn?.sessionHandle === 'string' && principal.authn.sessionHandle !== '';
 
-/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). Replaces LoggedPolicy and AuthorizedPolicy. */
+/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). */
 export class Authenticated extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;

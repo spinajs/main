@@ -22,7 +22,7 @@ declare module "@spinajs/http" {
         AuthnSession?: NonNullable<Awaited<ReturnType<SessionIssuer["restore"]>>> | null;
     }
 }
-/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). Replaces LoggedPolicy and AuthorizedPolicy. */
+/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). */
 export declare class Authenticated extends BasePolicy {
     isEnabled(action: IRoute, instance: IController): boolean;
     execute(req: Request, action: IRoute, instance: IController): Promise<void>;
