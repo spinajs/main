@@ -23,7 +23,7 @@ let registered = false;
 /**
  * A real root authz host over the test database: roles from `authz.rbac.roles`, assignments in
  * `authz_assignment`, `AuthzAdmin` on `DbAuthzAdminBackend` with `DefaultAdminGuard`, an `RbacService`, and the test
- * `PasswordService`. Registered once per process; `DI.clearCache()` makes the next resolve boot a fresh
+ * `PasswordService`. Registered once per process; a reset of the owned root cache (owned-cache.ts) makes the next resolve boot a fresh
  * root service on the fresh database.
  */
 export function registerAuthzHost(): void {

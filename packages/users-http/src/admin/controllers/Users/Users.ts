@@ -206,7 +206,7 @@ const USER_FILTER: IColumnFilter<User>[] = [
   },
   {
     // Holders of live GLOBAL assignments of the named roles. Reads `authz_assignment` on the users
-    // connection, like users' `withRole` scope, so assignments kept on another connection are missed.
+    // connection, so assignments kept on another connection are missed.
     column: 'Role',
     operators: ['eq', 'neq', 'in-set', 'nin-set'],
     query: (operator: FilterableOperators, value: any) => {

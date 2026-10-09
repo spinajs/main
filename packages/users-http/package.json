@@ -64,10 +64,7 @@
     "@spinajs/orm": "2.0.549",
     "@spinajs/orm-http": "2.0.549",
     "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/validation": "2.0.549",
-    "lodash": "^4.17.21",
-    "luxon": "^3.6.1",
-    "uuid": "^9.0.0"
+    "@spinajs/validation": "2.0.549"
   },
   "devDependencies": {
     "@spinajs/authn-session": "3.0.0-alpha.0",
@@ -78,6 +75,8 @@
     "@spinajs/orm-sqlite": "2.0.549",
     "@spinajs/queue": "2.0.549",
     "cookie-signature": "^1.2.2",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "luxon": "^3.6.1",
+    "uuid": "^9.0.0"
   }
 }

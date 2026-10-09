@@ -17,9 +17,10 @@ interface ProfilePolicy {
   allowedProfiles(owner: IdentityRef): unknown;
 }
 
-/** Leaves out the bare abstract class a resolve of an unregistered type records under its own name. */
+/** Leaves out the bare abstract class a resolve of an unregistered type records under its own name (a string key is that name). */
 function implemented(token: Class<unknown> | string): boolean {
-  return (DI.RootContainer.getRegisteredTypes(token) ?? []).some((t) => t !== token);
+  const bare = (t: unknown): boolean => (typeof token === 'string' ? (t as { name?: string }).name === token : t === token);
+  return (DI.RootContainer.getRegisteredTypes(token) ?? []).some((t) => !bare(t));
 }
 
 /** 404, as authn-http's token routes answer, while no TokenService is registered: no token can be created. */

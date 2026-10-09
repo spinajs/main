@@ -14,6 +14,7 @@ import { User, ban } from '@spinajs/users';
 import { resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, seedRoles, unseedRoles } from '../support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
+import { ownedCache } from '../support/owned-cache.js';
 
 /**
  * The lifecycle routes that take an account out of service (delete, deactivate, ban) are
@@ -28,8 +29,15 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
 
   let world: AdminWorld;
 
+  const owned = ownedCache();
+
   before(() => {
     registerAdminWorld();
+    owned.begin();
+  });
+
+  after(() => {
+    owned.reset();
   });
 
   beforeEach(async () => {
@@ -40,7 +48,7 @@ describe('users-http v3: account guard on the lifecycle routes', function () {
 
   afterEach(() => {
     sinon.restore();
-    DI.clearCache();
+    owned.reset();
   });
 
   const admin = () => principalOf(ADMIN_UUID);

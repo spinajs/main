@@ -8,6 +8,7 @@ import { DataValidator } from '@spinajs/validation';
 import { CreateUserDto, UpdateUserDto } from '../src/admin/controllers/Users/Users.js';
 
 import { TestConfiguration } from './admin-common.js';
+import { ownedCache } from './support/owned-cache.js';
 
 /**
  * The JSON schemas applied to the admin bodies, run through the real validator.
@@ -21,7 +22,10 @@ import { TestConfiguration } from './admin-common.js';
 describe('Admin route contract', function () {
   this.timeout(25000);
 
+  const owned = ownedCache();
+
   before(async () => {
+    owned.begin();
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
 
@@ -29,7 +33,7 @@ describe('Admin route contract', function () {
   });
 
   after(() => {
-    DI.clearCache();
+    owned.reset();
   });
 
   describe('body schemas', () => {

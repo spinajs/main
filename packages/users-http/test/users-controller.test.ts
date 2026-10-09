@@ -19,6 +19,7 @@ import { Profile } from '../src/admin/controllers/Users/Profile.js';
 
 import { globalRolesOf } from './support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld, signedInPrincipalOf } from './support/admin-world.js';
+import { ownedCache } from './support/owned-cache.js';
 
 /**
  * Integration tests for the admin user-management controllers.
@@ -57,8 +58,15 @@ describe('Admin user controllers', function () {
   /** queue emit is stubbed everywhere — assertions read events from here */
   let emitStub: sinon.SinonStub;
 
+  const owned = ownedCache();
+
   before(() => {
     registerAdminWorld();
+    owned.begin();
+  });
+
+  after(() => {
+    owned.reset();
   });
 
   beforeEach(async () => {
@@ -72,7 +80,7 @@ describe('Admin user controllers', function () {
 
   afterEach(async () => {
     sinon.restore();
-    DI.clearCache();
+    owned.reset();
   });
 
   const admin = () => signedInPrincipalOf(ADMIN_UUID);

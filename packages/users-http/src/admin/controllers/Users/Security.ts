@@ -89,9 +89,9 @@ async function lifecycleTarget(caller: Principal, permission: 'users:update' | '
  * Listing a user's sessions and ending one of them also need what authn-http's credential admin
  * routes need: a session caller that is not impersonating and authn's CredentialAdminGuard
  * (users': `users:credentials`, the target covered, no protected role).
- * authn-http serves `/authn/admin/users/:uuid/{password-reset,mfa-reset,sessions,tokens}`, the
- * forced logout of every session included; 3.0 has no admin route to set a password, expire one
- * or enable two-factor.
+ * authn-http serves `POST /authn/admin/users/:uuid/password-reset`, `POST .../mfa-reset`,
+ * `DELETE .../sessions` (the forced logout of every session) and `DELETE .../tokens`; 3.0 has no
+ * admin route to set a password, expire one or enable two-factor.
  *
  * Every route that takes an account out of service goes through the
  * {@link AccountGuard} first — an administrator must not be able to lock themselves,

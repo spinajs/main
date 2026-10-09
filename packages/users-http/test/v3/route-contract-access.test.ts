@@ -1,5 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -12,7 +15,10 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType 
 import { Users } from '../../src/admin/controllers/Users/Users.js';
 import { Security } from '../../src/admin/controllers/Users/Security.js';
 import { Profile } from '../../src/admin/controllers/Users/Profile.js';
+import { UserController } from '../../src/controllers/UserController.js';
+import { UserMetadataController } from '../../src/controllers/UserMetadataController.js';
 import { TestConfiguration } from '../admin-common.js';
+import { ownedCache } from '../support/owned-cache.js';
 
 const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
 
@@ -37,8 +43,12 @@ describe('users-http v3: admin route contract', function () {
   this.timeout(25000);
 
   let controllers: Array<{ name: string; instance: object }>;
+  let ownControllers: Array<{ name: string; instance: object }>;
+
+  const owned = ownedCache();
 
   before(async () => {
+    owned.begin();
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
@@ -48,10 +58,14 @@ describe('users-http v3: admin route contract', function () {
       { name: 'Security', instance: await DI.resolve(Security) },
       { name: 'Profile', instance: await DI.resolve(Profile) },
     ];
+    ownControllers = [
+      { name: 'UserController', instance: await DI.resolve(UserController) },
+      { name: 'UserMetadataController', instance: await DI.resolve(UserMetadataController) },
+    ];
   });
 
   after(() => {
-    DI.clearCache();
+    owned.reset();
   });
 
   describe('authorization (B23)', () => {
@@ -150,6 +164,32 @@ describe('users-http v3: admin route contract', function () {
       for (const { name, instance } of controllers) {
         expect(Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance), name).to.eq(undefined);
       }
+    });
+  });
+
+  describe('every controller of the package', () => {
+    const srcDir = fileURLToPath(new URL('../../src', import.meta.url));
+    const sourcesUnder = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? sourcesUnder(join(dir, f)) : f.endsWith('.ts') ? [join(dir, f)] : []));
+
+    it('the five controllers walked here are all the controllers under src', () => {
+      const declared = sourcesUnder(srcDir).filter((f) => /@BasePath\(/.test(readFileSync(f, 'utf8')));
+      expect(declared.length, declared.join(', ')).to.eq(controllers.length + ownControllers.length);
+    });
+
+    it('every route carries @Access, none is anonymous, and no 2.x @Permission descriptor is left', () => {
+      const wrong: string[] = [];
+
+      for (const { name, instance } of [...controllers, ...ownControllers]) {
+        expect(routesOf(instance).length, `${name} has routes`).to.be.greaterThan(0);
+        if (Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance) !== undefined) wrong.push(`${name}: 2.x @Permission descriptor`);
+
+        for (const route of routesOf(instance)) {
+          if (!ruleOf(instance, route)) wrong.push(`${name}.${String(route.Method)}: no @Access`);
+          if (isAnonymous(instance, route)) wrong.push(`${name}.${String(route.Method)}: anonymous`);
+        }
+      }
+
+      expect(wrong).to.deep.eq([]);
     });
   });
 

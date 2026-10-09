@@ -1,27 +1,16 @@
 import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
 import type { IResponseHeader, Request } from '@spinajs/http';
 import { Config } from '@spinajs/configuration';
-import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { Principal } from '@spinajs/authz';
-import { Access, CurrentPrincipal, typedExtractor } from '@spinajs/authz-http';
+import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '@spinajs/authn-http';
 import { ACCESS_DOMAIN_KEY } from '@spinajs/users';
 import type { User } from '@spinajs/users';
 
 import { CurrentUser } from '../args/current-user.js';
+import { ownUser } from '../services/own-user.js';
 import { assertTokenRoutesOn, offeredTokenProfiles, offeredTokenRoles } from '../services/token-offer.js';
-
-/**
- * The `user` ref of the caller's own row. Any other principal is refused here, so the check never runs on a row
- * the caller did not sign in as, whatever unconditional `user:read` it holds.
- */
-const ownUser = typedExtractor('user', (req: Request) => {
-  const principal = req.storage.Principal;
-  if (principal?.type !== 'user' || typeof principal.id !== 'string' || principal.id === '') {
-    throw new Forbidden('this route serves the signed-in user only');
-  }
-  return { type: 'user', id: principal.id };
-});
 
 /** The callers authn-http's `POST /user/tokens` serves: a session, not a token or key, and not an impersonation. */
 const TOKEN_CREATORS = [Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy];

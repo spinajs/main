@@ -15,6 +15,7 @@ import { USER_COMMON_METADATA, User, UserAccountStatusSource } from '@spinajs/us
 import { resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, rootAdmin, seedRoles } from '../support/authz-host.js';
 import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld } from '../support/admin-world.js';
+import { ownedCache } from '../support/owned-cache.js';
 
 /**
  * AccountGuard counts a witness only when the registered AccountStatusSource answers exactly `true` for it, so an
@@ -30,8 +31,15 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
 
   let world: AdminWorld;
 
+  const owned = ownedCache();
+
   before(() => {
     registerAdminWorld();
+    owned.begin();
+  });
+
+  after(() => {
+    owned.reset();
   });
 
   beforeEach(async () => {
@@ -42,7 +50,7 @@ describe('users-http v3: account guard witnesses come from the AccountStatusSour
 
   afterEach(() => {
     sinon.restore();
-    DI.clearCache();
+    owned.reset();
   });
 
   const admin = () => principalOf(ADMIN_UUID);

@@ -25,6 +25,7 @@ import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProv
 import { registerAuthzHost, seedRoles } from './authz-host.js';
 // Registers the password strategy a suite lists in `authn.strategies` (REAUTH_STRATEGIES) for fresh auth with a password.
 import './reauth-strategy.js';
+import { WORLD_KEYS } from './owned-cache.js';
 
 chai.use(chaiHttp);
 
@@ -130,7 +131,6 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
 }
 
 // What the app resolves into the root cache; uncached by key before it boots and when it stops, never DI.clearCache().
-const APP_KEYS = ['Configuration', 'UsersHttpAppConfiguration', 'Orm', 'DefaultAuthzService', 'AuthzService', 'DefaultSessionIssuer', 'SessionIssuer', 'MemorySessionStore', 'AuthnImpersonationService', 'FreshAuthCheck', 'DefaultAuthnService', 'AuthnService', 'StrategyRegistry', 'UsersHttpTestRbac', 'RbacService'];
 
 let running: { server: HttpServer; controllers: Class<BaseController>[]; port: number } | undefined;
 
@@ -204,7 +204,7 @@ function cookieName(): string {
 }
 
 function release(): void {
-  for (const key of APP_KEYS) DI.RootContainer.uncache(key);
+  for (const key of WORLD_KEYS) DI.RootContainer.uncache(key);
 }
 
 /**

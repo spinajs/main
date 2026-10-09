@@ -127,6 +127,7 @@ export class UserMetadataService {
     assertNoProtectedMetadata({ [data.Key]: data.Value });
 
     const entry = await this.addressed(scope.ownerId, idOrKey, addressedColumn(idOrKey));
+    // Called for its throw only: a Key the database matches to a reserved row is refused.
     await this.twinsOf(scope.ownerId, data.Key);
 
     await this.require(scope, UPDATE, entry);
