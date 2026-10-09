@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { AccessDenied, AuthzAdminBackend, AuthzContributor, GLOBAL, SYSTEM, ScopeAttributeStore, WritableScopeAttributeStore, flattenAttributes, resourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { AuthzService, Permission, Principal, ResourceFilter, ResourceRef, ResourceType, ScopeAttributeSchema } from '@spinajs/authz';
 import { AccessResource, AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, ScopeColumn } from '@spinajs/authz-orm';
-import { hostHarness, testHost } from '@spinajs/authz-testing';
-import type { BehaviourHarness, Facet, HarnessSession, HostSetup, SetupContext, World } from '@spinajs/authz-testing';
+import { FakeAdapter, hostHarness, testHost } from '@spinajs/authz-testing';
+import type { BehaviourHarness, Facet, FakeAdapterOptions, HarnessSession, HostSetup, SetupContext, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
@@ -30,8 +30,9 @@ import { withoutJit } from './route-world.js';
  * authz-orm models, listed by SQL alone. K1 may import it.
  *
  * - Each type of the world's adapters becomes an `@AccessResource` model: `id` TEXT, the rows' own fields, and a
- *   `@ScopeColumn` `<type>_id` per ancestor type of the `parents` chains, nearest first. The kit adapters are not
- *   registered: authz-orm's adapter (root) serves the types, loads the subjects and gives the ancestors.
+ *   `@ScopeColumn` `<type>_id` per ancestor type of the chains its own adapter's `parents` give, nearest first. The
+ *   kit adapters are not registered: authz-orm's adapter (root) serves the types, loads the subjects and gives the
+ *   ancestors, which the setup checks against the kit adapters' for every row.
  * - RBAC is wired as a host does (`registerRbac`): ConfigRoleStore (the world's roles and ladders as config),
  *   DbAssignmentStore (the world's assignments written through it), ConfigRuleStore (`world.rbac.rules`) and, for
  *   parts with the `admin` facet, DbRuleStore with AuthzAdmin on DbAuthzAdminBackend, so `rule.put` writes
@@ -44,8 +45,9 @@ import { withoutJit } from './route-world.js';
  *   Lane handle `sqlPages` runs the same statement with ORDER BY id, LIMIT and OFFSET.
  *
  * Not mirrored (the setup throws): adapter relations, adapter permissions, an adapter that is not list-scoped
- * (`compiles: undefined`), `world.rbac.links`, row values other than strings, numbers and null, an ancestor chain
- * holding a type twice or the row's own type, and chains of one type that order two scope types both ways.
+ * (`compiles: undefined`), `world.rbac.links`, row values other than strings, numbers and null, a parent without an
+ * id, an ancestor chain holding a type twice or the row's own type, and chains of one type that order two scope types
+ * both ways.
  */
 
 export interface SqlKitStats {
@@ -213,19 +215,28 @@ export function scopeColumnOrder(type: ResourceType, chains: readonly (readonly 
 
 /**
  * The world's adapter types as authz-orm models on `kind`'s connection, with their rows: `id` TEXT, the rows'
- * fields, one scope column per ancestor type (from `parents`, transitively), nearest first (`scopeColumnOrder`).
+ * fields, one scope column per ancestor type (from the serving adapter's `parents`, transitively), nearest first
+ * (`scopeColumnOrder`).
+ * @throws for what the harness does not mirror (module comment), and when authz-orm then gives a row other ancestors
+ *   than the kit adapter (`assertMirroredAncestors`)
  */
 export async function defineWorldModels(db: RootOrm, kind: Kind, world: World): Promise<Map<ResourceType, ModelClass>> {
   const out = new Map<ResourceType, ModelClass>();
-  const parentOf = new Map<string, ResourceRef>();
+  // Per adapter: the kit's FakeAdapter walks only the `parents` given to it.
+  const parentsOf = new Map<FakeAdapterOptions, Map<string, ResourceRef>>();
   for (const a of world.adapters ?? []) {
     if (a.relations?.length) throw new Error('sqlKitHarness: adapter relations are not mirrored');
     // The kit's FakeAdapter takes `compiles: undefined` as "not list-scoped"; authz-orm's adapter lists every type in SQL.
     if ('compiles' in a && a.compiles === undefined) throw new Error(`sqlKitHarness: an adapter of ${a.types.map((t) => `'${t}'`).join(', ')} is not list-scoped (compiles: undefined), which the harness does not mirror`);
     if (a.permissions?.length) throw new Error(`sqlKitHarness: adapter permissions (${a.permissions.map((p) => p.name).join(', ')}) are not mirrored; declare them in world.permissions`);
-    for (const [child, parent] of a.parents ?? []) parentOf.set(resourceKey(child), parent);
+    const parentOf = new Map<string, ResourceRef>();
+    for (const [child, parent] of a.parents ?? []) {
+      if (parent.id === undefined || parent.id === null) throw new Error(`sqlKitHarness: the parent '${resourceKey(parent)}' of ${resourceKey(child)} has no id; the kit adapter keeps it as an ancestor, a scope column cannot hold it`);
+      parentOf.set(resourceKey(child), parent);
+    }
+    parentsOf.set(a, parentOf);
   }
-  const chain = (ref: ResourceRef): ResourceRef[] => {
+  const chainIn = (parentOf: ReadonlyMap<string, ResourceRef>, ref: ResourceRef): ResourceRef[] => {
     const up: ResourceRef[] = [];
     const seen = new Set<string>([resourceKey(ref)]);
     for (let at = parentOf.get(resourceKey(ref)); at; at = parentOf.get(resourceKey(at))) {
@@ -236,6 +247,7 @@ export async function defineWorldModels(db: RootOrm, kind: Kind, world: World): 
     return up;
   };
   for (const a of world.adapters ?? []) {
+    const chain = (ref: ResourceRef): ResourceRef[] => chainIn(parentsOf.get(a)!, ref);
     for (const type of a.types) {
       if (out.has(type)) throw new Error(`sqlKitHarness: two adapters serve '${type}'`);
       const rows = a.rows?.[type] ?? [];
@@ -277,7 +289,30 @@ export async function defineWorldModels(db: RootOrm, kind: Kind, world: World): 
       out.set(type, model);
     }
   }
+  await assertMirroredAncestors(world);
   return out;
+}
+
+const refsText = (refs: readonly ResourceRef[] | null): string => (refs === null ? 'null (no row)' : refs.map((r) => JSON.stringify([r.type, r.id ?? null])).join(' → '));
+
+/**
+ * Asserts that authz-orm's adapter gives every row of the world's adapters the ancestors that the kit's FakeAdapter
+ * of the row's adapter gives.
+ * @throws on the first row whose ancestors differ
+ */
+export async function assertMirroredAncestors(world: World): Promise<void> {
+  const orm = new OrmResourceAdapter();
+  for (const a of world.adapters ?? []) {
+    const kit = new FakeAdapter(a);
+    for (const type of a.types) {
+      for (const row of a.rows?.[type] ?? []) {
+        const ref = { type, id: row.id };
+        const want = refsText(await kit.ancestors(ref));
+        const got = refsText(await runWithPrincipal(SYSTEM, async () => orm.ancestors(ref)));
+        if (got !== want) throw new Error(`sqlKitHarness: authz-orm gives ${resourceKey(ref)} the ancestors ${got}, the kit adapter ${want}`);
+      }
+    }
+  }
 }
 
 const hasRuleTerms = (f: ResourceFilter): boolean => {

@@ -1,5 +1,5 @@
 import { AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzDomains, DefaultAuthzDomains, ResourceAdapter, parseCondition, readDomainConfig } from '@spinajs/authz';
-import type { AuthzContribution, PermissionRegistry, ResourceType } from '@spinajs/authz';
+import type { AuthzContribution, ParsedCondition, PermissionRegistry, ResourceType } from '@spinajs/authz';
 import { accessResourceModels } from '@spinajs/authz-orm/native';
 import { Configuration } from '@spinajs/configuration';
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
@@ -72,6 +72,21 @@ function ruleTypes(rule: RuleDef, types: readonly ResourceType[], registry: Perm
   return admitted.filter((t) => on.has(t));
 }
 
+/** The refs the function nodes of a condition read (their args). */
+function functionRefs(c: ParsedCondition): readonly string[] {
+  switch (c.kind) {
+    case 'all':
+    case 'any':
+      return c.items.flatMap(functionRefs);
+    case 'not':
+      return functionRefs(c.item);
+    case 'fn':
+      return c.facts.refs;
+    default:
+      return [];
+  }
+}
+
 /** Why SQL cannot decide `read` as the evaluator does on rows of `type` (`RbacRulesSql.resourceLeaf`), if it cannot. */
 function readProblem(read: RbacResourceRead, type: ResourceType, models: readonly RbacSqlBootColumns[]): string | undefined {
   const path = read.attr.split('.').slice(1);
@@ -136,16 +151,16 @@ export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem
       ['resource', rule.resource],
     ] as const) {
       if (c === undefined) continue;
-      let refs: readonly string[];
+      let parsed: ParsedCondition;
       try {
-        refs = parseCondition(c, { functions: ANY_FUNCTION, where: `${source} ${key}` }).facts.refs;
+        parsed = parseCondition(c, { functions: ANY_FUNCTION, where: `${source} ${key}` });
       } catch {
         // The rule checks of rule 9 refuse a condition that does not parse.
         continue;
       }
       const reads = rbacResourceReads(c);
-      // A resource ref outside the leaves (a function argument): SQL cannot decide it either.
-      const unread = [...new Set(refs.filter((r) => r.split('.')[0] === 'resource' && !reads.some((x) => x.attr === r)))];
+      // The binding cannot fold a function reading resource.*, and the compiler refuses it, whatever the leaves read.
+      const unread = [...new Set(functionRefs(parsed).filter((r) => r.split('.')[0] === 'resource'))];
       if (reads.length > 0 || unread.length > 0) conditions.push({ key, reads, unread });
     }
     if (conditions.length === 0) continue;
@@ -156,7 +171,7 @@ export function rbacSqlBootProblems(input: RbacSqlBootInput): RbacSqlBootProblem
         continue;
       }
       for (const { key, reads, unread } of conditions) {
-        for (const ref of unread) add({ type, source, text: `${key} reads ${ref} where SQL cannot decide it` });
+        for (const ref of unread) add({ type, source, text: `${key} reads ${ref} in a function argument, which SQL cannot decide` });
         for (const read of reads) {
           const why = readProblem(read, type, models);
           if (why !== undefined) add({ type, source, text: `${key} ${why}` });

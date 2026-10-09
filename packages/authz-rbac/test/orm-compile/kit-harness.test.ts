@@ -1,4 +1,4 @@
-import { SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { GLOBAL, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { FakeAdapter, fixtureDsl } from '@spinajs/authz-testing';
 import type { World } from '@spinajs/authz-testing';
@@ -7,7 +7,7 @@ import 'mocha';
 
 import { OrmResourceAdapter } from '../../../authz-orm/lib/mjs/adapter.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
-import { defineWorldModels, scopeColumnOrder } from './kit-harness.js';
+import { assertMirroredAncestors, defineWorldModels, scopeColumnOrder } from './kit-harness.js';
 
 /*
  * The lane SQL harness mirrors a kit world's ancestor chains into `@ScopeColumn`s exactly (authz-orm's adapter gives
@@ -35,7 +35,13 @@ const MIXED = {
   ] as const,
 };
 
-const world = (adapter: object): World => ({ permissions: [{ name: 'file:read', types: ['file'] }], adapters: [adapter as never] } as unknown as World);
+const world = (...adapters: object[]): World => ({ permissions: [{ name: 'file:read', types: ['file'] }], adapters } as unknown as World);
+
+// Review N1's probe: the file's adapter links f1 to p1 only; the project's adapter links p1 to o1.
+const SPLIT = [
+  { types: ['file'], rows: { file: [{ id: 'f1' }] }, parents: [[ref('file', 'f1'), ref('project', 'p1')]] },
+  { types: ['project', 'org'], rows: { project: [{ id: 'p1' }], org: [{ id: 'o1' }] }, parents: [[ref('project', 'p1'), ref('org', 'o1')]] },
+];
 
 describe('authz-rbac orm-compile: the lane SQL harness mirrors ancestor chains', () => {
   describe('scopeColumnOrder', () => {
@@ -82,6 +88,15 @@ describe('authz-rbac orm-compile: the lane SQL harness mirrors ancestor chains',
         },
         /holds the row's own type|holds 'folder' twice/,
       ));
+    it('a parent without an id', () =>
+      refuses(
+        {
+          types: ['file'],
+          rows: { file: [{ id: 'f1' }] },
+          parents: [[ref('file', 'f1'), { type: 'org' }]],
+        },
+        /the parent 'org' of file:f1 has no id/,
+      ));
   });
 
   for (const kind of KINDS) {
@@ -95,6 +110,41 @@ describe('authz-rbac orm-compile: the lane SQL harness mirrors ancestor chains',
 
       after(async () => {
         await db?.close();
+      });
+
+      afterEach(async () => {
+        await db?.clear();
+      });
+
+      const ancestorsOf = (at: ResourceRef) => runWithPrincipal(SYSTEM, async () => new OrmResourceAdapter().ancestors(at));
+
+      it("parents split across adapters: each type's chains come from its own adapter's parents, as the kit adapter walks them", async () => {
+        await defineWorldModels(db, kind, world(...SPLIT));
+        expect(await ancestorsOf(ref('file', 'f1'))).to.deep.equal([ref('file', 'f1'), ref('project', 'p1'), GLOBAL]);
+        expect(await ancestorsOf(ref('project', 'p1'))).to.deep.equal([ref('project', 'p1'), ref('org', 'o1'), GLOBAL]);
+        for (const a of SPLIT) {
+          const kit = new FakeAdapter(a as never);
+          for (const [type, rows] of Object.entries(a.rows)) for (const row of rows) expect(await ancestorsOf(ref(type, row.id)), `${type}:${row.id}`).to.deep.equal(await kit.ancestors(ref(type, row.id)));
+        }
+      });
+
+      it("the setup throws where authz-orm's ancestors differ from the kit adapter's (a numeric parent id)", async () => {
+        const numeric = { types: ['file'], rows: { file: [{ id: 'f1' }] }, parents: [[ref('file', 'f1'), { type: 'project', id: 7 }]] };
+        const e = await defineWorldModels(db, kind, world(numeric)).then(
+          () => undefined,
+          (x: Error) => x,
+        );
+        expect(e?.message).to.equal('sqlKitHarness: authz-orm gives file:f1 the ancestors ["file","f1"] → ["project","7"] → ["$global",null], the kit adapter ["file","f1"] → ["project",7] → ["$global",null]');
+      });
+
+      it('assertMirroredAncestors throws for a row whose kit chain the SQL rows do not hold', async () => {
+        await defineWorldModels(db, kind, world(MIXED));
+        const more = { ...MIXED, parents: [...MIXED.parents, [ref('file', 'f3'), ref('project', 'p1')] as const] };
+        const e = await assertMirroredAncestors(world(more)).then(
+          () => undefined,
+          (x: Error) => x,
+        );
+        expect(e?.message).to.equal('sqlKitHarness: authz-orm gives file:f3 the ancestors ["file","f3"] → ["$global",null], the kit adapter ["file","f3"] → ["project","p1"] → ["org","o1"] → ["$global",null]');
       });
 
       it('folder → project → org and file → folder → project → org beside file → project → org: the same ancestors as the kit adapter', async () => {

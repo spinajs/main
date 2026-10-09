@@ -7,7 +7,7 @@ import 'mocha';
 
 import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, parseRbacListArgs, rbacAssignmentArgsV2, rbacThresholdArgs } from '../../src/index.js';
 import type { RbacAssignmentArgsV2, RbacThresholdArgs } from '../../src/index.js';
-import { RbacListCompiler, RbacRoleGraphSource, RbacScopeAttributeSource, RbacSql } from '../../src/orm/index.js';
+import { RbacListCompiler, RbacRoleGraphSource, RbacScopeAttributeSource, RbacSql, RbacSqlBootCheck } from '../../src/orm/index.js';
 import { sqliteParserDepth } from '../../src/orm/compile/sqlite-depth.js';
 import { SQLITE_ODD_DOCS } from '../orm/orm-world.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
@@ -351,6 +351,18 @@ describe('authz-rbac orm-compile: restrict, cap and threshold rules in SQL', fun
           (e: Error) => e,
         );
         expect(refused?.message).to.match(/rule 11[\s\S]*type 'doc', rbac rule 't2': resource reads resource\.name with eq/);
+      });
+
+      it('past the boot check, a resource leaf other than a pattern is UNKNOWN in SQL: narrower (review m1)', async () => {
+        const contribute = RbacSqlBootCheck.prototype.contribute;
+        RbacSqlBootCheck.prototype.contribute = async () => ({});
+        try {
+          await scenario([{ id: 't2', kind: 'threshold', scope: GLOBAL, permissions: ['doc:comment'], minRole: 'maintainer', resource: { attr: 'resource.name', eq: 'notes' } }], [assignment(u('ann'), 'editor', GLOBAL)]);
+        } finally {
+          RbacSqlBootCheck.prototype.contribute = contribute;
+        }
+        // doc 2 is 'notes' (denied), doc 8's name is null (UNKNOWN: denied).
+        await narrower(user('ann'), 'doc:comment', [], ['1', '3', '4', '5', '6', '7']);
       });
 
       it('a canvas-like set of a dozen caps and thresholds at GLOBAL (design §8.5 shapes): the terms stay within the SQLite parser stack', async () => {
