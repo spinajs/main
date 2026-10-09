@@ -21,7 +21,10 @@ const validator = await DI.resolve(DataValidator);
 
 ## Configuration
 
-Options under the `validation` configuration key are passed straight to the AJV constructor. Defaults:
+Options under the `validation` configuration key are passed to the AJV constructor, except two that are
+always forced on: `$data: true` and `verbose: true`. Verbose errors let the validator spot `$data` rules;
+every error it returns or throws is sanitised first (see [`ValidationFailed` error details](#validationfailed-error-details)),
+so the verbose `data`, `schema` and `parentSchema` never reach a caller. Defaults:
 
 ```typescript
 const config = {
@@ -258,3 +261,7 @@ A rule written with `$data` (`confirm: { const: { $data: '1/password' } }`) repo
 and a message naming only the keyword and the pointer, since AJV would build both from the referenced field;
 the `discriminator` `tagValue` is dropped. `tryValidate` and `validateSchema` return errors reduced the same way
 (the exported `sanitizeError` does it).
+
+A `ValidationFailed` built by hand takes `(message, errors, schema?)`. To redact `$data` rules it needs AJV
+errors from a verbose run (they carry `parentSchema`) or the `schema` argument. With neither, the params and
+message of a `$data` rule stay as AJV built them, request value included.
