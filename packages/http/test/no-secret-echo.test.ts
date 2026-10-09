@@ -126,18 +126,35 @@ describe('http: no request value in 400 bodies or logs', function () {
   });
 
   describe('an express.json verify failure, which carries the body-parser body', () => {
-    it('sends no body', async () => {
+    it('answers 400 with a fixed message when the hook throws a plain Error', async () => {
       const res = await req()
-        .post('secret-echo/account')
+        .post('secret-echo/account?token=Zq7verifyQsMf5Ra')
         .set('Accept', 'application/json')
         .set('x-test-refuse-body', '1')
         .send({ reauthPassword: 'Zq7verifyNb3Lw' });
 
-      // body-parser's 403 is a plain Error, which the error map does not know.
-      expect(res.status, res.text).to.eq(500);
-      expect(res.body.type, res.text).to.eq('entity.verify.failed');
+      expect(res.status, res.text).to.eq(400);
+      expect(res.body.message, res.text).to.eq('request body was refused');
+      expect(res.body).to.not.have.property('type');
       expect(res.body).to.not.have.property('body');
-      expectNowhere(res, ['Zq7verifyNb3Lw']);
+      expect(res.body).to.not.have.property('stack');
+      expectNowhere(res, ['Zq7verifyNb3Lw', 'Zq7verifyQsMf5Ra', 'request body refused']);
+
+      const lines = logLines().filter((line) => line.includes('entity.verify.failed'));
+      expect(lines, logLines().join('\n')).to.have.length(1);
+      expect(lines[0]).to.include('POST').and.to.include('/secret-echo/account?token=[redacted]');
+    });
+
+    it('keeps the mapped answer of an app exception, without the body', async () => {
+      const res = await req()
+        .post('secret-echo/account')
+        .set('Accept', 'application/json')
+        .set('x-test-forbid-body', '1')
+        .send({ reauthPassword: 'Zq7forbidVc2Jt' });
+
+      expect(res.status, res.text).to.eq(403);
+      expect(res.body).to.not.have.property('body');
+      expectNowhere(res, ['Zq7forbidVc2Jt']);
     });
   });
 

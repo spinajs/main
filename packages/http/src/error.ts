@@ -33,12 +33,32 @@ export function __resolve_error_response__(errorMap: Map<string, Constructor<Htt
     return null;
 }
 
-const BODY_PARSE_FAILED_MESSAGE = 'request body is not valid JSON';
-
 // body-parser forwards its errors with a string `type` and, on parse and verify failures, the raw request
 // text as `body`. A parse failure's message quotes the input too.
 function isBodyParserError(err: any): boolean {
     return typeof err === 'object' && err !== null && typeof err.type === 'string' && Object.prototype.hasOwnProperty.call(err, 'body');
+}
+
+/**
+ * The fixed 400 message for a body-parser failure that answers without its own text, or null.
+ *
+ * A verify hook's throw arrives as the thrown error itself, with body-parser's 403 `status`, `type` and `body`
+ * set on it. An app exception the error map knows (a `Forbidden` for a bad webhook signature) keeps its
+ * mapped answer; anything else (a plain `Error`) would answer 500 with the hook's message.
+ */
+function bodyFailureMessage(err: any, errorMap: Map<string, Constructor<HttpResponse>> | null): string | null {
+    if (!isBodyParserError(err)) {
+        return null;
+    }
+
+    switch (err.type) {
+        case 'entity.parse.failed':
+            return 'request body is not valid JSON';
+        case 'entity.verify.failed':
+            return errorMap && __resolve_error_response__(errorMap, err) ? null : 'request body was refused';
+        default:
+            return null;
+    }
 }
 
 export function __handle_error__() {
@@ -64,11 +84,13 @@ export function __handle_error__() {
         let error: any;
         let response: HttpResponse | null = null;
 
-        if (isBodyParserError(err) && err.type === 'entity.parse.failed') {
-            logger.warn(`Request body parse failure (${err.type}) at ${req.method} ${req.path}`);
+        const bodyFailure = bodyFailureMessage(err, errorMap);
 
-            error = { message: BODY_PARSE_FAILED_MESSAGE };
-            const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(BODY_PARSE_FAILED_MESSAGE)) : null;
+        if (bodyFailure) {
+            logger.warn(`Request body failure (${err.type}) at ${req.method} ${redactUrl(req.originalUrl)}`);
+
+            error = { message: bodyFailure };
+            const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
             response = httpResponse ? new httpResponse(error) : new BadRequestResponse(error);
         } else {
             error = {
