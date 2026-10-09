@@ -19,6 +19,8 @@ Note: 12 tests of `users-controller.test.ts` (most likely the `addUser` cases th
 
 The `Now` column records the state after plan C2 (C2 tasks 0 and 6), C2b task 1 (`GET /user` on `@Access`), C2b task 2 (metadata routes on `@Access`), C2b task 3 (admin record routes on `@Access('users:*')`) C2b task 5 (admin session routes on the SessionIssuer) and C2b task 5b (route contract cases in one file); rows waiting on N8a keep their 2.x tests until the routes move onto `@Access`.
 
+C2b task 6 adds `GET /user/tokens/roles` and `/user/tokens/profiles` (2.x `AccessTokenController`, deleted from authn-http by R1bc) with new tests in test/v3/user-token-offers.test.ts. No row here names them: the 2.x cases are rows 1-6 of `token-controller-roles.test.ts` in authn-http's LEDGER, which this lane does not edit; their 3.0 counterparts for these routes are the anonymous, token-caller, impersonation, roles and profiles cases of that file.
+
 | Class | Count |
 |---|---|
 | move | 0 |

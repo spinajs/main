@@ -87,6 +87,22 @@ The admin routes do not manage user metadata. `UserMetadataController` serves `/
 a time. Another user's metadata needs an unconditional `user.metadata` grant (users' `admin.users`); users' `user` role
 reaches only its own, through the `owner` relation.
 
+## Token roles and profiles of the signed-in user
+
+`GET /user/tokens/roles` answers `{ Roles }` and `GET /user/tokens/profiles` answers `{ Profiles }`: what a picker may
+offer for `@spinajs/authn-http`'s `POST /user/tokens`, which they never exceed. Both sit on `@Access('user:read')`
+decided on the caller's own row, and serve the callers that route serves: a token or key caller gets
+`403 session_required`, an impersonating session `403 impersonating`. They answer `404` while no `TokenService` is
+registered, and carry `Cache-Control: no-store`.
+
+- Roles: those the create route accepts (each held by the caller at any scope, by authn's `RoleSource`), less those a
+  token loses at check time: `authz.token.excludedRoles` and `authz.token.rolePolicy` of the access domain
+  (`authz.http.access.domain`). `?profile=<role>` gives those of a token pinned to that profile, and none for a profile
+  the create route refuses; a malformed `profile` answers `400`.
+- Profiles: authn-token's `TokenProfilePolicy`; none while no such policy is registered (authn-token's default offers
+  none). authz-rbac's `TokenRolePolicy.allowedProfiles` is not read: no create or check path reads it.
+- A policy that fails or answers anything but a list of role names answers `500`; nothing is offered.
+
 ## Handing a new account to its owner
 
 `POST /users` creates the account **inactive** and without a password: `create()` sends the owner an
