@@ -64,7 +64,12 @@ and `org_id` scope columns, so authz-orm's middleware filters `project:read` whe
 Principals: `owner` (org.owner of org 1: implies maintainer, bypasses restrict and cap), `member` (org.member of
 orgs 1-2, a group, a project and a file grant), `member-all` (org.member of all 10 orgs), `guest` (org.guest of the
 STRICT org with two maintainer project grants), `external` (no org role; project grants in the OPEN org and in the
-org with external sharing off, file grants in a fifth org), `link` (a share link principal, viewer at a project).
+org with external sharing off, file grants in a fifth org), `link` (a share link principal, viewer at a project),
+`agent` (an agent session for `member`, `inherit`, ceiling `project:read` on the projects of orgs 1 and 2, built as
+K1b's canvas agent lists build it). Org 1 allows agents; org 2 (STRICT) has `agents_allowed: false`. The canvas
+config sets `abac.scopeResiduals: true` (RFC K1b-1), so the ABAC policy `agents-disabled` reaches the agent's list
+as `native:condition.scope` leaves: per row, correlated sub-selects that read the org's `agents_allowed` through the
+scope attribute layers. The agent lists the member's org 1 files only.
 
 ## The scenarios
 
