@@ -9,6 +9,8 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   properties: {
     // The authz domain whose service scopes the ORM queries.
     domain: { type: 'string', minLength: 1, default: 'root' },
+    // true lets authz-orm use Postgres connections with jit on, whose rule lists take seconds.
+    allowJit: { type: 'boolean', default: false },
   },
 };
 

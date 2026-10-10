@@ -33,14 +33,14 @@ describe('authz-orm: boot warning for an @OrmScope on an unchecked model', () =>
     for (const c of made.splice(0)) unregisterResource(c);
   });
 
-  it('warns once, naming the model, the relation and the policy', () => {
+  it('warns once, naming the model, the relation and the policy', async () => {
     class UncheckedLoose extends ModelBase {}
     @OrmScope(UncheckedLoose as never, 'pool')
     class UncheckedLoosePolicy extends NoScope {}
 
     const { contributor, lines } = recording();
-    contributor.contribute();
-    contributor.contribute();
+    await contributor.contribute();
+    await contributor.contribute();
 
     const mine = lines.filter((l) => l.message.includes('UncheckedLoose'));
     expect(mine).to.have.length(1);
@@ -49,7 +49,7 @@ describe('authz-orm: boot warning for an @OrmScope on an unchecked model', () =>
     void UncheckedLoosePolicy;
   });
 
-  it('is silent for an @AccessResource model', () => {
+  it('is silent for an @AccessResource model', async () => {
     @AccessResource('unchecked-ok')
     class UncheckedChecked extends ModelBase {}
     track(UncheckedChecked);
@@ -58,12 +58,12 @@ describe('authz-orm: boot warning for an @OrmScope on an unchecked model', () =>
     void UncheckedCheckedPolicy;
 
     const { contributor, lines } = recording();
-    contributor.contribute();
+    await contributor.contribute();
 
     expect(lines.filter((l) => l.message.includes('UncheckedCheckedPolicy'))).to.deep.equal([]);
   });
 
-  it('is silent for a base class of an @AccessResource model', () => {
+  it('is silent for a base class of an @AccessResource model', async () => {
     class UncheckedBase extends ModelBase {}
     @OrmScope(UncheckedBase as never, 'pool')
     class UncheckedBasePolicy extends NoScope {}
@@ -73,12 +73,12 @@ describe('authz-orm: boot warning for an @OrmScope on an unchecked model', () =>
     track(UncheckedSub);
 
     const { contributor, lines } = recording();
-    contributor.contribute();
+    await contributor.contribute();
 
     expect(lines.filter((l) => l.message.includes('UncheckedBasePolicy'))).to.deep.equal([]);
   });
 
-  it('is silent for a model registered late through registerAccessResource', () => {
+  it('is silent for a model registered late through registerAccessResource', async () => {
     class UncheckedLate extends ModelBase {}
     @OrmScope(UncheckedLate as never, 'pool')
     class UncheckedLatePolicy extends NoScope {}
@@ -87,7 +87,7 @@ describe('authz-orm: boot warning for an @OrmScope on an unchecked model', () =>
     track(UncheckedLate);
 
     const { contributor, lines } = recording();
-    contributor.contribute();
+    await contributor.contribute();
 
     expect(lines.filter((l) => l.message.includes('UncheckedLatePolicy'))).to.deep.equal([]);
   });

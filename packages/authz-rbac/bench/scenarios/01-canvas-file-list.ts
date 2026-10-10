@@ -1,6 +1,7 @@
-// Release gate 7 (r3): the canvas `file:read` list over 1,000 files with rules ≤ 2 × the plain EXISTS query.
+// Release gate 7: the canvas `file:read` list over 1,000 files and its 50-row pages, against the 3.0 limits and
+// the 3.1 target (≤ 2 × the plain EXISTS query).
 // One scenario per database, JIT mode, principal and operation; see ../BASELINE.md for what each one times.
-import { PERMISSION, bootCanvasBench, canvasState, checkedFiles, plainExistsResidual } from '../lib.js';
+import { PAGE_SIZE, PERMISSION, bootCanvasBench, canvasState, checkedFiles, plainExistsResidual } from '../lib.js';
 import type { BenchScenario, CanvasBench, Statement } from '../lib.js';
 import type { Kind } from '../../test/orm/root-orm.js';
 
@@ -13,7 +14,7 @@ const boot = (kind: Kind): Promise<CanvasBench> => {
   let b = benches.get(kind);
   if (!b) {
     b = bootCanvasBench(kind, 7, BACKGROUND).then(async (bench) => {
-      // The database default is on; verification and warm-up run with it off unless a scenario says otherwise.
+      // Verification and warm-up run with jit off unless a scenario says otherwise.
       if (kind === 'postgres') await bench.setJit(false);
       return bench;
     });
@@ -35,9 +36,16 @@ interface Prepared {
   readonly plainResidual: Awaited<ReturnType<typeof plainExistsResidual>>;
   readonly listed: readonly string[];
   readonly reference: readonly string[];
+  /** Offset of `page-middle`: the middle page of the list (0 for a list of one page). */
+  readonly middle: number;
+  /** Rows of `page-first`, `page-middle` and `exists-page-first`. */
+  readonly pages: Readonly<Record<'first' | 'middle' | 'reference', number>>;
 }
 
-// Verified once per database and principal: the list is exactly what single checks allow, inside the reference.
+const middleOffset = (n: number) => PAGE_SIZE * Math.floor(Math.ceil(n / PAGE_SIZE) / 2);
+
+// Verified once per database and principal: the list is exactly what single checks allow, inside the reference;
+// each page is its slice of the list (or of the reference) in `updated_at DESC` order.
 const prepared = new Map<string, Promise<Prepared>>();
 
 function prepare(kind: Kind, who: string): Promise<Prepared> {
@@ -64,25 +72,49 @@ function prepare(kind: Kind, who: string): Promise<Prepared> {
       };
       one(await bench.statements(principal), 'the list');
       one(await bench.statements(principal, plainResidual), 'the plain EXISTS');
-      return { bench, list, plain, plainResidual, listed, reference };
+
+      const updated = new Map(bench.state.files.map((f) => [f.id, f.updated_at]));
+      const recent = (xs: readonly string[]) => [...xs].sort((a, b) => (updated.get(b)! < updated.get(a)! ? -1 : 1));
+      const middle = middleOffset(listed.length);
+      const pages = { first: 0, middle: 0, reference: 0 };
+      for (const [what, rows, all, offset] of [
+        ['first', await bench.page(principal, 0), listed, 0],
+        ['middle', await bench.page(principal, middle), listed, middle],
+        ['reference', await bench.run(plainResidual, principal, 0), reference, 0],
+      ] as const) {
+        const want = recent(all).slice(offset, offset + PAGE_SIZE);
+        if (JSON.stringify(rows) !== JSON.stringify(want)) throw new Error(`${who}: the ${what} page (${rows.length} rows at ${offset}) is not rows [${offset}, ${offset + PAGE_SIZE}) of its list by updated_at (${want.length})`);
+        pages[what] = rows.length;
+      }
+      one(await bench.statements(principal, undefined, 0), 'the first page');
+      one(await bench.statements(principal, undefined, middle), 'the middle page');
+      one(await bench.statements(principal, plainResidual, 0), 'the plain EXISTS page');
+      return { bench, list, plain, plainResidual, listed, reference, middle, pages };
     })();
     prepared.set(key, p);
   }
   return p;
 }
 
-type Op = 'list' | 'exists' | 'list-sql' | 'exists-sql';
+type Op = 'list' | 'exists' | 'list-sql' | 'exists-sql' | 'page-first' | 'page-middle' | 'exists-page-first';
+
+const PAGE_OPS: ReadonlySet<Op> = new Set(['page-first', 'page-middle', 'exists-page-first']);
 
 const OPS: readonly { readonly op: Op; readonly compare?: Op; readonly what: string }[] = [
   { op: 'exists', what: 'reference (b): the r2 native:rbac.assignment v1 term (plain EXISTS, no rules) compiled by authz-orm on the file table and run' },
   { op: 'list', compare: 'exists', what: "(a): the list as an app runs it: File.query() under the principal, authz-orm's middleware filters project:read (args v2 with config and stored rules) and compiles it" },
   { op: 'exists-sql', what: "reference (b), the statement only: the plain EXISTS statement's text and bindings run on the driver" },
   { op: 'list-sql', compare: 'exists-sql', what: "(a), the statement only: the list statement's text and bindings run on the driver" },
+  { op: 'exists-page-first', what: `reference (b) as a page: the plain EXISTS ordered by updated_at DESC, id ASC, limit ${PAGE_SIZE}, offset 0` },
+  { op: 'page-first', what: `(a) as the first page: File.query() under the principal ordered by updated_at DESC, id ASC, limit ${PAGE_SIZE}, offset 0` },
+  { op: 'page-middle', what: `(a) as the middle page: the same at offset ${PAGE_SIZE} × floor(pages / 2) of the principal's list` },
 ];
 
-// JIT on compiles each list statement for seconds (L4b rules report): few iterations.
+// JIT on compiles each list statement for seconds (L4b rules report): few iterations. Pages are fast, so they
+// take more iterations on Postgres with JIT off for a p99 that means something.
 const SIZING: Readonly<Record<string, { iterations: number; warmup: number; repeats: number }>> = {
   'postgres:off': { iterations: 30, warmup: 5, repeats: 3 },
+  'postgres:off:page': { iterations: 100, warmup: 10, repeats: 3 },
   'postgres:on': { iterations: 10, warmup: 1, repeats: 1 },
   'sqlite:-': { iterations: 3, warmup: 1, repeats: 1 },
 };
@@ -94,9 +126,10 @@ const nameOf = (kind: Kind, jit: boolean | undefined, who: string, op: Op) => `c
 
 const scenarios: BenchScenario[] = [];
 for (const { kind, jit } of MODES) {
-  const sizing = SIZING[`${kind}:${jitName(jit)}`];
   for (const { name: who } of canvasState(7, BACKGROUND).principals) {
     for (const { op, compare, what } of OPS) {
+      const mode = `${kind}:${jitName(jit)}`;
+      const sizing = (PAGE_OPS.has(op) && SIZING[`${mode}:page`]) || SIZING[mode];
       let p: Prepared;
       const runOp = (): Promise<unknown> => {
         const principal = p.bench.state.principals.find((x) => x.name === who)!.principal;
@@ -109,6 +142,24 @@ for (const { kind, jit } of MODES) {
             return p.bench.execute(p.list);
           case 'exists-sql':
             return p.bench.execute(p.plain);
+          case 'page-first':
+            return p.bench.page(principal, 0);
+          case 'page-middle':
+            return p.bench.page(principal, p.middle);
+          case 'exists-page-first':
+            return p.bench.run(p.plainResidual, principal, 0);
+        }
+      };
+      const rowsOf = (): number => {
+        switch (op) {
+          case 'page-first':
+            return p.pages.first;
+          case 'page-middle':
+            return p.pages.middle;
+          case 'exists-page-first':
+            return p.pages.reference;
+          default:
+            return op.startsWith('list') ? p.listed.length : p.reference.length;
         }
       };
       scenarios.push({
@@ -122,7 +173,7 @@ for (const { kind, jit } of MODES) {
         },
         async verify() {
           const rows = (await runOp()) as unknown[];
-          const want = op.startsWith('list') ? p.listed.length : p.reference.length;
+          const want = rowsOf();
           if (rows.length !== want) throw new Error(`${op} returned ${rows.length} rows, expected ${want}`);
         },
         run: runOp,

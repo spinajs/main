@@ -5,6 +5,7 @@ import { bindConfiguration, bootConfiguration, violationPaths } from '@spinajs/a
 import type { IContainer } from '@spinajs/di';
 
 import { AUTHZ_ORM_CONFIGURATION_SCHEMA, DbScopeAttributeStore } from '../src/index.js';
+import { OrmAuthzContributor } from '../src/contributor.js';
 import { AuthzQueryMiddleware } from '../src/middleware.js';
 
 const expect = chai.expect;
@@ -30,6 +31,17 @@ describe('authz-orm configuration through @Config', () => {
 
   it('refuses an empty authz.orm.domain at boot', async () => {
     expect(await violationPaths(boot({ orm: { domain: '' } }))).to.include('authz.orm.domain');
+  });
+
+  it('authz.orm.allowJit defaults to false for the middleware and the contributor', async () => {
+    const child = await boot({});
+    expect((bindConfiguration(new AuthzQueryMiddleware(), child) as unknown as { AllowJit: unknown }).AllowJit).to.equal(false);
+    expect((bindConfiguration(new OrmAuthzContributor(), child) as unknown as { AllowJit: unknown }).AllowJit).to.equal(false);
+    expect((bindConfiguration(new AuthzQueryMiddleware(), await boot({ orm: { allowJit: true } })) as unknown as { AllowJit: unknown }).AllowJit).to.equal(true);
+  });
+
+  it('refuses an authz.orm.allowJit that is no boolean at boot', async () => {
+    expect(await violationPaths(boot({ orm: { allowJit: { on: true } } }))).to.include('authz.orm.allowJit');
   });
 
   it('DbScopeAttributeStore reads authz.admin.connection of the container it is given', async () => {

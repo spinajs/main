@@ -12,6 +12,7 @@ import { buildResidual, compileResidual } from './compile/compiler.js';
 import type { QueryOp, ResidualContext } from './compile/compiler.js';
 import { carryVetted, scopeManyToManyExists, unvettedJunction } from './exists.js';
 import { authorizeInsert, relationsOf } from './insert.js';
+import { assertJitOff } from './jit.js';
 import { relationPrincipalOf, serviceConfig } from './principal.js';
 import { entryOf, registeredClasses, registryVersion, scopePolicyOf } from './registry.js';
 import type { ModelClass, QueryKind, ResourceEntry } from './registry.js';
@@ -235,6 +236,9 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
   @Config('authz.orm.domain')
   protected Domain: string;
 
+  @Config('authz.orm.allowJit')
+  protected AllowJit: boolean;
+
   // Read when a scoped model needs it, not on every query.
   private readonly domain = (): string => this.Domain;
 
@@ -248,10 +252,13 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
     guard(builder);
     if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder), this.domain);
     const scope = scopes.get(builder);
+    // Never for a builder that reaches no scope: the check's own SHOW runs through here.
+    const reach = scope ? undefined : reached(builder);
+    if (scope || reach!.scoped) await assertJitOff(builder.Driver, () => this.AllowJit);
     await gate(builder, scope, this.domain);
     if (scope?.slot && !scope.slot.resolved) await fill(scope.slot, builder, scope);
     // Relation queries and sub-queries compile into this query without an execution hook of their own.
-    for (const slot of pendingSlots(builder)) {
+    for (const slot of (reach ?? reached(builder)).slots) {
       const owner = scopes.get(slot.target as object);
       if (owner === undefined || slot.resolved) continue;
       if (!exempt()) assertBuiltFor(owner, currentPrincipal());
@@ -328,13 +335,18 @@ async function fill(slot: ResidualSlot, builder: QueryBuilder, scope: QueryScope
   slot.fill(statements);
 }
 
-/** Unresolved slots a query compiles: in its where and joins, its relation queries, and the sub-queries of its statements. */
-function pendingSlots(root: object): ResidualSlot[] {
+/**
+ * What a query compiles, in its where and joins, its relation queries and the sub-queries of its statements:
+ * the unresolved slots, and whether any of it carries a scope (its rule SQL runs in this statement).
+ */
+function reached(root: object): { slots: ResidualSlot[]; scoped: boolean } {
   const seen = new Set<object>();
   const out: ResidualSlot[] = [];
+  let scoped = false;
   const visit = (b: unknown): void => {
     if (b === null || typeof b !== 'object' || seen.has(b)) return;
     seen.add(b);
+    if (scopes.has(b)) scoped = true;
     statements((b as { _statements?: unknown })._statements);
     statements(rawJoins(b));
     const relations = (b as { _relations?: unknown })._relations;
@@ -343,6 +355,7 @@ function pendingSlots(root: object): ResidualSlot[] {
   const statements = (list: unknown): void => {
     if (!Array.isArray(list)) return;
     for (const s of list as unknown[]) {
+      if (s instanceof AuthzStatement && scopes.has(s.target as object)) scoped = true;
       if (s instanceof ResidualSlot) {
         if (!s.resolved && !out.includes(s)) out.push(s);
       } else if (s instanceof JoinStatement) {
@@ -354,7 +367,7 @@ function pendingSlots(root: object): ResidualSlot[] {
     }
   };
   visit(root);
-  return out;
+  return { slots: out, scoped };
 }
 
 /** I5: an update of a soft-delete model that writes DeletedAt (delete or restore) needs delete; other columns need update. */

@@ -1,15 +1,66 @@
-# Release gate 7: canvas `file:read` list over 1,000 files ≤ 2 × the plain `EXISTS` (results)
+# Release gate 7: canvas `file:read` list and 50-row pages over 1,000 files (results)
 
-How the bench works and how to run it: `BASELINE.md`. Run 2026-10-09 on branch `authz/L4b-rules-sql`.
+How the bench works and how to run it: `BASELINE.md`.
 
-**Verdict: the gate FAILS** in every setting measured. With `jit = off` (the setting a host needs, see below) the
-list takes 2.4 to 60 times the plain `EXISTS` (p50, all runs), 0.2 to 1.2 s for 1,000 files; with the server default `jit = on`
-it takes 4 s to 100 s. Every list was checked exact (the rows single checks allow) before it was timed, so the
-cost is that of the rule terms, not of a wrong plan shape. Passing needs a different SQL shape (below); the index
-change of this task makes the lists independent of how many other tenants share the authz tables, but does not
-change the verdict.
+## Release gate 7 for 3.0: absolute limits (G7)
 
-## Environment
+Run 2026-10-09 on branch `authz/G7-gate7` (base `authz-v3-refactor` 9b11af9f7), code of a0f8fb173 (before the
+jit check), `--filter=postgres.jit-off`, no background tenants. Limits (the human's option (b) of 2026-10-09,
+plan §12 item 7): the 1,000-file list p50 ≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms; Postgres with
+`jit = off`, with and without other tenants.
+
+**Verdict: the 3.0 limits FAIL on the page.** Every page, first and middle, of every principal misses the 100 ms
+p50 limit, by 2.3 to 21 times, and the 250 ms p99 limit (lowest p99 346 ms). The list limit holds for five
+principals of six, the member's only by 1 % (1,485 ms); the owner's list missed it in this run (2,056 ms) on a
+loaded machine, where L4b's run measured 849 ms.
+
+Same environment as below, but the machine was heavily loaded (other lanes' suites on the same machine and
+Postgres server): `CREATE DATABASE` took 2.5 s and the run took 1 h 48 min. The references are slower than in
+L4b's run for the owner and members (owner `exists` p50 317 ms here, 128 ms there), and the owner's and member's
+p99 show stalls of seconds. The small principals' numbers are steadier. Not measured: the run with
+`L4B_BENCH_BACKGROUND=90`, and a quiet rerun of the owner and member lists. The page fails without other tenants
+already, and the Postgres server was down when this was written.
+
+Order: `updated_at DESC, id ASC`, 50 rows, through the ORM's `orderByDescending`/`orderBy`/`take`/`skip`; index
+`canvas_file_recent (updated_at DESC, id)`. Every page was checked to be its slice of the exact list before
+timing. p50 and p99 in ms, median of 3 repeats (lists 30 iterations, pages 100).
+
+| principal  | rows | middle offset | page-first p50 |     p99 | page-middle p50 |     p99 | exists-page-first p50 |   p99 | list p50 |     p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms |
+| ---------- | ---: | ------------: | -------------: | ------: | --------------: | ------: | --------------------: | ----: | -------: | ------: | ------------ | ------------------- |
+| owner      |  100 |            50 |         2057.5 | 11151.8 |          1856.8 | 14750.8 |                 135.9 | 316.7 |   2056.1 | 11595.1 | FAIL         | FAIL                |
+| member     |  172 |           100 |         1043.9 |  6961.0 |          1229.5 |  2797.9 |                 118.0 | 417.9 |   1484.7 |  7934.3 | PASS         | FAIL                |
+| member-all |  760 |           400 |          230.2 |   345.8 |           507.3 |   797.8 |                  19.0 |  30.8 |    779.2 |  1140.5 | PASS         | FAIL                |
+| guest      |   38 |     0 (first) |          382.7 |   627.5 |           369.9 |   566.5 |                  15.4 |  26.3 |    359.9 |   508.7 | PASS         | FAIL                |
+| external   |   22 |     0 (first) |          366.0 |   551.2 |           345.0 |   517.8 |                  17.0 |  31.4 |    372.2 |   497.1 | PASS         | FAIL                |
+| link       |   19 |     0 (first) |          346.3 |   505.5 |           347.7 |   472.5 |                   9.3 |  13.1 |    340.0 |   510.9 | PASS         | FAIL                |
+
+What the numbers say, load aside:
+
+- A page costs about what the whole list costs when the principal sees few rows (guest, external, link: 19 to 38
+  of 1,000). To find 50 rows it may list, the database tests every row, and each test runs the per-row rule chain
+  (about 0.25 ms, see "Why it fails"). Their pages took 345 to 383 ms p50 here (3.4 to 3.8 times the limit), their
+  lists 340 to 372 ms; L4b measured the same lists at 394 to 523 ms. No page was measured on a quiet machine, but
+  nothing suggests a quiet machine would bring these pages near 100 ms.
+- Where the principal sees most rows (member-all, 760), the first page is cheaper than the list (230 ms against
+  779 ms) but still over the limit; the middle page at offset 400 costs about two thirds of the list (if Postgres
+  walks `canvas_file_recent`, it tests about 600 rows; the query plan was not checked).
+- The plain `EXISTS` page stays under 100 ms for the four principals whose numbers the load spared.
+
+Passing the page limit needs the set-based rewrite described under "Why it fails" (work the rules out once per
+scope node), not tuning: the cost is per row tested, and a page of a sparse list tests every row.
+
+## Release gate 7, now the 3.1 target: list ≤ 2 × the plain `EXISTS` (L4b)
+
+Run 2026-10-09 on branch `authz/L4b-rules-sql`.
+
+**Verdict: the 3.1 target (≤ 2 × the plain `EXISTS`, the r3 gate 7) FAILS** in every setting measured. With
+`jit = off` (the setting a host needs, see below) the list takes 2.4 to 60 times the plain `EXISTS` (p50, all
+runs), 0.2 to 1.2 s for 1,000 files; with the server default `jit = on` it takes 4 s to 100 s. Every list was
+checked exact (the rows single checks allow) before it was timed, so the cost is that of the rule terms, not of
+a wrong plan shape. Passing needs a different SQL shape (below); the index change of this task makes the lists
+independent of how many other tenants share the authz tables, but does not change the verdict.
+
+### Environment
 
 Windows 11 (10.0.26200), Node 24.14.1, Intel i7-12700KF (20 threads); PostgreSQL 16.6 (Debian, Docker Desktop on
 the same machine), server defaults: `jit` on, `jit_above_cost` 100000, `jit_inline_above_cost` and
@@ -26,7 +77,7 @@ assignments, 3,500 stored rules, 1,001 rule subjects, 250 attribute rows, the sa
 Rows per principal (list / reference): owner 100 / 100, member 172 / 181, member-all 760 / 800, guest 38 / 40,
 external 22 / 43, link 19 / 20.
 
-## Postgres, jit off, final code (08162ef29)
+### Postgres, jit off, final code (08162ef29)
 
 p50 and p99 in ms, median of 3 repeats of 30 iterations (5 warm-up). `list` = (a) through authz-orm's middleware,
 `exists` = (b) the r2 v1 term compiled by authz-orm; `-sql` = the bare statements.
@@ -49,7 +100,7 @@ p50 and p99 in ms, median of 3 repeats of 30 iterations (5 warm-up). `list` = (a
 The same before the index change (85436182f), an earlier and quieter run: ratios 2.41 to 47.98 (p50), 3.06 to
 50.55 (p99), all FAIL (owner list 470.8 / 71.5 ms, member-all 1023.6 / 424.1, guest 518.8 / 27.8, link 400.2 / 8.34).
 
-## Postgres, jit off, 90 background tenants
+### Postgres, jit off, 90 background tenants
 
 | principal  | op       | before: a p50 | b p50 |    a/b | after: a p50 | b p50 | a/b p50 | a/b p99 | gate |
 | ---------- | -------- | ------------: | ----: | -----: | -----------: | ----: | ------: | ------: | ---- |
@@ -83,7 +134,7 @@ Without background tenants the change is within the noise for the lists; with th
 2 to 4 times slower than without them; after: the same). The member-all reference got faster too: the v1 term reads
 the path with the same blocks.
 
-## Postgres, jit on (server default)
+### Postgres, jit on (server default)
 
 Before the index change (85436182f); 10 iterations, 1 warm-up, 1 repeat. JIT compiles the list statement on every
 run (the guest plan costs about 400,000 for 1,000 rows, past `jit_above_cost`; the larger ones also pass the inline
@@ -107,7 +158,7 @@ and optimize thresholds).
 After the index change (08162ef29), guest only: list 5640.1 / 19.9 ms (283.88), p99 8210.3 / 27.8 (295.00); list-sql
 6060.8 / 19.2 (315.29), p99 9768.7 / 25.6 (381.86): JIT still dominates.
 
-## SQLite (informational)
+### SQLite (informational)
 
 Final code; 3 iterations, 1 warm-up, 1 repeat (each list takes seconds). The gate is a Postgres gate; these show what
 SQLite pays for the same lists.
@@ -127,7 +178,7 @@ SQLite pays for the same lists.
 | link       | list     | 17124.9 |  7.40 |  2313.37 | 18109.0 |  15.0 |  1205.18 |
 | link       | list-sql | 20748.8 |  1.87 | 11124.15 | 23382.7 |  2.08 | 11255.20 |
 
-## Why it fails (EXPLAIN (ANALYZE, BUFFERS), guest, jit off)
+### Why it fails (EXPLAIN (ANALYZE, BUFFERS), guest, jit off)
 
 - **Row by row.** The list is one correlated sub-select per term per file row. Per row, the route term works out
   a WITH chain: the subjects' assignments on the row's path (`authz_s0`), the stored rules on the path
@@ -153,11 +204,14 @@ threshold terms, and the constants as a few array bindings so the statement shri
 plan is reused). That is a redesign of `RbacRulesSql`'s term, with the exactness properties rerun, not a change
 this task could make safely.
 
-## Settings for a host
+### Settings for a host
 
 - **`jit = off` for the authz connection is required on Postgres**: `ALTER ROLE <app role> SET jit = off` (or
   `ALTER DATABASE <db> SET jit = off`). A high `jit_above_cost` instead would have to exceed the plans' cost,
   which grows with the rows listed (about 400 per row here), so it is no stable alternative.
+- authz-orm enforces this: it runs `SHOW jit` once per Postgres connection and fails the boot (and every scoped
+  query) with `AuthzConfigError` while jit is on, unless `authz.orm.allowJit` is true. `PGOPTIONS='-c jit=off'` in
+  the process environment also works: node-postgres reads it as the connection's `options`.
 - `SET LOCAL jit = off` around the list is **not possible through authz-orm**: its native compilers only add a
   WHERE fragment to the model's query, and its middleware neither owns the statement's connection nor opens a
   transaction (`PostgresOrmDriver` takes a pooled client per statement outside a transaction, so a `SET` from the
