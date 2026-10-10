@@ -1249,8 +1249,9 @@ export class RbacRulesSql {
   private classForm(rules: readonly Rule[], kind: 'route' | 'threshold', flagSql: RbacSql): RbacSql | undefined {
     const { path, dialect, rowTable, testOnly } = this.ctx;
     if (dialect.name !== 'postgres' || rowTable === undefined || testOnly?.rows === true) return undefined;
-    // Invariant: the filtered row is a row of `rowTable`, so its class has a representative. A route term under NOT
-    // would list a row whose class has none; threshold terms deny such a row (fail closed).
+    // Invariant: the filtered row is a row of `rowTable`, so its class has a representative, unless pruning drops it
+    // (a route class whose flag is 0, so FALSE is still exact). A route term under NOT would list a row whose class
+    // has none; threshold terms deny such a row (fail closed).
     if (rules.some((r) => r.def.kind === 'threshold' && [r.def.when, r.def.resource].some((c) => rbacResourceReads(c).length > 0))) return undefined;
     const constants = new Map<string, string[]>();
     for (const r of this.ctx.args.rules) if (r.scope.type !== GLOBAL.type && r.scope.id != null) constants.set(r.scope.type, [...(constants.get(r.scope.type) ?? []), r.scope.id]);

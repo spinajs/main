@@ -62,7 +62,7 @@ export interface RbacClassInput {
 
 /** The class key and the term built on it. */
 export interface RbacClassForm {
-  /** κ over `outer()`, each part non-NULL text. */
+  /** κ over `outer()`, each part non-NULL text; empty only for a pruned route term without subjects. */
   readonly keys: readonly RbacSql[];
   readonly term: RbacSql;
 }
@@ -77,7 +77,8 @@ const lit = (s: string): RbacSql => rsql`CAST(${s} AS TEXT)`;
 
 /**
  * The class form of the term whose per-row form is `whenFoundFlag(flag)`; undefined where the per-row form stays:
- * κ would have no part (no column node, no column read), or the flag reads a field no `need` gates.
+ * κ would have no part (no column node, no column read), or the flag reads a field no `need` gates. A pruned route
+ * term without subjects has no key and no set at all: `keys` is empty and the term is `whenFound(FALSE)`.
  * @throws AuthzConfigError on a dialect other than Postgres
  */
 export function rbacClassForm(flag: RbacSql, input: RbacClassInput): RbacClassForm | undefined {

@@ -20,10 +20,11 @@ import { DAY, LADDERS, RouteWorld, at, registerRouteSources, service, user } fro
 /*
  * S1 task 2a, differential: on random worlds (assignments, memberships, ceilings, config rules of every kind,
  * stored rules, scope attributes, and a table of rows that share untouched ids, so most classes hold several
- * rows, some of which the adapter cannot find), every route, `threshold(id)` and `thresholdDb` term of every principal's residual gives the same value
- * on every row, three-valued, in the class form as in the per-row form, with each class's representative taken
- * first and last by id. Half the worlds read projects through a host `exists` that also reads the row's tenant
- * and org (r3 N2). The per-row form is the one the L4b properties check against the evaluator.
+ * rows, some of which the adapter cannot find), every route, `threshold(id)` and `thresholdDb` term of every
+ * principal's residual gives the same value on every row, three-valued, in the class form as in the per-row form,
+ * with each class's representative taken first and last by id. Half the worlds read projects through a host
+ * `exists` that also reads the row's tenant and org (r3 N2). The per-row form is the one the L4b properties check
+ * against the evaluator.
  */
 
 const SEED = Number(process.env.L4B_SEED ?? 20261010);

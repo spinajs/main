@@ -526,6 +526,12 @@ describe('authz-rbac orm-compile: rule list terms worked out once per class of r
           ['a', 'b'],
         ]);
         expectTogether(route, [['b', 'c']]);
+
+        // ann's viewer at project 'p1' only: the pruned route's candidate node arm must not match 'P1'.
+        await scenario({ rules: [{ id: 'r1', kind: 'restrict', scope: O('O1'), allow: [] }] }, [assignment(u('ann'), 'viewer', P('p1'))], []);
+        const pruned = termNamed(await compareForms(world, driver, ann, 'doc:read', { rowTable: table, path: PATH, fields: [], layers }, `collation ${collation}, project assignment`), 'route');
+        expectRows(pruned, { a: true, b: false, c: false, d: false, e: false, A: true, B: false });
+        expectApart(pruned, [['a', 'b']]);
       }
 
       it('"C"', async () => {
