@@ -25,7 +25,7 @@ import { RouteWorld, at, registerRouteSources, routeArgs, service, thresholdArgs
  * ⊆ check(), each route term's rows ⊆ the in-memory term's, each threshold term's rows ⊇ the in-memory term's.
  */
 
-const SEED = 20261005;
+const SEED = Number(process.env.L4B_SEED ?? 20261005);
 const RUNS = propertyRuns('L4B_RULES_RUNS', 300);
 const SAFETY_RUNS = propertyRuns('L4B_SAFETY_RUNS', 200);
 const [exactPart, safetyPart] = [propertyPart(RUNS), propertyPart(SAFETY_RUNS)];
