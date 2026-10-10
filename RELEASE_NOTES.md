@@ -143,8 +143,8 @@ what each fix changes for an app.
 - **A missing env means production (SR-16).** With no `--env`, `APP_ENV` or `NODE_ENV`, authn uses the
   strict secret checks, a `Secure` `__Host-` cookie and https-only OIDC URLs, and warns.
 - **Session cookie `__Host-ssid`** outside development and test, with `Secure`. Every 2.x session is
-  logged out at the upgrade; clients that hard-code `ssid` break. For local http set
-  `authn.session.cookie.hostPrefix: false` in a development config. The cookie is a browser-session
+  logged out at the upgrade; clients that hard-code `ssid` break. For local http, name the
+  env (`APP_ENV=development`). The cookie is a browser-session
   cookie; timeouts are enforced on the server. Session ids are stored hashed.
 - **CORS (A31, H33).** An empty or absent `http.cors.origins` sends no CORS headers (2.x reflected every
   origin with credentials). Entries must be exact origins; a path, query, user info or wildcard host
@@ -169,8 +169,10 @@ what each fix changes for an app.
   under another prefix stop working. The CLI is `authn:token-create`, `authn:token-delete`,
   `authn:token-delete-expired`.
 - **MFA.** TOTP is opt-in: list `{ name: 'totp', service: 'TotpMfaStep' }` in `authn.mfa.steps`, set the
-  key and import `@spinajs/authn-totp` and `@spinajs/authn-totp/db`. A user with 2.x 2FA never logs in with
-  the password alone. `rbac:user-enable-2fa` is gone (it printed a secret); `authn:mfa-reset <login>`
+  key and import `@spinajs/authn-totp` and `@spinajs/authn-totp/db`. With the step listed, a user with 2.x
+  2FA never logs in with the password alone; **with no step listed, `DefaultMfaPolicy` asks for none and
+  such a user logs in with the password alone**, so list the step before the first 3.0 start if any
+  user has 2.x 2FA. `rbac:user-enable-2fa` is gone (it printed a secret); `authn:mfa-reset <login>`
   replaces it. The 2.x `User2Fa*` queue events are gone; listen for `mfa.enrol` and `mfa.disable` in an
   `AuthnEventSink`.
 - **Impersonation** needs the actor at `aal2` and fresh auth by default, ends when the actor is
@@ -205,8 +207,10 @@ what each fix changes for an app.
   (`Role`); impersonation `target` (`TargetUuid`); password reset `login`, `secret` (`Token`),
   `password`, `confirmPassword`, `oldPassword`. Both spellings are accepted. Inline re-authentication
   sends `reauthPassword`.
-- **Error bodies.** Every authentication failure (login, MFA, re-auth, reset redemption, OIDC, key
-  login) is 401 `{ error: { code: 'E_AUTH_FAILED', ... } }`, plus `Retry-After` when throttled. The CSRF
+- **Error bodies.** Every authentication failure (login, MFA, re-auth, reset redemption, key login,
+  and OIDC for a client that is not a browser navigation) is 401
+  `{ error: { code: 'E_AUTH_FAILED', ... } }`; a throttled attempt adds `Retry-After`. An OIDC browser
+  navigation gets a 303 to the failure page instead. The CSRF
   guard answers 403 `{ error: { code: 'E_CSRF_ORIGIN', ... } }`. authn-http policies answer
   `{ error: '<code>' }` (`unauthenticated`, `fresh_auth_required`, `mfa_required`, `session_required`,
   `impersonating`, `role_not_held`, ...). `@Access` answers 403 `{ error: 'forbidden', permission,
