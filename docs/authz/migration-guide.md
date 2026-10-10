@@ -1008,8 +1008,9 @@ A token's role is never above its owner's role (B24, B07). See example g.
 - At `$global`, only `$global` assignments count. A scoped assignment, or a grant limited by a
   pattern, gives nothing there.
 - Field sets: the union of the unconditional grants' fields. When no grant is unconditional for the
-  request, the intersection over the conditional ones. A conditional grant's fields never reach
-  every row.
+  request, conditional grants with the same condition form a group: the union within a group, the
+  intersection across groups (RFC C3-1, F8). A conditional grant's fields never reach every row. A
+  custom `FieldRule` (`authz-rbac`) gets one conditional entry per group, not one per grant.
 - `ceiling.roles` filters by assigned role name (`[]` means none, absent means no filter).
 - Bad data fails closed. An unreadable `expiresAt` is a `model_error`. A stored assignment whose role is
   unknown, not assignable or at a wrong scope type is skipped, with a warning.

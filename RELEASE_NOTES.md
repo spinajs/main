@@ -128,6 +128,8 @@ what each fix changes for an app.
 - **Token roles never exceed the owner's (B24, B07).** The 2.x grant-subset check is gone; a role the
   owner lacks grants nothing.
 - An intersect agent's row checks narrow to its delegate's list (reason `delegate`).
+- RBAC field sets: conditional grants with the same condition are one group, unioned inside and
+  intersected across groups (RFC C3-1). A custom `FieldRule` gets one conditional entry per group.
 - `/authz/*` admin routes: an app with `@spinajs/authz-http-admin` installed serves them
   (`POST /authz/commands`, `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`,
   `/authz/scopes/:type/:id/attributes`). They check only that the caller is signed in; `AuthzAdmin`
