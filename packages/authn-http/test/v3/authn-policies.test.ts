@@ -15,7 +15,7 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -314,6 +314,23 @@ describe('3.0 authn policies and route args', function () {
       expect(calls).to.have.length(1);
       expect(calls[0]).to.deep.include({ id: { type: 'user', id: alice.id } });
       expect((calls[0] as { facts: object }).facts).to.include({ method: 'jws', strategy: 'keys' });
+    });
+
+    it('an aal1 session of an identity enrolled in a step authn.mfa.steps does not list answers 403 mfa_required; another policy error still fails the request', async () => {
+      const policy = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
+      const original = policy.required.bind(policy);
+      try {
+        policy.required = async () => {
+          throw new MfaStepNotListed(['totp']);
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session'))).to.eq('403 mfa_required');
+        policy.required = async () => {
+          throw new RangeError('mfa store down');
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session')).catch((e: Error) => `throws ${e.constructor.name}`)).to.eq('throws RangeError');
+      } finally {
+        policy.required = original;
+      }
     });
 
     it('an unknown authn.mfa.policy.service fails the request instead of passing it', async () => {
