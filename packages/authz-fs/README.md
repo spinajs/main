@@ -24,8 +24,8 @@ authz: {
 ## Configuration
 
 `authz.fs.<name>`, where `<name>` is the fs provider name. A filesystem without an entry is off: `getFs(name)`
-returns the raw provider. An entry must state a valid `mode`, and an unknown key is an `AuthzConfigError`, so a
-typo never turns a guard off silently.
+returns the raw provider. An entry must state a valid `mode`, and an unknown key fails boot through the `authz.fs` schema
+(`InvalidConfiguration`), so a typo never turns a guard off silently.
 
 | Key | Default | Meaning |
 |---|---|---|
