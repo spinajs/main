@@ -1,5 +1,5 @@
-import { GLOBAL } from '@spinajs/authz';
-import type { Assignment, Condition, Policy, Principal, ResourceRef, ScopeAttributeSchema } from '@spinajs/authz';
+import { GLOBAL, SCOPE_CONDITION_OP } from '@spinajs/authz';
+import type { Assignment, Condition, Policy, Principal, ResourceFilter, ResourceRef, ScopeAttributeSchema } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
@@ -105,6 +105,10 @@ type Spec = { nodes: Record<string, unknown>[]; schemas: ScopeAttributeSchema[];
 
 const PRINCIPALS: readonly Principal[] = [{ type: 'user', id: 'alice', authenticated: true, source: 'session', attributes: { team: 'gold' } } as Principal, { type: 'user', id: 'bob', authenticated: true, source: 'session', attributes: {} } as Principal];
 
+const leaf = (args: unknown): ResourceFilter => ({ op: SCOPE_CONDITION_OP, args } as unknown as ResourceFilter);
+
+type Stats = { leaves: number; listed: number; allowed: number; gap: number; runs: number; leafRows: number };
+
 const policiesOf = (spec: Spec): Policy[] => [...spec.policies.map((p, i): Policy => ({ id: `p${i}`, effect: p.effect, permissions: [PERMISSION], when: p.when, ...(p.scope ? { scope: p.scope } : {}), source: 'test' })), ...(spec.permitAll ? [{ id: 'all', effect: 'permit' as const, permissions: [PERMISSION], source: 'test' }] : [])];
 
 describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm, check ⇔ listed (property)', function () {
@@ -139,7 +143,24 @@ describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm
         await world?.close();
       });
 
-      async function run(spec: Spec, stats: { leaves: number; listed: number; allowed: number; gap: number; runs: number }, exact: boolean): Promise<void> {
+      async function leavesAgree(leaves: unknown[], stats: Stats, exact: boolean, why: string): Promise<void> {
+        const ctx = world.context();
+        for (const args of leaves) {
+          const listed = await world.sql(leaf(args), PRINCIPALS[0]);
+          const fault = (args as { test: string }).test === 'fault';
+          for (const id of world.docIds()) {
+            const mem = await world.memory(args, id, ctx);
+            const got = listed.includes(id);
+            const at = `${kind} leaf ${JSON.stringify(args)} doc ${id}, ${why}`;
+            stats.leafRows++;
+            if (fault) expect(!mem || got, `fault: SQL misses a fault: ${at}`).to.equal(true);
+            else expect(!got || mem, `SQL lists a row the leaf does not hold on: ${at}`).to.equal(true);
+            if (exact) expect(got, `leaf, exact: ${at}`).to.equal(mem);
+          }
+        }
+      }
+
+      async function run(spec: Spec, stats: Stats, exact: boolean): Promise<void> {
         await world.attributes(
           NODES.map((n, i) => [n, spec.nodes[i]] as const),
           spec.schemas,
@@ -147,9 +168,11 @@ describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm
         const policies = policiesOf(spec);
         const service = await world.domain({ policies, algorithm: spec.algorithm, ...(spec.rbac ? { rbac: { first: spec.rbac.first, assignments: spec.rbac.rows } } : {}) });
         stats.runs++;
+        const leaves = new Map<string, unknown>();
         for (const p of PRINCIPALS) {
           const residual = await service.filter(p, PERMISSION, 'doc');
           stats.leaves += scopeLeaves(residual).length;
+          for (const args of scopeLeaves(residual)) leaves.set(JSON.stringify(args), args);
           const allowed = await world.allowed(p);
           const listed = await world.sql(residual, p);
           stats.listed += listed.length;
@@ -163,10 +186,11 @@ describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm
               `listed but refused by check(), ${why}`,
             ).to.deep.equal([]);
         }
+        await leavesAgree([...leaves.values()], stats, exact, `nodes ${JSON.stringify(spec.nodes)} schemas ${JSON.stringify(spec.schemas)}`);
       }
 
       it(`exact: leaf-able scope conditions over values SQL decides list exactly the rows check() allows (seed ${SEED}, ${exactPart.label})`, async () => {
-        const stats = { leaves: 0, listed: 0, allowed: 0, gap: 0, runs: 0 };
+        const stats: Stats = { leaves: 0, listed: 0, allowed: 0, gap: 0, runs: 0, leafRows: 0 };
         const started = Date.now();
         await fc.assert(
           fc.asyncProperty(
@@ -178,10 +202,11 @@ describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm
         console.log(`      ${kind}: exact ${exactPart.label} in ${Date.now() - started} ms; ${JSON.stringify(stats)}`);
         expect(stats.leaves, 'scope leaves in residuals').to.be.at.least(exactPart.min(RUNS));
         expect(stats.listed, 'rows listed').to.be.at.least(exactPart.min(RUNS));
+        expect(stats.leafRows, 'leaf rows compared').to.be.at.least(exactPart.min(RUNS));
       });
 
       it(`safety: with values SQL cannot decide, unreadable layers and forms that are no leaf, SQL never lists a row check() refuses (seed ${SEED + 1}, ${safetyPart.label})`, async () => {
-        const stats = { leaves: 0, listed: 0, allowed: 0, gap: 0, runs: 0 };
+        const stats: Stats = { leaves: 0, listed: 0, allowed: 0, gap: 0, runs: 0, leafRows: 0 };
         const started = Date.now();
         await fc.assert(
           fc.asyncProperty(
@@ -194,6 +219,7 @@ describe('authz-rbac orm-compile: ABAC scope conditions listed through authz-orm
         expect(stats.leaves, 'scope leaves in residuals').to.be.at.least(safetyPart.min(SAFETY_RUNS));
         expect(stats.listed, 'rows listed').to.be.at.least(safetyPart.min(SAFETY_RUNS / 2));
         expect(stats.gap, 'rows only SQL refuses').to.be.at.least(safetyPart.min(1));
+        expect(stats.leafRows, 'leaf rows compared').to.be.at.least(safetyPart.min(SAFETY_RUNS));
       });
     });
   }

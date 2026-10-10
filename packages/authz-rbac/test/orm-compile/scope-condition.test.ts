@@ -56,19 +56,61 @@ const READS: readonly { type: string; path: string; leaves: readonly Cmp[] }[] =
   { type: 'org', path: 'tier', leaves: TIER_LEAVES },
 ];
 
+type Kleene = boolean | null;
+type Scalar = string | number | boolean;
+
 const ORDER_OPS = new Set(['lt', 'lte', 'gt', 'gte']);
-const PATTERN_OPS = new Set(['like', 'glob', 'wildcard']);
+
+const isScalar = (v: unknown): v is Scalar => typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number';
+const canonicalNumber = (s: string): number | undefined => (Number.isFinite(Number(s)) && String(Number(s)) === s ? Number(s) : undefined);
+/** A number whose JSON text SQL compares exactly: at most 15 characters, no exponent. */
+const short = (n: number): boolean => JSON.stringify(n).length <= 15 && !/e/i.test(JSON.stringify(n));
+const kleeneAny = (xs: readonly Kleene[]): Kleene => (xs.includes(true) ? true : xs.includes(null) ? null : false);
+const kleeneNot = (x: Kleene): Kleene => (x === null ? null : !x);
+
+/** `eq` of a present scalar attribute and a literal as SQL decides it; null where SQL leaves it undecided. */
+function sqlEquals(v: Scalar, lit: Scalar): Kleene {
+  if (typeof v === 'number') {
+    if (typeof lit === 'boolean') return short(v) && (v === 0 || v === 1) ? (v === 1) === lit : null;
+    const n = typeof lit === 'number' ? lit : canonicalNumber(lit);
+    return n !== undefined && short(v) ? v === n : null;
+  }
+  if (typeof v === 'string') {
+    // A stored text holding an escape may spell the literal another way.
+    if (typeof lit === 'string') return v === lit ? true : JSON.stringify(v).includes('\\') ? null : false;
+    // Only the number's own text is decided: the engine's FALSE for another numeric string looks like its UNKNOWN.
+    if (typeof lit === 'number') return v === String(lit) ? true : null;
+    return null;
+  }
+  if (typeof lit === 'boolean') return v === lit;
+  return lit === 0 || lit === 1 ? v === (lit === 1) : null;
+}
+
+/** The comparison of a present attribute as compile/scope-leaf.ts decides it (no bound); null: SQL cannot tell. */
+function sqlTruth(v: unknown, c: Cmp): Kleene {
+  if (c.op === 'null') return c.value === false;
+  if ((c.op === 'in' || c.op === 'nin') && Array.isArray(c.value) && c.value.length === 0) return c.op === 'nin';
+  if (!isScalar(v)) return null;
+  switch (c.op) {
+    case 'eq':
+      return sqlEquals(v, c.value as Scalar);
+    case 'ne':
+      return kleeneNot(sqlEquals(v, c.value as Scalar));
+    case 'in':
+      return kleeneAny((c.value as Scalar[]).map((l) => sqlEquals(v, l)));
+    case 'nin':
+      return kleeneNot(kleeneAny((c.value as Scalar[]).map((l) => sqlEquals(v, l))));
+    default: {
+      if (!ORDER_OPS.has(c.op) || typeof v !== 'number' || !short(v)) return null;
+      const n = typeof c.value === 'number' ? c.value : canonicalNumber(String(c.value));
+      if (n === undefined) return null;
+      return { lt: v < n, lte: v <= n, gt: v > n, gte: v >= n }[c.op as 'lt' | 'lte' | 'gt' | 'gte'];
+    }
+  }
+}
 
 /** Where compile/scope-leaf.ts leaves a value the engine decides undecided (both flags 0). */
-function undecided(v: unknown, c: Cmp): boolean {
-  const literals: unknown[] = Array.isArray(c.value) ? c.value : [c.value];
-  if (typeof v === 'number') {
-    const json = JSON.stringify(v);
-    return json.length > 15 || /e/i.test(json);
-  }
-  if (typeof v === 'string') return ORDER_OPS.has(c.op) || PATTERN_OPS.has(c.op) || literals.some((l) => typeof l === 'number') || JSON.stringify(v).includes('\\');
-  return false;
-}
+const undecided = (v: unknown, c: Cmp): boolean => sqlTruth(v, c) === null;
 
 const UNSAFE = new Set(['__proto__', 'prototype', 'constructor']);
 function readOwn(from: unknown, path: readonly string[]): unknown {
