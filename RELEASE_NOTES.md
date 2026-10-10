@@ -175,10 +175,15 @@ what each fix changes for an app.
   `authn:token-delete-expired`.
 - **MFA.** TOTP is opt-in: list `{ name: 'totp', service: 'TotpMfaStep' }` in `authn.mfa.steps`, set the
   key and import `@spinajs/authn-totp` and `@spinajs/authn-totp/db`. With the step listed, a user with 2.x
-  2FA never logs in with the password alone; **with no step listed, `DefaultMfaPolicy` asks for none and
-  such a user logs in with the password alone**, so list the step before the first 3.0 start if any
-  user has 2.x 2FA. `rbac:user-enable-2fa` is gone (it printed a secret); `authn:mfa-reset <login>`
-  replaces it. The 2.x `User2Fa*` queue events are gone; listen for `mfa.enrol` and `mfa.disable` in an
+  2FA never logs in with the password alone. **A user enrolled in a factor whose step `authn.mfa.steps`
+  does not list cannot log in with a password at all**: the login gets the wrong-password answer and the
+  audit reason `mfa_step_not_listed` (`mfa_enrolment_mismatch` when the listed step does not see the
+  enrolment), with or without `force`. So list the step before the first 3.0 start if any user has 2.x
+  2FA; `authn:check-config` names each enrolled step the list lacks. The check needs the authn-orm stores
+  in the process that serves logins (import `@spinajs/authn-orm` or `@spinajs/authn-totp/db`); it then
+  costs one `authn_mfa` query per password login without a listed enrolment, and a failed query refuses
+  the login. A login the MFA policy refuses keeps its throttle count. `rbac:user-enable-2fa` is gone (it
+  printed a secret); `authn:mfa-reset <login>` replaces it. The 2.x `User2Fa*` queue events are gone; listen for `mfa.enrol` and `mfa.disable` in an
   `AuthnEventSink`.
 - **Impersonation** needs the actor at `aal2` and fresh auth by default, ends when the actor is
   revoked or loses the permit (asked again on every request), and after `maxMinutes`.

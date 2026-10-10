@@ -124,7 +124,14 @@ repeat of one entry in two config files is dropped.
 password logins only. When none is enrolled, `force`, or a role from `forceForRoles` (asked through
 `RoleSource`), requires the first configured step, so the pending session can only enrol. Boot fails
 when `force` or `forceForRoles` has no step to require, and when `forceForRoles` has no `RoleSource` or
-`PrincipalFactory`. A step that stores secrets declares `storesSecrets: true`. That works today: outside
+`PrincipalFactory`. When the identity is enrolled in no listed step, the policy asks the
+`MfaEnrolments` sources (`@spinajs/authn/mfa-enrolments`; authn-orm's `DbMfaEnrolments` reads
+`authn_mfa`): a confirmed enrolment in a step the list lacks refuses the password login
+(`mfa_step_not_listed`), and so does one a listed step does not see (`mfa_enrolment_mismatch`), with
+or without `force`. The client gets the wrong-password answer, no session is made, and the throttle
+keeps the count. A source that throws refuses the login. With no source registered (authn-orm not
+loaded in the process), nothing is checked. `authn:check-config` names each enrolled step the list
+lacks; it cannot see a mismatch. A step that stores secrets declares `storesSecrets: true`. That works today: outside
 development and test, boot then refuses a missing `authn.mfa.encryptionKey`; in development and test
 it only warns.
 

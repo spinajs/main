@@ -4030,6 +4030,18 @@ boot fails on any key of the table below. To only warn, set both
   first login (the pending session may call only the enrol and confirm
   routes); `forceForRoles` asks for the roles through the `RoleSource`
   contract, which `users` implements over the RBAC summary (r4, D26).
+- (Z8) Fail closed on unlisted factors: when an identity is enrolled in no
+  listed step, `DefaultMfaPolicy` asks the `MfaEnrolments` sources
+  (`@spinajs/authn/mfa-enrolments`; authn-orm's `DbMfaEnrolments` over
+  `authn_mfa`, so the login process must load authn-orm or
+  `@spinajs/authn-totp/db`). A confirmed step the list lacks refuses the
+  password login (`mfa_step_not_listed`), one a listed step does not see
+  refuses it too (`mfa_enrolment_mismatch`), with or without `force`; the
+  client gets the wrong-password answer and no session. A source that
+  throws refuses (`policy_error`). `throttle.succeed` runs after the policy,
+  so a refused login keeps its count. `authn:check-config` names unlisted
+  steps but cannot see a mismatch. `assertFreshAuth` is exported from the
+  `authn-http` root.
 
 ### 22.9 Tokens (`authn-token`)
 
