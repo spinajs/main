@@ -202,7 +202,8 @@ export class GroupSync extends ExternalLoginHook {
   the same as `[]`) and `raw` (the validated ID token claims, then userinfo claims it lacks; never a
   token).
 - **A hook that throws fails the login** with the opaque answer and issues no session; the audit
-  reason is `hook_error`. Hooks that ran before it are not rolled back, so make hooks idempotent.
+  reason is `hook_error`. Hooks that ran before it are not rolled back, and an identity that JIT
+  provisioning created for this login stays, with its link. Make hooks idempotent.
 
 ## Limits in 3.0
 
@@ -243,7 +244,8 @@ outside development and test (behind a TLS proxy, set `authn.http.trustProxy` or
 ## Wiring and open items
 
 - `authn-http` puts `req.storage.AuthnSession` (link routes) and `req.storage.ClientIp` (the `ip`
-  throttle key) in place and sets the session cookie, so import `@spinajs/authn-http` as well.
+  throttle key) in place, and restores the session from the cookie that the OIDC controller sets
+  after a login, so import `@spinajs/authn-http` as well.
 - Open: a run against a real Keycloak (`issuer`, `clientId`, `clientSecret`, and the redirect URI
   `<origin>/auth/oidc/<name>/callback` registered exactly), and a check of the success page in a
   browser (lane IC2).

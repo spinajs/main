@@ -201,7 +201,7 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
 See [Tokens](#tokens). Both strategies take credentials of kind `bearer`. A value in another format gets
 `unsupported_credentials` and no throttle keys, with no I/O, so the dispatch passes it on.
 
-### Keys
+### Key strategies
 
 See [Keys](#keys).
 
@@ -245,8 +245,9 @@ authn: {
 ```
 
   `HttpOnly` always. `'auto'` means `Secure` and the `__Host-` prefix are on unless the app env is
-  development or test, so the cookie is named `__Host-ssid`. For local http set
-  `hostPrefix: false` in a development config: `secure: false` alone no longer relaxes the cookie. The
+  development or test, so the cookie is named `__Host-ssid`. For local http, name the env
+  (`APP_ENV=development`): `secure: false` alone no longer relaxes the cookie, and `hostPrefix: false`
+  alone keeps `Secure` outside development and test. The
   cookie is signed with `http.cookie.secret`, which must not be the public default outside development
   and test (A24).
 
@@ -388,10 +389,11 @@ authn: {
 A length below 32 or an empty prefix fails boot. The full table is in `packages/authn-token/README.md`.
 
 **Routes** (`authn-http`, on while a `TokenService` is registered): `GET /user/tokens` lists the
-caller's live tokens; `POST /user/tokens` needs `expiresAt` and fresh auth and answers the plaintext
+caller's tokens that are not revoked, expired ones flagged; `POST /user/tokens` needs `expiresAt` and fresh auth and answers the plaintext
 once; `DELETE /user/tokens/:uuid` revokes and keeps the row. A token or key caller gets 403
 `session_required`, an impersonating session 403 `impersonating`. `users-http` serves
-`GET /user/tokens/roles` and `/profiles`, the roles and profiles a new token may carry.
+`GET /user/tokens/roles` and `GET /user/tokens/profiles`, the roles and profiles a new token may
+carry.
 
 ## Keys
 
@@ -412,7 +414,8 @@ the canvas realtime tickets (C8).
   `jti`.
 - **HTTP signature** (`keys-httpsig`): an RFC 9421 subset with one signature that covers `@method`,
   `@target-uri` and, with a body, `content-digest`, and carries `created`, `expires` (at most 300 s
-  ahead), `nonce` and `keyid`. Build `targetUri` from the configured public origin, never from `Host`.
+  ahead), `nonce` and `keyid`. Build `targetUri` from the configured public origin, never from `Host`: `authn-http` checks it
+  against `authn.http.publicOrigin`, and without that key a signed request yields no principal.
 - **Challenge login** (`keys-challenge`): `POST /auth/keys/challenge`, then `POST /auth/keys/login` with
   a signature over `spinajs-key-<purpose>:<nonce>:<audience>`. A throttled challenge answers 429 with
   `Retry-After`. A key login is `aal1` and asks no MFA step under the default MFA policy.
@@ -476,7 +479,9 @@ supported on MySQL and MSSQL (their `datetime` is coarser).
 `MemoryAuthnThrottle` is the throttle of one process. It keeps one table per flow, capped by
 `authn.throttle.maxRows` (1,000,000 when unset; memory grows with 4 × `maxRows`). When a table is
 full it evicts in two tiers and never drops a row that still delays someone. An app with several
-instances uses `DbAuthnThrottle`. With `authn.throttle.service` unset, the core takes the only
+instances uses `DbAuthnThrottle`, which needs `authn.audit.hashKey.secret` outside development and
+test (boot fails without it; in development and test it keys rows with a random key per process). With
+`authn.throttle.service` unset, the core takes the only
 registered throttle, or the only one besides `MemoryAuthnThrottle`, so importing `authn-orm` is enough
 (K6). A named throttle that is not registered fails boot, and so does an unset key when two throttles
 besides the memory one are registered ("several are registered; name one"). Boot never falls back to
@@ -556,7 +561,7 @@ authentication has its own config root (D21).
 
 ## Config `authn.*`
 
-The block below is the design's sample (§22.5); the table says who reads each key.
+The block below is the design's sample (§22.5); the table says who reads each key group.
 
 ```ts
 export default {
@@ -603,8 +608,10 @@ export default {
 | `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). |
 | `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
+| `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. |
+| `authn.config.*` | the old-key detector (N1) | `rejectLegacyKeys` (default `true`). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
-| `authn.http.*` | `authn-http` | `trustProxy` (else `http.trustProxy`) for `ClientIp`; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`. The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
+| `authn.http.*` | `authn-http`, `authn-oidc` | `trustProxy` (else `http.trustProxy`) for `ClientIp`, `CsrfOriginGuard` and the OIDC controller; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
 `http.cookie.secret`) are secret references (environment or a secret store), never inline values. The
@@ -615,7 +622,8 @@ The schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
 
 Keys the schema adds to the sample above: `authn.throttle.maxRows`, `authn.token.generation`,
-`authn.audit.hashKey`, `authn.audit.sinkTimeoutMs` and `authn.config.rejectLegacyKeys`.
+`authn.audit.hashKey`, `authn.http.publicOrigin`, `authn.http.routes` (not read),
+`authn.jwt.issuers[].linking` and `authn.config.rejectLegacyKeys`.
 `AuthnConfigBootstrapper` registers the schema.
 
 **Old keys.** `authn.config.rejectLegacyKeys` (default `true`) controls the 2.x key detector. Boot
