@@ -56,14 +56,13 @@
     "@spinajs/authz-http": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
-    "@spinajs/exceptions": "2.0.549",
     "@spinajs/http": "2.0.549",
-    "@spinajs/log": "2.0.549",
     "@spinajs/validation": "2.0.549"
   },
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
-    "@spinajs/http-swagger": "2.0.549"
+    "@spinajs/http-swagger": "2.0.549",
+    "@spinajs/log": "2.0.549"
   }
 }

@@ -48,6 +48,13 @@ autoinjects `Orm` itself) and `users-http` → `authn-totp` (the devDependency i
 the 2.x secret row directly). App-visible: importing `@spinajs/authn-totp` no longer loads `@spinajs/users` either;
 `authn:mfa-reset` then throws "needs a registered IdentityStore" until the app imports `@spinajs/users`.
 
+Status (R1f, 2026-10-09): the `authn-token` → `users` edge is closed for good: R1d moved
+`authn-token/test/model.test.ts` off `users`, and `authn-token/package.json` no longer lists `@spinajs/users`.
+No 2.x interim edge remains. `authn-http` → `authn-totp` stays as a 3.0 edge (`src/mfa/gate.ts`
+loads `TotpService` by a lazy `import()` and checks the real `TotpMfaStep` and `TotpService` classes;
+`src/admin/gate.ts` goes through it with a type import). It
+deviates from design §4.2; X1 leaves the decision to the human.
+
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
 `authz-http-admin` → `authz` and `authz-http`, `authz` → `authn`.

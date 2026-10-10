@@ -1,11 +1,11 @@
 # R1bc-1: drop a stale sentence from the `Authenticated` doc comment
 
-Status: proposed (R1bc, 2026-10-09)
+Status: approved by the controller; applied by R1f (2026-10-09)
 Owners of the change: the frozen file `packages/authn-http/src/api.ts` (and
 the api snapshot `packages/authn-http/etc/authn-http.api.md`) and
 `packages/authn-http/src/policies/v3/principal.ts`; plan §6 R1 gives both
 doc comments to R1 final, which applies the change.
-Not applied: R1bc may not edit frozen files.
+Applied by R1f: both `Authenticated` comments and the snapshot line; the `Access` comment in `packages/authz-http/src/access/decorators.ts` was also reworded (not in a snapshot).
 
 ## Problem
 

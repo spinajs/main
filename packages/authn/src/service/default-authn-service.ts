@@ -140,8 +140,8 @@ function refusal(st: IdentityStatus): string | null {
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
  *
- * Boot also fails on the secret checks (A24, `checkAuthnSecrets`), on the throttle's `checkConfiguration` and, when
- * `authn.config.rejectLegacyKeys` is true, on 2.x keys of the old-key table; otherwise those keys are only warned about.
+ * Boot also fails on the secret checks (A24, `checkAuthnSecrets`), on the throttle's `checkConfiguration` and on 2.x
+ * keys of the old-key table; with `authn.config.rejectLegacyKeys: false` those keys are only warned about.
  */
 @PerChildInstance()
 @Injectable(AuthnService)

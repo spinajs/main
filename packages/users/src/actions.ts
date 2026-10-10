@@ -200,11 +200,9 @@ export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
 /**
  * Destroys every session belonging to a user, on every device.
  *
- * Called from each action that invalidates what a live session was granted on:
- * a password change or reset ( the credential behind the session is gone ), a
- * ban or a deactivation ( the account may no longer act at all ). Without this
- * an attacker who is already inside keeps their session while the victim
- * changes the password that was supposed to lock them out.
+ * Called from the actions after which the account may no longer act: a ban, a
+ * deactivation and a deletion. A password change or reset ends sessions in
+ * authn-local (`LocalPasswordService`, `SessionIssuer.revokeAll`), not here.
  *
  * Errors are NOT swallowed: a session store that cannot be reached means the
  * revocation did not happen, and the caller must learn that rather than be told
@@ -720,11 +718,8 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 
   await u.destroy();
 
-  // Same reason a deactivation revokes: the account may no longer act. A live
-  // session outlasting the deletion is worse here than there — the session
-  // middleware resolves its user through `isActiveUser()`, which no longer
-  // matches a soft-deleted row, so every request from that session dies in
-  // the middleware instead of being cleanly logged out.
+  // The account may no longer act: end its sessions and tokens now rather
+  // than leave them to expire.
   await revokeUserSessions(u);
   await revokeUserTokens(u);
 
@@ -760,9 +755,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
     { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
   ]);
 
-  // A ban that leaves the banned user's session alive bans nothing until that
-  // session expires — `isActiveUser` does not filter on the ban flag, so the
-  // session would keep resolving happily.
+  // As for a deletion: end the sessions and tokens now, not at expiry.
   await revokeUserSessions(u);
   await revokeUserTokens(u);
 

@@ -20,7 +20,7 @@ function notImplemented(member: string, ..._args: unknown[]): never {
   throw new Error(`not implemented: ${member}`);
 }
 
-/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). Replaces LoggedPolicy and AuthorizedPolicy. */
+/** Passes when an authn principal exists; a pending (pre-MFA) session yields none and fails (D25, SR-07). */
 export class Authenticated extends BasePolicy {
   public isEnabled(action: IRoute, instance: IController): boolean {
     return notImplemented('Authenticated.isEnabled', action, instance);

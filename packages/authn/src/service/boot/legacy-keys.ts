@@ -11,7 +11,7 @@ export interface AuthnLegacyKeyFinding {
   readonly note?: string;
 }
 
-// The users rows belong to the users detector; rbac keys of no row belong to authz's.
+// The users rows and rbac keys of no row belong to authz's detector.
 const ROWS = AUTHN_LEGACY_KEYS.filter((r) => r.family === 'authn');
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -50,18 +50,18 @@ export function findAuthnLegacyKeys(rbac: unknown): AuthnLegacyKeyFinding[] {
   return found;
 }
 
-/** `authn.config.rejectLegacyKeys`; false unless it is true; the schema types it as a boolean. */
+/** `authn.config.rejectLegacyKeys`; only an explicit false turns it off, so a config the schema never saw rejects too. */
 export function rejectsAuthnLegacyKeys(config: AuthnConfigSource): boolean {
-  return config.get<boolean | undefined>('authn.config.rejectLegacyKeys') === true;
+  return config.get<boolean | undefined>('authn.config.rejectLegacyKeys') !== false;
 }
 
 /** One message naming each key and where it goes; never a value. */
 export function authnLegacyKeysText(found: readonly AuthnLegacyKeyFinding[]): string {
   const lines = found.map((f) => `${f.path} -> ${f.to ?? 'dropped'}${f.note ? ` (${f.note})` : ''}`);
-  return `Authn 3.0 does not read these 2.x keys; move them (authn.config.rejectLegacyKeys: true fails boot on them): ${lines.join('; ')}`;
+  return `Authn 3.0 does not read these 2.x keys; move them (run spinajs-authz-convert, or set authn.config.rejectLegacyKeys: false to only warn): ${lines.join('; ')}`;
 }
 
-/** The boot detector: warns once about the keys it finds, and fails boot on them when authn.config.rejectLegacyKeys is true. */
+/** The boot detector: fails boot on the keys it finds, or warns once about them when authn.config.rejectLegacyKeys is false. */
 export function checkAuthnLegacyKeys(config: AuthnConfigSource, log: { warn(message: string): void }): AuthnLegacyKeyFinding[] {
   const reject = rejectsAuthnLegacyKeys(config);
   const found = findAuthnLegacyKeys(config.get<unknown>('rbac'));

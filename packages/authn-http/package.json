@@ -71,7 +71,6 @@
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/authn-token": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
-    "@spinajs/intl": "2.0.549",
     "@spinajs/orm": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
     "luxon": "^3.6.1"

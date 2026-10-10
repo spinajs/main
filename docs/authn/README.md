@@ -360,18 +360,9 @@ throws only for a fault. Rules:
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
 `rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
 
-**Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so
-`authn.config.rejectLegacyKeys: true` passes on its config (a test boots the shipped configs with the
-switch on). It still ships `authn.mfa.totp` and the `User2Fa*` queue routes. The 2.x code
-(`Default2FaToken`, `TwoFactorAuthProvider`, the 2.x actions) stays, marked `@deprecated`, until R1.
-
-> **TODO(N8a/N8b):** the routes. Nothing in `authn-totp` mounts any. N8a and N8b wire
-> `/user/mfa/*` (begin, confirm, disable, regenerate) and the admin reset to `TotpService`, and
-> `/auth/mfa/verify` and `/auth/mfa/recovery` to `completeMfa`. The 2.x routes of `authn-http`
-> (`/user/2fa*`, `/auth/2fa/*`) still read `rbac.twoFactorAuth.*`. With no such key set, `enabled`
-> is `false`, so users who enrolled through 2.x log in with the password alone, and `2FaPolicy` finds
-> no config and answers 500 on the 2.x 2FA routes (it fails closed). An app that stays on the 2.x
-> login sets `rbac.twoFactorAuth.enabled` (and `forceUser`) itself until N8a/N8b replace those routes.
+**Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so the
+legacy-key detector (on by default) passes on its config. The 2.x 2FA code and routes are gone; an
+app that still sets `rbac.twoFactorAuth.*` fails boot until it moves the keys.
 
 ## Tokens
 
@@ -556,26 +547,6 @@ one.
   the cookie.
 - Every start, end and expiry is audited.
 
-> **TODO(N8a/C3):** the impersonation routes (`GET/POST/DELETE /auth/impersonate`) and
-> `AuthzImpersonationGuard`, the `ImpersonationGuard` that `users` registers. Until they land,
-> `authn-http` still reads `rbac.impersonation.protectedRoles`, and nothing reads
-> `authz.impersonation.protectedRoles`. The same holds for every other `rbac.*` key that merged code
-> reads. **Keep each one next to its converted key until its lane merges:**
->
-> | `rbac.*` key | Read today by | Moves in |
-> |---|---|---|
-> | `impersonation.protectedRoles` | `authn-http` `ImpersonationController` | N8a, C3 |
-> | `twoFactorAuth.enabled`, `.forceUser` | `authn-http` `LoginController`, `TwoFactorAuth*Controller`, `2FaPolicy`; no package ships them now | N8a, N8b |
-> | `twoFactorAuth.service` | `authn-totp` 2.x actions (`Default2FaToken` when unset); no package ships it now | R1 |
-> | `roleSwitch.requirePassword` | `authn-http` `ActiveRoleController` | N8a, C3 |
-> | `auth.service` | `authn-http` `LoginController`; `users` actions | C1, N8a |
-> | `admin.roleGuard.*`, `roles`, `systemRole` | `authz-http-admin` `DefaultRoleGuard`; `users-http` `Users.ts`, `Security.ts` | C2, C4 |
-> | `grants`, `roles`, `roleColumn`, `requireKnownRole`, `defaultRole`, `enableGuestAccount`, `systemRole`, `password.blockAfterAttempts`, `password.lockoutTime`, `timeline.*` | `users` (bootstrap, actions, `User`, CLI) | C1 |
-> | `token.rolePolicy` | `authn-token` `src/legacy/actions.ts` | R1 |
->
-> The full table, with what each default does, is in step 2 of the
-> [migration guide](../authz/migration-guide.md#step-2-config).
-
 ## Package set per app type
 
 | App type | Packages |
@@ -653,9 +624,9 @@ Keys the schema adds to the sample above: `authn.throttle.maxRows`, `authn.token
 `authn.audit.hashKey`, `authn.audit.sinkTimeoutMs` and `authn.config.rejectLegacyKeys`.
 `AuthnConfigBootstrapper` registers the schema.
 
-**Old keys.** `authn.config.rejectLegacyKeys` (default `false`) controls the 2.x key detector. The
-boot always warns about the keys it finds. With the switch on, it fails instead. The warning names each
-key, never a value. The detector reports these `rbac.*` keys:
+**Old keys.** `authn.config.rejectLegacyKeys` (default `true`) controls the 2.x key detector. Boot
+fails on the keys it finds and points at `spinajs-authz-convert`. With the switch `false`, it only warns.
+The message names each key, never a value. The detector reports these `rbac.*` keys:
 
 | 2.x | 3.0 |
 |---|---|
@@ -672,12 +643,8 @@ key, never a value. The detector reports these `rbac.*` keys:
 | `rbac.token.{prefix,length,generation,headerName,lastUsedUpdateInterval}` | `authn.token.*` |
 | `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` |
 
-`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*` and belong to the `users` detector.
-
-> **TODO(C1):** with the switch on, boot fails today even for clean app config, because packages
-> still ship some of these keys: `users` (`rbac.auth.service`, `rbac.password.blockAfterAttempts`,
-> `rbac.password.lockoutTime`) and `authn-http` (`rbac.password.blockAfterAttempts`). `authn-totp` no
-> longer ships any. Leave the switch `false` until those lanes merge.
+`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*`; the `authz` detector reports them.
+No package ships a `rbac.*` key.
 
 ## Testing
 

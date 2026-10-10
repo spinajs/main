@@ -323,7 +323,7 @@ export class DbTokenService extends TokenService {
 
   /**
    * Housekeeping: deletes tokens that expired at or before `now` and revoked ones; returns how many. Keeps rows
-   * without an expiry, because the deprecated 2.x API still writes them and treats them as live.
+   * without an expiry: rows written by 2.x may still sit in a database.
    */
   public async deleteExpired(now: Date): Promise<number> {
     const at = instant(now);

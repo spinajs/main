@@ -114,8 +114,7 @@ async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Pro
 
 /**
  * Impersonation (design §22.14, A20, SR-06): start and stop issue a new session and revoke the old one. An ended
- * impersonation answers null, never the impersonator, because a request cannot rotate the cookie. Named apart from
- * authn-http's 2.x ImpersonationService because DI keys classes by name. One per container (D11).
+ * impersonation answers null, never the impersonator, because a request cannot rotate the cookie. One per container (D11).
  */
 @PerChildInstance()
 @Inject(Container)

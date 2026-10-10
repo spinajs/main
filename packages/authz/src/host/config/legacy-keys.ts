@@ -34,12 +34,13 @@ export const AUTHZ_LEGACY_KEYS: readonly LegacyKeyRow[] = Object.freeze([
 
 const AUTHN_FALLBACK = 'authn.* or users.*';
 
+// The config loader marks each file's root keys with __file__.
 function leaves(value: unknown, path: string, out: string[], seen: Set<object>): void {
   if (value !== null && typeof value === 'object' && !Array.isArray(value) && !seen.has(value)) {
     const keys = Object.keys(value);
     if (keys.length > 0) {
       seen.add(value);
-      for (const k of keys) leaves((value as Record<string, unknown>)[k], `${path}.${k}`, out, seen);
+      for (const k of keys) if (k !== '__file__') leaves((value as Record<string, unknown>)[k], `${path}.${k}`, out, seen);
       seen.delete(value);
       return;
     }
@@ -68,8 +69,10 @@ export function findLegacyKeys(rbac: unknown): LegacyKeyFinding[] {
 export function checkLegacyKeys(rbac: unknown, reject: boolean, log: Pick<EngineLog, 'warn'>): void {
   if (rbac === undefined || rbac === null) return;
 
-  const lines = findLegacyKeys(rbac).map((f) => `${f.path} -> ${f.to ?? 'removed'}${f.note && f.note !== 'removed' ? ` (${f.note})` : ''}`);
-  const text = `Authz 3.x does not read the 2.x "rbac" configuration. Move these keys (the spinajs-authz-convert tool rewrites them): ${lines.join('; ')}`;
+  const found = findLegacyKeys(rbac);
+  if (found.length === 0) return;
+  const lines = found.map((f) => `${f.path} -> ${f.to ?? 'removed'}${f.note && f.note !== 'removed' ? ` (${f.note})` : ''}`);
+  const text = `Authz 3.x does not read the 2.x "rbac" configuration. Move these keys (run spinajs-authz-convert, or set authz.config.rejectLegacyKeys: false to only warn): ${lines.join('; ')}`;
 
   if (reject) throw new AuthzConfigError(text);
   log.warn(text);

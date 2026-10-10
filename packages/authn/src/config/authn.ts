@@ -38,9 +38,6 @@ const authn = {
       hashIdentifiers: true,
       sinkTimeoutMs: 2000,
     },
-    config: {
-      rejectLegacyKeys: false,
-    },
   },
 };
 

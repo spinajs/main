@@ -44,6 +44,11 @@ describe('authn.token and authn.jwt through the schema', () => {
       }
     });
 
+    it('ships no rbac root key and no AccessToken queue routing', () => {
+      expect(authnToken).to.not.have.property('rbac');
+      expect(Object.keys((authnToken as Record<string, any>).queue?.routing ?? {}).filter((k) => k.startsWith('AccessToken'))).to.deep.eq([]);
+    });
+
     it('has no issuer by default, and gives an issuer its skew and subject claim', async () => {
       expect((await boot(SCHEMAS, {})).configuration.get('authn.jwt.issuers')).to.deep.eq([]);
       const { configuration } = await boot(SCHEMAS, { authn: issuers(ISSUER) });

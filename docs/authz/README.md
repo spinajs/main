@@ -165,13 +165,13 @@ export default {
     },
     principals: {
       anonymous: { enabled: true },                // false: no anonymous principal
-      roleSwitch: { requirePassword: [] },         // TODO(N8a): no reader yet, see the note below
+      roleSwitch: { requirePassword: [] },         // roles a role switch asks the password for; unset: all
     },
     fields: { neverRead: ['Password'], write: { mode: 'strip' } },   // 'strip' | 'reject'
     engine: { explain: false, modelTimeoutMs: 2000, maxDelegation: 2 },
     cache: { maxEntries: 10000, ttlSeconds: 60 },  // maxEntries 0: no L2; ttlSeconds 0: no L1 either
     audit: { denials: true, runAs: true, unscoped: true },
-    config: { rejectLegacyKeys: false },           // true: any rbac.* key fails boot
+    config: { rejectLegacyKeys: true },            // false: an rbac.* key only warns
     domains: {
       fs: { parent: 'root', combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-inherit'] } } },
     },
@@ -184,16 +184,9 @@ export default {
   name. `bus` and `principals` come from the root only.
 - `fields.neverRead` is removed from `read` and from `write`, for every principal, `SYSTEM` included
   (B17).
-- The `authz` host does not read the 2.x `rbac.*` keys. By default it logs a warning that names the
-  keys and `spinajs-authz-convert`. With `authz.config.rejectLegacyKeys: true` boot fails instead.
-  Merged code in `authn-http`, `users`, `users-http` and `authz-http-admin` still reads some `rbac.*`
-  keys: keep them next to their converted keys until their lanes merge (the list is in step 2 of the
-  [migration guide](./migration-guide.md#step-2-config)).
+- The `authz` host does not read the 2.x `rbac.*` keys. By default boot fails with an error that names
+  the keys and `spinajs-authz-convert`. With `authz.config.rejectLegacyKeys: false` it only warns.
 - Arrays from different config files are concatenated, so a package fragment adds roles and policies.
-
-> **TODO(N8a):** nothing reads `authz.principals.roleSwitch.requirePassword` yet. The live role switch
-> route (`ActiveRoleController` in `authn-http`) still reads `rbac.roleSwitch.requirePassword`. N8a
-> moves it to the new key. Until then, keep the `rbac.*` key.
 
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.
 

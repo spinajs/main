@@ -234,8 +234,8 @@ class N8bEventRecorder extends AuthnEventSink {
 
 let recorderBound = false;
 
-// TotpService comes through the users-free subpath export; the step, the store base and authn-orm's DbMfaStore by file,
-// since authn-totp's and authn-orm's roots load @spinajs/users or register authn-orm's throttle and audit sink.
+// TotpService comes through the subpath export; the step, the store base and authn-orm's DbMfaStore by file,
+// since authn-orm's root registers its throttle and audit sink.
 const TOTP_LIB = new URL('../../../../authn-totp/lib/mjs/', import.meta.url);
 const totpModule = async <T>(file: string): Promise<T> => (await import(new URL(file, TOTP_LIB).href)) as T;
 

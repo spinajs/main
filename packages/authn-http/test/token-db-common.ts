@@ -81,27 +81,6 @@ export class DbTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        defaultRole: 'guest',
-        roles: [
-          { Name: 'admin', Description: 'Administrator' },
-          { Name: 'user', Description: 'Simple account' },
-          { Name: 'guest', Description: 'Guest account' },
-        ],
-        grants: {
-          admin: {
-            users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-          },
-          user: {
-            user: { 'read:own': ['*'], 'update:own': ['*'] },
-            'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
-          },
-        },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
       authn: {
         session: {
           service: 'MemorySessionStore',

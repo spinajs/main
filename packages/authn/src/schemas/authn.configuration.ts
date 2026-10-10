@@ -94,7 +94,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       properties: {
-        rejectLegacyKeys: { type: 'boolean', default: false, description: 'Fail boot on a 2.x key of the old-key table.' },
+        rejectLegacyKeys: { type: 'boolean', default: true, description: 'Fail boot on a 2.x key of the old-key table; false only warns.' },
       },
     },
     strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },

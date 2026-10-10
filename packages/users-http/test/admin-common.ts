@@ -116,17 +116,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           profile: 'BasicProfileProvider',
         },
       },
-      rbac: {
-        twoFactorAuth: {
-          enabled: true,
-          forceUser: false,
-          service: 'Default2FaToken',
-        },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
-
       // A real root authz host (test/support/authz-host.ts): roles are GLOBAL assignments written through
       // AuthzAdmin (DbAuthzAdminBackend) into the test database.
       authz: {

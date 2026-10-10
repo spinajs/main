@@ -316,7 +316,7 @@ describe('engineLog', () => {
       DI.unregister(LateLog as never);
     }
     expect(LateLog.lines).to.deep.equal(['second']);
-    expect(DI.getRegisteredTypes(Log)).to.have.length(0);
+    expect(DI.getRegisteredTypes(Log) ?? []).to.have.length(0);
   });
 
   it('uses the resolved Log when there is one', () => {

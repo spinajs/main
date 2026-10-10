@@ -2,9 +2,9 @@ import * as chai from 'chai';
 import 'mocha';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_LEGACY_KEYS, checkAuthnLegacyKeys, findAuthnLegacyKeys } from '../../src/index.js';
+import { AUTHN_LEGACY_KEYS, authnLegacyKeysText, checkAuthnLegacyKeys, findAuthnLegacyKeys } from '../../src/index.js';
 import { buildCore, violationPaths } from '../behaviour/harness.js';
-import { useTestLog } from '../audit/test-log.js';
+import { TestLog, useTestLog } from '../audit/test-log.js';
 
 const expect = chai.expect;
 
@@ -92,9 +92,11 @@ describe('authn legacy key detector', () => {
   });
 
   describe('at boot', () => {
-    it('warns once, naming each key and where it goes, and boots', () => {
+    const OFF = { authn: { config: { rejectLegacyKeys: false } } };
+
+    it('warns once, naming each key and where it goes, and boots when authn.config.rejectLegacyKeys is false', () => {
       const l = log();
-      const found = checkAuthnLegacyKeys(config({ rbac: { password: { lockoutTime: 900, resetUrl: 'https://secret.example.com/reset?k=1' } } }), l);
+      const found = checkAuthnLegacyKeys(config({ ...OFF, rbac: { password: { lockoutTime: 900, resetUrl: 'https://secret.example.com/reset?k=1' } } }), l);
       expect(found.map((f) => f.path)).to.deep.eq(['rbac.password.lockoutTime', 'rbac.password.resetUrl']);
       expect(l.lines).to.have.length(1);
       expect(l.lines[0]).to.contain('rbac.password.lockoutTime -> dropped').and.contain('rbac.password.resetUrl -> authn.local.reset.url');
@@ -108,18 +110,24 @@ describe('authn legacy key detector', () => {
       expect(l.lines).to.deep.eq([]);
     });
 
-    it('fails boot only when authn.config.rejectLegacyKeys is true', () => {
+    it('fails boot unless authn.config.rejectLegacyKeys is false', () => {
       const rbac = { session: { service: 'MemorySessionStore' } };
       expect(() => checkAuthnLegacyKeys(config({ rbac, authn: { config: { rejectLegacyKeys: true } } }), log())).to.throw(InvalidOption, /rbac\.session\.service -> authn\.session\.service/);
-      expect(() => checkAuthnLegacyKeys(config({ rbac, authn: { config: { rejectLegacyKeys: false } } }), log())).to.not.throw();
-      expect(() => checkAuthnLegacyKeys(config({ rbac }), log())).to.not.throw();
+      expect(() => checkAuthnLegacyKeys(config({ rbac }), log())).to.throw(InvalidOption, /rbac\.session\.service -> authn\.session\.service/);
+      expect(() => checkAuthnLegacyKeys(config({ rbac, ...OFF }), log())).to.not.throw();
       expect(() => checkAuthnLegacyKeys(config({ authn: { config: { rejectLegacyKeys: true } } }), log())).to.not.throw();
     });
 
-    it('treats only an explicit true as rejecting; the schema types it as a boolean', () => {
-      for (const v of ['true', 1, null, undefined]) {
-        expect(() => checkAuthnLegacyKeys(config({ rbac: { session: { service: 'MemorySessionStore' } }, authn: { config: { rejectLegacyKeys: v } } }), log()), String(v)).to.not.throw();
+    it('treats anything but an explicit false as rejecting; the schema types it as a boolean', () => {
+      for (const v of ['false', 0, null, undefined]) {
+        expect(() => checkAuthnLegacyKeys(config({ rbac: { session: { service: 'MemorySessionStore' } }, authn: { config: { rejectLegacyKeys: v } } }), log()), String(v)).to.throw(InvalidOption);
       }
+    });
+
+    it('points at the converter and at the switch that only warns, never printing a value', () => {
+      const text = authnLegacyKeysText(findAuthnLegacyKeys({ session: { service: 'MemorySessionStore' } }));
+      expect(text).to.contain('rbac.session.service -> authn.session.service').and.contain('spinajs-authz-convert').and.contain('authn.config.rejectLegacyKeys: false');
+      expect(text).to.not.contain('MemorySessionStore');
     });
   });
 });
@@ -129,19 +137,34 @@ describe('DefaultAuthnService boot: legacy keys', function () {
   this.timeout(20000);
   useTestLog();
 
-  it('fails boot on a 2.x key of the table only when authn.config.rejectLegacyKeys is true', async () => {
-    const rbac = { password: { lockoutTime: 900 } };
-    let error: unknown;
+  const failure = async (raw: Values): Promise<unknown> => {
     try {
-      const p = await buildCore({}, { raw: { rbac, authn: { config: { rejectLegacyKeys: true } } } });
+      const p = await buildCore({}, { raw });
       await p.dispose();
     } catch (e) {
-      error = e;
+      return e;
     }
+    return undefined;
+  };
+
+  it('fails boot on a 2.x key of the table by default, naming the key, its 3.0 key and the converter', async () => {
+    const error = await failure({ rbac: { session: { service: 'MemorySessionStore' } } });
+    expect(error).to.be.instanceOf(InvalidOption);
+    expect((error as Error).message).to.contain('rbac.session.service -> authn.session.service').and.contain('spinajs-authz-convert');
+  });
+
+  it('fails boot on a 2.x key of the table when authn.config.rejectLegacyKeys is true', async () => {
+    const error = await failure({ rbac: { password: { lockoutTime: 900 } }, authn: { config: { rejectLegacyKeys: true } } });
     expect(error).to.be.instanceOf(InvalidOption);
     expect((error as Error).message).to.contain('rbac.password.lockoutTime -> dropped');
-    const p = await buildCore({}, { raw: { rbac } });
+  });
+
+  it('boots with a warning naming the key when authn.config.rejectLegacyKeys is false', async () => {
+    const p = await buildCore({}, { raw: { rbac: { session: { cookie: { name: 'sid' } } }, authn: { config: { rejectLegacyKeys: false } } } });
     await p.dispose();
+    const warned = TestLog.lines.filter((l) => l.startsWith('warn ') && l.includes('rbac.session.cookie.name'));
+    expect(warned).to.have.length(1);
+    expect(warned[0]).to.contain('authn.session.cookie.name').and.contain('spinajs-authz-convert');
   });
 
   it('refuses a malformed authn.config through the schema, naming the path', async () => {

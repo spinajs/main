@@ -107,35 +107,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         },
       },
-      rbac: {
-        // default roles to manage users & guest account
-        roles: [
-          {
-            Name: 'admin',
-            Description: 'Administrator',
-          },
-          {
-            Name: 'user',
-            Description: 'Simple account without any privlidge',
-          },
-          {
-            Name: 'guest',
-            Description: 'Guest account',
-          },
-          {
-            Name: 'normal',
-            Description: 'test',
-          },
-        ],
-        defaultRole: 'guest',
-        password: {
-          /**
-           * Should password expire after some time ?
-           */
-          passwordExpirationTime: 0,
-        },
-      },
-
       // The root authz host of test/support/authz-host.ts: roles are GLOBAL assignments written
       // through AuthzAdmin (DbAuthzAdminBackend) into the test database.
       authz: {
