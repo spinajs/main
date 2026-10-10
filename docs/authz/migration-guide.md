@@ -1348,6 +1348,13 @@ The decorators, the policy rules and what the middleware cannot see are in
   suit tests and small tables only.
 - PostgreSQL must run with `jit = off` for the app's role or database (G7); authz-orm refuses a
   connection with JIT on unless `authz.orm.allowJit: true`.
+- On PostgreSQL the rule terms of a list are worked out once per class of rows, not once per row (S1).
+  Each term reads the whole model table once per statement, also the rows the app's own WHERE drops,
+  so its cost grows with the table. SQLite keeps the per-row form. A stored rule whose definition
+  PostgreSQL cannot parse fails every list of that model.
+- Speed, release gate 7 (open while the owner reviews its limits): the canvas file list over 1,000
+  files takes 90 to 182 ms (p50) on PostgreSQL with `jit = off`, a 50-row page 90 to 128 ms
+  (`packages/authz-rbac/bench/RESULTS.md`).
 - An `@OrmScope` on a model without `@AccessResource` logs a warning at boot (O2): such a model is never
   checked. Several `authorizeCreate` policies OR-ed on one insert are each tried before the insert is
   refused.
