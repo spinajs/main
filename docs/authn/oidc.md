@@ -21,10 +21,9 @@ authn core (§22.15, A27).
   refused (mix-up). The RFC 9207 `iss` response parameter is checked when the provider sends it, and
   required when the provider advertises it.
 - **Every provider endpoint uses https** (discovery, JWKS, authorization, token, userinfo), unless the
-  env is development or test. With no env set, the code resolves to development (the configuration
-  falls back to it), so plain http passes too. Set `APP_ENV` or `NODE_ENV` explicitly
-  (TODO(N8a): a missing env will mean production). The HTTP client follows no redirects, accepts a JSON content type only,
-  times out after 5 seconds and reads at most 1 MiB.
+  env is development or test. A deployment with no env set counts as production, so plain http fails
+  there; set `APP_ENV` or `NODE_ENV` explicitly. The HTTP client follows no redirects, accepts a JSON
+  content type only, times out after 5 seconds and reads at most 1 MiB.
 - **ID token checks:** `iss` exact (or an alias the preset lists), `aud` holds the client id and no other
   audience, `azp` equals the client id when present or when `aud` has several values, `exp`, `iat` and
   `nbf` within the clock skew (30 s), `nonce`, an algorithm from the allow-list, and `at_hash` when
@@ -121,7 +120,7 @@ The controller has the fixed prefix `auth/oidc`. It does not follow `authn.http.
 |---|---|
 | `GET /auth/oidc/:provider` | Starts a login. Optional `?returnTo=/path`. Sets the flow cookie and answers 302 to the provider. |
 | `GET /auth/oidc/:provider/callback` | Finishes a login or a link flow. |
-| `POST /auth/oidc/:provider/link` | Starts linking for the current session. Needs an active session and a same-origin request (`Sec-Fetch-Site` `same-origin` or `none`). It is a `POST`, so the origin check of `authn-http` (A22) is meant to guard it: a cross-site start could link another site's account to this identity. **TODO(N8a):** that check is `CsrfOriginGuard`, a stub today: it checks no `Origin` or `Sec-Fetch-Site` header. Only the route's own test remains. It refuses a `Sec-Fetch-Site` value other than `same-origin` or `none`, and lets a request with no such header through. |
+| `POST /auth/oidc/:provider/link` | Starts linking for the current session. Needs an active session and a same-origin request (`Sec-Fetch-Site` `same-origin` or `none`). It is a `POST` with the session cookie, so `authn-http`'s CSRF origin guard (A22) checks it before the route runs: a cross-site start could link another site's account to this identity. The route also refuses a `Sec-Fetch-Site` value other than `same-origin` or `none`. |
 | `DELETE /auth/oidc/:provider/link` | Removes the identity's link to this provider. `?subject=` names one when the identity holds several. 204 on success, 401 without a session, 404 when nothing is linked, 409 when several subjects match and none is named, 403 when the core refuses (the last usable credential). |
 
 **Answers.** Every failure is the login failure: 401 with the `E_AUTH_FAILED` body of the login route,
@@ -138,9 +137,8 @@ gets no core MFA step: the IdP does its own (D13).
 ## Flow cookie
 
 The flow lives in an `HttpOnly`, `SameSite=Lax` cookie, named `__Host-spinajs-oidc` (with `Secure`)
-outside development and test, and `spinajs-oidc` there. With no env set, the code resolves to
-development, so you get the plain name without `Secure` (TODO(N8a): a missing env will mean
-production; set the env explicitly). It holds a random 32-byte seed and the flow
+outside development and test, and `spinajs-oidc` there. A deployment with no env set counts as
+production and gets the `__Host-` name. It holds a random 32-byte seed and the flow
 fields. `state` is a SHA-256 over every member of the cookie (provider, seed, time, return path,
 redirect URI, mode and, for linking, the session binding). The nonce and the PKCE verifier derive from
 the seed. The server needs no key of its own. A flow lives 10 minutes. `state` is claimed once in
@@ -168,9 +166,8 @@ A provider switch that is on while the global one is off has no effect, and boot
 Both switches exist so that adding a provider never opens sign-up or email matching by accident. The
 strategy repeats the core's decision with the provider's switch, so neither path runs without it.
 
-> **TODO(K6):** the global `authn.linking.jit` also gates JWT bearer provisioning (`authn-token`), and
-> a JWT issuer has no switch of its own. Turning `jit` on for one OIDC provider therefore lets every
-> listed `authn.jwt.issuers` entry provision identities too. K6 adds a per-issuer switch.
+A JWT issuer of `authn-token` has its own `linking.jit` (default off), so turning `jit` on for an OIDC
+provider opens no JWT provisioning (K6).
 
 - One identity may hold many links. `(provider, subject)` is unique.
 - Explicit linking needs the identity's own active session with fresh auth, and goes through the core's
@@ -184,8 +181,9 @@ strategy repeats the core's decision with the provider's switch, so neither path
 ## `ExternalLoginHook`
 
 Authn imports no authz. To act on a login, such as syncing group claims into authorization data,
-register an `ExternalLoginHook`. The hooks of every container in the lineage (`Array.chainOf`) run
-in the callback route after a successful external login:
+register an `ExternalLoginHook`. `AuthnService` runs the hooks of every container in the lineage
+(`Array.chainOf`) after it resolved the identity and checked its status, and before the MFA step and
+the session (RFC N10-1, applied in K6):
 
 ```ts
 import { ExternalLoginHook, IdentityRef, ExternalSubject } from '@spinajs/authn/contracts';
@@ -203,10 +201,8 @@ export class GroupSync extends ExternalLoginHook {
 - The hook gets the mapped claims: `name`, `groups` (absent when unmapped or missing, which is not
   the same as `[]`) and `raw` (the validated ID token claims, then userinfo claims it lacks; never a
   token).
-- **A hook that throws fails the login.** The route revokes the session and audits a `login` failure
-  with the reason `hook_error`. The core has already audited the success, so the trail shows both.
-  Make hooks idempotent. RFC N10-1 proposes that the core call the hooks before it issues the
-  session; N10 works without it.
+- **A hook that throws fails the login** with the opaque answer and issues no session; the audit
+  reason is `hook_error`. Hooks that ran before it are not rolled back, so make hooks idempotent.
 
 ## Limits in 3.0
 
@@ -214,8 +210,7 @@ export class GroupSync extends ExternalLoginHook {
   missing secret never means one.
 - **Microsoft Entra ID by one tenant GUID.** A domain, `common`, `organizations` or `consumers` would not
   match the `iss` of the tenant's tokens. Multi-tenant comes later.
-- **JIT and email linking need both switches** (global and per provider). The global JIT switch also
-  gates JWT bearer provisioning (TODO(K6)).
+- **JIT and email linking need both switches** (global and per provider).
 - **`max_age` and `acr_values` are refused** in `authorizationParams`: nothing checks `auth_time` or `acr`
   in 3.0.
 - No implicit flow, no hybrid flow, no `request` or `request_uri` parameters.
@@ -234,7 +229,7 @@ request. A message names the provider and the key, never a value. Boot refuses:
 - an `entra` provider whose `tenant` is not a GUID, and any preset with a missing or foreign extra key;
 - `issuer` or `baseUrl` that is not an https URL without credentials, query or fragment, and a
   `redirectUri` that is not an absolute https URL without credentials or fragment (a query string is
-  allowed). Http is allowed in development and test, which includes a deployment with no env set;
+  allowed). Http is allowed in development and test only, never in a deployment with no env set;
 - a `claims.subject` of `email`, `upn`, `preferred_username`, `login` or `name`;
 - a `redirects` path that is not app-relative;
 - an `authorizationParams` key from the refused list, a `scopes` entry that is not an RFC 6749 scope
@@ -247,18 +242,11 @@ outside development and test (behind a TLS proxy, set `authn.http.trustProxy` or
 
 ## Wiring and open items
 
-- `authn-http` has to put `req.storage.AuthnSession` (link routes) and `req.storage.ClientIp` (the `ip`
-  throttle key) in place, register the controller in its route group, and set the session cookie.
-  Until N8a merges, OIDC callbacks have no `ip` throttle key and the link routes fail closed
-  (TODO(N8a)).
-- The CSRF origin guard (`CsrfOriginGuard`, A22) is a stub. It checks no `Origin` or `Sec-Fetch-Site`
-  header, so the `POST /auth/oidc/:provider/link` start relies on its own `Sec-Fetch-Site` test alone
-  (TODO(N8a)).
-- A deployment with no env set runs in development mode: http provider URLs pass and the flow cookie
-  is not `Secure`. Set `APP_ENV` or `NODE_ENV` (TODO(N8a): a missing env will mean production).
-- Run the acceptance against a real Keycloak (`issuer`, `clientId`, `clientSecret`, and the redirect URI
-  `<origin>/auth/oidc/<name>/callback` registered exactly), and check the success page in a browser
-  (TODO(IC2)).
+- `authn-http` puts `req.storage.AuthnSession` (link routes) and `req.storage.ClientIp` (the `ip`
+  throttle key) in place and sets the session cookie, so import `@spinajs/authn-http` as well.
+- Open: a run against a real Keycloak (`issuer`, `clientId`, `clientSecret`, and the redirect URI
+  `<origin>/auth/oidc/<name>/callback` registered exactly), and a check of the success page in a
+  browser (lane IC2).
 
 ## Testing
 

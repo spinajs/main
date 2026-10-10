@@ -14,7 +14,8 @@ impersonation code that lived in `@spinajs/rbac*`.
 - Rule numbers (A05, SR-03, H31) point to the design: `docs/plans/2026-10-01-authz-v3-design.md`
   (§22.17 for A-rules, §23 for the SR findings).
 
-Some parts are not built yet. Each gap carries a `TODO(<lane>)` note.
+This page describes `3.0.0-rc.1`. Open items are listed in
+[the migration guide, section 11](../authz/migration-guide.md#11-open-items-in-300-rc1).
 
 ## Contents
 
@@ -43,20 +44,19 @@ Three families, one direction:
 | Authorization (`@spinajs/authz*`) | `authz.*` | What that caller may do. |
 
 `authn*` never imports `authz*` or `users*`. `authz` imports only the principal types from
-`@spinajs/authn/contracts`. `authn-http` will hand its result to `authz-http` through
-`req.storage.AuthnPrincipal`. `users` will implement the pieces that need both (D26).
-
-> **TODO(N8a):** `AuthnMiddleware`, the writer of `req.storage.AuthnPrincipal`, is a stub that throws
-> "not implemented", and `authn-http` still serves the moved 2.x routes. The `users` side is TODO(C1/C3).
+`@spinajs/authn/contracts`. `authn-http`'s `AuthnMiddleware` hands its result to `authz-http` through
+`req.storage.AuthnPrincipal`. `users` implements the pieces that need both (D26).
 
 `users` plugs into authn through `IdentityStore` (find a login, read the status) and
 `PasswordCredentialStore` (the hash in `users.Password`). Anything in authn that needs authz is a hook
 that `users` implements: `ImpersonationGuard`, `AuthnResponseExtension` (users' `AccessResponseExtension`
 adds `Access` to answers) and `RoleSource` (the roles for a role switch).
 
-> **TODO(C1/C3):** none of these `users` implementations exists yet. C1 adds `IdentityStore` and
-> `PasswordCredentialStore`; C3 adds `ImpersonationGuard`, `AccessResponseExtension` and `RoleSource`.
-> Until C1 lands, `AuthnService` fails its boot check for the missing `IdentityStore`.
+users registers them when the app imports it: `UserIdentityStore`, `UserPasswordStore`,
+`UserPrincipalFactory`, `UserPasswordAgeSource`, `AuthzImpersonationGuard`, `AccessResponseExtension`,
+`RbacRoleSource` and `AuthzCredentialAdminGuard` (the `CredentialAdminGuard` of the admin routes).
+**Import `@spinajs/users` in the app entry:** no authn package depends on it, and without it
+`AuthnService` fails its boot check for the missing `IdentityStore`.
 
 | Package | Holds |
 |---|---|
@@ -69,7 +69,7 @@ adds `Access` to answers) and `RoleSource` (the roles for a role switch).
 | `@spinajs/authn-token` | API tokens, agent tokens, JWT bearer, token CLI. |
 | `@spinajs/authn-keys` | Public keys, strict JWS, client assertions, HTTP signatures, challenge login. |
 | `@spinajs/authn-oidc` | OIDC and OAuth2 client with presets. |
-| `@spinajs/authn-http` | Middleware, credential extractors, CSRF origin guard, policies, routes (the 3.0 middleware is TODO(N8a); the 2.x routes still run). |
+| `@spinajs/authn-http` | Middleware, credential extractors, CSRF origin guard, policies, routes, `authn:check-config`. |
 | `@spinajs/authn-testing` | Fakes, conformance suites and the behaviour rules A01-A32. |
 
 ## How a login runs
@@ -130,7 +130,7 @@ it only warns.
 
 Boot checks, the old-key detector and `authn:check-config` are in
 [the migration guide](../authz/migration-guide.md#34-keys-that-other-config-files-own). The
-check is the function `checkAuthnConfig`; the command that calls it is TODO(N8a).
+command ships in `authn-http`; the check behind it is the function `checkAuthnConfig`.
 
 ## Strategies
 
@@ -191,13 +191,8 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
   purpose `reset`, or `invite` while the identity has a pending invite. A secret mailed before the
   upgrade keeps working once (A32). The mail is rendered and sent when the secret is issued; the queue
   never holds the secret (`PasswordMailer`).
-- **Expiry:** the `authn-local` code defaults are off (`authn.local.expiration.enabled: false`,
-  `maxAgeDays: 31`). An expired password is stored as the marker `!expired`, and the old password no
-  longer logs in.
-
-  > **TODO(C1):** `users` still ships `authn.local.expiration.enabled: true` (with the 2.x
-  > `passwordExpirationTime`), so with `users` installed expiry is on today. C1 removes the key. Set
-  > `enabled` and `maxAgeDays` yourself.
+- **Expiry:** off by default (`authn.local.expiration.enabled: false`, `maxAgeDays: 31`). An expired
+  password is stored as the marker `!expired`, and the old password no longer logs in.
 - **CLI:** `authn:password <login>` (the password from `--generate` or standard input, never from an
   argument) and `authn:password-expire`.
 
@@ -255,19 +250,16 @@ authn: {
   cookie is signed with `http.cookie.secret`, which must not be the public default outside development
   and test (A24).
 
-  **With no app env set, the code resolves to development**, not production: the configuration falls
-  back to `development` when `--env`, `APP_ENV` and `NODE_ENV` are all missing
-  (see `packages/authn/src/service/boot/env.ts`; the cookie builders and `authn-oidc` read the same
-  value). Such a deployment gets a non-`Secure` cookie without the prefix, and only a warning for the
-  public cookie secret. Set `APP_ENV` or `NODE_ENV` explicitly in every deployment.
+  **With no app env set, authn treats the deployment as production** (SR-16). The configuration still
+  falls back to `development` when `--env`, `APP_ENV` and `NODE_ENV` are all missing, but the authn
+  core, the cookie builders and `authn-oidc` read that as "no env"
+  (`packages/authn/src/service/boot/env.ts`): the cookie is `Secure` and `__Host-` prefixed, and the
+  public cookie secret fails boot. Only an env source that names development or test relaxes them.
+  Set `APP_ENV` or `NODE_ENV` explicitly in every deployment; the core warns when it fell back.
 
-> **TODO(N8a):** the session middleware, cookie issue and clear on the HTTP routes, the `Ip` and
-> `UserAgent` entries it writes, and the rule for a deployment with no app env set. N8a changes that
-> rule so that a missing env means production, in the core, the session cookie and OIDC.
-
-> **TODO(C1):** `users` ships `authn.session.cookie.secure: process.env.NODE_ENV === 'production'`,
-> a boolean that can override `'auto'` (package configs merge in glob order). With `hostPrefix` on, the
-> `__Host-` rule still forces `Secure`. C1 removes the key.
+  The cookie is a browser-session cookie (no `Max-Age`); idle and absolute timeouts are enforced on the
+  server. `authn-http` issues, rotates and clears it on its routes and stores the client IP and user
+  agent with the session.
 
 ## MFA
 
@@ -395,7 +387,11 @@ authn: {
 
 A length below 32 or an empty prefix fails boot. The full table is in `packages/authn-token/README.md`.
 
-> **TODO(N8b):** the `/user/tokens` routes on `TokenService` (mandatory expiry, fresh auth).
+**Routes** (`authn-http`, on while a `TokenService` is registered): `GET /user/tokens` lists the
+caller's live tokens; `POST /user/tokens` needs `expiresAt` and fresh auth and answers the plaintext
+once; `DELETE /user/tokens/:uuid` revokes and keeps the row. A token or key caller gets 403
+`session_required`, an impersonating session 403 `impersonating`. `users-http` serves
+`GET /user/tokens/roles` and `/profiles`, the roles and profiles a new token may carry.
 
 ## Keys
 
@@ -405,11 +401,11 @@ the canvas realtime tickets (C8).
 - **Keys:** Ed25519 and ECDSA P-256 public JWKs only. The algorithm is fixed on the key record and
   never read from a token. A `kid` is 1-64 of `[A-Za-z0-9._-]`. The owner is a user, a service or an
   agent. A key may carry a `scope` ceiling, an expiry and a revocation (A17).
-- **Register:** the design has a user register a key with fresh auth and a signature over a server
-  challenge (proof of possession), through `POST /user/keys` (TODO(N8b): the route does not exist
-  yet). Services and runners are registered by the CLI (`authn:key-add`, `authn:key-list`,
-  `authn:key-revoke`, built) or, later, an admin route (TODO(N8b)). `authn:key-add` refuses a user
-  owner and points to `POST /user/keys`.
+- **Register:** a user registers a key through `POST /user/keys`, with fresh auth and a signature over
+  a `register` challenge (proof of possession); `GET /user/keys` lists them and
+  `DELETE /user/keys/:kid` revokes one. Services and runners are registered by the CLI
+  (`authn:key-add`, `authn:key-list`, `authn:key-revoke`); there is no admin route for keys.
+  `authn:key-add` refuses a user owner and points to `POST /user/keys`.
 - **JWS client assertion** (`keys-jws`): `Authorization: Bearer <jws>`, header exactly
   `{ alg, kid, typ: 'spinajs-client+jwt' }`, claims `iss` (`user:<uuid>` or `service:<id>`), `aud`
   (`authn.keys.assertion.audience`, required), `iat`, `exp` (lifetime at most 300 s) and a single-use
@@ -418,16 +414,17 @@ the canvas realtime tickets (C8).
   `@target-uri` and, with a body, `content-digest`, and carries `created`, `expires` (at most 300 s
   ahead), `nonce` and `keyid`. Build `targetUri` from the configured public origin, never from `Host`.
 - **Challenge login** (`keys-challenge`): `POST /auth/keys/challenge`, then `POST /auth/keys/login` with
-  a signature over `spinajs-key-<purpose>:<nonce>:<audience>` (TODO(N8b): the routes do not exist yet;
-  the strategy does).
+  a signature over `spinajs-key-<purpose>:<nonce>:<audience>`. A throttled challenge answers 429 with
+  `Retry-After`. A key login is `aal1` and asks no MFA step under the default MFA policy.
 - **Canvas parity:** `LocalJwsSigner` writes tickets byte for byte as the canvas golden fixtures do,
   and the verifier reports the same error codes.
 
 The formats, the OpenSSL recipe and every `authn.keys.*` key are in `packages/authn-keys/README.md`.
 
-> **TODO(N8b):** the `/user/keys` and `/auth/keys/*` routes, and the route that issues a `register`
-> challenge. **TODO(N8a):** the extractor that tells a `jws-assertion` from an API token or a JWT by the
-> JWS header `typ`.
+The key routes are on while a `KeyRegistry` is registered and `authn.keys.assertion.audience` or
+`authn.keys.challenge.audience` is set. `authn-http`'s bearer extractor tells a `jws-assertion` from a
+JWT by the JWS header `typ` (`authn.keys.assertion.typ`). Revoking a key does not end the sessions it
+logged in.
 
 ## Throttling
 
@@ -465,12 +462,9 @@ authn: {
 }
 ```
 
-Set `http.trustProxy` (a hop count or CIDRs) when the app runs behind a proxy. The design says a
-client-set `X-Forwarded-For` without a trusted hop is ignored.
-
-> **TODO(N8a):** nothing reads `http.trustProxy` or `authn.http.trustProxy` yet. `ClientIp`, the
-> middleware that writes `req.storage.ClientIp` from the proxy chain, is a stub. Until N8a lands, the
-> IP key has no value from `authn-http`. Set the keys anyway.
+Set `http.trustProxy` (a hop count, or addresses and CIDRs) when the app runs behind a proxy.
+`authn-http`'s `ClientIp` writes `req.storage.ClientIp` from the proxy chain (`authn.http.trustProxy`,
+else `http.trustProxy`); a client-set `X-Forwarded-For` without a trusted hop is ignored.
 
 `DbAuthnThrottle` keeps keyed hashes of the keys
 (`authn.audit.hashKey.secret`). Per-request credentials (tokens, keys) use the `login` flow under a
@@ -482,20 +476,19 @@ supported on MySQL and MSSQL (their `datetime` is coarser).
 `MemoryAuthnThrottle` is the throttle of one process. It keeps one table per flow, capped by
 `authn.throttle.maxRows` (1,000,000 when unset; memory grows with 4 × `maxRows`). When a table is
 full it evicts in two tiers and never drops a row that still delays someone. An app with several
-instances sets `authn.throttle.service: 'DbAuthnThrottle'`: the boot fails when the named throttle is
-not registered, and never falls back to memory, which would count each instance apart. **Set the key in
-every app that installs `authn-orm`.** `authn` registers `MemoryAuthnThrottle` and `authn-orm`
-registers `DbAuthnThrottle`, so with both installed an unset key fails boot ("several are
-registered; name one").
+instances uses `DbAuthnThrottle`. With `authn.throttle.service` unset, the core takes the only
+registered throttle, or the only one besides `MemoryAuthnThrottle`, so importing `authn-orm` is enough
+(K6). A named throttle that is not registered fails boot, and so does an unset key when two throttles
+besides the memory one are registered ("several are registered; name one"). Boot never falls back to
+memory, which would count each instance apart. The service builds the `account-ip` key itself from the
+account and the IP and ignores the one a strategy sends.
 
-> **TODO(K6):** K6 settles the default, so that boot no longer depends on this key. The service
-builds the `account-ip` key itself from the account and the IP and ignores the one a strategy sends.
-
-**Per-request strategies (K5).** Parallel calls with a valid token or key all verify; failures still
+**Per-request strategies (K5, K6).** Parallel calls with a valid token or key all verify; failures still
 back off per credential and per IP. Peek and count are two steps, so a parallel burst of failures is
 verified in full before the backoff applies; this is safe only for unguessable credentials, which is
-why per-request strategies take only tokens and signatures. Open: `authn-keys` keys the account by key
-id, so whoever knows a kid can keep that key in backoff with one bad signature a minute.
+why per-request strategies take only tokens and signatures. The account key of a per-request
+credential is `request:<credential id>|<ip>`, so whoever knows a key id can slow that key only from
+their own address.
 
 ## Audit and events
 
@@ -511,13 +504,14 @@ its rows hold the raw subject refs, the IP and the user agent.
   ancestors, in registration order; there is no list to keep. `authn-orm` registers `DbAuthnAuditSink`
   (table `authn_audit`). With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
   default 0.01).
-- `users` will add `QueueAuthnEventSink`, which re-emits the 2.x queue events (`UserLogged`,
-  `UserLoginFailed`, `UserPasswordChanged`, `UserImpersonationStarted`, `User2FaEnabled`, …) so 2.x
-  subscribers keep working. **TODO(C1):** the class does not exist yet.
+- `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
+  `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
+  `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x
+  2FA events (`User2FaEnabled`, …) are gone: read `mfa.enrol` and `mfa.disable` in a sink.
 - The DB sink never fails on event content: an identity that does not fit the column goes into `data`.
 
 ```ts
-authn: { audit: { sampleUse: 0.01, hashIdentifiers: true } }
+authn: { audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: null } } }
 ```
 
 ## Impersonation
@@ -525,9 +519,8 @@ authn: { audit: { sampleUse: 0.01, hashIdentifiers: true } }
 Who may impersonate whom is an authorization question. How impersonation works is an authentication
 one.
 
-- **Who (authz):** `AuthzImpersonationGuard` in `users` will implement B26 (TODO(C3): the class does
-  not exist yet). The caller needs
-  `user:impersonate`. The target's combined `$global` permission set, from every model and ABAC
+- **Who (authz):** `AuthzImpersonationGuard` in `users` implements B26. The caller needs
+  `user:impersonate` (`authz.impersonation.permission`) and must have signed in interactively. The target's combined `$global` permission set, from every model and ABAC
   policies included, must be a strict subset of the caller's. Equal is refused. Protected roles
   (`authz.impersonation.protectedRoles`) are refused. An instance admin has no implicit org rights
   (H26).
@@ -542,7 +535,9 @@ one.
 - **End:** an explicit stop, logout, `authn.impersonation.maxMinutes` (default 60),
   `authn.session.expiration.maxLifetime` counted from the actor's login, or any revocation of the
   impersonator (a ban, a deactivation, a password change on other sessions, a reset, or a lost
-  `user:impersonate`) (A20, SR-06). A stop issues a new session for the impersonator. An ended
+  `user:impersonate`) (A20, SR-06). The service asks the guard again on every request of the
+  session, with the actor's role switch, and a refusal ends the impersonation. A stop issues a new
+  session for the impersonator. An ended
   impersonation resolves to no principal, never to the impersonator, because a request cannot rotate
   the cookie.
 - Every start, end and expiry is audited.
@@ -561,7 +556,7 @@ authentication has its own config root (D21).
 
 ## Config `authn.*`
 
-The block below is the design's target (§22.5). Keys marked in the table are read by merged code.
+The block below is the design's sample (§22.5); the table says who reads each key.
 
 ```ts
 export default {
@@ -590,8 +585,8 @@ export default {
             httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sampleUse: 0.01, hashIdentifiers: true },
-    http: { trustProxy: null, csrf: { enabled: true, allowedOrigins: [] }, routes: { prefix: 'auth' } },
+    audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
+    http: { trustProxy: null, csrf: { enabled: true, allowedOrigins: [] } },
   },
 };
 ```
@@ -599,23 +594,22 @@ export default {
 | Key | Package that reads it | Notes |
 |---|---|---|
 | `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
-| `authn.local.*` | `authn-local` | `hasher.service` is not read yet while `users` ships the 2.x value (TODO(C1)). `expiration.enabled` is `false` in the code, but `users` ships `true` (TODO(C1)). |
-| `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). `users` ships `cookie.secure` as `process.env.NODE_ENV === 'production'` (TODO(C1)). |
+| `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. |
+| `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). |
 | `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
-| `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, it works only when exactly one is registered. `authn` and `authn-orm` register one each, so set it (TODO(K6)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
+| `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
-| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches. `jit` also gates JWT provisioning, for every issuer: there is no per-issuer switch (TODO(K6)). `authn-oidc` adds its own per-provider switches. |
+| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). |
 | `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
-| `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service. The routes that call it wait for N8a. |
+| `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
-| `authn.http.*` | N8a | CSRF and trusted proxy. Nothing reads them yet: `ClientIp` and `CsrfOriginGuard` are stubs (TODO(N8a)). |
+| `authn.http.*` | `authn-http` | `trustProxy` (else `http.trustProxy`) for `ClientIp`; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`. The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
 `http.cookie.secret`) are secret references (environment or a secret store), never inline values. The
-boot refuses a public or missing value for the cookie secret outside development and test (A24). With
-no app env set, the env counts as development, so the refusal does not apply: set `APP_ENV` or
-`NODE_ENV` (TODO(N8a): a missing env will mean production).
+boot refuses a public or missing value for the cookie secret outside development and test (A24), and
+a deployment with no app env set counts as production here.
 
 The schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
