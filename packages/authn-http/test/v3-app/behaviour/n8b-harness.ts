@@ -255,6 +255,7 @@ interface TotpModules {
   readonly TotpMfaStep: new (...args: never[]) => TotpStepLike;
   readonly MfaSecretStore: abstract new (...args: never[]) => unknown;
   readonly DbMfaStore: new (...args: ConstructorParameters<typeof DbMfaStore>) => DbMfaStore;
+  readonly DbMfaEnrolments: new (...args: never[]) => unknown;
 }
 
 interface TotpState {
@@ -343,9 +344,11 @@ export const totpPart: LanePart = {
     const { TotpMfaStep } = await totpModule<{ TotpMfaStep: TotpModules['TotpMfaStep'] }>('step/totp-step.js');
     const { MfaSecretStore } = await totpModule<{ MfaSecretStore: TotpModules['MfaSecretStore'] }>('store/store.js');
     const { DbMfaStore } = await ormModule<{ DbMfaStore: TotpModules['DbMfaStore'] }>('mfa/db-mfa-store.js');
+    // As the authn-orm root would: the policy's MfaEnrolments source over authn_mfa, through DI's DbMfaStore.
+    const { DbMfaEnrolments } = await ormModule<{ DbMfaEnrolments: TotpModules['DbMfaEnrolments'] }>('mfa/db-mfa-enrolments.js');
     // A second copy of the module graph would register a second TotpMfaStep beside the subpath's.
     if (!(DI.getRegisteredTypes(MfaStep as unknown as Class<unknown>) ?? []).includes(TotpMfaStep as unknown as Class<unknown>)) throw new Error('authn-totp is loaded twice: the step loaded by file is not the one the subpath registered');
-    totp = { TotpService, TotpMfaStep, MfaSecretStore, DbMfaStore };
+    totp = { TotpService, TotpMfaStep, MfaSecretStore, DbMfaStore, DbMfaEnrolments };
     if (!totpBound) {
       totpBound = true;
       bind(MfaSecretStore, 'N8bMfaSecretStore', laneMfaStore);
@@ -360,7 +363,7 @@ export const totpPart: LanePart = {
   ports: ['mfa'],
   async open() {
     const t = loaded(totp, 'authn-totp');
-    for (const type of [t.TotpService, t.TotpMfaStep]) DI.uncache(type as unknown as Class<unknown>);
+    for (const type of [t.TotpService, t.TotpMfaStep, t.DbMfaEnrolments, t.DbMfaStore]) DI.uncache(type as unknown as Class<unknown>);
     const db = tokenDb();
     for (const table of ['authn_mfa', 'authn_recovery_code']) await db.del().from(table);
     laneEvents.length = 0;

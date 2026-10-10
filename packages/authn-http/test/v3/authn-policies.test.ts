@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import type { SinonStub } from 'sinon';
 import { randomBytes, randomUUID } from 'node:crypto';
 import express from 'express';
@@ -15,7 +16,7 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStepNotListed, MfaStepRegistry, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -31,7 +32,7 @@ import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
 import { APP_ORIGIN, COOKIE_SECRET, TestConfiguration, req as http, restoreHttpErrorMap } from '../token-common.js';
 
-const { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } = v3;
+const { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy, PendingMfaEnrolment } = v3;
 
 const ALICE_PASSWORD = 'Alice-Pass-1234';
 const BOB_PASSWORD = 'Bob-Pass-2345x';
@@ -316,6 +317,27 @@ describe('3.0 authn policies and route args', function () {
       expect((calls[0] as { facts: object }).facts).to.include({ method: 'jws', strategy: 'keys' });
     });
 
+    it('an aal1 session of an identity with an unlisted or mismatched enrolled step answers 403 mfa_required; another policy error still fails the request', async () => {
+      const policy = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
+      const original = policy.required.bind(policy);
+      try {
+        policy.required = async () => {
+          throw new MfaStepNotListed(['totp']);
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session'))).to.eq('403 mfa_required');
+        policy.required = async () => {
+          throw new MfaEnrolmentMismatch(['totp']);
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session'))).to.eq('403 mfa_required');
+        policy.required = async () => {
+          throw new RangeError('mfa store down');
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session')).catch((e: Error) => `throws ${e.constructor.name}`)).to.eq('throws RangeError');
+      } finally {
+        policy.required = original;
+      }
+    });
+
     it('an unknown authn.mfa.policy.service fails the request instead of passing it', async () => {
       const config = await DI.resolve(Configuration);
       config.set('authn.mfa.policy.service', 'NoSuchMfaPolicy');
@@ -342,6 +364,63 @@ describe('3.0 authn policies and route args', function () {
         config.set('authn.mfa.policy.service', 'PolicySuiteMfaPolicy');
         await sub.dispose();
       }
+    });
+  });
+
+  describe('PendingMfaEnrolment (A09)', () => {
+    /** Runs the policy over a pending session of alice, with totp listed and the MfaPolicy answering `required`. */
+    async function enrolment(required: () => Promise<readonly string[]>, calls: unknown[] = []): Promise<string> {
+      const registry = await s.child.resolve(MfaStepRegistry);
+      const listed = sinon.stub(registry, 'steps').returns([s.step]);
+      const mfa = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
+      const original = mfa.required.bind(mfa);
+      mfa.required = async (id, facts) => {
+        calls.push({ id, facts });
+        return required();
+      };
+      const policy = new PendingMfaEnrolment();
+      Object.defineProperty(policy, 'Container', { value: s.child });
+      try {
+        return await run(policy, await requestOf('pending'));
+      } finally {
+        mfa.required = original;
+        listed.restore();
+      }
+    }
+
+    it('a pending session of an identity the MfaPolicy refuses over its stored enrolments is refused 403 enrolment_closed', async () => {
+      expect(
+        await enrolment(async () => {
+          throw new MfaStepNotListed(['totp']);
+        }),
+      ).to.eq('403 enrolment_closed');
+      expect(
+        await enrolment(async () => {
+          throw new MfaEnrolmentMismatch(['totp']);
+        }),
+      ).to.eq('403 enrolment_closed');
+    });
+
+    it('a pending session of a forced, never-enrolled identity passes; the policy gets the identity, method and strategy', async () => {
+      const calls: unknown[] = [];
+      expect(await enrolment(async () => ['totp'], calls)).to.eq('pass');
+      expect(calls).to.have.length(1);
+      expect(calls[0]).to.deep.include({ id: { type: 'user', id: alice.id } });
+      expect((calls[0] as { facts: object }).facts).to.include({ method: 'password', strategy: 'local' });
+    });
+
+    it('another MfaPolicy error fails the request instead of passing it', async () => {
+      const res = await enrolment(async () => {
+        throw new RangeError('mfa store down');
+      }).catch((e: Error) => `throws ${e.constructor.name}`);
+      expect(res).to.eq('throws RangeError');
+    });
+
+    it('a pending session of an identity enrolled in a listed step is refused before the MfaPolicy is asked', async () => {
+      s.step.enrol(alice);
+      const calls: unknown[] = [];
+      expect(await enrolment(async () => [], calls)).to.eq('403 enrolment_closed');
+      expect(calls).to.have.length(0);
     });
   });
 

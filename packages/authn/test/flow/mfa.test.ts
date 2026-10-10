@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 
-import { DefaultMfaPolicy, MfaStep, MfaStepRegistry, RoleSource } from '../../src/index.js';
+import { DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, MfaStepRegistry, RoleSource } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -21,6 +21,25 @@ class Roles extends RoleSource {
     return this.roles.map((role) => ({ role, requirePassword: false }));
   }
 }
+
+/** Confirmed steps by identity id, as a store would report them. */
+class Enrolments extends MfaEnrolments {
+  readonly asked: IdentityRef[] = [];
+  constructor(private readonly byId: Readonly<Record<string, readonly string[]>> | Error) {
+    super();
+  }
+  async stepsOf(id: IdentityRef): Promise<readonly string[]> {
+    this.asked.push(id);
+    if (this.byId instanceof Error) throw this.byId;
+    return this.byId[id.id] ?? [];
+  }
+  async stepNames(): Promise<readonly string[]> {
+    if (this.byId instanceof Error) throw this.byId;
+    return [...new Set(Object.values(this.byId).flat())];
+  }
+}
+
+const BOB: IdentityRef = { type: 'user', id: 'bob' };
 
 describe('MFA steps and DefaultMfaPolicy', function () {
   this.timeout(30000);
@@ -231,6 +250,92 @@ describe('MFA steps and DefaultMfaPolicy', function () {
     it('requires the first step when the RoleSource fails', async () => {
       const p = await boot({ mfa: { policy: { forceForRoles: ['admin'] } }, register: (c) => bind(c, RoleSource, 'KitRoles', new Roles(new Error('down'))) });
       assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
+    });
+
+    describe('enrolments in steps authn.mfa.steps does not list (a 2.x migration that lists no step)', () => {
+      const withEnrolments =
+        (...sources: Enrolments[]) =>
+        (c: Parameters<NonNullable<CoreOptions['register']>>[0]): void =>
+          sources.forEach((s, i) => bind(c, MfaEnrolments, `KitEnrolments${i}`, s));
+
+      async function refusedWith(p: Promise<readonly string[]>, steps: string[]): Promise<void> {
+        await assert.rejects(p, (e: unknown) => {
+          assert.ok(e instanceof MfaStepNotListed, String(e));
+          assert.deepStrictEqual([...e.steps], steps);
+          return true;
+        });
+      }
+
+      it('refuses a password login of an identity enrolled only in unlisted steps, naming them', async () => {
+        const p = await boot({ steps: [], register: withEnrolments(new Enrolments({ alice: ['totp', 'webauthn'] })) });
+        const policy = await policyOf(p);
+        await refusedWith(policy.required(ALICE, PASSWORD), ['totp', 'webauthn']);
+        assert.deepStrictEqual(await policy.required(BOB, PASSWORD), [], 'an identity without an enrolment');
+      });
+
+      it('refuses when some steps are listed but the identity is enrolled in none of them', async () => {
+        const p = await boot({ register: withEnrolments(new Enrolments({ alice: ['totp'], bob: ['fake'] })) });
+        const policy = await policyOf(p);
+        await refusedWith(policy.required(ALICE, PASSWORD), ['totp']);
+        await assert.rejects(policy.required(BOB, PASSWORD), MfaEnrolmentMismatch, 'a row of a listed step that step does not see');
+      });
+
+      it('refuses when a source reports a listed step that step says the identity is not enrolled in (a store mismatch)', async () => {
+        const p = await boot({ register: withEnrolments(new Enrolments({ bob: ['fake'] })) });
+        const policy = await policyOf(p);
+        await assert.rejects(policy.required(BOB, PASSWORD), (e: unknown) => {
+          assert.ok(e instanceof MfaEnrolmentMismatch, String(e));
+          assert.deepStrictEqual([...e.steps], ['fake']);
+          return true;
+        });
+        assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), [], 'an identity without an enrolment');
+      });
+
+      it('names the unlisted steps when a source reports both an unlisted and a mismatched listed step', async () => {
+        const p = await boot({ register: withEnrolments(new Enrolments({ alice: ['fake', 'totp'] })) });
+        await refusedWith((await policyOf(p)).required(ALICE, PASSWORD), ['totp']);
+      });
+
+      it('refuses under force and forceForRoles instead of requiring the first step', async () => {
+        let p = await boot({ mfa: { policy: { force: true } }, register: withEnrolments(new Enrolments({ alice: ['totp'] })) });
+        await refusedWith((await policyOf(p)).required(ALICE, PASSWORD), ['totp']);
+        assert.deepStrictEqual(await (await policyOf(p)).required(BOB, PASSWORD), ['fake']);
+        await p.dispose();
+        const enrolments = withEnrolments(new Enrolments({ alice: ['totp'] }));
+        p = await boot({
+          mfa: { policy: { forceForRoles: ['admin'] } },
+          register: (c) => {
+            bind(c, RoleSource, 'KitRoles', new Roles(['admin']));
+            enrolments(c);
+          },
+        });
+        await refusedWith((await policyOf(p)).required(ALICE, PASSWORD), ['totp']);
+      });
+
+      it('requires the enrolled listed steps without asking the sources', async () => {
+        const source = new Enrolments({ alice: ['totp'] });
+        const p = await boot({ register: withEnrolments(source) });
+        p.step.enrol(ALICE);
+        assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
+        assert.deepStrictEqual(source.asked, []);
+      });
+
+      it('asks every source and refuses on the steps of any', async () => {
+        const p = await boot({ steps: [], register: withEnrolments(new Enrolments({}), new Enrolments({ alice: ['totp'] }), new Enrolments({ alice: ['totp'] })) });
+        await refusedWith((await policyOf(p)).required(ALICE, PASSWORD), ['totp']);
+      });
+
+      it('fails closed when a source throws: the error reaches the caller', async () => {
+        const p = await boot({ steps: [], register: withEnrolments(new Enrolments(new RangeError('store down'))) });
+        await assert.rejects((await policyOf(p)).required(ALICE, PASSWORD), RangeError);
+      });
+
+      it('leaves logins other than password alone, asking nothing (D13)', async () => {
+        const source = new Enrolments({ alice: ['totp'] });
+        const p = await boot({ steps: [], register: withEnrolments(source) });
+        for (const method of ['oidc', 'key-challenge', 'token']) assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, { method, strategy: 's' }), [], method);
+        assert.deepStrictEqual(source.asked, []);
+      });
     });
 
     it('drives the login flow: a forced login gets a pending session', async () => {

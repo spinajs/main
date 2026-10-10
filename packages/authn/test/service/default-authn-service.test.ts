@@ -4,7 +4,7 @@ import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, IContainer } from '@spinajs/di';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
@@ -1343,6 +1343,129 @@ describe('DefaultAuthnService', function () {
       failure(await p.service.completeMfa(pending, p.step.name, '000000', ctx()), 'invalid_credentials');
       assert.strictEqual(p.step.verifyCalls.length, 0);
       assert.ok(p.events.all().some((e) => e.type === 'mfa.verify' && e.reason === 'no_steps'));
+    });
+  });
+
+  describe('enrolments in steps authn.mfa.steps does not list (N8a gate: never the password alone)', () => {
+    /** Confirmed steps by identity id; `byId` may be swapped or made to throw mid-test. */
+    class Enrolments extends MfaEnrolments {
+      constructor(public byId: Record<string, readonly string[]> | Error) {
+        super();
+      }
+      async stepsOf(id: IdentityRef): Promise<readonly string[]> {
+        if (this.byId instanceof Error) throw this.byId;
+        return this.byId[id.id] ?? [];
+      }
+      async stepNames(): Promise<readonly string[]> {
+        return [];
+      }
+    }
+
+    const NO_STEPS = { raw: { authn: { mfa: { steps: [] } } } };
+    const register = (source: Enrolments): CoreOptions['register'] => (c) => bind(c, MfaEnrolments, 'KitEnrolments', source);
+
+    async function refusedLogin(p: CoreParts, a: IdentityRef, reason: string, data: unknown): Promise<Failure> {
+      const refused = failure(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()), 'invalid_credentials');
+      const events = p.events.all();
+      assert.deepStrictEqual(
+        events.map((e) => `${e.type}:${e.outcome}:${e.reason}`),
+        [`login:failure:${reason}`],
+      );
+      assert.deepStrictEqual(events[0].identity, a);
+      assert.deepStrictEqual(events[0].data, data);
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), [], 'no session, pending or active');
+      assert.deepStrictEqual(flowCalls(throttle!.succeeds, 'login'), [], 'the refusal clears no backoff');
+      return refused;
+    }
+
+    it('refuses the password login with the client answer of a wrong password, auditing the unlisted steps', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { ...NO_STEPS, register: register(source) });
+      const a = await seedAlice(p);
+      source.byId = { [a.id]: ['totp'] };
+      const refused = await refusedLogin(p, a, 'mfa_step_not_listed', { steps: ['totp'] });
+      assert.deepStrictEqual(await p.service.authenticate(pw(ALICE.login, WRONG), ctx()), refused, 'alike');
+    });
+
+    it('refuses under force too, where the pending session could enrol a new step with the password alone', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { register: register(source) }, { authn: { mfa: { policy: { force: true } } } });
+      const a = await seedAlice(p);
+      source.byId = { [a.id]: ['totp'] };
+      await refusedLogin(p, a, 'mfa_step_not_listed', { steps: ['totp'] });
+    });
+
+    it('refuses, auditing the steps, when a source reports a listed step that step says is not enrolled', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { register: register(source) });
+      const a = await seedAlice(p);
+      source.byId = { [a.id]: [p.step.name] };
+      const refused = await refusedLogin(p, a, 'mfa_enrolment_mismatch', { steps: [p.step.name] });
+      assert.deepStrictEqual(await p.service.authenticate(pw(ALICE.login, WRONG), ctx()), refused, 'alike');
+    });
+
+    it('lets an identity without an enrolment log in with the password', async () => {
+      const p = await boot(undefined, { ...NO_STEPS, register: register(new Enrolments({ someone: ['totp'] })) });
+      await seedAlice(p);
+      const r = success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
+      assert.strictEqual(r.session?.state, 'active');
+    });
+
+    it('runs the MFA flow as before once the step is listed and enrolled', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { register: register(source) });
+      const a = await seedAlice(p);
+      p.step.enrol(a);
+      source.byId = { [a.id]: [p.step.name] };
+      const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      assert.strictEqual(r.status, 'mfa_required', JSON.stringify(r));
+      const done = success(await p.service.completeMfa((r as Pending).pending, p.step.name, p.step.nextCode(a), ctx()));
+      assert.strictEqual(done.facts.assurance, 'aal2');
+    });
+
+    it('fails closed when a source throws: policy_error, no session', async () => {
+      const p = await boot(undefined, { ...NO_STEPS, register: register(new Enrolments(new RangeError('mfa store down'))) });
+      const a = await seedAlice(p);
+      await refusedLogin(p, a, 'policy_error', { error: 'RangeError' });
+    });
+
+    it('leaves logins other than password alone (D13)', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { ...NO_STEPS, register: register(source) });
+      const a = await seedAlice(p);
+      source.byId = { [a.id]: ['totp'] };
+      p.tokens.set('alice-token', a);
+      success(await p.service.authenticate(bearer('alice-token'), ctx({ purpose: 'request' })));
+      const r = success(await p.service.authenticate({ kind: 'kit-attributed-login', id: a } as unknown as Credentials, ctx()));
+      assert.strictEqual(r.session?.state, 'active');
+    });
+
+    it('completeMfa refuses, elevating nothing, when the policy now finds an unlisted or mismatched step or throws', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { register: register(source) });
+      const a = await seedAlice(p);
+      p.step.enrol(a);
+      const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      assert.strictEqual(r.status, 'mfa_required', JSON.stringify(r));
+      const { pending } = r as Pending;
+      await p.step.disable(a);
+      source.byId = { [a.id]: ['totp'] };
+      p.events.clear();
+      failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      source.byId = { [a.id]: [p.step.name] };
+      failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      source.byId = new RangeError('mfa store down');
+      failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      assert.deepStrictEqual(
+        p.events.all().map((e) => `${e.type}:${e.outcome}:${e.reason}:${JSON.stringify(e.data)}`),
+        [
+          'mfa.verify:failure:mfa_step_not_listed:{"steps":["totp"]}',
+          `mfa.verify:failure:mfa_enrolment_mismatch:{"steps":["${p.step.name}"]}`,
+          'mfa.verify:failure:step_error:{"error":"RangeError"}',
+        ],
+      );
+      assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending', 'not elevated');
+      assert.strictEqual(p.step.verifyCalls.length, 0);
     });
   });
 

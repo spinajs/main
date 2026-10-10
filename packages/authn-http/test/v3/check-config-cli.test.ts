@@ -152,6 +152,7 @@ const CLI_PROCESS = `
   const { join } = await import('node:path');
   const { pathToFileURL } = await import('node:url');
   DI.setESMModuleSupport();
+  await import('@spinajs/orm-sqlite');
   const values = JSON.parse(process.env.N8A_CHECK_CONFIG_VALUES);
   class CliProcessConfiguration extends FrameworkConfiguration {
     constructor() { super(); this.Env = 'production'; }
@@ -160,6 +161,13 @@ const CLI_PROCESS = `
   }
   DI.register(CliProcessConfiguration).as(Configuration);
   await DI.resolve(Configuration);
+  if (process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP) {
+    const { DbMfaStore } = await import('@spinajs/authn-orm');
+    const store = await DI.resolve(DbMfaStore);
+    const carol = { type: 'user', id: 'carol' };
+    await store.put(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');
+    await store.confirm(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP);
+  }
   const dirs = [join(process.cwd(), 'lib', 'mjs', 'cli'), join(process.cwd(), '..', '..', 'node_modules', '@spinajs', 'authn-local', 'lib', 'mjs', 'cli')];
   for (const dir of dirs) for (const f of readdirSync(dir).filter((f) => f.endsWith('.js'))) await import(pathToFileURL(join(dir, f)).href);
   const { AuthnCheckConfig } = await import(pathToFileURL(join(dirs[0], 'AuthnCheckConfig.js')).href);
@@ -168,10 +176,12 @@ const CLI_PROCESS = `
   process.exit(0);
 `;
 
-function cliProcess(strategies: unknown, authnExtra: Values = {}): { findings: string[]; exitCode: number; output: string } {
-  // The CLI loads authn-orm, so DbAuthnThrottle is the throttle and needs its hash key in production.
-  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, audit: { hashKey: { secret: STRONG } }, ...authnExtra } };
-  const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values) };
+function cliProcess(strategies: unknown, authnExtra: Values = {}, confirmedStep?: string): { findings: string[]; exitCode: number; output: string } {
+  // The CLI loads authn-orm, so DbAuthnThrottle is the throttle and needs its hash key in production, and
+  // DbMfaEnrolments asks the app's database for enrolled steps.
+  const db = { DefaultConnection: 'cli', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'cli', Migration: { Table: 'orm_migrations', OnStartup: true } }] };
+  const values = { ...sound(), db, authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, audit: { hashKey: { secret: STRONG } }, ...authnExtra } };
+  const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values), ...(confirmedStep ? { N8A_CHECK_CONFIG_CONFIRMED_STEP: confirmedStep } : {}) };
   delete env.NODE_OPTIONS;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS], { cwd: PKG_ROOT, encoding: 'utf8', env });
   expect(r.status, r.stderr).to.eq(0);
@@ -187,6 +197,14 @@ describe('authn:check-config in a process that loads only what the CLI loads', f
     const r = cliProcess([{ name: 'local', service: 'LocalPasswordStrategy' }]);
     expect(r.findings).to.deep.eq(['authn:check-config: no findings']);
     expect(r.exitCode).to.eq(0);
+  });
+
+  it('reports a confirmed step of authn_mfa that authn.mfa.steps does not list, naming the step only (Z8)', () => {
+    const r = cliProcess([{ name: 'local', service: 'LocalPasswordStrategy' }], {}, 'totp');
+    expect(r.findings).to.have.length(1);
+    expect(r.findings[0]).to.match(/^error mfa: users are enrolled in 1 MFA step\(s\) authn\.mfa\.steps does not list \("totp"\)/);
+    expect(r.findings[0]).to.not.contain('carol');
+    expect(r.exitCode).to.eq(1);
   });
 
   it('still reports a strategy no installed package provides', () => {

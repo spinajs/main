@@ -54,6 +54,8 @@ function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
   }
 }
 
+const confirmed = (r: Record<string, unknown>): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
+
 function timeOf(text: string | null): Date | null {
   return text === null ? null : new Date(textMs(text));
 }
@@ -188,6 +190,24 @@ export class DbMfaStore {
     const name = stepName(step);
     const { driver } = await this.connection.get();
     await driver.del().from(MFA).where('identity', identity).where('step', name);
+  }
+
+  /** The names of the identity's confirmed steps. */
+  public async confirmedSteps(id: IdentityRef): Promise<string[]> {
+    const identity = identityKey(id);
+    const { driver } = await this.connection.get();
+    const rows = (await driver.select().from(MFA).select('identity').select('step').select('confirmed_at').where('identity', identity).whereNotNull('confirmed_at')) as Record<string, unknown>[];
+    return rows.filter((r) => r.identity === identity && confirmed(r)).map((r) => String(r.step));
+  }
+
+  /**
+   * Each step name with a confirmed row of any identity, once. Deduplicated here, not with DISTINCT, which folds
+   * `totp` and `TOTP` into one under a case-blind collation (MySQL's default); one row per confirmed enrolment.
+   */
+  public async confirmedStepNames(): Promise<string[]> {
+    const { driver } = await this.connection.get();
+    const rows = (await driver.select().from(MFA).select('step').select('confirmed_at').whereNotNull('confirmed_at')) as Record<string, unknown>[];
+    return [...new Set(rows.filter(confirmed).map((r) => String(r.step)))];
   }
 
   /** Deletes the identity's codes, then stores the SHA-256 of each new one. Empty or repeated codes throw. */

@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
+import { MfaEnrolmentMismatch, MfaStepNotListed } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { SESSION_PENDING_STEPS_KEY } from '@spinajs/authn-session';
@@ -68,5 +69,23 @@ describe('authn.mfa.policy.service through @Config', () => {
     child.register(named).as(MfaPolicy as never);
     expect(await pendingSteps(child, session(undefined), 'CustomPolicy')).to.deep.eq(['totp']);
     expect(await pendingSteps(child, session(['recovery']), 'CustomPolicy')).to.deep.eq(['recovery']);
+  });
+
+  it('pendingSteps answers no step when the policy refuses the identity over its stored enrolments; another error still throws', async () => {
+    const { child } = await boot(SCHEMAS, {});
+    let failure: Error = new MfaStepNotListed(['totp']);
+    const refusing = { required: async () => Promise.reject(failure) };
+    child.register({ RefusingPolicy: () => refusing }.RefusingPolicy).as(MfaPolicy as never);
+    expect(await pendingSteps(child, session(undefined), 'RefusingPolicy')).to.deep.eq([]);
+    failure = new MfaEnrolmentMismatch(['totp']);
+    expect(await pendingSteps(child, session([]), 'RefusingPolicy')).to.deep.eq([]);
+    failure = new RangeError('mfa store down');
+    let error: unknown;
+    try {
+      await pendingSteps(child, session(undefined), 'RefusingPolicy');
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(RangeError);
   });
 });

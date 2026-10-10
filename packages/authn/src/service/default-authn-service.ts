@@ -18,6 +18,7 @@ import type { AuthenticationStrategy } from '../contracts/strategy.js';
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
+import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
 import { linkingSwitchesOf } from '../link/switches.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
@@ -96,6 +97,12 @@ const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
+
+/** The audit reason and data of an MFA policy that threw: the step names of a refusal over stored enrolments, else the error class. */
+const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => {
+  const refusal = mfaEnrolmentRefusal(err);
+  return refusal ? { reason: refusal.reason, data: { steps: [...refusal.steps] } } : { reason: otherwise, data: { error: errorClass(err) } };
+};
 
 function checkOutcome(o: unknown): StrategyOutcome | null {
   if (!isObject(o)) return null;
@@ -266,7 +273,7 @@ export class DefaultAuthnService extends AuthnService {
     try {
       passed = await this.passMfa(id, stored.facts, step, response);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'step_error', data: { error: errorClass(err) }, ...about });
+      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
       return fail('invalid_credentials');
     }
     if (passed !== true) {
@@ -413,11 +420,11 @@ export class DefaultAuthnService extends AuthnService {
     }
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
-    await this.throttle.succeed(keys, 'login');
 
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
     if (!s.interactive) {
+      await this.throttle.succeed(keys, 'login');
       await this.audit(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
@@ -427,8 +434,11 @@ export class DefaultAuthnService extends AuthnService {
     try {
       steps = [...(await this.policy!.required(id, { method: facts.method, strategy: facts.strategy }))];
     } catch (err) {
-      return this.refuse(ctx, s, 'policy_error', 'invalid_credentials', { identity: id, data: { error: errorClass(err) } });
+      const why = policyRefusal(err, 'policy_error');
+      return this.refuse(ctx, s, why.reason, 'invalid_credentials', { identity: id, data: why.data });
     }
+    // Only now: a login the policy refuses keeps its count, so the backoff cannot tell its right password from a wrong one.
+    await this.throttle.succeed(keys, 'login');
     const issued: AuthnFacts = { ...facts, authenticatedAt: ctx.now };
     if (steps.length > 0) {
       const pending = await sessions.issue(id, issued, { pending: { steps } });

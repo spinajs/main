@@ -2,17 +2,18 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { PasswordService } from '@spinajs/authn/contracts';
-import { FakeClock, planCases, runAuthnBehaviour } from '@spinajs/authn-testing';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+import { FakeClock, planCases, runAuthnBehaviour, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { Facet, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-testing';
 
 import { clearLog, logLines } from '../app.js';
-import { mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
+import { LaneClient, expectFailureBody, mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
 import { keyRoutesSuite } from '../suites/keys.js';
 import { tokenRoutesSuite } from '../suites/tokens.js';
 import { tokenEndToEndSuite } from '../suites/token-e2e.js';
 import { credentialAdminRoutesSuite } from '../suites/credential-admin.js';
-import { ROUTES, supports } from './harness.js';
-import { ADMIN_ROUTES, KEY_ROUTES, MFA_ROUTES, N8B_PORTS, N8B_SUPPORTED_CONFIG, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
+import { ROUTES, supports, tokenDb } from './harness.js';
+import { ADMIN_ROUTES, KEY_ROUTES, MFA_ROUTES, N8B_PORTS, N8B_SUPPORTED_CONFIG, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, laneMfaConfig, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
 
 /** Plan §N8b task 7. */
 const PLAN_LIST = ['A10', 'A11', 'A13', 'A14', 'A17', 'A25', 'A30', 'A32'] as const;
@@ -114,6 +115,69 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
   describe('credential admin routes (task 5)', function () {
     this.timeout(60000);
     credentialAdminRoutesSuite();
+  });
+
+  describe('a 2.x user whose TOTP the upgrade migration carried (Z8, design §22.4, §22.18)', function () {
+    this.timeout(60000);
+    let h: Harness;
+
+    // 2fa:token as 2.x stored it: the base32 TOTP secret.
+    const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+    const CAROL = { login: 'lane-carol@example.test', password: 'Lane-Carol-Pass-1' };
+    const DAVE = { login: 'lane-dave@example.test', password: 'Lane-Dave-Pass-1' };
+
+    beforeEach(async () => {
+      h = await n8bHarness({ rule: 'A32', facet: 'A32/http', caseName: 'lane', clock: new FakeClock(), config: {} });
+      clearLog();
+    });
+
+    afterEach(async () => {
+      await h.dispose?.();
+    });
+
+    /** Carol, with a password and the 2.x metadata of an enabled TOTP, after the A32 upgrade migration ran. */
+    async function carriedCarol(): Promise<IdentityRef> {
+      const ref = await h.seed!.user(CAROL);
+      const db = tokenDb();
+      const [row] = (await db.select().from('users').where('Uuid', ref.id)) as { Id: number }[];
+      await db.insert().into('users_metadata').values({ Key: '2fa:token', Type: 'string', Value: SECRET, user_id: row.Id });
+      await db.insert().into('users_metadata').values({ Key: '2fa:enabled', Type: 'boolean', Value: 'true', user_id: row.Id });
+      await h.migration!.run();
+      expect(await h.mfa!.step.enrolled(ref), 'the migration carried a confirmed totp row').to.eq(true);
+      return ref;
+    }
+
+    const sessionCookieSet = (res: HttpResponse): boolean => res.setCookie.some((c) => c.startsWith(`${h.http!.sessionCookie}=`) && !c.startsWith(`${h.http!.sessionCookie}=;`));
+
+    it('with no step listed the password alone does not let the carried user in, answering as for a wrong password', async () => {
+      await carriedCarol();
+      await h.seed!.user(DAVE);
+      await laneMfaConfig({ steps: [] });
+      const wrong = await send(h, ROUTES.login!(CAROL.login, 'Not-Carols-Pass-1'));
+      const refused = await send(h, ROUTES.login!(CAROL.login, CAROL.password));
+      expectFailureBody(refused);
+      expect([refused.status, refused.body]).to.deep.eq([wrong.status, wrong.body]);
+      expect(sessionCookieSet(refused), 'no session, pending or active').to.eq(false);
+      expect(
+        h
+          .events!.all()
+          .filter((e) => e.type === 'login' && e.outcome === 'failure')
+          .map((e) => [e.reason, e.data]),
+      ).to.deep.include(['mfa_step_not_listed', { steps: ['totp'] }]);
+      const dave = await send(h, ROUTES.login!(DAVE.login, DAVE.password));
+      expect(dave.status, 'a user without a second factor still logs in').to.eq(200);
+      expect(sessionCookieSet(dave)).to.eq(true);
+    });
+
+    it('with totp listed the carried user passes the second factor with a code of the 2.x secret', async () => {
+      await carriedCarol();
+      const c = new LaneClient(h);
+      const login = await c.send(ROUTES.login!(CAROL.login, CAROL.password));
+      expect([login.status, login.body]).to.deep.eq([200, { MfaRequired: ['totp'] }]);
+      const verified = await c.send(ROUTES.mfaVerify!(totpFromProvisioning(`otpauth://totp/carol?secret=${SECRET}`, new Date())));
+      expect(verified.status, JSON.stringify(verified.body)).to.eq(200);
+      expect((await c.send(ROUTES.whoami!())).status).to.eq(200);
+    });
   });
 
   describe('lane cases on authn-local and authn-orm', function () {

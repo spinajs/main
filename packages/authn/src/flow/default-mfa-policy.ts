@@ -8,11 +8,15 @@ import { RoleSource } from '../contracts/hooks.js';
 import { MfaPolicy } from '../contracts/mfa.js';
 import type { AuthnFacts } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
+import { MfaEnrolmentMismatch, MfaEnrolments, MfaStepNotListed } from './mfa-enrolments.js';
 import { MfaStepRegistry } from './mfa-step-registry.js';
 
 /**
  * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for password logins only (D13: a key
- * challenge proves possession and an IdP does its own MFA). When none is enrolled, `force`, or a role of
+ * challenge proves possession and an IdP does its own MFA). When none is enrolled, every MfaEnrolments source of the
+ * container lineage is asked, and any step a source reports refuses the login, forced or not, as the identity never
+ * logs in with the password alone (§22.4, §22.18): MfaStepNotListed for a step the list leaves out, else
+ * MfaEnrolmentMismatch (a listed step that does not see the stored enrolment). Otherwise `force`, or a role of
  * `forceForRoles` (asked through RoleSource), requires the first configured step, so the pending session can only
  * enrol. Boot fails when forceForRoles has no RoleSource or PrincipalFactory to ask; the schema refuses force and
  * forceForRoles with no step to require.
@@ -56,8 +60,25 @@ export class DefaultMfaPolicy extends MfaPolicy {
     const steps = (await this.container.resolve(MfaStepRegistry)).steps();
     const enrolled: string[] = [];
     for (const s of steps) if (await s.enrolled(id)) enrolled.push(s.name);
-    if (enrolled.length > 0 || steps.length === 0) return enrolled;
+    if (enrolled.length > 0) return enrolled;
+    const stored = await this.storedSteps(id);
+    const listed = new Set(steps.map((s) => s.name));
+    const unlisted = stored.filter((name) => !listed.has(name));
+    if (unlisted.length > 0) throw new MfaStepNotListed(unlisted);
+    if (stored.length > 0) throw new MfaEnrolmentMismatch(stored);
+    if (steps.length === 0) return [];
     return (await this.forced(id, facts)) ? [steps[0].name] : [];
+  }
+
+  /** A source that throws fails the login (the caller's policy_error). */
+  private async storedSteps(id: IdentityRef): Promise<string[]> {
+    const sources = (await this.container.resolve(Array.chainOf(MfaEnrolments as unknown as Class<MfaEnrolments>))) as readonly MfaEnrolments[];
+    const out = new Set<string>();
+    // A resolve of the abstract base itself leaves an instance of it in the chain; it is no source.
+    for (const source of sources.filter((s) => s?.constructor !== MfaEnrolments)) {
+      for (const name of await source.stepsOf(id)) out.add(name);
+    }
+    return [...out];
   }
 
   private async forced(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<boolean> {

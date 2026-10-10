@@ -31,9 +31,12 @@ const DIALECTS = [
     redeemCode: 'UPDATE `authn_recovery_code` SET `used_at` = ? WHERE `identity` = ? AND `code_hash` = ? AND `used_at` IS NULL',
     putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
     confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND CAST(`secret_enc` AS BINARY) = ?',
+    confirmedSteps: 'SELECT `identity`,`step`,`confirmed_at` FROM `authn_mfa` WHERE `identity` = ? AND `confirmed_at` IS NOT NULL',
+    confirmedStepNames: 'SELECT `step`,`confirmed_at` FROM `authn_mfa` WHERE `confirmed_at` IS NOT NULL',
   },
   {
-    // The table name keeps its backticks: MsSqlOrmDriver.executeOnDb, which these fakes replace, strips them.
+    // The rows down to confirmExact expect the table name in backticks, but the compiler brackets it: they are stale
+    // and fail.
     name: 'mssql',
     type: FakeMsSql,
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
@@ -46,6 +49,9 @@ const DIALECTS = [
     redeemCode: 'UPDATE `authn_recovery_code` SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
     putPendingUpdate: 'UPDATE `authn_mfa` SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
     confirmExact: 'UPDATE `authn_mfa` SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND CAST([secret_enc] AS NVARCHAR(MAX)) = ?',
+    // The table name in brackets, as the compiler emits it.
+    confirmedSteps: 'SELECT [identity],[step],[confirmed_at] FROM [authn_mfa] WHERE [identity] = ? AND [confirmed_at] IS NOT NULL',
+    confirmedStepNames: 'SELECT [step],[confirmed_at] FROM [authn_mfa] WHERE [confirmed_at] IS NOT NULL',
   },
 ] as const;
 
@@ -236,6 +242,30 @@ for (const d of DIALECTS) {
       const store = new DbMfaStore(driver);
       expect(await store.get(ALICE, 'totp')).to.eq(null);
       expect(await store.countRecoveryCodes(ALICE)).to.eq(1);
+    });
+
+    it('DbMfaStore.confirmedSteps keeps only confirmed rows of exactly that identity', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = () => [
+        { identity: `user:${ALICE.id.toUpperCase()}`, step: 'webauthn', confirmed_at: NOW },
+        { identity: `user:${ALICE.id}`, step: 'totp', confirmed_at: NOW },
+        { identity: `user:${ALICE.id}`, step: 'sms', confirmed_at: null },
+      ];
+      expect(await new DbMfaStore(driver).confirmedSteps(ALICE)).to.deep.eq(['totp']);
+      expect(driver.executed.map(sql)).to.deep.eq([d.confirmedSteps]);
+      expect(driver.executed[0].params).to.deep.eq([`user:${ALICE.id}`]);
+    });
+
+    it('DbMfaStore.confirmedStepNames keeps step names that differ only in case, once each, and only of confirmed rows', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = () => [
+        { step: 'totp', confirmed_at: NOW },
+        { step: 'TOTP', confirmed_at: NOW },
+        { step: 'totp', confirmed_at: NOW },
+        { step: 'sms', confirmed_at: null },
+      ];
+      expect(await new DbMfaStore(driver).confirmedStepNames()).to.deep.eq(['totp', 'TOTP']);
+      expect(driver.executed.map(sql)).to.deep.eq([d.confirmedStepNames]);
     });
 
     it('DbMfaStore.redeemRecoveryCode refuses an over-long input without a query', async () => {
