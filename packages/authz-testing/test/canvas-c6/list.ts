@@ -50,7 +50,7 @@ export const FULL_LISTS_ENV = 'K1B_FULL_LISTS';
 export const FULL_LISTS = process.env[FULL_LISTS_ENV] === '1';
 
 // One SQLite statement of the §8.5 rules takes 5-60 s on a loaded machine, so CI runs a few lists that cover the
-// rules in SQL, the principal kinds and a K1b-1 pin.
+// rules in SQL, the principal kinds and an agent.
 export const DEFAULT_LIST_KEYS = Object.freeze([
   // The SECRET restrict row beside the org default role; a read list, so also through the middleware.
   'user MIA project:read on file',
@@ -59,7 +59,7 @@ export const DEFAULT_LIST_KEYS = Object.freeze([
   'group DESIGN comment:create on project',
   // The stored branch thresholds.
   'user ED file:edit on branch',
-  // Pinned by RFC K1b-1 (FALSE residual, no SQL), so default CI fails once the pin goes stale.
+  // agents-disabled as ABAC scope leaves in SQL (RFC K1b-1; it was a FALSE residual before).
   'agent AGENT_SESSION task TASK for ED (projects WEB; files HOME; project.read) project:read on file',
 ]);
 
@@ -260,7 +260,7 @@ export const B40List: FixtureExtension = fixtureDsl.extension('B40', [
     name: 'list',
     facets: ['canvas', 'list', 'sql'],
     lanes: ['K1'],
-    note: `K1 task 9: a few canvas lists through authz-orm SQL on SQLite with the state written through AuthzAdmin (the SECRET restrict row, the stored org policies, the stored branch thresholds; users, a group and a link; an agent list held to its RFC K1b-1 pin): one statement, exactly the rows check allows, each case resource iff the case allows. Every list of the cases runs in test/canvas-c6/list.test.ts with ${FULL_LISTS_ENV}=1, on SQLite and on Postgres.`,
+    note: `K1 task 9: a few canvas lists through authz-orm SQL on SQLite with the state written through AuthzAdmin (the SECRET restrict row, the stored org policies, the stored branch thresholds; users, a group, a link and an agent under agents-disabled, RFC K1b-1): one statement, exactly the rows check allows, each case resource iff the case allows. Every list of the cases runs in test/canvas-c6/list.test.ts with ${FULL_LISTS_ENV}=1, on SQLite and on Postgres.`,
     cases: DEFAULT_LISTS.map((l): Case => ({ name: l.key, world: canvasSqlWorld('sqlite'), steps: [listStep(l)] })),
   },
 ]);

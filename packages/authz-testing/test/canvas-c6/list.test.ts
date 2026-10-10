@@ -10,6 +10,7 @@ import { loadCanvasFixtures } from './fixtures.js';
 import { B40List, CANVAS_LISTS, DEFAULT_LISTS, DEFAULT_LIST_KEYS, FULL_LISTS, FULL_LISTS_ENV, judgeLists, listProblems, runCanvasLists, slowest } from './list.js';
 import type { ListOutcome } from './list.js';
 import { KNOWN_MISMATCHES, LIST_MISMATCHES } from './mismatches.js';
+import type { KnownListMismatch } from './mismatches.js';
 import { CanvasScopeResolver, branchRef } from './scope.js';
 import { assertMirroredRows, canvasRows, canvasSqlHarness, canvasSqlWorld, jitSetting, requirePostgres } from './sql-harness.js';
 import type { CanvasSqlKind } from './sql-harness.js';
@@ -60,7 +61,11 @@ describe('canvas C6 lists: rows and lists', () => {
     const perType = (t: string) => CANVAS_LISTS.filter((l) => l.type === t).length;
     expect([perType('org'), perType('project'), perType('file'), perType('branch')]).to.deep.equal([4, 23, 29, 2]);
     expect(DEFAULT_LISTS.map((l) => l.key)).to.deep.equal([...DEFAULT_LIST_KEYS]);
-    expect(DEFAULT_LIST_KEYS.filter((k) => Object.hasOwn(LIST_MISMATCHES.sqlite, k)), 'a K1b-1 pin runs by default').to.have.lengthOf(1);
+    expect(DEFAULT_LIST_KEYS.filter((k) => k.startsWith('agent ')), 'an agent list runs by default').to.have.lengthOf(1);
+  });
+
+  it('no list is pinned: RFC K1b-1 is applied (agents-disabled lists through scope residuals)', () => {
+    expect(LIST_MISMATCHES).to.deep.equal({ sqlite: {}, postgres: {} });
   });
 
   it('every pinned list mismatch names a list of the cases and an RFC', () => {
@@ -75,8 +80,9 @@ describe('canvas C6 lists: rows and lists', () => {
   });
 
   it('judgeLists holds a pin to its problems and its cause, and fails it once the list conforms', () => {
-    const pins = LIST_MISMATCHES.sqlite;
-    const key = DEFAULT_LIST_KEYS.find((k) => Object.hasOwn(pins, k))!;
+    // The pin RFC K1b-1 held before it was applied.
+    const key = DEFAULT_LIST_KEYS.find((k) => k.startsWith('agent '))!;
+    const pins: Record<string, KnownListMismatch> = { [key]: { rfc: 'K1b-1', problems: ['SQL leaves out rows check allows: HOME'], falseBecause: 'abac needs_subject (agents-disabled)' } };
     const list = CANVAS_LISTS.find((l) => l.key === key)!;
     const sql = { residual: FALSE, ids: [], statements: [], ms: 0 };
     const pinned: ListOutcome = { list, sql, rows: [id('HOME'), id('SECRET')], checked: [id('HOME')], conditional: [], falseBecause: [pins[key].falseBecause] };
