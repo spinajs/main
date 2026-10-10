@@ -1,8 +1,9 @@
-import type { IContainer } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
 import type { AuthnThrottle } from '../../contracts/throttle.js';
+import { MfaEnrolments } from '../../flow/mfa-enrolments.js';
 import { selectAuthnThrottle } from '../../throttle/select.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 import { nearestRegistration, q } from '../../registry/named.js';
@@ -53,12 +54,42 @@ async function throttleFindings(container: IContainer, config: AuthnConfigSource
   }
 }
 
+/**
+ * Confirmed steps of any MfaEnrolments source that authn.mfa.steps does not list: DefaultMfaPolicy refuses the password
+ * logins of their users. Names steps only, never an identity.
+ */
+async function enrolmentFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
+  const entries = config.get<unknown>('authn.mfa.steps');
+  const listed = new Set(Array.isArray(entries) ? (entries as NamedEntry[]).map((e) => e?.name) : []);
+  let sources: readonly MfaEnrolments[];
+  try {
+    sources = (await container.resolve(Array.chainOf(MfaEnrolments as unknown as Class<MfaEnrolments>))) as readonly MfaEnrolments[];
+  } catch (e) {
+    return [{ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA enrolment sources') }];
+  }
+  const out: AuthnConfigFinding[] = [];
+  const unlisted = new Set<string>();
+  for (const source of sources.filter((s) => s?.constructor !== MfaEnrolments)) {
+    try {
+      for (const name of await source.stepNames()) if (!listed.has(name)) unlisted.add(name);
+    } catch (e) {
+      out.push({ topic: 'mfa', level: 'error', message: `${safeMessage(e, `reading the enrolled MFA steps from ${source.constructor?.name ?? 'an MfaEnrolments source'}`)}; the password logins it would be asked about are refused while it fails` });
+    }
+  }
+  if (unlisted.size > 0) {
+    const names = [...unlisted].map(q).join(', ');
+    out.push({ topic: 'mfa', level: 'error', message: `users are enrolled in ${unlisted.size} MFA step(s) authn.mfa.steps does not list (${names}): their password logins are refused until each is listed, e.g. for totp install @spinajs/authn-totp and list { name: 'totp', service: 'TotpMfaStep' }` });
+  }
+  return out;
+}
+
 const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
 
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys unless rejectLegacyKeys is false) and what boot accepts but an operator
- * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development).
+ * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development, users enrolled in
+ * an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources, which may query a database.
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
   let config: Configuration;
@@ -96,6 +127,8 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
   );
 
   out.push(...(await throttleFindings(container, config)));
+
+  out.push(...(await enrolmentFindings(container, config)));
 
   if (!set(config.get('authn.http.trustProxy')) && !set(config.get('http.trustProxy'))) {
     out.push({ topic: 'proxy', level: 'warning', message: 'Neither authn.http.trustProxy nor http.trustProxy is set: behind a proxy every client has the proxy address, so per-IP throttling and audit see one client (0 says there is no proxy)' });

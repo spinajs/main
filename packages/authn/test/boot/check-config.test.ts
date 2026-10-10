@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaStep, checkAuthnConfig } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaStep, checkAuthnConfig } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
 import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
@@ -122,6 +122,43 @@ describe('authn:check-config', () => {
       const f = await check(merge(sound(), { authn: { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }], encryptionKey: { secret: null } } } }));
       expect(topics(f)).to.deep.eq(['mfa:error']);
       expect(f[0].message).to.contain('TotpMfaStep');
+    });
+  });
+
+  describe('enrolments in unlisted MFA steps', () => {
+    class Enrolments extends MfaEnrolments {
+      constructor(private readonly names: readonly string[] | Error) {
+        super();
+      }
+      async stepsOf(): Promise<readonly string[]> {
+        return [];
+      }
+      async stepNames(): Promise<readonly string[]> {
+        if (this.names instanceof Error) throw this.names;
+        return this.names;
+      }
+    }
+
+    const withSources =
+      (...sources: Enrolments[]) =>
+      (c: IContainer): void =>
+        sources.forEach((s, i) => bind(c, MfaEnrolments, `KitEnrolments${i}`, s));
+
+    it('reports confirmed steps authn.mfa.steps does not list as an error: those users cannot log in', async () => {
+      const f = await check(sound(), { register: withSources(new Enrolments(['totp', 'fake']), new Enrolments(['webauthn', 'totp'])) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('2 MFA step(s)').and.contain('"totp"').and.contain('"webauthn"').and.contain('authn.mfa.steps').and.contain('refused').and.contain('TotpMfaStep').and.not.contain('"fake"');
+    });
+
+    it('finds nothing when every confirmed step is listed, or no source is registered', async () => {
+      expect(await check(sound(), { register: withSources(new Enrolments(['fake']), new Enrolments([])) })).to.deep.eq([]);
+      expect(await check(merge(sound(), { authn: { mfa: { steps: [] } } }))).to.deep.eq([]);
+    });
+
+    it('reports a source that fails instead of throwing, without its message', async () => {
+      const f = await check(sound(), { register: withSources(new Enrolments(new RangeError('db password hunter2 refused'))) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('RangeError').and.not.contain('hunter2');
     });
   });
 
