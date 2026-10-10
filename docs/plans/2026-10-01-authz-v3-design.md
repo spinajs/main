@@ -33,19 +33,21 @@ feature; each item names the section it changed.
 
 1. **Converter (§18.1, §18.3, §18.4; M1).** It never writes `X:*`: a glob
    also grants actions registered later on the resource, such as
-   `user:impersonate`. It writes four grants. Its files are
+   `user:impersonate`. It writes one grant per 2.x action
+   (`X:create`, `X:read`, `X:update`, `X:delete`). Its files are
    `authz-generated.ts`, `users-generated.ts`, `authn-generated.ts` and
    `authz-warnings.md` (the 3.0 loader would never load a dotted base
    name such as `authz.generated.ts`), and it reads the compiled config
-   dir.
+   dir. (§18.1) No package reads or ships a `rbac.*` key; boot fails on
+   one; `rbac.roleColumn` maps to `authz.rbac.migration.roleColumn`.
 2. **Routes and args (§4.1, §11.1; C2b).** users-http's route arg is
    `@CurrentUser()`; `GET /user/refresh` is `GET /user`.
 3. **Account lifecycle (§6.6.2; C2b, G2b).** users-http has no
-   `expire-password` route. The last-holder checks of `DefaultAdminGuard`
-   and of `AccountGuard` count only holders that `AccountStatusSource`
-   reports in service. Deactivate, ban and delete need fresh auth and the
+   `expire-password` route. `AccountGuard` counts only holders that
+   `AccountStatusSource` reports in service; `DefaultAdminGuard` does so
+   when a source is registered. Deactivate, ban and delete need fresh auth and the
    credential admin guard.
-4. **Events (§6.6.2).** No queue `AuthzEventSink` ships in 3.0;
+4. **Events (§4.1, §6.6.2).** No queue `AuthzEventSink` ships in 3.0;
    `LogAuthzEventSink` is the only one.
 5. **Admin routes (§6.6.5; C4).** Error `invalid_request`, the query
    encodings and `Cache-Control: no-store`.
@@ -55,7 +57,7 @@ feature; each item names the section it changed.
    `authz.abac.scopeResiduals` (default off) turns `scope.<type>.*`
    comparisons on type-level requests into SQL leaves. Canvas turns it
    on.
-8. **fs (§13; RFC L7-1 (g), (h)).** Config keys L7 added and two errata.
+8. **fs (§13; RFC L7-1 (g), (h)).** Config keys L7 added and three errata.
 9. **Queue (§14.2, B30; C8, T4).** The status route checks the row in
    its handler; an unknown job and a denied job answer alike (404).
 10. **DI (§15.2, §15.3; F2).** The public form of the chain is
@@ -565,7 +567,7 @@ the install adds no package that authz does not already pull in.
 | `@spinajs/authz-orm` | new | ORM adapter: `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` + `OrmScopePolicy`, scope attributes from scope rows, query middleware, filter compiler, field filtering helpers, `DbDecisionAudit` + `authz_audit`, (r3) `DbScopeAttributeStore` + `authz_scope_attribute` | authz, orm, di (r5) |
 | `@spinajs/authz-http` | new | `PrincipalSource`, principal middleware, `ServicePrincipalSource`, (r4) `AuthnPrincipalSource`, `LinkPrincipalSource`, `@Access`, `AccessPolicy`, `@AllowAnonymous`, `@Unscoped`, resource extractors, `@CurrentPrincipal`, `AccessController` (`/user/access`, `/user/access/check`), explain route (dev/test only, H19), `ACCESS_DESCRIPTOR`, input/output field filters | authz, http, orm (r5: `fromModel`), di (r5) |
 | `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); (G1b) no guard of its own: `AuthzAdmin` runs whichever `AdminGuard` DI provides; (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz |
-| `@spinajs/authz-queue` | new | `Initiator` stamping, handler `runAs`, `job` adapter with `initiator` relation, queue-backed `ChangeBus`, (r3) `QueueAuthzEventSink` (`RoleAssigned`, `RoleRevoked`, `AuthzDataChanged`) | authz, queue |
+| `@spinajs/authz-queue` | new | `Initiator` stamping, handler `runAs`, `job` adapter with `initiator` relation, queue-backed `ChangeBus`, (r3) `QueueAuthzEventSink` (`RoleAssigned`, `RoleRevoked`, `AuthzDataChanged`; r7: not built, no queue sink ships in 3.0) | authz, queue |
 | `@spinajs/authz-fs` | new, in the 3.0 gate (H20) | fs adapter, guarded-fs proxy, `FsDecorator` impl, `FileMetadataStore`, `fs-inherit` model, upload middleware, `fromFsPath` | authz, fs |
 | `@spinajs/authz-rebac` | reserved, not in 3.0 | §6.3 | — |
 
@@ -1563,7 +1565,7 @@ a vote keeps its own field rule.
   `native:condition.scope` leaf. In either mode, a policy whose condition
   folds while it still holds a `scope.*` read that no leaf covers takes
   the needs-subject path, so such a list is narrower than before (A4
-  decision 3, accepted by the controller).
+  decision 3, accepted by the lane controller).
 - `cacheable: false` when a bound `env.*` value changes per call (time, ip).
 - Capabilities: `effects: ['permit','deny']`,
   `residuals: ['true','false','and','or','not','cmp','under']`,
@@ -1761,7 +1763,7 @@ execute(actor, commands, opts):
     bump authz_version(domain)
   commit
   ChangeBus.publish({ tags: ∪ out_i.tags })   # L2 and model caches drop entries (B27)
-  AuthzEventSink[*].publish(∪ out_i.events)   # RoleAssigned, RoleRevoked; (r7) only LogAuthzEventSink ships, no queue sink
+  AuthzEventSink[*].publish(∪ out_i.events)   # RoleAssigned, RoleRevoked, AssignmentChanged, LinkCreated/Updated/Revoked, RuleChanged; (r7) only LogAuthzEventSink ships
   DecisionAudit.record({ kind: 'admin', principal: actor, command: c with secrets removed, reason }) per command
   return results (link tokens included once; never in events or audit)
 ```
@@ -1820,8 +1822,8 @@ source `AccountGuard` counts none. `DefaultAdminGuard`'s `last_holder`
 check asks the same source; without one it counts every holder and logs
 a warning. Before the account guard, deactivate, ban and delete need
 fresh auth and authn's `CredentialAdminGuard` (users' guard:
-`users:credentials`, a target the caller covers, no protected role), as
-the forced logout of authn-http does. So an administrator with a
+`users:credentials`, a target the caller covers, no protected role, never
+the caller's own account), as the forced logout of authn-http does. So an administrator with a
 protected role is demoted first, then disabled.
 
 #### 6.6.3 Data kinds and storage
@@ -1883,9 +1885,9 @@ path and an in-process caller see the same rules.
 
 (r7, C4) Query encodings: `scope` is `<type>` or `<type>:<id>`; `subject`
 is `<type>:<id>` or `set:<role>@<type>:<id>`. On the single-command routes
-`reason`, `idempotencyKey` and `dryRun` go in the query string. A body or
-query the route cannot read answers 400 `invalid_request` (`invalid_query`
-for a bad list option). A failed command sets the status: 403 for
+`reason`, `idempotencyKey` and `dryRun` go in the query string. A body the
+route cannot read answers 400 `invalid_request`; a bad query value (a list
+option, `reason`, `idempotencyKey` or `dryRun`) answers 400 `invalid_query`. A failed command sets the status: 403 for
 `forbidden`, `escalation`, `last_holder`, `self_lockout` and
 `protected_role`; 404 `not_found`; 409 `conflict`; 400 otherwise. The two
 routes that can return a link token (`POST /authz/commands`,
@@ -2190,9 +2192,10 @@ authz: {
 `agents-disabled` into a SQL leaf on lists (`native:condition.scope`,
 compiled by authz-rbac), so an agent's list is filtered by the org policy
 row by row; the canvas list conformance passes 58 of 58 with it. Off (the
-default), the deny needs the subject and the list fails closed (B19). The host must also register an
+default), the deny needs the subject and the list fails closed (B19). The host should also register an
 `RbacScopeAttributeSource` that gives the engine's own
-`scopeAttributeSchemas` over authz-orm's layers.
+`scopeAttributeSchemas` over authz-orm's layers. Without one, an attribute that only a schema default holds refuses
+the row.
 
 (r3, H26) The instance roles (`admin`, `admin.users`, …) hold no grant on
 `org`, `project`, `file` or `branch` and imply no org or project role.
@@ -3419,8 +3422,8 @@ roles × pools and remove the isolation rule and the duplicated package lists.
    `npx spinajs-authz-convert lib/mjs/config --out src/config` (the
    compiled config dir; a dir of TypeScript sources is refused) →
    `authz-generated.ts`, `users-generated.ts` (identity keys),
-   `authn-generated.ts` (authentication keys), one `<name>.<env>.ts` per
-   env layer, and `authz-warnings.md`. The base names have no dot: the 3.0
+   `authn-generated.ts` (authentication keys), one `<root>-generated.<env>.ts`
+   per root and env layer that has keys, and `authz-warnings.md`. The base names have no dot: the 3.0
    loader reads `name.js` as a common file and `name.<env>.js` as an env
    file, so `authz.generated.ts` would never load.
 3. Apply the decorator table (search and replace for names; `@Permission`
@@ -3912,7 +3915,7 @@ CIDRs. Throttle defaults live in the schema, and N1 keeps its config file
 equal to them. Bounds left open on purpose: `token.maxTtlDays` (SR-08 says
 at most 90), `totp.window`, `assertion.skewSeconds`, `baseDelayMs: 0`.
 
-Old keys (converter `spinajs-authz-convert` writes `authn.generated.ts`).
+Old keys (converter `spinajs-authz-convert` writes `authn-generated.ts`).
 (r5, F0b) The packages already read the moved keys with their 2.x value
 shapes (for example `authn.local.hasher.service` is the 2.x provider name,
 `authn.local.expiration.passwordExpirationTime`); N1 to N3 change the
@@ -3920,7 +3923,9 @@ shapes to the block above. Package defaults still ship `rbac.*` keys for
 the unmoved ones, and `users.user.profile` is the identity key M1 and C1
 use. (r7, R1) Done: the packages read the 3.0 shapes, no package ships a
 `rbac.*` key, and `authn.config.rejectLegacyKeys` defaults to `true`, so
-boot fails on any key of the table below; `false` only warns.
+boot fails on any key of the table below. To only warn, set both
+`authn.config.rejectLegacyKeys` and `authz.config.rejectLegacyKeys` to
+`false`.
 
 | 2.x key | 3.0 key |
 |---|---|
@@ -4122,7 +4127,8 @@ boot fails on any key of the table below; `false` only warns.
   (`Authenticated` replaces both; D25).
 - **Route args**: `@Identity()`, `@AuthnSession()`, `@SessionId()`,
   `@FromSession(key)`.
-- **Routes** (each group registered only when its service is):
+- **Routes** (r7: every group is mounted; one whose service is not
+  registered answers 404 `not_found`):
 
 | Route | Policy | Service |
 |---|---|---|
