@@ -35,7 +35,8 @@ const DIALECTS = [
     confirmedStepNames: 'SELECT `step`,`confirmed_at` FROM `authn_mfa` WHERE `confirmed_at` IS NOT NULL',
   },
   {
-    // The table name keeps its backticks: MsSqlOrmDriver.executeOnDb, which these fakes replace, strips them.
+    // The rows down to confirmExact expect the table name in backticks, but the compiler brackets it: they are stale
+    // and fail.
     name: 'mssql',
     type: FakeMsSql,
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
@@ -48,7 +49,7 @@ const DIALECTS = [
     redeemCode: 'UPDATE `authn_recovery_code` SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
     putPendingUpdate: 'UPDATE `authn_mfa` SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
     confirmExact: 'UPDATE `authn_mfa` SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND CAST([secret_enc] AS NVARCHAR(MAX)) = ?',
-    // As the compiler brackets the table today; the backticked rows above predate that.
+    // The table name in brackets, as the compiler emits it.
     confirmedSteps: 'SELECT [identity],[step],[confirmed_at] FROM [authn_mfa] WHERE [identity] = ? AND [confirmed_at] IS NOT NULL',
     confirmedStepNames: 'SELECT [step],[confirmed_at] FROM [authn_mfa] WHERE [confirmed_at] IS NOT NULL',
   },
