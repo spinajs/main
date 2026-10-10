@@ -163,7 +163,8 @@ export const ruleOf = (when: fc.Arbitrary<When>, subjects: fc.Arbitrary<RuleDef[
         ...(withLadder ? { ladder: r.ladder } : {}),
         ...(withLadder && r.at ? { at: r.at } : {}),
         ...(r.when ? { when: r.when } : {}),
-        ...(r.resource ? { resource: r.resource } : {}),
+        // Boot rule 11 refuses resource.* reads on types without that column; only docs have `name`.
+        ...(r.resource ? { resource: r.resource, resourceTypes: ['doc'] } : {}),
         ...(r.subjects ? { subjects: r.subjects } : {}),
       };
     }),
