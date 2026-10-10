@@ -197,15 +197,18 @@ export class AbacModel extends AuthorizationModel {
       if (!c.cacheable) cacheable = false;
       // Whatever the filter folds to: the check of a row reads every scope ref before anything folds.
       if (c.fault && c.fault.op !== 'false') guards.push({ p, when: and(scope, c.fault), needsSubject: false });
+      // A scope.* ref a request without id cannot read, even where the filter folded: the check of a
+      // row still reads it and faults where it is missing, so no fold may list that row.
+      const unread = c.unresolvedScope;
       // Decided without the row after all (the unread part sits under a junction that does not matter).
-      if (c.filter.op === 'false') continue;
-      if (!c.needsSubject || c.filter.op === 'true') {
+      if (c.filter.op === 'false' && !unread) continue;
+      if (!c.needsSubject || (c.filter.op === 'true' && !unread)) {
         entries.push({ p, when: and(scope, c.filter), needsSubject: false });
       } else if (p.policy.effect === 'deny') {
         // B19: fail closed; the deny holds wherever the policy applies, with its own reason.
         entries.push({ p, when: scope, needsSubject: true });
-      } else if (c.unresolvedScope) {
-        // B39: a scope.* ref a request without id cannot read makes the vote indeterminate.
+      } else if (unread) {
+        // B39: the vote is indeterminate.
         throw new Error(`${p.where}: its condition reads scope attributes, which a request without id cannot resolve`);
       }
       // A permit whose condition needs the row it was not given permits nothing (B19).

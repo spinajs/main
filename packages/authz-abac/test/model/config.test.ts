@@ -40,6 +40,8 @@ describe('authz.abac configuration schema', () => {
     expect(await refused({ policies: {} })).to.include('authz.abac.policies');
     expect(await refused({ policies: ['x'] })).to.include('authz.abac.policies.0');
     expect(await refused({ connection: '' })).to.include('authz.abac.connection');
+    expect(await refused({ scopeResiduals: 'yes' })).to.include('authz.abac.scopeResiduals');
+    expect(await refused({ scopeResiduals: {} })).to.include('authz.abac.scopeResiduals');
   });
 
   it('fails closed with a named error for stores or policies an unvalidated configuration holds as no list', () => {

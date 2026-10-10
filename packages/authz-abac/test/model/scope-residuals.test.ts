@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
 import { AuthorizationModel, Authorizer, AuthzConfigError, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, SCOPE_CONDITION_FILTER, SCOPE_CONDITION_OP, ScopeResolver, TRUE, and, defaultAttribute, evaluateResidual, not } from '@spinajs/authz';
-import type { Condition, EvaluationContext, ModelCapabilities, Policy, Principal, ResourceFilter, ResourceRef, SubjectEnv, Vote } from '@spinajs/authz';
+import type { Condition, DecisionRequest, EvaluationContext, ModelCapabilities, Policy, Principal, ResourceFilter, ResourceRef, ScopeAttributeSchema, SubjectEnv, Vote } from '@spinajs/authz';
 import { agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
 import { AUTHZ_ABAC_CONFIGURATION_SCHEMA, AbacModel, ConfigPolicyStore } from '../../src/index.js';
@@ -73,8 +73,8 @@ async function abacModel(policies: readonly Policy[], scopeResiduals: boolean | 
   return m;
 }
 
-async function engine(world: World, policies: readonly Policy[], algorithm: string, other?: { scopes: readonly ResourceRef[]; first: boolean }, scopeResiduals = true): Promise<Authorizer> {
-  const abac = await abacModel(policies, scopeResiduals);
+async function engine(world: World, policies: readonly Policy[], algorithm: string, other?: { scopes: readonly ResourceRef[]; first: boolean }, scopeResiduals = true, abac?: AbacModel, schemas?: readonly ScopeAttributeSchema[]): Promise<Authorizer> {
+  abac ??= await abacModel(policies, scopeResiduals);
   const models: AuthorizationModel[] = [abac];
   if (other) models.splice(other.first ? 0 : 1, 0, new UnderModel(other.scopes));
   return new Authorizer({
@@ -86,26 +86,38 @@ async function engine(world: World, policies: readonly Policy[], algorithm: stri
     nativeFilters: scopeResiduals ? [SCOPE_CONDITION_FILTER] : [],
     conditions: new DefaultConditionCompiler(),
     clock: () => NOW,
+    ...(schemas ? { scopeAttributes: { schemas } } : {}),
   });
 }
 
-/** What the type-level residual selects of one row in memory, its natives through SCOPE_CONDITION_FILTER. */
-async function selects(residual: ResourceFilter, world: World, row: World['rows'][number], who: Principal): Promise<boolean> {
-  const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [world.tree] as never, permissions: registry() });
+/**
+ * What the type-level residual selects of one row in memory, its natives through SCOPE_CONDITION_FILTER;
+ * by default in a fake context, which has no scope attribute defaults or store layer.
+ */
+async function selects(residual: ResourceFilter, world: World, row: World['rows'][number], who: Principal, ctx: EvaluationContext = fakeEvaluationContext({ now: NOW, scopeResolvers: [world.tree] as never, permissions: registry() })): Promise<boolean> {
   const env: SubjectEnv = { principal: who, ref: row.ref, attribute: defaultAttribute, relation: () => undefined, ancestors: (r) => ctx.ancestors(r), native: (op) => (op === SCOPE_CONDITION_OP ? SCOPE_CONDITION_FILTER : undefined), ctx };
   return (await evaluateResidual(residual, row.subject, env)) === true;
 }
 
 /** Row ids `check` allows and row ids the type-level filter selects. */
-async function both(a: Authorizer, world: World, who: Principal): Promise<{ checked: string[]; listed: string[]; residual: ResourceFilter }> {
+async function both(a: Authorizer, world: World, who: Principal, ctx?: () => EvaluationContext | undefined): Promise<{ checked: string[]; listed: string[]; residual: ResourceFilter }> {
   const residual = await a.filter(who, 'file:read', 'file');
   const checked: string[] = [];
   const listed: string[] = [];
   for (const row of world.rows) {
     if ((await a.check({ principal: who, permission: 'file:read', resource: row.ref, subject: row.subject })).allowed) checked.push(row.ref.id!);
-    if (await selects(residual, world, row, who)) listed.push(row.ref.id!);
+    if (await selects(residual, world, row, who, ctx?.())) listed.push(row.ref.id!);
   }
   return { checked, listed, residual };
+}
+
+/** Keeps the context of its last evaluate: the engine's own, with every attribute layer the check reads. */
+class CapturingAbacModel extends AbacModel {
+  ctx: EvaluationContext | undefined;
+  evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
+    this.ctx = ctx;
+    return super.evaluate(req, ctx);
+  }
 }
 
 const file = (id: string) => ({ ref: { type: 'file', id }, subject: {} });
@@ -281,6 +293,75 @@ describe('authz-abac: scope conditions as residual leaves (RFC K1b-1)', () => {
       expect(ids((await abacModel(policies, false)).listWarnings(['file']))).to.deep.equal(['frozen', 'open-orgs', 'operand', 'named', 'mixed']);
       expect(ids((await abacModel(policies, true)).listWarnings(['file']))).to.deep.equal(['operand', 'named', 'mixed']);
     });
+
+    it('a default of a ScopeAttributeSchema reaches the leaf: filter ⇔ check per row in the engine’s own context', async () => {
+      // Agents are allowed unless the org says no (canvas's agents_allowed): o1 says no, o2 stores
+      // nothing, o3 stores policies without the flag, o4 is an unknown node; f5 has no org.
+      const world: World = {
+        tree: new Tree({ 'org:o1': null, 'org:o2': null, 'org:o3': null, 'org:o4': null, 'file:f1': { type: 'org', id: 'o1' }, 'file:f2': { type: 'org', id: 'o2' }, 'file:f3': { type: 'org', id: 'o3' }, 'file:f4': { type: 'org', id: 'o4' }, 'file:f5': null }, { 'org:o1': { policies: { agents_allowed: false } }, 'org:o2': {}, 'org:o3': { policies: {} }, 'org:o4': null }),
+        rows: ['f1', 'f2', 'f3', 'f4', 'f5'].map(file),
+      };
+      const schemas: ScopeAttributeSchema[] = [{ scopeType: 'org', schema: {}, defaults: { policies: { agents_allowed: true } } }];
+      const disabled = policy('agents-disabled', { effect: 'deny', when: { attr: 'scope.org.policies.agents_allowed', eq: false } });
+      for (const who of [alice, agentPrincipal('ag1', alice, { delegation: 'inherit' }), agentPrincipal('ag1', alice, { delegation: 'intersect' })]) {
+        for (const algorithm of ALGORITHMS) {
+          const abac = new CapturingAbacModel({ stores: [new ConfigPolicyStore([ALL, disabled])], scopeResiduals: true });
+          await abac.init(fakeModelInitContext({ permissions: registry() }));
+          const a = await engine(world, [], algorithm, undefined, true, abac, schemas);
+          // Under intersect the check itself evaluates the delegate's type-level leaves against the row (B06).
+          const { checked, listed, residual } = await both(a, world, who, () => abac.ctx);
+          const where = `${who.type} ${algorithm}`;
+          expect(checked, where).to.deep.equal(['f2', 'f3']);
+          expect(listed, where).to.deep.equal(checked);
+          // Without the defaults layer the same residual loses f2 and f3: the context is what this case tests.
+          const bare: string[] = [];
+          for (const row of world.rows) if (await selects(residual, world, row, who)) bare.push(row.ref.id!);
+          expect(bare, where).to.deep.equal([]);
+        }
+      }
+    });
+  });
+
+  describe('a scope read no leaf covers, under a condition that folds (list ⊆ check)', () => {
+    // o1 and o2 name an owner, o3 has none, o4 is an unknown node; f5 has no org.
+    const OWNERS: World = {
+      tree: new Tree({ 'org:o1': null, 'org:o2': null, 'org:o3': null, 'org:o4': null, 'file:f1': { type: 'org', id: 'o1' }, 'file:f2': { type: 'org', id: 'o2' }, 'file:f3': { type: 'org', id: 'o3' }, 'file:f4': { type: 'org', id: 'o4' }, 'file:f5': null }, { 'org:o1': { owner: 'alice' }, 'org:o2': { owner: 'carol' }, 'org:o3': {}, 'org:o4': null }),
+      rows: ['f1', 'f2', 'f3', 'f4', 'f5'].map((id) => ({ ref: { type: 'file', id }, subject: { x: 'alice' } })),
+    };
+    const ownerOperand = { attr: 'resource.x', eq: { ref: 'scope.org.owner' } };
+
+    for (const on of [true, false]) {
+      it(`switch ${on ? 'on' : 'off'}: a deny folded to FALSE denies needs_subject wherever it applies`, async () => {
+        const bobOnly = policy('bob-owner', { effect: 'deny', when: { all: [{ attr: 'principal.id', eq: 'bob' }, ownerOperand] } });
+        for (const algorithm of ALGORITHMS) {
+          const a = await engine(OWNERS, [ALL, bobOnly], algorithm, undefined, on);
+          const { checked, listed } = await both(a, OWNERS, alice);
+          // The check reads scope.org.owner before anything folds, and is indeterminate where it faults.
+          expect(checked, algorithm).to.deep.equal(['f1', 'f2']);
+          expect(
+            listed.filter((id) => !checked.includes(id)),
+            algorithm,
+          ).to.deep.equal([]);
+          expect(listed, algorithm).to.deep.equal([]);
+          expect((await a.check({ principal: alice, permission: 'file:read', resource: { type: 'file' } })).reason?.code, algorithm).to.equal('needs_subject');
+        }
+      });
+
+      it(`switch ${on ? 'on' : 'off'}: a permit folded to TRUE makes the type-level vote indeterminate (B39)`, async () => {
+        const aliceOrOwner = policy('alice-or-owner', { when: { any: [{ attr: 'principal.id', eq: 'alice' }, ownerOperand] } });
+        for (const algorithm of ALGORITHMS) {
+          const a = await engine(OWNERS, [aliceOrOwner], algorithm, undefined, on);
+          const { checked, listed } = await both(a, OWNERS, alice);
+          expect(checked, algorithm).to.deep.equal(['f1', 'f2']);
+          expect(
+            listed.filter((id) => !checked.includes(id)),
+            algorithm,
+          ).to.deep.equal([]);
+          expect(listed, algorithm).to.deep.equal([]);
+          expect((await a.check({ principal: alice, permission: 'file:read', resource: { type: 'file' } })).reason?.code, algorithm).to.equal('model_error');
+        }
+      });
+    }
   });
 
   describe('check(row).allowed ⇔ the type-level filter selects the row (property)', () => {
@@ -291,10 +372,17 @@ describe('authz-abac: scope conditions as residual leaves (RFC K1b-1)', () => {
     const operand = <T>(a: fc.Arbitrary<T>) => fc.oneof({ weight: 4, arbitrary: a }, { weight: 1, arbitrary: fc.constantFrom('principal.attributes.pool', 'principal.attributes.teams', 'principal.attributes.missing', 'actor.type', 'env.region').map((r) => ({ ref: r })) });
     const scopeLeaf: fc.Arbitrary<Condition> = fc.tuple(fc.constantFrom(...SCOPE_ATTRS), fc.oneof(fc.tuple(fc.constantFrom('eq', 'ne'), operand(scalar)), fc.tuple(fc.constantFrom('in', 'nin'), operand(fc.array(fc.constantFrom<string | number>('a', 'b', '1', 1, 2), { maxLength: 3 }))), fc.tuple(fc.constantFrom('lt', 'gte'), operand(fc.constantFrom<string | number>('a', '1', 1, 2))), fc.tuple(fc.constantFrom('like', 'wildcard'), operand(fc.constantFrom('a%', '*', 'b*'))), fc.tuple(fc.constant('null'), fc.boolean()))).map(([attr, [op, v]]) => ({ attr, [op]: v } as Condition));
     const other: fc.Arbitrary<Condition> = fc.oneof(fc.record({ attr: fc.constant('principal.attributes.pool'), eq: fc.constantFrom('gold', 'x') }), fc.record({ attr: fc.constant('resource.status'), eq: fc.constantFrom<unknown>('open', 1) }), fc.record({ attr: fc.constant('actor.type'), eq: fc.constantFrom('agent', 'user') })) as fc.Arbitrary<Condition>;
+    // Scope reads the type-level compile cannot make leaves of: a scope ref as operand or in function args.
+    const unread: fc.Arbitrary<Condition> = fc.constantFrom<Condition>({ attr: 'resource.status', eq: { ref: 'scope.org.a' } }, { attr: 'principal.attributes.pool', ne: { ref: 'scope.project.a' } }, { fn: 'glob', args: { value: { ref: 'scope.org.b.c' }, pattern: 'a*' } });
+    // Next to a sibling that decides without the row, so the junction folds to TRUE or FALSE.
+    const unleafable: fc.Arbitrary<Condition> = fc.oneof(
+      unread,
+      fc.tuple(fc.constantFrom('all', 'any'), other, unread).map(([junction, decided, read]) => ({ [junction]: [decided, read] } as Condition)),
+    );
     const { tree: conditionArb } = fc.letrec<{ tree: Condition }>((tie) => ({
       tree: fc.oneof(
         { depthSize: 'small', maxDepth: 3, withCrossShrink: true },
-        fc.oneof({ weight: 4, arbitrary: scopeLeaf }, { weight: 1, arbitrary: other }),
+        fc.oneof({ weight: 8, arbitrary: scopeLeaf }, { weight: 2, arbitrary: other }, { weight: 2, arbitrary: unleafable }),
         fc.array(tie('tree'), { maxLength: 3 }).map((all) => ({ all })),
         fc.array(tie('tree'), { maxLength: 3 }).map((any) => ({ any })),
         tie('tree').map((c) => ({ not: c })),
@@ -316,26 +404,58 @@ describe('authz-abac: scope conditions as residual leaves (RFC K1b-1)', () => {
       who: fc.constantFrom<'user' | 'inherit' | 'intersect'>('user', 'inherit', 'intersect'),
     });
 
-    it('for random policy sets, trees, algorithms and principals', async function () {
+    const run = async (w: typeof worldArb extends fc.Arbitrary<infer T> ? T : never, on: boolean) => {
+      const parents: Record<string, ResourceRef | null> = { 'org:o1': null, 'org:o2': null, 'org:o3': null, 'project:p1': w.p1parent };
+      w.rows.forEach((r, i) => (parents[`file:f${i}`] = r.parent));
+      const world: World = { tree: new Tree(parents, { 'org:o1': w.o1, 'org:o2': w.o2, 'org:o3': null, 'project:p1': w.p1 }), rows: w.rows.map((r, i) => ({ ref: { type: 'file', id: `f${i}` }, subject: r.status === undefined ? {} : { status: r.status } })) };
+      const policies: Policy[] = w.policies.map((p, i) => policy(`p${i}`, { effect: p.effect, ...(p.scope ? { scope: p.scope } : {}), ...(p.when ? { when: p.when } : {}), ...(p.actorTypes ? { actorTypes: p.actorTypes } : {}) }));
+      if (w.unconditional) policies.push(ALL);
+      const who = w.who === 'user' ? alice : agentPrincipal('ag1', alice, { delegation: w.who });
+      const { checked, listed, residual } = await both(await engine(world, policies, w.algorithm, w.other, on), world, who);
+      // Leaf-able reads only use principal / actor / env operands, so a scope ref anywhere is a read no leaf covers.
+      const unleafed = JSON.stringify(policies).includes('"ref":"scope.');
+      return { checked, listed, rows: world.rows.length, unleafed, where: `${JSON.stringify(policies)} ${w.algorithm} ${w.who} ${JSON.stringify(w.other)}: ${JSON.stringify(residual)}` };
+    };
+
+    it('for random policy sets, trees, algorithms and principals: exact, and ⊆ where a scope read is no leaf', async function () {
       this.timeout(300_000);
-      const seen = { allowed: 0, denied: 0 };
+      const seen = { allowed: 0, denied: 0, exact: 0, unleafed: 0 };
       await fc.assert(
         fc.asyncProperty(worldArb, async (w) => {
-          const parents: Record<string, ResourceRef | null> = { 'org:o1': null, 'org:o2': null, 'org:o3': null, 'project:p1': w.p1parent };
-          w.rows.forEach((r, i) => (parents[`file:f${i}`] = r.parent));
-          const world: World = { tree: new Tree(parents, { 'org:o1': w.o1, 'org:o2': w.o2, 'org:o3': null, 'project:p1': w.p1 }), rows: w.rows.map((r, i) => ({ ref: { type: 'file', id: `f${i}` }, subject: r.status === undefined ? {} : { status: r.status } })) };
-          const policies: Policy[] = w.policies.map((p, i) => policy(`p${i}`, { effect: p.effect, ...(p.scope ? { scope: p.scope } : {}), ...(p.when ? { when: p.when } : {}), ...(p.actorTypes ? { actorTypes: p.actorTypes } : {}) }));
-          if (w.unconditional) policies.push(ALL);
-          const who = w.who === 'user' ? alice : agentPrincipal('ag1', alice, { delegation: w.who });
-          const a = await engine(world, policies, w.algorithm, w.other);
-          const { checked, listed, residual } = await both(a, world, who);
-          expect(listed, `${JSON.stringify(policies)} ${w.algorithm} ${w.who} ${JSON.stringify(w.other)}: ${JSON.stringify(residual)}`).to.deep.equal(checked);
-          seen.allowed += checked.length;
-          seen.denied += world.rows.length - checked.length;
+          const r = await run(w, true);
+          expect(
+            r.listed.filter((id) => !r.checked.includes(id)),
+            `listed but refused: ${r.where}`,
+          ).to.deep.equal([]);
+          if (r.unleafed) seen.unleafed++;
+          else {
+            expect(r.listed, r.where).to.deep.equal(r.checked);
+            seen.exact++;
+          }
+          seen.allowed += r.checked.length;
+          seen.denied += r.rows - r.checked.length;
         }),
         { numRuns: 300, seed: 4102 },
       );
-      expect(seen.allowed > 100 && seen.denied > 100, JSON.stringify(seen)).to.equal(true);
+      expect(seen.allowed > 100 && seen.denied > 100 && seen.exact > 150 && seen.unleafed > 30, JSON.stringify(seen)).to.equal(true);
+    });
+
+    it('switch off: no list is wider than the check', async function () {
+      this.timeout(300_000);
+      const seen = { listed: 0, allowed: 0 };
+      await fc.assert(
+        fc.asyncProperty(worldArb, async (w) => {
+          const r = await run(w, false);
+          expect(
+            r.listed.filter((id) => !r.checked.includes(id)),
+            `listed but refused: ${r.where}`,
+          ).to.deep.equal([]);
+          seen.listed += r.listed.length;
+          seen.allowed += r.checked.length;
+        }),
+        { numRuns: 200, seed: 4103 },
+      );
+      expect(seen.listed > 30, JSON.stringify(seen)).to.equal(true);
     });
   });
 });
