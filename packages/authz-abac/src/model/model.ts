@@ -200,7 +200,7 @@ export class AbacModel extends AuthorizationModel {
       // A scope.* ref a request without id cannot read, even where the filter folded: the check of a
       // row still reads it and faults where it is missing, so no fold may list that row.
       const unread = c.unresolvedScope;
-      // Decided without the row after all (the unread part sits under a junction that does not matter).
+      // Decided without the row after all: a resource.* read it lacks sits under a junction that does not matter.
       if (c.filter.op === 'false' && !unread) continue;
       if (!c.needsSubject || (c.filter.op === 'true' && !unread)) {
         entries.push({ p, when: and(scope, c.filter), needsSubject: false });
