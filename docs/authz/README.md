@@ -7,9 +7,9 @@ It replaces the 2.x `rbac` authorization code (`accesscontrol`, `@Permission`, `
 - Authentication (who is calling) is a separate family: [docs/authn](../authn/README.md).
 - Rule numbers such as B11 or H1 point to the design:
   `docs/plans/2026-10-01-authz-v3-design.md` (§17 for B-rules, §3.1 for H-decisions).
-
-Some parts are not built yet. Each gap carries a `TODO(<lane>)` note. The lane owner fills it
-in when the lane merges.
+- Each package README holds the full detail; this page is the overview. It describes
+  `3.0.0-rc.1`. What is still open is listed in
+  [the migration guide, section 11](./migration-guide.md#11-open-items-in-300-rc1).
 
 ## Contents
 
@@ -230,12 +230,12 @@ authz: {
   holds the principal. `self` means the row is the principal's own account. Other relations come from
   `@OrmScope` classes. Several relations on one grant are OR-ed (B15).
 
-> **TODO(L4):** no `RelationResolver` ships, so `owner` and `self` are not built in. A grant with a
-> relation for a type that has no resolver fails boot (boot rule 8: "relation ... has no
-> RelationResolver"), so the sample above does not boot as it stands: its `user:*` and `Task:*` grants
-> need a resolver for `self` and `owner`. L4 adds them with `@AccessResource`, `@Owner` and `@OrmScope`;
-> `ownsBy(type, relation, fn)` is a stub that throws today. Until then, register your own
-> `RelationResolver` for each type and relation you use, or leave the relation off.
+
+  Each relation needs a `RelationResolver` for the type, or boot fails (boot rule 8: "relation ...
+  has no RelationResolver"). `@spinajs/authz-orm` supplies `owner` for every `@AccessResource`
+  model with an `@Owner()` column, and one resolver per `@OrmScope` relation. `@spinajs/users`
+  supplies `self` on `user`. `ownsBy(type, relation, fn)` (authz-orm) builds an in-memory resolver
+  with no SQL form; register it in the domain before it boots. See [ORM](#orm).
 - **`fields`** are field globs for read or write. `['*', '!Password']` works. A grant without
   `fields` allows every field before `neverRead` applies.
 - **Union of roles (H1).** A principal's effective permissions are the union of the grants of all
@@ -252,9 +252,58 @@ authz: {
 
 `RbacService` offers `rolesOf(principal, at)`, `grantsOf(role)` and `covers(…)`.
 
-> **TODO(L1b):** ladders (ranked roles), implied roles, tags, provenance, rules (`restrict`, `cap`,
-> `threshold`) and share links. The design fixes the shapes (§6.1.1, §8.2, §8.5). Fill in the config
-> keys and samples from the L1b report when the lane merges.
+**Ladders, tags, rules and links.** No 2.x app needs these; canvas does (design §6.1, §8.5 holds a
+full config).
+
+```ts
+authz: {
+  rbac: {
+    ladders: { project: { roles: ['viewer', 'editor', 'maintainer'], resourceTypes: ['project', 'file'] } },
+    roles: {
+      viewer:     { ladder: 'project', grants: ['project:read', { permission: 'code:view', requiresTag: 'code' }] },
+      editor:     { ladder: 'project', grants: ['file:edit', { permission: 'branch:create', grantedAt: ['project'] }] },
+      maintainer: { ladder: 'project', grants: ['project:settings'] },
+      'org.admin': { scopeTypes: ['org'], grants: ['org:manage'],
+                     implies: [{ role: 'maintainer', at: 'self-and-descendants', tags: ['code'], bypass: ['restrict', 'cap'] }] },
+      'group.member': { subjectSet: true, grants: [] },
+    },
+    rules: [
+      { id: 'file-grant-cap', kind: 'cap', ladder: 'project', maxRole: 'editor', assignments: { scopeTypes: ['file'] } },
+      { id: 'no-download', kind: 'threshold', permissions: ['project:export'], minRole: 'editor',
+        when: { attr: 'scope.org.policies.viewers_may_download', eq: false }, reason: { code: 'policy' } },
+    ],
+    stores: { rules: ['ConfigRuleStore', 'DbRuleStore'] },
+  },
+}
+```
+
+- **Ladders.** A ladder orders roles from low to high. A ladder role holds the grants of every lower
+  role, and the effective role per ladder is the highest live one after rules apply (B31). Ladder
+  grants apply only to the ladder's `resourceTypes`.
+- **Tags and provenance.** `requiresTag` makes a grant count only when the assignment carries the tag
+  (`tag_missing` otherwise). `grantedAt` limits a grant to roles held at those scope types
+  (`provenance` otherwise).
+- **`implies`** gives a role at a scope another role at that scope (`self-and-descendants`) or below
+  it (`descendants`), with tags, and may bypass `restrict` and `cap` rules.
+- **Subject sets.** A `subjectSet` role names "every holder of this role at this scope", so an
+  assignment can go to a group (`{ set: { role: 'group.member', scope: group:G } }`).
+  `authz.rbac.groupPrincipal` (default `{ role: 'group.member', scopeType: 'group' }`, `null` turns it
+  off) says which set a `group` principal speaks for.
+- **Rules only narrow.** `restrict` drops the assignments made strictly above its scope unless their
+  subject is in `allow`, so only the listed subjects keep inherited access there. `cap`
+  limits the ladder role (`maxRole`, a role or `{ ref }` to a scope attribute; `null` drops the
+  assignment) or strips tags (`stripTags`). `threshold` asks a minimum role for some permissions,
+  with its own `reason`. Each rule may filter by `scope`, `resourceTypes`, `subjects`
+  (`principalTypes`, `actorTypes`, `refs`, `rank`) and `when`, and may carry `expiresAt` (a `Date`, or a
+  date-time string with a zone; one without a zone fails boot).
+- **Rule stores.** `ConfigRuleStore` reads `authz.rbac.rules`; `DbRuleStore` holds rules written through
+  `AuthzAdmin` (`rule.put`). The RBAC model reads at most one of each. Rules in config with no
+  `ConfigRuleStore` named fail boot, so they are never dropped without a word.
+- **Share links.** `AuthzAdmin` creates a link (`link.create`) and returns its token once. A request
+  that carries the token (query `link` or header `X-Authz-Link`, `authz.http.links`) runs as a `link`
+  principal with a ceiling of the link's scope and expiry; the signed-in user, if any, is its
+  companion (B38). Bind the resolver as shown in [Wiring the models](#wiring-the-models), or every
+  link opens a dead link (`link_invalid`).
 
 **Stores.** The model reads roles, assignments, rules and links through four ports. You name the
 classes in `authz.rbac.stores`. The defaults live in code, not in a config file, so you can replace
@@ -266,7 +315,7 @@ authz: {
     stores: {
       roles: ['ConfigRoleStore'],          // authz.rbac.roles from config
       assignments: ['DbAssignmentStore'],  // table authz_assignment
-      rules: ['DbRuleStore'],              // the default is 'ConfigRuleStore', a class of lane L1b (not merged)
+      rules: ['ConfigRuleStore', 'DbRuleStore'],   // default ['ConfigRuleStore']; [] turns rules off
       links: ['DbLinkStore'],              // table authz_link
     },
     connection: 'default',                 // else authz.admin.connection, else the default connection
@@ -300,14 +349,6 @@ authz: {
   stores, under the `AuthzAdmin` ports too. A name that is no registered class, or the wrong kind,
   throws `AuthzConfigError` and registers nothing.
 
-> **TODO(L1b):** the default `authz.rbac.stores.rules` is `['ConfigRuleStore']`, a class that does not
-> exist yet, so the default throws `AuthzConfigError` when the stores register. Name the rules store
-> yourself, as in the sample above (`DbRuleStore`), until L1b merges.
-
-> **TODO(host wiring, no lane named):** nothing calls `registerRbacStores` yet, and nothing builds
-> the `RbacModel` and its `RbacContributor` from config. An app does both by hand until a host lane
-> wires them. Replace this note then.
-
 **Tables.** The migration `AuthzRbac_2026_10_01_00_00_00` creates `authz_assignment`, `authz_rule`,
 `authz_rule_subject`, `authz_link` and `authz_version`. `authz_rule` has eight columns that the
 design's DDL lacks: `principal_types`, `rank_ladder`, `rank_at`, `rank_min`, `rank_max`,
@@ -322,7 +363,36 @@ failure they print one line and set the exit code to 1.
 | `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
 | `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
 | `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
-| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in DI and fails with "the RBAC model ... is not registered" otherwise (TODO(L1b): nothing registers it yet). `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads the connection from `authz.rbac.connection`. |
+| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered (the app's `registerRbac` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads it on `authz.rbac.connection` (else `default`), so map `DbDecisionAudit`'s `authz-audit` connection to the same database ([ORM](#orm)). |
+
+### Wiring the models
+
+No package registers the RBAC or ABAC model for you. The app wires them in the container of the
+domain, before the domain's `AuthzService` first resolves (at boot, after `Configuration`):
+
+```ts
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { registerRbac } from '@spinajs/authz-rbac';
+import { AbacModel, AbacContributor } from '@spinajs/authz-abac';
+import { LinkResolver } from '@spinajs/authz-http';
+
+const configuration = await DI.resolve(Configuration);
+const rbac = await registerRbac(DI.RootContainer, configuration);   // stores, RbacModel, contributor, RbacService
+DI.register(() => rbac.linkResolver).as(LinkResolver);              // share links; without it a link opens nothing
+
+const abac = new AbacModel();                                       // reads authz.abac.*
+DI.register(() => abac).as(AuthorizationModel);
+const abacContributor = new AbacContributor(abac);
+DI.register(() => abacContributor).as(AuthzContributor);
+```
+
+`registerRbac(container, configuration)` registers the stores that `authz.rbac.stores` names (through
+`registerRbacStores`), an `RbacModel` over them as an `AuthorizationModel`, its `RbacContributor` and an
+`RbacService` (also under the name `RbacService`, which the CLI's `--explain-role` resolves). It needs
+one roles store and one assignments store, at most one links store, and at most one in-memory and one
+other rules store; anything else throws `AuthzConfigError` before it registers anything.
 
 ## The ABAC model
 
@@ -373,12 +443,18 @@ Rules that matter:
 - `actorTypes` matches the acting principal (`req.actor`, else the principal). Under `inherit`
   delegation the models see the delegate as the principal and the agent as the actor.
 
-Config keys: `authz.abac.policies`, `authz.abac.stores`, `authz.abac.connection` (default
-`default`). Policy writes go through `AuthzAdmin` (`policy.put`, `policy.delete`).
+Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`),
+`authz.abac.connection` (default `default`) and `authz.abac.scopeResiduals` (default `false`). Policy
+writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
+([Wiring the models](#wiring-the-models)).
 
-> **TODO(host wiring, no lane named):** nothing registers `AbacModel` in DI. An app constructs
-> `new AbacModel()`, registers it as `AuthorizationModel`, and registers
-> `new AbacContributor(model)` as `AuthzContributor`. Replace this note when a lane wires it.
+**`scopeResiduals`.** Off, a policy that compares `scope.<type>.*` on a list (a request without an id)
+needs the subject: a deny then denies the whole list with `needs_subject`, and a permit permits
+nothing (B19). On, the comparison becomes a residual leaf (`native:condition.scope`) that authz-rbac
+compiles to SQL, so the list is filtered row by row. A list through authz-orm with the switch on needs
+`@spinajs/authz-rbac` loaded, and the host must register an `RbacScopeAttributeSource` with the
+engine's own scope attribute schemas. Canvas turns it on; see `packages/authz-orm/README.md`
+("ABAC scope leaves").
 
 ## Adapters
 
@@ -435,31 +511,71 @@ authz: {
 }
 ```
 
-> **TODO(L5 follow-up):** a share link token opens a dead link until an app registers a `LinkResolver`
-> (L5 hand-off). Document the registration once the RBAC link store merges (L1b, L2).
+A share link token opens a dead link (`link_invalid`) until the app registers a `LinkResolver`
+([Wiring the models](#wiring-the-models)).
 
-### ORM
+### ORM (`@spinajs/authz-orm`)
 
-> **TODO(L4):** `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` with `OrmScopePolicy`, query
-> scoping, field filtering helpers, `DbDecisionAudit`, and how an app turns it on. The design fixes
-> the behaviour: a select, update or delete on an `@AccessResource` model gets the residual as a
-> WHERE clause; a `FALSE` residual throws `AccessDenied`; an insert stamps the `@Owner` column or
-> asks the `OrmScopePolicy`; a model without `@AccessResource` is never checked (B20, B21). Fill in
-> the decorators and samples from the L4 report.
->
-> **TODO(L4b):** RBAC rules compiled to SQL for lists (B44).
+```ts
+import '@spinajs/authz-orm';
+import { AccessResource, Owner, ScopeColumn, OrmScope, OrmScopePolicy } from '@spinajs/authz-orm';
 
-### Queue
+@AccessResource('Task')
+export class Task extends ModelBase {
+  @Owner() public owner_id: string;
+  @ScopeColumn('project_id', 'project') public project_id: number;
+}
 
-> **TODO(L6):** `Initiator` stamping on emitted messages, `@Job({ runAs })`, the queue-backed
-> `ChangeBus`. The design fixes the behaviour: a handler runs as the initiator, as system or
-> unattended, and unattended is the default (B30, B09). Fill in from the L6 report.
+@OrmScope(Task, 'team')
+export class TaskTeamPolicy extends OrmScopePolicy<Task> {
+  scope(q: IWhereBuilder<Task>, p: Principal) { q.where('team', p.attributes.team as string); }
+}
+```
 
-### File system
+- Importing the package registers the adapter for every `@AccessResource` type and the query
+  middleware. Register models before the authz domain boots (at import, or in a `Bootstrapper`); a type
+  registered later makes every check on it throw `AuthzConfigError` until the domain boots again.
+  `registerAccessResource(model, type)` marks a model a package does not own.
+- A select, update or delete on an `@AccessResource` model gets the residual as a WHERE clause. A
+  `FALSE` residual throws `AccessDenied`, and so does any query without a principal (`UNATTENDED`). An
+  insert stamps the `@Owner` column or asks the policy's `authorizeCreate`; an update under a relation
+  asks `authorizeUpdate`. A model without `@AccessResource` is never checked (B20, B21).
+- `runAs(SYSTEM, reason, fn)` and a route's `@Unscoped(reason)` run unscoped, audited.
+- RBAC rules compile to SQL for lists (B44): `native:rbac.assignment` with the rules of the path, so a
+  list of a ladder-scoped type is filtered in the database. Rules over the stored rule tables need
+  PostgreSQL 12 or SQLite 3.35 or later (`WITH … AS MATERIALIZED`). On SQLite such lists suit small tables
+  only. **On PostgreSQL, authz-orm refuses a connection that runs with `jit = on`** (the server
+  default): turn it off for the app's role or database (`ALTER ROLE … SET jit = off`), or set
+  `authz.orm.allowJit: true` to accept slow lists.
+- `filterFields(decision, data, mode)` keeps the fields the decision allows. `DbDecisionAudit`
+  (`@spinajs/authz-orm/audit`) writes audit records to `authz_audit` on the connection named
+  `authz-audit`.
+- What the middleware cannot see (raw SQL, views, DDL), relations, clones and the native compiler
+  helpers: `packages/authz-orm/README.md`.
 
-> **TODO(L7):** `authz.fs.<name>` config, the guarded file system, `fs:*` permissions and the
-> `fs` domain. The design fixes the behaviour: a file system with no `authz.fs` entry, or with
-> `mode: 'off'`, is the raw provider (H9, B28). Fill in from the L7 report.
+### Queue (`@spinajs/authz-queue`)
+
+- Importing the package stamps `message.Initiator` on every emit from the current principal (nothing
+  when unattended).
+- A handler runs as `UNATTENDED` unless its job says `@Job({ runAs: 'initiator' })` (the principal that
+  emitted it, rebuilt from the stamp) or `@Job({ runAs: 'system' })` (B30, B09). Every run is wrapped in
+  `runAs` with the reason `job:<name>`.
+- The import also registers `QueueChangeBus` as the default `ChangeBus` of every domain without
+  `authz.bus.service`, registers `JobModel` as the `job` resource with the relation `initiator`, and
+  grants `job:read` (relation `initiator`) to the `user` role. Install without import adds nothing.
+- The default `InitiatorPrincipalFactory` builds the principal from the stamp alone and warns once.
+  `@spinajs/users/queue` registers one that reloads the user. See `packages/authz-queue/README.md`.
+
+### File system (`@spinajs/authz-fs`)
+
+- A file system with no `authz.fs.<name>` entry, or with `mode: 'off'`, is the raw provider (H9, B28).
+  `mode: 'enforce'` checks `fs:read`, `fs:stat`, `fs:list`, `fs:write`, `fs:delete` or `fs:share` on
+  every path and throws `AccessDenied`; `mode: 'audit'` checks, warns and goes on.
+- A path is the resource `{ type: 'file' | 'dir', id: '<fs name>:<path>' }`; its ancestors are the
+  parent directories, then `{ type: 'fs', id: <fs name> }`.
+- Import the package before `fsService` resolves, and take providers after it resolved.
+- Owners (`metadata`, `stampOwner`), signed URLs, uploads, `fromFsPath`, the `fs` domain with
+  `fs-inherit` and `fs-abac`: `packages/authz-fs/README.md`.
 
 ## AuthzAdmin
 
@@ -545,19 +661,22 @@ authz: {
 per-domain lock on the `authz_version` row. It refuses to run inside an open transaction. The
 default backend keeps data in memory.
 
-**Events.** Events go to every `AuthzEventSink` after the commit. The queue sink sends
-`RoleAssigned` and `RoleRevoked` (replacing the 2.x `UserRoleGranted` and `UserRoleRevoked`).
-**TODO(L6):** the queue sink does not exist yet, and no `AuthzDataChanged` event exists in code. Only
-`LogAuthzEventSink` ships.
+**Events.** Events such as `RoleAssigned` and `RoleRevoked` (which replace the 2.x `UserRoleGranted`
+and `UserRoleRevoked`) go to every `AuthzEventSink` after the commit. Only `LogAuthzEventSink` ships:
+3.0 has no queue sink, so an app that needs the events on its queue registers its own
+`AuthzEventSink`.
 
 `DbAuthzAdminBackend` writes through `DbAssignmentStore`, `DbRuleStore` and `DbLinkStore` (see
 [the RBAC model](#the-rbac-model)). Their tables come from `AuthzRbac_2026_10_01_00_00_00`. The
 backend's table of idempotency keys comes from `AuthzAdminIdempotency_2026_10_02_00_01_00`. An admin
 batch bumps `authz_version` more than once, in one transaction; do not rely on the count.
 
-> **TODO(C4):** the `/authz/commands` and `/authz/assignments` routes of `authz-http-admin`.
->
-> **TODO(L6):** `QueueAuthzEventSink`.
+**HTTP routes.** `@spinajs/authz-http-admin` serves `AuthzAdmin` over HTTP: `POST /authz/commands` and
+routes under `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies` and
+`/authz/scopes/:type/:id/attributes`. The routes only check that the caller is signed in; the caller
+is the actor, so every permission and guard check runs inside `AuthzAdmin`. **An app with the package
+installed serves these routes** (`authz.http.admin.domain`, default `root`, picks the domain). Encodings
+and status codes: `packages/authz-http-admin/README.md`.
 
 ## Testing kit
 
