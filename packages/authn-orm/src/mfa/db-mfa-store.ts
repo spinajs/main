@@ -190,6 +190,21 @@ export class DbMfaStore {
     await driver.del().from(MFA).where('identity', identity).where('step', name);
   }
 
+  /** The names of the identity's confirmed steps. */
+  public async confirmedSteps(id: IdentityRef): Promise<string[]> {
+    const identity = identityKey(id);
+    const { driver } = await this.connection.get();
+    const rows = (await driver.select().from(MFA).select('identity').select('step').where('identity', identity).whereNotNull('confirmed_at')) as Record<string, unknown>[];
+    return rows.filter((r) => r.identity === identity).map((r) => String(r.step));
+  }
+
+  /** Each step name with a confirmed row of any identity, once. */
+  public async confirmedStepNames(): Promise<string[]> {
+    const { driver } = await this.connection.get();
+    const rows = (await driver.select().from(MFA).select('step').distinct().whereNotNull('confirmed_at')) as Record<string, unknown>[];
+    return [...new Set(rows.map((r) => String(r.step)))];
+  }
+
   /** Deletes the identity's codes, then stores the SHA-256 of each new one. Empty or repeated codes throw. */
   public async replaceRecoveryCodes(id: IdentityRef, rawCodes: readonly string[]): Promise<void> {
     const identity = identityKey(id);

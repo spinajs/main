@@ -252,6 +252,35 @@ for (const kind of DB_KINDS) {
       expect(await store.countRecoveryCodes(BOB)).to.eq(1);
     });
 
+    it('confirmedSteps lists the confirmed steps of that identity only; unconfirmed rows do not count', async () => {
+      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.put(ALICE, 'webauthn', CIPHER, 'kid-a');
+      await store.confirm(ALICE, 'webauthn');
+      await store.put(BOB, 'email', CIPHER, 'kid-a');
+      await store.confirm(BOB, 'email');
+
+      expect(await store.confirmedSteps(ALICE)).to.deep.eq(['webauthn']);
+      await store.confirm(ALICE, 'totp');
+      expect([...(await store.confirmedSteps(ALICE))].sort()).to.deep.eq(['totp', 'webauthn']);
+      expect(await store.confirmedSteps(BOB)).to.deep.eq(['email']);
+      expect(await store.confirmedSteps({ type: 'user', id: 'nobody' })).to.deep.eq([]);
+      expect(await store.confirmedSteps({ type: 'service', id: ALICE.id }), 'the type is part of the key').to.deep.eq([]);
+      expect(await rejection(store.confirmedSteps({ type: 'user', id: 'x'.repeat(96) }))).to.be.instanceOf(InvalidArgument);
+    });
+
+    it('confirmedStepNames lists each confirmed step of the store once', async () => {
+      expect(await store.confirmedStepNames()).to.deep.eq([]);
+      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.put(BOB, 'email', CIPHER, 'kid-a');
+      expect(await store.confirmedStepNames(), 'unconfirmed rows only').to.deep.eq([]);
+      await store.confirm(ALICE, 'totp');
+      await store.put(BOB, 'totp', CIPHER, 'kid-a');
+      await store.confirm(BOB, 'totp');
+      expect(await store.confirmedStepNames()).to.deep.eq(['totp']);
+      await store.confirm(BOB, 'email');
+      expect([...(await store.confirmedStepNames())].sort()).to.deep.eq(['email', 'totp']);
+    });
+
     it("resolves the Orm's default connection from its container when given no driver", async () => {
       const viaContainer = new DbMfaStore(undefined, { container: db.container });
       await viaContainer.put(ALICE, 'totp', CIPHER, 'kid-a');
