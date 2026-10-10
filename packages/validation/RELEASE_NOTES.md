@@ -1,6 +1,6 @@
 # Release notes — validation errors without request values (Z4)
 
-> X1 merges this file into the root `RELEASE_NOTES.md` for 3.0.
+> Merged into the root `RELEASE_NOTES.md` for 3.0.0-rc.1.
 
 Why: a 400 or a log line built from a validation error must not carry what the client sent, so a
 password, a token or a reset code never comes back in a response or lands in a log.

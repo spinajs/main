@@ -1,6 +1,6 @@
 # Release notes — WebSocket server core (W1)
 
-> Branch `feat/websocket-layer`, built on `feat/authz-v3`. Design: `docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md`. X1 merges this file into the root `RELEASE_NOTES.md` for 3.0.
+> Branch `feat/websocket-layer`, built on `feat/authz-v3`. Design: `docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md`. Merged into the root `RELEASE_NOTES.md` for 3.0.0-rc.1.
 
 ## BREAKING CHANGES
 
