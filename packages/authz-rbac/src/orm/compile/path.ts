@@ -263,6 +263,29 @@ export class RbacPathSql {
     return rsql`CASE ${joinSql(whens, ' ')} END`;
   }
 
+  /**
+   * How every block reads column node `i` of the filtered row: `holds` (two-valued) the column names a node,
+   * `exact` (two-valued) its id is one the blocks compare, `text` that id's text where `exact`. Undefined for
+   * GLOBAL and a column of mode 'none', which no block reads by value.
+   */
+  nodeRead(i: number): { readonly holds: RbacSql; readonly exact: RbacSql; readonly text: RbacSql } | undefined {
+    const node = this.nodes[this.index(i)];
+    if (node.column === undefined || node.idMode === 'none') return undefined;
+    const column = rsql`${outer(node.column)}`;
+    if (node.idMode === undefined) {
+      const holds = rsql`(${column} IS NOT NULL)`;
+      return { holds, exact: holds, text: textOf(column, this.quoter) };
+    }
+    const read = this.dialect!.idOf(column, node.idMode);
+    return { holds: read.holds, exact: read.exact, text: read.text };
+  }
+
+  /** `cond` where the row is found as `whenFound` reads it: two-valued, TRUE when the path has no id mode. */
+  foundSql(): RbacSql {
+    const mode = this.path.idMode;
+    return mode === undefined ? TRUE_SQL : this.found(mode);
+  }
+
   /** CASE over the nodes nearest first, so a repeated node counts at its nearest index. */
   private indexOr(x: string, fallback?: number): RbacSql {
     const whens = this.nodes.map((_, i) => rsql`WHEN ${this.atNode(x, i)} THEN ${intSql(i)}`);

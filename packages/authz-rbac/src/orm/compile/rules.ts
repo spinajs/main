@@ -13,6 +13,7 @@ import { rbacRoleScopes } from '../role-graph.js';
 import type { RbacListing } from '../role-graph.js';
 import { attrLookup } from './attributes.js';
 import type { RbacAttrLookup, RbacScopeDefaults } from './attributes.js';
+import { rbacClassForm } from './classes.js';
 import { RULE_SUBJECT_TABLE, rbacDbRuleTables, storedPatternLeaves, whenApplies, whenMissing } from './db-rules.js';
 import type { RbacDbRuleKind } from './db-rules.js';
 import type { RbacDialectName, RbacSqlDialect } from './dialect.js';
@@ -42,12 +43,14 @@ import type { RbacResourceField } from './stored-rule.js';
  * caps is never computed: "the clamped rank reaches t" is "the rank reaches t and no matching cap clamps
  * below t", since a ladder role's closure, and what it implies, only grow with its rank.
  *
- * The row-level parts are worked out once per row in two nested one-row derived tables (SQLite's parser
- * stack allows few levels): authz_gb reads the scope attributes the rules read and gives each rule's place
- * on the path, its condition, its faults, its `{ ref }` values and which restrict rules select the
- * principal (ranks after collect); authz_gd which caps and thresholds do (ranks after restrict) and the
- * faults of rules whose scope node is missing (they fault only where they would act, as the steps do). The
- * term reads authz_gd and sits under `whenFound`.
+ * The row-level parts are worked out in two nested one-row derived tables (SQLite's parser stack allows few
+ * levels): authz_gb reads the scope attributes the rules read and gives each rule's place on the path, its
+ * condition, its faults, its `{ ref }` values and which restrict rules select the principal (ranks after
+ * collect); authz_gd which caps and thresholds do (ranks after restrict) and the faults of rules whose scope
+ * node is missing (they fault only where they would act, as the steps do). The flag, a count over authz_gd,
+ * is 1 where the verdict holds. On Postgres, given the model's table, the flag is worked out once per class of
+ * rows that agree on everything it reads, and the term looks the row's class up (classes.ts); on SQLite, and
+ * where that does not apply (`classForm`), once per row. Either way the term sits under `whenFound`.
  *
  * A rule read that faults (B39) refuses the row (route FALSE, threshold TRUE), as the list evaluator does
  * where its check would throw. Narrower than the evaluator, documented and tested:
@@ -66,9 +69,9 @@ import type { RbacResourceField } from './stored-rule.js';
  * the current roles do not hold) is refused at compile time, and on SQLite a term deeper than its parser
  * stack allows (`RBAC_SQLITE_TERM_DEPTH`).
  *
- * With stored rules (`dbRules`) the term is one WITH that reads the filtered row. SQLite works such a correlated
- * table out again at every sub-query that reads it, so a list takes seconds there for a few rows and a few rules;
- * Postgres works each out once per row.
+ * With stored rules (`dbRules`) the flag is one WITH that reads the filtered row (or a class's representative).
+ * SQLite works such a correlated table out again at every sub-query that reads it, so a list takes seconds there
+ * for a few rows and a few rules; Postgres works each out once per class (or per row).
  */
 
 /** A subject as the `authz_assignment` subject columns hold it (`''` role for a principal). */
@@ -92,8 +95,17 @@ export interface RbacRulesSqlContext {
   /** `args.subjects` as the assignment table stores them. */
   readonly subjects: readonly RbacSubjectColumns[];
   readonly table: string;
+  /** The filtered model's table: on Postgres a term is then worked out once per class of its rows where it can be. */
+  readonly rowTable?: string;
   /** Names the term in refusals, e.g. `native:rbac.assignment (domain "root", type 'doc')`; called only to refuse. */
   readonly where: () => string;
+  /**
+   * Test only (the class form's differential tests); no host and no configuration sets it. `rows`: the per-row
+   * form wherever the class form would be chosen. `order`: each class's representative is its first row by the
+   * model's id, ascending or descending (else any row). `keys`: called with the class key of each class form built.
+   * @internal
+   */
+  readonly testOnly?: { readonly rows?: boolean; readonly order?: 'asc' | 'desc'; readonly keys?: (keys: readonly RbacSql[]) => void };
 }
 
 type Level = 0 | 1 | 2;
@@ -325,7 +337,7 @@ export class RbacRulesSql {
       const t = k.ladder.roles.findIndex((r) => graph.get(r)?.closure.includes(grant.role));
       return t < 0 || k.rank! < t ? FALSE_SQL : this.clampOK(k, src, t, row);
     };
-    return this.term([...this.restricts, ...this.caps], (row) => {
+    return this.term([...this.restricts, ...this.caps], 'route', (row) => {
       const needs: RbacSql[] = [];
       const madeAt = grant.grantedAt;
       // A provenance contribution holds the grant itself: it reaches the grant's role, so the holder need adds nothing.
@@ -347,7 +359,7 @@ export class RbacRulesSql {
     const own = this.thresholds.find((r) => r.def.id === id);
     const known = own !== undefined || this.ctx.args.rules.some((r) => r.id === id && r.kind === 'threshold');
     if (!known) throw this.refuse(undefined, `names no threshold rule '${id}' of its args`);
-    return this.term([...this.restricts, ...this.caps, ...(own ? [own] : [])], (row) => any(this.narrowingFault(row), own ? this.thresholdDeny(own, row) : FALSE_SQL));
+    return this.term([...this.restricts, ...this.caps, ...(own ? [own] : [])], 'threshold', (row) => any(this.narrowingFault(row), own ? this.thresholdDeny(own, row) : FALSE_SQL));
   }
 
   /**
@@ -358,7 +370,7 @@ export class RbacRulesSql {
   thresholdDb(): RbacSql {
     this.dbThresholds = this.db;
     try {
-      return this.term([...this.restricts, ...this.caps], (row) => any(this.narrowingFault(row), this.db ? rsql`(EXISTS (SELECT 1 FROM ${ident(DT)}))` : FALSE_SQL));
+      return this.term([...this.restricts, ...this.caps], 'threshold', (row) => any(this.narrowingFault(row), this.db ? rsql`(EXISTS (SELECT 1 FROM ${ident(DT)}))` : FALSE_SQL));
     } finally {
       this.dbThresholds = false;
     }
@@ -1128,8 +1140,11 @@ export class RbacRulesSql {
 
   // ---- the term ----
 
-  /** `cond` over authz_gd, under `whenFound`, with the row-level parts of `rules` worked out below it. */
-  private term(rules: readonly Rule[], cond: (row: Row) => RbacSql): RbacSql {
+  /**
+   * `cond` over authz_gd, under `whenFound`, with the row-level parts of `rules` worked out below it: once per class
+   * of rows (`classForm`) or once per row.
+   */
+  private term(rules: readonly Rule[], kind: 'route' | 'threshold', cond: (row: Row) => RbacSql): RbacSql {
     const { path, dialect } = this.ctx;
     const fence = dialect.fence;
     const nx = (type: string): string | undefined => {
@@ -1209,19 +1224,42 @@ export class RbacRulesSql {
     }
     const verdict = cond(columns(GD));
     const holds = verdict === TRUE_SQL ? rsql`1 = 1` : verdict;
-    let out: RbacSql;
+    let flagSql: RbacSql;
     if (!this.db) {
       const gd = rsql`SELECT ${joinSql(gdCols, ', ')} FROM (${gb}) ${ident(GB)}${fence}`;
       // A one-row table: the count is 1 where the verdict holds, else 0.
-      out = path.whenFoundFlag(rsql`(SELECT COUNT(*) FROM (${gd}) ${ident(GD)} WHERE ${holds})`);
+      flagSql = rsql`(SELECT COUNT(*) FROM (${gd}) ${ident(GD)} WHERE ${holds})`;
     } else {
       const gd = rsql`SELECT ${joinSql(gdCols, ', ')} FROM ${ident(GB)}${fence}`;
       // Materialized: every table is read from many sub-queries, which would otherwise each work it out again.
       const ctes = this.storedTables(gb, gd, b, columns(GD)).map(([name, body]) => rsql`${ident(name)} AS MATERIALIZED (${body})`);
-      out = path.whenFoundFlag(rsql`(WITH ${joinSql(ctes, ', ')} SELECT COUNT(*) FROM ${ident(GD)} WHERE ${holds})`);
+      flagSql = rsql`(WITH ${joinSql(ctes, ', ')} SELECT COUNT(*) FROM ${ident(GD)} WHERE ${holds})`;
     }
+    const out = this.classForm(rules, kind, flagSql) ?? path.whenFoundFlag(flagSql);
     if (dialect.name === 'sqlite') this.fitsSqlite(out, rules);
     return out;
+  }
+
+  /**
+   * The term as a lookup of the row's class (`rbacClassForm`), or undefined for the per-row form: on SQLite (its
+   * parser stack seldom takes the deeper form, and it serves stored rules in tests only), without the model's table,
+   * where the class key would be empty, and for a term holding a config threshold that reads `resource.*` (every row
+   * keyed by its field values: a class per value, slower than per row).
+   */
+  private classForm(rules: readonly Rule[], kind: 'route' | 'threshold', flagSql: RbacSql): RbacSql | undefined {
+    const { path, dialect, rowTable, testOnly } = this.ctx;
+    if (dialect.name !== 'postgres' || rowTable === undefined || testOnly?.rows === true) return undefined;
+    // Invariant: the filtered row is a row of `rowTable`, so its class has a representative. A route term under NOT
+    // would list a row whose class has none; threshold terms deny such a row (fail closed).
+    if (rules.some((r) => r.def.kind === 'threshold' && [r.def.when, r.def.resource].some((c) => rbacResourceReads(c).length > 0))) return undefined;
+    const constants = new Map<string, string[]>();
+    for (const r of this.ctx.args.rules) if (r.scope.type !== GLOBAL.type && r.scope.id != null) constants.set(r.scope.type, [...(constants.get(r.scope.type) ?? []), r.scope.id]);
+    // Every read of the args' rules, not only this term's: a superset only splits classes.
+    const attributeTypes = new Set([...this.reads.values()].map((r) => r.type));
+    if (this.db) for (const n of path.nodes) attributeTypes.add(n.type);
+    const form = rbacClassForm(flagSql, { path, dialect, rowType: this.ctx.rowType, rowTable, assignmentTable: this.ctx.table, subjects: this.ctx.subjects, db: this.db, constants, attributeTypes, layer: (t) => this.defaults.layer(t), fields: this.ctx.fields, kind, ...(testOnly?.order ? { order: testOnly.order } : {}) });
+    if (form) testOnly?.keys?.(form.keys);
+    return form?.term;
   }
 
   /**

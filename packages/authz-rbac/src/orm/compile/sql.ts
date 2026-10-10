@@ -134,6 +134,26 @@ export function collation(name: string): RbacCollationName {
   return new RbacCollationName([name]);
 }
 
+/** A table name only `aliasedTable` writes, always followed by an alias: it shadows no row, so it is no alias head. */
+class RbacTableName extends RbacIdentifier {}
+
+/** `table alias` as a FROM item: unlike `ident`, the table may be the filtered row's own, as the alias keeps it apart. */
+export function aliasedTable(table: string, alias: string): RbacSql {
+  if (typeof table !== 'string' || table === '') throw refuse('aliasedTable() takes a non-empty table name');
+  return rsql`${new RbacTableName([table])} ${ident(alias)}`;
+}
+
+/** The fragment with every `outer(c)` read as `alias.<name(c)>`: the same SQL about another row source. */
+export function rebindOuter(fragment: RbacSql, alias: string, name: (column: string) => string = (c) => c): RbacSql {
+  if (typeof alias !== 'string' || alias === '') throw refuse('rebindOuter() takes a non-empty alias');
+  return new RbacSql(fragment.parts.map((p) => (p instanceof RbacOuterColumn ? ident(alias, name(p.column)) : p)));
+}
+
+/** The filtered row's columns a fragment reads. */
+export function outerColumnsOf(fragment: RbacSql): string[] {
+  return [...new Set(fragment.parts.filter((p): p is RbacOuterColumn => p instanceof RbacOuterColumn).map((p) => p.column))];
+}
+
 export const TRUE_SQL: RbacSql = rsql`1 = 1`;
 export const FALSE_SQL: RbacSql = rsql`1 = 0`;
 
@@ -233,7 +253,7 @@ export function renderSql(fragment: RbacSql, options: RbacRenderOptions): RbacRe
       if (typeof p === 'string') return p;
       if (p instanceof RbacOuterColumn) return options.outer(p.column);
       if (p instanceof RbacIdentifier) {
-        if (options.outerName !== undefined && !(p instanceof RbacCollationName) && sameName(p.names[0], options.outerName)) throw refuse(`the name "${p.names[0]}" is the filtered row's "${options.outerName}"; give the other table another alias`);
+        if (options.outerName !== undefined && !(p instanceof RbacCollationName) && !(p instanceof RbacTableName) && sameName(p.names[0], options.outerName)) throw refuse(`the name "${p.names[0]}" is the filtered row's "${options.outerName}"; give the other table another alias`);
         return p.names.map((n) => quoter.quote(n)).join('.');
       }
       bindings.push(bindingOf(p.value, options.driver));
@@ -356,7 +376,7 @@ export function toNativeSql(fragment: RbacSql, builder: IWhereBuilder<unknown>):
 }
 
 /** The first names of the fragment's identifiers: the tables and aliases its nested SELECTs name. */
-const identifierHeads = (fragment: RbacSql): string[] => [...new Set(fragment.parts.filter((p): p is RbacIdentifier => p instanceof RbacIdentifier && !(p instanceof RbacCollationName)).map((p) => p.names[0]))];
+const identifierHeads = (fragment: RbacSql): string[] => [...new Set(fragment.parts.filter((p): p is RbacIdentifier => p instanceof RbacIdentifier && !(p instanceof RbacCollationName) && !(p instanceof RbacTableName)).map((p) => p.names[0]))];
 
 /** Whether a native builder is reachable through `b`'s where groups and correlations: its row is not this query's. */
 function reachesNative(b: unknown): boolean {

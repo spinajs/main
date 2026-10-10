@@ -35,7 +35,9 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
  * - `adapter`: an adapter (or resolver) layer serves it with the top-level keys `attributes`. A read under one
  *   of them is a fault here (the SQL cannot read that layer; narrower). Any other read needs `exists`, TRUE for a
  *   node whose row the adapter finds (it answers null for a missing row and the engine faults); without
- *   `exists` every read is a fault.
+ *   `exists` every read is a fault. `exists` must depend on `nodeId` alone: the list terms work a rule out once
+ *   for every class of rows that agree on what the rules read, and key the classes by every column of the filtered
+ *   row an `exists` reads (`outer()`), so reading one costs speed, not exactness.
  * `ormRbacScopeLayers` gives the layers of the types authz-orm's adapter serves; callers declare the others.
  * An undeclared type reads as a fault. GLOBAL is `store` unless declared.
  */
@@ -254,9 +256,10 @@ export function attrLookup(path: RbacPathSql, type: ResourceType, attributePath:
   const pathText = rsql`CAST(${attributePath} AS TEXT)`;
   const target: Target = { type, applies: TRUE_SQL, id, path: pathText, constPath: attributePath };
   const sa = (column: string): RbacSql => rsql`${ident(SA, column)}`;
-  const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = CAST(${type} AS TEXT) AND ${sa('scope_id')} = ${id}`;
+  // Binary, as the store looks a node up by its id, whatever collation the model's column declares.
+  const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = CAST(${type} AS TEXT) AND ${dialect.sameText(sa('scope_id'), id)}`;
   // GLOBAL's key is ('$global', ''); any other node needs an id, and '' is the type-only scope's key.
-  const nodeOk = andSql(layerReads(target, defaults.layer(type)), rsql`${id} IS NOT NULL`, type === GLOBAL.type ? TRUE_SQL : rsql`${id} <> ${''}`);
+  const nodeOk = andSql(layerReads(target, defaults.layer(type)), rsql`${id} IS NOT NULL`, type === GLOBAL.type ? TRUE_SQL : rsql`NOT ${dialect.sameText(id, rsql`${''}`)}`);
   const value = rsql`(SELECT ${sa('value_json')} FROM ${node} AND ${sa('path')} = ${pathText})`;
   const n = codePoints(attributePath);
   const above = rsql`EXISTS (SELECT 1 FROM ${node} AND LENGTH(${sa('path')}) < ${intSql(n)} AND SUBSTR(${pathText}, 1, LENGTH(${sa('path')}) + 1) = ${sa('path')} || ${'.'})`;
@@ -351,9 +354,9 @@ function stagesOf(targets: readonly Target[], defaults: RbacScopeDefaults, diale
     resolve: () => ({ t: pick((t) => rsql`${t.type}`), i: pick((t) => t.id), p: pick((t) => t.path), ok: pick((t) => flag(layerReads(t, defaults.layer(t.type)))) }),
     lookup: (t) => {
       const sa = (column: string): RbacSql => rsql`${ident(SA, column)}`;
-      const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = ${t('t')} AND ${sa('scope_id')} = ${t('i')}`;
+      const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = ${t('t')} AND ${dialect.sameText(sa('scope_id'), t('i'))}`;
       // GLOBAL's key is ('$global', ''); any other node needs an id, and '' is the type-only scope's key.
-      const nodeOk = andSql(rsql`${t('ok')} = 1`, rsql`${t('i')} IS NOT NULL`, orSql(rsql`${t('t')} = ${GLOBAL.type}`, rsql`${t('i')} <> ${''}`));
+      const nodeOk = andSql(rsql`${t('ok')} = 1`, rsql`${t('i')} IS NOT NULL`, orSql(rsql`${t('t')} = ${GLOBAL.type}`, rsql`NOT ${dialect.sameText(t('i'), rsql`${''}`)}`));
       const value = rsql`(SELECT ${sa('value_json')} FROM ${node} AND ${sa('path')} = ${t('p')})`;
       const above = rsql`EXISTS (SELECT 1 FROM ${node} AND LENGTH(${sa('path')}) < LENGTH(${t('p')}) AND SUBSTR(${t('p')}, 1, LENGTH(${sa('path')}) + 1) = ${sa('path')} || ${'.'})`;
       const below = rsql`EXISTS (SELECT 1 FROM ${node} AND SUBSTR(${sa('path')}, 1, LENGTH(${t('p')}) + 1) = ${t('p')} || ${'.'})`;
