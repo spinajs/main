@@ -49,7 +49,7 @@ function plainText(purpose: IPasswordMail['purpose'], link: string, secret: stri
  * the secret and the link for redaction, so neither reaches a queued payload, the `EmailSent` event, a log or an error (SR-09).
  *
  * Not registered here: importing authn-local registers local password login, which would switch it on in every app that sends
- * mail. Where local passwords are used, register it with `DI.register(EmailPasswordMailer).as(PasswordMailer)`.
+ * mail. `@spinajs/users` registers it as the `PasswordMailer` unless the app registered its own.
  */
 export class EmailPasswordMailer {
   @Config('email.password', { defaultValue: {} })
