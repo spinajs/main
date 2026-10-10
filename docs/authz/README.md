@@ -560,13 +560,14 @@ export class TaskTeamPolicy extends OrmScopePolicy<Task> {
 - **Performance.** On PostgreSQL the rule terms of a list are mostly worked out once per class of rows
   (rows that share their scope path and rule inputs), then applied to each row; SQLite keeps one
   evaluation per row, and so does PostgreSQL for a config threshold reading `resource.*` or a scope
-  column without an id mode. Each class term reads the whole model table once per statement, so its
-  cost grows with the table, also when the app's own WHERE keeps few rows. A stored rule whose definition PostgreSQL cannot parse
-  fails every list of that model. Measured for release gate 7 (still open: the limits are being
-  rethought by the owner), canvas `file:read` over 1,000 files on PostgreSQL 16 with `jit = off`: the
-  list p50 90 to 182 ms, a 50-row page p50 90 to 128 ms and p99 133 to 189 ms; with other tenants'
-  rows in the tables, lists 94 to 201 ms and pages 95 to 174 ms. A page spends 23 to 36 ms compiling the
-  statement and 12 to 23 ms planning it. Full numbers: `packages/authz-rbac/bench/RESULTS.md`.
+  path with a column node that has no id mode. Each class term reads the whole model table once per
+  statement, so its cost grows with the table, also when the app's own WHERE keeps few rows. A stored
+  rule whose definition PostgreSQL cannot parse fails every list of that model. Measured for release
+  gate 7 (still open: the limits are being rethought by the owner), canvas `file:read` over 1,000
+  files on PostgreSQL 16 with `jit = off`: the list p50 90 to 182 ms, a 50-row page p50 90 to 128 ms
+  and p99 133 to 189 ms; with other tenants' rows in the tables, lists 94 to 201 ms and pages 95 to
+  174 ms. A page spends 23 to 36 ms compiling the statement and 12 to 23 ms planning it. Full
+  numbers: `packages/authz-rbac/bench/RESULTS.md`.
 - `filterFields(decision, data, mode)` keeps the fields the decision allows. `DbDecisionAudit`
   (`@spinajs/authz-orm/audit`) writes audit records to `authz_audit` on the connection named
   `authz-audit`.

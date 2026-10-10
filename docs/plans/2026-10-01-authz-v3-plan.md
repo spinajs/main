@@ -2171,10 +2171,10 @@ and freezes merges until the checkpoint is green.
    being rethought by the owner.** After lane S1 (rule terms worked out once
    per class of rows, Postgres only), p50 at bg0: lists 90–182 ms, pages
    90–128 ms (p99 133–189 ms); at bg90: lists 94–201 ms, pages 95–174 ms;
-   ≤ 2 × the plain `EXISTS` still not met for guest, external and link
-   (and for the owner's p99 at bg90, 2.16 ×) (RESULTS.md "Release gate 7 for 3.0 after S1"). The warm `check`,
-   `checkMany`, ORM overhead, session restore and token validation limits
-   were not measured in 3.0. Also part of the gate: session
+   ≤ 2 × the plain `EXISTS` still not met for guest, external and link,
+   nor for the owner's p99 at bg90 (2.16 ×); RESULTS.md "Release gate 7
+   for 3.0 after S1". The warm `check`, `checkMany`, ORM overhead,
+   session restore and token validation limits were not measured in 3.0. Also part of the gate: session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

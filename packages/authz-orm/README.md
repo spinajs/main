@@ -223,10 +223,10 @@ orm.query" warnings.
 
 On PostgreSQL authz-rbac mostly works these terms out once per class of rows (rows sharing their scope
 path and rule inputs) instead of once per row (lane S1); it keeps the per-row form for a config
-threshold reading `resource.*` and for a scope column without an id mode. Each class term reads the
-whole model table once per statement, also the rows the caller's WHERE drops, so its cost grows with
-the table. A stored rule whose definition PostgreSQL cannot parse fails every list of that model.
-Times: `packages/authz-rbac/bench/RESULTS.md`.
+threshold reading `resource.*` and for a scope path with a column node that has no id mode. Each class
+term reads the whole model table once per statement, also the rows the caller's WHERE drops, so its
+cost grows with the table. A stored rule whose definition PostgreSQL cannot parse fails every list of
+that model. Times: `packages/authz-rbac/bench/RESULTS.md`.
 
 ### ABAC scope leaves
 
