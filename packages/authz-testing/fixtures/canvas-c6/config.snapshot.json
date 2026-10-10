@@ -706,6 +706,7 @@
     }
   },
   "abac": {
+    "scopeResiduals": true,
     "policies": [
       {
         "id": "agents-disabled",

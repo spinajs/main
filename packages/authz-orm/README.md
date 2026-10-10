@@ -221,5 +221,16 @@ each reference: about 0.45 s per filtered row with four stored rules, so on SQLi
 small tables only until authz-rbac reads the rule tables by joins. On Postgres they log "Slow
 orm.query" warnings.
 
+### ABAC scope leaves
+
+With `authz.<model>.scopeResiduals` on (`AbacModelOptions.scopeResiduals`), an ABAC model answers a
+list's comparisons of `scope.<type>.*` with residual leaves of the op `native:condition.scope`.
+authz-rbac compiles them (`ConditionScopeOrmCompiler`, registered when its orm module loads), so an
+ABAC list through authz-orm with the switch on needs authz-rbac loaded; without it boot rule 4
+refuses the route (the op is not in this adapter's `compiles`). The leaf reads scope attributes as
+authz-rbac's rule SQL does: layers and schema defaults from the host's `RbacScopeAttributeSource`
+(else no defaults and the layers authz-orm serves), with the same limits (a value SQL cannot
+compare, or a layer it cannot read, refuses the row). On Postgres it too needs `jit = off`.
+
 `@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
 it only together with L4b.

@@ -16,8 +16,11 @@ import type { RbacAttrLookup, RbacScopeDefaults } from './attributes.js';
 import { RULE_SUBJECT_TABLE, rbacDbRuleTables, storedPatternLeaves, whenApplies, whenMissing } from './db-rules.js';
 import type { RbacDbRuleKind } from './db-rules.js';
 import type { RbacDialectName, RbacSqlDialect } from './dialect.js';
+import { UNKNOWN_SQL, all, any, constant, existsTerm, flip, inexact, neg, wrap } from './kleene.js';
+import type { Bound } from './kleene.js';
 import type { RbacPathSql } from './path.js';
 import { rbacRouteGrant } from './route.js';
+import { scopeCmpSql } from './scope-leaf.js';
 import { sqliteParserDepth } from './sqlite-depth.js';
 import { FALSE_SQL, RbacCollationName, RbacIdentifier, RbacOuterColumn, TRUE_SQL, ident, inList, intSql, joinSql, outer, rsql } from './sql.js';
 import type { RbacSql } from './sql.js';
@@ -197,83 +200,6 @@ const RS = 'authz_rs';
 
 const readAlias = (read: Read): string => `authz_v${read.n}`;
 
-// A boolean NULL on both dialects (Postgres types a CASE by its branches).
-const UNKNOWN_SQL: RbacSql = rsql`(CASE WHEN 1 = 0 THEN 1 = 1 END)`;
-
-/**
- * What a leaf the evaluator decides but SQL cannot reads as: UNKNOWN, or, for a restrict's bounds, the value
- * that raises ('hi') or lowers ('lo') the whole condition, flipped under each NOT.
- */
-type Bound = 'hi' | 'lo' | undefined;
-const flip = (b: Bound): Bound => (b === 'hi' ? 'lo' : b === 'lo' ? 'hi' : undefined);
-const inexact = (b: Bound): RbacSql => (b === 'hi' ? TRUE_SQL : b === 'lo' ? FALSE_SQL : UNKNOWN_SQL);
-
-// SQLite's parser has a fixed stack: a junction nested in one of the same kind joins it, and an operand that
-// already brackets itself gets no second pair.
-const junctions = new WeakMap<RbacSql, { readonly op: 'AND' | 'OR'; readonly items: readonly RbacSql[] }>();
-
-/** The SQL is one bracket pair around everything. */
-function bracketed(x: RbacSql): boolean {
-  let depth = 0;
-  let first = true;
-  let closedAtEnd = false;
-  for (const p of x.parts) {
-    if (typeof p !== 'string') {
-      if (depth === 0) return false;
-      first = false;
-      closedAtEnd = false;
-      continue;
-    }
-    for (const ch of p) {
-      if (first && ch !== '(') return false;
-      first = false;
-      if (depth === 0 && closedAtEnd) return false;
-      if (ch === '(') depth++;
-      else if (ch === ')') {
-        depth--;
-        closedAtEnd = depth === 0;
-        continue;
-      }
-      closedAtEnd = false;
-    }
-  }
-  return !first && depth === 0 && closedAtEnd;
-}
-
-const wrap = (x: RbacSql): RbacSql => (bracketed(x) ? x : rsql`(${x})`);
-
-function junction(op: 'AND' | 'OR', xs: readonly RbacSql[]): RbacSql {
-  const items = xs.flatMap((x) => {
-    const j = junctions.get(x);
-    return j?.op === op ? j.items : [x];
-  });
-  if (items.length === 1) return items[0];
-  const out = rsql`(${joinSql(items.map(wrap), ` ${op} `)})`;
-  junctions.set(out, { op, items });
-  return out;
-}
-
-function all(...xs: readonly RbacSql[]): RbacSql {
-  if (xs.includes(FALSE_SQL)) return FALSE_SQL;
-  const kept = xs.filter((x) => x !== TRUE_SQL);
-  return kept.length === 0 ? TRUE_SQL : junction('AND', kept);
-}
-
-function any(...xs: readonly RbacSql[]): RbacSql {
-  if (xs.includes(TRUE_SQL)) return TRUE_SQL;
-  const kept = xs.filter((x) => x !== FALSE_SQL);
-  return kept.length === 0 ? FALSE_SQL : junction('OR', kept);
-}
-
-// EXISTS subqueries `contributions` builds, so NOT takes them without another bracket pair.
-const existsTerms = new WeakMap<RbacSql, RbacSql>();
-
-const neg = (x: RbacSql): RbacSql => {
-  if (x === TRUE_SQL) return FALSE_SQL;
-  if (x === FALSE_SQL) return TRUE_SQL;
-  const sub = existsTerms.get(x);
-  return sub ? rsql`(NOT EXISTS ${sub})` : rsql`(NOT ${wrap(x)})`;
-};
 const flag = (c: RbacSql): RbacSql => rsql`(${c} = 1)`;
 const asFlag = (cond: RbacSql): RbacSql => (cond === TRUE_SQL ? intSql(1) : cond === FALSE_SQL ? intSql(0) : rsql`CASE WHEN ${cond} THEN 1 ELSE 0 END`);
 const asThree = (cond: RbacSql): RbacSql => (cond === TRUE_SQL ? intSql(1) : cond === FALSE_SQL ? intSql(0) : rsql`CASE WHEN ${cond} THEN 1 WHEN NOT ${wrap(cond)} THEN 0 END`);
@@ -281,7 +207,6 @@ const asThree = (cond: RbacSql): RbacSql => (cond === TRUE_SQL ? intSql(1) : con
 const notFalse = (cond: RbacSql): RbacSql => (cond === TRUE_SQL || cond === UNKNOWN_SQL ? TRUE_SQL : cond === FALSE_SQL ? FALSE_SQL : rsql`(CASE WHEN NOT ${wrap(cond)} THEN 0 ELSE 1 END = 1)`);
 /** The same for a column holding 1, 0 or NULL. */
 const notFalseCol = (c: RbacSql): RbacSql => rsql`(${c} IS NULL OR ${c} = 1)`;
-const constant = (b: boolean): RbacSql => (b ? TRUE_SQL : FALSE_SQL);
 const as = (expr: RbacSql, name: string): RbacSql => rsql`${expr} AS ${ident(name)}`;
 
 /** The same SQL, for grouping the kinds whose predicate is the same into one `role IN (...)`. */
@@ -297,34 +222,9 @@ const keyOf = (s: RbacSql): string =>
   );
 
 const NO_FUNCTIONS = { has: () => false };
-const DIGITS = ['-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const ORDER: Readonly<Record<string, (a: RbacSql, b: RbacSql) => RbacSql>> = {
-  lt: (a, b) => rsql`${a} < ${b}`,
-  lte: (a, b) => rsql`${a} <= ${b}`,
-  gt: (a, b) => rsql`${a} > ${b}`,
-  gte: (a, b) => rsql`${a} >= ${b}`,
-};
-
-const numericString = (s: string): number | undefined => {
-  const n = Number(s);
-  return Number.isFinite(n) && String(n) === s ? n : undefined;
-};
 
 /** No character outside the BMP: JavaScript's code unit order and SQL's code point order agree on it. */
 const bmp = (s: string): boolean => [...s].every((ch) => ch.codePointAt(0)! <= 0xffff);
-
-const isScalar = (v: unknown): v is string | number | boolean => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
-
-function literalList(v: unknown): (string | number)[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out: (string | number)[] = [];
-  for (let i = 0; i < v.length; i++) {
-    const x: unknown = v[i];
-    if (!(i in v) || !(typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x)))) return undefined;
-    out.push(x);
-  }
-  return out;
-}
 
 // The evaluator's budget (engine/evaluate.ts, 8 M per evaluation): a pattern leaf charges about
 // (pattern + 1) * (text + 1) UTF-16 units. Texts up to WORK / ((pattern + 1) * leaves) code points keep every
@@ -618,7 +518,7 @@ export class RbacRulesSql {
         // x OR NOT x of the binding: a scalar equals itself (a value read that is no scalar faults).
         return p.op === 'eq' && p.operand.ref.text === p.attr.text ? TRUE_SQL : inexact(bound);
       }
-      return this.scopeLeaf(p.op, p.operand.value, read, bound);
+      return scopeCmpSql(p.op, p.operand.value, { json: readCol(read, 'json'), num: readCol(read, 'num') }, this.ctx.dialect, bound);
     }
     if (p.attr.root === 'resource') {
       if (!resourceOk) throw this.refuse(def, `reads ${p.attr.text} in a condition no row can follow (only a threshold's when and resource can)`);
@@ -629,110 +529,6 @@ export class RbacRulesSql {
       return residual ? UNKNOWN_SQL : this.resourceLeaf(p.op, p.operand.value, p.attr.path);
     }
     throw this.refuse(def, `reads ${p.attr.text}, which the binding should have made a constant`);
-  }
-
-  /**
-   * A leaf over a scope attribute as the engine's `cmp` (engine/evaluate.ts) decides it: exact, or NULL where the
-   * engine is UNKNOWN too, or `inexact(bound)` where the engine decides and the JSON text cannot tell how.
-   */
-  private scopeLeaf(op: ConditionOp, lit: unknown, read: Read, bound: Bound): RbacSql {
-    const j = readCol(read, 'json');
-    const x = inexact(bound);
-    // The engine orders strings by code points and reads a numeric string as a number; the JSON text keeps neither.
-    const string = (): RbacSql => (x === UNKNOWN_SQL ? UNKNOWN_SQL : rsql`(CASE WHEN ${this.isString(j)} THEN ${x} END)`);
-    switch (op) {
-      case 'null':
-        // A present attribute is not null (a null one faults).
-        return constant(lit === false);
-      case 'in':
-      case 'nin': {
-        const list = literalList(lit);
-        if (list === undefined) return UNKNOWN_SQL;
-        if (list.length === 0) return constant(op === 'nin');
-        const found = any(...list.map((item) => this.equals(read, item, op === 'in' ? bound : flip(bound))));
-        return op === 'in' ? found : neg(found);
-      }
-      case 'eq':
-      case 'ne': {
-        if (!isScalar(lit)) return UNKNOWN_SQL;
-        const eq = this.equals(read, lit, op === 'eq' ? bound : flip(bound));
-        return op === 'eq' ? eq : neg(eq);
-      }
-      case 'lt':
-      case 'lte':
-      case 'gt':
-      case 'gte': {
-        if (typeof lit !== 'number' && typeof lit !== 'string') return UNKNOWN_SQL;
-        const n = typeof lit === 'number' ? lit : numericString(lit);
-        if (n === undefined || !Number.isFinite(n)) return string();
-        const num = readCol(read, 'num');
-        const literal = this.ctx.dialect.number(rsql`${String(n)}`);
-        const exact = rsql`${this.isNumber(j)} AND ${this.shortNumber(j)}`;
-        const cmp = ORDER[op](num, literal);
-        return x === UNKNOWN_SQL ? rsql`(CASE WHEN ${exact} THEN ${cmp} END)` : rsql`(CASE WHEN ${exact} THEN ${cmp} WHEN ${this.isNumber(j)} OR ${this.isString(j)} THEN ${x} END)`;
-      }
-      case 'like':
-      case 'glob':
-      case 'wildcard':
-        return typeof lit === 'string' ? string() : UNKNOWN_SQL;
-      default:
-        return UNKNOWN_SQL;
-    }
-  }
-
-  /**
-   * The engine's `eq` after `coerce` of a scalar JSON text and a literal, three-valued. A string attribute against
-   * a number is TRUE when it is the number's own text; the engine also says FALSE for another numeric string, which
-   * SQL cannot tell from a non-numeric one (UNKNOWN in the engine). Strings compare as `JSON.stringify` writes them
-   * (DbScopeAttributeStore, schema defaults): a stored string holding an escape may spell the literal another way,
-   * so only its exact text decides it. Numbers compare by value (`numberIs`), whatever their text.
-   */
-  private equals(read: Read, lit: string | number | boolean, bound: Bound): RbacSql {
-    const j = readCol(read, 'json');
-    const x = inexact(bound);
-    const same = (text: string): RbacSql => rsql`(${this.ctx.dialect.sameText(j, rsql`${text}`)})`;
-    if (typeof lit === 'string') {
-      const n = numericString(lit);
-      const str = any(same(JSON.stringify(lit)), all(rsql`(${this.ctx.dialect.contains(j, rsql`${'\\'}`)})`, x));
-      return rsql`(CASE WHEN ${this.isString(j)} THEN ${str} WHEN ${this.isNumber(j)} THEN ${n === undefined ? UNKNOWN_SQL : this.numberIs(read, n, bound)} END)`;
-    }
-    if (typeof lit === 'number') {
-      const bool = lit === 0 || lit === 1 ? same(lit === 1 ? 'true' : 'false') : UNKNOWN_SQL;
-      return rsql`(CASE WHEN ${this.isNumber(j)} THEN ${this.numberIs(read, lit, bound)} WHEN ${this.isString(j)} THEN ${any(same(JSON.stringify(String(lit))), x)} WHEN ${this.isBoolean(j)} THEN ${bool} END)`;
-    }
-    // A number attribute coerces against a boolean only as 0 or 1: any other short number falls through to NULL.
-    const num = readCol(read, 'num');
-    const short = this.shortNumber(j);
-    return rsql`(CASE WHEN ${this.isBoolean(j)} THEN ${same(String(lit))} WHEN ${this.isNumber(j)} AND ${short} AND ${num} = 1 THEN ${constant(lit)} WHEN ${this.isNumber(j)} AND ${short} AND ${num} = 0 THEN ${constant(!lit)} WHEN ${this.isNumber(j)} AND ${neg(short)} THEN ${x} END)`;
-  }
-
-  /** A number attribute equals `n` as the engine's doubles do; a text `shortNumber` refuses is undecided. */
-  private numberIs(read: Read, n: number, bound: Bound): RbacSql {
-    const short = this.shortNumber(readCol(read, 'json'));
-    return any(all(short, rsql`(${readCol(read, 'num')} = ${this.ctx.dialect.number(rsql`${String(n)}`)})`), all(neg(short), inexact(bound)));
-  }
-
-  /**
-   * A JSON number text SQL compares as the engine compares its double: at most 15 characters and no exponent, so at
-   * most 15 significant digits in the normal range, where distinct decimals are distinct doubles (DBL_DIG) and
-   * Postgres' NUMERIC and SQLite's REAL agree with the engine. A longer text (`3.0000000000000001` is the double 3)
-   * is left undecided.
-   */
-  private shortNumber(j: RbacSql): RbacSql {
-    const dialect = this.ctx.dialect;
-    return rsql`(LENGTH(${j}) <= 15 AND NOT (${dialect.contains(j, rsql`${'e'}`)}) AND NOT (${dialect.contains(j, rsql`${'E'}`)}))`;
-  }
-
-  private isString(j: RbacSql): RbacSql {
-    return rsql`(SUBSTR(${j}, 1, 1) = ${'"'})`;
-  }
-
-  private isNumber(j: RbacSql): RbacSql {
-    return rsql`(SUBSTR(${j}, 1, 1) IN (${DIGITS}))`;
-  }
-
-  private isBoolean(j: RbacSql): RbacSql {
-    return rsql`(${j} IN (${['true', 'false']}))`;
   }
 
   /**
@@ -832,10 +628,7 @@ export class RbacRulesSql {
       if (groups.size > 0) {
         const which = any(...[...groups.values()].map((g) => all(this.roleIn([...g.roles], alias), g.sql)));
         const from = this.db ? rsql`${ident(table ?? [S0, S1, S2][level])}` : rsql`(${this.assignmentRows()})`;
-        const sub = rsql`(SELECT 1 FROM ${from} ${ident(alias)} WHERE ${which})`;
-        const exists = rsql`(EXISTS ${sub})`;
-        existsTerms.set(exists, sub);
-        parts.push(exists);
+        parts.push(existsTerm(rsql`(SELECT 1 FROM ${from} ${ident(alias)} WHERE ${which})`));
       }
     }
     for (const c of this.config) {

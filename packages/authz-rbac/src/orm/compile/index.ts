@@ -6,3 +6,5 @@ export * from './stored-rule.js';
 export * from './route.js';
 export * from './rules.js';
 export * from './boot.js';
+export { scopeCmpSql, scopeConditionSql } from './scope-leaf.js';
+export type { RbacScopeLeafContext, RbacScopeValueSql } from './scope-leaf.js';

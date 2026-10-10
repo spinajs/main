@@ -57,7 +57,7 @@ export interface CanvasAuthzConfig {
     rules: CanvasRule[];
     stores: { roles: string[]; assignments: string[]; rules: string[]; links: string[] };
   };
-  abac: { policies: CanvasPolicy[] };
+  abac: { scopeResiduals: boolean; policies: CanvasPolicy[] };
 }
 
 export class CapabilityTableError extends Error {}
@@ -224,7 +224,9 @@ export function canvasAuthzConfig(capabilities: CapabilityTable | unknown): Canv
       rules: canvasRules(),
       stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'], links: ['DbLinkStore'] },
     },
-    abac: { policies: canvasPolicies() },
+    // Without it a list request reads agents-disabled's scope.org condition as needs_subject: every agent list is
+    // FALSE (RFC K1b-1). It is opt-in because the kit's B19 / B39 expect the old answer.
+    abac: { scopeResiduals: true, policies: canvasPolicies() },
   };
 }
 
