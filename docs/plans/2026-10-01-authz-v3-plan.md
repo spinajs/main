@@ -2162,12 +2162,19 @@ and freezes merges until the checkpoint is green.
    ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot (or the first query
    that reaches a scoped model) unless the app sets
    `authz.orm.allowJit: true` (jit check); ≤ 2 × the plain `EXISTS`
-   query stays the 3.1 target and needs the set-based rewrite of the rule
-   SQL (rules worked out once per scope node:
-   `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status
-   2026-10-09: FAIL**: every page misses the p50 limit by 2.3 to 21 times
-   (RESULTS.md "Release gate 7 for 3.0"; without other tenants only, bg90
-   not run, as the page fails already); session
+   query stays the 3.1 target. **Status 2026-10-10, after S1 (rule terms
+   worked out once per class of rows): FAIL on the page p50.** Every list
+   passes (124 to 225 ms p50, bg0 and bg90, seven principals with an
+   agent); every page misses 100 ms p50 (123 to 184 ms); the page p99
+   holds except two middle pages at bg0 (member-all 264 ms, link 279 ms).
+   A page spends 67 to 95 ms compiling its 280 to 380 KB statement in
+   Node, 12 to 20 ms planning and 24 to 74 ms executing (mostly the class
+   sets). What is left: a cheaper compile (authz-rbac's fragment layer
+   copies and checks nested text at every level), prepared statements in
+   `orm-postgres`, then design S1 §5.2/§5.3
+   (`packages/authz-rbac/bench/RESULTS.md` "Release gate 7 for 3.0 after
+   S1"). The 3.1 ratio still fails for the owner and the small
+   principals (2.3 to 28 ×); session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.
