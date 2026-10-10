@@ -18,7 +18,7 @@ import type { AuthenticationStrategy } from '../contracts/strategy.js';
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
-import { isMfaStepNotListed } from '../flow/mfa-enrolments.js';
+import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
 import { linkingSwitchesOf } from '../link/switches.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
@@ -98,8 +98,11 @@ const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(e
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 
-/** The audit reason and data of an MFA policy that threw: the step names of MfaStepNotListed, else the error class. */
-const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => (isMfaStepNotListed(err) ? { reason: 'mfa_step_not_listed', data: { steps: [...err.steps] } } : { reason: otherwise, data: { error: errorClass(err) } });
+/** The audit reason and data of an MFA policy that threw: the step names of a refusal over stored enrolments, else the error class. */
+const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => {
+  const refusal = mfaEnrolmentRefusal(err);
+  return refusal ? { reason: refusal.reason, data: { steps: [...refusal.steps] } } : { reason: otherwise, data: { error: errorClass(err) } };
+};
 
 function checkOutcome(o: unknown): StrategyOutcome | null {
   if (!isObject(o)) return null;

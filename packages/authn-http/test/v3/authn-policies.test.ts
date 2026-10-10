@@ -15,7 +15,7 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -316,12 +316,16 @@ describe('3.0 authn policies and route args', function () {
       expect((calls[0] as { facts: object }).facts).to.include({ method: 'jws', strategy: 'keys' });
     });
 
-    it('an aal1 session of an identity enrolled in a step authn.mfa.steps does not list answers 403 mfa_required; another policy error still fails the request', async () => {
+    it('an aal1 session of an identity with an unlisted or mismatched enrolled step answers 403 mfa_required; another policy error still fails the request', async () => {
       const policy = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
       const original = policy.required.bind(policy);
       try {
         policy.required = async () => {
           throw new MfaStepNotListed(['totp']);
+        };
+        expect(await run(resolve(MfaSatisfied), await requestOf('session'))).to.eq('403 mfa_required');
+        policy.required = async () => {
+          throw new MfaEnrolmentMismatch(['totp']);
         };
         expect(await run(resolve(MfaSatisfied), await requestOf('session'))).to.eq('403 mfa_required');
         policy.required = async () => {

@@ -150,6 +150,14 @@ describe('authn:check-config', () => {
       expect(f[0].message).to.contain('2 MFA step(s)').and.contain('"totp"').and.contain('"webauthn"').and.contain('authn.mfa.steps').and.contain('refused').and.contain('TotpMfaStep').and.not.contain('"fake"');
     });
 
+    it('under another authn.mfa.policy.service says DefaultMfaPolicy refuses these logins and the configured policy decides', async () => {
+      const f = await check(merge(sound(), { authn: { mfa: { policy: { service: 'CustomMfaPolicy' } } } }), { register: withSources(new Enrolments(['totp'])) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('"totp"').and.contain('DefaultMfaPolicy refuses').and.contain('"CustomMfaPolicy"').and.contain('decides').and.not.contain('their password logins are refused');
+      const ours = await check(sound(), { register: withSources(new Enrolments(['totp'])) });
+      expect(ours[0].message).to.contain('their password logins are refused').and.not.contain('DefaultMfaPolicy refuses');
+    });
+
     it('finds nothing when every confirmed step is listed, or no source is registered', async () => {
       expect(await check(sound(), { register: withSources(new Enrolments(['fake']), new Enrolments([])) })).to.deep.eq([]);
       expect(await check(merge(sound(), { authn: { mfa: { steps: [] } } }))).to.deep.eq([]);

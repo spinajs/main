@@ -56,7 +56,7 @@ async function throttleFindings(container: IContainer, config: AuthnConfigSource
 
 /**
  * Confirmed steps of any MfaEnrolments source that authn.mfa.steps does not list: DefaultMfaPolicy refuses the password
- * logins of their users. Names steps only, never an identity.
+ * logins of their users; another authn.mfa.policy.service decides for itself. Names steps only, never an identity.
  */
 async function enrolmentFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
   const entries = config.get<unknown>('authn.mfa.steps');
@@ -78,7 +78,12 @@ async function enrolmentFindings(container: IContainer, config: AuthnConfigSourc
   }
   if (unlisted.size > 0) {
     const names = [...unlisted].map(q).join(', ');
-    out.push({ topic: 'mfa', level: 'error', message: `users are enrolled in ${unlisted.size} MFA step(s) authn.mfa.steps does not list (${names}): their password logins are refused until each is listed, e.g. for totp install @spinajs/authn-totp and list { name: 'totp', service: 'TotpMfaStep' }` });
+    const policy = config.get<unknown>('authn.mfa.policy.service');
+    const effect =
+      policy === undefined || policy === 'DefaultMfaPolicy'
+        ? 'their password logins are refused until each is listed'
+        : `DefaultMfaPolicy refuses their password logins, but authn.mfa.policy.service names ${q(String(policy))}, which decides; list each step`;
+    out.push({ topic: 'mfa', level: 'error', message: `users are enrolled in ${unlisted.size} MFA step(s) authn.mfa.steps does not list (${names}): ${effect}, e.g. for totp install @spinajs/authn-totp and list { name: 'totp', service: 'TotpMfaStep' }` });
   }
   return out;
 }
@@ -89,7 +94,8 @@ const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.viol
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys unless rejectLegacyKeys is false) and what boot accepts but an operator
  * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development, users enrolled in
- * an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources, which may query a database.
+ * an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources: with authn-orm loaded it
+ * opens the authn store (the app database) to look for enrolled MFA steps.
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
   let config: Configuration;

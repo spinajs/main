@@ -1395,6 +1395,15 @@ describe('DefaultAuthnService', function () {
       await refusedLogin(p, a, 'mfa_step_not_listed', { steps: ['totp'] });
     });
 
+    it('refuses, auditing the steps, when a source reports a listed step that step says is not enrolled', async () => {
+      const source = new Enrolments({});
+      const p = await boot(undefined, { register: register(source) });
+      const a = await seedAlice(p);
+      source.byId = { [a.id]: [p.step.name] };
+      const refused = await refusedLogin(p, a, 'mfa_enrolment_mismatch', { steps: [p.step.name] });
+      assert.deepStrictEqual(await p.service.authenticate(pw(ALICE.login, WRONG), ctx()), refused, 'alike');
+    });
+
     it('lets an identity without an enrolment log in with the password', async () => {
       const p = await boot(undefined, { ...NO_STEPS, register: register(new Enrolments({ someone: ['totp'] })) });
       await seedAlice(p);
@@ -1431,7 +1440,7 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(r.session?.state, 'active');
     });
 
-    it('completeMfa refuses, elevating nothing, when the policy now finds an unlisted step or throws', async () => {
+    it('completeMfa refuses, elevating nothing, when the policy now finds an unlisted or mismatched step or throws', async () => {
       const source = new Enrolments({});
       const p = await boot(undefined, { register: register(source) });
       const a = await seedAlice(p);
@@ -1443,11 +1452,17 @@ describe('DefaultAuthnService', function () {
       source.byId = { [a.id]: ['totp'] };
       p.events.clear();
       failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      source.byId = { [a.id]: [p.step.name] };
+      failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
       source.byId = new RangeError('mfa store down');
       failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
       assert.deepStrictEqual(
         p.events.all().map((e) => `${e.type}:${e.outcome}:${e.reason}:${JSON.stringify(e.data)}`),
-        ['mfa.verify:failure:mfa_step_not_listed:{"steps":["totp"]}', 'mfa.verify:failure:step_error:{"error":"RangeError"}'],
+        [
+          'mfa.verify:failure:mfa_step_not_listed:{"steps":["totp"]}',
+          `mfa.verify:failure:mfa_enrolment_mismatch:{"steps":["${p.step.name}"]}`,
+          'mfa.verify:failure:step_error:{"error":"RangeError"}',
+        ],
       );
       assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending', 'not elevated');
       assert.strictEqual(p.step.verifyCalls.length, 0);

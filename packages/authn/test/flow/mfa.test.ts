@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 
-import { DefaultMfaPolicy, MfaEnrolments, MfaStep, MfaStepNotListed, MfaStepRegistry, RoleSource } from '../../src/index.js';
+import { DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, MfaStepRegistry, RoleSource } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -277,7 +277,23 @@ describe('MFA steps and DefaultMfaPolicy', function () {
         const p = await boot({ register: withEnrolments(new Enrolments({ alice: ['totp'], bob: ['fake'] })) });
         const policy = await policyOf(p);
         await refusedWith(policy.required(ALICE, PASSWORD), ['totp']);
-        assert.deepStrictEqual(await policy.required(BOB, PASSWORD), [], 'a stored row of a listed step is left to that step');
+        await assert.rejects(policy.required(BOB, PASSWORD), MfaEnrolmentMismatch, 'a row of a listed step that step does not see');
+      });
+
+      it('refuses when a source reports a listed step that step says the identity is not enrolled in (a store mismatch)', async () => {
+        const p = await boot({ register: withEnrolments(new Enrolments({ bob: ['fake'] })) });
+        const policy = await policyOf(p);
+        await assert.rejects(policy.required(BOB, PASSWORD), (e: unknown) => {
+          assert.ok(e instanceof MfaEnrolmentMismatch, String(e));
+          assert.deepStrictEqual([...e.steps], ['fake']);
+          return true;
+        });
+        assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), [], 'an identity without an enrolment');
+      });
+
+      it('names the unlisted steps when a source reports both an unlisted and a mismatched listed step', async () => {
+        const p = await boot({ register: withEnrolments(new Enrolments({ alice: ['fake', 'totp'] })) });
+        await refusedWith((await policyOf(p)).required(ALICE, PASSWORD), ['totp']);
       });
 
       it('refuses under force and forceForRoles instead of requiring the first step', async () => {

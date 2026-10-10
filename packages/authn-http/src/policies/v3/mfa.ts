@@ -5,7 +5,7 @@ import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { MfaStepRegistry, isMfaStepNotListed } from '@spinajs/authn';
+import { MfaStepRegistry, mfaEnrolmentRefusal } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
@@ -22,8 +22,9 @@ export async function mfaPolicyOf(container: IContainer, name: string): Promise<
 }
 
 /**
- * Passes when MfaPolicy requires no step for the principal, or its authn.assurance is aal2 (A20, D2). An identity
- * enrolled in a step authn.mfa.steps does not list gets mfa_required too; any other policy error fails the request.
+ * Passes when MfaPolicy requires no step for the principal, or its authn.assurance is aal2 (A20, D2). An identity the
+ * policy refuses over its stored enrolments (a step authn.mfa.steps does not list, or a listed step that does not see
+ * the enrolment) gets mfa_required too; any other policy error fails the request.
  */
 export class MfaSatisfied extends BasePolicy {
   @Autoinject(Container)
@@ -46,7 +47,7 @@ export class MfaSatisfied extends BasePolicy {
     try {
       steps = await policy.required({ type: principal.type, id: principal.id }, { method: authn.method, strategy: authn.strategy });
     } catch (err) {
-      if (isMfaStepNotListed(err)) throw refused('mfa_required', 'this route needs a second factor');
+      if (mfaEnrolmentRefusal(err)) throw refused('mfa_required', 'this route needs a second factor');
       throw err;
     }
     if (steps.length > 0) throw refused('mfa_required', 'this route needs a second factor');
