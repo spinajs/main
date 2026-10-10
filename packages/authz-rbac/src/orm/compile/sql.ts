@@ -62,47 +62,130 @@ function assertBindable(v: unknown): asserts v is RbacSqlValue {
 
 // Stricter than authz-orm's check, so whatever passes here passes there: the text never holds a
 // quoted literal (values are bound), a placeholder, a named parameter or a comment.
-const FORBIDDEN = new Set(['?', "'", '"', '`', ';', '$', '[', ']', '#', '\\', ':', '@']);
+const FORBIDDEN = new Uint8Array(128);
+for (const c of ['?', "'", '"', '`', ';', '$', '[', ']', '#', '\\', ':', '@']) FORBIDDEN[c.charCodeAt(0)] = 1;
 
-function assertText(parts: readonly RbacSqlPart[]): void {
-  let depth = 0;
-  let prev = '';
-  for (const part of parts) {
-    if (typeof part !== 'string') {
-      prev = '';
-      continue;
-    }
-    for (const c of part) {
-      if (FORBIDDEN.has(c)) throw refuse(`has a '${c}' in its text; bind values and name columns with ident() or outer()`);
-      if ((prev === '-' && c === '-') || (prev === '/' && c === '*')) throw refuse(`has a '${prev}${c}' comment`);
-      if (c === '(') depth++;
-      else if (c === ')' && --depth < 0) throw refuse("closes a bracket it did not open: ')' before its '('");
-      prev = c;
-    }
-  }
-  if (depth > 0) throw refuse(`leaves ${depth} bracket(s) open`);
+const OPEN = 0x28;
+const CLOSE = 0x29;
+// What a fragment starts or ends with when that is no text: another part, or nothing at all.
+const PART = -1;
+const NOTHING = -2;
+
+const comment = (prev: number, c: number): boolean => (prev === 0x2d && c === 0x2d) || (prev === 0x2f && c === 0x2a);
+const refuseComment = (prev: number, c: number): AuthzConfigError => refuse(`has a '${String.fromCharCode(prev, c)}' comment`);
+
+const NO_COLUMNS: readonly string[] = Object.freeze([]);
+
+/** `columns` and then the new ones of `read`, in order: the same array when nothing is new. */
+function addColumns(columns: readonly string[], read: readonly string[]): readonly string[] {
+  if (columns.length === 0) return read;
+  let out: string[] | undefined;
+  for (const c of read) if (!columns.includes(c)) (out ??= [...columns]).push(c);
+  return out ?? columns;
 }
 
-/** SQL text with bound values, quoted identifiers and the filtered row's columns, built by `rsql`. */
+/**
+ * SQL text with bound values, quoted identifiers and the filtered row's columns, built by `rsql`.
+ *
+ * A fragment keeps the fragments nested in it whole and checks only its own text and values (a nested one was
+ * checked when it was built), so a term builds in time linear in its size. The checks still hold for the
+ * flattened text: a nested fragment is balanced on its own, and a comment formed across a boundary shows in the
+ * first and last text character of the nested fragment.
+ */
 export class RbacSql {
-  readonly parts: readonly RbacSqlPart[];
+  /** Its own parts and the fragments nested in it, in order. */
+  readonly items: readonly (RbacSqlPart | RbacSql)[];
+  /** The SQL is one bracket pair around everything. */
+  readonly bracketed: boolean;
+  /** The filtered row's columns it reads, in the order of their first `outer()`. */
+  readonly outerColumns: readonly string[];
+  private flat: readonly RbacSqlPart[] | undefined;
+  // The first and last text character's code, PART when another part comes first or last, NOTHING when empty.
+  private readonly head: number;
+  private readonly tail: number;
 
-  constructor(parts: readonly RbacSqlPart[]) {
+  constructor(parts: readonly (RbacSqlPart | RbacSql)[]) {
     for (const p of parts) if (p instanceof RbacBound) assertBindable(p.value);
-    assertText(parts);
-    this.parts = Object.freeze([...parts]);
+    let depth = 0;
+    let head = NOTHING;
+    let tail = NOTHING;
+    // For `bracketed`: nothing seen yet; the last character closed the outermost bracket.
+    let first = true;
+    let closed = false;
+    let bracketed = true;
+    let columns = NO_COLUMNS;
+    for (const p of parts) {
+      if (typeof p === 'string') {
+        if (p.length === 0) continue;
+        // Code units, not code points: every character checked is ASCII, and no surrogate is.
+        for (let i = 0; i < p.length; i++) {
+          const c = p.charCodeAt(i);
+          if (c < 128 && FORBIDDEN[c] === 1) throw refuse(`has a '${p[i]}' in its text; bind values and name columns with ident() or outer()`);
+          if (comment(tail, c)) throw refuseComment(tail, c);
+          if (first) bracketed = c === OPEN;
+          else if (depth === 0 && closed) bracketed = false;
+          first = false;
+          if (c === OPEN) depth++;
+          else if (c === CLOSE && --depth < 0) throw refuse("closes a bracket it did not open: ')' before its '('");
+          closed = c === CLOSE && depth === 0;
+          tail = c;
+        }
+        if (head === NOTHING) head = p.charCodeAt(0);
+      } else if (p instanceof RbacSql) {
+        if (p.head === NOTHING) continue;
+        if (comment(tail, p.head)) throw refuseComment(tail, p.head);
+        if (head === NOTHING) head = p.head;
+        tail = p.tail;
+        if (depth === 0) bracketed &&= first && p.bracketed;
+        first = false;
+        closed = depth === 0 && p.bracketed;
+        if (p.outerColumns.length > 0) columns = addColumns(columns, p.outerColumns);
+      } else {
+        if (head === NOTHING) head = PART;
+        tail = PART;
+        if (depth === 0) bracketed = false;
+        first = false;
+        closed = false;
+        if (p instanceof RbacOuterColumn) columns = addColumns(columns, [p.column]);
+      }
+    }
+    if (depth > 0) throw refuse(`leaves ${depth} bracket(s) open`);
+    this.items = Object.freeze([...parts]);
+    this.bracketed = bracketed && !first && closed;
+    this.outerColumns = columns;
+    this.head = head;
+    this.tail = tail;
+  }
+
+  /** The parts with the nested fragments spliced in, worked out when first read. */
+  get parts(): readonly RbacSqlPart[] {
+    if (this.flat) return this.flat;
+    const out: RbacSqlPart[] = [];
+    // Not recursive: a term nests fragments thousands deep.
+    const stack: { items: readonly (RbacSqlPart | RbacSql)[]; i: number }[] = [{ items: this.items, i: 0 }];
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top.i === top.items.length) {
+        stack.pop();
+        continue;
+      }
+      const p = top.items[top.i++];
+      if (!(p instanceof RbacSql)) out.push(p);
+      else if (p.flat) for (const q of p.flat) out.push(q);
+      else stack.push({ items: p.items, i: 0 });
+    }
+    this.flat = Object.freeze(out);
+    return this.flat;
   }
 }
 
 export function rsql(strings: TemplateStringsArray, ...values: readonly RbacSqlArg[]): RbacSql {
-  const parts: RbacSqlPart[] = [];
+  const parts: (RbacSqlPart | RbacSql)[] = [];
   strings.forEach((s, i) => {
     parts.push(s);
     if (i >= values.length) return;
     const v: unknown = values[i];
-    // A loop, not a spread: a large fragment would overflow the argument stack.
-    if (v instanceof RbacSql) for (const part of v.parts) parts.push(part);
-    else if (v instanceof RbacOuterColumn || v instanceof RbacIdentifier) parts.push(v);
+    if (v instanceof RbacSql || v instanceof RbacOuterColumn || v instanceof RbacIdentifier) parts.push(v);
     else if (Array.isArray(v)) {
       if (v.length === 0) throw refuse('cannot bind an empty array; fold the empty list in the compiler (IN of nothing is FALSE)');
       v.forEach((x: unknown, j) => {
@@ -146,22 +229,40 @@ export function aliasedTable(table: string, alias: string): RbacSql {
 /** The fragment with every `outer(c)` read as `alias.<name(c)>`: the same SQL about another row source. */
 export function rebindOuter(fragment: RbacSql, alias: string, name: (column: string) => string = (c) => c): RbacSql {
   if (typeof alias !== 'string' || alias === '') throw refuse('rebindOuter() takes a non-empty alias');
-  return new RbacSql(fragment.parts.map((p) => (p instanceof RbacOuterColumn ? ident(alias, name(p.column)) : p)));
+  // Only the fragments that read a column are built again; the others are shared. Post-order, without recursion.
+  const rebound = new Map<RbacSql, RbacSql>();
+  const reads = (p: RbacSqlPart | RbacSql): p is RbacSql => p instanceof RbacSql && p.outerColumns.length > 0;
+  const stack: RbacSql[] = [fragment];
+  while (stack.length > 0) {
+    const f = stack[stack.length - 1];
+    let ready = true;
+    for (const p of f.items) {
+      if (reads(p) && !rebound.has(p)) {
+        stack.push(p);
+        ready = false;
+      }
+    }
+    if (!ready) continue;
+    stack.pop();
+    if (!rebound.has(f)) rebound.set(f, new RbacSql(f.items.map((p) => (p instanceof RbacOuterColumn ? ident(alias, name(p.column)) : reads(p) ? rebound.get(p)! : p))));
+  }
+  // Always a new fragment, as before: kleene.ts tells fragments apart by identity.
+  return rebound.get(fragment)!;
 }
 
 /** The filtered row's columns a fragment reads. */
 export function outerColumnsOf(fragment: RbacSql): string[] {
-  return [...new Set(fragment.parts.filter((p): p is RbacOuterColumn => p instanceof RbacOuterColumn).map((p) => p.column))];
+  return [...fragment.outerColumns];
 }
 
 export const TRUE_SQL: RbacSql = rsql`1 = 1`;
 export const FALSE_SQL: RbacSql = rsql`1 = 0`;
 
 export function joinSql(parts: readonly RbacSql[], separator: string): RbacSql {
-  const out: RbacSqlPart[] = [];
+  const out: (string | RbacSql)[] = [];
   parts.forEach((p, i) => {
     if (i > 0) out.push(separator);
-    for (const part of p.parts) out.push(part);
+    out.push(p);
   });
   return new RbacSql(out);
 }
@@ -362,21 +463,28 @@ class RbacSqlStatement extends QueryStatement {
  * refuses a column the model does not have), `ident(...)` `identifier(...)`, and the text stays text.
  */
 export function toNativeSql(fragment: RbacSql, builder: IWhereBuilder<unknown>): SqlFragment {
+  return nativeOf(fragment, builder).native;
+}
+
+/** `toNativeSql`, and the first names of the fragment's identifiers: the tables and aliases its nested SELECTs name. */
+function nativeOf(fragment: RbacSql, builder: IWhereBuilder<unknown>): { native: SqlFragment; heads: string[] } {
   const strings: string[] = [''];
   const values: unknown[] = [];
+  const heads = new Set<string>();
   for (const p of fragment.parts) {
     if (typeof p === 'string') {
       strings[strings.length - 1] += p;
       continue;
     }
-    values.push(p instanceof RbacOuterColumn ? outerColumn(builder, p.column) : p instanceof RbacIdentifier ? identifier(...p.names) : p.value);
+    if (p instanceof RbacOuterColumn) values.push(outerColumn(builder, p.column));
+    else if (p instanceof RbacIdentifier) {
+      values.push(identifier(...p.names));
+      if (!(p instanceof RbacCollationName) && !(p instanceof RbacTableName)) heads.add(p.names[0]);
+    } else values.push(p.value);
     strings.push('');
   }
-  return sql(Object.assign(strings, { raw: [...strings] }) as unknown as TemplateStringsArray, ...values);
+  return { native: sql(Object.assign(strings, { raw: [...strings] }) as unknown as TemplateStringsArray, ...values), heads: [...heads] };
 }
-
-/** The first names of the fragment's identifiers: the tables and aliases its nested SELECTs name. */
-const identifierHeads = (fragment: RbacSql): string[] => [...new Set(fragment.parts.filter((p): p is RbacIdentifier => p instanceof RbacIdentifier && !(p instanceof RbacCollationName) && !(p instanceof RbacTableName)).map((p) => p.names[0]))];
 
 /** Whether a native builder is reachable through `b`'s where groups and correlations: its row is not this query's. */
 function reachesNative(b: unknown): boolean {
@@ -405,7 +513,10 @@ const refuseNative = (): AuthzConfigError => refuse('the builder is correlated w
  * correlated with a parent (an orm relation query), is the filtered row itself.
  */
 export function whereRbacSql<B extends IWhereBuilder<unknown>>(w: B, fragment: RbacSql): B {
-  if (isNativeBuilder(w)) return whereSqlWithAliases(w, toNativeSql(fragment, w), identifierHeads(fragment));
+  if (isNativeBuilder(w)) {
+    const { native, heads } = nativeOf(fragment, w);
+    return whereSqlWithAliases(w, native, heads);
+  }
   if (reachesNative(w)) throw refuseNative();
   queryOf(w);
   (w as unknown as { pushStatement(s: IQueryStatement): unknown }).pushStatement(new RbacSqlStatement(w, fragment));

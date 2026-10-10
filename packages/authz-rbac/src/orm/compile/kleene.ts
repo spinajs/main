@@ -16,35 +16,7 @@ export const inexact = (b: Bound): RbacSql => (b === 'hi' ? TRUE_SQL : b === 'lo
 // already brackets itself gets no second pair.
 const junctions = new WeakMap<RbacSql, { readonly op: 'AND' | 'OR'; readonly items: readonly RbacSql[] }>();
 
-/** The SQL is one bracket pair around everything. */
-function bracketed(x: RbacSql): boolean {
-  let depth = 0;
-  let first = true;
-  let closedAtEnd = false;
-  for (const p of x.parts) {
-    if (typeof p !== 'string') {
-      if (depth === 0) return false;
-      first = false;
-      closedAtEnd = false;
-      continue;
-    }
-    for (const ch of p) {
-      if (first && ch !== '(') return false;
-      first = false;
-      if (depth === 0 && closedAtEnd) return false;
-      if (ch === '(') depth++;
-      else if (ch === ')') {
-        depth--;
-        closedAtEnd = depth === 0;
-        continue;
-      }
-      closedAtEnd = false;
-    }
-  }
-  return !first && depth === 0 && closedAtEnd;
-}
-
-export const wrap = (x: RbacSql): RbacSql => (bracketed(x) ? x : rsql`(${x})`);
+export const wrap = (x: RbacSql): RbacSql => (x.bracketed ? x : rsql`(${x})`);
 
 function junction(op: 'AND' | 'OR', xs: readonly RbacSql[]): RbacSql {
   const items = xs.flatMap((x) => {
