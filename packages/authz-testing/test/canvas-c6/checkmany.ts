@@ -37,7 +37,7 @@ export interface CanvasPair {
   readonly cases: readonly CanvasCase[];
 }
 
-function principalLabel(p: Principal, sym: (id: string) => string): string {
+export function principalLabel(p: Principal, sym: (id: string) => string): string {
   switch (p.kind) {
     case 'user':
       return `user ${sym(p.user)}`;

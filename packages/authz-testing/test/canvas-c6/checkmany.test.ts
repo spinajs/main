@@ -85,7 +85,8 @@ describe('canvas C6 checkMany equals 30 single checks (memory, one system)', fun
 });
 
 describe('canvas C6 checkMany equals 30 single checks (sqlite, one system)', function () {
-  this.timeout(120000);
+  // About 9 s of CPU, but 25-130 s of wall time when the machine runs other suites at once.
+  this.timeout(600000);
   const harness = canvasHarness({ store: 'sqlite' });
   let session: HarnessSession | undefined;
 

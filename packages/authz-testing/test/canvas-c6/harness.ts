@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, ScopeAttributeStore, ScopeResolver, WritableScopeAttributeStore } from '@spinajs/authz';
-import type { AuthzService } from '@spinajs/authz';
+import type { AuthzService, ResourceRef } from '@spinajs/authz';
 import { AbacContributor, AbacModel } from '@spinajs/authz-abac';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAuthzAdminBackend, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RbacContributor, RbacModel, RbacService, RoleStore, RuleStore, registerRbac } from '@spinajs/authz-rbac';
@@ -11,7 +11,7 @@ import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { hostHarness, testHost } from '../../src/index.js';
-import type { BehaviourHarness, Facet, HostSetup, World } from '../../src/index.js';
+import type { BehaviourHarness, Facet, HarnessSession, HostSetup, World } from '../../src/index.js';
 import { canvasAuthzConfig, readCapabilities } from './config.js';
 import type { CapabilityTable } from './config.js';
 import { bootCanvasDb, clearCanvasTables } from './db.js';
@@ -33,7 +33,7 @@ export interface CanvasHandle {
   readonly deps: C6FacadeDeps;
   readonly fixtures: CanvasFixtures;
   readonly load: CanvasLoad;
-  /** SQLite only: the connection the stores read and AuthzAdmin writes. */
+  /** DB stores only: the connection the stores read and AuthzAdmin writes. */
   readonly driver?: OrmDriver;
 }
 
@@ -109,7 +109,7 @@ export interface CanvasHarnessOptions {
 }
 
 /** What a case's RBAC wiring hands the rest of the harness. */
-interface CanvasRbac {
+export interface CanvasRbac {
   readonly service: RbacService;
   readonly attributes: WritableScopeAttributeStore;
 }
@@ -135,15 +135,19 @@ function registerMemoryRbac(host: HostSetup, configuration: Configuration): Canv
   return { service: new RbacService(model), attributes: new MemoryScopeAttributeStore() };
 }
 
+/** A role store holding an earlier group's TestConfiguration would read stale roles. */
+export async function assertCaseRoleStore(c: IContainer, configuration: Configuration): Promise<void> {
+  const roles = (await c.resolve(RoleStore)) as unknown as Record<string, IContainer>;
+  if (roles[CONFIGURATION_CONTAINER_KEY].get(Configuration) !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
+}
+
 /** The §8.5 stores by name through authz-rbac's registerRbac, over the canvas test database (tables cleared first). */
 async function registerSqliteRbac(host: HostSetup, configuration: Configuration, db: CanvasDb): Promise<CanvasRbac> {
   const c = host.container;
   await clearCanvasTables(db.driver);
   c.register(instance(db.orm)).as(Orm);
   const { service } = await registerRbac(c, configuration, { clock: host.kit.clock });
-  // A role store holding an earlier group's TestConfiguration would read stale roles.
-  const roles = (await c.resolve(RoleStore)) as unknown as Record<string, IContainer>;
-  if (roles[CONFIGURATION_CONTAINER_KEY].get(Configuration) !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
+  await assertCaseRoleStore(c, configuration);
   return { service, attributes: new DbScopeAttributeStore({ container: db.container }) };
 }
 
@@ -152,33 +156,43 @@ const FACETS: Readonly<Record<CanvasStoreKind, readonly Facet[]>> = Object.freez
   sqlite: ['canvas', 'admin', 'rbac', 'ladders', 'rules', 'links', 'abac', 'conditions', 'scopeAttributes', 'store', 'sql'],
 });
 
+/** The facets of a canvas harness over the DB stores. */
+export const CANVAS_DB_FACETS: readonly Facet[] = FACETS.sqlite;
+
+export interface CanvasHostOptions {
+  readonly domain?: string;
+  readonly facets: readonly Facet[];
+  /** Registered as the domain's AuthzAdminBackend; the world's authz.admin.backend names it. */
+  readonly backend: Class<AuthzAdminBackend>;
+  /** Wires RBAC into the case's domain. */
+  rbac(host: HostSetup, configuration: Configuration): CanvasRbac | Promise<CanvasRbac>;
+  /** The connection the stores read, for the lane handle. */
+  driver?(): OrmDriver | undefined;
+  /** The loaded row the facade checks with (an app checks rows it read); none: a check of the ref alone. */
+  subject?(ref: ResourceRef): Promise<unknown>;
+  /** More session handles, once the state is loaded. */
+  extend?(host: HostSetup, session: HarnessSession, canvas: CanvasHandle): Partial<HarnessSession> | Promise<Partial<HarnessSession>>;
+}
+
 /**
- * hostHarness plus canvas C6: CanvasScopeResolver over state.json, the org attribute schema, RBAC and
- * ABAC models over the §8.5 config, writable stores, the state loaded through AuthzAdmin as SYSTEM,
- * and C6Facade over the domain's check (lane handle `canvas`). `store: 'sqlite'` boots one SQLite
- * `:memory:` database with the real migrations for the harness and clears its authz tables per case.
+ * hostHarness plus canvas C6 over the RBAC wiring of `opts.rbac`: CanvasScopeResolver over state.json, the org
+ * attribute schema, the ABAC model over the §8.5 config, the state loaded through AuthzAdmin as SYSTEM, and C6Facade
+ * over the domain's check (lane handle `canvas`).
  */
-export function canvasHarness(opts: CanvasHarnessOptions): BehaviourHarness {
+export function canvasHostHarness(opts: CanvasHostOptions): BehaviourHarness {
   const wired = new WeakMap<HostSetup, CanvasRbac>();
   const fixtures = loadCanvasFixtures();
-  let db: CanvasDb | undefined;
 
-  const base = hostHarness({
-    facets: FACETS[opts.store],
+  return hostHarness({
+    ...(opts.domain === undefined ? {} : { domain: opts.domain }),
+    facets: opts.facets,
     kitScopeAttributes: false,
     async register(host) {
       const c = host.container;
       const configuration = (await c.resolve(Configuration)) as Configuration;
-      let rbac: CanvasRbac;
-      if (opts.store === 'sqlite') {
-        if (!db) throw new Error('canvasHarness: the SQLite database is not booted (beforeAll did not run)');
-        activeDb = db;
-        rbac = await registerSqliteRbac(host, configuration, db);
-      } else {
-        rbac = registerMemoryRbac(host, configuration);
-      }
+      const rbac = await opts.rbac(host, configuration);
       wired.set(host, rbac);
-      c.register(CANVAS_ADMIN_BACKENDS[opts.store]).as(AuthzAdminBackend);
+      c.register(opts.backend).as(AuthzAdminBackend);
 
       c.register(instance(new CanvasScopeResolver(fixtures.state))).as(ScopeResolver);
       c.register(instance(canvasScopeContributor())).as(AuthzContributor);
@@ -196,15 +210,40 @@ export function canvasHarness(opts: CanvasHarnessOptions): BehaviourHarness {
       session.clock!.advance(2 * HOUR);
       const { service } = wired.get(host)!;
       const deps: C6FacadeDeps = {
-        check: (req) => authz.check(req),
+        check: async (req) => {
+          const subject = await opts.subject?.(req.resource);
+          return authz.check(subject === undefined || subject === null ? req : { ...req, subject });
+        },
         linkPrincipal: (id, companion) => service.linkPrincipal(id, companion),
         linkIds: load.linkIds,
         capabilities: CANVAS_CAPABILITIES,
         fileProject: (file) => fixtures.state.files.get(file)?.project,
       };
-      const facade = new C6Facade(deps);
-      return { admin, lane: { ...session.lane, canvas: { facade, deps, fixtures, load, ...(db ? { driver: db.driver } : {}) } } };
+      const driver = opts.driver?.();
+      const canvas: CanvasHandle = { facade: new C6Facade(deps), deps, fixtures, load, ...(driver ? { driver } : {}) };
+      const extra = (await opts.extend?.(host, session, canvas)) ?? {};
+      return { admin, ...extra, lane: { ...session.lane, canvas, ...extra.lane } };
     },
+  });
+}
+
+/**
+ * canvasHostHarness with writable stores: built by hand in memory, or (`store: 'sqlite'`) the §8.5 DB stores over
+ * one SQLite `:memory:` database with the real migrations, booted for the harness, its authz tables cleared per case.
+ */
+export function canvasHarness(opts: CanvasHarnessOptions): BehaviourHarness {
+  let db: CanvasDb | undefined;
+
+  const base = canvasHostHarness({
+    facets: FACETS[opts.store],
+    backend: CANVAS_ADMIN_BACKENDS[opts.store],
+    async rbac(host, configuration) {
+      if (opts.store !== 'sqlite') return registerMemoryRbac(host, configuration);
+      if (!db) throw new Error('canvasHarness: the SQLite database is not booted (beforeAll did not run)');
+      activeDb = db;
+      return registerSqliteRbac(host, configuration, db);
+    },
+    driver: () => db?.driver,
   });
   if (opts.store !== 'sqlite') return base;
 
