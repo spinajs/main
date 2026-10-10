@@ -4,7 +4,7 @@ import { AuthorizationModel, AuthzContributor, GLOBAL, SYSTEM, ScopeAttributeSto
 import type { AssignmentSubject, AuthzService, Principal, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
 import { AbacContributor, AbacModel } from '@spinajs/authz-abac';
 import { AccessResource, AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, ScopeColumn } from '@spinajs/authz-orm';
-import { hostHarness, testHost } from '@spinajs/authz-testing';
+import { agentPrincipal, hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -13,6 +13,7 @@ import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
 // The kit's canvas generator and org schema (pure modules); authz-orm internals from the build the package resolves to.
 import { compileResidual } from '../../authz-orm/lib/mjs/compile/compiler.js';
+import { relationPrincipalOf } from '../../authz-orm/lib/mjs/principal.js';
 import { branchRulePermissions, readCapabilities } from '../../authz-testing/test/canvas-c6/config.js';
 import { ORG_ATTRIBUTE_SCHEMA } from '../../authz-testing/test/canvas-c6/scope.js';
 import { AdminRuleStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, RBAC_ASSIGNMENT_OP, createRbacExtensions, rbacAssignmentArgs, rbacAssignmentExtension, registerRbac } from '../src/index.js';
@@ -87,7 +88,7 @@ export interface BenchAssignment {
 }
 
 export interface BenchPrincipal {
-  /** owner, member, member-all, guest, external, link */
+  /** owner, member, member-all, guest, external, link, agent */
   readonly name: string;
   readonly principal: Principal;
   readonly note: string;
@@ -136,6 +137,7 @@ export function canvasState(seed = 7, background = 0): CanvasState {
   let links = 0;
 
   const bench = { owner: '', member: newUser(), memberAll: newUser(), guest: newUser(), external: newUser(), link: uuid('e1', ++links) };
+  const agentProjects: string[] = [];
 
   let fileCount = 0;
   for (let o = 0; o < SIZES.orgs + background; o++) {
@@ -170,6 +172,7 @@ export function canvasState(seed = 7, background = 0): CanvasState {
       const project = uuid('b1', o * SIZES.projectsPerOrg + p + 1);
       const P = { type: 'project', id: project };
       projects.push({ id: project, org });
+      if (o === 0 || o === 1) agentProjects.push(project);
       // org_default_role viewer, viewer, viewer, commenter, none; below editor its default add-ons are none
       if (p < 4) assign({ set: { role: 'org.member', scope: O } }, p < 3 ? 'viewer' : 'commenter', P);
       for (let k = 0; k < 4; k++) assign({ type: 'user', id: pick([...members, ...guests]) }, pick(PROJECT_ROLES), P, pick(ADDONS));
@@ -226,6 +229,12 @@ export function canvasState(seed = 7, background = 0): CanvasState {
     { name: 'guest', principal: user(bench.guest), note: 'org.guest of org 2 (STRICT policies) with two maintainer project grants' },
     { name: 'external', principal: user(bench.external), note: 'no org role: project grants in orgs 3 (OPEN) and 4 (external sharing off), file grants in org 5' },
     { name: 'link', principal: { type: 'link', id: bench.link, authenticated: true, source: 'link', attributes: { org_only: false } }, note: 'share link: viewer at a project of org 1' },
+    // Design §8.5 "Agent session" with all files of its projects, as the K1b canvas agent lists build it.
+    {
+      name: 'agent',
+      principal: agentPrincipal(uuid('f1', 1), user(bench.member), { delegation: 'inherit', permissions: [PERMISSION], resources: agentProjects.map((id) => ({ type: 'project', id })) }),
+      note: "an agent session for the member, ceiling project:read on the projects of orgs 1 (agents allowed) and 2 (agents_allowed: false): agents-disabled's ABAC scope leaves in SQL",
+    },
   ];
   return { background, orgs, groups, projects, files, assignments, rules, principals };
 }
@@ -470,7 +479,8 @@ export async function bootCanvasBench(kind: Kind, seed = 7, background = 0): Pro
       if (residual.op === 'false') return [];
       return runWithPrincipal(SYSTEM, async () => {
         const q = paged((file as unknown as { query(): any }).query(), offset);
-        compileResidual(residual, q, { model: file, principal, op: 'read' });
+        // Under inherit the residual reads principal.* from the delegate, as authz-orm's middleware compiles it.
+        compileResidual(residual, q, { model: file, principal: relationPrincipalOf(principal, authz), op: 'read' });
         return idsOf(await q);
       });
     };

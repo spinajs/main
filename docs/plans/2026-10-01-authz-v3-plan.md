@@ -2167,7 +2167,9 @@ and freezes merges until the checkpoint is green.
    `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status
    2026-10-09: FAIL**: every page misses the p50 limit by 2.3 to 21 times
    (RESULTS.md "Release gate 7 for 3.0"; without other tenants only, bg90
-   not run, as the page fails already); session
+   not run, as the page fails already). **2026-10-10: open, under review**:
+   after lane S1 the owner rethinks these limits (RESULTS.md "Release
+   gate 7 for 3.0 after S1"); session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

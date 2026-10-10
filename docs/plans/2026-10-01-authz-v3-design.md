@@ -2728,6 +2728,8 @@ unless `authz.orm.allowJit` is true. The answer is kept for the driver's
 life, reconnects included. Target for 3.1: at most twice the r2 plain
 `EXISTS` query, which needs the rules worked out once per scope node instead
 of once per row (`packages/authz-rbac/bench/RESULTS.md`, "Why it fails").
+Gate status 2026-10-10: open, under review by the owner after lane S1
+(RESULTS.md, "Release gate 7 for 3.0 after S1").
 
 **Work.** Plan lane L4b (5–6 dev-days) plus +1 day in L2 for the SQL-form
 columns and `authz_rule_subject`; L4 loses its post-check task (−1 day).

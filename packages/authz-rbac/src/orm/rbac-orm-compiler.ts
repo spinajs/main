@@ -4,7 +4,7 @@ import { OrmNativeCompiler } from '@spinajs/authz-orm';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { IdentifierQuoter } from '@spinajs/orm';
+import { IdentifierQuoter, extractModelDescriptor } from '@spinajs/orm';
 import type { IWhereBuilder, ModelBase, OrmDriver } from '@spinajs/orm';
 
 import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP } from '../contracts.js';
@@ -71,6 +71,14 @@ interface BuilderLinks {
  * which needs Postgres 12 or SQLite 3.35 (an older server fails every such list with a syntax error). SQLite works
  * the row-correlated WITH tables out again at each reference: about 0.45 s per filtered row with four stored rules,
  * so on SQLite these lists suit small tables only, until the rule tables are read by joins (L4b task 9).
+ *
+ * Postgres works a rule term out once per class of the model's rows that agree on what its rules read, not once
+ * per row tested: each term reads the model's whole table once (a few index probes per row, then a window function
+ * and a sort to take one row of each class), then runs the rules once per class; a route term without config roles
+ * only for the classes whose rows hold an assignment of its subjects on their path. So its cost grows with the
+ * table, rows the query's own filters exclude (other tenants' rows) included, and a term that fails on some row (a
+ * stored rule whose `definition` is no JSON) fails every list of the model, not only the lists that reach that rule.
+ * SQLite keeps one evaluation per row tested, as does a threshold term whose config rule reads `resource.*`.
  */
 export abstract class RbacListCompiler extends OrmNativeCompiler {
   protected readonly table: string = AUTHZ_ASSIGNMENT_TABLE;
@@ -160,6 +168,7 @@ export abstract class RbacListCompiler extends OrmNativeCompiler {
       now: this.now(),
       subjects: args.subjects.map((s) => this.subjectTriple(s)),
       table: this.table,
+      rowTable: extractModelDescriptor(model as never)?.TableName,
       where: () => this.where(pathOf.type),
     });
   }

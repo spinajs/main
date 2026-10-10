@@ -22,10 +22,10 @@ L2_REQUIRE_PG=1 L4B_BENCH_BACKGROUND=90 npm run bench -- --filter=postgres.jit-o
   3.0 limits table (below); writes one `bench/out/<name>.json` per scenario (git-ignored) with every repeat and the
   environment, and prints what each database holds (row counts, server version, `jit*` settings, the authz tables'
   indexes and `canvas_file_recent`).
-- Postgres JIT off took about 15 minutes for the lists alone (L4b); the page ops add about 330 runs each of
-  0.2 to 2 s, roughly 30 to 60 minutes more (1 h 48 min in all on a loaded machine). JIT on takes about two hours
-  for the lists (each list compiles for seconds), SQLite about 35 minutes. Run one mode at a time on a quiet
-  machine: other suites on the same Postgres server skew the numbers.
+- Postgres JIT off takes about 17 minutes for all seven principals with the class form (S1), one boot and seven
+  times 1,000 single checks included; with the per-row form it took 1 h 48 min for six (G7, a loaded machine).
+  JIT on took about two hours for the lists before S1 (each list compiles for seconds), SQLite about 35 minutes.
+  Run one mode at a time on a quiet machine: other suites on the same Postgres server skew the numbers.
 - The runner and the timing come from the kit (`packages/authz-testing/bench/lib.ts`, imported, not copied): the
   kit's runner reads only its own `scenarios/` directory, so this bench has its own `run.ts` with the gate tables.
 
@@ -64,21 +64,26 @@ and `org_id` scope columns, so authz-orm's middleware filters `project:read` whe
 Principals: `owner` (org.owner of org 1: implies maintainer, bypasses restrict and cap), `member` (org.member of
 orgs 1-2, a group, a project and a file grant), `member-all` (org.member of all 10 orgs), `guest` (org.guest of the
 STRICT org with two maintainer project grants), `external` (no org role; project grants in the OPEN org and in the
-org with external sharing off, file grants in a fifth org), `link` (a share link principal, viewer at a project).
+org with external sharing off, file grants in a fifth org), `link` (a share link principal, viewer at a project),
+`agent` (an agent session for `member`, `inherit`, ceiling `project:read` on the projects of orgs 1 and 2, built as
+K1b's canvas agent lists build it). Org 1 allows agents; org 2 (STRICT) has `agents_allowed: false`. The canvas
+config sets `abac.scopeResiduals: true` (RFC K1b-1), so the ABAC policy `agents-disabled` reaches the agent's list
+as `native:condition.scope` leaves: per row, correlated sub-selects that read the org's `agents_allowed` through the
+scope attribute layers. The agent lists the member's org 1 files only.
 
 ## The scenarios
 
 `scenarios/01-canvas-file-list.ts`, named `canvas[.bg<n>].<postgres.jit-off|postgres.jit-on|sqlite>.<principal>.<op>`:
 
-| op                  | times                                                                                                                                                                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `list`              | (a) the list as an app runs it: `File.query()` under the principal; authz-orm's middleware filters `project:read` (args v2 with the config rules and `dbRules`, `native:rbac.threshold`) and compiles it; one statement                    |
-| `exists`            | (b) the reference: the r2 `native:rbac.assignment` v1 term (design §6.1.3, the plain `EXISTS`) for the same principal without rules: the list's subjects and every role its routes accept, compiled by authz-orm on the same table and run |
-| `list-sql`          | (a), the statement only: its text and bindings run on the driver (no filter, no compile)                                                                                                                                                   |
-| `exists-sql`        | (b), the statement only                                                                                                                                                                                                                    |
-| `page-first`        | (a) as the dashboard's first page: `File.query()` under the principal with the ORM's `orderByDescending('updated_at').orderBy('id').take(50).skip(0)`, filtered and compiled by authz-orm's middleware as `list`; one statement            |
-| `page-middle`       | the same at offset `50 × floor(ceil(n / 50) / 2)`, `n` the principal's list size: owner 100 → 50, member 172 → 100, member-all 760 → 400; for `n` ≤ 50 the offset is 0 and the page is the first one (guest, external, link)               |
-| `exists-page-first` | context only: the reference (b) as a page, the same order, limit and offset 0 (`run` with an offset)                                                                                                                                       |
+| op                  | times                                                                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list`              | (a) the list as an app runs it: `File.query()` under the principal; authz-orm's middleware filters `project:read` (args v2 with the config rules and `dbRules`, `native:rbac.threshold`) and compiles it; one statement                     |
+| `exists`            | (b) the reference: the r2 `native:rbac.assignment` v1 term (design §6.1.3, the plain `EXISTS`) for the same principal without rules: the list's subjects and every role its routes accept, compiled by authz-orm on the same table and run  |
+| `list-sql`          | (a), the statement only: its text and bindings run on the driver (no filter, no compile)                                                                                                                                                    |
+| `exists-sql`        | (b), the statement only                                                                                                                                                                                                                     |
+| `page-first`        | (a) as the dashboard's first page: `File.query()` under the principal with the ORM's `orderByDescending('updated_at').orderBy('id').take(50).skip(0)`, filtered and compiled by authz-orm's middleware as `list`; one statement             |
+| `page-middle`       | the same at offset `50 × floor(ceil(n / 50) / 2)`, `n` the principal's list size: owner 100 → 50, member 172 → 100, member-all 760 → 400, agent 95 → 50; for `n` ≤ 50 the offset is 0 and the page is the first one (guest, external, link) |
+| `exists-page-first` | context only: the reference (b) as a page, the same order, limit and offset 0 (`run` with an offset)                                                                                                                                        |
 
 Sizing on Postgres with JIT off: the list ops 30 iterations, 5 warm-up, 3 repeats; the page ops 100 iterations, 10
 warm-up, 3 repeats (a p99 over 100 samples). JIT on and SQLite keep the list sizing for the pages.
@@ -109,3 +114,29 @@ JIT: the bench database is its own (`l2_l4b_bench_postgres_<hex>`, dropped at th
 `ALTER DATABASE … SET jit = on|off` on it and reconnects the pool (new sessions read it; `SHOW jit` is checked).
 The database starts with `jit = off`; JIT on sets `authz.orm.allowJit: true`, since authz-orm refuses such a
 connection otherwise. Nothing is set on the server.
+
+## The list SQL the bench times (after S1)
+
+On Postgres each rule list term (the route, a config `threshold(id)`, the stored rules' `thresholdDb`) is worked out
+once per class of file rows, not once per row (`src/orm/compile/classes.ts`, design `.authz-sdd/S1-design.md`). A
+class is the rows that agree on everything the rules read: the shape of each scope column, the ids some rule,
+assignment of the subjects or attribute row touches, and fields a stored resource pattern reads. What that costs
+per statement:
+
+- Each term reads the whole file table once (a key per row: a few hash probes), sorts it by the key and keeps one
+  row per class, then runs the rule chain once per class. Rows the app's own filters exclude are read too, so the
+  pass grows with the table, not with the page.
+- Classes per principal on the canvas (bg0, page statement, `EXPLAIN`): the `thresholdDb` term, which is never
+  pruned, keeps about 60 (member-all 100); the route term, pruned to rows with an assignment of the subjects on
+  their path, keeps 2 to 21 (member-all 100; link has a second unpruned term with 59). At 0.2 to 0.4 ms per class
+  that is 15 to 70 ms of each statement.
+- The statement stays large: 280 to 380 KB with 5,000 to 6,600 bound values. Postgres plans it in 12 to 23 ms
+  every time, and authz-orm's middleware compiles it in Node in 23 to 36 ms on every query (67 to 91 ms before
+  8f52ade6b; RESULTS.md, "What the numbers say").
+- A config threshold that reads `resource.*` keeps the per-row form (a class per value would be slower).
+- A path with a column without an id mode keeps the per-row form (that column compares in its own collation).
+- SQLite keeps the per-row form for every term (its parser stack, and stored rules serve tests there).
+- Error surface: the class form runs the rule chain for one row of every class, so a stored rule Postgres cannot
+  read (a `definition` that is not JSON) now fails every list of the model, not only the lists that reach it.
+- The agent's list adds `native:condition.scope` leaves (A4) beside the rule terms: per row, correlated sub-selects
+  over the org's attribute layers; they stay per row (no class key covers them yet).

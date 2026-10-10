@@ -12,7 +12,7 @@ import { KINDS, RootOrm } from '../orm/root-orm.js';
 import { propertyPart, propertyRuns } from './rules-arbitraries.js';
 import { DAY, PERMISSIONS, ROLES, RouteWorld, at, registerRouteSources, routeArgs, service, team, u, user } from './route-world.js';
 
-const SEED = 20261005;
+const SEED = Number(process.env.L4B_SEED ?? 20261005);
 const RUNS = propertyRuns('L4B_ROUTE_RUNS', 300);
 const part = propertyPart(RUNS);
 

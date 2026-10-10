@@ -26,7 +26,7 @@ import { DAY, LADDERS, RouteWorld, at, registerRouteSources, routeArgs, service,
  * reads it; task 9), so SQLite runs a tenth of the runs.
  */
 
-const SEED = 20261005;
+const SEED = Number(process.env.L4B_SEED ?? 20261005);
 const RUNS = propertyRuns('L4B_DB_RULES_RUNS', 100);
 const SAFETY_RUNS = propertyRuns('L4B_DB_SAFETY_RUNS', 80);
 const runsOn = (kind: Kind, runs: number) => (kind === 'sqlite' ? Math.max(1, Math.ceil(runs / 10)) : runs);
