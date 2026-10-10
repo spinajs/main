@@ -117,7 +117,7 @@ The table shows the target and what the converter does.
 | `rbac.systemRole`, `rbac.requireKnownRole` | removed | Warned if non-default. `SYSTEM` is a principal. Unknown roles always fail. |
 | `rbac.roleColumn` | `authz.rbac.migration.roleColumn` | Written. The `users.Role` copy migration reads it. |
 | `rbac.roleSwitch.requirePassword` | `authz.principals.roleSwitch.requirePassword` | |
-| `'user:impersonate': { 'create:any' }` and `rbac.impersonation.protectedRoles` | permission `user:impersonate` and `authz.impersonation.protectedRoles` | Adds the 2.x package part (`['system']`). |
+| `'user:impersonate': { 'create:any' }` and `rbac.impersonation.protectedRoles` | permission `user:impersonate` and `authz.impersonation.protectedRoles` | When the app set `protectedRoles`, adds the 2.x package part (`['system']`). Otherwise writes nothing (see section 3.3). |
 | `rbac.admin.roleGuard.*` | `authz.admin.guard.*` | `DefaultRoleGuard` becomes `DefaultAdminGuard`. `privilegedPermission` defaults to `'users:update'` in 3.0. The converter writes `<privilegedResource>:<verb>` only when the app set `privilegedResource` or `privilegedAction`, and asks you to set it by hand when the action is an `:own` one. A custom guard is written as found; boot fails until you port it. |
 | `rbac.token.rolePolicy`, `excludedRoles` | `authz.token.rolePolicy`, `authz.token.excludedRoles` | A custom policy is written as found; boot fails until you port it. |
 
@@ -155,6 +155,7 @@ writes the 3.0 key when 3.0 needs it, and lists the rest in `authz-warnings.md`:
 | Lockout after 5 failed logins (3 with `rbac-http-user`) for 15 minutes | Backoff, never a lock | Listed. |
 | Default role `guest` for new users | None unless `authz.rbac.defaultRoles` is set | Listed. |
 | No guest account | `authz.principals.anonymous.enabled` is `true` by default | Listed. Set it to `false` to match 2.x. |
+| Impersonation protects `system` | `authz.impersonation.protectedRoles` defaults to `['admin']` | Not written. Set it yourself (for example `['admin', 'system']`), or `system` loses its protection. |
 | Password expiry after 31 days | Off unless `authn.local.expiration.enabled` | Listed. Set it, and `maxAgeDays`, if you relied on it. |
 | TOTP on by default | `authn.mfa.steps` | Listed (manual). |
 | Public cookie secret `'1234adreewD'` | Boot refuses a public or missing secret outside development and test. With no env set, authn treats the deployment as production and refuses it too (step 6). | Listed. |
@@ -1381,12 +1382,13 @@ The config, permissions, owners, signed URLs and the `fs` domain are in `package
 ### K1, K1b and A4: canvas conformance, ABAC scope leaves
 
 No change for a 2.x app. Canvas runs RBAC and ABAC with the config of design §8.5 and writes every fact
-through `AuthzAdmin`. A4 adds `authz.abac.scopeResiduals` (default `false`). Off, an ABAC comparison of `scope.<type>.*`
-on a list cannot be decided: a deny policy denies the list (`needs_subject`, B19), and a permit makes
-the vote indeterminate, which denies it too (B39). On, the comparison becomes a SQL leaf and the list
-is filtered row by row ([the authz README](./README.md#the-abac-model)). Canvas turns it on. In either mode, a policy that folds while it
-still holds a `scope.*` read that no leaf covers now needs the subject, so such a list is narrower than
-before.
+through `AuthzAdmin`. A4 adds `authz.abac.scopeResiduals` (default `false`). Off, an ABAC
+comparison of `scope.<type>.*` on a list cannot be decided: a deny policy denies the list
+(`needs_subject`, B19), and a permit makes the vote indeterminate, which denies the list under
+`deny-overrides` (B39). On, the comparison becomes a SQL leaf and the list is filtered row by row
+([the authz README](./README.md#the-abac-model)). Canvas turns it on. In either mode, a policy that
+folds while it still holds a `scope.*` read that no leaf covers now needs the subject, so such a list
+is narrower than before.
 
 ### E2 and E3: engine fixes
 

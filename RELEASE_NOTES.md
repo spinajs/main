@@ -74,7 +74,9 @@ what each fix changes for an app.
 - **The role switch key moved.** `rbac.roleSwitch.requirePassword` is not read, not even as a fallback.
   Set `authz.principals.roleSwitch.requirePassword` to the roles a switch asks the password for; unset,
   every role asks for it.
-- `authz.impersonation.protectedRoles` defaults to `['admin']`; `rbac.admin.roleGuard.*` is
+- `authz.impersonation.protectedRoles` defaults to `['admin']`. 2.x protected `system` by default, and
+  the converter carries that only when your config set the key: otherwise set it yourself, or `system`
+  loses its protection. `rbac.admin.roleGuard.*` is
   `authz.admin.guard.*`; `rbac.token.rolePolicy` is `authz.token.rolePolicy` (a `TokenRolePolicy`,
   synchronous); `rbac.password.blockAfterAttempts` and `lockoutTime` are gone (backoff, below).
 - **Config errors.** Every package checks its keys against a JSON schema registered at import. A value
@@ -88,8 +90,9 @@ what each fix changes for an app.
   the strategy's own (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`). All default off.
 - `authz.abac.scopeResiduals` (default `false`; `authz.<name>.scopeResiduals` for an ABAC model with
   another name) is new and opt-in. On, an ABAC comparison of `scope.<type>.*` on a list becomes a SQL
-  leaf. Off, as before: such a deny policy denies the list with `needs_subject`, and such a permit
-  permits nothing (B19). It needs `authz-rbac` loaded for lists through authz-orm.
+  leaf. Off, such a comparison cannot be decided on a list: a deny policy denies the list with
+  `needs_subject` (B19), and a permit makes the ABAC vote indeterminate, which denies the list under
+  `deny-overrides` (B39). It needs `authz-rbac` loaded for lists through authz-orm.
 - `http.trustProxy` is read by `RealIp` and by authn-http's `ClientIp` (`authn.http.trustProxy` wins
   for authn): a hop count, or addresses, CIDRs and `loopback`, `linklocal`, `uniquelocal`. `true` means
   one hop, never "trust all". A trusted proxy must overwrite `X-Forwarded-For`, `-Proto` and `-Host`.
@@ -209,9 +212,9 @@ what each fix changes for an app.
   sends `reauthPassword`.
 - **Error bodies.** Every authentication failure (login, MFA, re-auth, reset redemption, key login,
   and OIDC for a client that is not a browser navigation) is 401
-  `{ error: { code: 'E_AUTH_FAILED', ... } }`; a throttled attempt adds `Retry-After`. An OIDC browser
-  navigation gets a 303 to the failure page instead. The CSRF
-  guard answers 403 `{ error: { code: 'E_CSRF_ORIGIN', ... } }`. authn-http policies answer
+  `{ error: { code: 'E_AUTH_FAILED', ... } }`; a throttled login, MFA step or reset redemption adds
+  `Retry-After` (a throttled re-authentication does not). An OIDC browser navigation gets a 303 to the
+  failure page instead. The CSRF guard answers 403 `{ error: { code: 'E_CSRF_ORIGIN', ... } }`. authn-http policies answer
   `{ error: '<code>' }` (`unauthenticated`, `fresh_auth_required`, `mfa_required`, `session_required`,
   `impersonating`, `role_not_held`, ...). `@Access` answers 403 `{ error: 'forbidden', permission,
   resource, reason }`.

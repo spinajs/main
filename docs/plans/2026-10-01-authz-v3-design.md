@@ -1763,7 +1763,7 @@ execute(actor, commands, opts):
     bump authz_version(domain)
   commit
   ChangeBus.publish({ tags: ∪ out_i.tags })   # L2 and model caches drop entries (B27)
-  AuthzEventSink[*].publish(∪ out_i.events)   # RoleAssigned, RoleRevoked, AssignmentChanged, LinkCreated/Updated/Revoked, RuleChanged; (r7) only LogAuthzEventSink ships
+  AuthzEventSink[*].publish(∪ out_i.events)   # RoleAssigned, RoleRevoked, AssignmentChanged, LinkCreated/Updated/Revoked, RuleChanged, PolicyChanged, ScopeAttributesChanged, ScopeForgotten; (r7) only LogAuthzEventSink ships
   DecisionAudit.record({ kind: 'admin', principal: actor, command: c with secrets removed, reason }) per command
   return results (link tokens included once; never in events or audit)
 ```

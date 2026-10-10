@@ -585,8 +585,9 @@ export class TaskTeamPolicy extends OrmScopePolicy<Task> {
   parent directories, then `{ type: 'fs', id: <fs name> }`.
 - Import the package before `fsService` resolves, and take providers after it resolved.
 - Owners (`metadata`, `stampOwner`), signed URLs, uploads, `fromFsPath`, the `fs` domain with
-  `fs-inherit` and `fs-abac`: `packages/authz-fs/README.md`. authz-fs registers its own `fs-abac` model
-  in the `fs` domain; it needs no wiring from the app.
+  `fs-inherit` and `fs-abac`: `packages/authz-fs/README.md`. authz-fs builds the `fs-abac` model itself, in
+  the filesystem's own domain and only when that filesystem has `policies`; list it in that domain's
+  `combine`.
 
 ## AuthzAdmin
 
