@@ -361,7 +361,8 @@ describe('authz-rbac orm-compile: native:condition.scope leaves in SQL = the in-
           }
         }
         console.log(`      deepest leaf: ${deepest} entries`);
-        expect(deepest).to.be.at.most(RBAC_SQLITE_TERM_DEPTH - 20);
+        // Postgres has no such stack, and its attribute lookups take a derived level more (attrLookup).
+        if (kind === 'sqlite') expect(deepest).to.be.at.most(RBAC_SQLITE_TERM_DEPTH - 20);
       });
     });
   }

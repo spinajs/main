@@ -123,7 +123,7 @@ describe('authz-rbac orm-compile: class form = per-row form on random worlds (S1
   });
 
   it(`postgres: every term, every row, ASC and DESC representatives (seed ${SEED}, ${part.label})`, async () => {
-    const stats = { runs: 0, terms: 0, classForms: 0, perRow: 0, rows: 0, classes: 0, multi: 0, stored: 0, hostExists: 0, unknown: 0 };
+    const stats = { runs: 0, terms: 0, classForms: 0, perRow: 0, rows: 0, classes: 0, multi: 0, stored: 0, hostExists: 0, unknown: 0, pruned: 0, prunedMixed: 0, configRoutes: 0 };
     const byKind: Record<TermKind, { terms: number; classForms: number; multi: number }> = { route: { terms: 0, classForms: 0, multi: 0 }, threshold: { terms: 0, classForms: 0, multi: 0 }, thresholdDb: { terms: 0, classForms: 0, multi: 0 } };
     const started = Date.now();
     await fc.assert(
@@ -160,6 +160,14 @@ describe('authz-rbac orm-compile: class form = per-row form on random worlds (S1
                 kind.classForms++;
                 stats.rows += docs.length;
                 stats.unknown += [...t.rows.values()].filter((v) => v === null).length;
+                if (kindOf(t.term.name) === 'route') {
+                  const values = new Set(t.rows.values());
+                  if (t.term.args.config.length > 0) stats.configRoutes++;
+                  else {
+                    stats.pruned++;
+                    if (values.has(true) && values.has(false)) stats.prunedMixed++;
+                  }
+                }
                 const n = classCount(t.keys);
                 stats.classes += n;
                 if (n < docs.length) {
@@ -173,13 +181,17 @@ describe('authz-rbac orm-compile: class form = per-row form on random worlds (S1
       ),
       { seed: SEED, numRuns: part.numRuns, endOnFailure: true },
     );
-    console.log(`      postgres: ${part.label} in ${Date.now() - started} ms; ${stats.terms} terms (${stats.classForms} class forms, ${stats.perRow} per row), ${stats.classes} classes over ${stats.rows} rows, ${stats.multi} terms with a class of several rows, ${stats.unknown} UNKNOWN values in class forms; by kind ${JSON.stringify(byKind)}; ${stats.stored} runs with stored rules, ${stats.hostExists} with a host exists`);
+    console.log(`      postgres: ${part.label} in ${Date.now() - started} ms; ${stats.terms} terms (${stats.classForms} class forms, ${stats.perRow} per row), ${stats.classes} classes over ${stats.rows} rows, ${stats.multi} terms with a class of several rows, ${stats.unknown} UNKNOWN values in class forms; route terms: ${stats.pruned} pruned (${stats.prunedMixed} listing some rows and not others), ${stats.configRoutes} with config roles; by kind ${JSON.stringify(byKind)}; ${stats.stored} runs with stored rules, ${stats.hostExists} with a host exists`);
     expect(stats.classForms, 'class forms compared').to.be.at.least(part.min(RUNS * 2));
     // Classes of several rows, where a missing key part would show (I8).
     expect(stats.multi, 'terms whose classes hold several rows').to.be.at.least(part.min(stats.classForms / 2));
     expect(stats.classes, 'and not all rows in one class').to.be.at.least(part.min(stats.classForms * 2));
     expect(stats.stored, 'runs with stored rules').to.be.at.least(part.min(RUNS / 2));
     expect(stats.unknown, 'rows the adapter cannot find').to.be.at.least(part.min(RUNS));
+    // Route terms without config roles take only candidate rows as representatives (pruning), the others all.
+    expect(stats.pruned, 'pruned route terms').to.be.at.least(part.min(RUNS / 2));
+    expect(stats.prunedMixed, 'pruned route terms that list some rows').to.be.at.least(part.min(RUNS / 5));
+    expect(stats.configRoutes, 'route terms with config roles').to.be.at.least(part.min(RUNS / 5));
     for (const [name, k] of Object.entries(byKind)) {
       expect(k.classForms, `${name}: class forms compared`).to.be.at.least(part.min(RUNS / 5));
       expect(k.multi, `${name}: terms whose classes hold several rows`).to.be.at.least(part.min(RUNS / 5));

@@ -74,9 +74,10 @@ interface BuilderLinks {
  *
  * Postgres works a rule term out once per class of the model's rows that agree on what its rules read, not once
  * per row tested: each term reads the model's whole table once (a few index probes per row, then a window function
- * and a sort to take one row of each class), then runs the rules once per class. So its cost grows with the table,
- * rows the query's own filters exclude (other tenants' rows) included, and a term that fails on some row (a stored
- * rule whose `definition` is no JSON) fails every list of the model, not only the lists that reach that rule.
+ * and a sort to take one row of each class), then runs the rules once per class; a route term without config roles
+ * only for the classes whose rows hold an assignment of its subjects on their path. So its cost grows with the
+ * table, rows the query's own filters exclude (other tenants' rows) included, and a term that fails on some row (a
+ * stored rule whose `definition` is no JSON) fails every list of the model, not only the lists that reach that rule.
  * SQLite keeps one evaluation per row tested, as does a threshold term whose config rule reads `resource.*`.
  */
 export abstract class RbacListCompiler extends OrmNativeCompiler {

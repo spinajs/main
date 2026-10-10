@@ -7,7 +7,7 @@ import { RULE_TABLE } from './db-rules.js';
 import type { RbacSqlDialect } from './dialect.js';
 import type { RbacPathSql } from './path.js';
 import type { RbacSubjectColumns } from './rules.js';
-import { FALSE_SQL, aliasedTable, andSql, collation, ident, joinSql, orSql, outer, outerColumnsOf, rebindOuter, rsql } from './sql.js';
+import { FALSE_SQL, aliasedTable, andSql, collation, ident, inList, joinSql, orSql, outer, outerColumnsOf, rebindOuter, rsql } from './sql.js';
 import type { RbacSql } from './sql.js';
 import type { RbacResourceField } from './stored-rule.js';
 import { storedListHas } from './stored-rule.js';
@@ -21,11 +21,14 @@ import { storedListHas } from './stored-rule.js';
  *   type, an attribute row of a type the rules read, a config rule's scope, ''), else 'e' where the node's
  *   `exists` holds (types the rules read attributes of, other than the row's own), else 'u';
  * - per field the flag reads (`resource_field` of a stored rule, path columns included): 'v' || value where a
- *   stored rule with a resource pattern may reach the row (`need`, a function of the node part), else 'u';
+ *   stored rule with a resource pattern on that field may reach the row (`need`, a function of the node part),
+ *   else 'u';
  * - per other column the flag reads, and every column an `exists` reads: 'v' || value, unconditionally.
  * The term is then `κ(row) IN (κ of the representatives whose flag is 1)`, one found row per class taken as
  * its representative by a window over the model's table. A threshold term uses the complement (flag 0) under NOT,
- * so a class without a representative denies. Postgres only: κ is compared byte by byte (COLLATE "C" on the keys,
+ * so a class without a representative denies. A route term without config roles takes its representatives only
+ * from rows with an assignment of its subjects on their path (`prune`): the others are FALSE without the rules,
+ * and with no subjects the term is FALSE. Postgres only: κ is compared byte by byte (COLLATE "C" on the keys,
  * the database's deterministic default collation where a key reads an authz table, as `sameText`).
  */
 
@@ -48,6 +51,11 @@ export interface RbacClassInput {
   readonly fields: readonly RbacResourceField[];
   /** `route`: the rows whose flag is 1; `threshold`: the rows whose flag is not 0 (a missing class denies). */
   readonly kind: 'route' | 'threshold';
+  /**
+   * A route term without config roles: its flag is 0 on a row without an assignment of the subjects on its path,
+   * so only rows with one (candidates) are representatives.
+   */
+  readonly prune: boolean;
   /** Test only: take each class's first row by the model's id as its representative. */
   readonly order?: 'asc' | 'desc';
 }
@@ -75,6 +83,7 @@ const lit = (s: string): RbacSql => rsql`CAST(${s} AS TEXT)`;
 export function rbacClassForm(flag: RbacSql, input: RbacClassInput): RbacClassForm | undefined {
   const { path, dialect, rowType } = input;
   if (dialect.name !== 'postgres') throw new AuthzConfigError(`authz-rbac class form: ${dialect.name} keeps the per-row form`);
+  if (input.prune && input.subjects.length === 0) return { keys: [], term: path.whenFound(FALSE_SQL) };
   // Keys sort and compare as bytes; an id compared with an authz table's column in the default collation, which is
   // deterministic (so byte equality) and that of the tables' indexes.
   const keyText = (x: RbacSql): RbacSql => rsql`(${x}) COLLATE ${collation('C')}`;
@@ -89,30 +98,36 @@ export function rbacClassForm(flag: RbacSql, input: RbacClassInput): RbacClassFo
     return orSql(...input.subjects.map((s) => rsql`${a('subject_type')} = ${s.type} AND ${a('subject_id')} = ${s.id} AND ${a('subject_role')} = ${s.role}`));
   };
   const visibleToRow = (alias: string): RbacSql => storedListHas(rsql`${ident(alias, 'resource_types')}`, rowType, dialect);
+  const scopeIds = (alias: string, table: string, type: string, where: RbacSql) => rsql`SELECT ${ident(alias, 'scope_id')} FROM ${ident(table)} ${ident(alias)} WHERE ${ident(alias, 'scope_type')} = ${type} AND ${where}`;
   // A superset of the ids the term compares column node text with, filtered no tighter than the term filters them.
   const touched = (type: string, text: RbacSql): RbacSql => {
     const arms: RbacSql[] = [];
-    const scopeIds = (alias: string, table: string, where: RbacSql) => rsql`SELECT ${ident(alias, 'scope_id')} FROM ${ident(table)} ${ident(alias)} WHERE ${ident(alias, 'scope_type')} = ${type} AND ${where}`;
-    if (input.subjects.length > 0) arms.push(scopeIds('authz_ka', input.assignmentTable, subjectsOf('authz_ka')));
-    if (input.db) arms.push(scopeIds('authz_kb', RULE_TABLE, visibleToRow('authz_kb')));
+    if (input.subjects.length > 0) arms.push(scopeIds('authz_ka', input.assignmentTable, type, subjectsOf('authz_ka')));
+    if (input.db) arms.push(scopeIds('authz_kb', RULE_TABLE, type, visibleToRow('authz_kb')));
     if (input.attributeTypes.has(type)) arms.push(rsql`SELECT ${ident('authz_kc', 'scope_id')} FROM ${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident('authz_kc')} WHERE ${ident('authz_kc', 'scope_type')} = ${type}`);
     const constants = input.constants.get(type) ?? [];
     return orSql(rsql`${binary(text)} = ${lit('')}`, ...(arms.length > 0 ? [rsql`${binary(text)} IN (${joinSql(arms, ' UNION ALL ')})`] : []), ...(constants.length > 0 ? [rsql`${binary(text)} IN (${constants})`] : []));
   };
-  // Stored rules with a resource pattern at scope type `type` (live or not, any kind).
-  const patterned = (alias: string, type: string, column: RbacSql): RbacSql => rsql`SELECT ${column} FROM ${ident(RULE_TABLE)} ${ident(alias)} WHERE ${ident(alias, 'scope_type')} = ${type} AND ${ident(alias, 'resource_field')} IS NOT NULL AND ${visibleToRow(alias)}`;
+  // Stored rules with a resource pattern on one of `fields` at scope type `type` (live or not, any kind).
+  const patterned = (alias: string, type: string, fields: readonly string[], column: RbacSql): RbacSql => rsql`SELECT ${column} FROM ${ident(RULE_TABLE)} ${ident(alias)} WHERE ${ident(alias, 'scope_type')} = ${type} AND ${inList(rsql`${ident(alias, 'resource_field')}`, fields)} AND ${visibleToRow(alias)}`;
 
   const keys: RbacSql[] = [];
-  const needs: RbacSql[] = [];
+  const nodeReads: { readonly type: string; readonly exact: RbacSql; readonly text: RbacSql }[] = [];
+  // Some assignment of the subjects is on the row's path (liveness dropped: a superset): as `assignmentRows`
+  // finds them, at GLOBAL, at the row type's type-only scope, or at a column node.
+  const assigned = (where: RbacSql) => rsql`EXISTS (SELECT 1 FROM ${ident(input.assignmentTable)} ${ident('authz_kg')} WHERE ${where} AND ${subjectsOf('authz_kg')})`;
+  const candidate: RbacSql[] = input.prune ? [assigned(rsql`${ident('authz_kg', 'scope_type')} = ${GLOBAL.type}`), assigned(rsql`${ident('authz_kg', 'scope_type')} = ${rowType} AND ${ident('authz_kg', 'scope_id')} = ${lit('')}`)] : [];
   const nodeColumns = new Set<string>();
   path.nodes.forEach((node, i) => {
     const read = path.nodeRead(i);
     if (read === undefined) return;
     nodeColumns.add(node.column!);
+    // Ids in this arm are touched (the assignments arm of `touched`), so candidates are whole classes.
+    if (input.prune) candidate.push(andSql(read.exact, rsql`NOT (${binary(read.text)} = ${lit('')})`, rsql`${binary(read.text)} IN (${scopeIds('authz_kf', input.assignmentTable, node.type, subjectsOf('authz_kf'))})`));
     const layer = node.type !== rowType && input.attributeTypes.has(node.type) ? input.layer(node.type) : undefined;
     const exists = layer?.kind === 'adapter' && layer.exists ? rsql` WHEN ${layer.exists(read.text)} THEN ${lit('e')}` : rsql``;
     keys.push(keyText(rsql`CASE WHEN NOT ${read.holds} THEN ${lit('n')} WHEN NOT ${read.exact} THEN ${lit('x')} WHEN ${touched(node.type, read.text)} THEN ${lit('k')} || ${read.text}${exists} ELSE ${lit('u')} END`));
-    if (input.db) needs.push(andSql(read.exact, rsql`${binary(read.text)} IN (${patterned('authz_kd', node.type, rsql`${ident('authz_kd', 'scope_id')}`)})`));
+    nodeReads.push({ type: node.type, exact: read.exact, text: read.text });
   });
 
   // An `exists` may read the row beyond its node id; whatever it reads is keyed by value (r3 N2).
@@ -130,10 +145,15 @@ export function rbacClassForm(flag: RbacSql, input: RbacClassInput): RbacClassFo
   // (rules.ts keeps such a term per row anyway): keep the per-row form rather than drop the key. A path column read
   // here is read as a node, unless such a leaf reads it too, which only rules.ts's check catches.
   if (!input.db && gated.some((c) => !nodeColumns.has(c))) return undefined;
-  if (input.db && gated.length > 0) {
-    const need = orSql(rsql`EXISTS (${patterned('authz_ke', GLOBAL.type, rsql`1`)})`, ...needs);
-    for (const c of gated) keys.push(valueKey(c, need));
-  }
+  // Column c matters only where a stored rule naming one of its fields reaches the row: `storedResource` reads a
+  // field for the rules that name it alone, and the pattern leaf count that bounds those reads (`storedPatternLeaves`)
+  // reads the path, not the fields. So each column has its own `need`, and a rule on `name` keys no other column.
+  if (input.db)
+    for (const c of gated) {
+      const fields = input.fields.filter((f) => f.column === c).map((f) => f.field);
+      const at = (n: (typeof nodeReads)[number]) => andSql(n.exact, rsql`${binary(n.text)} IN (${patterned('authz_kd', n.type, fields, rsql`${ident('authz_kd', 'scope_id')}`)})`);
+      keys.push(valueKey(c, orSql(rsql`EXISTS (${patterned('authz_ke', GLOBAL.type, fields, rsql`1`)})`, ...nodeReads.map(at))));
+    }
   for (const c of unconditional) keys.push(valueKey(c));
   if (keys.length === 0) return undefined;
 
@@ -143,7 +163,8 @@ export function rbacClassForm(flag: RbacSql, input: RbacClassInput): RbacClassFo
   const renamed = (c: string): string => columnName.get(c)!;
   const keyNames = keys.map((_, j) => `authz_k${j}`);
   const fence = dialect.fence;
-  const inner = rsql`SELECT ${joinSql([...columns.map((c) => as(rsql`${ident(KEY, c)}`, renamed(c))), ...keys.map((k, j) => as(rebindOuter(k, KEY), keyNames[j]))], ', ')} FROM ${aliasedTable(input.rowTable, KEY)} WHERE ${rebindOuter(path.foundSql(), KEY)}${fence}`;
+  const representable = input.prune ? andSql(path.foundSql(), orSql(...candidate)) : path.foundSql();
+  const inner = rsql`SELECT ${joinSql([...columns.map((c) => as(rsql`${ident(KEY, c)}`, renamed(c))), ...keys.map((k, j) => as(rebindOuter(k, KEY), keyNames[j]))], ', ')} FROM ${aliasedTable(input.rowTable, KEY)} WHERE ${rebindOuter(representable, KEY)}${fence}`;
   const order = input.order === undefined ? rsql`` : rsql` ORDER BY ${ident(ROWS, renamed(path.path.idColumn))} ${input.order === 'asc' ? rsql`ASC` : rsql`DESC`}`;
   const partition = joinSql(
     keyNames.map((n) => rsql`${ident(ROWS, n)}`),

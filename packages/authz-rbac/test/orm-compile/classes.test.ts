@@ -1,5 +1,5 @@
 import { GLOBAL } from '@spinajs/authz';
-import type { Assignment, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
+import type { Assignment, ResourceRef, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
@@ -13,9 +13,9 @@ import type { RbacScopePath, RbacSql } from '../../src/orm/index.js';
 import { RootOrm } from '../orm/root-orm.js';
 import type { Kind } from '../orm/root-orm.js';
 import { rawQuery } from '../support/db.js';
-import { DOC_PATH, NODES, ROWS, classCount, compareForms, compileTerm, createTables, dropTables, evaluate, loadRows, tenantLayers, termNamed, termsOf } from './classes-world.js';
+import { DOC_PATH, NODES, ROWS, classCount, compareForms, compileTerm, createTables, dropTables, evaluate, loadRows, representativeCount, tenantLayers, termNamed, termsOf } from './classes-world.js';
 import type { Compared, DocRow } from './classes-world.js';
-import { DAY, LADDERS, RouteWorld, assignment, at, registerRouteSources, u, user } from './route-world.js';
+import { DAY, LADDERS, RouteWorld, assignment, at, registerRouteSources, service, u, user } from './route-world.js';
 import type { RouteWorldOptions } from './route-world.js';
 
 /*
@@ -341,6 +341,38 @@ describe('authz-rbac orm-compile: rule list terms worked out once per class of r
       ]);
     });
 
+    it('keys a field only where a stored rule on that field reaches the row (one need per field)', async () => {
+      await scenario(
+        {
+          dbRules: [
+            { id: 't1', kind: 'threshold', scope: P('10'), permissions: ['*'], minRole: 'maintainer', resource: { attr: 'resource.name', glob: 'tmp*' }, resourceTypes: ['doc'] },
+            { id: 't2', kind: 'threshold', scope: P('11'), permissions: ['*'], minRole: 'maintainer', resource: { attr: 'resource.org_id', glob: 'x*' }, resourceTypes: ['doc'] },
+          ],
+        },
+        [assignment(u('ann'), 'viewer', GLOBAL)],
+        [
+          [1, 10, 'oA', 'tmp1'],
+          [2, 10, 'oB', 'tmp1'],
+          [3, 10, 'oA', 'doc'],
+          [4, 11, 'xA', 'tmp1'],
+          [5, 11, 'xA', 'doc'],
+          [6, 11, 'oA', 'tmp1'],
+        ],
+      );
+      const terms = await compareForms(world, driver, ann, 'doc:read');
+      const denies = termNamed(terms, 'threshold db');
+      expectRows(denies, { 1: true, 2: true, 3: false, 4: true, 5: true, 6: false });
+      expectApart(denies, [
+        [1, 3],
+        [4, 6],
+      ]);
+      // The rule on name does not key project 10's rows by org, nor the rule on org_id project 11's by name.
+      expectTogether(denies, [
+        [1, 2],
+        [4, 5],
+      ]);
+    });
+
     it('keys every column of the row an exists reads, path columns too (r3 N2), and any other column the flag reads (r2 I3)', async () => {
       await rawQuery(driver, `DELETE FROM "${NODES}"`, [], QueryContext.Delete);
       await rawQuery(driver, `INSERT INTO "${NODES}" ("id", "org_id", "tenant") VALUES (10, 'o1', 't1')`, [], QueryContext.Insert);
@@ -603,6 +635,105 @@ describe('authz-rbac orm-compile: rule list terms worked out once per class of r
         expectRows(denies, { 1: true, 2: false, 3: true });
         expect(denies.keys, `stored rules ${stored}: no class form`).to.equal(undefined);
       }
+    });
+
+    describe('route terms read rules only for rows with an assignment of their subjects on the path (pruning)', () => {
+      const rows: DocRow[] = [
+        [1, 10, 'o1'],
+        [2, 10, 'o2'],
+        [3, 11, 'o1'],
+        [4, 12, 'o1'],
+        [5, null, 'o1'],
+      ];
+
+      it('a class without such a row lists nothing and has no representative', async () => {
+        await scenario({ rules: [STRIP] }, [assignment(u('ann'), 'viewer', P('10'))], rows);
+        const route = termNamed(await compareForms(world, driver, ann, 'doc:read'), 'route');
+        expectRows(route, { 1: true, 2: true, 3: false, 4: false, 5: false });
+        // Project 10, an untouched project, no project: only the first class has a candidate.
+        expect(classCount(route.keys!), 'classes').to.equal(3);
+        expect(await representativeCount(driver, compileTerm(world, driver, route.term)), 'representatives').to.equal(1);
+
+        await scenario({ rules: [STRIP] }, [assignment(u('ann'), 'viewer', P('13'))], rows);
+        const none = termNamed(await compareForms(world, driver, ann, 'doc:read'), 'route');
+        expectRows(none, { 1: false, 2: false, 3: false, 4: false, 5: false });
+        expect(await representativeCount(driver, compileTerm(world, driver, none.term)), 'no candidate').to.equal(0);
+      });
+
+      it('never works a rule out for such a row: a stored rule Postgres cannot read fails only the per-row form', async () => {
+        await scenario({ dbRules: [] }, [assignment(u('ann'), 'viewer', P('10'))], rows);
+        const form = toSqlForm({ id: 'r1', kind: 'restrict', scope: P('11'), allow: [] }, LADDERS);
+        await world.writeRawRules([{ rule: { ...form.rule, definition: '{bad' }, subjects: form.subjects.map((s) => ({ ...s })) }]);
+        const route = termsOf(await world.residual(ann, 'doc:read')).find((t) => t.name.startsWith('route'))!;
+        const got = await evaluate(driver, { t: compileTerm(world, driver, route) });
+        expect([...got].map(([id, v]) => [id, v.t]).sort()).to.deep.equal([
+          ['1', true],
+          ['2', true],
+          ['3', false],
+          ['4', false],
+          ['5', false],
+        ]);
+        const failed = await evaluate(driver, { t: compileTerm(world, driver, route, { testOnly: { rows: true } }) }).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect(failed, "the per-row form reads the rule for project 11's row").to.be.instanceOf(Error);
+      });
+
+      it('takes an assignment at GLOBAL, at the type-only scope of the row type, and at each node', async () => {
+        const cases: readonly (readonly [string, ResourceRef, Readonly<Record<string, boolean>>])[] = [
+          ['GLOBAL', GLOBAL, { 1: true, 2: true, 3: true, 4: true, 5: true }],
+          ['type-only', at('doc'), { 1: true, 2: true, 3: true, 4: true, 5: true }],
+          ['own node', at('doc', '3'), { 1: false, 2: false, 3: true, 4: false, 5: false }],
+          ['project node', P('12'), { 1: false, 2: false, 3: false, 4: true, 5: false }],
+          ['org node', O('o2'), { 1: false, 2: true, 3: false, 4: false, 5: false }],
+        ];
+        for (const [where, scope, want] of cases) {
+          await scenario({ rules: [STRIP] }, [assignment(u('ann'), 'viewer', scope)], rows);
+          const route = termNamed(await compareForms(world, driver, ann, 'doc:read', {}, where), 'route');
+          expectRows(route, want);
+          expect(route.keys, `${where}: the class form was chosen`).to.not.equal(undefined);
+        }
+      });
+
+      it('a config role turns it off', async () => {
+        await scenario({ rules: [STRIP] }, [], rows);
+        const routes = (await compareForms(world, driver, service(), 'doc:read')).filter((c) => c.term.name.startsWith('route'));
+        const all = routes.filter((c) => [...c.rows.values()].every((v) => v === true));
+        expect(all.length, `a route of the config roles lists every row: ${JSON.stringify(routes.map((c) => c.term.name))}`).to.be.at.least(1);
+        for (const c of all) {
+          expect(c.term.args.config.length, c.term.name).to.be.at.least(1);
+          expect(await representativeCount(driver, compileTerm(world, driver, c.term)), `${c.term.name}: a representative per class`).to.equal(classCount(c.keys!));
+        }
+      });
+
+      it('without subjects and config roles the term is FALSE without a set', async () => {
+        await scenario({ rules: [STRIP] }, [assignment(u('ann'), 'viewer', GLOBAL)], rows);
+        const route = termsOf(await world.residual(ann, 'doc:read')).find((t) => t.name.startsWith('route'))!;
+        const bare = { subjects: [], config: [] };
+        const term = compileTerm(world, driver, route, { args: bare });
+        const { text } = renderSql(term, { driver, outer: (c) => `"r"."${c}"`, outerName: 'r' });
+        expect(text).to.not.include('authz_gd');
+        const values = async (t: RbacSql) => [...(await evaluate(driver, { t }))].map(([id, v]) => [id, v.t]).sort();
+        const want = rows.map(([id]) => [String(id), false]).sort();
+        expect(await values(term)).to.deep.equal(want);
+        expect(await values(compileTerm(world, driver, route, { args: bare, testOnly: { rows: true } }))).to.deep.equal(want);
+      });
+
+      it('never a threshold term', async () => {
+        await scenario(
+          {
+            rules: [{ id: 't1', kind: 'threshold', scope: P('10'), permissions: ['*'], minRole: 'maintainer' }],
+            dbRules: [{ id: 't2', kind: 'threshold', scope: P('11'), permissions: ['*'], minRole: 'maintainer', resourceTypes: ['doc'] }],
+          },
+          [assignment(u('ann'), 'viewer', P('10'))],
+          rows,
+        );
+        const terms = await compareForms(world, driver, ann, 'doc:read');
+        expectRows(termNamed(terms, 'threshold t1'), { 1: true, 2: true, 3: false, 4: false, 5: false });
+        expectRows(termNamed(terms, 'threshold db'), { 1: false, 2: false, 3: true, 4: false, 5: false });
+        for (const name of ['threshold t1', 'threshold db']) expect(termNamed(terms, name).keys, name).to.not.equal(undefined);
+      });
     });
   });
 });

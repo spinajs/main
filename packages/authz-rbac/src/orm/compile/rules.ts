@@ -1257,7 +1257,9 @@ export class RbacRulesSql {
     // Every read of the args' rules, not only this term's: a superset only splits classes.
     const attributeTypes = new Set([...this.reads.values()].map((r) => r.type));
     if (this.db) for (const n of path.nodes) attributeTypes.add(n.type);
-    const form = rbacClassForm(flagSql, { path, dialect, rowType: this.ctx.rowType, rowTable, assignmentTable: this.ctx.table, subjects: this.ctx.subjects, db: this.db, constants, attributeTypes, layer: (t) => this.defaults.layer(t), fields: this.ctx.fields, kind, ...(testOnly?.order ? { order: testOnly.order } : {}) });
+    // A route term's flag needs a contribution: without config roles only the subjects' assignments make one.
+    const prune = kind === 'route' && this.config.length === 0;
+    const form = rbacClassForm(flagSql, { path, dialect, rowType: this.ctx.rowType, rowTable, assignmentTable: this.ctx.table, subjects: this.ctx.subjects, db: this.db, constants, attributeTypes, layer: (t) => this.defaults.layer(t), fields: this.ctx.fields, kind, prune, ...(testOnly?.order ? { order: testOnly.order } : {}) });
     if (form) testOnly?.keys?.(form.keys);
     return form?.term;
   }

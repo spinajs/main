@@ -5,7 +5,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { expect } from 'chai';
 
 import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, parseRbacListArgs } from '../../src/index.js';
-import type { RbacAssignmentArgsV2, RbacThresholdArgs } from '../../src/index.js';
+import type { RbacAssignmentArgsV2, RbacListContext, RbacThresholdArgs } from '../../src/index.js';
 import { RbacPathSql, RbacRulesSql, RbacScopeDefaults, ident, ormRbacScopeLayers, outer, rbacDialectOf, rsql } from '../../src/orm/index.js';
 import type { RbacResourceField, RbacRulesSqlContext, RbacScopeLayer, RbacScopePath, RbacSql } from '../../src/orm/index.js';
 import { rawQuery } from '../support/db.js';
@@ -111,12 +111,14 @@ export interface CompileOptions {
   /** The authz clock's time; default now. */
   readonly now?: Date;
   readonly testOnly?: RbacRulesSqlContext['testOnly'];
+  /** Replaces parts of the term's parsed args (e.g. no subjects). */
+  readonly args?: Partial<RbacListContext>;
 }
 
 /** The term as `RbacListCompiler` builds it for the world's Doc model, its class form read from `options.rowTable`. */
 export function compileTerm(world: RouteWorld, driver: OrmDriver, term: TermArgs, options: CompileOptions = {}): RbacSql {
   const dialect = rbacDialectOf(driver);
-  const args = term.args;
+  const args = { ...term.args, ...options.args } as TermArgs['args'];
   const sql = new RbacRulesSql({
     listing: new RouteGraphSource().listing(world.models.Doc)!,
     args,
@@ -146,6 +148,26 @@ export async function evaluate(driver: OrmDriver, terms: Readonly<Record<string,
   const out = new Map<string, Record<string, Three>>();
   for (const row of rows) out.set(String(row.rid), Object.fromEntries(names.map((n, i) => [n, row[`t${i}`] === null || row[`t${i}`] === undefined ? null : Number(row[`t${i}`]) === 1])));
   return out;
+}
+
+/**
+ * The representatives whose flag a class-form term works out over `table`: the rows of its numbered rows that are
+ * first in their class (EXPLAIN ANALYZE of the set, which runs once), 0 when the set never ran.
+ */
+export async function representativeCount(driver: OrmDriver, term: RbacSql, table: string = ROWS): Promise<number> {
+  const rows = await select(driver, rsql`EXPLAIN (ANALYZE, FORMAT JSON) SELECT ${outer('id')} FROM ${ident(table)} r WHERE ${term}`);
+  const raw = Object.values(rows[0])[0];
+  type Node = { readonly Alias?: string; readonly 'Actual Rows'?: number; readonly 'Actual Loops'?: number; readonly Plans?: readonly Node[] };
+  const plan = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { Plan: Node }[];
+  const found: Node[] = [];
+  const walk = (node: Node): void => {
+    if (node.Alias === 'authz_kw') found.push(node);
+    for (const p of node.Plans ?? []) walk(p);
+  };
+  walk(plan[0].Plan);
+  expect(found.length, 'one set in the plan').to.equal(1);
+  expect(found[0]['Actual Loops'], 'the set runs at most once').to.be.at.most(1);
+  return found[0]['Actual Loops'] === 0 ? 0 : found[0]['Actual Rows'] ?? 0;
 }
 
 /** κ of each row of `table` as one text, by row id text. */
