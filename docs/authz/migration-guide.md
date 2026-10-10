@@ -1522,8 +1522,8 @@ and guard check runs inside `AuthzAdmin`.
 - Kept on purpose: table and migration names, the 2.x metadata key names (hidden and protected), 2.x
   session rows (migrated on first use), and the names `RbacException`, `RbacCliCommand`,
   `RbacBootstrapper`, `RBAC_USER_MODEL` and the `rbac*` logger and queue names.
-- `getRegisteredTypes` answers `null` for a type whose every registration was removed; callers treat it
-  as none (Z5).
+- `getRegisteredTypes` answers `null` once no container in the lineage holds a registration of the
+  type, also after every registration was removed; callers treat it as none (Z5).
 
 ### Z1 to Z7: fixes found late
 

@@ -16,9 +16,10 @@ what each fix changes for an app.
 
 ## Before the first 3.0 start
 
-1. **Back up the database.** A migration copies `users.Role` into `authz_assignment` and then drops the
-   column (H13). Its `down()` rebuilds the column, but resets and invites carried into `authn_secret`
-   cannot be put back.
+1. **Back up the database.** One migration copies `users.Role` into `authz_assignment`, and the next
+   drops the column (H13); the drop's `down()` rebuilds it from the assignments. The authn data migration
+   carries pending resets and invites into `authn_secret`; its `down()` deletes those rows and names the
+   users, who must ask for a new link.
 2. **Run the converter** on the compiled config: `npx spinajs-authz-convert lib/mjs/config --out src/config
    --db rbac-facts.json` (`@spinajs/authz-convert`). It writes `authz-generated.ts`, `users-generated.ts`,
    `authn-generated.ts` and `authz-warnings.md`. Then delete every `rbac.*` key: boot fails on one.
@@ -55,8 +56,8 @@ what each fix changes for an app.
   `rbac_access_tokens`, `RBACInitial_2022_06_28_01_13_00`).
 - **Import these in the app entry**, before `Controllers` or `HttpServer` resolve; no other package
   loads them for you: `@spinajs/users` (identity store, principal factory and the authz-backed hooks;
-  without it `AuthnService` fails boot), `@spinajs/authn-http` (loaded only by the controller scan it
-  comes too late, and no request is authenticated), `@spinajs/authn-totp` for TOTP and the
+  without it `AuthnService` fails boot), `@spinajs/authn-http` (when only the controller scan loads it,
+  it comes too late and no request is authenticated), `@spinajs/authn-totp` for TOTP and the
   `/user/mfa` routes (`authn-http` no longer loads it), and `@spinajs/authz-orm`, `authz-queue`,
   `authz-fs` and `authn-oidc` when used.
 - **The app wires the RBAC and ABAC models**: `registerRbac(DI.RootContainer, configuration)` from
@@ -85,9 +86,10 @@ what each fix changes for an app.
   besides the memory one need the key.
 - **JIT and email linking need two switches**: the global `authn.linking.jit` / `byVerifiedEmail`, and
   the strategy's own (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`). All default off.
-- `authz.abac.scopeResiduals` (default `false`) is new and opt-in: on, an ABAC comparison of
-  `scope.<type>.*` on a list becomes a SQL leaf instead of a whole-list deny. It needs `authz-rbac` loaded
-  for lists through authz-orm.
+- `authz.abac.scopeResiduals` (default `false`; `authz.<name>.scopeResiduals` for an ABAC model with
+  another name) is new and opt-in. On, an ABAC comparison of `scope.<type>.*` on a list becomes a SQL
+  leaf. Off, as before: such a deny policy denies the list with `needs_subject`, and such a permit
+  permits nothing (B19). It needs `authz-rbac` loaded for lists through authz-orm.
 - `http.trustProxy` is read by `RealIp` and by authn-http's `ClientIp` (`authn.http.trustProxy` wins
   for authn): a hop count, or addresses, CIDRs and `loopback`, `linklocal`, `uniquelocal`. `true` means
   one hop, never "trust all". A trusted proxy must overwrite `X-Forwarded-For`, `-Proto` and `-Host`.
@@ -190,7 +192,7 @@ what each fix changes for an app.
 | `POST /auth/2fa/verify` | `POST /auth/mfa/verify`, `POST /auth/mfa/recovery` |
 | `/user/2fa`, `/user/2fa/{enable,confirm,disable,reset}` | `GET`/`POST /user/mfa`, `/user/mfa/confirm`, `/user/mfa/disable`, `/user/mfa/recovery-codes` (no combined reset: disable, then enrol) |
 | login answer `TwoFactorAuthRequired` / `TwoFactorInitRequired` | `{ MfaRequired: [...] }` |
-| `GET /user/refresh` | `GET /user` |
+| `GET /user/refresh` | `GET /user` (users-http's `@User()` route arg is `@CurrentUser()`) |
 | `GET /user/grants`, `GET /grants` | `GET /user/access` |
 | `PATCH /user/password` (users-http) | `PATCH /user/password` (authn-http, `PasswordService.change`) |
 | `/users/security/{changePassword,password-reset-request,expire-password,reset2fa,2fa/enable,2fa/disable,unlock}` | gone; `POST /authn/admin/users/:uuid/password-reset`, `/mfa-reset`, `DELETE .../sessions`, `DELETE .../tokens` |
@@ -255,7 +257,7 @@ what each fix changes for an app.
 - **Child-container fallback.** When `unregister` empties a key, the key is dropped, so resolution falls
   back to the type itself or to the parent's entries. A child that unregistered its last entry used to
   resolve `Array.ofType(X)` to `[]`; it now gets the parent's list. `getRegisteredTypes` answers `null`
-  for such a key.
+  when no container in the lineage holds the key any more.
 
 ### Validation (`@spinajs/validation`)
 
