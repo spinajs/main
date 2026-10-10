@@ -4,26 +4,28 @@ How the bench works and how to run it: `BASELINE.md`.
 
 ## Release gate 7 for 3.0 after S1 (class-wise rule terms)
 
-Two runs on 2026-10-10, branch `authz/S1-set-based-sql` (base `authz-v3-refactor` fb17360ea, A4 merged):
+Two runs on 2026-10-10, branch `authz/S1-set-based-sql`, then based on `authz-v3-refactor` fb17360ea (A4 merged).
+The commits were later rebased onto 66d555dd6, with no change to authz-rbac; their SHAs after that rebase:
 
-- **S1 task 3**, code of eb90efd3c: the rule list terms worked out once per class of rows (6a11bef83,
-  986552ae1), route pruning and attribute lookups as columns (6c24d7b3e), and the agent principal in the bench.
-- **S1 task 4**, code of c2b33ca93: the same SQL, byte for byte, built in time linear in its size (authz-rbac's
-  fragment layer no longer copies and checks nested fragments at every level). This is the current state.
+- **S1 task 3**: the rule list terms worked out once per class of rows (e1eafae7b), route pruning and attribute
+  lookups as columns (ea50b770d), and the agent principal in the bench (f470268e7).
+- **S1 task 4**: the same SQL, byte for byte, built in time linear in its size (8f52ade6b: authz-rbac's fragment
+  layer no longer copies and checks nested fragments at every level). This is the current state.
 
 `--filter=postgres.jit-off`, once without and once with `L4B_BENCH_BACKGROUND=90`. Limits as in G7 (plan §12
 item 7): list p50 ≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms.
 
-**Verdict: the 3.0 limits still FAIL, on the page p50**, though half the pages now pass it without other tenants.
+**Gate 7 for 3.0: OPEN. The owner will rethink the limits** (human decision, 2026-10-10). The numbers below are
+set against G7's limits for reference only, not as a verdict.
 
-| limit             | bg0 (task 4)                   | bg90 (task 4)                                                          | task 3 (bg0 / bg90)     |
-| ----------------- | ------------------------------ | ---------------------------------------------------------------------- | ----------------------- |
-| list p50 ≤ 1.5 s  | PASS, 7 of 7 (90 to 182 ms)    | PASS, 7 of 7 (94 to 201 ms)                                            | PASS / PASS             |
-| page p50 ≤ 100 ms | FAIL, 7 of 14 pass (90 to 128) | FAIL, 3 of 14 pass (95 to 174; reruns of three principals: 103 to 142) | FAIL, 0 of 14 / 0 of 14 |
-| page p99 ≤ 250 ms | PASS, 14 of 14 (133 to 189 ms) | PASS 13 of 14; FAIL link middle page (306 ms; 191 ms in its rerun)     | 12 of 14 / 14 of 14     |
+| measure (G7's limit) | bg0 (task 4)                  | bg90 (task 4)                                                     | task 3 (bg0 / bg90)   |
+| -------------------- | ----------------------------- | ----------------------------------------------------------------- | --------------------- |
+| list p50 (1.5 s)     | 90 to 182 ms, 7 of 7 under    | 94 to 201 ms, 7 of 7 under                                        | 7 of 7 / 7 of 7 under |
+| page p50 (100 ms)    | 90 to 128 ms, 7 of 14 under   | 95 to 174 ms, 3 of 14 under (reruns of three principals: 103-142) | 0 of 14 / 0 of 14     |
+| page p99 (250 ms)    | 133 to 189 ms, 14 of 14 under | 13 of 14 under; link's middle page 306 ms (191 ms in its rerun)   | 12 of 14 / 14 of 14   |
 
-At bg0 the owner, guest and external pages pass, and the member's first page; member-all and link miss by 24 to
-28 %, the agent and the member's middle page by 2 to 5 %. Compiling a statement in Node now takes 23 to 36 ms
+At bg0 the owner, guest and external pages are under 100 ms, and so is the member's first page; member-all and link
+are 24 to 28 % over, the agent and the member's middle page 2 to 5 %. Compiling a statement in Node now takes 23 to 36 ms
 against 67 to 91 ms before (see "What the numbers say"); the rest of a page is the statement on the driver (55 to 93 ms).
 
 ### Environment
@@ -47,35 +49,35 @@ Rows per principal (list / reference): owner 100 / 100, member 172 / 181, member
 external 22 / 43, link 19 / 20; the agent lists 95. Every list was checked against 1,000 single checks, and every
 page against its slice of the list, before it was timed.
 
-### The 3.0 limits, no background tenants (bg0)
+### Against G7's limits, no background tenants (bg0)
 
 p50 and p99 in ms, median of 3 repeats (lists 30 iterations, pages 100). Task 4; the last column gives task 3's
 page p50s (first / middle).
 
-| principal  | rows | middle offset | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms | task 3 pages p50 |
+| principal  | rows | middle offset | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list (1.5 s) | page (100 / 250 ms) | task 3 pages p50 |
 | ---------- | ---: | ------------: | -------: | -------------: | ----: | --------------: | ----: | ------------ | ------------------- | ---------------: |
-| owner      |  100 |            50 |    100.1 |           94.3 | 143.1 |            96.0 | 133.1 | PASS         | PASS                |    129.6 / 126.4 |
-| member     |  172 |           100 |    111.3 |           96.8 | 138.7 |           101.9 | 142.8 | PASS         | FAIL (middle p50)   |    131.0 / 130.8 |
-| member-all |  760 |           400 |    182.4 |          124.5 | 187.5 |           126.3 | 189.3 | PASS         | FAIL (p50)          |    159.2 / 170.0 |
-| guest      |   38 |     0 (first) |     94.7 |           93.4 | 134.3 |            98.3 | 141.2 | PASS         | PASS                |    136.6 / 138.3 |
-| external   |   22 |     0 (first) |     90.3 |           91.7 | 136.0 |            89.7 | 134.4 | PASS         | PASS                |    126.0 / 122.9 |
-| link       |   19 |     0 (first) |    129.1 |          128.1 | 171.0 |           126.6 | 179.8 | PASS         | FAIL (p50)          |    172.5 / 181.9 |
-| agent      |   95 |            50 |    105.6 |          103.9 | 149.3 |           105.3 | 156.6 | PASS         | FAIL (p50)          |    135.2 / 136.5 |
+| owner      |  100 |            50 |    100.1 |           94.3 | 143.1 |            96.0 | 133.1 | under        | under               |    129.6 / 126.4 |
+| member     |  172 |           100 |    111.3 |           96.8 | 138.7 |           101.9 | 142.8 | under        | over (middle p50)   |    131.0 / 130.8 |
+| member-all |  760 |           400 |    182.4 |          124.5 | 187.5 |           126.3 | 189.3 | under        | over (p50)          |    159.2 / 170.0 |
+| guest      |   38 |     0 (first) |     94.7 |           93.4 | 134.3 |            98.3 | 141.2 | under        | under               |    136.6 / 138.3 |
+| external   |   22 |     0 (first) |     90.3 |           91.7 | 136.0 |            89.7 | 134.4 | under        | under               |    126.0 / 122.9 |
+| link       |   19 |     0 (first) |    129.1 |          128.1 | 171.0 |           126.6 | 179.8 | under        | over (p50)          |    172.5 / 181.9 |
+| agent      |   95 |            50 |    105.6 |          103.9 | 149.3 |           105.3 | 156.6 | under        | over (p50)          |    135.2 / 136.5 |
 
-### The 3.0 limits, 90 background tenants (bg90)
+### Against G7's limits, 90 background tenants (bg90)
 
-| principal  | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms    | task 3 pages p50 |
+| principal  | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list (1.5 s) | page (100 / 250 ms)    | task 3 pages p50 |
 | ---------- | -------: | -------------: | ----: | --------------: | ----: | ------------ | ---------------------- | ---------------: |
-| owner      |    108.3 |          106.9 | 151.0 |           104.7 | 149.4 | PASS         | FAIL (p50)             |    134.6 / 135.4 |
-| member     |    126.6 |          110.2 | 158.7 |           115.2 | 165.5 | PASS         | FAIL (p50)             |    141.9 / 143.6 |
-| member-all |    201.4 |          138.3 | 192.2 |           129.3 | 177.8 | PASS         | FAIL (p50)             |    170.0 / 169.9 |
-| guest      |     93.5 |           96.0 | 136.2 |            94.5 | 132.0 | PASS         | PASS                   |    133.6 / 132.5 |
-| external   |    100.7 |           96.6 | 129.4 |           114.7 | 211.9 | PASS         | FAIL (middle p50)      |    133.2 / 132.0 |
-| link       |    148.7 |          166.8 | 246.5 |           173.5 | 305.6 | PASS         | FAIL (p50, middle p99) |    184.1 / 182.9 |
-| agent      |    151.6 |          139.3 | 220.7 |           144.4 | 217.1 | PASS         | FAIL (p50)             |    145.7 / 149.1 |
+| owner      |    108.3 |          106.9 | 151.0 |           104.7 | 149.4 | under        | over (p50)             |    134.6 / 135.4 |
+| member     |    126.6 |          110.2 | 158.7 |           115.2 | 165.5 | under        | over (p50)             |    141.9 / 143.6 |
+| member-all |    201.4 |          138.3 | 192.2 |           129.3 | 177.8 | under        | over (p50)             |    170.0 / 169.9 |
+| guest      |     93.5 |           96.0 | 136.2 |            94.5 | 132.0 | under        | under                  |    133.6 / 132.5 |
+| external   |    100.7 |           96.6 | 129.4 |           114.7 | 211.9 | under        | over (middle p50)      |    133.2 / 132.0 |
+| link       |    148.7 |          166.8 | 246.5 |           173.5 | 305.6 | under        | over (p50, middle p99) |    184.1 / 182.9 |
+| agent      |    151.6 |          139.3 | 220.7 |           144.4 | 217.1 | under        | over (p50)             |    145.7 / 149.1 |
 
-Reruns alone (bg90): external list 103.7, pages 107.2 / 167.3 and 102.7 / 150.7 (FAIL, p50); link 136.0, 142.1 /
-199.0 and 139.5 / 190.6 (FAIL, p50); agent 122.8, 117.2 / 178.8 and 117.4 / 178.8 (FAIL, p50).
+Reruns alone (bg90): external list 103.7, pages 107.2 / 167.3 and 102.7 / 150.7 (over, p50); link 136.0, 142.1 /
+199.0 and 139.5 / 190.6 (over, p50); agent 122.8, 117.2 / 178.8 and 117.4 / 178.8 (over, p50).
 
 ### Before → after (bg0, against G7)
 
@@ -107,7 +109,7 @@ The agent is new since task 3. p50 in ms, G7 → task 3 → task 4.
 | link       | 20.69 / 18.41 FAIL (129.1 / 6.2) | 21.97 / 20.24 FAIL | 17.72 / 21.07 FAIL | 23.97 / 27.99 FAIL | 24.8 / 27.8 FAIL |
 | agent      | 1.15 / 1.19 pass (105.6 / 91.5)  | 0.87 / 1.06 pass   | 1.08 / 1.04 pass   | 0.87 / 1.07 pass   | pass / pass      |
 
-**Verdict: the 3.1 target still FAILS** for the three small principals (guest, external, link; 7 to 24 times) in
+**The 3.1 target (≤ 2 ×) is not met** for the three small principals (guest, external, link; 7 to 24 times) in
 both runs, and for the owner at bg90 on the p99 ratio (2.16). The owner's bg0 list now passes (1.85 / 1.99). The
 small lists cannot reach 2 × with this statement: its bare run costs 57 to 123 ms, while their reference runs in
 6 to 13 ms.
