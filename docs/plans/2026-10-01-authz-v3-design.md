@@ -3801,12 +3801,13 @@ AuthnService.authenticate(c, ctx):
   st = identities.status(id) ; !active | banned | deleted ⇒ failure invalid_credentials (audit keeps the real reason)
   s.interactive && r.external ⇒ every ExternalLoginHook.afterLogin(id, r.external)   # K6, RFC N10-1
     a throw ⇒ failure invalid_credentials (audit hook_error) ; no link by email, no session
-  throttle.succeed(keys, 'login')                          # account key reset; its attempts leave the IP key (A06)
   if s.interactive:
     steps = mfaPolicy.required(id, facts)
+    a throw ⇒ failure invalid_credentials (audit mfa_step_not_listed | mfa_enrolment_mismatch | policy_error) ; count kept (Z8)
+    throttle.succeed(keys, 'login')                        # account key reset; its attempts leave the IP key (A06)
     steps non-empty ⇒ pending = sessions.issue(id, facts, { pending: { steps } }) ; audit mfa.challenge ; mfa_required
     h = sessions.issue(id, facts{ assurance: 'aal1' }) ; audit login, session.issue ; success { session: h }
-  else success (per request; no session) ; audit token.use / key.use (sampled, authn.audit.sampleUse)
+  else throttle.succeed(keys, 'login') ; success (per request; no session) ; audit token.use / key.use (sampled, authn.audit.sampleUse)
 
 completeMfa(pending, step, response):
   throttle.attempt({ account, account-ip, ip }, 'mfa') ; step.verify ; fail ⇒ audit mfa.verify failure ; ok ⇒ throttle.succeed

@@ -1348,10 +1348,11 @@ The decorators, the policy rules and what the middleware cannot see are in
   suit tests and small tables only.
 - PostgreSQL must run with `jit = off` for the app's role or database (G7); authz-orm refuses a
   connection with JIT on unless `authz.orm.allowJit: true`.
-- On PostgreSQL the rule terms of a list are worked out once per class of rows, not once per row (S1).
-  Each term reads the whole model table once per statement, also the rows the app's own WHERE drops,
-  so its cost grows with the table. SQLite keeps the per-row form. A stored rule whose definition
-  PostgreSQL cannot parse fails every list of that model.
+- On PostgreSQL the rule terms of a list are mostly worked out once per class of rows, not once per
+  row (S1). Each such term reads the whole model table once per statement, also the rows the app's own
+  WHERE drops, so its cost grows with the table. SQLite keeps the per-row form, and so does PostgreSQL
+  for a config threshold reading `resource.*` and for a scope path with a column node that has no id
+  mode. A stored rule whose definition PostgreSQL cannot parse fails every list of that model.
 - Speed, release gate 7 (open while the owner reviews its limits): the canvas file list over 1,000
   files takes 90 to 182 ms (p50) on PostgreSQL with `jit = off`, a 50-row page 90 to 128 ms
   (`packages/authz-rbac/bench/RESULTS.md`).
@@ -1421,11 +1422,11 @@ The full description is in the [authn guide](../authn/README.md#the-totp-step-au
   password alone. **A user enrolled in a factor whose step is not listed cannot log in with a password
   at all** (Z8): the login gets the wrong-password answer, audited as `mfa_step_not_listed` (or
   `mfa_enrolment_mismatch` when the listed step does not see the enrolment), with or without `force`.
-  List the step before the first 3.0 start if any user has 2.x 2FA; `authn:check-config` names each
-  enrolled step the list lacks. The check needs the authn-orm stores in the process that serves logins
-  (import `@spinajs/authn-orm` or `@spinajs/authn-totp/db`). It costs one `authn_mfa` query per
-  password login without a listed enrolment, and a failed query refuses the login. A login the MFA
-  policy refuses keeps its throttle count.
+  This login guard needs the authn-orm stores in the process that serves logins (import
+  `@spinajs/authn-orm` or `@spinajs/authn-totp/db`). It costs one `authn_mfa` query per password login
+  without a listed enrolment, and a failed query refuses the login. A login the MFA policy refuses
+  keeps its throttle count. List the step before the first 3.0 start if any user has 2.x 2FA;
+  `authn:check-config` names each enrolled step the list lacks.
 - **`rbac:user-enable-2fa` is gone.** It printed a secret. Use `authn:mfa-reset <login>`; the owner
   enrols again through `/user/mfa`.
 - **Recovery codes** are 16 base32 characters shown as `XXXX-XXXX-XXXX-XXXX`, 80 bits each, ten by

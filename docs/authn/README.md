@@ -97,10 +97,12 @@ The design fixes the order of `AuthnService.authenticate(credentials, ctx)` (§2
    subject except `service` and `agent`, which their strategies vouch for. Only `user` identities get
    sessions. The caller sees one answer for every failure: HTTP 401 `E_AUTH_FAILED`. The real reason
    goes to audit only (A02).
-6. Reset the account throttle key. A success removes only that account's attempts from the IP key.
-7. For an interactive strategy: ask the `MfaPolicy`. Steps required means a *pending* session and an
-   `mfa_required` result. Otherwise issue a session.
-   A per-request strategy (token, key, signature) returns a result with no session.
+6. For an interactive strategy: ask the `MfaPolicy`. A refusal (an enrolled step the list lacks, a
+   failing source) is a failure and keeps the throttle count (Z8). Otherwise reset the account throttle
+   key; a success removes only that account's attempts from the IP key.
+7. Steps required means a *pending* session and an `mfa_required` result. Otherwise issue a session.
+   A per-request strategy (token, key, signature) resets its throttle key and returns a result with no
+   session.
 
 `completeMfa(pending, step, response, ctx)` counts into the `mfa` throttle and asks the policy again for the
 required steps of the pending session. Passing any one of them, or a recovery code, elevates the
@@ -131,9 +133,10 @@ when `force` or `forceForRoles` has no step to require, and when `forceForRoles`
 or without `force`. The client gets the wrong-password answer, no session is made, and the throttle
 keeps the count. A source that throws refuses the login. With no source registered (authn-orm not
 loaded in the process), nothing is checked. `authn:check-config` names each enrolled step the list
-lacks; it cannot see a mismatch. A step that stores secrets declares `storesSecrets: true`. That works today: outside
-development and test, boot then refuses a missing `authn.mfa.encryptionKey`; in development and test
-it only warns.
+lacks; it cannot see a mismatch.
+
+A step that stores secrets declares `storesSecrets: true`. That works today: outside development and
+test, boot then refuses a missing `authn.mfa.encryptionKey`; in development and test it only warns.
 
 Boot checks, the old-key detector and `authn:check-config` are in
 [the migration guide](../authz/migration-guide.md#34-keys-that-other-config-files-own). The

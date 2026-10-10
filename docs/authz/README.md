@@ -557,10 +557,11 @@ export class TaskTeamPolicy extends OrmScopePolicy<Task> {
   only. **On PostgreSQL, authz-orm refuses a connection that runs with `jit = on`** (the server
   default): turn it off for the app's role or database (`ALTER ROLE … SET jit = off`), or set
   `authz.orm.allowJit: true` to accept slow lists.
-- **Performance.** On PostgreSQL the rule terms of a list are worked out once per class of rows (rows
-  that share their scope path and rule inputs), then applied to each row; SQLite keeps one evaluation
-  per row. Each term reads the whole model table once per statement, so its cost grows with the table,
-  also when the app's own WHERE keeps few rows. A stored rule whose definition PostgreSQL cannot parse
+- **Performance.** On PostgreSQL the rule terms of a list are mostly worked out once per class of rows
+  (rows that share their scope path and rule inputs), then applied to each row; SQLite keeps one
+  evaluation per row, and so does PostgreSQL for a config threshold reading `resource.*` or a scope
+  column without an id mode. Each class term reads the whole model table once per statement, so its
+  cost grows with the table, also when the app's own WHERE keeps few rows. A stored rule whose definition PostgreSQL cannot parse
   fails every list of that model. Measured for release gate 7 (still open: the limits are being
   rethought by the owner), canvas `file:read` over 1,000 files on PostgreSQL 16 with `jit = off`: the
   list p50 90 to 182 ms, a 50-row page p50 90 to 128 ms and p99 133 to 189 ms; with other tenants'
