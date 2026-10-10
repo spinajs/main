@@ -550,6 +550,39 @@ describe('authz-rbac orm-compile: rule list terms worked out once per class of r
         await collated('s1c_ci');
       });
 
+      it('a path without id modes keeps the per-row form (final review I1)', async function () {
+        if (!(await icu())) return this.skip();
+        const noModes: RbacScopePath = {
+          type: 'doc',
+          idColumn: 'id',
+          scopes: [
+            { column: 'project_id', scopeType: 'project' },
+            { column: 'org_id', scopeType: 'org' },
+          ],
+        };
+        // The expired GLOBAL assignment adds nothing, but makes every row a pruning candidate.
+        await scenario({ rules: [STRIP] }, [assignment(u('ann'), 'viewer', P('P1')), assignment(u('ann'), 'viewer', GLOBAL, { expiresAt: new Date(Date.now() - DAY) })], []);
+        // The world's assignment scope_id is l4b_ci: with plain TEXT the comparison takes it; another nondeterministic
+        // collation on the scope column could not be compared with it at all.
+        for (const col of ['TEXT', 'TEXT COLLATE l4b_ci']) {
+          const table = `s1c_coll_${extraTables.length}`;
+          extraTables.push(table);
+          await rawQuery(driver, `CREATE TABLE "${table}" ("id" TEXT NOT NULL, "project_id" ${col}, "org_id" TEXT, "name" TEXT, "tenant" TEXT)`, [], QueryContext.Schema);
+          await loadRows(
+            driver,
+            [
+              ['a', 'p1', 'o1'],
+              ['b', 'q1', 'o1'],
+            ],
+            table,
+          );
+          const layers = { ...ormRbacScopeLayers(driver), project: { kind: 'store' as const }, org: { kind: 'store' as const } };
+          const route = termNamed(await compareForms(world, driver, ann, 'doc:read', { rowTable: table, path: noModes, fields: [], layers }, `no id modes, project_id ${col}`), 'route');
+          expectRows(route, { a: true, b: false });
+          expect(route.keys, `project_id ${col}: the per-row form was chosen`).to.equal(undefined);
+        }
+      });
+
       async function icu(): Promise<boolean> {
         const rows = (await rawQuery(driver, `SELECT COUNT(*) AS n FROM pg_collation WHERE collprovider = 'i'`)) as Array<{ n: unknown }>;
         const has = Number(rows[0]?.n) > 0;

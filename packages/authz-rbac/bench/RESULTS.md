@@ -133,7 +133,7 @@ run just before the change (`.authz-sdd/S1-t4-split-before-bg0.txt`); the rest i
 
 - **The compile in Node fell from 67 to 91 ms to 23 to 36 ms.** authz-rbac's fragments now keep nested fragments
   whole and check only their own text, so a 280 to 380 KB term is built once instead of being copied and scanned
-  once per level of nesting (c2b33ca93; the statements are the same, byte for byte). A CPU profile of the
+  once per level of nesting (8f52ade6b; the statements are the same, byte for byte). A CPU profile of the
   member's compile (27 ms under the profiler; `.authz-sdd/S1-t4/agg-after3.txt`): authz-rbac 13 ms (building the
   fragments 4 ms, flattening and converting the term for authz-orm 3 ms, grouping and junctions 2 ms), authz-orm's
   native fragment checks 6 ms, identifier quoting in `orm-postgres` 3 ms, garbage collection and the rest 4 ms.
@@ -165,6 +165,7 @@ both.
 Costs of the class form (also in `BASELINE.md`): each term reads and sorts the whole file table once per statement,
 rows other filters exclude included; SQLite keeps the per-row form; a stored rule Postgres cannot read now fails
 every list of the model (design S1 r2 I5), not only lists that reach it.
+Paths without id modes keep the per-row form.
 
 ## Release gate 7 for 3.0: absolute limits (G7)
 

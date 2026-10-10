@@ -132,8 +132,9 @@ per statement:
   that is 15 to 70 ms of each statement.
 - The statement stays large: 280 to 380 KB with 5,000 to 6,600 bound values. Postgres plans it in 12 to 23 ms
   every time, and authz-orm's middleware compiles it in Node in 23 to 36 ms on every query (67 to 91 ms before
-  c2b33ca93; RESULTS.md, "What the numbers say").
+  8f52ade6b; RESULTS.md, "What the numbers say").
 - A config threshold that reads `resource.*` keeps the per-row form (a class per value would be slower).
+- A path with a column without an id mode keeps the per-row form (that column compares in its own collation).
 - SQLite keeps the per-row form for every term (its parser stack, and stored rules serve tests there).
 - Error surface: the class form runs the rule chain for one row of every class, so a stored rule Postgres cannot
   read (a `definition` that is not JSON) now fails every list of the model, not only the lists that reach it.

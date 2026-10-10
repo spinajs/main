@@ -1243,12 +1243,15 @@ export class RbacRulesSql {
   /**
    * The term as a lookup of the row's class (`rbacClassForm`), or undefined for the per-row form: on SQLite (its
    * parser stack seldom takes the deeper form, and it serves stored rules in tests only), without the model's table,
-   * where the class key would be empty, and for a term holding a config threshold that reads `resource.*` (every row
-   * keyed by its field values: a class per value, slower than per row).
+   * where the class key would be empty, on a path with a column without an id mode (per row it compares in the
+   * model column's collation, the class key byte for byte, so a class could mix rows the per-row form tells apart),
+   * and for a term holding a config threshold that reads `resource.*` (every row keyed by its field values: a class
+   * per value, slower than per row).
    */
   private classForm(rules: readonly Rule[], kind: 'route' | 'threshold', flagSql: RbacSql): RbacSql | undefined {
     const { path, dialect, rowTable, testOnly } = this.ctx;
     if (dialect.name !== 'postgres' || rowTable === undefined || testOnly?.rows === true) return undefined;
+    if (path.nodes.some((n) => n.column !== undefined && n.idMode === undefined)) return undefined;
     // Invariant: the filtered row is a row of `rowTable`, so its class has a representative, unless pruning drops it
     // (a route class whose flag is 0, so FALSE is still exact). A route term under NOT would list a row whose class
     // has none; threshold terms deny such a row (fail closed).
