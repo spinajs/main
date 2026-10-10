@@ -4,24 +4,27 @@ How the bench works and how to run it: `BASELINE.md`.
 
 ## Release gate 7 for 3.0 after S1 (class-wise rule terms)
 
-Run 2026-10-10 on branch `authz/S1-set-based-sql` (base `authz-v3-refactor` fb17360ea, A4 merged), code of
-eb90efd3c: the rule list terms worked out once per class of rows (6a11bef83, 986552ae1), route pruning and
-attribute lookups as columns (6c24d7b3e), and the agent principal in the bench. `--filter=postgres.jit-off`, once
-without and once with `L4B_BENCH_BACKGROUND=90`. Limits as in G7 (plan §12 item 7): list p50 ≤ 1.5 s; a 50-row
-page p50 ≤ 100 ms and p99 ≤ 250 ms.
+Two runs on 2026-10-10, branch `authz/S1-set-based-sql` (base `authz-v3-refactor` fb17360ea, A4 merged):
 
-**Verdict: the 3.0 limits still FAIL, on the page p50.**
+- **S1 task 3**, code of eb90efd3c: the rule list terms worked out once per class of rows (6a11bef83,
+  986552ae1), route pruning and attribute lookups as columns (6c24d7b3e), and the agent principal in the bench.
+- **S1 task 4**, code of c2b33ca93: the same SQL, byte for byte, built in time linear in its size (authz-rbac's
+  fragment layer no longer copies and checks nested fragments at every level). This is the current state.
 
-| limit             | bg0                                                                | bg90                           |
-| ----------------- | ------------------------------------------------------------------ | ------------------------------ |
-| list p50 ≤ 1.5 s  | PASS, 7 of 7 (124 to 211 ms)                                       | PASS, 7 of 7 (132 to 225 ms)   |
-| page p50 ≤ 100 ms | FAIL, 14 of 14 (123 to 182 ms)                                     | FAIL, 14 of 14 (132 to 184 ms) |
-| page p99 ≤ 250 ms | PASS 12 of 14; FAIL member-all and link middle pages (264, 279 ms) | PASS, 14 of 14 (177 to 243 ms) |
+`--filter=postgres.jit-off`, once without and once with `L4B_BENCH_BACKGROUND=90`. Limits as in G7 (plan §12
+item 7): list p50 ≤ 1.5 s; a 50-row page p50 ≤ 100 ms and p99 ≤ 250 ms.
 
-Against G7's run every list and page p50 drops by 1.4 to 16 times, and the p99 by up to 89 times. Other tenants'
-rows change little: at p50, bg90 is within -2 to +10 % of bg0. A page now costs about what its list costs, 120 to
-185 ms, and more than half of that goes to compiling the statement in Node before it reaches Postgres (see "What
-the numbers say").
+**Verdict: the 3.0 limits still FAIL, on the page p50**, though half the pages now pass it without other tenants.
+
+| limit             | bg0 (task 4)                   | bg90 (task 4)                                                          | task 3 (bg0 / bg90)     |
+| ----------------- | ------------------------------ | ---------------------------------------------------------------------- | ----------------------- |
+| list p50 ≤ 1.5 s  | PASS, 7 of 7 (90 to 182 ms)    | PASS, 7 of 7 (94 to 201 ms)                                            | PASS / PASS             |
+| page p50 ≤ 100 ms | FAIL, 7 of 14 pass (90 to 128) | FAIL, 3 of 14 pass (95 to 174; reruns of three principals: 103 to 142) | FAIL, 0 of 14 / 0 of 14 |
+| page p99 ≤ 250 ms | PASS, 14 of 14 (133 to 189 ms) | PASS 13 of 14; FAIL link middle page (306 ms; 191 ms in its rerun)     | 12 of 14 / 14 of 14     |
+
+At bg0 the owner, guest and external pages pass, and the member's first page; member-all and link miss by 24 to
+28 %, the agent and the member's middle page by 2 to 5 %. Compiling a statement in Node now takes 23 to 36 ms
+against 67 to 91 ms before (see "What the numbers say"); the rest of a page is the statement on the driver (55 to 93 ms).
 
 ### Environment
 
@@ -29,10 +32,16 @@ Windows 11 (10.0.26200), Node 24.14.1, Intel i7-12700KF (20 threads); PostgreSQL
 the same machine), `work_mem` 4 MB, `shared_buffers` 128 MB, the bench database with `jit = off`. Data (seed 7):
 as in L4b (1,299 assignments, 350 stored rules, 25 attribute rows; ×10 with 90 background tenants), 1,000 files.
 
-Load: other lanes' processes kept the CPU 30 to 50 % busy; the bg0 run took 17 min, the bg90 run 18 min (G7's run
-took 1 h 48 min). The first bg90 try stopped at its first scenario on `connect ETIMEDOUT` to the shared Postgres
-server (load; nothing timed); the rerun went through without an error. No run shows second-long stalls (largest
-p99 279 ms), so no principal was rerun. Outputs: `.authz-sdd/S1-bench-bg0.txt`, `S1-bench-bg90.txt`.
+Load, task 4: other sessions' processes kept the CPU about 50 % busy. The bg0 run took 13 min; its first two tries
+stopped at boot on `connect ETIMEDOUT` to the shared Postgres server (nothing timed). The bg90 run took 17 min and
+was disturbed towards its end: the agent's reference (the plain `EXISTS`, the same statement as the member's)
+took 140 ms against the member's 116 ms, and link's pages 167 to 174 ms against 127 to 128 ms at bg0. External,
+link and the agent were rerun alone at bg90 (`--filter=postgres.jit-off.<who>.`): 103 to 142 ms for their pages,
+which still fail. The tables give the full run; the reruns are listed below it. Outputs:
+`.authz-sdd/S1-t4-bench-bg0.txt`, `S1-t4-bench-bg90.txt`, `S1-t4-bench-bg90-rerun-<who>.txt`.
+
+Load, task 3: 30 to 50 % busy; bg0 17 min, bg90 18 min after one `ETIMEDOUT` try; no second-long stalls
+(`.authz-sdd/S1-bench-bg0.txt`, `S1-bench-bg90.txt`).
 
 Rows per principal (list / reference): owner 100 / 100, member 172 / 181, member-all 760 / 800, guest 38 / 40,
 external 22 / 43, link 19 / 20; the agent lists 95. Every list was checked against 1,000 single checks, and every
@@ -40,115 +49,116 @@ page against its slice of the list, before it was timed.
 
 ### The 3.0 limits, no background tenants (bg0)
 
-p50 and p99 in ms, median of 3 repeats (lists 30 iterations, pages 100).
+p50 and p99 in ms, median of 3 repeats (lists 30 iterations, pages 100). Task 4; the last column gives task 3's
+page p50s (first / middle).
 
-| principal  | rows | middle offset | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms |
-| ---------- | ---: | ------------: | -------: | -------------: | ----: | --------------: | ----: | ------------ | ------------------- |
-| owner      |  100 |            50 |    139.7 |          129.6 | 190.9 |           126.4 | 164.9 | PASS         | FAIL (p50)          |
-| member     |  172 |           100 |    140.1 |          131.0 | 181.6 |           130.8 | 176.7 | PASS         | FAIL (p50)          |
-| member-all |  760 |           400 |    211.4 |          159.2 | 213.4 |           170.0 | 263.6 | PASS         | FAIL (p50, p99)     |
-| guest      |   38 |     0 (first) |    123.9 |          136.6 | 204.8 |           138.3 | 210.8 | PASS         | FAIL (p50)          |
-| external   |   22 |     0 (first) |    126.2 |          126.0 | 169.8 |           122.9 | 164.2 | PASS         | FAIL (p50)          |
-| link       |   19 |     0 (first) |    172.0 |          172.5 | 233.9 |           181.9 | 279.1 | PASS         | FAIL (p50, p99)     |
-| agent      |   95 |            50 |    139.5 |          135.2 | 183.2 |           136.5 | 186.6 | PASS         | FAIL (p50)          |
+| principal  | rows | middle offset | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms | task 3 pages p50 |
+| ---------- | ---: | ------------: | -------: | -------------: | ----: | --------------: | ----: | ------------ | ------------------- | ---------------: |
+| owner      |  100 |            50 |    100.1 |           94.3 | 143.1 |            96.0 | 133.1 | PASS         | PASS                |    129.6 / 126.4 |
+| member     |  172 |           100 |    111.3 |           96.8 | 138.7 |           101.9 | 142.8 | PASS         | FAIL (middle p50)   |    131.0 / 130.8 |
+| member-all |  760 |           400 |    182.4 |          124.5 | 187.5 |           126.3 | 189.3 | PASS         | FAIL (p50)          |    159.2 / 170.0 |
+| guest      |   38 |     0 (first) |     94.7 |           93.4 | 134.3 |            98.3 | 141.2 | PASS         | PASS                |    136.6 / 138.3 |
+| external   |   22 |     0 (first) |     90.3 |           91.7 | 136.0 |            89.7 | 134.4 | PASS         | PASS                |    126.0 / 122.9 |
+| link       |   19 |     0 (first) |    129.1 |          128.1 | 171.0 |           126.6 | 179.8 | PASS         | FAIL (p50)          |    172.5 / 181.9 |
+| agent      |   95 |            50 |    105.6 |          103.9 | 149.3 |           105.3 | 156.6 | PASS         | FAIL (p50)          |    135.2 / 136.5 |
 
 ### The 3.0 limits, 90 background tenants (bg90)
 
-| principal  | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms |
-| ---------- | -------: | -------------: | ----: | --------------: | ----: | ------------ | ------------------- |
-| owner      |    146.4 |          134.6 | 184.4 |           135.4 | 185.8 | PASS         | FAIL (p50)          |
-| member     |    152.8 |          141.9 | 182.8 |           143.6 | 189.5 | PASS         | FAIL (p50)          |
-| member-all |    224.8 |          170.0 | 227.9 |           169.9 | 231.4 | PASS         | FAIL (p50)          |
-| guest      |    131.8 |          133.6 | 177.1 |           132.5 | 176.7 | PASS         | FAIL (p50)          |
-| external   |    136.2 |          133.2 | 179.8 |           132.0 | 183.0 | PASS         | FAIL (p50)          |
-| link       |    181.3 |          184.1 | 243.2 |           182.9 | 239.7 | PASS         | FAIL (p50)          |
-| agent      |    154.0 |          145.7 | 193.3 |           149.1 | 203.8 | PASS         | FAIL (p50)          |
+| principal  | list p50 | page-first p50 |   p99 | page-middle p50 |   p99 | list ≤ 1.5 s | page ≤ 100 / 250 ms    | task 3 pages p50 |
+| ---------- | -------: | -------------: | ----: | --------------: | ----: | ------------ | ---------------------- | ---------------: |
+| owner      |    108.3 |          106.9 | 151.0 |           104.7 | 149.4 | PASS         | FAIL (p50)             |    134.6 / 135.4 |
+| member     |    126.6 |          110.2 | 158.7 |           115.2 | 165.5 | PASS         | FAIL (p50)             |    141.9 / 143.6 |
+| member-all |    201.4 |          138.3 | 192.2 |           129.3 | 177.8 | PASS         | FAIL (p50)             |    170.0 / 169.9 |
+| guest      |     93.5 |           96.0 | 136.2 |            94.5 | 132.0 | PASS         | PASS                   |    133.6 / 132.5 |
+| external   |    100.7 |           96.6 | 129.4 |           114.7 | 211.9 | PASS         | FAIL (middle p50)      |    133.2 / 132.0 |
+| link       |    148.7 |          166.8 | 246.5 |           173.5 | 305.6 | PASS         | FAIL (p50, middle p99) |    184.1 / 182.9 |
+| agent      |    151.6 |          139.3 | 220.7 |           144.4 | 217.1 | PASS         | FAIL (p50)             |    145.7 / 149.1 |
+
+Reruns alone (bg90): external list 103.7, pages 107.2 / 167.3 and 102.7 / 150.7 (FAIL, p50); link 136.0, 142.1 /
+199.0 and 139.5 / 190.6 (FAIL, p50); agent 122.8, 117.2 / 178.8 and 117.4 / 178.8 (FAIL, p50).
 
 ### Before → after (bg0, against G7)
 
 G7's run (below) was on a heavily loaded machine; L4b measured the same lists at 394 to 1,183 ms on a quieter one.
-The agent is new in this run.
+The agent is new since task 3. p50 in ms, G7 → task 3 → task 4.
 
-| principal  | list p50 before → after | page-first p50 / p99 before → after | page-middle p50 / p99 before → after |
-| ---------- | ----------------------: | ----------------------------------: | -----------------------------------: |
-| owner      |          2056.1 → 139.7 |    2057.5 / 11151.8 → 129.6 / 190.9 |     1856.8 / 14750.8 → 126.4 / 164.9 |
-| member     |          1484.7 → 140.1 |     1043.9 / 6961.0 → 131.0 / 181.6 |      1229.5 / 2797.9 → 130.8 / 176.7 |
-| member-all |           779.2 → 211.4 |       230.2 / 345.8 → 159.2 / 213.4 |        507.3 / 797.8 → 170.0 / 263.6 |
-| guest      |           359.9 → 123.9 |       382.7 / 627.5 → 136.6 / 204.8 |        369.9 / 566.5 → 138.3 / 210.8 |
-| external   |           372.2 → 126.2 |       366.0 / 551.2 → 126.0 / 169.8 |        345.0 / 517.8 → 122.9 / 164.2 |
-| link       |           340.0 → 172.0 |       346.3 / 505.5 → 172.5 / 233.9 |        347.7 / 472.5 → 181.9 / 279.1 |
+| principal  |               list p50 |        page-first p50 |        page-middle p50 |
+| ---------- | ---------------------: | --------------------: | ---------------------: |
+| owner      | 2056.1 → 139.7 → 100.1 | 2057.5 → 129.6 → 94.3 |  1856.8 → 126.4 → 96.0 |
+| member     | 1484.7 → 140.1 → 111.3 | 1043.9 → 131.0 → 96.8 | 1229.5 → 130.8 → 101.9 |
+| member-all |  779.2 → 211.4 → 182.4 | 230.2 → 159.2 → 124.5 |  507.3 → 170.0 → 126.3 |
+| guest      |   359.9 → 123.9 → 94.7 |  382.7 → 136.6 → 93.4 |   369.9 → 138.3 → 98.3 |
+| external   |   372.2 → 126.2 → 90.3 |  366.0 → 126.0 → 91.7 |   345.0 → 122.9 → 89.7 |
+| link       |  340.0 → 172.0 → 129.1 | 346.3 → 172.5 → 128.1 |  347.7 → 181.9 → 126.6 |
+| agent      |    (new) 139.5 → 105.6 |   (new) 135.2 → 103.9 |    (new) 136.5 → 105.3 |
 
 ### The 3.1 target: list ≤ 2 × the plain `EXISTS`
 
 `list` = (a) through authz-orm's middleware, `exists` = (b) the r2 v1 term; `-sql` = the bare statements. p50 ratio
-/ p99 ratio; a row passes at ≤ 2 for both.
+/ p99 ratio, task 4; a row passes at ≤ 2 for both. The last column is task 3's `list` ratios (bg0 / bg90).
 
-| principal  | list bg0 (a / b ms)               | list-sql bg0       | list bg90          | list-sql bg90      |
-| ---------- | --------------------------------- | ------------------ | ------------------ | ------------------ |
-| owner      | 2.73 / 3.17 FAIL (139.7 / 51.1)   | 1.33 / 1.52 pass   | 2.30 / 2.94 FAIL   | 1.23 / 1.16 pass   |
-| member     | 1.59 / 1.65 pass (140.1 / 88.0)   | 0.79 / 0.88 pass   | 1.38 / 1.34 pass   | 0.75 / 0.89 pass   |
-| member-all | 1.66 / 1.65 pass (211.4 / 127.3)  | 1.24 / 1.44 pass   | 1.48 / 1.46 pass   | 1.12 / 1.29 pass   |
-| guest      | 11.12 / 11.77 FAIL (123.9 / 11.1) | 7.07 / 6.60 FAIL   | 11.30 / 11.20 FAIL | 8.21 / 8.47 FAIL   |
-| external   | 10.80 / 12.11 FAIL (126.2 / 11.7) | 6.91 / 8.29 FAIL   | 9.73 / 9.50 FAIL   | 7.95 / 8.14 FAIL   |
-| link       | 24.77 / 24.81 FAIL (172.0 / 6.95) | 22.67 / 27.04 FAIL | 27.84 / 25.47 FAIL | 19.69 / 20.17 FAIL |
-| agent      | 1.58 / 1.44 pass (139.5 / 88.0)   | 0.84 / 0.96 pass   | 1.38 / 1.50 pass   | 0.80 / 0.90 pass   |
+| principal  | list bg0 (a / b ms)              | list-sql bg0       | list bg90          | list-sql bg90      | task 3 list      |
+| ---------- | -------------------------------- | ------------------ | ------------------ | ------------------ | ---------------- |
+| owner      | 1.85 / 1.99 pass (100.1 / 54.0)  | 1.31 / 1.40 pass   | 1.70 / 2.16 FAIL   | 1.36 / 1.32 pass   | FAIL / FAIL      |
+| member     | 1.21 / 1.41 pass (111.3 / 92.2)  | 0.87 / 0.76 pass   | 1.10 / 1.20 pass   | 0.80 / 0.89 pass   | pass / pass      |
+| member-all | 1.21 / 1.43 pass (182.4 / 150.6) | 1.26 / 1.24 pass   | 1.29 / 1.45 pass   | 1.06 / 0.93 pass   | pass / pass      |
+| guest      | 8.45 / 9.02 FAIL (94.7 / 11.2)   | 7.92 / 9.18 FAIL   | 7.92 / 8.61 FAIL   | 7.95 / 7.29 FAIL   | 11.1 / 11.3 FAIL |
+| external   | 7.28 / 7.57 FAIL (90.3 / 12.4)   | 6.99 / 8.27 FAIL   | 7.77 / 8.65 FAIL   | 8.23 / 10.79 FAIL  | 10.8 / 9.7 FAIL  |
+| link       | 20.69 / 18.41 FAIL (129.1 / 6.2) | 21.97 / 20.24 FAIL | 17.72 / 21.07 FAIL | 23.97 / 27.99 FAIL | 24.8 / 27.8 FAIL |
+| agent      | 1.15 / 1.19 pass (105.6 / 91.5)  | 0.87 / 1.06 pass   | 1.08 / 1.04 pass   | 0.87 / 1.07 pass   | pass / pass      |
 
-**Verdict: the 3.1 target still FAILS** for the owner list and for the three small principals (guest, external,
-link; 6.9 to 28 times), in both runs. It passes where the plain `EXISTS` is itself slow (member, member-all,
-agent: 88 to 152 ms). The bare list statement costs 54 to 101 ms whatever the list (planning, the class sets, the
-driver) and the compile adds 67 to 95 ms (below), while the small principals' reference runs in 3.5 to 14 ms. The
-small lists cannot reach 2 × with this statement; they need a cheaper compile (authz-rbac) and prepared
-statements in `orm-postgres` (a driver change, out of this lane), and likely the S1 design's §5.2 and §5.3 on top.
+**Verdict: the 3.1 target still FAILS** for the three small principals (guest, external, link; 7 to 24 times) in
+both runs, and for the owner at bg90 on the p99 ratio (2.16). The owner's bg0 list now passes (1.85 / 1.99). The
+small lists cannot reach 2 × with this statement: its bare run costs 57 to 123 ms, while their reference runs in
+6 to 13 ms.
 
 ### What the numbers say
 
 A page's time, split (bg0, scratch probe `.authz-sdd/S1-t3-split.ts`, median of 30 after 3 warm-ups, ms; planning,
-execution and the class sets from one `EXPLAIN (ANALYZE)`; `.authz-sdd/S1-t3-split-bg0-3.txt`):
+execution and the class sets from one `EXPLAIN (ANALYZE)`). Compile before is the same probe on task 3's code,
+run just before the change (`.authz-sdd/S1-t4-split-before-bg0.txt`); the rest is after
+(`S1-t4-split-after3-bg0.txt`).
 
-| principal  | app page | compile in Node | statement on the driver | planning | execution | class sets (classes)          |
-| ---------- | -------: | --------------: | ----------------------: | -------: | --------: | ----------------------------- |
-| owner      |    130.5 |            69.6 |                    62.5 |     14.2 |      27.2 | 17.6 (63), 3.1 (10)           |
-| member     |    135.6 |            74.4 |                    63.0 |     12.6 |      27.1 | 17.1 (68), 5.9 (21)           |
-| member-all |    163.1 |            71.1 |                    89.6 |     20.3 |      74.1 | 38.8 (100), 30.1 (100)        |
-| guest      |    123.7 |            66.9 |                    54.7 |     12.6 |      24.3 | 14.8 (60), 3.0 (8)            |
-| external   |    121.2 |            68.4 |                    57.7 |     13.9 |      28.4 | 18.5 (63), 2.3 (7)            |
-| link       |    175.4 |            94.9 |                    82.4 |     19.7 |      37.1 | 12.9 (59), 12.8 (59), 1.4 (2) |
-| agent      |    136.1 |            71.3 |                    62.7 |     15.3 |      31.5 | 18.5 (68), 6.2 (21)           |
+| principal  | compile before → after | app page | statement on the driver | planning | execution | class sets (classes)          |
+| ---------- | ---------------------: | -------: | ----------------------: | -------: | --------: | ----------------------------- |
+| owner      |            69.5 → 26.1 |     87.9 |                    58.3 |     19.5 |      36.5 | 23.6 (63), 3.8 (10)           |
+| member     |            67.1 → 35.2 |     90.6 |                    60.8 |     20.1 |      34.4 | 20.8 (68), 7.5 (21)           |
+| member-all |            69.5 → 25.8 |    121.9 |                    92.5 |     21.0 |      56.2 | 25.6 (100), 25.8 (100)        |
+| guest      |            68.1 → 24.6 |     82.7 |                    57.5 |     12.3 |      24.2 | 15.5 (60), 2.9 (8)            |
+| external   |            68.1 → 22.8 |     79.4 |                    54.5 |     12.6 |      27.2 | 18.8 (63), 2.5 (7)            |
+| link       |            90.8 → 36.1 |    112.1 |                    80.8 |     23.1 |      38.5 | 12.6 (59), 14.4 (59), 1.4 (2) |
+| agent      |            67.4 → 25.7 |     91.1 |                    62.7 |     16.0 |      39.3 | 25.9 (68), 6.5 (21)           |
 
-- **Compile in Node is now the largest part: 67 to 95 ms of every page and list.** authz-orm's middleware
-  compiles the residual into one 280 to 380 KB statement with 5,000 to 6,600 bound values on every query (the
-  `filter` itself comes from the cache, under 0.1 ms). A CPU profile of the member's compile (79 ms) puts 60 ms in
-  authz-rbac's fragment layer (`compile/sql.ts`): `rsql` copies every nested fragment's parts into the new one and
-  `assertText` scans all of its text again at each level, so the same text is copied and checked once per level of
-  nesting (`assertText` alone: 25 ms). authz-orm (6 ms), identifier quoting in `orm-postgres` (4 ms) and garbage
-  collection (4 ms) take most of the rest (`.authz-sdd/S1-t3-split/compile-member-agg.txt`). Even if the SQL were
-  free, the compile alone would use two thirds of the 100 ms page budget.
-- **Planning: 12 to 20 ms per statement**, every time (no plan cache in the driver).
-- **Execution: 24 to 74 ms, most of it the class sets.** Postgres works each set out once per statement, at 0.2
-  to 0.4 ms per class. The stored rules' threshold term (`thresholdDb`, never pruned) keeps about 60 classes for
-  every principal (member-all 100); the pruned route term 2 to 21 (member-all 100; link has a second unpruned term
-  with 59). The per-row part (hash probes of the key, the agent's ABAC leaves) is the rest, 4 to 10 ms. The driver
-  adds about 15 to 25 ms on top of planning and execution (sending 5,000 values, reading rows).
-- **The agent's ABAC leaves cost little:** its statement is 12 KB and 250 values longer than the member's, its
-  execution within a few ms of the member's, and its pages 4 to 6 ms slower (bg0 and bg90).
-- **Closest to the limits:** external (page p50 123 to 133 ms), owner and guest (126 to 138 ms) miss the p50 by a
-  quarter to a third; member-all and link miss it by 60 to 85 % and are the ones near or over the p99 (231 to 279
-  ms for their middle pages). The class form reads the authz tables by index, so other tenants' rows cost little.
+- **The compile in Node fell from 67 to 91 ms to 23 to 36 ms.** authz-rbac's fragments now keep nested fragments
+  whole and check only their own text, so a 280 to 380 KB term is built once instead of being copied and scanned
+  once per level of nesting (c2b33ca93; the statements are the same, byte for byte). A CPU profile of the
+  member's compile (27 ms under the profiler; `.authz-sdd/S1-t4/agg-after3.txt`): authz-rbac 13 ms (building the
+  fragments 4 ms, flattening and converting the term for authz-orm 3 ms, grouping and junctions 2 ms), authz-orm's
+  native fragment checks 6 ms, identifier quoting in `orm-postgres` 3 ms, garbage collection and the rest 4 ms.
+- **The statement on the driver is now the larger part: 55 to 93 ms.** Planning 12 to 23 ms per statement, every
+  time (no plan cache in the driver); execution 24 to 56 ms, most of it the class sets (the `thresholdDb` term's
+  ~60 classes, member-all 100 + 100, link a second unpruned term with 59); the driver adds 15 to 25 ms (sending
+  5,000 values, reading rows).
+- **Closest to the limits:** the agent (104 to 105 ms at bg0) and the member's middle page (102 ms) miss by a few
+  ms; member-all and link miss by a quarter, and their statements alone (81 to 93 ms) leave too little for a
+  compile.
+- **Other tenants' rows:** at bg90 pages took -4 to +37 % against bg0 in this run, more than task 3's -2 to
+  +10 %; the reruns (10 to 17 %) point to load rather than the data.
 
 What is left, in the order the profile points to:
 
-1. The compile in Node, which neither §5.2 nor §5.3 of the S1 design (`.authz-sdd/S1-design.md`) covers: check
-   each fragment's own text once and keep nested fragments as parts instead of copying them at every level; or
-   cache the compiled term per residual and model. The fragment layer takes up to 60 ms of every list and page
-   today (an estimate from the profile; the gain is not measured).
-2. Planning, 12 to 20 ms: prepared statements in `orm-postgres` (named statements, generic plans; out of this
-   lane), or S1 §5.2 (fewer repeated CASEs and bound lists, so a smaller statement to plan, send and compile).
-3. The class sets, 15 to 70 ms: S1 §5.3 (hoist the list-level reads: the subjects' assignments, the rules visible
-   to the row type, the config rules' attribute reads, so each class reads pre-filtered tables), mainly for the
-   unpruned `thresholdDb` term's ~60 classes and member-all's 200.
-4. Per-row work is no longer worth chasing (4 to 10 ms).
+1. Planning, 12 to 23 ms, and the driver's share: prepared statements in `orm-postgres` (named statements, generic
+   plans; out of this lane), or S1 §5.2 (fewer repeated CASEs and bound lists: a smaller statement to plan, send
+   and compile).
+2. The class sets, 15 to 51 ms: S1 §5.3 (hoist the list-level reads: the subjects' assignments, the rules visible
+   to the row type, the config rules' attribute reads), mainly for the unpruned `thresholdDb` term and
+   member-all.
+3. The compile, 23 to 36 ms: caching the compiled term per residual and model would remove most of it; authz-orm's
+   native checks (6 ms) and identifier quoting (3 ms) are outside authz-rbac.
+4. Per-row work is not worth chasing (4 to 10 ms).
 
-No single item brings a page under 100 ms p50 on this machine: 1 is needed, and 2 or 3 on top of it.
+Either 1 or 2 could bring the agent and the member under 100 ms on this machine; member-all and link need
+both.
 
 Costs of the class form (also in `BASELINE.md`): each term reads and sorts the whole file table once per statement,
 rows other filters exclude included; SQLite keeps the per-row form; a stored rule Postgres cannot read now fails

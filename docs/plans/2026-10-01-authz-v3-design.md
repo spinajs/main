@@ -2729,15 +2729,16 @@ life, reconnects included. On Postgres each rule list term is worked out
 once per class of rows that agree on what the rules read (lane S1), not
 once per row; SQLite keeps the per-row form. The statement is 280 to 380 KB
 with 5,000 to 6,600 bound values. State 2026-10-10: FAIL on the page p50.
-Lists take 124 to 225 ms p50 (PASS); pages take 123 to 184 ms p50, and two
-middle pages miss the p99 without other tenants (264 and 279 ms). Of a
-page, 67 to 95 ms is the compile in Node, 12 to 20 ms planning and 24 to
-74 ms execution (`packages/authz-rbac/bench/RESULTS.md`, "Release gate 7
-for 3.0 after S1"). Target for 3.1: at most twice the r2 plain `EXISTS`
-query; it fails for the small lists (up to 28 ×). It needs a cheaper
-compile and prepared statements in `orm-postgres` (named statements,
-generic plans; outside lane S1), then a smaller statement and list-level
-reads shared by all classes (S1 design §5.2, §5.3).
+Lists take 90 to 201 ms p50 (PASS); without other tenants half the pages
+pass (90 to 128 ms p50), with them 3 of 14 in a run disturbed by load;
+the p99 holds but for one page in that run. Of a page, 23 to 36 ms is the
+compile in Node, 12 to 23 ms planning and 24 to 56 ms execution
+(`packages/authz-rbac/bench/RESULTS.md`, "Release gate 7 for 3.0 after
+S1"). Target for 3.1: at most twice the r2 plain `EXISTS` query; it fails
+for the small lists (up to 24 ×). It needs prepared statements in
+`orm-postgres` (named statements, generic plans; outside lane S1), then a
+smaller statement and list-level reads shared by all classes (S1 design
+§5.2, §5.3).
 
 **Work.** Plan lane L4b (5–6 dev-days) plus +1 day in L2 for the SQL-form
 columns and `authz_rule_subject`; L4 loses its post-check task (−1 day).

@@ -2163,18 +2163,20 @@ and freezes merges until the checkpoint is green.
    that reaches a scoped model) unless the app sets
    `authz.orm.allowJit: true` (jit check); ≤ 2 × the plain `EXISTS`
    query stays the 3.1 target. **Status 2026-10-10, after S1 (rule terms
-   worked out once per class of rows): FAIL on the page p50.** Every list
-   passes (124 to 225 ms p50, bg0 and bg90, seven principals with an
-   agent); every page misses 100 ms p50 (123 to 184 ms); the page p99
-   holds except two middle pages at bg0 (member-all 264 ms, link 279 ms).
-   A page spends 67 to 95 ms compiling its 280 to 380 KB statement in
-   Node, 12 to 20 ms planning and 24 to 74 ms executing (mostly the class
-   sets). What is left: a cheaper compile (authz-rbac's fragment layer
-   copies and checks nested text at every level), prepared statements in
-   `orm-postgres`, then design S1 §5.2/§5.3
+   worked out once per class of rows, fragments built in linear time):
+   FAIL on the page p50.** Every list passes (90 to 201 ms p50, bg0 and
+   bg90, seven principals with an agent). At bg0 7 of 14 pages pass
+   100 ms p50 (owner, guest, external, the member's first page); the
+   others take 102 to 128 ms. At bg90, a run disturbed by load, 3 of 14
+   pass (95 to 174 ms). The page p99 holds but for link's middle page in
+   that bg90 run (306 ms; 191 ms rerun alone). A page spends 23 to 36 ms
+   compiling its 280 to 380 KB statement in Node (67 to 91 ms before),
+   12 to 23 ms planning and 24 to 56 ms executing (mostly the class
+   sets). What is left: prepared statements in `orm-postgres`, design S1
+   §5.2/§5.3, and caching the compiled term
    (`packages/authz-rbac/bench/RESULTS.md` "Release gate 7 for 3.0 after
-   S1"). The 3.1 ratio still fails for the owner and the small
-   principals (2.3 to 28 ×); session
+   S1"). The 3.1 ratio still fails for the small principals (7 to 24 ×)
+   and for the owner at bg90 (p99 ratio 2.16); session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

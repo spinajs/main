@@ -130,9 +130,9 @@ per statement:
   pruned, keeps about 60 (member-all 100); the route term, pruned to rows with an assignment of the subjects on
   their path, keeps 2 to 21 (member-all 100; link has a second unpruned term with 59). At 0.2 to 0.4 ms per class
   that is 15 to 70 ms of each statement.
-- The statement stays large: 280 to 380 KB with 5,000 to 6,600 bound values. Postgres plans it in 12 to 20 ms
-  every time, and authz-orm's middleware compiles it in Node in 67 to 95 ms on every query (RESULTS.md, "What the
-  numbers say").
+- The statement stays large: 280 to 380 KB with 5,000 to 6,600 bound values. Postgres plans it in 12 to 23 ms
+  every time, and authz-orm's middleware compiles it in Node in 23 to 36 ms on every query (67 to 91 ms before
+  c2b33ca93; RESULTS.md, "What the numbers say").
 - A config threshold that reads `resource.*` keeps the per-row form (a class per value would be slower).
 - SQLite keeps the per-row form for every term (its parser stack, and stored rules serve tests there).
 - Error surface: the class form runs the rule chain for one row of every class, so a stored rule Postgres cannot
