@@ -24,7 +24,7 @@ describe('authz.abac configuration schema', () => {
   const refused = (abac: unknown) => violationPaths(boot(abac));
 
   it('fills the defaults storesFromConfig reads', async () => {
-    expect((await boot(undefined)).get('authz.abac')).to.deep.equal({ stores: ['ConfigPolicyStore'], policies: [], connection: 'default' });
+    expect((await boot(undefined)).get('authz.abac')).to.deep.equal({ stores: ['ConfigPolicyStore'], policies: [], connection: 'default', scopeResiduals: false });
   });
 
   it('a validated authz.abac builds its stores', async () => {

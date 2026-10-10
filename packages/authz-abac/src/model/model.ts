@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, SCOPE_CONDITION_FILTER, SCOPE_CONDITION_OP, TRUE, and, isScopeLeaf, not, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
@@ -7,7 +7,7 @@ import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionReque
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
-import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
+import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_SCOPE_RESIDUALS, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -24,11 +24,18 @@ export interface AbacModelOptions {
   readonly functions?: readonly ConditionFunction[];
   /** After a failed reload, the first retry waits this long (default 1000 ms), doubling up to 60 s. */
   readonly retryMs?: number;
+  /**
+   * Default `authz.<name>.scopeResiduals` (false). On a request without id, a comparison of
+   * `scope.<type>.*` becomes residual leaves (`SCOPE_CONDITION_OP`) instead of B19's needs_subject
+   * deny or B39's indeterminate vote (RFC K1b-1).
+   */
+  readonly scopeResiduals?: boolean;
 }
 
 const MAX_RETRY_MS = 60_000;
 
 const RESIDUALS = Object.freeze(['true', 'false', 'and', 'or', 'not', 'cmp', 'under'] as const);
+const SCOPE_RESIDUALS = Object.freeze([...RESIDUALS, SCOPE_CONDITION_OP] as const);
 
 interface Entry {
   readonly p: LoadedPolicy;
@@ -63,10 +70,12 @@ export class AbacModel extends AuthorizationModel {
   private retryDelay: number;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
+  private scopeResiduals: boolean | undefined;
 
   constructor(options: AbacModelOptions = {}) {
     super();
     this.name = options.name ?? 'abac';
+    this.scopeResiduals = options.scopeResiduals;
     this.functions = options.functions;
     this.parser = new DefaultConditionCompiler(options.functions ?? BUILTIN_CONDITION_FUNCTIONS);
     this.stores = options.stores;
@@ -81,10 +90,17 @@ export class AbacModel extends AuthorizationModel {
    */
   get capabilities(): ModelCapabilities {
     const sync = this.registry !== undefined && (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore) && this.loaded.every((p) => !p.when && !p.policy.scope) ? 'always' : 'never';
-    return { effects: ['permit', 'deny'], residuals: RESIDUALS, sync, fields: true, needsSubject: true };
+    return { effects: ['permit', 'deny'], residuals: this.scopeResiduals === true ? SCOPE_RESIDUALS : RESIDUALS, sync, fields: true, needsSubject: true };
   }
 
   async init(ctx: ModelInitContext): Promise<void> {
+    if (this.scopeResiduals === undefined) {
+      const on = ctx.config<unknown>('scopeResiduals', ABAC_DEFAULT_SCOPE_RESIDUALS);
+      // A runtime Configuration.set skips the schema.
+      if (typeof on !== 'boolean') throw new AuthzConfigError(`authz.${this.name}.scopeResiduals must be a boolean`);
+      this.scopeResiduals = on;
+    }
+    if (this.scopeResiduals) ctx.registerNativeFilter(SCOPE_CONDITION_FILTER);
     this.registry = ctx.permissions;
     if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions());
     this.stores ??= storesFromConfig(this.name, ctx);
@@ -166,8 +182,10 @@ export class AbacModel extends AuthorizationModel {
       if (list === null) throw new Error(`the ancestors of ${req.resource.type}:${req.resource.id} are unknown`);
       ancestors = list;
     }
+    const leaves = this.scopeResiduals === true && req.resource.type !== GLOBAL.type && (req.resource.id === undefined || req.resource.id === null);
     let cacheable = true;
     const entries: Entry[] = [];
+    const guards: Entry[] = [];
     for (const p of live) {
       const scope = scopeFilter(p.policy.scope, ancestors);
       if (scope === FALSE) continue;
@@ -175,8 +193,10 @@ export class AbacModel extends AuthorizationModel {
         entries.push({ p, when: scope, needsSubject: false });
         continue;
       }
-      const c = await this.compile(p, req, ctx);
+      const c = await this.compile(p, req, ctx, leaves);
       if (!c.cacheable) cacheable = false;
+      // Whatever the filter folds to: the check of a row reads every scope ref before anything folds.
+      if (c.fault && c.fault.op !== 'false') guards.push({ p, when: and(scope, c.fault), needsSubject: false });
       // Decided without the row after all (the unread part sits under a junction that does not matter).
       if (c.filter.op === 'false') continue;
       if (!c.needsSubject || c.filter.op === 'true') {
@@ -190,26 +210,34 @@ export class AbacModel extends AuthorizationModel {
       }
       // A permit whose condition needs the row it was not given permits nothing (B19).
     }
-    return this.vote(entries, cacheable);
+    return this.vote(entries, cacheable, guards);
   }
 
-  private compile(p: LoadedPolicy, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
+  private compile(p: LoadedPolicy, req: DecisionRequest, ctx: EvaluationContext, scopeLeaves = false): Promise<CompiledCondition> {
     const compiler = ctx.conditions as Partial<DefaultConditionCompiler>;
-    if (typeof compiler.compileParsed === 'function') return compiler.compileParsed(p.when!, req, ctx);
+    if (typeof compiler.compileParsed === 'function') return scopeLeaves ? compiler.compileParsed(p.when!, req, ctx, { scopeLeaves }) : compiler.compileParsed(p.when!, req, ctx);
     return ctx.conditions.compile(p.policy.when!, req, ctx) as Promise<CompiledCondition>;
   }
 
-  private vote(entries: readonly Entry[], cacheable: boolean): Vote {
+  /**
+   * `guards`: per policy, the rows where its check would throw on a scope read. There the whole
+   * vote is indeterminate in a check, which `normalizeVote` makes permit FALSE and deny TRUE; the
+   * guards give each row exactly that under every combining algorithm.
+   */
+  private vote(entries: readonly Entry[], cacheable: boolean, guards: readonly Entry[] = []): Vote {
     const live = entries.filter((e) => e.when !== FALSE);
     const permits = live.filter((e) => e.p.policy.effect === 'permit');
     const denies = live.filter((e) => e.p.policy.effect === 'deny');
+    const faults = guards.filter((e) => e.when !== FALSE);
     const expiries = live.flatMap((e) => (e.p.expiresAt ? [e.p.expiresAt.getTime()] : []));
     const fields = fieldsOf(permits, denies);
+    const permitWhen = permits.length === 0 ? FALSE : or(...permits.map((e) => e.when));
+    const blocking = [...faults.map((e) => ({ when: e.when, reason: faultReason(e) })), ...denies.map((e) => ({ when: e.when, reason: reasonOf(e) }))];
     return {
       model: this.name,
-      permitWhen: permits.length === 0 ? FALSE : or(...permits.map((e) => e.when)),
-      denyWhen: denies.length === 0 ? FALSE : or(...denies.map((e) => e.when)),
-      ...(denies.length > 0 ? { denies: denies.map((e) => ({ when: e.when, reason: reasonOf(e) })) } : {}),
+      permitWhen: faults.length === 0 ? permitWhen : and(not(or(...faults.map((e) => e.when))), permitWhen),
+      denyWhen: blocking.length === 0 ? FALSE : or(...blocking.map((e) => e.when)),
+      ...(blocking.length > 0 ? { denies: blocking } : {}),
       ...(fields ? { fields } : {}),
       ...(expiries.length > 0 ? { validUntil: new Date(Math.min(...expiries)) } : {}),
       cacheable,
@@ -294,13 +322,14 @@ export class AbacModel extends AuthorizationModel {
    * B19: a policy whose condition reads `scope.<type>.*` (other than `$global`) or calls a function on
    * `resource.*` needs the row on a list request; such a policy on a list-scoped type (an adapter
    * that compiles filters) cannot be pushed into the query. One line per policy and type, for the
-   * host to log at boot.
+   * host to log at boot. With `scopeResiduals` on, a comparison the compiler turns into residual
+   * leaves does not need the row.
    */
   listWarnings(listScopedTypes: Iterable<ResourceType>): readonly string[] {
     const listed = [...new Set(listScopedTypes)];
     const out: string[] = [];
     for (const p of this.loaded) {
-      if (!p.when || !needsRow(p.when)) continue;
+      if (!p.when || !needsRow(p.when, this.scopeResiduals === true)) continue;
       const types = p.resourceTypes ? listed.filter((t) => p.resourceTypes!.has(t)) : listed;
       for (const type of types) out.push(`${p.where} on list-scoped type ${JSON.stringify(type)}: its condition needs the row, so a list request ${p.policy.effect === 'deny' ? 'denies needs_subject' : 'gets nothing from it'}`);
     }
@@ -419,17 +448,17 @@ export class AbacModel extends AuthorizationModel {
   }
 }
 
-function needsRow(c: ParsedCondition): boolean {
+function needsRow(c: ParsedCondition, scopeLeaves: boolean): boolean {
   switch (c.kind) {
     case 'all':
     case 'any':
-      return c.items.some(needsRow);
+      return c.items.some((item) => needsRow(item, scopeLeaves));
     case 'not':
-      return needsRow(c.item);
+      return needsRow(c.item, scopeLeaves);
     case 'fn':
       return c.facts.roots.includes('resource') || c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
     case 'cmp':
-      return c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
+      return !(scopeLeaves && isScopeLeaf(c)) && c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
   }
 }
 
@@ -459,6 +488,10 @@ function sessionPath(p: ConditionPath): boolean {
   const [head] = p.path;
   if (head === 'attributes') return false;
   return !(p.path.length === 1 && (head === 'id' || head === 'type'));
+}
+
+function faultReason(e: Entry): DenyReason {
+  return { code: 'model_error', policy: e.p.policy.id, sortKey: e.p.policy.id };
 }
 
 function reasonOf(e: Entry): DenyReason {
