@@ -221,6 +221,13 @@ each reference: about 0.45 s per filtered row with four stored rules, so on SQLi
 small tables only until authz-rbac reads the rule tables by joins. On Postgres they log "Slow
 orm.query" warnings.
 
+On PostgreSQL authz-rbac mostly works these terms out once per class of rows (rows sharing their scope
+path and rule inputs) instead of once per row (lane S1); it keeps the per-row form for a config
+threshold reading `resource.*` and for a scope path with a column node that has no id mode. Each class
+term reads the whole model table once per statement, also the rows the caller's WHERE drops, so its
+cost grows with the table. A stored rule whose definition PostgreSQL cannot parse fails every list of
+that model. Times: `packages/authz-rbac/bench/RESULTS.md`.
+
 ### ABAC scope leaves
 
 With `authz.<model>.scopeResiduals` on (`AbacModelOptions.scopeResiduals`), an ABAC model answers a

@@ -175,11 +175,16 @@ what each fix changes for an app.
   `authn:token-delete-expired`.
 - **MFA.** TOTP is opt-in: list `{ name: 'totp', service: 'TotpMfaStep' }` in `authn.mfa.steps`, set the
   key and import `@spinajs/authn-totp` and `@spinajs/authn-totp/db`. With the step listed, a user with 2.x
-  2FA never logs in with the password alone; **with no step listed, `DefaultMfaPolicy` asks for none and
-  such a user logs in with the password alone**, so list the step before the first 3.0 start if any
-  user has 2.x 2FA. `rbac:user-enable-2fa` is gone (it printed a secret); `authn:mfa-reset <login>`
-  replaces it. The 2.x `User2Fa*` queue events are gone; listen for `mfa.enrol` and `mfa.disable` in an
-  `AuthnEventSink`.
+  2FA never logs in with the password alone. **A user enrolled in a factor whose step `authn.mfa.steps`
+  does not list cannot log in with a password at all**: the login gets the wrong-password answer and the
+  audit reason `mfa_step_not_listed` (`mfa_enrolment_mismatch` when the listed step does not see the
+  enrolment), with or without `force`. This login guard needs the authn-orm stores in the process that
+  serves logins (import `@spinajs/authn-orm` or `@spinajs/authn-totp/db`); it then costs one
+  `authn_mfa` query per password login without a listed enrolment, and a failed query refuses the
+  login. A login the MFA policy refuses keeps its throttle count. List the step before the first 3.0
+  start if any user has 2.x 2FA; `authn:check-config` names each enrolled step the list lacks.
+  `rbac:user-enable-2fa` is gone (it printed a secret); `authn:mfa-reset <login>` replaces it. The 2.x
+  `User2Fa*` queue events are gone; listen for `mfa.enrol` and `mfa.disable` in an `AuthnEventSink`.
 - **Impersonation** needs the actor at `aal2` and fresh auth by default, ends when the actor is
   revoked or loses the permit (asked again on every request), and after `maxMinutes`.
 - **Hooks.** The `LogoutHandler` extension point is gone: listen for `logout` in an `AuthnEventSink`.
@@ -243,6 +248,15 @@ what each fix changes for an app.
   `authz.orm.allowJit: true` turns the check off.
 - **PostgreSQL 12 or SQLite 3.35 at the least** for lists over stored rules (`WITH … AS MATERIALIZED`).
   On SQLite such lists are slow; they suit tests and small tables.
+- **On PostgreSQL a list with RBAC rules mostly works the rules out once per class of rows** (rows that
+  share their scope path and rule inputs), not once per row. Each such term reads the whole model table
+  once per statement, also the rows the app's own WHERE drops, so its cost grows with the table. SQLite
+  keeps the per-row form, and so does PostgreSQL in a few cases (a config threshold reading
+  `resource.*`, a path column without an id mode). **A stored rule whose definition PostgreSQL
+  cannot parse now fails every list of that model**, not only the lists that reach the rule.
+- Speed (release gate 7, open while its limits are reviewed): on PostgreSQL with `jit = off`, the canvas
+  file list over 1,000 files takes 90 to 182 ms (p50) and a 50-row page 90 to 128 ms. Numbers and
+  method: `packages/authz-rbac/bench/RESULTS.md`.
 - New tables: `authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`,
   `authz_policy`, `authz_scope_attribute`, `authz_scope_attribute_version`, `authz_admin_idempotency`, `authz_audit` (optional),
   `fs_object` (authz-fs owners), `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`,
@@ -384,8 +398,8 @@ The v2 API is gone; no package in the repository used it. The full notes are in
   `jobOptions`.
 - authz-orm must load once per process; a second copy (another install, or its ESM and CJS builds
   together) throws when it loads.
-- The gate results and the performance numbers for this release candidate are recorded with the release
-  gate, not here.
+- Release gate 7 (speed) is open while the owner reviews its limits (plan §12 item 7). The full
+  numbers are in `packages/authz-rbac/bench/RESULTS.md`; the other gates are tracked in the plan.
 
 ---
 

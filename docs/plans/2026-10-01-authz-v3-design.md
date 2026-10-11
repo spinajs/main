@@ -3195,7 +3195,7 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B16 | Resource patterns `on:` limit a grant to matching resources (fs prefixes and globs); `{principal.*}` templates substitute principal fields; a missing attribute matches nothing. |
 | B17 | `decision.fields.read/write` = union over permitting votes minus `hide` from denying votes minus `authz.fields.neverRead` (from read and from write, r6); `!X` negations and `A.*` work; output filter keeps only readable fields; input outside `write` is stripped (or 400 in `reject` mode). |
 | B18 | (r2) An ABAC deny policy beats an RBAC permit under deny-overrides; an ABAC permit policy grants on its own; targets match by permission glob, resource type, principal type, actor type and scope. |
-| B19 | (r2) Conditions on `resource.*` with constant or `principal.*`/`actor.*`/`env.*`/`scope.*` refs become residuals (or constants when the resource attributes are known); a deny whose condition needs the subject and none is given ⇒ deny `needs_subject`; a permit in that case ⇒ no permit; boot warns when such a policy targets a list-scoped type. (r7, A4) With `authz.abac.scopeResiduals` on, a `scope.<type>.*` comparison on a type-level request is a `native:condition.scope` leaf, not a needs-subject case; the kit's B19.abac and B39.abac cases run with the switch off. |
+| B19 | (r2) Conditions on `resource.*` with constant or `principal.*`/`actor.*`/`env.*`/`scope.*` refs become residuals (or constants when the resource attributes are known); a deny whose condition needs the subject and none is given ⇒ deny `needs_subject`; a permit in that case ⇒ no permit; boot warns when such a policy targets a list-scoped type. |
 | B20 | (r2) ORM select/update/delete on an `@AccessResource` model: `TRUE` ⇒ no WHERE; residual ⇒ compiled WHERE (OR/AND preserved; JOIN ON with `relationScope: 'join'`); `FALSE` ⇒ `AccessDenied` (403; a list with no permit at all is 403, not an empty list, H16). Inserts: owner relation ⇒ stamp; other relation ⇒ `authorizeCreate`; none ⇒ 403. Updates under a relation ⇒ `authorizeUpdate(values)`; moving a row out of scope ⇒ 403. |
 | B21 | A model without `@AccessResource` is never checked; several models may share a type; junction and cloned builders get the target's residual. |
 | B22 | `filterNow` answers synchronously after `preload` for models with `sync: 'after-preload'`; it returns `undefined` (never a guess) when a model needs IO, and (r6) when a model with `sync: 'after-preload'` has not been preloaded for the principal the models run with (the delegate under `inherit`); async checks are not gated. |
@@ -3206,7 +3206,7 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B27 | (r2) Every store write (assignments, rules, links, policies) bumps `authz_version(domain)` and publishes `AuthzChange { tags }` after commit; every domain's L2 and models drop matching entries; `RoleAssigned`/`RoleRevoked` carry actor and scope. |
 | B28 | A filesystem with no `authz.fs.<name>` entry or `mode: 'off'` is the raw provider; `enforce` maps every IO method to a permission (study §9.3) and throws for unmapped methods unless `SYSTEM`; `audit` decides, logs and allows; `resolvePath`, `tmppath`, `tmpname` are not checks. |
 | B29 | A domain's model list = parent models merged with its own (same name ⇒ child replaces; `disable` removes); the parent never sees child models; disposing the domain disposes its `AuthzService` and caches. |
-| B30 | Queue: emitted messages carry `Initiator`; handlers run as initiator (`runAs: 'initiator'`), as system (`runAs: 'system'`) or unattended (default); job status is readable only by its initiator or holders of an unconditional `job:read`. (r7) An unknown job and a denied job answer alike (404). |
+| B30 | Queue: emitted messages carry `Initiator`; handlers run as initiator (`runAs: 'initiator'`), as system (`runAs: 'system'`) or unattended (default); job status is readable only by its initiator or holders of an unconditional `job:read`. |
 | B31 | (r2) Ladders: a ladder role holds the grants of every lower role; the effective role per ladder is the highest live one after restrictions and caps (`Decision.roles`); a ladder grant below its needed role ⇒ `role_too_low{ladder, role, needed}` with `needed` = the lowest granting role; no live role ⇒ `no_access`; ladder grants apply only to the ladder's `resourceTypes`. |
 | B32 | (r2) `implies` adds the implied role at the declared scopes with its tags; `bypass` exempts only that contribution from `restrict`/`cap` rules, never from the ceiling. |
 | B33 | (r2) Subject sets: an assignment to `{ set: R @ S }` applies to every principal holding R (or a higher role of R's ladder) at S; a `group` principal speaks for its member set; a companion's subjects join the principal's; sets are one level deep. |
@@ -3224,8 +3224,10 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B45 | (r3, H26) Instance roles carry no grant on scoped resource types and imply no scoped role; an instance admin without an org assignment gets `no_access` on that org's resources; support access is only through impersonation under B26. |
 | B46 | (r3, H27) Scope-attribute switches act at check time: with `external_sharing: false` every check by an external user under that org loses the user's own and group assignments (deny `no_access`), links stay governed by `public_links`; setting it back restores access; the change invalidates caches through `scope:org:<id>`. |
 
-As built (E1, RFC L1-3; the rows above stay verbatim, the kit checks them):
+As built (E1, RFC L1-3, and r7; the rows above stay verbatim, the kit checks them):
 
+- B19 (r7, A4): With `authz.abac.scopeResiduals` on, a `scope.<type>.*` comparison on a type-level request is a `native:condition.scope` leaf, not a needs-subject case; the kit's B19.abac and B39.abac cases run with the switch off.
+- B30 (r7): An unknown job and a denied job answer alike (404).
 - B25: A name that a model summary lists but the check at `at` denies is listed with `conditional: true`; its fields are the union of the summary entries' fields less `neverRead`.
 - B26: The holder's set is its checks only. The target's set is its checks plus the entries of every routed model's summary (at `$global`, the models routed for each type of the permission), under the target's ceilings. At `$global` both sides are compared on the `$global` node and on `{ type: T }` for each type T of the permission. A summary entry is covered only by a holder that is unconditional on every compared ref and holds the entry's fields. The target's deny policies never drop a summary entry (a deny may rest on session facts that change under impersonation; RFC E1-1). `covers` is false when a model routed for the target gives no summary (no `summarize`, a failure, a timeout or a malformed one).
 
@@ -3801,12 +3803,13 @@ AuthnService.authenticate(c, ctx):
   st = identities.status(id) ; !active | banned | deleted ⇒ failure invalid_credentials (audit keeps the real reason)
   s.interactive && r.external ⇒ every ExternalLoginHook.afterLogin(id, r.external)   # K6, RFC N10-1
     a throw ⇒ failure invalid_credentials (audit hook_error) ; no link by email, no session
-  throttle.succeed(keys, 'login')                          # account key reset; its attempts leave the IP key (A06)
   if s.interactive:
     steps = mfaPolicy.required(id, facts)
+    a throw ⇒ failure invalid_credentials (audit mfa_step_not_listed | mfa_enrolment_mismatch | policy_error) ; count kept (Z8)
+    throttle.succeed(keys, 'login')                        # account key reset; its attempts leave the IP key (A06)
     steps non-empty ⇒ pending = sessions.issue(id, facts, { pending: { steps } }) ; audit mfa.challenge ; mfa_required
     h = sessions.issue(id, facts{ assurance: 'aal1' }) ; audit login, session.issue ; success { session: h }
-  else success (per request; no session) ; audit token.use / key.use (sampled, authn.audit.sampleUse)
+  else throttle.succeed(keys, 'login') ; success (per request; no session) ; audit token.use / key.use (sampled, authn.audit.sampleUse)
 
 completeMfa(pending, step, response):
   throttle.attempt({ account, account-ip, ip }, 'mfa') ; step.verify ; fail ⇒ audit mfa.verify failure ; ok ⇒ throttle.succeed
@@ -4030,6 +4033,18 @@ boot fails on any key of the table below. To only warn, set both
   first login (the pending session may call only the enrol and confirm
   routes); `forceForRoles` asks for the roles through the `RoleSource`
   contract, which `users` implements over the RBAC summary (r4, D26).
+- (Z8) Fail closed on unlisted factors: when an identity is enrolled in no
+  listed step, `DefaultMfaPolicy` asks the `MfaEnrolments` sources
+  (`@spinajs/authn/mfa-enrolments`; authn-orm's `DbMfaEnrolments` over
+  `authn_mfa`, so the login process must load authn-orm or
+  `@spinajs/authn-totp/db`). A confirmed step the list lacks refuses the
+  password login (`mfa_step_not_listed`), one a listed step does not see
+  refuses it too (`mfa_enrolment_mismatch`), with or without `force`; the
+  client gets the wrong-password answer and no session. A source that
+  throws refuses (`policy_error`). `throttle.succeed` runs after the policy,
+  so a refused login keeps its count. `authn:check-config` names unlisted
+  steps but cannot see a mismatch. `assertFreshAuth` is exported from the
+  `authn-http` root.
 
 ### 22.9 Tokens (`authn-token`)
 

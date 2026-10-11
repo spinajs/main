@@ -372,7 +372,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | CLI `rbac:user-enable-2fa` | `authn:mfa-reset <login>` (removes the enrolment, prints no secret); the owner enrols again through `/user/mfa` |
 | `validateToken`, `createToken` | `TokenService.validate`, `.create` (`DbTokenService` in `authn-token`) |
 | `@Policy(NoTokenAuthPolicy)` | `NoTokenAuthPolicy` from `authn-http` (a token or key caller gets 403 `session_required`) |
-| `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated` (a pending MFA session does not pass); `FreshAuth(seconds)` for fresh auth |
+| `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated` (a pending MFA session does not pass); fresh auth through `FreshAuth(seconds)` or, in a handler, `assertFreshAuth` (exported from the `@spinajs/authn-http` root) |
 | `@User()` (users-http) | `@CurrentUser()` (users-http, the user record); `@CurrentPrincipal()` (authz-http); `@Identity()`, `@AuthnSession()` (authn-http) |
 | metadata keys `2fa:*`, `user:pwd_reset:*`, `user:login:*` | gone from `users_metadata`; see [section 7](#7-data-migration) |
 
@@ -1348,6 +1348,14 @@ The decorators, the policy rules and what the middleware cannot see are in
   suit tests and small tables only.
 - PostgreSQL must run with `jit = off` for the app's role or database (G7); authz-orm refuses a
   connection with JIT on unless `authz.orm.allowJit: true`.
+- On PostgreSQL the rule terms of a list are mostly worked out once per class of rows, not once per
+  row (S1). Each such term reads the whole model table once per statement, also the rows the app's own
+  WHERE drops, so its cost grows with the table. SQLite keeps the per-row form, and so does PostgreSQL
+  for a config threshold reading `resource.*` and for a scope path with a column node that has no id
+  mode. A stored rule whose definition PostgreSQL cannot parse fails every list of that model.
+- Speed, release gate 7 (open while the owner reviews its limits): the canvas file list over 1,000
+  files takes 90 to 182 ms (p50) on PostgreSQL with `jit = off`, a 50-row page 90 to 128 ms
+  (`packages/authz-rbac/bench/RESULTS.md`).
 - An `@OrmScope` on a model without `@AccessResource` logs a warning at boot (O2): such a model is never
   checked. Several `authorizeCreate` policies OR-ed on one insert are each tried before the insert is
   refused.
@@ -1411,8 +1419,14 @@ The full description is in the [authn guide](../authn/README.md#the-totp-step-au
   start-up): 2.x TOTP secrets move into `authn_mfa`, and the 2.x `2fa:*`, `user:2fa:*`, `user:login:*`
   and `user:pwd_reset:*` metadata is deleted.
 - With the `totp` step listed in `authn.mfa.steps`, a user with 2.x 2FA enabled never logs in with the
-  password alone. **With no step listed, `DefaultMfaPolicy` asks for none, and such a user logs in with
-  the password alone:** list the step before the first 3.0 start if any user has 2.x 2FA.
+  password alone. **A user enrolled in a factor whose step is not listed cannot log in with a password
+  at all** (Z8): the login gets the wrong-password answer, audited as `mfa_step_not_listed` (or
+  `mfa_enrolment_mismatch` when the listed step does not see the enrolment), with or without `force`.
+  This login guard needs the authn-orm stores in the process that serves logins (import
+  `@spinajs/authn-orm` or `@spinajs/authn-totp/db`). It costs one `authn_mfa` query per password login
+  without a listed enrolment, and a failed query refuses the login. A login the MFA policy refuses
+  keeps its throttle count. List the step before the first 3.0 start if any user has 2.x 2FA;
+  `authn:check-config` names each enrolled step the list lacks.
 - **`rbac:user-enable-2fa` is gone.** It printed a secret. Use `authn:mfa-reset <login>`; the owner
   enrols again through `/user/mfa`.
 - **Recovery codes** are 16 base32 characters shown as `XXXX-XXXX-XXXX-XXXX`, 80 bits each, ten by
