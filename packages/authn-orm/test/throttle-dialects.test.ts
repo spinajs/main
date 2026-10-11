@@ -28,11 +28,11 @@ const DIALECTS = [
     name: 'mssql',
     type: FakeMsSql,
     duplicate: () => Object.assign(new Error("Violation of PRIMARY KEY constraint 'PK_authn_throttle'."), { name: 'RequestError', number: 2627 }),
-    blocked: 'SELECT [k],CONVERT(varchar(23), next_allowed_at, 121) AS next_text FROM `authn_throttle` WHERE [k] IN (?) AND [next_allowed_at] > ?',
-    live: 'SELECT [k],[attempts],CONVERT(varchar(23), last_attempt_at, 121) AS last_text,CONVERT(varchar(23), next_allowed_at, 121) AS next_text FROM `authn_throttle` WHERE [k] IN (?) AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
-    cas: 'UPDATE `authn_throttle` SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [attempts] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] > ?',
-    takeover: 'UPDATE `authn_throttle` SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] <= ?',
-    purge: 'SELECT [k] FROM `authn_throttle` WHERE [last_attempt_at] <= ? AND [next_allowed_at] <= ? ORDER BY `k` ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
+    blocked: 'SELECT [k],CONVERT(varchar(23), next_allowed_at, 121) AS next_text FROM [authn_throttle] WHERE [k] IN (?) AND [next_allowed_at] > ?',
+    live: 'SELECT [k],[attempts],CONVERT(varchar(23), last_attempt_at, 121) AS last_text,CONVERT(varchar(23), next_allowed_at, 121) AS next_text FROM [authn_throttle] WHERE [k] IN (?) AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
+    cas: 'UPDATE [authn_throttle] SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [attempts] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] > ?',
+    takeover: 'UPDATE [authn_throttle] SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] <= ?',
+    purge: 'SELECT [k] FROM [authn_throttle] WHERE [last_attempt_at] <= ? AND [next_allowed_at] <= ? ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
   },
 ] as const;
 
