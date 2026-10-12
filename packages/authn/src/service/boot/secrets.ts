@@ -2,7 +2,6 @@ import type { IContainer } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { MfaStepRegistry } from '../../flow/mfa-step-registry.js';
-import { isSecretStoringMfaStep } from '../../flow/secret-storing-step.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from './env.js';
 import type { AuthnConfigSource } from './env.js';
 
@@ -28,10 +27,10 @@ const q = (v: string): string => JSON.stringify(v);
  */
 export const safeMessage = (e: unknown, during: string): string => (e instanceof InvalidOption ? e.message : `${e instanceof Error ? e.name : typeof e} while ${during}`);
 
-/** The names of the listed MFA steps that declare `storesSecrets: true`; resolving the steps may fail boot. */
+/** The names of the listed MFA steps that set `storesSecrets`; resolving the steps may fail boot. */
 export async function secretStoringSteps(container: IContainer): Promise<string[]> {
   const steps = (await container.resolve(MfaStepRegistry)).steps();
-  return steps.filter(isSecretStoringMfaStep).map((s) => s.name);
+  return steps.filter((s) => s.storesSecrets).map((s) => s.name);
 }
 
 /**
