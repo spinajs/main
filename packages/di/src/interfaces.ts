@@ -193,6 +193,12 @@ export interface IToInject<T> {
    */
   serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[] | undefined;
   mapFunc?: (x: any) => string | undefined;
+
+  /**
+   * Builds the injected value itself, from `data` and the resolving container; it may return a promise.
+   * When set, `inject`, `serviceFunc` and `mapFunc` are not used to resolve it.
+   */
+  resolveFunc?: (data: any, container: IContainer) => unknown;
 }
 
 export interface IMappableService {
