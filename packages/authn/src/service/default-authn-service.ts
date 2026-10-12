@@ -196,7 +196,7 @@ export class DefaultAuthnService extends AuthnService {
     this.auditor = await this.container.resolve(AuthnAudit);
     this.identities = await this.container.resolve(IdentityStore, true);
     this.principals = await this.container.resolve(PrincipalFactory, true);
-    this.links = this.container.hasRegistered(IdentityLinkStore) ? await this.container.resolve(IdentityLinkStore) : undefined;
+    this.links = await this.container.resolveOptional(IdentityLinkStore);
     if (this.registry.strategies().some((s) => s.interactive)) {
       this.sessions = await this.container.resolve(SessionIssuer, true);
       this.steps = await this.container.resolve(MfaStepRegistry);

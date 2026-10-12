@@ -105,8 +105,8 @@ export class AccountLinkService extends AsyncService {
     this.links = await this.container.resolve(IdentityLinkStore, true);
     this.sessions = await this.container.resolve(SessionIssuer, true);
     this.identities = await this.container.resolve(IdentityStore, true);
-    this.passwords = this.container.hasRegistered(PasswordCredentialStore) ? await this.container.resolve(PasswordCredentialStore) : undefined;
-    this.keys = this.container.hasRegistered(KeyRegistry) ? await this.container.resolve(KeyRegistry) : undefined;
+    this.passwords = await this.container.resolveOptional(PasswordCredentialStore);
+    this.keys = await this.container.resolveOptional(KeyRegistry);
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();

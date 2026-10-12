@@ -141,7 +141,7 @@ export class AuthnImpersonationService extends AsyncService {
     this.sessions = await this.container.resolve(SessionIssuer, true);
     this.identities = await this.container.resolve(IdentityStore, true);
     this.principals = await this.container.resolve(PrincipalFactory, true);
-    this.guard = this.container.hasRegistered(ImpersonationGuard) ? await this.container.resolve(ImpersonationGuard) : undefined;
+    this.guard = await this.container.resolveOptional(ImpersonationGuard);
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();
