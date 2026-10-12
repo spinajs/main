@@ -117,8 +117,8 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ audit: { hashKey: { secret: 'h'.repeat(31) } } }).paths).to.include('/audit/hashKey/secret');
     for (const bad of [0, 60001, 1.5]) expect(check({ audit: { sinkTimeoutMs: bad } }).paths, String(bad)).to.include('/audit/sinkTimeoutMs');
     expect(check({ audit: { disabled: ['LogAuthnAuditSink'] } }).paths).to.include('/audit');
-    expect(check({ audit: {} }).config.audit).to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
-    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
+    expect(check({ audit: {} }).config.audit).to.deep.eq({ hashIdentifiers: true, sinkTimeoutMs: 2000 });
+    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ hashIdentifiers: true, sinkTimeoutMs: 2000 });
   });
 
   it('refuses a backoff key missing a field, as the throttle reader does', () => {
@@ -196,7 +196,7 @@ describe('AuthnConfigBootstrapper', () => {
     it('validates the merged 2.x interim shapes and the shipped defaults without an error', async () => {
       const c = await boot({});
       expect(c.get('authn.throttle.login.account')).to.deep.eq(BACKOFF);
-      expect(c.get('authn.audit.sampleUse')).to.eq(0.01);
+      expect(c.get('authn.audit.sinkTimeoutMs')).to.eq(2000);
       expect(c.get('authn.session.hashIds')).to.eq(true);
     });
 

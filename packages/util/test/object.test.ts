@@ -28,6 +28,13 @@ describe('object helpers', () => {
     expect(Object.isFrozen(out.list[0])).to.be.true;
     expect(Object.isFrozen(src)).to.be.false;
   });
+  it('frozenCopy dates refuse setTime and the other setters', () => {
+    const { at } = frozenCopy({ at: new Date(5) });
+    expect(() => at.setTime(0)).to.throw(TypeError);
+    expect(() => at.setUTCFullYear(2000)).to.throw(TypeError);
+    expect(at.getTime()).to.equal(5);
+    expect(at.toISOString()).to.equal('1970-01-01T00:00:00.005Z');
+  });
   it('frozenCopy cuts values deeper than maxDepth', () => {
     expect(frozenCopy({ a: { b: 1 } }, 0)).to.deep.equal({ a: undefined });
   });

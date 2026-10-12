@@ -5,7 +5,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import { buildCore, configuredChild, invalidOf, pinConfiguration, useHarnessLog, violationPaths } from './harness.js';
 
 class Probe {
-  @Config('authn.audit.sampleUse')
+  @Config('authn.audit.sinkTimeoutMs')
   public Sample: number;
 }
 
@@ -34,9 +34,9 @@ describe('harness: the authn schema applies to every boot', function () {
   });
 
   it('pinConfiguration points an instance built with new at the Configuration of the child', async () => {
-    const child = await configuredChild({ authn: { audit: { sampleUse: 0.5 } } });
+    const child = await configuredChild({ authn: { audit: { sinkTimeoutMs: 500 } } });
     try {
-      assert.strictEqual(pinConfiguration(new Probe(), child).Sample, 0.5);
+      assert.strictEqual(pinConfiguration(new Probe(), child).Sample, 500);
     } finally {
       await child.dispose();
     }

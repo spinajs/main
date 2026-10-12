@@ -513,12 +513,14 @@ Every `AuthnEvent` goes to every `AuthnEventSink` (A21). The event types are `lo
 ids. `LogAuthnAuditSink` writes identifiers as keyed hashes (SR-19). `DbAuthnAuditSink` does not hash:
 its rows hold the raw subject refs, the IP and the user agent.
 
-- `AuthnAudit` gives each event to every registered sink, one at a time, each bounded by
-  `authn.audit.sinkTimeoutMs` (default 2000). A sink that fails or times out is logged by error class
-  and never fails a login. The sinks are every `AuthnEventSink` registered in the container and its
-  ancestors, in registration order; there is no list to keep. `authn-orm` registers `DbAuthnAuditSink`
-  (table `authn_audit`). With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
-  default 0.01).
+- `AuthnAudit` gives each event to every registered sink concurrently, each bounded by
+  `authn.audit.sinkTimeoutMs` (default 2000), so a login waits for the slowest sink, not for the sum.
+  All sinks get the same deep-frozen copy of the event, so a sink cannot change what another sees. A
+  sink that fails or times out is logged by error class and never fails a login. The sinks are every
+  `AuthnEventSink` registered in the container and its ancestors; there is no list to keep, and no
+  sink may rely on delivery order. `authn-orm` registers `DbAuthnAuditSink` (table `authn_audit`).
+  With no sink at all, boot logs a warning. Every event is published, `token.use` and `key.use`
+  successes included; there is no sampling. A leftover `authn.audit.sampleUse` is ignored.
 - `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
   `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
   `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x
@@ -526,7 +528,7 @@ its rows hold the raw subject refs, the IP and the user agent.
 - The DB sink never fails on event content: an identity that does not fit the column goes into `data`.
 
 ```ts
-authn: { audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: null } } }
+authn: { audit: { hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: null } } }
 ```
 
 ## Impersonation
@@ -600,7 +602,7 @@ export default {
             httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
+    audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
     http: { trustProxy: null, csrf: { enabled: true, allowedOrigins: [] } },
   },
 };

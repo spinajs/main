@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from '@spinajs/configuration';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
@@ -26,14 +26,6 @@ class FirstSink extends Recording {}
 class SecondSink extends Recording {}
 class ThirdSink extends Recording {}
 class LastSink extends Recording {}
-
-class SlowSink extends AuthnEventSink {
-  async publish(e: AuthnEvent): Promise<void> {
-    calls.push(`SlowSink:start:${e.type}`);
-    await new Promise((r) => setTimeout(r, 20));
-    calls.push(`SlowSink:end:${e.type}`);
-  }
-}
 
 class RejectingSink extends AuthnEventSink {
   async publish(e: AuthnEvent): Promise<void> {
@@ -150,13 +142,9 @@ describe('AuthnAudit', function () {
     }
   }
 
-  async function boot(audit: unknown, opts?: { random?: () => number }): Promise<AuthnAudit> {
+  async function boot(audit: unknown): Promise<AuthnAudit> {
     const { child } = await childWith(audit);
-    if (!opts) return child.resolve(AuthnAudit);
-    const a = new AuthnAudit(child, opts);
-    (a as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
-    await a.resolve();
-    return a;
+    return child.resolve(AuthnAudit);
   }
 
   async function failure(audit: unknown): Promise<unknown> {
@@ -205,11 +193,58 @@ describe('AuthnAudit', function () {
       expect(Object.isFrozen(a.sinks())).to.equal(true);
     });
 
-    it('awaits each sink before calling the next', async () => {
-      await withSinks([SlowSink, LastSink], async () => {
+    it('delivers to all sinks concurrently', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      class GatedSink extends AuthnEventSink {
+        async publish(): Promise<void> {
+          calls.push('GatedSink:start');
+          await gate;
+          calls.push('GatedSink:end');
+        }
+      }
+      await withSinks([GatedSink, LastSink], async () => {
         const a = await boot({});
-        await a.publish(ev('logout'));
-        expect(calls.slice(-3)).to.deep.equal(['SlowSink:start:logout', 'SlowSink:end:logout', 'LastSink:logout']);
+        const done = a.publish(ev('logout'));
+        await new Promise((r) => setTimeout(r, 10));
+        expect(calls).to.include.members(['GatedSink:start', 'LastSink:logout']);
+        expect(calls).to.not.include('GatedSink:end');
+        release();
+        await done;
+        expect(calls).to.include('GatedSink:end');
+      });
+    });
+
+    it('publishes every successful token.use and key.use', async () => {
+      const a = await boot({});
+      for (let i = 0; i < 5; i++) await a.publish(ev('token.use'));
+      await a.publish(ev('key.use'));
+      const first = (await DI.resolve(FirstSink)).events.map((e) => e.type);
+      expect(first).to.deep.equal(['token.use', 'token.use', 'token.use', 'token.use', 'token.use', 'key.use']);
+    });
+
+    it('hands all sinks the same frozen event', async () => {
+      await withSinks([MutatingSink, LastSink], async () => {
+        const a = await boot({});
+        const e = ev('login');
+        await a.publish(e);
+        const mutated = (await DI.resolve(MutatingSink)).events[0];
+        const seen = (await DI.resolve(LastSink)).events[0];
+        expect(seen).to.equal(mutated);
+        expect(seen).to.not.equal(e);
+      });
+    });
+
+    it('escapes $ in the sink name and event type it logs', async () => {
+      class Sink$ extends AuthnEventSink {
+        async publish(): Promise<void> {
+          throw new Error('x');
+        }
+      }
+      await withSinks([Sink$], async () => {
+        const a = await boot({});
+        await a.publish({ ...ev('login'), type: '${evil}' as AuthnEventType });
+        expect(auditorLines().join(' ')).to.not.contain('$');
       });
     });
 
@@ -220,8 +255,10 @@ describe('AuthnAudit', function () {
         expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'RejectingSink:login', 'ThrowingSink:login', 'LastSink:login']);
         const failures = auditorLines().filter((l) => l.startsWith('warn'));
         expect(failures).to.have.length(2);
-        expect(failures[0]).to.contain('RejectingSink').and.contain('login').and.contain('Error');
-        expect(failures[1]).to.contain('ThrowingSink').and.contain('TypeError');
+        const rejecting = failures.find((l) => l.includes('"RejectingSink"'));
+        const throwing = failures.find((l) => l.includes('"ThrowingSink"'));
+        expect(rejecting).to.contain('login').and.contain('(Error)');
+        expect(throwing).to.contain('(TypeError)');
       });
     });
 
@@ -270,20 +307,17 @@ describe('AuthnAudit', function () {
       expect(unhandled).to.deep.equal([]);
     });
 
-    it('hands every sink its own deep frozen copy, so no sink changes the caller or the next sink', async () => {
+    it('hands sinks a deep frozen copy, so no sink changes the caller or another sink', async () => {
       await withSinks([MutatingSink, LastSink], async () => {
         const a = await boot({});
         const e: AuthnEvent = { ...ev('login'), actor: { type: 'user', id: 'u-9' }, data: { step: 'totp', nested: { list: ['a'] } } };
         const before = JSON.stringify(e);
         await a.publish(e);
         expect(JSON.stringify(e), "the caller's event").to.equal(before);
-        const mutated = (await DI.resolve(MutatingSink)).events[0];
         const seen = (await DI.resolve(LastSink)).events[0];
         expect(JSON.stringify(seen), 'what the next sink sees').to.equal(before);
         expect(seen).to.not.equal(e);
-        expect(seen).to.not.equal(mutated);
         expect(seen.identity).to.not.equal(e.identity);
-        expect(seen.at).to.not.equal(mutated.at);
         for (const o of [seen, seen.identity, seen.actor, seen.data, (seen.data as { nested: object }).nested, (seen.data as { nested: { list: object } }).nested.list]) {
           expect(Object.isFrozen(o)).to.equal(true);
         }
@@ -330,49 +364,9 @@ describe('AuthnAudit', function () {
       } catch (e) {
         error = e;
       }
-      expect(error).to.be.instanceOf(Error);
-      expect(() => a.sinks()).to.throw();
-    });
-  });
-
-  describe('sampling', () => {
-    const firstOnly = (): string[] => calls.filter((c) => c.startsWith('FirstSink:')).map((c) => c.split(':')[1]);
-
-    const run = async (sampleUse: number | undefined, random: number, events: AuthnEvent[]): Promise<string[]> => {
-      calls.length = 0;
-      const audit = sampleUse === undefined ? {} : { sampleUse };
-      const a = await boot(audit, { random: () => random });
-      for (const e of events) await a.publish(e);
-      return firstOnly();
-    };
-
-    it('publishes token.use and key.use successes with probability sampleUse', async () => {
-      const uses = [ev('token.use'), ev('key.use')];
-      expect(await run(0.4, 0.5, uses)).to.deep.equal([]);
-      expect(await run(0.4, 0.39, uses)).to.deep.equal(['token.use', 'key.use']);
-      expect(await run(0, 0, uses)).to.deep.equal([]);
-      expect(await run(1, 0.999999, uses)).to.deep.equal(['token.use', 'key.use']);
-    });
-
-    it('draws once per event', async () => {
-      const draws = [0.1, 0.9, 0.1];
-      const a = await boot({ sampleUse: 0.5 }, { random: () => draws.shift() ?? 1 });
-      for (let i = 0; i < 3; i++) await a.publish(ev('token.use'));
-      expect(firstOnly()).to.deep.equal(['token.use', 'token.use']);
-    });
-
-    it('always publishes every other type, and use failures', async () => {
-      const others = [ev('login'), ev('token.create'), ev('key.revoke'), ev('session.issue'), ev('token.use', 'failure'), ev('key.use', 'failure')];
-      expect(await run(0, 0.99, others)).to.deep.equal(['login', 'token.create', 'key.revoke', 'session.issue', 'token.use', 'key.use']);
-    });
-
-    it('defaults sampleUse to 0.01', async () => {
-      expect(await run(undefined, 0.0099, [ev('token.use')])).to.deep.equal(['token.use']);
-      expect(await run(undefined, 0.01, [ev('token.use')])).to.deep.equal([]);
-    });
-
-    it('drops a use event when the random source gives a value that is not a number in [0, 1)', async () => {
-      expect(await run(1, Number.NaN, [ev('token.use')])).to.deep.equal([]);
+      expect(error).to.be.instanceOf(InvalidOperation);
+      expect((error as Error).message).to.match(/not resolved/);
+      expect(() => a.sinks()).to.throw(InvalidOperation);
     });
   });
 
@@ -380,8 +374,15 @@ describe('AuthnAudit', function () {
     it('takes the defaults from the schema, also when authn.audit is unset', async () => {
       for (const audit of [{}, undefined]) {
         const a = await boot(audit);
-        expect((a as unknown as { Config: AuditConfig }).Config).to.deep.equal({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
+        expect((a as unknown as { Config: AuditConfig }).Config).to.deep.equal({ hashIdentifiers: true, sinkTimeoutMs: 2000 });
       }
+    });
+
+    it('still boots with the removed sampleUse key, which is ignored', async () => {
+      const a = await boot({ sampleUse: 0.5 });
+      await a.publish(ev('token.use'));
+      await a.publish(ev('token.use'));
+      expect((await DI.resolve(FirstSink)).events).to.have.length(2);
     });
 
     it('fails boot on malformed authn.audit values, naming the path of each', async () => {
@@ -389,7 +390,6 @@ describe('AuthnAudit', function () {
       await bootFails({ sink: ['FirstSink'] }, 'authn.audit.sink');
       await bootFails({ typo: 1 }, 'authn.audit.typo');
       await bootFails({ sinks: ['FirstSink'] }, 'authn.audit.sinks');
-      for (const v of [-0.01, 1.01, 2, 'half']) await bootFails({ sampleUse: v }, 'authn.audit.sampleUse');
       await bootFails({ hashIdentifiers: 'yes' }, 'authn.audit.hashIdentifiers');
       await bootFails({ hashKey: 'k'.repeat(40) }, 'authn.audit.hashKey');
       await bootFails({ hashKey: { secret: 'short' } }, 'authn.audit.hashKey.secret');
@@ -399,13 +399,13 @@ describe('AuthnAudit', function () {
     });
 
     it('reports every bad value of one boot', async () => {
-      await bootFails({ sampleUse: 2, sinkTimeoutMs: 0, typo: 1 }, 'authn.audit.sampleUse', 'authn.audit.sinkTimeoutMs', 'authn.audit.typo');
+      await bootFails({ hashIdentifiers: 'yes', sinkTimeoutMs: 0, typo: 1 }, 'authn.audit.hashIdentifiers', 'authn.audit.sinkTimeoutMs', 'authn.audit.typo');
     });
 
     it('does not echo config values', async () => {
       expect(await bootFails({ hashKey: { secret: 'hunter2-hunter2' } }, 'authn.audit.hashKey.secret')).to.not.contain('hunter2');
       expect(await bootFails({ hashKey: 'hunter2-hunter2-hunter2-hunter2-hunter2' }, 'authn.audit.hashKey')).to.not.contain('hunter2');
-      expect(await bootFails({ sampleUse: 'hunter2' }, 'authn.audit.sampleUse')).to.not.contain('hunter2');
+      expect(await bootFails({ hashIdentifiers: 'hunter2' }, 'authn.audit.hashIdentifiers')).to.not.contain('hunter2');
       expect(await bootFails('hunter2', 'authn.audit')).to.not.contain('hunter2');
     });
 

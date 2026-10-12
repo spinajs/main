@@ -198,7 +198,7 @@ services, never values.
 | Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env fails boot as `InvalidConfiguration` with the full path of each bad value (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a `previous` version that repeats or equals the current `version`) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
-| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `sampleUse`, `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
+| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
 | Neighbours | No `IdentityStore` or `PrincipalFactory`; with an interactive strategy, no `SessionIssuer` | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, but authn treats the deployment as production, with the strict secret checks. The warning says so. |
 
@@ -1141,8 +1141,9 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   `requirePassword` means fresh auth or an inline re-authentication. An impersonation session is never
   fresh, `reauthenticate` refuses it, and its lifetime is bounded by `maxMinutes` and by
   `authn.session.expiration.maxLifetime`.
-- **Audit.** Each event goes to every sink, one at a time, each bounded by `authn.audit.sinkTimeoutMs`
+- **Audit.** Each event goes to every sink concurrently, each bounded by `authn.audit.sinkTimeoutMs`
   (default 2000). A sink that fails or times out is logged by error class only and never fails a login.
+  `token.use` and `key.use` successes are no longer sampled; `authn.audit.sampleUse` is gone and ignored.
 - **Boot.** Services that read config are per child container, so a child boot reads its own list.
 - **Per-request credentials count failures only (K5).** See the K5 subsection below; the parallel-load
   401s N1's final review found are gone.

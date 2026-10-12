@@ -122,7 +122,7 @@ function example(): Json {
     },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
-    audit: { sampleUse: 0.01, hashIdentifiers: true },
+    audit: { hashIdentifiers: true },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
@@ -269,7 +269,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -287,7 +287,7 @@ describe('authn.* configuration schema', () => {
         jwt: { issuers: [] },
         keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
-        audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
+        audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
         strategies: [],
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS },
@@ -355,7 +355,7 @@ describe('authn.* configuration schema', () => {
       refused({ session: { pendingTtlSeconds: 0 } }, '/session/pendingTtlSeconds');
       refused({ impersonation: { maxMinutes: 0 } }, '/impersonation/maxMinutes');
       refused({ impersonation: { clockSkewSeconds: 301 } }, '/impersonation/clockSkewSeconds');
-      refused({ audit: { sampleUse: 1.5 } }, '/audit/sampleUse');
+      refused({ audit: { sinkTimeoutMs: 0 } }, '/audit/sinkTimeoutMs');
     });
 
     it('refuses algorithms outside the allow-lists', () => {

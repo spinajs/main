@@ -1089,7 +1089,7 @@ describe('DefaultAuthnService', function () {
       const id: IdentityRef = { type: 'user', id: 'u-1' };
       const tok = strategy('tok', { verify: () => ({ ok: true, identity: id, method: 'token' }) });
       const keys = strategy('keys', { kinds: ['jws-assertion'], verify: () => ({ ok: true, identity: id, method: 'jws' }) });
-      const p = await boot([tok, keys], { raw: { authn: { audit: { sampleUse: 1 } } } });
+      const p = await boot([tok, keys], {});
       p.identities.add({ id: id.id, login: 'u' });
       const r = success(await p.service.authenticate(bearer('x'), ctx({ purpose: 'request' })));
       assert.strictEqual(r.session, undefined);
