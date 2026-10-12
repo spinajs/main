@@ -37,11 +37,10 @@ import '../interfaces.js';
  * combination above. Only a method level declaration lands in the same scope as
  * `@Permission` and gets ORed with it.
  *
- * Writing `@Policy(TokenPolicy)` BELOW `@Permission` is deliberate too.
- * Decorators apply bottom up, so this one is pushed first, and when no group
- * holds `createPolicyGate` reports the first rejection in declaration order: a
- * token that authenticated but lacks the grant then gets this policy's 403
- * instead of RbacPolicy's misleading "user not logged" 401.
+ * The order of the two lines does not matter: when neither group holds,
+ * `createPolicyGate` reports a 403 over a 401, so a token or a session that
+ * authenticated but lacks the grant gets its own group's 403, not the other
+ * group's "no credential" 401.
  *
  * The `@Permission` line is still required even with `@Policy(TokenPolicy)`:
  * this policy reads the same route permission metadata, and a route without it

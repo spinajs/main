@@ -26,11 +26,9 @@ import { TokenPolicy } from '../../src/policies/TokenPolicy.js';
  * `@Permission(['readOwn'])` is still required with either placement, because
  * `TokenPolicy` reads that very metadata to learn which grant the route wants.
  *
- * ORDER within the route scope decides only which rejection the caller SEES:
- * when no group holds, `createPolicyGate` reports the first rejection in
- * declaration order. Decorators apply bottom up, so `@Policy(TokenPolicy)`
- * written LAST is pushed FIRST and a token that authenticated but lacks the
- * grant gets TokenPolicy's 403 rather than RbacPolicy's "no session" 401.
+ * ORDER within the route scope does not matter: when no group holds,
+ * `createPolicyGate` reports a 403 over a 401, so a token or a session that
+ * authenticated but lacks the grant gets a 403 either way.
  */
 @BasePath('token-protected')
 @Resource('test.resource')
