@@ -134,6 +134,13 @@ export interface IContainer extends EventEmitter {
   resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
   resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown;
 
+  /**
+   * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
+   * Unlike `resolve`, it never falls back to instantiating the class itself.
+   */
+  resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
+  resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
+
   dispose(): Promise<void>;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;

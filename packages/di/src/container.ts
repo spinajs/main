@@ -6,7 +6,7 @@ import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
-import { Class, Factory } from './types.js';
+import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
@@ -257,6 +257,16 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     return this.Cache.has(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
+  }
+
+  /**
+   * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
+   * Unlike `resolve`, it never falls back to instantiating the class itself.
+   */
+  public resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
+  public resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
+  public resolveOptional<T>(type: Class<T> | string, options?: unknown[]): unknown {
+    return this.hasRegistered(type) ? this.resolve(type as Class<T>, options) : undefined;
   }
 
   /**
