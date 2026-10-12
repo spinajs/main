@@ -206,10 +206,13 @@ describe('AuthnAudit', function () {
       await withSinks([GatedSink, LastSink], async () => {
         const a = await boot({});
         const done = a.publish(ev('logout'));
-        await new Promise((r) => setTimeout(r, 10));
-        expect(calls).to.include.members(['GatedSink:start', 'LastSink:logout']);
-        expect(calls).to.not.include('GatedSink:end');
-        release();
+        try {
+          await new Promise((r) => setTimeout(r, 10));
+          expect(calls).to.include.members(['GatedSink:start', 'LastSink:logout']);
+          expect(calls).to.not.include('GatedSink:end');
+        } finally {
+          release();
+        }
         await done;
         expect(calls).to.include('GatedSink:end');
       });
@@ -378,11 +381,8 @@ describe('AuthnAudit', function () {
       }
     });
 
-    it('still boots with the removed sampleUse key, which is ignored', async () => {
-      const a = await boot({ sampleUse: 0.5 });
-      await a.publish(ev('token.use'));
-      await a.publish(ev('token.use'));
-      expect((await DI.resolve(FirstSink)).events).to.have.length(2);
+    it('refuses the removed sampleUse key, naming it', async () => {
+      await bootFails({ sampleUse: 0.5 }, 'authn.audit.sampleUse');
     });
 
     it('fails boot on malformed authn.audit values, naming the path of each', async () => {

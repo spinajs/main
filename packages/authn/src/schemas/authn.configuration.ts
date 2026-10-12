@@ -375,10 +375,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
+      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
-        // Removed (audit sampling is gone); accepted so a config that still sets it boots.
-        sampleUse: {},
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
         hashIdentifiers: { enum: [true, false], default: true },
         hashKey: {

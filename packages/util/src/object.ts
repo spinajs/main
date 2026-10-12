@@ -21,7 +21,7 @@ export function deepFreeze<T>(v: T): Readonly<T> {
 }
 
 /**
- * Deep clone of `v` that is frozen. `Date`s are cloned and their setters throw, as a frozen `Date` can still be changed with `setTime`.
+ * Deep clone of `v` that is frozen. `Date`s are cloned and their setters throw, as a frozen `Date` can still be changed with `setTime`. This blocks accidental mutation only: `Date.prototype.setTime.call` still bypasses it.
  *
  * @param v - value to copy
  * @param maxDepth - values nested deeper than this become `undefined`

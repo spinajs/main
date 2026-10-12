@@ -515,12 +515,12 @@ its rows hold the raw subject refs, the IP and the user agent.
 
 - `AuthnAudit` gives each event to every registered sink concurrently, each bounded by
   `authn.audit.sinkTimeoutMs` (default 2000), so a login waits for the slowest sink, not for the sum.
-  All sinks get the same deep-frozen copy of the event, so a sink cannot change what another sees. A
+  All sinks get the same deep-frozen copy of the event, so a sink cannot change what another sees by accident (frozen objects, Dates with throwing setters; `Date.prototype.setTime.call` still bypasses this). A
   sink that fails or times out is logged by error class and never fails a login. The sinks are every
   `AuthnEventSink` registered in the container and its ancestors; there is no list to keep, and no
   sink may rely on delivery order. `authn-orm` registers `DbAuthnAuditSink` (table `authn_audit`).
   With no sink at all, boot logs a warning. Every event is published, `token.use` and `key.use`
-  successes included; there is no sampling. A leftover `authn.audit.sampleUse` is ignored.
+  successes included; there is no sampling. A leftover `authn.audit.sampleUse` is refused at boot.
 - `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
   `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
   `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x

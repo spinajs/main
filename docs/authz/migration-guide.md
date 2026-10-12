@@ -1143,7 +1143,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   `authn.session.expiration.maxLifetime`.
 - **Audit.** Each event goes to every sink concurrently, each bounded by `authn.audit.sinkTimeoutMs`
   (default 2000). A sink that fails or times out is logged by error class only and never fails a login.
-  `token.use` and `key.use` successes are no longer sampled; `authn.audit.sampleUse` is gone and ignored.
+  `token.use` and `key.use` successes are no longer sampled; `authn.audit.sampleUse` is gone and a config that still sets it fails boot.
 - **Boot.** Services that read config are per child container, so a child boot reads its own list.
 - **Per-request credentials count failures only (K5).** See the K5 subsection below; the parallel-load
   401s N1's final review found are gone.
