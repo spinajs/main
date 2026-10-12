@@ -72,7 +72,7 @@ describe('authn shipped config', () => {
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, config: { rejectLegacyKeys: true }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
   });
 });
 
@@ -93,10 +93,6 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } } }).paths).to.include('/local/pepper/previous/0/version');
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/version');
     expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } } }).ok).to.eq(true);
-  });
-
-  it('gives authn.config its default', () => {
-    expect(check({}).config.config).to.deep.eq({ rejectLegacyKeys: true });
   });
 
   it('names the pepper and MFA key paths in full on a boot', async () => {

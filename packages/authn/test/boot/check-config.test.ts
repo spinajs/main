@@ -253,24 +253,6 @@ describe('authn:check-config', () => {
     });
   });
 
-  describe('legacy keys', () => {
-    it('reports 2.x keys of the table as an error by default', async () => {
-      const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } } }));
-      expect(topics(f)).to.deep.eq(['legacy:error']);
-      expect(f[0].message).to.contain('rbac.password.lockoutTime').and.contain('spinajs-authz-convert');
-    });
-
-    it('only warns about them when rejectLegacyKeys is false', async () => {
-      const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } }, authn: { config: { rejectLegacyKeys: false } } }));
-      expect(topics(f)).to.deep.eq(['legacy:warning']);
-    });
-
-    it('reports them as an error when rejectLegacyKeys is on', async () => {
-      const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } }, authn: { config: { rejectLegacyKeys: true } } }));
-      expect(topics(f)).to.deep.eq(['legacy:error']);
-    });
-  });
-
   describe('throttle', () => {
     const throttleNamed = (service: string, checkConfiguration?: (c: { get<T>(path: string): T }) => Promise<void>) => ({
       values: merge(sound(), { authn: { throttle: { service } } }),
@@ -304,7 +286,7 @@ describe('authn:check-config', () => {
   });
 
   it('reports every topic at once and never throws', async () => {
-    const bad = merge(sound(), { http: { cookie: { secret: null }, trustProxy: null, cors: { origins: [] } }, authn: { strategies: [] }, rbac: { session: { service: 'x' } } });
-    expect(topics(await check(bad)).sort()).to.deep.eq(['cors:warning', 'legacy:error', 'proxy:warning', 'secrets:error', 'strategies:warning']);
+    const bad = merge(sound(), { http: { cookie: { secret: null }, trustProxy: null, cors: { origins: [] } }, authn: { strategies: [] } });
+    expect(topics(await check(bad)).sort()).to.deep.eq(['cors:warning', 'proxy:warning', 'secrets:error', 'strategies:warning']);
   });
 });

@@ -68,9 +68,10 @@ what each fix changes for an app.
 
 ### Configuration
 
-- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` and
-  `authn.config.rejectLegacyKeys` default to `true`: the boot error names each key, its 3.0 target and
-  the converter, never a value. `false` only warns.
+- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` defaults
+  to `true`: the boot error names each key, its 3.0 target and the converter, never a value. `false` only
+  warns.
+- authn: 2.x configuration keys are no longer detected; `authn.config` is removed.
 - **The role switch key moved.** `rbac.roleSwitch.requirePassword` is not read, not even as a fallback.
   Set `authz.principals.roleSwitch.requirePassword` to the roles a switch asks the password for; unset,
   every role asks for it.

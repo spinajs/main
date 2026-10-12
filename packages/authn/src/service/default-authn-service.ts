@@ -27,7 +27,6 @@ import { canPeek } from '../throttle/peek.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
 import { selectAuthnThrottle } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
-import { checkAuthnLegacyKeys } from './boot/legacy-keys.js';
 import { warnOnce } from './boot/log.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
 
@@ -147,8 +146,7 @@ function refusal(st: IdentityStatus): string | null {
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
  *
- * Boot also fails on the secret checks (A24, `checkAuthnSecrets`), on the throttle's `checkConfiguration` and on 2.x
- * keys of the old-key table; with `authn.config.rejectLegacyKeys: false` those keys are only warned about.
+ * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and on the throttle's `checkConfiguration`.
  */
 @PerChildInstance()
 @Injectable(AuthnService)
@@ -189,7 +187,6 @@ export class DefaultAuthnService extends AuthnService {
     // The boot checks are plain functions over a Configuration and read APP_ENV, so they cannot use @Config.
     const configuration = await this.container.resolve(Configuration);
     if (authnEnvFellBack(configuration)) warnOnce(AUTHN_ENV_FALLBACK_WARNING);
-    checkAuthnLegacyKeys(configuration, { warn: warnOnce });
     await checkAuthnSecrets(configuration, this.container, warnOnce);
     this.registry = await this.container.resolve(StrategyRegistry);
     this.auditor = await this.container.resolve(AuthnAudit);

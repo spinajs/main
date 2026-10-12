@@ -46,7 +46,7 @@ What bites, on one screen:
 | **Session cookie `__Host-ssid`** | Outside development and test the cookie is named `__Host-ssid`, with `Secure`. An unset env counts as production (step 6). Every 2.x session is logged out at the upgrade. Clients that hard-code `ssid` break. | Change such clients. For local http, name the env (`APP_ENV=development`). `secure: false` alone no longer relaxes the cookie. |
 | **Resets and invites carry over (H35)** | Pending password resets and invites become hashed `authn_secret` rows with their 2.x expiry. A link already mailed works once. `down()` cannot restore them. | Nothing, unless you roll back. |
 | **No re-export shims (H25)** | The old npm names stop at 2.x. They get `npm deprecate` and nothing else. | Change dependencies and imports (step 1). |
-| **`rbac.*` config fails boot** | No package reads or ships a `rbac.*` key. Boot fails on one and names the converter, because `authz.config.rejectLegacyKeys` and `authn.config.rejectLegacyKeys` default to `true`. `false` only warns. | Run the converter, then delete every `rbac.*` key (step 2). |
+| **`rbac.*` config fails boot** | No package reads or ships a `rbac.*` key. Boot fails on one and names the converter, because `authz.config.rejectLegacyKeys` defaults to `true`. `false` only warns. | Run the converter, then delete every `rbac.*` key (step 2). |
 | **PostgreSQL needs `jit = off`** | authz-orm refuses a PostgreSQL connection that runs with `jit = on`, the server default, at domain boot or at the first scoped query. With JIT on, rule lists take seconds. | `ALTER ROLE <role> SET jit = off` (or per database, or `PGOPTIONS='-c jit=off'`). `authz.orm.allowJit: true` turns the check off. |
 | **`@Access` on class and route combine** | 2.x let the route replace the class. 3.0 ANDs them. | Check controllers that relied on the replacement. |
 | **Token expiry is mandatory** | Tokens without `ExpiresAt` get `CreatedAt + authn.token.maxTtlDays` at migration. | Tell the owners (the converter lists them with `--db`). |
@@ -209,13 +209,10 @@ source that names development or test (`--env`, `APP_ENV` or `NODE_ENV`) relaxes
 file. The
 core logs a warning that the env fell back, so name the env in every deployment anyway.
 
-**Old-key detector.** Boot reads the `rbac` tree for the 2.x keys that moved into `authn.*` (the
-table in section 3.2) and fails with one message that lists each key as `rbac.x -> authn.y` (or
-`dropped`, with the reason), never a value. `authn.config.rejectLegacyKeys` defaults to `true`; set it
-to `false` and the same message is only a warning, once per process. The authz host fails on every `rbac.*`
+**Old-key detector.** `authn` does not detect 2.x keys. The authz host fails boot on every `rbac.*`
 key, among them `rbac.user`, `rbac.email` and `rbac.actions`, which move to `users.*`
-(`authz.config.rejectLegacyKeys`, also `true` by default). To only warn, set both switches to `false`. No 3.0 package ships a `rbac.*` key, so the
-detectors name only keys of your own config.
+(`authz.config.rejectLegacyKeys`, `true` by default; `false` only warns). No 3.0 package ships a `rbac.*` key, so the
+detector names only keys of your own config.
 
 **`authn:check-config`.** The command ships in `authn-http`; the check behind it is the function
 `checkAuthnConfig(container)` of `@spinajs/authn`. It prints findings (`topic`, `level`, `message`)
@@ -683,9 +680,8 @@ you any more. At the top of the app's entry, before `Controllers` or `HttpServer
 Compile the app, run the converter ([section 4](#4-running-spinajs-authz-convert)), and copy the
 generated files into the config dir. Read `authz-warnings.md` and act on every "convert by hand" item.
 Then delete every `rbac.*` key from your own config files. No 3.0 package reads or ships one, and
-boot fails on any that is left, naming the key and the converter (`authz.config.rejectLegacyKeys` and
-`authn.config.rejectLegacyKeys` default to `true`; set them to `false` only to boot once with a
-warning while you clean up). Check: the app boots.
+boot fails on any that is left, naming the key and the converter (`authz.config.rejectLegacyKeys` defaults to
+`true`; set it to `false` only to boot once with a warning while you clean up). Check: the app boots.
 
 Keys whose 2.x meaning changed:
 
@@ -1543,7 +1539,7 @@ and guard check runs inside `AuthzAdmin`.
 ### R1: removal of the 2.x code
 
 - Every 2.x module, policy, decorator and `rbac.*` default is gone from `packages/*/src`.
-  `authz.config.rejectLegacyKeys` and `authn.config.rejectLegacyKeys` default to `true`: a `rbac.*` key
+  `authz.config.rejectLegacyKeys` defaults to `true`: a `rbac.*` key
   fails boot.
 - `rbac.roleSwitch.requirePassword` is not read any more, not even as a fallback; set
   `authz.principals.roleSwitch.requirePassword`.
