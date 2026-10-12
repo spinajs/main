@@ -30,14 +30,7 @@ const enc = (v: unknown): string => {
 const isRef = (v: unknown): v is { type: unknown; id: unknown } => v !== null && typeof v === 'object' && 'id' in v;
 
 
-// TODO: invalid typoe checking - caall of to isoString and catch ? WTF,
-const iso = (d: unknown): string => {
-  try {
-    return (d as Date).toISOString();
-  } catch {
-    return '?';
-  }
-};
+const iso = (d: unknown): string => (d instanceof Date && Number.isFinite(d.getTime()) ? d.toISOString() : '?');
 
 
 // TODO: whole class should use loigging functioncs eg. format()

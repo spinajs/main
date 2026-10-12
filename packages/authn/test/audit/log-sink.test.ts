@@ -187,6 +187,21 @@ describe('LogAuthnAuditSink', function () {
     expect(log.lines[1]).to.equal('authn audit logout success at=?');
   });
 
+  it('writes the event time only when it is a valid Date', async () => {
+    const { sink: s, log } = await sink();
+    const at = (value: unknown) => s.publish({ type: 'logout', outcome: 'success', at: value } as never);
+    await at(new Date(Number.NaN));
+    await at('x');
+    await at({ toISOString: () => 'forged' });
+    await at(new Date('2026-10-03T10:00:00.000Z'));
+    expect(log.lines.map((l) => l.replace('authn audit logout success ', ''))).to.deep.equal([
+      'at=?',
+      'at=?',
+      'at=?',
+      'at=2026-10-03T10:00:00.000Z',
+    ]);
+  });
+
   it('fails on malformed configuration without echoing it', async () => {
     let error: unknown;
     try {
