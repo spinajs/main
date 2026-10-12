@@ -3,8 +3,11 @@ import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
+import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
+import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
@@ -76,24 +79,19 @@ const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature
 
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
-const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) && nonEmpty(v.id);
 
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
 // ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
 const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
-const sameEmail = (stored: unknown, verified: string): boolean => nonEmpty(stored) && foldAscii(stored) === foldAscii(verified);
+const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && foldAscii(stored) === foldAscii(verified);
 
 /** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
-// The class only: a message may echo the credential that made the strategy throw.
-const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 
@@ -104,18 +102,18 @@ const policyRefusal = (err: unknown, otherwise: string): { reason: string; data:
 };
 
 function checkOutcome(o: unknown): StrategyOutcome | null {
-  if (!isObject(o)) return null;
-  if (o.ok === false) return nonEmpty(o.reason) && STRATEGY_FAILURES.has(o.reason) ? (o as StrategyOutcome) : null;
-  if (o.ok !== true || !nonEmpty(o.method)) return null;
+  if (!isPlainObject(o)) return null;
+  if (o.ok === false) return isNonEmptyString(o.reason) && STRATEGY_FAILURES.has(o.reason) ? (o as StrategyOutcome) : null;
+  if (o.ok !== true || !isNonEmptyString(o.method)) return null;
   const hasIdentity = o.identity !== undefined;
   if (hasIdentity === (o.external !== undefined)) return null;
-  if (hasIdentity ? !isRef(o.identity) : !(isObject(o.external) && nonEmpty(o.external.provider) && nonEmpty(o.external.subject))) return null;
-  if (o.delegation !== undefined && !(isObject(o.delegation) && isRef(o.delegation.onBehalfOf) && (o.delegation.mode === 'inherit' || o.delegation.mode === 'intersect'))) return null;
-  if ((o.ceiling !== undefined && !isObject(o.ceiling)) || (o.attributes !== undefined && !isObject(o.attributes))) return null;
+  if (hasIdentity ? !isRef(o.identity) : !(isPlainObject(o.external) && isNonEmptyString(o.external.provider) && isNonEmptyString(o.external.subject))) return null;
+  if (o.delegation !== undefined && !(isPlainObject(o.delegation) && isRef(o.delegation.onBehalfOf) && (o.delegation.mode === 'inherit' || o.delegation.mode === 'intersect'))) return null;
+  if ((o.ceiling !== undefined && !isPlainObject(o.ceiling)) || (o.attributes !== undefined && !isPlainObject(o.attributes))) return null;
   return o as StrategyOutcome;
 }
 
-const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isObject(k) && nonEmpty(k.kind) && typeof k.value === 'string');
+const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isPlainObject(k) && isNonEmptyString(k.kind) && typeof k.value === 'string');
 
 /** The audit reason of a status that refuses the login, or null. */
 function refusal(st: IdentityStatus): string | null {
@@ -180,7 +178,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   private get globalGate(): boolean {
-    return isObject(this.ThrottleGlobal);
+    return isPlainObject(this.ThrottleGlobal);
   }
 
   public async resolve(): Promise<void> {
@@ -258,7 +256,7 @@ export class DefaultAuthnService extends AuthnService {
       return fail('invalid_credentials');
     }
     const id = stored.identity;
-    const about = { identity: id, strategy: stored.facts.strategy, ...(nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     const keys = this.identityKeys(id, ctx);
     const gate = await this.throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
@@ -304,7 +302,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
       return fail('invalid_credentials');
     }
-    const done = { identity: id, strategy: facts.strategy, ...(nonEmpty(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
+    const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
     await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
     await this.audit(ctx, { type: 'login', outcome: 'success', ...done });
     return { status: 'success', identity: id, facts, session };
@@ -317,7 +315,7 @@ export class DefaultAuthnService extends AuthnService {
       return false;
     }
     const id = stored.identity;
-    const about = { identity: id, ...(nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    const about = { identity: id, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     // The target's password must not let an impersonator act as the target (M6).
     if (stored.facts.impersonator !== undefined) {
       await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
@@ -357,7 +355,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   public async principalOf(result: Success): Promise<Principal> {
-    if (!isObject(result) || result.status !== 'success' || !isRef(result.identity)) {
+    if (!isPlainObject(result) || result.status !== 'success' || !isRef(result.identity)) {
       throw new InvalidArgument('principalOf takes a success result');
     }
     let facts: AuthnFacts;
@@ -497,7 +495,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   private async restore(h: SessionHandle): Promise<Stored | null> {
-    if (!this.sessions || !isObject(h) || !nonEmpty(h.id)) return null;
+    if (!this.sessions || !isPlainObject(h) || !isNonEmptyString(h.id)) return null;
     return this.sessions.restore(h.id);
   }
 
@@ -512,7 +510,7 @@ export class DefaultAuthnService extends AuthnService {
     // === true: a value set at runtime never went through the schema, and a truthy string must not switch linking on.
     const global = { jit: this.Linking.jit === true, byVerifiedEmail: this.Linking.byVerifiedEmail === true };
     const own = global.jit || global.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
-    if (global.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+    if (global.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && isNonEmptyString(external.email)) {
       // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
       if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
@@ -551,7 +549,7 @@ export class DefaultAuthnService extends AuthnService {
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
       const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.kind === 'account' ? `${s.interactive ? 'login' : 'request'}:${k.value}` : k.value }));
       const accounts = keys.filter((x) => x.kind === 'account');
-      if (nonEmpty(ctx.ip)) {
+      if (isNonEmptyString(ctx.ip)) {
         for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
       }
       if (!s.interactive) {
@@ -559,13 +557,13 @@ export class DefaultAuthnService extends AuthnService {
       }
       own.set(s, keys);
     }
-    const shared: ThrottleKey[] = [...(nonEmpty(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
+    const shared: ThrottleKey[] = [...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
     return { all: dedupe([...[...own.values()].flat(), ...shared]), of: (s) => dedupe([...(own.get(s) ?? []), ...shared]) };
   }
 
   /** The keys of the `mfa` and `reauth` flows, shared with N3's PasswordService.change (D14). */
   private identityKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-    return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(nonEmpty(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
+    return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
   }
 
   private async throttled(ctx: AuthnContext, retryAfterSeconds: number, only: { strategy?: string }): Promise<Failure> {
@@ -589,7 +587,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
+    return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 
   /** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to this container wins. */
@@ -601,7 +599,7 @@ export class DefaultAuthnService extends AuthnService {
       throw new InvalidOption(`authn.mfa.policy.service ${q(name)}: no MfaPolicy is registered under that name (registered: ${listed})`);
     }
     const policy: unknown = await instantiate(this.container, type);
-    if (!isObject(policy) || typeof policy.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
+    if (!isPlainObject(policy) || typeof policy.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
     return policy as unknown as MfaPolicy;
   }
 }

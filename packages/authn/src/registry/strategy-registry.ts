@@ -2,10 +2,11 @@ import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { isNonEmptyString } from '@spinajs/util';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
 import type { Credentials } from '../contracts/credentials.js';
-import { instantiate, kindOf, nearestRegistration, nonEmpty, q } from './named.js';
+import { instantiate, kindOf, nearestRegistration, q } from './named.js';
 import type { NamedEntry } from './named.js';
 import { isCredentialSelector } from './selector.js';
 import type { CredentialSelector } from './selector.js';
@@ -34,7 +35,7 @@ function check(e: StrategyEntry, s: unknown): Listed {
     throw new InvalidOption(`${at}: the strategy's interactive must be a boolean, got ${kindOf(strategy.interactive)}`);
   }
   const kinds: unknown = strategy.kinds;
-  if (!Array.isArray(kinds) || kinds.length === 0 || !kinds.every(nonEmpty)) {
+  if (!Array.isArray(kinds) || kinds.length === 0 || !kinds.every(isNonEmptyString)) {
     throw new InvalidOption(`${at}: the strategy must declare at least one credential kind as a non-empty string`);
   }
   return { strategy, kinds: Object.freeze([...kinds]), selector: isCredentialSelector(strategy) };

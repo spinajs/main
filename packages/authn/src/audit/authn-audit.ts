@@ -2,6 +2,7 @@ import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { frozenCopy } from '@spinajs/util';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
@@ -17,20 +18,7 @@ export interface AuthnAuditOptions {
 
 const SAMPLED: readonly AuthnEventType[] = ['token.use', 'key.use'];
 
-const MAX_COPY_DEPTH = 16;
-
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
-
-// Each sink gets its own copy: a frozen Date can still be changed with setTime.
-function frozenCopy(v: unknown, depth = 0): unknown {
-  if (depth > MAX_COPY_DEPTH) return undefined;
-  if (v instanceof Date) return Object.freeze(new Date(v.getTime()));
-  if (v === null || typeof v !== 'object') return v;
-  if (Array.isArray(v)) return Object.freeze(v.map((x) => frozenCopy(x, depth + 1)));
-  const out: Record<string, unknown> = {};
-  for (const [k, x] of Object.entries(v)) out[k] = frozenCopy(x, depth + 1);
-  return Object.freeze(out);
-}
 
 /**
  * Every AuthnEventSink registered in the container's lineage gets every event (A21). Sinks run one at a time, each
@@ -85,8 +73,8 @@ export class AuthnAudit extends AsyncService {
     if (SAMPLED.includes(e.type) && e.outcome === 'success' && !this.sampled()) return;
 
     //TODO Should run in paraller, explain why in serial
-    //TODO frozenCopy shouyld live in spinajs util if not already
-    for (const sink of sinks) await this.deliver(sink, frozenCopy(e) as AuthnEvent);
+    // Each sink gets its own copy: a frozen Date can still be changed with setTime.
+    for (const sink of sinks) await this.deliver(sink, frozenCopy(e));
   }
 
   // Logs the error class only: a sink's error message can echo event values.

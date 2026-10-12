@@ -4,6 +4,7 @@ import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
+import { deepFreeze } from '@spinajs/util';
 
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
@@ -60,11 +61,6 @@ const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
 
-// TODO: duplicate CODE !
-const deepFreeze = <T extends object>(o: T): T => {
-  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
-  return Object.freeze(o);
-};
 
 const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
 

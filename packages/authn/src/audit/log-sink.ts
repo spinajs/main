@@ -27,7 +27,7 @@ const enc = (v: unknown): string => {
 };
 
 
-const isRef = (v: unknown): v is { type: unknown; id: unknown } => v !== null && typeof v === 'object' && 'id' in v;
+const hasId = (v: unknown): v is { type: unknown; id: unknown } => v !== null && typeof v === 'object' && 'id' in v;
 
 
 const iso = (d: unknown): string => (d instanceof Date && Number.isFinite(d.getTime()) ? d.toISOString() : '?');
@@ -65,8 +65,8 @@ export class LogAuthnAuditSink extends AuthnEventSink {
     const parts = [`authn audit ${enc(e.type)} ${enc(e.outcome)}`, `at=${iso(e.at)}`];
     if (e.strategy !== undefined && e.strategy !== null) parts.push(`strategy=${enc(e.strategy)}`);
     if (e.reason !== undefined && e.reason !== null) parts.push(`reason=${enc(e.reason)}`);
-    if (isRef(e.identity)) parts.push(`identity=${this.ref(e.identity)}`);
-    if (isRef(e.actor)) parts.push(`actor=${this.ref(e.actor)}`);
+    if (hasId(e.identity)) parts.push(`identity=${this.ref(e.identity)}`);
+    if (hasId(e.actor)) parts.push(`actor=${this.ref(e.actor)}`);
     if (typeof e.ip === 'string') parts.push(`ip=${this.id('ip', e.ip)}`);
     if (typeof e.session === 'string') parts.push(`session=${this.id('session', e.session)}`);
     const line = parts.join(' ');

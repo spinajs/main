@@ -1,5 +1,6 @@
 import { isFactory } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
+import { isNonEmptyString } from '@spinajs/util';
 
 
 
@@ -10,7 +11,6 @@ export interface NamedEntry {
 
 export const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
-export const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
 export const kindOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
 
@@ -27,7 +27,7 @@ export const registrationName = (t: unknown): string => {
 
 /** Names of the registrations of `base` along the container lineage, without repeats. */
 export function registeredNames(container: IContainer, base: Class<unknown>): string[] {
-  return [...new Set((container.getRegisteredTypes(Array.chainOf(base)) ?? []).map(registrationName).filter(nonEmpty))];
+  return [...new Set((container.getRegisteredTypes(Array.chainOf(base)) ?? []).map(registrationName).filter(isNonEmptyString))];
 }
 
 /** The registration of `base` named `name` nearest to `container` (its own before its ancestors'). */

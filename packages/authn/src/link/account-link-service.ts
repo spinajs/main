@@ -1,8 +1,11 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
+import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
+import { errorClass } from '../support/guards.js';
 import { KeyRegistry } from '../contracts/keys.js';
 import type { KeyRecord } from '../contracts/keys.js';
 import { IdentityLinkStore } from '../contracts/link.js';
@@ -32,15 +35,11 @@ type LinkEvent = 'identity.link' | 'identity.unlink';
 
 
 
-// TODO: duplicate code ! already similar functions like isObject !
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
-const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
 
 /** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
@@ -68,7 +67,7 @@ async function oneAtATime<T>(id: IdentityRef, run: () => Promise<T>): Promise<T>
   }
 }
 
-const usable = (k: KeyRecord, owner: IdentityRef, now: Date): boolean => isObject(k) && isObject(k.owner) && sameRef(k.owner, owner) && k.revokedAt === undefined && (k.expiresAt === undefined || (k.expiresAt instanceof Date && now.getTime() < k.expiresAt.getTime()));
+const usable = (k: KeyRecord, owner: IdentityRef, now: Date): boolean => isPlainObject(k) && isPlainObject(k.owner) && sameRef(k.owner, owner) && k.revokedAt === undefined && (k.expiresAt === undefined || (k.expiresAt instanceof Date && now.getTime() < k.expiresAt.getTime()));
 
 /**
  * Explicit linking and unlinking of external subjects (A19, design §22.12). Both need the identity's own active
@@ -120,7 +119,7 @@ export class AccountLinkService extends AsyncService {
       const guard = await this.guard(session, ctx, reauth);
       holder = guard.holder;
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.link', guard.refused ?? 'not_active', holder);
-      if (!isObject(external) || !nonEmpty(external.provider) || !nonEmpty(external.subject)) return await this.refuse(ctx, 'identity.link', 'invalid_subject', holder);
+      if (!isPlainObject(external) || !isNonEmptyString(external.provider) || !isNonEmptyString(external.subject)) return await this.refuse(ctx, 'identity.link', 'invalid_subject', holder);
       const taken = await this.links.find(external.provider, external.subject);
       if (taken) return await this.refuse(ctx, 'identity.link', sameRef(taken.identity, holder.identity) ? 'already_linked' : 'linked_elsewhere', holder);
       // The store's unique (provider, subject) index decides a race between two links of one subject; its error lands below.
@@ -143,7 +142,7 @@ export class AccountLinkService extends AsyncService {
       return await oneAtATime(h.identity, async () => {
         // Found among the holder's own links, never by id alone.
         const own = await this.links.list(h.identity);
-        const target = nonEmpty(linkId) ? own.find((l) => l.id === linkId) : undefined;
+        const target = isNonEmptyString(linkId) ? own.find((l) => l.id === linkId) : undefined;
         if (!target) return this.refuse(ctx, 'identity.unlink', 'unknown_link', h);
         if (!(await this.hasOtherCredential(h.identity, own.length - 1, ctx.now))) return this.refuse(ctx, 'identity.unlink', 'last_credential', h);
         await this.links.unlink(target.id);
@@ -157,10 +156,10 @@ export class AccountLinkService extends AsyncService {
 
   /** The session's identity, and the audit reason when it may not change its links. */
   private async guard(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<Guarded> {
-    if (!isObject(session) || !nonEmpty(session.id)) return { refused: 'not_active' };
+    if (!isPlainObject(session) || !isNonEmptyString(session.id)) return { refused: 'not_active' };
     const stored = await this.sessions.restore(session.id);
     if (!stored || stored.handle.state !== 'active') return { refused: 'not_active' };
-    const holder: Holder = { identity: stored.identity, ...(nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    const holder: Holder = { identity: stored.identity, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     if (ctx.purpose !== 'link') return { holder, refused: 'wrong_purpose' };
     // An impersonator acting as the target must not attach a login of their own to it.
     if (stored.facts.impersonator !== undefined) return { holder, refused: 'impersonating' };
@@ -172,7 +171,7 @@ export class AccountLinkService extends AsyncService {
 
   private async hasOtherCredential(id: IdentityRef, otherLinks: number, now: Date): Promise<boolean> {
     if (otherLinks > 0) return true;
-    if (this.passwords && nonEmpty(await this.passwords.get(id))) return true;
+    if (this.passwords && isNonEmptyString(await this.passwords.get(id))) return true;
     if (!this.keys) return false;
     const keys: unknown = await this.keys.list(id);
     return Array.isArray(keys) && keys.some((k: KeyRecord) => usable(k, id, now));
@@ -184,6 +183,6 @@ export class AccountLinkService extends AsyncService {
   }
 
   private audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
+    return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

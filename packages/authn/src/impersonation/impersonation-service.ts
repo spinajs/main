@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { TimeSpan } from '@spinajs/util';
+import { TimeSpan, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
+import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { ImpersonationGuard } from '../contracts/impersonation.js';
@@ -53,20 +54,14 @@ type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 type Live = { readonly block: Block } | { readonly ending: Ending };
 
 
-// TODO: duplicate code ? move common funnctions to util package or other place where it belongs, check for ducplicates project-wise
-// * all function check for this and move
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
-const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) && nonEmpty(v.id);
 
 const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
 const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
 
-const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
 
 const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
 
@@ -92,21 +87,21 @@ function ownFacts(f: AuthnFacts): AuthnFacts {
 
 /** The actor's facts for the guard: its own, through the session it acts through now. */
 function actingFacts(f: AuthnFacts): AuthnFacts {
-  return { ...ownFacts(f), ...(nonEmpty(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
+  return { ...ownFacts(f), ...(isNonEmptyString(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
 }
 
 /** The block's actor ceiling: absent is none, null cannot be read. A role switch writes at most one role. */
 function blockCeiling(block: Record<string, unknown>): Ceiling | undefined | null {
   if (!('actorRoles' in block)) return undefined;
   const roles: unknown = block.actorRoles;
-  return Array.isArray(roles) && roles.length <= 1 && roles.every(nonEmpty) ? { roles: [...roles] } : null;
+  return Array.isArray(roles) && roles.length <= 1 && roles.every(isNonEmptyString) ? { roles: [...roles] } : null;
 }
 
 // Per process, across containers: two parallel starts (or stops) on one session must not both pass the checks.
 const switching = new Map<string, Promise<unknown>>();
 
 async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Promise<T> {
-  if (!isObject(session) || !nonEmpty(session.id)) return run();
+  if (!isPlainObject(session) || !isNonEmptyString(session.id)) return run();
   const key = createHash('sha256').update(session.id).digest('hex');
   const mine = (switching.get(key) ?? Promise.resolve()).then(run, run);
   const tail = mine.catch(() => undefined);
@@ -277,7 +272,7 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async restore(h: SessionHandle): Promise<Stored | null> {
-    if (!isObject(h) || !nonEmpty(h.id)) return null;
+    if (!isPlainObject(h) || !isNonEmptyString(h.id)) return null;
     const stored = await this.sessions.restore(h.id);
     return stored && stored.handle.state === 'active' ? stored : null;
   }
@@ -302,7 +297,7 @@ export class AuthnImpersonationService extends AsyncService {
     if (!validDate(authenticated)) return null;
     if (!stored.data.has(IMPERSONATION_BLOCK)) return { startedAt: authenticated };
     const block = stored.data.get(IMPERSONATION_BLOCK);
-    if (!isObject(block)) return null;
+    if (!isPlainObject(block)) return null;
     const raw = block.startedAt;
     const started = typeof raw === 'string' ? new Date(raw) : raw;
     if (!validDate(started)) return null;
@@ -327,8 +322,8 @@ export class AuthnImpersonationService extends AsyncService {
     try {
       const principal = await this.principals.principalOf(actor, facts, ceiling ? { ceiling } : {});
       const answer: unknown = await this.guard.allowed(principal, target);
-      if (isObject(answer) && answer.ok === true) return null;
-      return { reason: isObject(answer) && nonEmpty(answer.code) ? answer.code : 'forbidden' };
+      if (isPlainObject(answer) && answer.ok === true) return null;
+      return { reason: isPlainObject(answer) && isNonEmptyString(answer.code) ? answer.code : 'forbidden' };
     } catch (err) {
       return { reason: 'guard_error', data: { error: errorClass(err) } };
     }
@@ -346,7 +341,7 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private handleOf(stored: Stored): { session?: string } {
-    return nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {};
+    return isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {};
   }
 
   private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
@@ -362,6 +357,6 @@ export class AuthnImpersonationService extends AsyncService {
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
 
     // TODO: instead of audit pattern - why not events inside process ? using EventHandler
-    return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
+    return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

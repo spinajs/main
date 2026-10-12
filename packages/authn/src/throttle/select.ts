@@ -1,12 +1,13 @@
 import type { IContainer } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
+import { isPlainObject } from '@spinajs/util';
+
 import { AuthnThrottle } from '../contracts/throttle.js';
 import { instantiate, nearestRegistration, q, registeredNames } from '../registry/named.js';
 
 const MEMORY_THROTTLE = 'MemoryAuthnThrottle';
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * The throttle `name` (authn.throttle.service) registers in the lineage of `container`; when unset, the only registered
@@ -29,7 +30,7 @@ export async function selectAuthnThrottle(container: IContainer, name: string | 
     throw new InvalidOption(`authn.throttle.service ${q(name)}: no AuthnThrottle is registered under that name (registered: ${listed}). Install the package that provides it (DbAuthnThrottle: @spinajs/authn-orm); MemoryAuthnThrottle suits a single instance only`);
   }
   const throttle: unknown = await instantiate(container, type);
-  if (!isObject(throttle) || typeof throttle.attempt !== 'function' || typeof throttle.succeed !== 'function') {
+  if (!isPlainObject(throttle) || typeof throttle.attempt !== 'function' || typeof throttle.succeed !== 'function') {
     throw new InvalidOption(`authn.throttle.service ${q(name)} is not an AuthnThrottle`);
   }
   return throttle as unknown as AuthnThrottle;
