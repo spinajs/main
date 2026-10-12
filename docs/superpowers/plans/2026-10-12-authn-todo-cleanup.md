@@ -30,7 +30,7 @@ The user asked for work on `packages/authn` only. These TODOs reach outside it:
 
 Phases A and B (tasks 1–8) touch only authn, plus test files in sibling packages and one small util addition. Phases C–E need explicit approval before they start.
 
-## Decisions (recommended default first; the plan assumes the default)
+## Decisions (confirmed by the user 2026-10-12: D1 remove completely, D4 fail, D5 structured fields, all packages in scope)
 
 - **D1. Audit sampling.** Remove sampling completely: every `token.use`/`key.use` success is published and `authn.audit.sampleUse` is dropped. *Alternative:* a deterministic 1-in-N counter in a `SamplingAuthnAudit` subclass registered in place of `AuthnAudit`.
 - **D2. Sink delivery.** Deliver in parallel (`Promise.allSettled`), each sink bounded by the util `timeoutStrategy`. The code and docs give no reason for serial delivery. The only effect of serial delivery was ordering, and no sink depends on it: each sink writes its own target. Login latency becomes max(sink) instead of sum(sink). The test "awaits each sink before calling the next" gets inverted.
