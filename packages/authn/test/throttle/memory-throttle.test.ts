@@ -11,6 +11,7 @@ import { AuthnThrottle, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS, Memo
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
 import { configuredChild, configurationOf, pinConfiguration, violationPaths } from '../behaviour/harness.js';
 import { Lockout } from '../mutation/throttle-mutants.js';
+import { TestLog, useTestLog } from '../audit/test-log.js';
 
 type Make = (p: ThrottleParams) => AuthnThrottle;
 
@@ -122,6 +123,7 @@ async function sr05Owner(make: Make, clock: FakeClock): Promise<void> {
 
 describe('MemoryAuthnThrottle', function () {
   this.timeout(120_000);
+  useTestLog();
 
   let clock: FakeClock;
   const ctx = (): AuthnContext => clock.ctx();
@@ -754,5 +756,24 @@ describe('MemoryAuthnThrottle kit', () => {
   runThrottleConformance((c) => {
     const params = throttleParams(c.config);
     return { throttle: { throttle: new MemoryAuthnThrottle(params), params } };
+  });
+});
+
+describe('MemoryAuthnThrottle full table report', () => {
+  useTestLog();
+
+  class Reporting extends MemoryAuthnThrottle {
+    report(flow: ThrottleFlow): void {
+      this.reportFull(flow);
+    }
+  }
+
+  it('warns on the Log named authn-throttle, naming no key', () => {
+    new Reporting(DEFAULT_THROTTLE, { maxRows: 9 }).report('login');
+    assert.deepStrictEqual(
+      TestLog.entries.map((e) => [e.level, e.logger]),
+      [['warn', 'authn-throttle']],
+    );
+    assert.match(TestLog.entries[0].message, /^MemoryAuthnThrottle: all 9 login rows delay someone/);
   });
 });

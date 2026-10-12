@@ -293,7 +293,7 @@ describe('DefaultAuthnService boot: secrets', function () {
     it('logs that no env is set', async () => {
       const p = await buildCore({}, { strategies: [], unsetEnv: true, raw: cookie(STRONG) });
       await p.dispose();
-      expect(TestLog.lines.filter((l) => l.includes(AUTHN_ENV_FALLBACK_WARNING))).to.have.length(1);
+      expect(TestLog.of('authn-boot').filter((e) => e.level === 'warn' && e.message === AUTHN_ENV_FALLBACK_WARNING)).to.have.length(1);
     });
 
     it('SR-16 a deployment without any env refuses the public cookie secret', async () => {

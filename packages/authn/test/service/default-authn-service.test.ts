@@ -494,7 +494,7 @@ describe('DefaultAuthnService', function () {
       const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;
       const all = await Promise.all(Array.from({ length: free + 3 }, () => p.service.authenticate(bearer('a:good'), at(0))));
       assert.strictEqual(all.filter((r) => r.status === 'success').length, free);
-      assert.ok(TestLog.lines.some((l) => l.includes('the throttle has no peek()')), TestLog.lines.join('\n'));
+      assert.ok(TestLog.of('authn-boot').some((e) => e.level === 'warn' && e.message.includes('the throttle has no peek()')), TestLog.lines.join('\n'));
     });
   });
 
@@ -1750,5 +1750,21 @@ describe('DefaultAuthnService', function () {
         await other.dispose();
       }
     });
+  });
+});
+
+describe('DefaultAuthnService without a Log', function () {
+  this.timeout(30000);
+
+  it('fails boot', async () => {
+    const error = await buildCore({}, { strategies: [] }).then(
+      async (p) => {
+        await p.dispose();
+        return undefined;
+      },
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof Error, String(error));
+    assert.strictEqual(error.message, 'Type Log is not registered at container');
   });
 });

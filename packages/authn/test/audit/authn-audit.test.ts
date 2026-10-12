@@ -6,9 +6,9 @@ import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
-import type { AuditConfig, AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
+import type { AuditConfig, AuthnEvent, AuthnEventType } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
-import { useTestLog } from './test-log.js';
+import { TestLog, useTestLog } from './test-log.js';
 
 const expect = chai.expect;
 
@@ -88,15 +88,8 @@ const BASE: Class<unknown>[] = [FirstSink, SecondSink, ThirdSink];
 
 class ChildSink extends Recording {}
 
-class CapturingLog implements AuditLog {
-  readonly lines: string[] = [];
-  info(m: string): void {
-    this.lines.push(`info ${m}`);
-  }
-  warn(m: string): void {
-    this.lines.push(`warn ${m}`);
-  }
-}
+// What AuthnAudit itself logs; LogAuthnAuditSink writes to the same logger.
+const auditorLines = (): string[] => TestLog.of('authn-audit').filter((e) => e.message.startsWith('AuthnAudit:')).map((e) => `${e.level} ${e.message}`);
 
 const IP = '203.0.113.7';
 
@@ -157,7 +150,7 @@ describe('AuthnAudit', function () {
     }
   }
 
-  async function boot(audit: unknown, opts?: { random?: () => number; log?: AuditLog }): Promise<AuthnAudit> {
+  async function boot(audit: unknown, opts?: { random?: () => number }): Promise<AuthnAudit> {
     const { child } = await childWith(audit);
     if (!opts) return child.resolve(AuthnAudit);
     const a = new AuthnAudit(child, opts);
@@ -222,11 +215,10 @@ describe('AuthnAudit', function () {
 
     it('a failing sink stops neither the other sinks nor the caller', async () => {
       await withSinks([RejectingSink, ThrowingSink, LastSink], async () => {
-        const log = new CapturingLog();
-        const a = await boot({}, { log });
+        const a = await boot({});
         await a.publish(ev('login'));
         expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'RejectingSink:login', 'ThrowingSink:login', 'LastSink:login']);
-        const failures = log.lines.filter((l) => l.startsWith('warn'));
+        const failures = auditorLines().filter((l) => l.startsWith('warn'));
         expect(failures).to.have.length(2);
         expect(failures[0]).to.contain('RejectingSink').and.contain('login').and.contain('Error');
         expect(failures[1]).to.contain('ThrowingSink').and.contain('TypeError');
@@ -235,10 +227,9 @@ describe('AuthnAudit', function () {
 
     it('logs a sink failure without the error message or event values', async () => {
       await withSinks([QuietRejectingSink], async () => {
-        const log = new CapturingLog();
-        const a = await boot({}, { log });
+        const a = await boot({});
         await a.publish(ev('login'));
-        const all = log.lines.join(' ');
+        const all = auditorLines().join(' ');
         expect(all).to.contain('QuietRejectingSink');
         expect(all).to.not.contain('hunter2');
         expect(all).to.not.contain(IP);
@@ -248,17 +239,16 @@ describe('AuthnAudit', function () {
 
     it('moves on from a sink that does not settle within authn.audit.sinkTimeoutMs', async () => {
       await withSinks([HangingSink, LastSink], async () => {
-        const log = new CapturingLog();
-        const a = await boot({ sinkTimeoutMs: 20 }, { log });
+        const a = await boot({ sinkTimeoutMs: 20 });
         const started = Date.now();
         await a.publish(ev('login'));
         expect(Date.now() - started).to.be.below(1000);
         expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'HangingSink:login', 'LastSink:login']);
-        expect(log.lines).to.have.length(1);
-        expect(log.lines[0]).to.match(/^warn /);
-        expect(log.lines[0]).to.contain('"HangingSink"').and.contain('timed out').and.contain('"login"');
-        expect(log.lines[0]).to.not.contain(IP);
-        expect(log.lines[0]).to.not.contain('u-1');
+        expect(auditorLines()).to.have.length(1);
+        expect(auditorLines()[0]).to.match(/^warn /);
+        expect(auditorLines()[0]).to.contain('"HangingSink"').and.contain('timed out').and.contain('"login"');
+        expect(auditorLines()[0]).to.not.contain(IP);
+        expect(auditorLines()[0]).to.not.contain('u-1');
       });
     });
 
@@ -268,12 +258,11 @@ describe('AuthnAudit', function () {
       process.on('unhandledRejection', onUnhandled);
       try {
         await withSinks([LateRejectingSink], async () => {
-          const log = new CapturingLog();
-          const a = await boot({ sinkTimeoutMs: 10 }, { log });
+          const a = await boot({ sinkTimeoutMs: 10 });
           await a.publish(ev('login'));
           await new Promise((r) => setTimeout(r, 80));
-          expect(log.lines).to.have.length(1);
-          expect(log.lines[0]).to.contain('timed out');
+          expect(auditorLines()).to.have.length(1);
+          expect(auditorLines()[0]).to.contain('timed out');
         });
       } finally {
         process.off('unhandledRejection', onUnhandled);
@@ -449,5 +438,26 @@ describe('AuthnAudit', function () {
     it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {
       expect((DI.getRegisteredTypes(AuthnEventSink) ?? []).includes(LogAuthnAuditSink as never)).to.equal(true);
     });
+  });
+});
+
+describe('AuthnAudit without a Log', function () {
+  this.timeout(15000);
+
+  it('fails to resolve', async () => {
+    const child = DI.RootContainer.child();
+    try {
+      child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+      child.register(configurationOf({ authn: { audit: {} } }, undefined, true)).as(Configuration);
+      await child.resolve(Configuration);
+      const error = await child.resolve(AuthnAudit).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(error).to.be.instanceOf(Error);
+      expect((error as Error).message).to.equal('Type Log is not registered at container');
+    } finally {
+      await child.dispose();
+    }
   });
 });

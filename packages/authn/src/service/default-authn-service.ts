@@ -2,6 +2,7 @@ import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { Log } from '@spinajs/log-common';
 
 import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
@@ -30,7 +31,6 @@ import { canPeek } from '../throttle/peek.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
 import { selectAuthnThrottle } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
-import { warnOnce } from './boot/log.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -160,6 +160,10 @@ export class DefaultAuthnService extends AuthnService {
   private sessions: SessionIssuer | undefined;
   private policy: MfaPolicy | undefined;
   private steps: MfaStepRegistry | undefined;
+  private log!: Log;
+
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
+  private static readonly warned = new Set<string>();
 
   @Config('authn.linking')
   protected Linking!: Linking;
@@ -184,8 +188,10 @@ export class DefaultAuthnService extends AuthnService {
   public async resolve(): Promise<void> {
     // The boot checks are plain functions over a Configuration and read APP_ENV, so they cannot use @Config.
     const configuration = await this.container.resolve(Configuration);
-    if (authnEnvFellBack(configuration)) warnOnce(AUTHN_ENV_FALLBACK_WARNING);
-    await checkAuthnSecrets(configuration, this.container, warnOnce);
+    // FrameworkLogger reads the configuration when it is built.
+    this.log = this.container.resolve(Log, ['authn-boot'], true);
+    if (authnEnvFellBack(configuration)) this.warnOnce(AUTHN_ENV_FALLBACK_WARNING);
+    await checkAuthnSecrets(configuration, this.container, (m) => this.warnOnce(m));
     this.registry = await this.container.resolve(StrategyRegistry);
     this.auditor = await this.container.resolve(AuthnAudit);
     this.identities = await this.container.resolve(IdentityStore, true);
@@ -199,8 +205,14 @@ export class DefaultAuthnService extends AuthnService {
     this.throttle = await selectAuthnThrottle(this.container, this.ThrottleService);
     await this.throttle.checkConfiguration?.(configuration);
     if (canPeek(this.throttle)) this.peeker = this.throttle;
-    else if (this.registry.strategies().some((s) => !s.interactive)) warnOnce(NO_PEEK_WARNING);
+    else if (this.registry.strategies().some((s) => !s.interactive)) this.warnOnce(NO_PEEK_WARNING);
     await super.resolve();
+  }
+
+  private warnOnce(message: string): void {
+    if (DefaultAuthnService.warned.has(message)) return;
+    DefaultAuthnService.warned.add(message);
+    this.log.warn(message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {

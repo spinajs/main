@@ -215,16 +215,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
 
   /** Once per full episode of a flow's table; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
-    const message = `MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`;
-    try {
-      if (DI.check(Log)) {
-        (DI.resolve(Log, ['authn-throttle']) as Log).warn(message);
-        return;
-      }
-    } catch {
-      // no usable Log: fall back to the console
-    }
-    console.warn(message);
+    DI.resolve(Log, ['authn-throttle'], true).warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
   }
 
   private flow(flow: ThrottleFlow): ThrottleFlowParams {
