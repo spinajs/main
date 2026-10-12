@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { TimeSpan } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
@@ -34,6 +35,7 @@ export interface ImpersonationConfig {
   readonly requirePassword: boolean;
   readonly requireMfa: boolean;
   readonly maxMinutes: number;
+  readonly clockSkewSeconds: number;
 }
 
 type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
@@ -49,12 +51,6 @@ type Ending = { readonly type: AuthnEventType; readonly reason: string };
 type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 
 type Live = { readonly block: Block } | { readonly ending: Ending };
-
-// TODO: move constants int config, what i uunderstand its impersonation TIME ?
-const MINUTE_MS = 60_000;
-
-/** Clock skew tolerated between instances, the default of `authn.keys.assertion.skewSeconds`. */
-const CLOCK_SKEW_MS = 30_000;
 
 
 // TODO: duplicate code ? move common funnctions to util package or other place where it belongs, check for ducplicates project-wise
@@ -291,7 +287,7 @@ export class AuthnImpersonationService extends AsyncService {
     const block = this.block(stored, ctx);
     if (block === null) return { ending: { type: 'impersonation.end', reason: 'invalid_block' } };
     const max = this.Settings.maxMinutes;
-    if (!positive(max) || ctx.now.getTime() - block.startedAt.getTime() >= max * MINUTE_MS) return { ending: { type: 'impersonation.expire', reason: 'max_minutes' } };
+    if (!positive(max) || ctx.now.getTime() - block.startedAt.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds) return { ending: { type: 'impersonation.expire', reason: 'max_minutes' } };
     if (this.beyondLifetime(stored.facts, ctx)) return { ending: { type: 'impersonation.end', reason: 'session_lifetime' } };
     return { block };
   }
@@ -311,7 +307,8 @@ export class AuthnImpersonationService extends AsyncService {
     const started = typeof raw === 'string' ? new Date(raw) : raw;
     if (!validDate(started)) return null;
     const t = started.getTime();
-    if (t > ctx.now.getTime() + CLOCK_SKEW_MS || t < authenticated.getTime() - CLOCK_SKEW_MS) return null;
+    const skewMs = this.Settings.clockSkewSeconds * 1000;
+    if (t > ctx.now.getTime() + skewMs || t < authenticated.getTime() - skewMs) return null;
     const actorCeiling = blockCeiling(block);
     if (actorCeiling === null) return null;
     return { startedAt: started, ...(actorCeiling ? { actorCeiling } : {}) };
@@ -321,7 +318,7 @@ export class AuthnImpersonationService extends AsyncService {
   private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
     const at = facts.authenticatedAt;
     const max = this.MaxLifetimeMinutes;
-    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= max * MINUTE_MS;
+    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds;
   }
 
   /** Why the guard, or its absence, refuses `actor`, narrowed by its role switch, impersonating `target` now; null when it consents. */

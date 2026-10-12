@@ -369,6 +369,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         requirePassword: { enum: [true, false], default: true },
         requireMfa: { enum: [true, false], default: true },
         maxMinutes: { type: 'integer', minimum: 1, default: 60 },
+        clockSkewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
       },
     },
     audit: {

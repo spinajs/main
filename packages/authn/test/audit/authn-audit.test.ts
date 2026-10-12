@@ -5,7 +5,7 @@ import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, DEFAULT_AUDIT_SAMPLE_USE, LogAuthnAuditSink } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
 import type { AuditConfig, AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 import { useTestLog } from './test-log.js';
@@ -378,7 +378,6 @@ describe('AuthnAudit', function () {
     });
 
     it('defaults sampleUse to 0.01', async () => {
-      expect(DEFAULT_AUDIT_SAMPLE_USE).to.equal(0.01);
       expect(await run(undefined, 0.0099, [ev('token.use')])).to.deep.equal(['token.use']);
       expect(await run(undefined, 0.01, [ev('token.use')])).to.deep.equal([]);
     });

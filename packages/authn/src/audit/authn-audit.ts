@@ -5,7 +5,6 @@ import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
-import { DEFAULT_AUDIT_SINK_TIMEOUT_MS } from './config.js';
 import type { AuditConfig } from './config.js';
 import { auditLog } from './log.js';
 import type { AuditLog } from './log.js';
@@ -46,7 +45,7 @@ export class AuthnAudit extends AsyncService {
 
   private all: readonly AuthnEventSink[] | undefined;
   private sampleUse = 0;
-  private timeoutMs = DEFAULT_AUDIT_SINK_TIMEOUT_MS;
+  private timeoutMs!: number;
   private readonly random: () => number;
 
   // TODO: log should be spinajs lib logger not AutidLog
