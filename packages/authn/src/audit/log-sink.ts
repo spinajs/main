@@ -11,6 +11,10 @@ import type { AuditLog } from './log.js';
 
 let processKey: Buffer | undefined;
 
+
+// TODO all common code should go to UTIL package
+// formatting messages or logging into log, or log common and reuse log code. SInk should be just simple proxy to use them ( ist log sing after all)
+
 // JSON.stringify leaves U+007F-U+009F, Unicode line breaks and direction marks raw; some log viewers act on them.
 const UNSAFE = /[\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g;
 
@@ -22,8 +26,11 @@ const enc = (v: unknown): string => {
   return JSON.stringify(s).replace(UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 };
 
+
 const isRef = (v: unknown): v is { type: unknown; id: unknown } => v !== null && typeof v === 'object' && 'id' in v;
 
+
+// TODO: invalid typoe checking - caall of to isoString and catch ? WTF,
 const iso = (d: unknown): string => {
   try {
     return (d as Date).toISOString();
@@ -31,6 +38,9 @@ const iso = (d: unknown): string => {
     return '?';
   }
 };
+
+
+// TODO: whole class should use loigging functioncs eg. format()
 
 /**
  * One line per event; `data` and the user agent are never written. Per child container, so a child boot reads its own
@@ -43,6 +53,7 @@ export class LogAuthnAuditSink extends AuthnEventSink {
   protected Config: AuditConfig;
 
   /** Test hook: where lines go. */
+  // TODO: should use spinajs Logger, not implementing one 
   protected out: AuditLog = auditLog('authn-audit');
 
   private keyBuffer: Buffer | undefined;

@@ -15,13 +15,25 @@ import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 
+// TODO: eplain in readme.md in this folder how linking works
+// * entry points,
+// * DI registration
+// * linking flow, how its related to user session, session states etc.
+ 
+
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
+
 
 type Holder = { readonly identity: IdentityRef; readonly session?: string };
 
 type Guarded = { readonly holder?: Holder; readonly refused?: string };
 
 type LinkEvent = 'identity.link' | 'identity.unlink';
+
+
+
+
+// TODO: duplicate code ! already similar functions like isObject !
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -176,6 +188,7 @@ export class AccountLinkService extends AsyncService {
     return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 
+  // todo WTF is this another duplicated code
   private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
     if (!this.container.hasRegistered(type as unknown as Class<T>)) {
       if (required) throw new InvalidOperation(`AccountLinkService: no ${name} is registered`);

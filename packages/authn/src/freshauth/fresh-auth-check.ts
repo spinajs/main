@@ -32,6 +32,8 @@ export class FreshAuthCheck extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    // TODO why those casts SessionIssuer as unknown as Class<SessionIssuer> - DI container accepts Class and string identifiers, check whole project for those meaningless casts
     if (!this.container.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) throw new InvalidOperation('FreshAuthCheck: no SessionIssuer is registered');
     this.sessions = (await this.container.resolve(SessionIssuer as unknown as Class<SessionIssuer>)) as SessionIssuer;
     this.authn = (await this.container.resolve(AuthnService as unknown as Class<AuthnService>)) as AuthnService;
@@ -41,6 +43,8 @@ export class FreshAuthCheck extends AsyncService {
   /** `reauth` is verified only when the session is not fresh. */
   public async check(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<boolean> {
     const id: unknown = (session as Partial<SessionHandle> | null | undefined)?.id;
+
+    // TODO use common helpers or lodash emptiness check - project wide check for those
     if (typeof id !== 'string' || id === '') return false;
     const stored = await this.sessions.restore(id);
     if (!stored || stored.handle.state !== 'active' || stored.facts.impersonator !== undefined) return false;

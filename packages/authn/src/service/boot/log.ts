@@ -1,5 +1,7 @@
 import { auditLog } from '../../audit/log.js';
 
+
+// TODO: it should use spinajs/log objects, not custom log mechanism  !
 const log = auditLog('authn-boot');
 const said = new Set<string>();
 

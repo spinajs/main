@@ -4,6 +4,8 @@ import { AUTHN_LEGACY_KEYS } from '../../schemas/legacy-keys.js';
 import type { AuthnLegacyKey } from '../../schemas/legacy-keys.js';
 import type { AuthnConfigSource } from './env.js';
 
+// TODO: all legacy keys should be removed, no migration, breaking changes are OK
+
 /** A 2.x key found in the configuration, and the 3.0 key it moved to (null: dropped). */
 export interface AuthnLegacyKeyFinding {
   readonly path: string;

@@ -48,11 +48,14 @@ export class AuthnAudit extends AsyncService {
   private sampleUse = 0;
   private timeoutMs = DEFAULT_AUDIT_SINK_TIMEOUT_MS;
   private readonly random: () => number;
+
+  // TODO: log should be spinajs lib logger not AutidLog
   private readonly log: AuditLog;
 
   /** `options` is for tests; DI passes only the container. */
   constructor(private readonly container: IContainer, options: AuthnAuditOptions = {}) {
     super();
+
     this.random = options.random ?? Math.random;
     this.log = options.log ?? auditLog('authn-audit');
   }
@@ -78,7 +81,12 @@ export class AuthnAudit extends AsyncService {
   /** Never rejects because of a sink. */
   public async publish(e: AuthnEvent): Promise<void> {
     const sinks = this.state();
+
+    // TODO: shold not be all sampled ? why random rejections ? remove randomness from production code !
     if (SAMPLED.includes(e.type) && e.outcome === 'success' && !this.sampled()) return;
+
+    //TODO Should run in paraller, explain why in serial
+    //TODO frozenCopy shouyld live in spinajs util if not already
     for (const sink of sinks) await this.deliver(sink, frozenCopy(e) as AuthnEvent);
   }
 
@@ -86,6 +94,8 @@ export class AuthnAudit extends AsyncService {
   private async deliver(sink: AuthnEventSink, event: AuthnEvent): Promise<void> {
     const name = sink.constructor.name;
     let timer: ReturnType<typeof setTimeout> | undefined;
+
+    // TODO: instead manual timeout watych - use resilience lib in spinajs/util
     try {
       const done = Promise.resolve()
         .then(() => sink.publish(event))
@@ -105,11 +115,13 @@ export class AuthnAudit extends AsyncService {
     }
   }
 
+  //TODO: remove radnomness, if its needed for testing - implement second class with this behaviour with shared code
   private sampled(): boolean {
     const r = this.random();
     return r >= 0 && r < 1 && r < this.sampleUse;
   }
 
+  // TODO: services have resolved flag - use it DI is setting this flag when service is created
   private state(): readonly AuthnEventSink[] {
     if (!this.all) throw new InvalidOperation('AuthnAudit is not resolved');
     return this.all;

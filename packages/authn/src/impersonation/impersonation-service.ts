@@ -17,6 +17,12 @@ import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
+// TODO: eplain in readme.md in this folder how impersonation works
+// * entry points,
+// * DI registration
+// * impersonation flow, how its related to user session, session states etc.
+// * actions for impersionation, ending impersonation, exposed controllers and programatic impersonation / elevaing privlidges 
+
 /**
  * The session data key of the impersonation block: `{ startedAt, actorRoles? }`, the start as an ISO string and the
  * `ceiling.roles` of the actor's role switch at start. Not under ActiveRole, which would narrow the target.
@@ -45,10 +51,15 @@ type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 
 type Live = { readonly block: Block } | { readonly ending: Ending };
 
+// TODO: move constants int config, what i uunderstand its impersonation TIME ?
 const MINUTE_MS = 60_000;
 
 /** Clock skew tolerated between instances, the default of `authn.keys.assertion.skewSeconds`. */
 const CLOCK_SKEW_MS = 30_000;
+
+
+// TODO: duplicate code ? move common funnctions to util package or other place where it belongs, check for ducplicates project-wise
+// * all function check for this and move
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -353,9 +364,14 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
+
+    // TODO: instead of audit pattern - why not events inside process ? using EventHandler
     return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 
+
+  // TODO: wtf is this function, it should be just pure DI function call, if behaviour is missing add to DI or di call option
+  // check similar usage system wide and remove duplicates
   private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
     if (!this.container.hasRegistered(type as unknown as Class<T>)) {
       if (required) throw new InvalidOperation(`AuthnImpersonationService: no ${name} is registered`);

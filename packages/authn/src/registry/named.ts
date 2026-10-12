@@ -1,6 +1,8 @@
 import { isFactory } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 
+
+
 export interface NamedEntry {
   readonly name: string;
   readonly service: string;
@@ -19,6 +21,10 @@ export const registrationName = (t: unknown): string => {
   return typeof n === 'string' ? n : '';
 };
 
+
+//TODO: those basic functions should live in DI package
+// or be accesible thru options of existing functions
+
 /** Names of the registrations of `base` along the container lineage, without repeats. */
 export function registeredNames(container: IContainer, base: Class<unknown>): string[] {
   return [...new Set((container.getRegisteredTypes(Array.chainOf(base)) ?? []).map(registrationName).filter(nonEmpty))];
@@ -28,6 +34,8 @@ export function registeredNames(container: IContainer, base: Class<unknown>): st
 export function nearestRegistration(container: IContainer, base: Class<unknown>, name: string): Registration | undefined {
   return [...(container.getRegisteredTypes(Array.chainOf(base)) ?? [])].reverse().find((t) => registrationName(t) === name);
 }
+
+// TODO: factory functions should be handled by DI registry ! they are register either under class or string id !
 
 /** A factory is called with the container; a class resolves through DI, so its lifetime decorators apply. */
 export async function instantiate(container: IContainer, type: Registration): Promise<unknown> {

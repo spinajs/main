@@ -1,6 +1,8 @@
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 
+// TODO: remove  and use native spinajs/log
+
 export interface AuditLog {
   info(message: string): void;
   warn(message: string): void;

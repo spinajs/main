@@ -24,6 +24,10 @@ function check(e: NamedEntry, s: unknown): MfaStep {
   return step;
 }
 
+
+
+// TODO: MFA registry should be accesible thru DI not some proxy class that holds list of it !
+
 /**
  * The MFA steps of `authn.mfa.steps`, in list order, looked up by service name among the MfaStep registrations of the
  * container lineage (nearest first). Boot fails on an unknown service and an entry name that differs from the step's own `name`;

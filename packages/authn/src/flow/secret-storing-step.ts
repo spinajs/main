@@ -1,5 +1,8 @@
 import type { MfaStep } from '../contracts/mfa.js';
 
+
+// TODO: it should be moved into base class MfaStep and not creating some new entities
+
 /**
  * An MFA step that stores secrets (D3), such as TOTP seeds. When one is configured, `authn.mfa.encryptionKey.secret`
  * must be set outside development and test (A24).

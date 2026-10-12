@@ -16,6 +16,10 @@ import type { AuthnConfigFinding } from './secrets.js';
 
 const set = (v: unknown): boolean => v !== undefined && v !== null;
 
+// TODO: checking manualy config entries should be removes
+// * anything can be checked with schema / json schema shoul be checked
+// * if missing DI functions checks - extend json schema validation with DI  - extend validator package if needed
+
 function strategyFindings(container: IContainer, config: AuthnConfigSource): AuthnConfigFinding[] {
   const listed = config.get<unknown>('authn.strategies') ?? [];
   // A list the schema refuses is reported as a schema finding; there is nothing to check here.

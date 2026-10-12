@@ -15,6 +15,12 @@ import { DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
 import type { ThrottleConfig } from './params.js';
 import type { PeekableThrottle } from './peek.js';
 
+// TODO: move generig throttle code into spinajs/utils ( like resilience implementation )
+// and then use its for implementing auth throttle
+// also - create readme.md file in this folder with full spec, flow and documentation of auth throttle
+
+
+
 export interface ThrottleRow {
   attempts: number;
   /** Stamped from a per-instance counter when the row is created: a decayed or evicted key starts a new run. */
@@ -48,10 +54,13 @@ interface Gate {
 }
 
 // More than the rows one attempt can add, so each sweep pass reaches the end.
+
+//TODO: move contsts into config !
 const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
 
+// TODO: duplicate CODE !
 const deepFreeze = <T extends object>(o: T): T => {
   for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
   return Object.freeze(o);
@@ -77,6 +86,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
   @Config('authn.throttle')
   protected Throttle: ThrottleConfig;
 
+  // TODO: instead of throtle flow - each of throtle should be registered in DI container for specific flows
   protected readonly tables: Readonly<Record<ThrottleFlow, ThrottleTable>>;
   protected sweepBatch = SWEEP_BATCH;
   private readonly secret = randomBytes(32);
@@ -88,6 +98,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     super();
     if (explicit) checkThrottleParams(explicit);
     if (options.maxRows !== undefined) checkThrottleMaxRows(options.maxRows);
+
+    // TODO: it should be resolved via DI continer !
     const table = (): ThrottleTable => ({ rows: new Map(), cursor: undefined, fullUntilMs: 0, fullReported: false });
     this.tables = Object.freeze({ login: table(), mfa: table(), reset: table(), reauth: table() });
   }

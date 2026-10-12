@@ -21,6 +21,8 @@ export type AuthnLegacyKey =
       readonly note: string;
     });
 
+
+    // TODO: all code related legacy keys etc. should be romoved, breaking changes are OK
 const rows: AuthnLegacyKey[] = [
   { from: 'rbac.auth.service', to: 'authn.strategies', scope: 'key', family: 'authn', note: 'Becomes the `local` entry of authn.strategies (LocalPasswordStrategy).' },
   { from: 'rbac.password.service', to: 'authn.local.hasher.service', scope: 'key', family: 'authn' },
