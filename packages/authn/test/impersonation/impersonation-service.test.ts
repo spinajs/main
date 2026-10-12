@@ -140,6 +140,10 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(e.data, { error: 'RangeError' });
     });
 
+    it('fails boot when a required neighbour is not registered', async () => {
+      await assert.rejects(boot(undefined, { omit: ['SessionIssuer'] }), /SessionIssuer.*is not registered at container/);
+    });
+
     it('is off when no ImpersonationGuard is registered', async () => {
       const { p, svc, a, b } = await boot(undefined, { omit: ['ImpersonationGuard'] });
       const admin = await issue(p, a);

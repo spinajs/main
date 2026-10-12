@@ -1,4 +1,4 @@
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
@@ -56,7 +56,7 @@ async function enrolmentFindings(container: IContainer, config: AuthnConfigSourc
   const listed = new Set(Array.isArray(entries) ? (entries as NamedEntry[]).map((e) => e?.name) : []);
   let sources: readonly MfaEnrolments[];
   try {
-    sources = (await container.resolve(Array.chainOf(MfaEnrolments as unknown as Class<MfaEnrolments>))) as readonly MfaEnrolments[];
+    sources = await container.resolve(Array.chainOf(MfaEnrolments));
   } catch (e) {
     return [{ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA enrolment sources') }];
   }

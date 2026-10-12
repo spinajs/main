@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
@@ -148,10 +147,10 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
-    this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
-    this.principals = (await this.neighbour(PrincipalFactory, 'PrincipalFactory', true))!;
-    this.guard = await this.neighbour(ImpersonationGuard, 'ImpersonationGuard', false);
+    this.sessions = await this.container.resolve(SessionIssuer, true);
+    this.identities = await this.container.resolve(IdentityStore, true);
+    this.principals = await this.container.resolve(PrincipalFactory, true);
+    this.guard = this.container.hasRegistered(ImpersonationGuard) ? await this.container.resolve(ImpersonationGuard) : undefined;
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();
@@ -367,16 +366,5 @@ export class AuthnImpersonationService extends AsyncService {
 
     // TODO: instead of audit pattern - why not events inside process ? using EventHandler
     return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
-  }
-
-
-  // TODO: wtf is this function, it should be just pure DI function call, if behaviour is missing add to DI or di call option
-  // check similar usage system wide and remove duplicates
-  private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
-    if (!this.container.hasRegistered(type as unknown as Class<T>)) {
-      if (required) throw new InvalidOperation(`AuthnImpersonationService: no ${name} is registered`);
-      return undefined;
-    }
-    return (await this.container.resolve(type as unknown as Class<T>)) as T;
   }
 }

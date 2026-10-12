@@ -356,6 +356,11 @@ describe('AccountLinkService', function () {
       await assert.rejects(async () => parts!.child.resolve(AccountLinkService), /IdentityLinkStore/);
     });
 
+    it('fails without a SessionIssuer', async () => {
+      parts = await buildCore({}, { omit: ['SessionIssuer'], strategies: [] });
+      await assert.rejects(async () => parts!.child.resolve(AccountLinkService), /SessionIssuer.*is not registered at container/);
+    });
+
     it('is one per container (D11)', async () => {
       const { p, svc } = await boot();
       assert.strictEqual(await p.child.resolve(AccountLinkService), svc);

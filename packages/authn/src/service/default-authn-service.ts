@@ -1,5 +1,5 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
@@ -190,11 +190,11 @@ export class DefaultAuthnService extends AuthnService {
     await checkAuthnSecrets(configuration, this.container, warnOnce);
     this.registry = await this.container.resolve(StrategyRegistry);
     this.auditor = await this.container.resolve(AuthnAudit);
-    this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
-    this.principals = (await this.neighbour(PrincipalFactory, 'PrincipalFactory', true))!;
-    this.links = await this.neighbour(IdentityLinkStore, 'IdentityLinkStore', false);
+    this.identities = await this.container.resolve(IdentityStore, true);
+    this.principals = await this.container.resolve(PrincipalFactory, true);
+    this.links = this.container.hasRegistered(IdentityLinkStore) ? await this.container.resolve(IdentityLinkStore) : undefined;
     if (this.registry.strategies().some((s) => s.interactive)) {
-      this.sessions = await this.neighbour(SessionIssuer, 'SessionIssuer', true);
+      this.sessions = await this.container.resolve(SessionIssuer, true);
       this.steps = await this.container.resolve(MfaStepRegistry);
       this.policy = await this.selectPolicy();
     }
@@ -590,14 +590,6 @@ export class DefaultAuthnService extends AuthnService {
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
     return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
-  }
-
-  private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
-    if (!this.container.hasRegistered(type as unknown as Class<T>)) {
-      if (required) throw new InvalidOperation(`DefaultAuthnService: no ${name} is registered`);
-      return undefined;
-    }
-    return (await this.container.resolve(type as unknown as Class<T>)) as T;
   }
 
   /** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to this container wins. */

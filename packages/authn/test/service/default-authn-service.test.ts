@@ -1688,8 +1688,8 @@ describe('DefaultAuthnService', function () {
     });
 
     it('fails boot when a required neighbour is not registered', async () => {
-      await bootFails([failing()], { omit: ['IdentityStore'] }, 'IdentityStore');
-      await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory');
+      await bootFails([failing()], { omit: ['IdentityStore'] }, 'IdentityStore', 'is not registered at container');
+      await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory', 'is not registered at container');
     });
 
     it('needs a SessionIssuer, the MfaPolicy and the MFA steps only when an interactive strategy is listed', async () => {

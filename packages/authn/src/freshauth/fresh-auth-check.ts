@@ -1,7 +1,6 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { AuthnContext, Credentials } from '../contracts/credentials.js';
 import { isFresh } from '../contracts/fresh.js';
@@ -32,11 +31,8 @@ export class FreshAuthCheck extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-
-    // TODO why those casts SessionIssuer as unknown as Class<SessionIssuer> - DI container accepts Class and string identifiers, check whole project for those meaningless casts
-    if (!this.container.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) throw new InvalidOperation('FreshAuthCheck: no SessionIssuer is registered');
-    this.sessions = (await this.container.resolve(SessionIssuer as unknown as Class<SessionIssuer>)) as SessionIssuer;
-    this.authn = (await this.container.resolve(AuthnService as unknown as Class<AuthnService>)) as AuthnService;
+    this.sessions = await this.container.resolve(SessionIssuer, true);
+    this.authn = await this.container.resolve(AuthnService);
     await super.resolve();
   }
 

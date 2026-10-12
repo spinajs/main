@@ -1,6 +1,5 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import type { IContainer } from '@spinajs/di';
 
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
@@ -104,11 +103,11 @@ export class AccountLinkService extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    this.links = (await this.neighbour(IdentityLinkStore, 'IdentityLinkStore', true))!;
-    this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
-    this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
-    this.passwords = await this.neighbour(PasswordCredentialStore, 'PasswordCredentialStore', false);
-    this.keys = await this.neighbour(KeyRegistry, 'KeyRegistry', false);
+    this.links = await this.container.resolve(IdentityLinkStore, true);
+    this.sessions = await this.container.resolve(SessionIssuer, true);
+    this.identities = await this.container.resolve(IdentityStore, true);
+    this.passwords = this.container.hasRegistered(PasswordCredentialStore) ? await this.container.resolve(PasswordCredentialStore) : undefined;
+    this.keys = this.container.hasRegistered(KeyRegistry) ? await this.container.resolve(KeyRegistry) : undefined;
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();
@@ -186,14 +185,5 @@ export class AccountLinkService extends AsyncService {
 
   private audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
     return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
-  }
-
-  // todo WTF is this another duplicated code
-  private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
-    if (!this.container.hasRegistered(type as unknown as Class<T>)) {
-      if (required) throw new InvalidOperation(`AccountLinkService: no ${name} is registered`);
-      return undefined;
-    }
-    return (await this.container.resolve(type as unknown as Class<T>)) as T;
   }
 }
