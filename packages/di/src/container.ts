@@ -49,6 +49,12 @@ function rejectChain(service: unknown, method: string) {
   }
 }
 
+// A class goes by its name; a factory by its function name, which callers set with Object.defineProperty.
+function registrationName(type: unknown): string {
+  const name = (type as { name?: unknown }).name;
+  return typeof name === 'string' ? name : '';
+}
+
 /**
  * Dependency injection container implementation
  */
@@ -269,6 +275,21 @@ export class Container extends EventEmitter implements IContainer {
     return this.hasRegistered(type) ? this.resolve(type as Class<T>, options) : undefined;
   }
 
+  public getRegisteredNames(base: Class<unknown>): string[] {
+    const names = this.Registry.getTypesChain(base).map((e) => registrationName(e.type));
+    return [...new Set(names.filter((n) => n !== ''))];
+  }
+
+  public async resolveNamed<T>(base: Class<T>, name: string): Promise<T | undefined> {
+    const found = [...this.Registry.getTypesChain(base)].reverse().find((e) => registrationName(e.type) === name);
+    if (!found) {
+      return undefined;
+    }
+
+    // Unlike in a chain, a factory gets this container: it may read this container's configuration.
+    return (isFactory(found.type) ? await (found.type as Factory<T>)(this) : await this.resolveChainClass(base, found.type as Class<T>, found.container as Container)) as T;
+  }
+
   /**
    *
    * Resolves single instance of class
@@ -399,9 +420,7 @@ export class Container extends EventEmitter implements IContainer {
         return owner.resolveType(type, entry as Factory<T>, undefined, true);
       }
 
-      const target = owner.followRegistered(entry as Class<T>);
-      const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
-      return resolver.resolveType(type, target, undefined, true);
+      return this.resolveChainClass(type, entry as Class<T>, owner);
     });
 
     // An async element is a promise only on its first resolve; wrapping whenever
@@ -412,6 +431,13 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     return resolved as ResolveChainResult<T>;
+  }
+
+  /** A class of a chain resolves in the container that registered it, a PerChildContainer one in this container. */
+  private resolveChainClass<T>(base: Class<T> | string, entry: Class<T>, owner: Container) {
+    const target = owner.followRegistered(entry);
+    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
+    return resolver.resolveType(base, target, undefined, true);
   }
 
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {

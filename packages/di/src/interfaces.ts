@@ -141,6 +141,18 @@ export interface IContainer extends EventEmitter {
   resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
   resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
 
+  /**
+   * Names of the registrations of `base` across this container and its ancestors (`Array.chainOf(base)`),
+   * nearest container last, without repeats. A factory goes by its function name; an anonymous one is left out.
+   */
+  getRegisteredNames(base: Class<unknown>): string[];
+
+  /**
+   * The registration of `base` named `name`, nearest container first. A factory is called with this container,
+   * a class resolves through DI, so its lifetime applies. Undefined when no registration has that name.
+   */
+  resolveNamed<T>(base: Class<T>, name: string): Promise<T | undefined>;
+
   dispose(): Promise<void>;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
