@@ -157,7 +157,7 @@ export interface IAutoinjectServiceOptions {
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
 /**
- * What `@AutoinjectService(path, type, options)` injects, resolved in `container`: the entries of the list at `path`,
+ * Resolves the services named by the list at `path` in `container`: the entries,
  * each `{ [keyBy], service }`, in list order. An unset path gives an empty Map.
  *
  * @throws ServiceNotFound when no registration of `type` is named as an entry's service
@@ -211,27 +211,12 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
  * If array is provided in configuration, service is resolved by name
  * stored in 'service' property and returnes as Map\<serviceName, instance\>
  *
- * With `options`, the list is resolved by {@link resolveNamedServices} when the instance is built.
- *
  * @param path - configuration path where service type is stored
  * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
  */
-export function AutoinjectService(path: string, type?: Class<unknown>): any;
-export function AutoinjectService(path: string, type: Class<unknown>, options: IAutoinjectServiceOptions): any;
-export function AutoinjectService(path: string, type?: Class<unknown>, options?: IAutoinjectServiceOptions): any {
+export function AutoinjectService(path: string, type?: Class<unknown>) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
-    if (options) {
-      descriptor.inject.push({
-        autoinject: true,
-        autoinjectKey: propertyKey,
-        inject: t,
-        data: path,
-        resolveFunc: (data: string, container: IContainer) => resolveNamedServices(container, data, t, options),
-      });
-      return;
-    }
-
     descriptor.inject.push({
       autoinject: true,
       autoinjectKey: propertyKey,

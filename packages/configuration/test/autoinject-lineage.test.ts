@@ -1,10 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI, IContainer, PerChildInstance, ServiceNotFound } from '@spinajs/di';
+import { DI, IContainer, ServiceNotFound } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 
-import { AutoinjectService, resolveNamedServices } from '../src/decorators.js';
+import { resolveNamedServices } from '../src/decorators.js';
 import { configurationOf, NoSource } from './fixtures.js';
 
 abstract class Step {
@@ -19,19 +19,13 @@ class OtherStep extends Step {
   public readonly name = 'other';
 }
 
-@PerChildInstance()
-class Flow {
-  @AutoinjectService('flow.steps', Step, { lineage: true, keyBy: 'name' })
-  public Steps: Map<string, Step>;
-}
-
 function factory(name: string, value: unknown) {
   const f = () => value;
   Object.defineProperty(f, 'name', { value: name });
   return f;
 }
 
-describe('@AutoinjectService with { lineage, keyBy }', () => {
+describe('resolveNamedServices', () => {
   const containers: IContainer[] = [];
 
   const child = (parent: IContainer, steps?: unknown) => {
@@ -47,7 +41,6 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
   beforeEach(async () => {
     root = child(DI.RootContainer, [{ name: 'root', service: 'RootStep' }]);
     root.register(RootStep).as(Step);
-    root.register(Flow).asSelf();
     await root.resolve(Configuration);
   });
 
@@ -57,7 +50,7 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
 
   const flowIn = async (c: IContainer) => {
     await c.resolve(Configuration);
-    return (await c.resolve(Flow)).Steps;
+    return resolveNamedServices(c, 'flow.steps', Step, { lineage: true, keyBy: 'name' });
   };
 
   it('injects a Map keyed by the entry name, in list order', async () => {
@@ -92,7 +85,7 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
     const c = child(root, [{ name: 'totp', service: 'TotpStep' }]);
     await c.resolve(Configuration);
 
-    const error = await (c.resolve(Flow) as unknown as Promise<Flow>).then(
+    const error = await flowIn(c).then(
       () => undefined,
       (e: unknown) => e,
     );
@@ -104,7 +97,7 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
     const c = child(root, [{ name: 'renamed', service: 'RootStep' }]);
     await c.resolve(Configuration);
 
-    const error = await (c.resolve(Flow) as unknown as Promise<Flow>).then(
+    const error = await flowIn(c).then(
       () => undefined,
       (e: unknown) => e,
     );
@@ -123,11 +116,6 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
     );
     expect(error).to.be.instanceOf(InvalidOption);
     expect((error as Error).message).to.equal('flow.steps entry "void" (service "Void"): the service has no name; the entry must match it');
-  });
-
-  it('needs the type when options are given', () => {
-    // @ts-expect-error the element type cannot come from reflection of a Map
-    AutoinjectService('flow.steps', undefined, { lineage: true, keyBy: 'name' });
   });
 
   it('throws InvalidOption when a name is listed twice', async () => {
@@ -155,11 +143,5 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
     );
     expect(error).to.be.instanceOf(InvalidOption);
     expect((error as Error).message).to.equal('flow.steps must be a list');
-  });
-
-  it('resolveNamedServices gives what the decorator injects', async () => {
-    const steps = await resolveNamedServices(root, 'flow.steps', Step, { lineage: true, keyBy: 'name' });
-    expect([...steps.keys()]).to.deep.equal(['root']);
-    expect(steps.get('root')).to.equal((await root.resolve(Flow)).Steps.get('root'));
   });
 });

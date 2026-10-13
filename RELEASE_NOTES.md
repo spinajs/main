@@ -304,14 +304,12 @@ what each fix changes for an app.
 - New: `resolveOptional(X)` resolves only a registered type and returns `undefined` otherwise;
   `getRegisteredNames(base)` lists the registration names of `base` across the lineage;
   `resolveNamed(base, name)` resolves one by name, nearest container first, and throws
-  `ServiceNotFound` for an unknown name; `IToInject.resolveFunc` lets a property dependency build its
-  own value from its `data` and the resolving container.
+  `ServiceNotFound` for an unknown name.
 
 ### Configuration and util (`@spinajs/configuration`, `@spinajs/util`)
 
 - Configuration: `resolveNamedServices(container, path, type, options)` resolves the services a list
-  at `path` names, keyed by `options.keyBy`; `@AutoinjectService(path, type, { lineage: true, keyBy })`
-  injects that map.
+  at `path` names, keyed by `options.keyBy`.
 - Util: `isPlainObject`, `isNonEmptyString`, `deepFreeze` (in place; buffers and typed arrays stay
   mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
   becomes a plain object).
