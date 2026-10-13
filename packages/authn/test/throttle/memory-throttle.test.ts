@@ -518,6 +518,25 @@ describe('MemoryAuthnThrottle', function () {
       expectAllowed(await t.attempt(acct('a5'), 'login', ctx()), 'room once a delay ends');
     });
 
+    it('still refuses on a full table when the warning cannot be logged, and leaves the warning due', async () => {
+      class NoLog extends Probe {
+        protected reportFull(): void {
+          this.reported++;
+          throw new Error('Type Log is not registered at container');
+        }
+        get warningDue(): boolean {
+          return !this.tables.login.fullReported;
+        }
+      }
+      const t = new NoLog(LONG, { maxRows: 4 }).noSweep();
+      for (const v of ['a1', 'a2', 'a3', 'a4']) expectAllowed(await t.attempt(acct(v), 'login', ctx()));
+      clock.tick(1000);
+      expectRefused(await t.attempt(acct('a5'), 'login', ctx()), 599);
+      assert.strictEqual(t.has('login', acct('a5')[0]), false, 'a refusal counts nothing');
+      assert.strictEqual(t.reported, 1);
+      assert.strictEqual(t.warningDue, true);
+    });
+
     it('makes room again after a success', async () => {
       const t = new Probe(LONG, { maxRows: 4 }).noSweep();
       for (const v of ['a1', 'a2', 'a3', 'a4']) expectAllowed(await t.attempt(acct(v), 'login', ctx()));

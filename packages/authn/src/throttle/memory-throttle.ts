@@ -213,7 +213,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     return createHmac('sha256', this.secret).update(`${flow}|${k.kind}|${k.value}`).digest('base64url');
   }
 
-  /** Once per full episode of a flow's table; names no key. */
+  /** Once per full episode of a flow's table, again on the next scan when it throws; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
     DI.resolve(Log, ['authn-throttle'], true).warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
   }
@@ -294,8 +294,12 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     }
     table.fullUntilMs = Number.isFinite(firstFree) ? firstFree : nowMs + FULL_RETRY_SECONDS * 1000;
     if (!table.fullReported) {
-      table.fullReported = true;
-      this.reportFull(flow);
+      try {
+        this.reportFull(flow);
+        table.fullReported = true;
+      } catch {
+        // No root Log (one registered only in a child): under a flood the refusal matters more than the warning.
+      }
     }
     return Math.max(1, Math.ceil((table.fullUntilMs - nowMs) / 1000));
   }
