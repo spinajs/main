@@ -16,16 +16,8 @@ import { activate, create } from '../src/actions.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { bootUsersDb, registerUsersTestHost } from './support/users-db.js';
 
-interface AuthnLegacyKeys {
-  checkAuthnLegacyKeys(config: { get<T>(path: string | string[]): T }, log: { warn(message: string): void }): unknown[];
-}
-
 /** As the configuration loader merges its files: arrays are concatenated. */
 const mergeArrays = (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined);
-
-// The module itself, not the @spinajs/authn barrel: importing the barrel registers authn services and its config
-// schema for every suite of this mocha run.
-const authnLegacyKeys = (): Promise<AuthnLegacyKeys> => import(pathToFileURL(join(process.cwd(), '..', 'authn', 'lib', 'mjs', 'service', 'boot', 'legacy-keys.js')).href);
 
 const configDir = join(process.cwd(), 'src', 'config');
 
@@ -39,14 +31,6 @@ async function shippedConfigs(): Promise<[string, Record<string, unknown>][]> {
 
 function expectNoLegacyRoots(config: Record<string, unknown>, file: string) {
   expect(config, file).to.not.have.any.keys('rbac', 'authn');
-}
-
-function getter(values: Record<string, unknown>) {
-  return {
-    get<T>(path: string | string[]): T {
-      return _.get(values, path) as T;
-    },
-  };
 }
 
 describe('the configuration users ships', function () {
@@ -72,19 +56,6 @@ describe('the configuration users ships', function () {
     expect(usersConfig.authz.rbac).to.have.keys(['roles']);
   });
 
-  it("passes authn's legacy-key detector with authn.config.rejectLegacyKeys on", async () => {
-    const { checkAuthnLegacyKeys } = await authnLegacyKeys();
-    const warnings: string[] = [];
-    const merged = _.mergeWith({}, usersConfig, { authn: { config: { rejectLegacyKeys: true } } }, mergeArrays);
-
-    expect(checkAuthnLegacyKeys(getter(merged), { warn: (m: string) => warnings.push(m) })).to.deep.eq([]);
-    expect(warnings).to.deep.eq([]);
-
-    // The detector is live: the 2.x lockout key users used to ship fails the same boot.
-    const legacy = _.mergeWith({}, merged, { rbac: { password: { blockAfterAttempts: 5 } } }, mergeArrays);
-    expect(() => checkAuthnLegacyKeys(getter(legacy), { warn: () => undefined })).to.throw(/rbac\.password\.blockAfterAttempts/);
-  });
-
   describe('roles, booted in a real root authz host', () => {
     before(() => {
       registerUsersTestHost();
@@ -94,14 +65,13 @@ describe('the configuration users ships', function () {
       sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
 
       // As an application would load it: users' fragment merged with the application's roles, the ones the test
-      // fixtures use. No 2.x rbac tree, and both legacy-key detectors fail the boot.
+      // fixtures use. No 2.x rbac tree, and the authz legacy-key detector fails the boot.
       await bootUsersDb((config: Configuration) => {
         const roles = _.mergeWith({}, config.get('authz.rbac.roles'), usersConfig.authz.rbac.roles, mergeArrays);
         config.set('authz.rbac.roles', roles);
         config.set('authz.rbac.anonymousRoles', ['guest']);
         config.set('rbac', undefined);
         config.set('authz.config', { rejectLegacyKeys: true });
-        config.set('authn.config', { rejectLegacyKeys: true });
       });
     });
 

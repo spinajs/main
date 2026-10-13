@@ -7,8 +7,9 @@ import { DI } from '@spinajs/di';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, authnSecretFindings, isLenientAuthnEnv, isSecretStoringMfaStep } from '../../src/index.js';
+import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, authnSecretFindings, isLenientAuthnEnv } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
+import { secretStoringSteps } from '../../src/service/boot/secrets.js';
 import { buildCore } from '../behaviour/harness.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
@@ -242,23 +243,24 @@ describe('authn boot: secrets (A24, SR-16)', () => {
   });
 });
 
-describe('SecretStoringMfaStep (D3)', () => {
-  it('is a step that declares storesSecrets: true', () => {
+describe('MfaStep.storesSecrets (D3)', () => {
+  const stepsOf = (...steps: FakeMfaStep[]) => new Map(steps.map((s) => [s.name, s]));
+  const named = (name: string, storesSecrets?: unknown) => {
     const step = new FakeMfaStep();
-    expect(isSecretStoringMfaStep(step)).to.eq(false);
-    Object.defineProperty(step, 'storesSecrets', { value: true });
-    expect(isSecretStoringMfaStep(step)).to.eq(true);
+    Object.defineProperty(step, 'name', { value: name });
+    if (storesSecrets !== undefined) Object.defineProperty(step, 'storesSecrets', { value: storesSecrets });
+    return step;
+  };
+
+  it('defaults to false on a step that does not declare it', async () => {
+    expect(new FakeMfaStep().storesSecrets).to.eq(false);
+    expect(secretStoringSteps(stepsOf(named('plain')))).to.deep.eq([]);
   });
 
-  it('takes only the boolean true', () => {
-    for (const v of ['true', 1, {}, false]) {
-      const step = new FakeMfaStep();
-      Object.defineProperty(step, 'storesSecrets', { value: v });
-      expect(isSecretStoringMfaStep(step), String(v)).to.eq(false);
-    }
-    expect(isSecretStoringMfaStep(null)).to.eq(false);
-    expect(isSecretStoringMfaStep({ storesSecrets: true })).to.eq(false);
+  it('lists the steps that declare storesSecrets: true', async () => {
+    expect(secretStoringSteps(stepsOf(named('plain'), named('totp', true)))).to.deep.eq(['totp']);
   });
+
 });
 
 describe('DefaultAuthnService boot: secrets', function () {
@@ -290,7 +292,7 @@ describe('DefaultAuthnService boot: secrets', function () {
     it('logs that no env is set', async () => {
       const p = await buildCore({}, { strategies: [], unsetEnv: true, raw: cookie(STRONG) });
       await p.dispose();
-      expect(TestLog.lines.filter((l) => l.includes(AUTHN_ENV_FALLBACK_WARNING))).to.have.length(1);
+      expect(TestLog.of('authn-boot').filter((e) => e.level === 'warn' && e.message === AUTHN_ENV_FALLBACK_WARNING)).to.have.length(1);
     });
 
     it('SR-16 a deployment without any env refuses the public cookie secret', async () => {

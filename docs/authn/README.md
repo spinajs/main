@@ -138,7 +138,7 @@ lacks; it cannot see a mismatch.
 A step that stores secrets declares `storesSecrets: true`. That works today: outside development and
 test, boot then refuses a missing `authn.mfa.encryptionKey`; in development and test it only warns.
 
-Boot checks, the old-key detector and `authn:check-config` are in
+Boot checks and `authn:check-config` are in
 [the migration guide](../authz/migration-guide.md#34-keys-that-other-config-files-own). The
 command ships in `authn-http`; the check behind it is the function `checkAuthnConfig`.
 
@@ -273,6 +273,8 @@ authn: {
   agent with the session.
 
 ## MFA
+
+Developer guide to the flow, step registration and errors: [MFA flow and steps](../../packages/authn/src/flow/README.md).
 
 TOTP is the 3.0 second factor. The design fixes (§22.8):
 
@@ -513,12 +515,14 @@ Every `AuthnEvent` goes to every `AuthnEventSink` (A21). The event types are `lo
 ids. `LogAuthnAuditSink` writes identifiers as keyed hashes (SR-19). `DbAuthnAuditSink` does not hash:
 its rows hold the raw subject refs, the IP and the user agent.
 
-- `AuthnAudit` gives each event to every registered sink, one at a time, each bounded by
-  `authn.audit.sinkTimeoutMs` (default 2000). A sink that fails or times out is logged by error class
-  and never fails a login. The sinks are every `AuthnEventSink` registered in the container and its
-  ancestors, in registration order; there is no list to keep. `authn-orm` registers `DbAuthnAuditSink`
-  (table `authn_audit`). With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
-  default 0.01).
+- `AuthnAudit` gives each event to every registered sink concurrently, each bounded by
+  `authn.audit.sinkTimeoutMs` (default 2000), so a login waits for the slowest sink, not for the sum.
+  All sinks get the same deep-frozen copy of the event, so a sink cannot change what another sees by accident (frozen objects, Dates with throwing setters; `Date.prototype.setTime.call` still bypasses this). A
+  sink that fails or times out is logged by error class and never fails a login. The sinks are every
+  `AuthnEventSink` registered in the container and its ancestors; there is no list to keep, and no
+  sink may rely on delivery order. `authn-orm` registers `DbAuthnAuditSink` (table `authn_audit`).
+  With no sink at all, boot logs a warning. Every event is published, `token.use` and `key.use`
+  successes included; there is no sampling. A leftover `authn.audit.sampleUse` is refused at boot.
 - `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
   `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
   `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x
@@ -526,10 +530,11 @@ its rows hold the raw subject refs, the IP and the user agent.
 - The DB sink never fails on event content: an identity that does not fit the column goes into `data`.
 
 ```ts
-authn: { audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: null } } }
+authn: { audit: { hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret: null } } }
 ```
 
 ## Impersonation
+Developer guide to the service, the session block, expiry and the routes: [impersonation and the active role](../../packages/authn/src/impersonation/README.md).
 
 Who may impersonate whom is an authorization question. How impersonation works is an authentication
 one.
@@ -600,7 +605,7 @@ export default {
             httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
+    audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
     http: { trustProxy: null, csrf: { enabled: true, allowedOrigins: [] } },
   },
 };
@@ -615,11 +620,10 @@ export default {
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
-| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). |
+| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). Guide: [account linking](../../packages/authn/src/link/README.md). |
 | `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
-| `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. |
-| `authn.config.*` | the old-key detector (N1) | `rejectLegacyKeys` (default `true`). |
+| `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
 | `authn.http.*` | `authn-http`, `authn-oidc` | `trustProxy` (else `http.trustProxy`) for `ClientIp`, `CsrfOriginGuard` and the OIDC controller; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
 
@@ -632,31 +636,13 @@ The schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
 
 Keys the schema adds to the sample above: `authn.throttle.maxRows`, `authn.token.generation`,
-`authn.audit.hashKey`, `authn.http.publicOrigin`, `authn.http.routes` (not read),
-`authn.jwt.issuers[].linking` and `authn.config.rejectLegacyKeys`.
+`authn.audit.hashKey`, `authn.http.publicOrigin`, `authn.http.routes` (not read) and
+`authn.jwt.issuers[].linking`.
 `AuthnConfigBootstrapper` registers the schema.
 
-**Old keys.** `authn.config.rejectLegacyKeys` (default `true`) controls the 2.x key detector. Boot
-fails on the keys it finds and points at `spinajs-authz-convert`. With the switch `false`, it only warns.
-The message names each key, never a value. The detector reports these `rbac.*` keys:
-
-| 2.x | 3.0 |
-|---|---|
-| `rbac.auth.service` | `authn.strategies` (the `local` entry) |
-| `rbac.password.service` | `authn.local.hasher.service` |
-| `rbac.password.validation.*`, `.generator.*` | `authn.local.policy.*`, `authn.local.generator.*` |
-| `rbac.password.passwordResetWaitTime`, `.invite.waitTime`, `.resetUrl` | `authn.local.reset.ttlSeconds`, `authn.local.invite.ttlSeconds`, `authn.local.reset.url` |
-| `rbac.password.blockAfterAttempts` | `authn.throttle.login.account.free` (the converter has no off switch: 2.x 0 maps to the default) |
-| `rbac.password.lockoutTime` | dropped: 3.0 backs off and never locks |
-| `rbac.password.expiration.*` | `authn.local.expiration.*` (`passwordExpirationTime` seconds become `maxAgeDays`) |
-| `rbac.session.*` | `authn.session.*` |
-| `rbac.twoFactorAuth.enabled`, `.service`, `.forceUser` | `authn.mfa.steps` (the `totp` entry), `authn.mfa.policy.force` |
-| `rbac.otpauth.*` | `authn.mfa.totp.*` |
-| `rbac.token.{prefix,length,generation,headerName,lastUsedUpdateInterval}` | `authn.token.*` |
-| `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` |
-
-`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*`; the `authz` detector reports them.
-No package ships a `rbac.*` key.
+**Old keys.** `authn` no longer detects 2.x keys; the `authz` detector fails boot on the `rbac.*` root and points at
+`spinajs-authz-convert`, which maps each key (see [the migration guide](../authz/migration-guide.md)). No package
+ships a `rbac.*` key.
 
 ## Testing
 

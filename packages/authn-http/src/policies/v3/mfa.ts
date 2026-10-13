@@ -1,11 +1,11 @@
-import { Autoinject, Container, isFactory } from '@spinajs/di';
-import type { Class, Factory, IContainer } from '@spinajs/di';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { MfaStepRegistry, mfaEnrolmentRefusal } from '@spinajs/authn';
+import { mfaEnrolmentRefusal, mfaSteps } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
@@ -13,10 +13,8 @@ import { authenticatedPrincipal } from './principal.js';
 
 /** The policy DefaultAuthnService asks at login: the registration named `name` (authn.mfa.policy.service) nearest to `container`. */
 export async function mfaPolicyOf(container: IContainer, name: string): Promise<MfaPolicy> {
-  const types = container.getRegisteredTypes(Array.chainOf(MfaPolicy)) ?? [];
-  const type = [...types].reverse().find((t) => t.name === name);
-  if (!type) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
-  const policy = (isFactory(type) ? await (type as Factory<unknown>)(container) : await container.resolve(type as Class<unknown>)) as MfaPolicy | null;
+  if (!container.getRegisteredNames(MfaPolicy).includes(name)) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
+  const policy = (await container.resolveNamed(MfaPolicy, name)) as MfaPolicy | null | undefined;
   if (typeof policy?.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required())`);
   return policy;
 }
@@ -76,7 +74,7 @@ export class PendingMfaEnrolment extends BasePolicy {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a session');
     if (session.handle.state !== 'pending') throw refused('enrolment_closed', 'only a pending session forced to enrol passes here');
-    const steps = (await this.Container.resolve(MfaStepRegistry)).steps();
+    const steps = [...(await mfaSteps(this.Container)).values()];
     if (steps.length === 0) throw refused('enrolment_closed', 'no MFA step is configured');
     for (const step of steps) {
       if (await step.enrolled(session.identity)) throw refused('enrolment_closed', 'complete the second factor instead');

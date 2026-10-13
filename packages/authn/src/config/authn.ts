@@ -32,9 +32,9 @@ const authn = {
       requirePassword: true,
       requireMfa: true,
       maxMinutes: 60,
+      clockSkewSeconds: 30,
     },
     audit: {
-      sampleUse: 0.01,
       hashIdentifiers: true,
       sinkTimeoutMs: 2000,
     },

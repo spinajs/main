@@ -6,6 +6,8 @@ import type { AuthnFacts } from './principal.js';
 export abstract class MfaStep {
   /** e.g. 'totp'. 'recovery' is reserved: completeMfa's step for recovery codes. */
   abstract readonly name: string;
+  /** True when the step keeps secrets (e.g. TOTP seeds); boot then requires `authn.mfa.encryptionKey.secret` outside development and test (A24). */
+  readonly storesSecrets: boolean = false;
   abstract enrolled(id: IdentityRef): Promise<boolean>;
   /** Shown to the owner only. The caller requires fresh auth first (A10). */
   abstract beginEnrolment(id: IdentityRef): Promise<{ provisioning: string }>;

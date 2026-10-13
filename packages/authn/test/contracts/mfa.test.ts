@@ -202,6 +202,7 @@ describe('mfa and secret contracts', () => {
           base: null,
           members: [
             { name: 'name', modifiers: ['abstract', 'readonly'], optional: false, params: null },
+            { name: 'storesSecrets', modifiers: ['readonly'], optional: false, params: null },
             { name: 'enrolled', modifiers: ['abstract'], optional: false, params: ['id'] },
             { name: 'beginEnrolment', modifiers: ['abstract'], optional: false, params: ['id'] },
             { name: 'confirmEnrolment', modifiers: ['abstract'], optional: false, params: ['id', 'response'] },

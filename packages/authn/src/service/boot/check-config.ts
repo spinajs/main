@@ -1,41 +1,36 @@
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
 import type { AuthnThrottle } from '../../contracts/throttle.js';
 import { MfaEnrolments } from '../../flow/mfa-enrolments.js';
+import { mfaSteps } from '../../flow/mfa-steps.js';
 import { selectAuthnThrottle } from '../../throttle/select.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
-import { nearestRegistration, q } from '../../registry/named.js';
-import type { NamedEntry } from '../../registry/named.js';
+import type { StrategyEntry } from '../../registry/strategy-registry.js';
+import { q } from '../../support/format.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './env.js';
 import type { AuthnConfigSource } from './env.js';
-import { authnLegacyKeysText, findAuthnLegacyKeys, rejectsAuthnLegacyKeys } from './legacy-keys.js';
 import { authnSecretFindings, safeMessage, secretStoringSteps } from './secrets.js';
 import type { AuthnConfigFinding } from './secrets.js';
 
 const set = (v: unknown): boolean => v !== undefined && v !== null;
 
+// TODO: checking manualy config entries should be removes
+// * anything can be checked with schema / json schema shoul be checked
+// * if missing DI functions checks - extend json schema validation with DI  - extend validator package if needed
+
 function strategyFindings(container: IContainer, config: AuthnConfigSource): AuthnConfigFinding[] {
   const listed = config.get<unknown>('authn.strategies') ?? [];
   // A list the schema refuses is reported as a schema finding; there is nothing to check here.
   if (!Array.isArray(listed)) return [];
-  const entries = listed as NamedEntry[];
+  const entries = listed as StrategyEntry[];
   if (entries.length === 0) return [{ topic: 'strategies', level: 'warning', message: 'authn.strategies lists no strategy: nothing can authenticate' }];
-  const missing = entries.filter((e) => !nearestRegistration(container, AuthenticationStrategy, e.service));
+  const registered = container.getRegisteredNames(AuthenticationStrategy);
+  const missing = entries.filter((e) => !registered.includes(e.service));
   if (missing.length === 0) return [];
   const names = missing.map((e) => `${q(e.name)} (service ${q(e.service)})`).join(', ');
   return [{ topic: 'strategies', level: 'error', message: `authn.strategies: no AuthenticationStrategy is registered for ${names}; install the package that provides it` }];
-}
-
-function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
-  try {
-    const reject = rejectsAuthnLegacyKeys(config);
-    const found = findAuthnLegacyKeys(config.get<unknown>('rbac'));
-    return found.length === 0 ? [] : [{ topic: 'legacy', level: reject ? 'error' : 'warning', message: authnLegacyKeysText(found) }];
-  } catch (e) {
-    return [{ topic: 'legacy', level: 'error', message: safeMessage(e, 'reading authn.config and rbac') }];
-  }
 }
 
 // What boot refuses: a throttle that cannot be selected, or what the selected one refuses.
@@ -60,10 +55,10 @@ async function throttleFindings(container: IContainer, config: AuthnConfigSource
  */
 async function enrolmentFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
   const entries = config.get<unknown>('authn.mfa.steps');
-  const listed = new Set(Array.isArray(entries) ? (entries as NamedEntry[]).map((e) => e?.name) : []);
+  const listed = new Set(Array.isArray(entries) ? (entries as { name?: unknown }[]).map((e) => e?.name) : []);
   let sources: readonly MfaEnrolments[];
   try {
-    sources = (await container.resolve(Array.chainOf(MfaEnrolments as unknown as Class<MfaEnrolments>))) as readonly MfaEnrolments[];
+    sources = await container.resolve(Array.chainOf(MfaEnrolments));
   } catch (e) {
     return [{ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA enrolment sources') }];
   }
@@ -92,7 +87,7 @@ const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.viol
 
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
- * and covers what boot refuses (secrets, the throttle's checkConfiguration, legacy keys unless rejectLegacyKeys is false) and what boot accepts but an operator
+ * and covers what boot refuses (secrets, the throttle's checkConfiguration) and what boot accepts but an operator
  * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development, users enrolled in
  * an MFA step authn.mfa.steps does not list). Only this check asks the MfaEnrolments sources: with authn-orm loaded it
  * opens the authn store (the app database) to look for enrolled MFA steps.
@@ -124,7 +119,7 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
   out.push(
     ...(await authnSecretFindings(config, async () => {
       try {
-        return await secretStoringSteps(container);
+        return secretStoringSteps(await mfaSteps(container));
       } catch (e) {
         out.push({ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA steps') });
         return [];
@@ -151,6 +146,5 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
     }
   }
 
-  out.push(...legacyFindings(config));
   return out;
 }

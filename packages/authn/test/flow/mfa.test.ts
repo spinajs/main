@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
+import { InvalidOption } from '@spinajs/exceptions';
 
-import { DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, MfaStepRegistry, RoleSource } from '../../src/index.js';
+import { DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource, mfaSteps } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -83,29 +84,26 @@ describe('MFA steps and DefaultMfaPolicy', function () {
 
   const policyOf = async (p: CoreParts): Promise<DefaultMfaPolicy> => p.child.resolve(DefaultMfaPolicy);
 
-  describe('MfaStepRegistry', () => {
-    it('lists the steps of authn.mfa.steps in list order', async () => {
+  describe('authn.mfa.steps', () => {
+    it('lists the steps by name, in list order', async () => {
       const second = new FakeMfaStep({ name: 'second' });
       const p = await boot({ extra: [second] });
-      const registry = await p.child.resolve(MfaStepRegistry);
-      assert.deepStrictEqual(
-        registry.steps().map((s) => s.name),
-        ['fake', 'second'],
-      );
-      assert.strictEqual(registry.get('second'), second);
-      assert.strictEqual(registry.get('recovery'), undefined);
-      assert.strictEqual(registry.get('nope'), undefined);
+      const steps = await mfaSteps(p.child);
+      assert.deepStrictEqual([...steps.keys()], ['fake', 'second']);
+      assert.strictEqual(steps.get('second'), second);
+      assert.strictEqual(steps.get('recovery'), undefined);
+      assert.strictEqual(steps.get('nope'), undefined);
     });
 
     it('is empty when authn.mfa.steps is unset, through the schema default', async () => {
       await boot({ steps: undefined });
-      assert.deepStrictEqual((await parts!.child.resolve(MfaStepRegistry)).steps(), []);
+      assert.deepStrictEqual([...(await mfaSteps(parts!.child))], []);
     });
 
     it('fails boot on an unknown service, a name mismatch and a non-step', async () => {
       await bootFails({ steps: [{ name: 'totp', service: 'TotpMfaStep' }] }, 'authn.mfa.steps', 'TotpMfaStep');
       await bootFails({ steps: [{ name: 'other', service: KIT_MFA_STEP }] }, 'authn.mfa.steps', '"other"', '"fake"');
-      await bootFails({ steps: [{ name: 'x', service: 'NotAStep' }], register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) }, 'NotAStep', 'not an MfaStep');
+      await bootFails({ steps: [{ name: 'x', service: 'NotAStep' }], register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) }, 'authn.mfa.steps', '"x"', 'not an MfaStep');
     });
 
     const refused: [string, unknown, string][] = [
@@ -136,7 +134,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.match(violations[0].message, /uniqueItemProperties/);
     });
 
-    it('lists an identical entry twice when it comes past the schema (Configuration.set): only the schema refuses repeats', async () => {
+    it('refuses an identical entry listed twice that comes past the schema (Configuration.set)', async () => {
       const p = await boot();
       p.configuration.set('authn.mfa.steps', [
         { name: 'fake', service: KIT_MFA_STEP },
@@ -144,14 +142,26 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       ]);
       const fresh = p.child.child();
       try {
-        const registry = await fresh.resolve(MfaStepRegistry);
-        assert.deepStrictEqual(
-          registry.steps().map((s) => s.name),
-          ['fake', 'fake'],
-        );
+        await assert.rejects(mfaSteps(fresh), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
       } finally {
         await fresh.dispose();
       }
+    });
+
+    it('lists the steps once per container: a later Configuration.set changes neither mfaSteps nor DefaultMfaPolicy', async () => {
+      const p = await boot({ mfa: { policy: { force: true } } });
+      const listed = await mfaSteps(p.child);
+      p.configuration.set('authn.mfa.steps', []);
+      assert.strictEqual(await mfaSteps(p.child), listed);
+      assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
+    });
+
+    it('DefaultMfaPolicy refuses a listed service that is not an MfaStep, as the boot does', async () => {
+      parts = await buildCore({}, { strategies: [], raw: { authn: { mfa: { steps: [{ name: 'x', service: 'NotAStep' }] } } }, register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) });
+      await assert.rejects(
+        (async () => (await policyOf(parts!)).required(ALICE, PASSWORD))(),
+        (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps entry "x": the service is not an MfaStep',
+      );
     });
   });
 

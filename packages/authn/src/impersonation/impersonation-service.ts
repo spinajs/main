@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { TimeSpan, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
+import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { ImpersonationGuard } from '../contracts/impersonation.js';
@@ -29,6 +30,7 @@ export interface ImpersonationConfig {
   readonly requirePassword: boolean;
   readonly requireMfa: boolean;
   readonly maxMinutes: number;
+  readonly clockSkewSeconds: number;
 }
 
 type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
@@ -45,22 +47,9 @@ type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 
 type Live = { readonly block: Block } | { readonly ending: Ending };
 
-const MINUTE_MS = 60_000;
-
-/** Clock skew tolerated between instances, the default of `authn.keys.assertion.skewSeconds`. */
-const CLOCK_SKEW_MS = 30_000;
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
-
-const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) && nonEmpty(v.id);
-
 const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
 const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
-
-const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
 
 const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
 
@@ -86,21 +75,21 @@ function ownFacts(f: AuthnFacts): AuthnFacts {
 
 /** The actor's facts for the guard: its own, through the session it acts through now. */
 function actingFacts(f: AuthnFacts): AuthnFacts {
-  return { ...ownFacts(f), ...(nonEmpty(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
+  return { ...ownFacts(f), ...(isNonEmptyString(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
 }
 
 /** The block's actor ceiling: absent is none, null cannot be read. A role switch writes at most one role. */
 function blockCeiling(block: Record<string, unknown>): Ceiling | undefined | null {
   if (!('actorRoles' in block)) return undefined;
   const roles: unknown = block.actorRoles;
-  return Array.isArray(roles) && roles.length <= 1 && roles.every(nonEmpty) ? { roles: [...roles] } : null;
+  return Array.isArray(roles) && roles.length <= 1 && roles.every(isNonEmptyString) ? { roles: [...roles] } : null;
 }
 
 // Per process, across containers: two parallel starts (or stops) on one session must not both pass the checks.
 const switching = new Map<string, Promise<unknown>>();
 
 async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Promise<T> {
-  if (!isObject(session) || !nonEmpty(session.id)) return run();
+  if (!isPlainObject(session) || !isNonEmptyString(session.id)) return run();
   const key = createHash('sha256').update(session.id).digest('hex');
   const mine = (switching.get(key) ?? Promise.resolve()).then(run, run);
   const tail = mine.catch(() => undefined);
@@ -137,10 +126,10 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
-    this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
-    this.principals = (await this.neighbour(PrincipalFactory, 'PrincipalFactory', true))!;
-    this.guard = await this.neighbour(ImpersonationGuard, 'ImpersonationGuard', false);
+    this.sessions = await this.container.resolve(SessionIssuer, true);
+    this.identities = await this.container.resolve(IdentityStore, true);
+    this.principals = await this.container.resolve(PrincipalFactory, true);
+    this.guard = await this.container.resolveOptional(ImpersonationGuard);
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();
@@ -271,7 +260,7 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async restore(h: SessionHandle): Promise<Stored | null> {
-    if (!isObject(h) || !nonEmpty(h.id)) return null;
+    if (!isPlainObject(h) || !isNonEmptyString(h.id)) return null;
     const stored = await this.sessions.restore(h.id);
     return stored && stored.handle.state === 'active' ? stored : null;
   }
@@ -281,7 +270,7 @@ export class AuthnImpersonationService extends AsyncService {
     const block = this.block(stored, ctx);
     if (block === null) return { ending: { type: 'impersonation.end', reason: 'invalid_block' } };
     const max = this.Settings.maxMinutes;
-    if (!positive(max) || ctx.now.getTime() - block.startedAt.getTime() >= max * MINUTE_MS) return { ending: { type: 'impersonation.expire', reason: 'max_minutes' } };
+    if (!positive(max) || ctx.now.getTime() - block.startedAt.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds) return { ending: { type: 'impersonation.expire', reason: 'max_minutes' } };
     if (this.beyondLifetime(stored.facts, ctx)) return { ending: { type: 'impersonation.end', reason: 'session_lifetime' } };
     return { block };
   }
@@ -289,19 +278,23 @@ export class AuthnImpersonationService extends AsyncService {
   /**
    * The block; without one (a migrated 2.x session) the authentication time as the start, which never comes after it,
    * and no actor ceiling. A block whose start or actor ceiling cannot be read, or whose start lies ahead or before the
-   * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one.
+   * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one. A clock
+   * skew set past the schema that is not a finite number >= 0 gives null too.
    */
   private block(stored: Stored, ctx: AuthnContext): Block | null {
     const authenticated = stored.facts.authenticatedAt;
     if (!validDate(authenticated)) return null;
     if (!stored.data.has(IMPERSONATION_BLOCK)) return { startedAt: authenticated };
     const block = stored.data.get(IMPERSONATION_BLOCK);
-    if (!isObject(block)) return null;
+    if (!isPlainObject(block)) return null;
     const raw = block.startedAt;
     const started = typeof raw === 'string' ? new Date(raw) : raw;
     if (!validDate(started)) return null;
     const t = started.getTime();
-    if (t > ctx.now.getTime() + CLOCK_SKEW_MS || t < authenticated.getTime() - CLOCK_SKEW_MS) return null;
+    const skew: unknown = this.Settings.clockSkewSeconds;
+    if (!Number.isFinite(skew) || (skew as number) < 0) return null;
+    const skewMs = (skew as number) * 1000;
+    if (t > ctx.now.getTime() + skewMs || t < authenticated.getTime() - skewMs) return null;
     const actorCeiling = blockCeiling(block);
     if (actorCeiling === null) return null;
     return { startedAt: started, ...(actorCeiling ? { actorCeiling } : {}) };
@@ -311,7 +304,7 @@ export class AuthnImpersonationService extends AsyncService {
   private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
     const at = facts.authenticatedAt;
     const max = this.MaxLifetimeMinutes;
-    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= max * MINUTE_MS;
+    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds;
   }
 
   /** Why the guard, or its absence, refuses `actor`, narrowed by its role switch, impersonating `target` now; null when it consents. */
@@ -320,8 +313,8 @@ export class AuthnImpersonationService extends AsyncService {
     try {
       const principal = await this.principals.principalOf(actor, facts, ceiling ? { ceiling } : {});
       const answer: unknown = await this.guard.allowed(principal, target);
-      if (isObject(answer) && answer.ok === true) return null;
-      return { reason: isObject(answer) && nonEmpty(answer.code) ? answer.code : 'forbidden' };
+      if (isPlainObject(answer) && answer.ok === true) return null;
+      return { reason: isPlainObject(answer) && isNonEmptyString(answer.code) ? answer.code : 'forbidden' };
     } catch (err) {
       return { reason: 'guard_error', data: { error: errorClass(err) } };
     }
@@ -339,7 +332,7 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private handleOf(stored: Stored): { session?: string } {
-    return nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {};
+    return isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {};
   }
 
   private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
@@ -353,14 +346,6 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
-  }
-
-  private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
-    if (!this.container.hasRegistered(type as unknown as Class<T>)) {
-      if (required) throw new InvalidOperation(`AuthnImpersonationService: no ${name} is registered`);
-      return undefined;
-    }
-    return (await this.container.resolve(type as unknown as Class<T>)) as T;
+    return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

@@ -27,8 +27,8 @@ export async function totpServiceOf(container: IContainer, encryptionKey: string
   if (!container.hasRegistered(TOTP_SERVICE)) throw off();
   if (!encryptionKey) throw off();
   // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-  const { MfaStepRegistry } = await import('@spinajs/authn');
-  const steps = (await container.resolve(MfaStepRegistry)).steps();
+  const { mfaSteps } = await import('@spinajs/authn');
+  const steps = [...(await mfaSteps(container)).values()];
   // The name check first, so an app that lists no such step never loads authn-totp here.
   if (!steps.some((s) => s.constructor.name === 'TotpMfaStep')) throw off();
   // Already loaded where the real classes registered. DI keeps the first class of a name, so a foreign TotpService or

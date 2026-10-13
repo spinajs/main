@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import sinon from 'sinon';
 import type { SinonStub } from 'sinon';
 import { randomBytes, randomUUID } from 'node:crypto';
 import express from 'express';
@@ -16,7 +15,7 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStepNotListed, MfaStepRegistry, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MFA_STEPS_KEY, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -115,6 +114,7 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthenticationStrategy, 'PolicySuitePasswordStrategy', passwordStrategy);
   bind(child, AuthenticationStrategy, 'PolicySuiteTokenStrategy', tokenStrategy);
   bind(child, MfaPolicy, 'PolicySuiteMfaPolicy', new EnrolledMfaPolicy([step]));
+  bind(child, MfaStep, 'PolicySuiteMfaStep', step);
   // Before anything resolves the child's AuthnAudit, which reads its sinks once.
   bind(child, AuthnEventSink, 'PolicySuiteEventSink', events);
   // The scanned 3.0 controllers cache a root MfaSatisfied, which reads the root's MfaPolicy; the suite needs its own.
@@ -370,8 +370,13 @@ describe('3.0 authn policies and route args', function () {
   describe('PendingMfaEnrolment (A09)', () => {
     /** Runs the policy over a pending session of alice, with totp listed and the MfaPolicy answering `required`. */
     async function enrolment(required: () => Promise<readonly string[]>, calls: unknown[] = []): Promise<string> {
-      const registry = await s.child.resolve(MfaStepRegistry);
-      const listed = sinon.stub(registry, 'steps').returns([s.step]);
+      const config = await DI.resolve(Configuration);
+      const mfaConfig = config.get<Record<string, unknown> | undefined>('authn.mfa');
+      const had = mfaConfig !== undefined && Object.hasOwn(mfaConfig, 'steps');
+      const before = mfaConfig?.steps;
+      config.set('authn.mfa.steps', [{ name: 'totp', service: 'PolicySuiteMfaStep' }]);
+      // The child keeps the steps it listed first.
+      s.child.uncache(MFA_STEPS_KEY);
       const mfa = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
       const original = mfa.required.bind(mfa);
       mfa.required = async (id, facts) => {
@@ -384,7 +389,9 @@ describe('3.0 authn policies and route args', function () {
         return await run(policy, await requestOf('pending'));
       } finally {
         mfa.required = original;
-        listed.restore();
+        if (had) config.set('authn.mfa.steps', before);
+        else delete config.get<Record<string, unknown>>('authn.mfa').steps;
+        s.child.uncache(MFA_STEPS_KEY);
       }
     }
 

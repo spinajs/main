@@ -314,7 +314,7 @@ function setConfig(path: string, value: unknown): () => void {
   };
 }
 
-/** The resolved TotpMfaStep, the one MfaStepRegistry hands out for authn.mfa.steps. */
+/** The resolved TotpMfaStep, the one authn.mfa.steps resolves to. */
 export async function laneTotpStep(): Promise<TotpStepLike> {
   return (await DI.resolve(loaded(totp, 'authn-totp').TotpMfaStep as unknown as Class<TotpStepLike>)) as TotpStepLike;
 }
@@ -326,9 +326,9 @@ export const laneTotpServiceClass = (): TotpModules['TotpService'] => loaded(tot
 export async function laneMfaConfig(over: { steps?: unknown; encryptionKey?: unknown }): Promise<void> {
   const state = totpNow();
   for (const [key, value] of Object.entries(over)) state.undo.push(setConfig(`authn.mfa.${key}`, value));
-  // It lists the steps once per resolve.
-  const { MfaStepRegistry } = await import('@spinajs/authn');
-  DI.uncache(MfaStepRegistry as unknown as Class<unknown>);
+  // A container lists its steps once.
+  const { MFA_STEPS_KEY } = await import('@spinajs/authn');
+  DI.uncache(MFA_STEPS_KEY);
 }
 
 /** Puts the lane's TOTP store out of order (code checks throw) until the case ends. */

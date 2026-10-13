@@ -41,7 +41,7 @@ export interface ConfigOverrides {
     jwt: { issuers: readonly JwtIssuerOverride[] };
     keys: { assertion: { maxLifetimeSeconds: number; skewSeconds: number } };
     linking: { jit: boolean; byVerifiedEmail: boolean };
-    impersonation: { requirePassword: boolean; requireMfa: boolean; maxMinutes: number };
+    impersonation: { requirePassword: boolean; requireMfa: boolean; maxMinutes: number; clockSkewSeconds: number };
     http: { trustProxy: number | readonly string[] | null; csrf: { enabled: boolean; allowedOrigins: readonly string[] } };
   }>;
   readonly http?: { readonly cors?: { readonly origins?: readonly string[] | null } };

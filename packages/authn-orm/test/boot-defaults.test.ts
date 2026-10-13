@@ -47,7 +47,7 @@ describe('authn-orm with no throttle config (K6)', function () {
 
     const configuration = await child.resolve(Configuration);
     expect(configuration.get('authn.throttle.service'), 'no package ships it').to.eq(undefined);
-    expect(configuration.get('authn.audit.sampleUse'), 'the package configs are loaded').to.eq(0.01);
+    expect(configuration.get('authn.audit.sinkTimeoutMs'), 'the package configs are loaded').to.eq(2000);
 
     const service = (await child.resolve(AuthnService)) as AuthnService;
     const throttle = (service as unknown as { throttle: unknown }).throttle;

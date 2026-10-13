@@ -118,7 +118,7 @@ export function useMfaStep(step: FakeMfaStep = new FakeMfaStep({ name: 'totp' })
   return step;
 }
 
-/** The app's MFA step `totp`. authn's MfaStepRegistry keeps the instance it resolved, so cases swap the step behind it. */
+/** The app's MFA step `totp`. authn's services keep the instance they resolved, so cases swap the step behind it. */
 class UsersHttpMfaStep extends MfaStep {
   public readonly name = 'totp';
   declare verifyRecovery?: (id: IdentityRef, code: string) => Promise<boolean>;

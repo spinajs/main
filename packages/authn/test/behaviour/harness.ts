@@ -186,7 +186,7 @@ function kitStrategies(identities: FakeIdentityStore, passwords: MemoryPasswordC
 }
 
 /**
- * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink, MfaStepRegistry, DefaultMfaPolicy and
+ * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink, DefaultMfaPolicy and
  * MemoryAuthnThrottle, resolved in a fresh child container with its own Configuration (all of them are per container,
  * D11), over kit fakes for the neighbours N1 does not own. The kit MFA step (`fake`) is listed in `authn.mfa.steps`.
  * The throttle is built from the child's Configuration and registered there under the name `MemoryAuthnThrottle`, so

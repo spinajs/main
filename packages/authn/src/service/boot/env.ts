@@ -5,6 +5,9 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { THROTTLE_FLOWS } from '../../contracts/throttle.js';
 import type { ThrottleParams } from '../../contracts/throttle.js';
 
+// TODO: manual checking or env related stuff - should be removed
+// manual checks - to schema validation or extend validation functions, env fallbacks etc - move into config file it should be explicit in config, not assumed by internal code
+
 /**
  * `http.cookie.secret` as `@spinajs/http` ships it: public, so anyone can sign cookies with it. The same value as
  * `PUBLIC_DEFAULT_COOKIE_SECRET` of `@spinajs/authn-session`, which depends on this package and so cannot be imported.

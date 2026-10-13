@@ -60,17 +60,20 @@ describe('the N8b route gates read authn.* through @Config', function () {
       const { child } = await boot(SCHEMAS, values);
       child.register({ TotpService: class {} }.TotpService).asSelf();
       const resolve = sinon.stub(child, 'resolve').rejects(new Error('asked the container'));
-      return { resolve, answer: answer(new TotpEnrolmentOn(), child) };
+      const resolveNamed = sinon.stub(child, 'resolveNamed').rejects(new Error('asked the container'));
+      const names = sinon.stub(child, 'getRegisteredNames').throws(new Error('asked the container'));
+      return { asked: () => resolve.called || resolveNamed.called || names.called, answer: answer(new TotpEnrolmentOn(), child) };
     };
-    const unset = await gateWith({});
+    const steps = [{ name: 'totp', service: 'TotpMfaStep' }];
+    const unset = await gateWith({ authn: { mfa: { steps } } });
     expect(await unset.answer).to.eq('not_found');
-    expect(unset.resolve.called).to.eq(false);
+    expect(unset.asked()).to.eq(false);
 
-    const set = await gateWith({ authn: { mfa: { encryptionKey: { secret: MFA_KEY } } } });
+    const set = await gateWith({ authn: { mfa: { steps, encryptionKey: { secret: MFA_KEY } } } });
     let error: unknown;
     await set.answer.catch((e: unknown) => (error = e));
-    expect((error as Error | undefined)?.message, 'a key set: the gate goes on to the step registry').to.eq('asked the container');
-    expect(set.resolve.called).to.eq(true);
+    expect((error as Error | undefined)?.message, 'a key set: the gate goes on to the listed steps').to.eq('asked the container');
+    expect(set.asked()).to.eq(true);
     expect(TOTP_SERVICE).to.eq('TotpService');
   });
 

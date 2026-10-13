@@ -1,4 +1,3 @@
-export * from './mfa-step-registry.js';
+export * from './mfa-steps.js';
 export * from './default-mfa-policy.js';
-export * from './secret-storing-step.js';
 export * from './mfa-enrolments.js';

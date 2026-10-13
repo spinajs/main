@@ -494,7 +494,7 @@ describe('DefaultAuthnService', function () {
       const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;
       const all = await Promise.all(Array.from({ length: free + 3 }, () => p.service.authenticate(bearer('a:good'), at(0))));
       assert.strictEqual(all.filter((r) => r.status === 'success').length, free);
-      assert.ok(TestLog.lines.some((l) => l.includes('the throttle has no peek()')), TestLog.lines.join('\n'));
+      assert.ok(TestLog.of('authn-boot').some((e) => e.level === 'warn' && e.message.includes('the throttle has no peek()')), TestLog.lines.join('\n'));
     });
   });
 
@@ -1089,7 +1089,7 @@ describe('DefaultAuthnService', function () {
       const id: IdentityRef = { type: 'user', id: 'u-1' };
       const tok = strategy('tok', { verify: () => ({ ok: true, identity: id, method: 'token' }) });
       const keys = strategy('keys', { kinds: ['jws-assertion'], verify: () => ({ ok: true, identity: id, method: 'jws' }) });
-      const p = await boot([tok, keys], { raw: { authn: { audit: { sampleUse: 1 } } } });
+      const p = await boot([tok, keys], {});
       p.identities.add({ id: id.id, login: 'u' });
       const r = success(await p.service.authenticate(bearer('x'), ctx({ purpose: 'request' })));
       assert.strictEqual(r.session, undefined);
@@ -1671,6 +1671,14 @@ describe('DefaultAuthnService', function () {
       assert.ok(!message.includes('undefined'));
     });
 
+    it('fails boot on a registered throttle or MFA policy factory that returns nothing, naming it as no throttle or policy', async () => {
+      const voidThrottle = { raw: { authn: { throttle: { service: 'VoidThrottle' } } }, register: (c: IContainer) => bind(c, AuthnThrottle, 'VoidThrottle', undefined) };
+      await bootFails([failing()], voidThrottle, 'authn.throttle.service "VoidThrottle" is not an AuthnThrottle');
+      const interactive = strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+      const voidPolicy = { raw: { authn: { mfa: { policy: { service: 'VoidPolicy' } } } }, register: (c: IContainer) => bind(c, MfaPolicy, 'VoidPolicy', undefined) };
+      await bootFails([interactive], voidPolicy, 'authn.mfa.policy.service "VoidPolicy" is not an MfaPolicy');
+    });
+
     it('takes the only throttle besides MemoryAuthnThrottle when authn.throttle.service is unset (K6)', async () => {
       const other = new RecordingThrottle(DEFAULT_THROTTLE_PARAMS);
       const p = await boot([failing()], { register: (c) => bind(c, AuthnThrottle, 'OtherThrottle', other) });
@@ -1688,8 +1696,8 @@ describe('DefaultAuthnService', function () {
     });
 
     it('fails boot when a required neighbour is not registered', async () => {
-      await bootFails([failing()], { omit: ['IdentityStore'] }, 'IdentityStore');
-      await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory');
+      await bootFails([failing()], { omit: ['IdentityStore'] }, 'IdentityStore', 'is not registered at container');
+      await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory', 'is not registered at container');
     });
 
     it('needs a SessionIssuer, the MfaPolicy and the MFA steps only when an interactive strategy is listed', async () => {
@@ -1750,5 +1758,21 @@ describe('DefaultAuthnService', function () {
         await other.dispose();
       }
     });
+  });
+});
+
+describe('DefaultAuthnService without a Log', function () {
+  this.timeout(30000);
+
+  it('fails boot', async () => {
+    const error = await buildCore({}, { strategies: [] }).then(
+      async (p) => {
+        await p.dispose();
+        return undefined;
+      },
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof Error, String(error));
+    assert.strictEqual(error.message, 'Type Log is not registered at container');
   });
 });

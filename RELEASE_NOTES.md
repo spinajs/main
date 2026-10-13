@@ -68,9 +68,10 @@ what each fix changes for an app.
 
 ### Configuration
 
-- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` and
-  `authn.config.rejectLegacyKeys` default to `true`: the boot error names each key, its 3.0 target and
-  the converter, never a value. `false` only warns.
+- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` defaults
+  to `true`: the boot error names each key, its 3.0 target and the converter, never a value. `false` only
+  warns.
+- authn: 2.x configuration keys are no longer detected; `authn.config` is removed.
 - **The role switch key moved.** `rbac.roleSwitch.requirePassword` is not read, not even as a fallback.
   Set `authz.principals.roleSwitch.requirePassword` to the roles a switch asks the password for; unset,
   every role asks for it.
@@ -97,6 +98,12 @@ what each fix changes for an app.
   for authn): a hop count, or addresses, CIDRs and `loopback`, `linklocal`, `uniquelocal`. `true` means
   one hop, never "trust all". A trusted proxy must overwrite `X-Forwarded-For`, `-Proto` and `-Host`.
 - `authn.audit` has no `sinks` key (it fails boot): every registered `AuthnEventSink` gets every event.
+  Sinks get each event concurrently, each bounded by `authn.audit.sinkTimeoutMs`, so a sink must not
+  rely on the order of the others. **`authn.audit.sampleUse` fails boot**: every `token.use` and
+  `key.use` success is published, none is sampled.
+- `authn.impersonation.clockSkewSeconds` (0 to 300, default 30) is new: how far an impersonation's start
+  may lie ahead of now or before the login. A value set at runtime past the schema that is not a finite
+  number of 0 or more ends the impersonation.
 - `authz.queue.stampedInitiatorWarning`, `authz.orm.allowJit`, `authz.http.admin.domain`,
   `authz.fsMetadata.connection`, `telemetry.auth.permissions.*`, `telemetry.auth.domain` and
   `telemetry.auth.skipInDevelopment` are new.
@@ -195,6 +202,19 @@ what each fix changes for an app.
   is no longer written. users does not verify stored emails: keep `authn.linking.byVerifiedEmail` off
   with its store.
 - OIDC (`authn-oidc`) is new; 2.x had none.
+- **authn needs a registered `Log` (`@spinajs/log`).** `AuthnAudit`, `DefaultAuthnService` and
+  `LogAuthnAuditSink` resolve it with no console fallback; without it boot fails with the DI error.
+- **A missing required neighbour fails boot with DI's generic error**, `Type X is not registered at
+  container` (e.g. no `SessionIssuer`, `IdentityStore` or `PrincipalFactory`), not an authn message.
+- Removed `@spinajs/authn` exports: `MfaStepRegistry` (use `mfaSteps(container)` and `MFA_STEPS_KEY`),
+  `SecretStoringMfaStep` and `isSecretStoringMfaStep` (a step sets `MfaStep.storesSecrets`, RFC AT-1),
+  `AuditLog`, `auditLog`, `AuthnAuditOptions`, `DEFAULT_AUDIT_SAMPLE_USE`,
+  `DEFAULT_AUDIT_SINK_TIMEOUT_MS`, `MAX_AUDIT_SINK_TIMEOUT_MS`, `MIN_AUDIT_HASH_KEY_LENGTH`, the 2.x
+  legacy-key exports (`AUTHN_LEGACY_KEYS`, `AuthnLegacyKey`, `AuthnLegacyKeyFinding`,
+  `findAuthnLegacyKeys`, `rejectsAuthnLegacyKeys`, `authnLegacyKeysText`, `checkAuthnLegacyKeys`) and
+  `LogAuthnAuditSink.out`. `authn:check-config` has no `legacy` topic. `secretStoringSteps` takes the
+  map `mfaSteps` returns instead of a container. `AuthnAudit` takes only the container;
+  `LogAuthnAuditSink` takes the container in its constructor.
 
 ### HTTP routes and answers
 
@@ -281,6 +301,18 @@ what each fix changes for an app.
   back to the type itself or to the parent's entries. A child that unregistered its last entry used to
   resolve `Array.ofType(X)` to `[]`; it now gets the parent's list. `getRegisteredTypes` answers `null`
   when no container in the lineage holds the key any more.
+- New: `resolveOptional(X)` resolves only a registered type and returns `undefined` otherwise;
+  `getRegisteredNames(base)` lists the registration names of `base` across the lineage;
+  `resolveNamed(base, name)` resolves one by name, nearest container first, and throws
+  `ServiceNotFound` for an unknown name.
+
+### Configuration and util (`@spinajs/configuration`, `@spinajs/util`)
+
+- Configuration: `resolveNamedServices(container, path, type, options)` resolves the services a list
+  at `path` names, keyed by `options.keyBy`.
+- Util: `isPlainObject`, `isNonEmptyString`, `deepFreeze` (in place; buffers and typed arrays stay
+  mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
+  becomes a plain object).
 
 ### Validation (`@spinajs/validation`)
 

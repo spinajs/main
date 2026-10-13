@@ -243,7 +243,8 @@ async function uncacheCaseServices(): Promise<void> {
     for (const type of DI.getRegisteredTypes(base as Class<unknown>) ?? []) DI.uncache(type as Class<unknown>);
     DI.uncache(base as Class<unknown>);
   }
-  for (const type of [authn.StrategyRegistry, authn.AuthnAudit, authn.MfaStepRegistry, authn.FreshAuthCheck, authn.AuthnImpersonationService, authn.AccountLinkService]) DI.uncache(type as Class<unknown>);
+  for (const type of [authn.StrategyRegistry, authn.AuthnAudit, authn.FreshAuthCheck, authn.AuthnImpersonationService, authn.AccountLinkService]) DI.uncache(type as Class<unknown>);
+  DI.uncache(authn.MFA_STEPS_KEY);
 }
 
 function freshFakes(): CaseFakes {
