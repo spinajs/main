@@ -1,7 +1,10 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { Class } from '@spinajs/di';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { extractModelDescriptor } from './descriptor.js';
+import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
 import { IInsertResult, ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
@@ -24,7 +27,16 @@ export const DEFAULT_SAVE_CHUNK = 100;
  * savepoints rather than each opening their own.
  */
 export class SubjectExecutor {
-  constructor(protected options: ISaveOptions) {}
+  /**
+   * @param root - the connection the save's transaction is on. A model of another connection on
+   *        the same server is written through it, so the whole graph shares that transaction.
+   */
+  constructor(protected options: ISaveOptions, protected root?: OrmDriver) {}
+
+  protected query<T extends QueryBuilder>(model: Class<any>, builder: Class<T>) {
+    const connection = extractModelDescriptor(model)?.Connection;
+    return createQuery(model, builder, true, this.root && connection !== this.root.Options.Name ? this.root : undefined);
+  }
 
   public async execute(plan: ISortedPlan): Promise<ISaveResult> {
     const result: ISaveResult = {
@@ -78,7 +90,7 @@ export class SubjectExecutor {
     generateClientSideKeys(model, descriptor);
     assertAssignedKeys(model, descriptor);
 
-    const { query, container } = createQuery(model.constructor, InsertQueryBuilder);
+    const { query, container } = this.query(model.constructor, InsertQueryBuilder);
     const mapper = container.resolve(ServerResponseMapper);
 
     const needsKeyBack = pkColumns(descriptor).some((c) => pkGeneration(descriptor, c) === 'auto');
@@ -109,7 +121,7 @@ export class SubjectExecutor {
         continue;
       }
 
-      const { query } = createQuery(subject.Model.constructor, UpdateQueryBuilder);
+      const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
       const update = (query as UpdateQueryBuilder<unknown>).update(payload);
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
       await update;
@@ -285,7 +297,7 @@ export class SubjectExecutor {
     // so rows with different columns go in separate statements.
     for (const group of _.values(_.groupBy(rows, (row) => Object.keys(row).sort().join(',')))) {
       for (const batch of this.chunked(group)) {
-        const { query } = createQuery(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
+        const { query } = this.query(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
         await query.values(batch);
 
         result.JunctionInserted += batch.length;
@@ -322,7 +334,7 @@ export class SubjectExecutor {
         continue;
       }
 
-      const { query } = createQuery(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
+      const { query } = this.query(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
       const update = (query as UpdateQueryBuilder<unknown>).update(_.pick(junction.toSql() as Record<string, unknown>, changed));
 
       const pk = junction.PrimaryKeyValue;
@@ -350,7 +362,7 @@ export class SubjectExecutor {
     const ownerKey = delta.Owner.PrimaryKeyValue;
 
     for (const batch of this.chunked(delta.RemovedKeys)) {
-      const { query } = createQuery(delta.Descriptor.JunctionModel!, DeleteQueryBuilder);
+      const { query } = this.query(delta.Descriptor.JunctionModel!, DeleteQueryBuilder);
       await (query as DeleteQueryBuilder<unknown>).where(sourceColumn, ownerKey).whereIn(targetColumn, batch);
 
       result.JunctionDeleted += batch.length;
@@ -402,7 +414,7 @@ export class SubjectExecutor {
     const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.now() };
 
     for (const batch of this.chunked(delta.PrimaryKeys)) {
-      const { query } = createQuery(delta.Descriptor.TargetModel, UpdateQueryBuilder);
+      const { query } = this.query(delta.Descriptor.TargetModel, UpdateQueryBuilder);
       const update = (query as UpdateQueryBuilder<unknown>).update(payload);
       whereAnyPk(update, delta.TargetDescriptor, batch);
       await update;
@@ -417,7 +429,7 @@ export class SubjectExecutor {
 
   protected async deleteOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
     for (const batch of this.chunked(delta.PrimaryKeys)) {
-      const { query } = createQuery(delta.Descriptor.TargetModel, DeleteQueryBuilder);
+      const { query } = this.query(delta.Descriptor.TargetModel, DeleteQueryBuilder);
       whereAnyPk(query as DeleteQueryBuilder<unknown>, delta.TargetDescriptor, batch);
       await query;
 
