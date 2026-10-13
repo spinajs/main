@@ -44,15 +44,15 @@ export class UnitOfWork {
       const builder = new SubjectBuilder(identityMap);
 
       const models = builder.collect(root);
-      UnitOfWork.assertSingleConnection(models, descriptor);
+      UnitOfWork.assertSingleConnection(models, descriptor, driver);
 
       if (options?.reload) {
-        await UnitOfWork.reloadSnapshots(models);
+        await UnitOfWork.reloadSnapshots(models, driver);
       }
 
       const set = builder.buildFrom(models);
       const plan = new SubjectSorter().sort(set);
-      const result = await new SubjectExecutor(options ?? {}).execute(plan);
+      const result = await new SubjectExecutor(options ?? {}, driver).execute(plan);
 
       UnitOfWork.resnapshotRelations(models);
 
@@ -80,13 +80,27 @@ export class UnitOfWork {
   }
 
   /**
+   * Whether rows of `connection` can be written through `root`'s transaction: it is the root's
+   * own connection, or one on the same server ( equal `SharedServer`, same driver ).
+   */
+  public static sharesTransaction(root: OrmDriver, connection: string | null): boolean {
+    if (connection === root.Options.Name) {
+      return true;
+    }
+
+    const other = connection ? DI.resolve<OrmDriver | null>('OrmConnection', [connection]) : null;
+    return !!other && !!root.Options.SharedServer && other.Options.SharedServer === root.Options.SharedServer && other.Options.Driver === root.Options.Driver;
+  }
+
+  /**
    * A graph spanning two connections cannot be persisted atomically — the transaction only
-   * covers one of them. Fail loudly rather than commit half of it.
+   * covers one of them. Fail loudly rather than commit half of it. Connections on one server
+   * ( see {@link sharesTransaction} ) are the exception: their rows go through the root's.
    *
    * A persisted many-to-many target is not collected ( only its junction row is written ), so it
-   * may live anywhere; the junction table is what must be on the root's connection.
+   * may live anywhere; the junction table is what must share the root's transaction.
    */
-  protected static assertSingleConnection(models: ModelBase[], root: IModelDescriptor): void {
+  protected static assertSingleConnection(models: ModelBase[], root: IModelDescriptor, driver: OrmDriver): void {
     const refuse = (name: string, connection: string | null) => {
       throw new OrmException(`save() cannot span connections: ${root.Name} is on connection ${root.Connection} but ${name} is on ${connection}. Save each connection's graph separately.`);
     };
@@ -97,7 +111,7 @@ export class UnitOfWork {
         continue;
       }
 
-      if (descriptor.Connection !== root.Connection) {
+      if (!UnitOfWork.sharesTransaction(driver, descriptor.Connection)) {
         refuse(descriptor.Name, descriptor.Connection);
       }
 
@@ -108,7 +122,7 @@ export class UnitOfWork {
         }
 
         const junction = extractModelDescriptor(relation.JunctionModel);
-        if (junction && junction.Connection !== root.Connection) {
+        if (junction && !UnitOfWork.sharesTransaction(driver, junction.Connection)) {
           refuse(junction.Name, junction.Connection);
         }
       }
@@ -131,7 +145,7 @@ export class UnitOfWork {
    * This is a last-write-wins rebase, not conflict detection: two callers editing the same
    * column still race, and neither is told.
    */
-  protected static async reloadSnapshots(models: ModelBase[]): Promise<void> {
+  protected static async reloadSnapshots(models: ModelBase[], root: OrmDriver): Promise<void> {
     const byConstructor = new Map<Constructor<ModelBase>, ModelBase[]>();
 
     for (const model of models) {
@@ -151,7 +165,7 @@ export class UnitOfWork {
 
     for (const [ctor, group] of byConstructor) {
       const descriptor = extractModelDescriptor(ctor)!;
-      const { query } = createQuery(ctor, SelectQueryBuilder);
+      const { query } = createQuery(ctor, SelectQueryBuilder, true, descriptor.Connection === root.Options.Name ? undefined : root);
 
       const select = (query as SelectQueryBuilder<unknown>).select('*');
       whereAnyPk(select, descriptor, group.map((m) => m.PrimaryKeyValue));

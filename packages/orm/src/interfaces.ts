@@ -320,6 +320,14 @@ export interface IDriverOptions {
   Database?: string;
 
   /**
+   * Names the database server this connection reaches. Connections with the same value are one
+   * server under one login: a `save()` rooted on one of them writes the others' rows through its
+   * own transaction, each table qualified with its connection's `Database`. Unset, the
+   * connection never shares a transaction.
+   */
+  SharedServer?: string;
+
+  /**
    * User associatet with this connection
    */
   User?: string;
