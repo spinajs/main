@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -278,11 +279,23 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       DI.unregister(NeverEnrolledStep);
     });
 
+    // DefaultMfaPolicy reads authn.mfa.steps when DI builds it: one in a fresh child per case.
+    const scopes: IContainer[] = [];
+    const policyNow = async (): Promise<DefaultMfaPolicy> => {
+      const scope = DI.child();
+      scopes.push(scope);
+      return scope.resolve(DefaultMfaPolicy);
+    };
+
+    afterEach(async () => {
+      for (const scope of scopes.splice(0)) await scope.dispose();
+    });
+
     it('requires the first step for a holder of a listed role only', async () => {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer);
+      const policy = await policyNow();
       const login = { method: 'password', strategy: 'local' };
 
       expect(await policy.required(await user('support'), login)).to.deep.eq(['totp']);
@@ -293,7 +306,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer);
+      const policy = await policyNow();
       const ref = await user('member');
       await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p2' });
 

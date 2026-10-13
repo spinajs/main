@@ -13,6 +13,7 @@ import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
+import type { MfaStep } from '../contracts/mfa.js';
 import { ExternalLoginHook } from '../contracts/hooks.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
@@ -23,9 +24,8 @@ import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
-import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
+import { RECOVERY_STEP, mfaSteps } from '../flow/mfa-steps.js';
 import { linkingSwitchesOf } from '../link/switches.js';
-import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
@@ -159,7 +159,7 @@ export class DefaultAuthnService extends AuthnService {
   private links: IdentityLinkStore | undefined;
   private sessions: SessionIssuer | undefined;
   private policy: MfaPolicy | undefined;
-  private steps: MfaStepRegistry | undefined;
+  private steps: ReadonlyMap<string, MfaStep> | undefined;
   private log!: Log;
 
   // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
@@ -199,7 +199,7 @@ export class DefaultAuthnService extends AuthnService {
     this.links = await this.container.resolveOptional(IdentityLinkStore);
     if (this.registry.strategies().some((s) => s.interactive)) {
       this.sessions = await this.container.resolve(SessionIssuer, true);
-      this.steps = await this.container.resolve(MfaStepRegistry);
+      this.steps = await mfaSteps(this.container);
       this.policy = await this.selectPolicy();
     }
     this.throttle = await selectAuthnThrottle(this.container, this.ThrottleService);
@@ -487,7 +487,7 @@ export class DefaultAuthnService extends AuthnService {
     const required = await this.policy!.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
     if (step === RECOVERY_STEP) {
-      for (const s of this.steps!.steps()) {
+      for (const s of this.steps!.values()) {
         if (typeof s.verifyRecovery === 'function' && (await s.enrolled(id))) return (await s.verifyRecovery(id, response)) === true;
       }
       return 'no_recovery_step';
@@ -605,12 +605,11 @@ export class DefaultAuthnService extends AuthnService {
   /** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to this container wins. */
   private async selectPolicy(): Promise<MfaPolicy> {
     const name = this.PolicyService;
-    const type = nearestRegistration(this.container, MfaPolicy, name);
-    if (!type) {
-      const listed = registeredNames(this.container, MfaPolicy).map(q).join(', ') || 'none';
+    const policy: unknown = await this.container.resolveNamed(MfaPolicy, name);
+    if (policy === undefined) {
+      const listed = this.container.getRegisteredNames(MfaPolicy).map(q).join(', ') || 'none';
       throw new InvalidOption(`authn.mfa.policy.service ${q(name)}: no MfaPolicy is registered under that name (registered: ${listed})`);
     }
-    const policy: unknown = await instantiate(this.container, type);
     if (!isPlainObject(policy) || typeof policy.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
     return policy as unknown as MfaPolicy;
   }

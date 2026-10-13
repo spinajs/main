@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DI } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
@@ -245,7 +244,7 @@ describe('authn boot: secrets (A24, SR-16)', () => {
 });
 
 describe('MfaStep.storesSecrets (D3)', () => {
-  const containerOf = (...steps: FakeMfaStep[]) => ({ resolve: async () => ({ steps: () => steps }) }) as unknown as IContainer;
+  const stepsOf = (...steps: FakeMfaStep[]) => new Map(steps.map((s) => [s.name, s]));
   const named = (name: string, storesSecrets?: unknown) => {
     const step = new FakeMfaStep();
     Object.defineProperty(step, 'name', { value: name });
@@ -255,11 +254,11 @@ describe('MfaStep.storesSecrets (D3)', () => {
 
   it('defaults to false on a step that does not declare it', async () => {
     expect(new FakeMfaStep().storesSecrets).to.eq(false);
-    expect(await secretStoringSteps(containerOf(named('plain')))).to.deep.eq([]);
+    expect(secretStoringSteps(stepsOf(named('plain')))).to.deep.eq([]);
   });
 
   it('lists the steps that declare storesSecrets: true', async () => {
-    expect(await secretStoringSteps(containerOf(named('plain'), named('totp', true)))).to.deep.eq(['totp']);
+    expect(secretStoringSteps(stepsOf(named('plain'), named('totp', true)))).to.deep.eq(['totp']);
   });
 
 });

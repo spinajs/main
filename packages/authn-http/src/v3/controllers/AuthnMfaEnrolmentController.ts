@@ -48,9 +48,9 @@ export class AuthnMfaEnrolmentController extends BaseController {
   public async status(@Req() req: Request) {
     const session = activeSession(req);
     // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-    const { MfaStepRegistry } = await import('@spinajs/authn');
+    const { mfaSteps } = await import('@spinajs/authn');
     const steps = [];
-    for (const step of (await this.Container.resolve(MfaStepRegistry)).steps()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
+    for (const step of (await mfaSteps(this.Container)).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
     return new Ok({ steps }, { Headers: [NO_STORE] });
   }
 

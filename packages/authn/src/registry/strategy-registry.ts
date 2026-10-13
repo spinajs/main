@@ -6,12 +6,14 @@ import { isNonEmptyString } from '@spinajs/util';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
 import type { Credentials } from '../contracts/credentials.js';
-import { instantiate, kindOf, nearestRegistration, q } from './named.js';
-import type { NamedEntry } from './named.js';
+import { kindOf, q } from '../support/format.js';
 import { isCredentialSelector } from './selector.js';
 import type { CredentialSelector } from './selector.js';
 
-export type StrategyEntry = NamedEntry;
+export interface StrategyEntry {
+  readonly name: string;
+  readonly service: string;
+}
 
 interface Listed {
   readonly strategy: AuthenticationStrategy;
@@ -65,7 +67,7 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
 @Inject(Container)
 export class StrategyRegistry extends AsyncService {
   @Config('authn.strategies')
-  protected Entries: NamedEntry[];
+  protected Entries: StrategyEntry[];
 
   private listed: readonly Listed[] | undefined;
   private all: readonly AuthenticationStrategy[] | undefined;
@@ -78,11 +80,11 @@ export class StrategyRegistry extends AsyncService {
     const listed: Listed[] = [];
     for (const e of this.Entries) {
       // The whole lineage: a child may list a root strategy next to its own.
-      const type = nearestRegistration(this.container, AuthenticationStrategy, e.service);
-      if (!type) {
+      const strategy = await this.container.resolveNamed(AuthenticationStrategy, e.service);
+      if (strategy === undefined) {
         throw new InvalidOption(`authn.strategies entry ${q(e.name)}: no AuthenticationStrategy is registered as service ${q(e.service)}`);
       }
-      listed.push(check(e, await instantiate(this.container, type)));
+      listed.push(check(e, strategy));
     }
     this.listed = Object.freeze(listed);
     this.all = Object.freeze(listed.map((l) => l.strategy));

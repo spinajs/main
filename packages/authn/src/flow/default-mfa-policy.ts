@@ -1,15 +1,14 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { IdentityRef } from '../contracts/credentials.js';
 import { RoleSource } from '../contracts/hooks.js';
-import { MfaPolicy } from '../contracts/mfa.js';
+import { MfaPolicy, MfaStep } from '../contracts/mfa.js';
 import type { AuthnFacts } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
 import { MfaEnrolmentMismatch, MfaEnrolments, MfaStepNotListed } from './mfa-enrolments.js';
-import { MfaStepRegistry } from './mfa-step-registry.js';
 
 /**
  * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for password logins only (D13: a key
@@ -19,7 +18,7 @@ import { MfaStepRegistry } from './mfa-step-registry.js';
  * MfaEnrolmentMismatch (a listed step that does not see the stored enrolment). Otherwise `force`, or a role of
  * `forceForRoles` (asked through RoleSource), requires the first configured step, so the pending session can only
  * enrol. Boot fails when forceForRoles has no RoleSource or PrincipalFactory to ask; the schema refuses force and
- * forceForRoles with no step to require.
+ * forceForRoles with no step to require. The steps are those `authn.mfa.steps` lists when the policy is built.
  */
 @PerChildInstance()
 @Injectable(MfaPolicy)
@@ -30,6 +29,9 @@ export class DefaultMfaPolicy extends MfaPolicy {
 
   @Config('authn.mfa.policy.forceForRoles')
   protected ForceForRoles: string[];
+
+  @AutoinjectService('authn.mfa.steps', MfaStep, { lineage: true, keyBy: 'name' })
+  protected MfaSteps: Map<string, MfaStep>;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -58,7 +60,7 @@ export class DefaultMfaPolicy extends MfaPolicy {
 
   public async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
     if (facts.method !== 'password') return [];
-    const steps = (await this.container.resolve(MfaStepRegistry)).steps();
+    const steps = [...this.MfaSteps.values()];
     const enrolled: string[] = [];
     for (const s of steps) if (await s.enrolled(id)) enrolled.push(s.name);
     if (enrolled.length > 0) return enrolled;
