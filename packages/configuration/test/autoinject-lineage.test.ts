@@ -112,6 +112,24 @@ describe('@AutoinjectService with { lineage, keyBy }', () => {
     expect((error as Error).message).to.equal('flow.steps entry "renamed" (service "RootStep"): the service has name "root"; the entry must match it');
   });
 
+  it('throws InvalidOption, not ServiceNotFound, for a registered factory that returns undefined', async () => {
+    const c = child(root, [{ name: 'void', service: 'Void' }]);
+    c.register(factory('Void', undefined)).as(Step);
+    await c.resolve(Configuration);
+
+    const error = await resolveNamedServices(c, 'flow.steps', Step, { lineage: true, keyBy: 'name' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).to.be.instanceOf(InvalidOption);
+    expect((error as Error).message).to.equal('flow.steps entry "void" (service "Void"): the service has no name; the entry must match it');
+  });
+
+  it('needs the type when options are given', () => {
+    // @ts-expect-error the element type cannot come from reflection of a Map
+    AutoinjectService('flow.steps', undefined, { lineage: true, keyBy: 'name' });
+  });
+
   it('throws InvalidOption when a name is listed twice', async () => {
     const c = child(root, [
       { name: 'root', service: 'RootStep' },

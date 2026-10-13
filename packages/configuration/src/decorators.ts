@@ -175,6 +175,7 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
     throw new InvalidOption(`${path} must be a list`);
   }
 
+  const registered = container.getRegisteredNames(type);
   const services = new Map<string, T>();
   for (const entry of entries as Record<string, unknown>[]) {
     const key = entry?.[keyBy];
@@ -186,11 +187,11 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
       throw new InvalidOption(`${path} lists ${keyBy} ${q(key)} twice`);
     }
 
-    const instance = await container.resolveNamed(type, service);
-    if (instance === undefined) {
+    if (!registered.includes(service)) {
       throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)}`);
     }
 
+    const instance = await container.resolveNamed(type, service);
     const own = (instance as Record<string, unknown> | null)?.[keyBy];
     if (own !== key) {
       const has = typeof own === 'string' ? `${keyBy} ${q(own)}` : `no ${keyBy}`;
@@ -215,7 +216,9 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
  * @param path - configuration path where service type is stored
  * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
  */
-export function AutoinjectService(path: string, type?: Class<unknown>, options?: IAutoinjectServiceOptions) {
+export function AutoinjectService(path: string, type?: Class<unknown>): any;
+export function AutoinjectService(path: string, type: Class<unknown>, options: IAutoinjectServiceOptions): any;
+export function AutoinjectService(path: string, type?: Class<unknown>, options?: IAutoinjectServiceOptions): any {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     if (options) {
