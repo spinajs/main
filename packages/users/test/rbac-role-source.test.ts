@@ -279,7 +279,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       DI.unregister(NeverEnrolledStep);
     });
 
-    // DefaultMfaPolicy reads authn.mfa.steps when DI builds it: one in a fresh child per case.
+    // A container lists authn.mfa.steps once: each case reads them in a fresh child.
     const scopes: IContainer[] = [];
     const policyNow = async (): Promise<DefaultMfaPolicy> => {
       const scope = DI.child();
