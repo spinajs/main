@@ -91,7 +91,8 @@ authentication time stands in for the start and there is no actor ceiling.
 A block is unreadable (the impersonation ends with `invalid_block`) when it is
 not an object, its time or roles cannot be parsed, or its start lies ahead of
 now or before the authentication by more than `clockSkewSeconds`. Nothing
-honest writes such a block.
+honest writes such a block. A `clockSkewSeconds` set at runtime past the
+schema that is not a finite number of 0 or more also ends it as `invalid_block`.
 
 ### Session states
 

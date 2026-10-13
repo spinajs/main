@@ -881,6 +881,28 @@ describe('AuthnImpersonationService', function () {
       }
     });
 
+    it('refuses a future start when authn.impersonation is replaced without clockSkewSeconds', async () => {
+      const booted = await boot();
+      const { imp } = await started(booted);
+      await booted.p.sessions.set(imp, IMPERSONATION_BLOCK, { startedAt: at(10 * 60 * MINUTE).toISOString() });
+      booted.p.configuration.set('authn.impersonation', { requirePassword: true, requireMfa: true, maxMinutes: 60 });
+      assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null);
+      assert.deepStrictEqual(reasons(booted.p, 'impersonation.end'), ['invalid_block']);
+    });
+
+    it('ends the impersonation on a clockSkewSeconds set past the schema that is not a finite number >= 0', async () => {
+      let booted: Booted | undefined;
+      for (const bad of [undefined, null, Number.NaN, Infinity, -1, '30']) {
+        await booted?.p.dispose();
+        booted = await boot();
+        const { imp } = await started(booted);
+        booted.p.configuration.set('authn.impersonation.clockSkewSeconds', bad);
+        const label = String(bad);
+        assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null, label);
+        assert.deepStrictEqual(reasons(booted.p, 'impersonation.end'), ['invalid_block'], label);
+      }
+    });
+
     it('reads maxMinutes when it uses it, not at boot', async () => {
       const booted = await boot({ maxMinutes: 60 });
       const { p, svc } = booted;

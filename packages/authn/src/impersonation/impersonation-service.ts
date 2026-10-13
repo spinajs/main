@@ -284,7 +284,8 @@ export class AuthnImpersonationService extends AsyncService {
   /**
    * The block; without one (a migrated 2.x session) the authentication time as the start, which never comes after it,
    * and no actor ceiling. A block whose start or actor ceiling cannot be read, or whose start lies ahead or before the
-   * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one.
+   * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one. A clock
+   * skew set past the schema that is not a finite number >= 0 gives null too.
    */
   private block(stored: Stored, ctx: AuthnContext): Block | null {
     const authenticated = stored.facts.authenticatedAt;
@@ -296,7 +297,9 @@ export class AuthnImpersonationService extends AsyncService {
     const started = typeof raw === 'string' ? new Date(raw) : raw;
     if (!validDate(started)) return null;
     const t = started.getTime();
-    const skewMs = this.Settings.clockSkewSeconds * 1000;
+    const skew: unknown = this.Settings.clockSkewSeconds;
+    if (!Number.isFinite(skew) || (skew as number) < 0) return null;
+    const skewMs = (skew as number) * 1000;
     if (t > ctx.now.getTime() + skewMs || t < authenticated.getTime() - skewMs) return null;
     const actorCeiling = blockCeiling(block);
     if (actorCeiling === null) return null;
