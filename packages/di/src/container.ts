@@ -6,7 +6,7 @@ import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
-import { Class, Factory } from './types.js';
+import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
@@ -47,6 +47,12 @@ function rejectChain(service: unknown, method: string) {
   if (isChainArray(service)) {
     throw new InvalidArgument(`${method}() does not accept Array.chainOf(${getTypeName(service)}), use resolve()`);
   }
+}
+
+// A class goes by its name; a factory by its function name, which callers set with Object.defineProperty.
+function registrationName(type: unknown): string {
+  const name = (type as { name?: unknown }).name;
+  return typeof name === 'string' ? name : '';
 }
 
 /**
@@ -260,6 +266,31 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   /**
+   * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
+   * Unlike `resolve`, it never falls back to instantiating the class itself.
+   */
+  public resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
+  public resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
+  public resolveOptional<T>(type: Class<T> | string, options?: unknown[]): unknown {
+    return this.hasRegistered(type) ? this.resolve(type as Class<T>, options) : undefined;
+  }
+
+  public getRegisteredNames(base: Class<unknown>): string[] {
+    const names = this.Registry.getTypesChain(base).map((e) => registrationName(e.type));
+    return [...new Set(names.filter((n) => n !== ''))];
+  }
+
+  public async resolveNamed<T>(base: Class<T>, name: string): Promise<T> {
+    const found = [...this.Registry.getTypesChain(base)].reverse().find((e) => registrationName(e.type) === name);
+    if (!found) {
+      throw new ServiceNotFound(`No ${base.name} is registered as "${name}"`);
+    }
+
+    // Unlike in a chain, a factory gets this container: it may read this container's configuration.
+    return (isFactory(found.type) ? await (found.type as Factory<T>)(this) : await this.resolveChainClass(base, found.type as Class<T>, found.container as Container)) as T;
+  }
+
+  /**
    *
    * Resolves single instance of class
    *
@@ -389,9 +420,7 @@ export class Container extends EventEmitter implements IContainer {
         return owner.resolveType(type, entry as Factory<T>, undefined, true);
       }
 
-      const target = owner.followRegistered(entry as Class<T>);
-      const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
-      return resolver.resolveType(type, target, undefined, true);
+      return this.resolveChainClass(type, entry as Class<T>, owner);
     });
 
     // An async element is a promise only on its first resolve; wrapping whenever
@@ -402,6 +431,13 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     return resolved as ResolveChainResult<T>;
+  }
+
+  /** A class of a chain resolves in the container that registered it, a PerChildContainer one in this container. */
+  private resolveChainClass<T>(base: Class<T> | string, entry: Class<T>, owner: Container) {
+    const target = owner.followRegistered(entry);
+    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
+    return resolver.resolveType(base, target, undefined, true);
   }
 
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {

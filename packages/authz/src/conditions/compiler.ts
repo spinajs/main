@@ -7,6 +7,7 @@ import { AuthzConfigError } from '../contracts/errors.js';
 import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter, Value } from '../contracts/filter.js';
 import type { DecisionRequest } from '../contracts/decision.js';
+import { NativeFilter } from '../contracts/model.js';
 import type { EvaluationContext } from '../contracts/model.js';
 import { ResourceAdapter, ScopeResolver } from '../contracts/adapter.js';
 import type { Principal, ResourceRef } from '../contracts/principal.js';
@@ -16,7 +17,8 @@ import { defaultAttribute, evaluateResidual } from '../engine/evaluate.js';
 import type { SubjectEnv } from '../engine/evaluate.js';
 import { BUILTIN_CONDITION_FUNCTIONS, KleeneConditionFunction, isBuiltinConditionFunction } from './functions.js';
 import { parseCondition } from './parse.js';
-import type { ConditionOp, ConditionPath, ParsedCondition } from './parse.js';
+import type { ConditionOp, ConditionOperand, ConditionPath, ParsedCondition } from './parse.js';
+import { SCOPE_CONDITION_OP, isScopeLeaf, parseScopeConditionArgs } from './scope-leaf.js';
 
 /**
  * UNKNOWN (SQL NULL) as a residual. The filter language has no such constant, so it is a
@@ -34,6 +36,17 @@ export interface CompiledCondition {
   readonly needsSubject: boolean;
   /** Some `scope.<type>.*` ref could not be read on a request without id (B19 needs the subject, B39 calls it indeterminate; the model decides). */
   readonly unresolvedScope: boolean;
+  /** With `scopeLeaves`: the rows where a read of the leaves faults, so a check of that row throws (FALSE when none). */
+  readonly fault?: ResourceFilter;
+}
+
+export interface CompileOptions {
+  /**
+   * On a request without id whose type is not `$global`, each comparison of `scope.<type>.<path>`
+   * (type not `$global`) with a literal or a principal, actor or env ref becomes residual
+   * `SCOPE_CONDITION_OP` leaves instead of needing the subject (RFC K1b-1).
+   */
+  readonly scopeLeaves?: boolean;
 }
 
 const NEEDS_SUBJECT = Symbol('needs-subject');
@@ -141,10 +154,13 @@ export class DefaultConditionCompiler extends ConditionCompiler {
     }
   }
 
-  async compileParsed(p: ParsedCondition, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
-    const run = new Run(req, ctx, this.functions, this.resourceAttributeTypes);
+  async compileParsed(p: ParsedCondition, req: DecisionRequest, ctx: EvaluationContext, options?: CompileOptions): Promise<CompiledCondition> {
+    const leaves = options?.scopeLeaves === true;
+    const typeLevel = (req.resource.id === undefined || req.resource.id === null) && req.resource.type !== GLOBAL.type;
+    const run = new Run(req, ctx, this.functions, this.resourceAttributeTypes, leaves && typeLevel);
     const filter = simplify(await run.node(p));
-    return Object.freeze({ filter, cacheable: run.cacheable, needsSubject: run.needsSubject, unresolvedScope: run.unresolvedScope });
+    const out = { filter, cacheable: run.cacheable, needsSubject: run.needsSubject, unresolvedScope: run.unresolvedScope };
+    return Object.freeze(leaves ? { ...out, fault: run.fault() } : out);
   }
 }
 
@@ -160,8 +176,10 @@ class Run {
   private readonly env: Readonly<Record<string, unknown>>;
   private readonly actor: Principal;
   private resourceAttributes?: Promise<Readonly<Record<string, unknown>> | null>;
+  /** The fault leaf of each distinct (type, path) a scope leaf reads. */
+  private readonly leafReads = new Map<string, ResourceFilter>();
 
-  constructor(private readonly req: DecisionRequest, private readonly ctx: EvaluationContext, private readonly functions: ReadonlyMap<string, ConditionFunction>, private readonly resourceAttributeTypes: ReadonlySet<string>) {
+  constructor(private readonly req: DecisionRequest, private readonly ctx: EvaluationContext, private readonly functions: ReadonlyMap<string, ConditionFunction>, private readonly resourceAttributeTypes: ReadonlySet<string>, private readonly scopeLeaves = false) {
     this.env = Object.freeze({ now: ctx.now, ...(req.env ?? {}) });
     this.actor = req.actor ?? req.principal;
   }
@@ -175,6 +193,7 @@ class Run {
       case 'not':
         return not(await this.node(p.item));
       case 'cmp':
+        if (this.scopeLeaves && isScopeLeaf(p)) return this.scopeLeaf(p.attr, p.op, p.operand);
         return this.comparison(p.attr, p.op, p.operand.kind === 'ref' ? await this.read(p.operand.ref, 'value') : p.operand.value);
       case 'fn':
         return this.fn(p.name, p.args);
@@ -188,7 +207,27 @@ class Run {
     return out;
   }
 
-  private async comparison(attr: ConditionPath, op: ConditionOp, operand: Resolved): Promise<ResourceFilter> {
+  fault(): ResourceFilter {
+    return this.leafReads.size === 0 ? FALSE : or(...this.leafReads.values());
+  }
+
+  /**
+   * L = true OR (NOT false AND UNKNOWN): on each row the comparison's own Kleene value, its
+   * UNKNOWN bound by polarity like any other. The read is recorded before the operand can fold
+   * the comparison, as `comparison` reads before any early return.
+   */
+  private async scopeLeaf(attr: ConditionPath, op: ConditionOp, operand: ConditionOperand): Promise<ResourceFilter> {
+    const value = operand.kind === 'ref' ? await this.read(operand.ref, 'value') : operand.value;
+    const type = attr.scopeType!;
+    const path = attr.path.join('.');
+    const key = JSON.stringify([type, path]);
+    if (!this.leafReads.has(key)) this.leafReads.set(key, scopeLeafNode({ v: 1, test: 'fault', type, path }));
+    if ((value === MISSING && op !== 'null') || !operandFits(op, value)) return CONDITION_UNKNOWN;
+    const leaf = (test: 'true' | 'false') => scopeLeafNode({ v: 1, test, type, path, op, value });
+    return or(leaf('true'), and(not(leaf('false')), CONDITION_UNKNOWN));
+  }
+
+  async comparison(attr: ConditionPath, op: ConditionOp, operand: Resolved): Promise<ResourceFilter> {
     // Read before any early return: a scope read that cannot resolve must fault wherever it sits.
     const value = attr.root === 'resource' ? await this.ownAttribute(attr) : await this.read(attr, 'attr');
     if (operand === NEEDS_SUBJECT || value === NEEDS_SUBJECT) return this.unknownForSubject();
@@ -303,7 +342,7 @@ class Run {
     return raw;
   }
 
-  private async scopeValue(path: ConditionPath): Promise<unknown | typeof NEEDS_SUBJECT> {
+  async scopeValue(path: ConditionPath): Promise<unknown | typeof NEEDS_SUBJECT> {
     const type = path.scopeType!;
     let node: ResourceRef;
     if (type === GLOBAL.type) {
@@ -337,6 +376,57 @@ class Run {
     if (attrs === null) return MISSING;
     const v = readOwn(attrs, attr.path);
     return v === undefined ? MISSING : v;
+  }
+}
+
+function scopeLeafNode(args: unknown): ResourceFilter {
+  const parsed = parseScopeConditionArgs(args);
+  if (!parsed) throw new Error(`scope condition leaf with malformed args ${JSON.stringify(args)}`);
+  return Object.freeze({ op: SCOPE_CONDITION_OP, args: parsed });
+}
+
+const NO_PRINCIPAL: Principal = Object.freeze({ type: 'unattended', id: 'unattended', authenticated: false, source: 'scope-leaf', attributes: Object.freeze({}) });
+const NO_FUNCTIONS: ReadonlyMap<string, ConditionFunction> = new Map();
+const NO_TYPES: ReadonlySet<string> = new Set();
+
+/**
+ * Evaluates `SCOPE_CONDITION_OP` leaves row by row with the compiler's own read and comparison
+ * on a request by id for the row, so a leaf agrees with the check of that row by construction.
+ * Two-valued: where the read faults and for a ref without id, `true` and `false` are FALSE and
+ * `fault` is TRUE; malformed args are FALSE unless their test says `fault`. It reads no
+ * principal, so an intersect delegate's residual keeps it (RFC E2-2).
+ */
+export class ScopeConditionFilter extends NativeFilter {
+  readonly op = SCOPE_CONDITION_OP;
+  readonly principalInArgs = true;
+
+  async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
+    const a = parseScopeConditionArgs(args);
+    if (!a) return saysFault(args);
+    try {
+      const { type, id } = ref;
+      if (typeof id !== 'string') return a.test === 'fault';
+      const run = new Run({ principal: NO_PRINCIPAL, permission: '', resource: { type, id } }, ctx, NO_FUNCTIONS, NO_TYPES);
+      const attr: ConditionPath = { root: 'scope', scopeType: a.type, path: a.path.split('.'), text: `scope.${a.type}.${a.path}` };
+      if (a.test === 'fault') {
+        await run.scopeValue(attr);
+        return false;
+      }
+      const truth = await run.comparison(attr, a.op, a.value);
+      return truth === (a.test === 'true' ? TRUE : FALSE);
+    } catch {
+      return a.test === 'fault';
+    }
+  }
+}
+
+export const SCOPE_CONDITION_FILTER: ScopeConditionFilter = Object.freeze(new ScopeConditionFilter());
+
+function saysFault(args: unknown): boolean {
+  try {
+    return args !== null && typeof args === 'object' && (args as { test?: unknown }).test === 'fault';
+  } catch {
+    return true;
   }
 }
 

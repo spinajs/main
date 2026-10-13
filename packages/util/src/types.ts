@@ -47,3 +47,12 @@ export function isDefined<T>(value: T | null | undefined): value is T {
 export function isFunction(value: unknown): value is (...args: any[]) => unknown {
   return typeof value === 'function';
 }
+
+/**
+ * Type guard for strings with at least one character.
+ *
+ * @param v - value to test
+ */
+export function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v !== '';
+}

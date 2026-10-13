@@ -11,14 +11,6 @@ const authnTotp = {
       cli: [dir('cli')],
     },
   },
-  queue: {
-    routing: {
-      User2FaDisabled: { connection: 'rbac-user-empty-queue' },
-      User2FaEnabled: { connection: 'rbac-user-empty-queue' },
-      User2FaPassed: { connection: 'rbac-user-empty-queue' },
-      User2FaReset: { connection: 'rbac-user-empty-queue' },
-    },
-  },
   authn: {
     mfa: {
       /**

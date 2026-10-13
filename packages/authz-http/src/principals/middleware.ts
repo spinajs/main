@@ -35,7 +35,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
   @Logger('authz-http')
   protected Log: Log;
 
-  // No schema default on purpose (2.x guest factory); unset and null mean on, as before.
+  // The schema has no default for this key; unset and null mean on.
   @Config('authz.principals.anonymous.enabled', { defaultValue: true })
   protected AnonymousEnabled: boolean;
 

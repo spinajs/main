@@ -1,7 +1,7 @@
 import { Autoinject } from '@spinajs/di';
-import { Argument, Command } from '@spinajs/cli';
+import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Orm } from '@spinajs/orm';
 import { Log, Logger } from '@spinajs/log';
-import { RbacCliCommand } from '@spinajs/users';
 import { IdentityStore } from '@spinajs/authn/contracts';
 import { TotpService } from '../service/totp-service.js';
 import { CLI_ACTOR, cliContext } from './common.js';
@@ -9,7 +9,11 @@ import { CLI_ACTOR, cliContext } from './common.js';
 /** Replaces `rbac:user-enable-2fa`, which handed a TOTP secret to the operator (SR-10). */
 @Command('authn:mfa-reset', 'Removes the MFA enrolment and recovery codes of an account; prints no secret')
 @Argument('login', true, 'login or email')
-export class MfaReset extends RbacCliCommand {
+export class MfaReset extends CliCommand {
+  // Boots the ORM before the command runs; the identity store needs it.
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   @Logger('authn-totp')
   protected Log: Log;
 

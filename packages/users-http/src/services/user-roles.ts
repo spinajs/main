@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { AuthzAdminFailure, AuthzService, GLOBAL } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, AuthzService, GLOBAL } from '@spinajs/authz';
 import type { AuthzAdmin, AuthzCommand, Principal } from '@spinajs/authz';
 import { AssignmentStore, RoleStore } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 
 import { refusalOf } from './actor.js';
@@ -49,15 +48,14 @@ export async function executeAsActor(actor: Principal, commands: readonly AuthzC
   }
 }
 
-/** The configured role definitions: the authz-rbac `RoleStore` when registered, else `authz.rbac.roles`. */
+/** The role definitions of the authz-rbac `RoleStore`, the store the RBAC model reads; no fallback to raw configuration. */
 async function roleDefinitions(): Promise<Array<{ name: string; assignable?: boolean }>> {
-  if (DI.RootContainer.hasRegistered(RoleStore)) {
-    const { roles } = await ((await DI.resolve(RoleStore)) as RoleStore).load();
-    return roles.map((r) => ({ name: r.name, assignable: r.assignable }));
+  if (!DI.RootContainer.hasRegistered(RoleStore)) {
+    throw new AuthzConfigError('users-http: no RoleStore is registered; register the authz-rbac stores (registerRbacStores) before reading role definitions');
   }
 
-  const configured = DI.get(Configuration)?.get<Record<string, { assignable?: boolean }>>('authz.rbac.roles', {}) ?? {};
-  return Object.entries(configured).map(([name, def]) => ({ name, assignable: def?.assignable }));
+  const { roles } = await ((await DI.resolve(RoleStore)) as RoleStore).load();
+  return roles.map((r) => ({ name: r.name, assignable: r.assignable }));
 }
 
 /** Names of every configured role, assignable or not. */

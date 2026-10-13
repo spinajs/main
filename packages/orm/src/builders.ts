@@ -3146,7 +3146,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   }
 
   const cnt = driver.Container;
-  const models = DI.getRegisteredTypes<ModelBase>('__models__');
+  const models = DI.getRegisteredTypes<ModelBase>('__models__') ?? [];
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
   // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.

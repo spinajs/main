@@ -7,12 +7,16 @@ import { Configuration } from '@spinajs/configuration';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
+import { FreshAuth } from '@spinajs/authn-http';
 import { FilterableLogicalOperators, IFilterRequest } from '@spinajs/orm-http';
 import { User } from '@spinajs/users';
+import { AuthzService, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from '../support/password-service.js';
 import { globalRolesOf, seedRoles, unseedRoles } from '../support/authz-host.js';
-import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, registerAdminWorld } from '../support/admin-world.js';
+import { ADMIN2_UUID, ADMIN_UUID, AdminWorld, INACTIVE_UUID, USER_UUID, bootAdminWorld, byUuid, principalOf, registerAdminWorld, signedInPrincipalOf } from '../support/admin-world.js';
+import { ownedCache } from '../support/owned-cache.js';
 
 /**
  * Role changes of the admin user routes go through AuthzAdmin with the caller as actor, so authz-rbac's
@@ -32,8 +36,15 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
   let world: AdminWorld;
 
+  const owned = ownedCache();
+
   before(() => {
     registerAdminWorld();
+    owned.begin();
+  });
+
+  after(() => {
+    owned.reset();
   });
 
   beforeEach(async () => {
@@ -44,10 +55,10 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
   afterEach(() => {
     sinon.restore();
-    DI.clearCache();
+    owned.reset();
   });
 
-  const admin = () => byUuid(ADMIN_UUID);
+  const admin = () => signedInPrincipalOf(ADMIN_UUID);
   const config = () => DI.get(Configuration)!;
 
   describe('Users.list role filter', () => {
@@ -58,27 +69,27 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     });
 
     it('filters by holding any of several roles, from the GLOBAL assignments', async () => {
-      expect(await logins(await world.users.list(undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin', 'admin2']);
+      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin', 'admin2']);
 
-      const either = await world.users.list(undefined, undefined, undefined, filterReq('Role', 'in-set', ['scoped-admin', 'user']));
+      const either = await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['scoped-admin', 'user']));
       expect(await logins(either)).to.deep.eq(['inactive', 'multi', 'user']);
       expect(headers(either).find((h) => h.Name === 'X-Total-Count')!.Value).to.eq(3);
     });
 
     it('filters by one role and by its absence', async () => {
-      expect(await logins(await world.users.list(undefined, undefined, undefined, filterReq('Role', 'eq', 'admin')))).to.deep.eq(['admin', 'admin2']);
-      expect(await logins(await world.users.list(undefined, undefined, undefined, filterReq('Role', 'neq', 'admin')))).to.deep.eq(['inactive', 'multi', 'user']);
-      expect(await logins(await world.users.list(undefined, undefined, undefined, filterReq('Role', 'nin-set', ['admin', 'user'])))).to.deep.eq(['multi']);
+      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'eq', 'admin')))).to.deep.eq(['admin', 'admin2']);
+      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'neq', 'admin')))).to.deep.eq(['inactive', 'multi', 'user']);
+      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'nin-set', ['admin', 'user'])))).to.deep.eq(['multi']);
     });
 
     it('stops listing a holder once the role is revoked', async () => {
       await unseedRoles(ADMIN2_UUID, ['admin']);
 
-      expect(await logins(await world.users.list(undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin']);
+      expect(await logins(await world.users.list(await admin(), undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])))).to.deep.eq(['admin']);
     });
 
     it('cannot sort by Role any more', async () => {
-      await expect(world.users.list(undefined, { column: 'Role' } as any)).to.be.rejectedWith(InvalidArgument, /Cannot sort by/);
+      await expect(world.users.list(await admin(), undefined, { column: 'Role' } as any)).to.be.rejectedWith(InvalidArgument, /Cannot sort by/);
     });
   });
 
@@ -107,8 +118,10 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       expect(await User.query().whereLogin('sys').first()).to.not.exist;
     });
 
-    it('grants as the caller: a caller who may not manage assignments creates nothing', async () => {
-      await expect(world.users.addUser(await byUuid(USER_UUID), { Login: 'byuser', Email: 'byuser@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(Forbidden);
+    it('grants as the caller: a caller who may create users but not manage assignments creates nothing', async () => {
+      await seedRoles(USER_UUID, ['clerk']);
+
+      await expect(world.users.addUser(await principalOf(USER_UUID), { Login: 'byuser', Email: 'byuser@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(Forbidden);
 
       expect(await User.query().whereLogin('byuser').first()).to.not.exist;
     });
@@ -117,6 +130,22 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       await expect(world.users.addUser(undefined as any, { Login: 'nobody', Email: 'nobody@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(Forbidden);
 
       expect(await User.query().whereLogin('nobody').first()).to.not.exist;
+    });
+
+    it('refuses SYSTEM, UNATTENDED, a service, an agent and an unauthenticated user as the actor, and creates nothing', async () => {
+      const me = await admin();
+      const actors: Principal[] = [
+        SYSTEM,
+        UNATTENDED,
+        { type: 'service', id: 'svc', authenticated: true, source: 'service', attributes: {} },
+        { type: 'agent', id: 'agent-1', authenticated: true, source: 'token', attributes: {}, onBehalfOf: me, delegation: 'inherit' },
+        { ...me, authenticated: false },
+      ];
+
+      for (const actor of actors) {
+        await expect(world.users.addUser(actor, { Login: 'notauser', Email: 'notauser@spinajs.pl', Role: 'user' } as any), `${actor.type}`).to.be.rejectedWith(Forbidden);
+      }
+      expect(await User.query().whereLogin('notauser').first()).to.not.exist;
     });
 
     it('hands the account over through an invite sent for the caller', async () => {
@@ -130,9 +159,12 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
     it('answers 200 with the created account when a step after the grants failed', async () => {
       sinon.stub(TestPasswordService.prototype, 'invite').rejects(new Error('mailer down'));
+      const runAs = sinon.spy((await DI.resolve(AuthzService)) as AuthzService, 'runAs');
 
       const result = await world.users.addUser(await admin(), { Login: 'halfway', Email: 'halfway@spinajs.pl', Role: 'user' } as any);
       expect(result).to.be.instanceOf(Ok);
+      // The caller may not be allowed to read the new row through a scoped user model.
+      expect(runAs.calledWith(SYSTEM, 'users-http-created-row'), 'the created row is read as SYSTEM').to.eq(true);
 
       const data = await body<any>(result);
       const created = await User.query().whereLogin('halfway').firstOrFail();
@@ -145,27 +177,32 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
   });
 
   describe('Users.updateUser', () => {
+    // Handlers called directly have no request; fresh auth for e-mail and login changes is pinned over http (identity-change-guard).
+    beforeEach(() => {
+      sinon.stub(FreshAuth.prototype, 'execute').resolves();
+    });
+
     it('refuses the non-assignable system role on a replacement', async () => {
-      await expect(world.users.updateUser(await admin(), await byUuid(USER_UUID), { Role: 'system' } as any)).to.be.rejectedWith(InvalidArgument);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: 'system' } as any, undefined as any)).to.be.rejectedWith(InvalidArgument);
 
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses the whole replacement on one refused role and writes nothing, the login included', async () => {
-      await expect(world.users.updateUser(await admin(), await byUuid(USER_UUID), { Login: 'renamed', Role: ['guest', 'superadmin'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: 'renamed', Role: ['guest', 'superadmin'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('answers an unknown role with InvalidArgument', async () => {
-      await expect(world.users.updateUser(await admin(), await byUuid(USER_UUID), { Role: ['user', 'wizard'] } as any)).to.be.rejectedWith(InvalidArgument);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Role: ['user', 'wizard'] } as any, undefined as any)).to.be.rejectedWith(InvalidArgument);
 
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses to take the caller s own privileged role (self lockout)', async () => {
-      await expect(world.users.updateUser(await admin(), await admin(), { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
@@ -175,33 +212,33 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       await unseedRoles(ADMIN2_UUID, ['admin']);
       config().set('authz.admin.guard.preventSelfLockout', false);
 
-      await expect(world.users.updateUser(await admin(), await admin(), { Role: ['user'] } as any)).to.be.rejectedWith(Forbidden, /users:update/);
+      await expect(world.users.updateUser(await admin(), ADMIN_UUID, { Role: ['user'] } as any, undefined as any)).to.be.rejectedWith(Forbidden, /users:update/);
 
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
 
     it('takes admin from an administrator while another one remains', async () => {
-      await world.users.updateUser(await admin(), await byUuid(ADMIN2_UUID), { Role: ['user'] } as any);
+      await world.users.updateUser(await admin(), ADMIN2_UUID, { Role: ['user'] } as any, undefined as any);
 
       expect(await globalRolesOf(ADMIN2_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses a reserved login on rename before any write', async () => {
-      await expect(world.users.updateUser(await admin(), await byUuid(USER_UUID), { Login: '__system__', Role: ['guest'] } as any)).to.be.rejectedWith(InvalidArgument, /reserved/);
+      await expect(world.users.updateUser(await admin(), USER_UUID, { Login: '__system__', Role: ['guest'] } as any, undefined as any)).to.be.rejectedWith(InvalidArgument, /reserved/);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('refuses a request without a caller and writes nothing', async () => {
-      await expect(world.users.updateUser(undefined as any, await byUuid(USER_UUID), { Login: 'nocaller', Role: ['guest'] } as any)).to.be.rejectedWith(Forbidden);
+      await expect(world.users.updateUser(undefined as any, USER_UUID, { Login: 'nocaller', Role: ['guest'] } as any, undefined as any)).to.be.rejectedWith(Forbidden);
 
       expect((await byUuid(USER_UUID)).Login).to.eq('user');
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
     it('leaves the roles alone when no Role is sent', async () => {
-      await world.users.updateUser(await admin(), await byUuid(INACTIVE_UUID), { Login: 'stillinactive' } as any);
+      await world.users.updateUser(await admin(), INACTIVE_UUID, { Login: 'stillinactive' } as any, undefined as any);
 
       expect(await globalRolesOf(INACTIVE_UUID)).to.deep.eq(['user']);
     });
@@ -211,7 +248,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     it('lists exactly the roles the caller may grant', async () => {
       const roles = await body<string[]>(await world.users.assignableRoles(await admin()));
 
-      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin']);
+      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin-editor', 'clerk', 'admin']);
     });
 
     it('offers a stronger caller the stronger role too', async () => {
@@ -219,7 +256,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
       const roles = await body<string[]>(await world.users.assignableRoles(await admin()));
 
-      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin', 'superadmin']);
+      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin-editor', 'clerk', 'admin', 'superadmin']);
     });
 
     it('refuses a request without a caller', async () => {
@@ -227,7 +264,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     });
 
     it('offers nothing to a caller who may not manage assignments', async () => {
-      const roles = await body<string[]>(await world.users.assignableRoles(await byUuid(USER_UUID)));
+      const roles = await body<string[]>(await world.users.assignableRoles(await principalOf(USER_UUID)));
 
       expect(roles).to.deep.eq([]);
     });

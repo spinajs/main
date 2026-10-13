@@ -3,116 +3,76 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { randomUUID } from 'node:crypto';
 
-import { Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { DI } from '@spinajs/di';
 import { DefaultQueueService } from '@spinajs/queue';
-import { PaginationDTO } from '@spinajs/orm-http';
-import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata, issuePasswordResetToken } from '@spinajs/users';
-import { Default2FaToken, TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
-import { MemorySessionIssuer, runAuthnBehaviour } from '@spinajs/authn-testing';
+import { PasswordService } from '@spinajs/authn/contracts';
+import { User, UserMetadataBase } from '@spinajs/users';
+import { runAuthnBehaviour } from '@spinajs/authn-testing';
 import type { Harness, MetadataActor, MetadataPort, SeedPort } from '@spinajs/authn-testing';
-import { MemoryAuthnThrottle } from '@spinajs/authn';
-import { AuthnThrottle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import { UserMetadataController } from '../src/controllers/UserMetadataController.js';
-import { UserMetadataService } from '../src/services/UserMetadataService.js';
-import { DbTestConfiguration } from './db-common.js';
+import { startUsersHttpApp, stopUsersHttpApp } from './support/http-app.js';
+import type { HttpClient, Res, UsersHttpApp } from './support/http-app.js';
 
 /**
  * Regression tests for SR-01 and SR-02 (design §23.3, plan §3c SEC1).
  *
- * Every case replays the 2.x attack through the metadata route handlers, called with the
- * arguments the http layer resolves, and must fail closed. The A12/api facet of the authn kit
- * runs over the same handlers through a {@link MetadataPort} adapter.
+ * Every case replays the 2.x attack through the metadata routes of a running app, as the owner (users' `user` role, on
+ * `/user/metadata`) or as an admin (users' `admin` role, on `/user/:uuid/metadata`), and must fail closed. The A12/api
+ * facet of the authn kit runs over the same routes through a {@link MetadataPort} adapter.
  */
+
+/** The keys the 2.x authn-totp wrote; users has no constant for them. */
+const TWO_FA_KEYS = { TOKEN: '2fa:token', OTP: '2fa:otp', ENABLED: '2fa:enabled' } as const;
 
 type IdentityRef = Parameters<MetadataPort['seedRaw']>[0];
 
-const body = async <T = any>(r: any): Promise<T> => await r.responseData;
-
 /** Refusals the routes answer (400, 404); anything else is a bug the case must see. */
-const refused = (e: unknown) => e instanceof InvalidArgument || e instanceof ResourceNotFound;
+const refused = (res: Res) => res.status === 400 || res.status === 404;
 
-async function attempt(op: () => Promise<unknown>): Promise<{ ok: boolean }> {
-  try {
-    await op();
+function attempt(res: Res): { ok: boolean } {
+  if (res.status === 200) {
     return { ok: true };
-  } catch (e) {
-    if (refused(e)) {
-      return { ok: false };
-    }
-    throw e;
   }
+  if (refused(res)) {
+    return { ok: false };
+  }
+  throw new Error(`unexpected ${res.status}: ${res.text}`);
 }
 
 const typeOf = (value: unknown) => (typeof value === 'boolean' ? 'boolean' : typeof value === 'number' ? 'number' : 'string');
 
+/** The request body of a write: the DTO carries every value as a string, its Type says what it is. */
+const dto = (Key: string, value: unknown) => ({ Key, Value: String(value), Type: typeOf(value) });
+
 describe('SR-01 and SR-02: users-http metadata routes', function () {
-  this.timeout(25000);
+  this.timeout(60000);
 
-  let controller: UserMetadataController;
-  let pwd: BasicPasswordProvider;
-
-  // Only what this suite resolves is uncached; the in-memory database goes with the Orm.
-  const owned = [DbTestConfiguration, Configuration, Orm, UserMetadataController, UserMetadataService, BasicPasswordProvider, Default2FaToken];
+  let app: UsersHttpApp;
+  let adminClient: HttpClient;
 
   before(async () => {
-    DI.setESMModuleSupport();
-    owned.forEach((t) => DI.uncache(t as any));
-
-    DI.register(DbTestConfiguration).as(Configuration);
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
-    // The reset request runs authn-local's LocalPasswordService, which counts it in the throttle and needs a
-    // session issuer; nothing in this package's imports registers either.
-    DI.register(MemoryAuthnThrottle).as(AuthnThrottle);
-    DI.register(MemorySessionIssuer).as(SessionIssuer);
-
-    for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Configuration);
-    await DI.resolve(Orm);
-
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    controller = await DI.resolve(UserMetadataController);
-    pwd = DI.resolve(BasicPasswordProvider);
+    app = await startUsersHttpApp({ controllers: [UserMetadataController] });
+    adminClient = await app.signIn((await app.seedUser({ login: `sr-admin-${randomUUID()}`, roles: ['admin'] })).Uuid);
   });
 
-  after(() => {
+  after(async () => {
+    await stopUsersHttpApp();
     sinon.restore();
-    DI.unregister(DbTestConfiguration);
-    owned.forEach((t) => DI.uncache(t as any));
   });
 
-  async function newUser(login = `u-${randomUUID()}`): Promise<User> {
-    const u = new User({
-      Uuid: randomUUID(),
-      Email: `${login}@spinajs.pl`,
-      Login: login,
-      Password: await pwd.hash('kit-password-1'),
-      Role: ['user'],
-      IsActive: true,
-    });
-    await u.insert();
-    return u;
-  }
+  const newUser = (login = `u-${randomUUID()}`) => app.seedUser({ login, email: `${login}@spinajs.pl`, roles: ['user'] });
 
   const byUuid = async (uuid: string) => (await User.where('Uuid', uuid).firstOrFail()) as User;
-  const rowOf = (user: User, key: string) => UserMetadata.where({ user_id: user.Id, Key: key }).first();
-  const rowsOf = (user: User) => UserMetadata.where('user_id', user.Id) as unknown as Promise<UserMetadata[]>;
-  const listed = async (r: any) => (await body<any[]>(r)).map((m) => m.Key as string);
-  const all = () => new PaginationDTO({ page: 0, limit: 1000 });
+  const rowOf = (user: User, key: string) => UserMetadataBase.where({ user_id: user.Id, Key: key }).first() as Promise<UserMetadataBase | undefined>;
+  const rowsOf = (user: User) => UserMetadataBase.where('user_id', user.Id) as unknown as Promise<UserMetadataBase[]>;
+  const listed = (res: Res) => (res.body as { Key: string }[]).map((m) => m.Key);
+  const ALL = `?pagination=${encodeURIComponent(JSON.stringify({ page: 0, limit: 1000 }))}`;
 
   /** The guard-free writer: a plain insert, as authn and the user actions write their state. */
-  async function plant(user: User, key: string, value: unknown): Promise<UserMetadata> {
-    const m = new UserMetadata();
+  async function plant(user: User, key: string, value: unknown): Promise<UserMetadataBase> {
+    const m = new UserMetadataBase();
     m.Key = key;
     m.Value = value;
     m.user_id = user.Id;
@@ -120,56 +80,72 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
     return (await rowOf(user, key))!;
   }
 
+  /** A signed-in owner whose reserved ban row says not banned: the account keeps its session, so the guard is what refuses. */
+  async function unbannedOwner(): Promise<{ user: User; row: UserMetadataBase; client: HttpClient }> {
+    const user = await newUser();
+    const row = await plant(user, 'user:ban:is_banned', false);
+    return { user, row, client: await app.signIn(user.Uuid) };
+  }
+
+  /** The client of an actor on `user`: the user itself on its own family, or the admin on the uuid family. */
+  async function as(actor: MetadataActor, user: User): Promise<{ client: HttpClient; base: string }> {
+    return actor === 'owner' ? { client: await app.signIn(user.Uuid), base: '/user/metadata' } : { client: adminClient, base: `/user/${user.Uuid}/metadata` };
+  }
+
   describe('replays of the 2.x attacks', () => {
     it("SR-01 admin reads another user's reset token", async () => {
       const victim = await newUser();
       // The public POST /auth/password/reset-request runs this action. authn-local keeps the secret in its own
       // store, so a reset token row is one a 2.x writer left behind.
-      await issuePasswordResetToken(victim.Uuid);
+      const requested = await ((await DI.resolve(PasswordService)) as PasswordService).requestReset(victim.Email, { now: new Date(), purpose: 'request' });
+      expect(requested.status).to.eq('accepted');
       expect(await rowOf(victim, 'user:pwd_reset:token'), 'the reset request writes no secret to the metadata').to.not.exist;
       const token = 'a-2x-reset-token-worth-stealing';
       await plant(victim, 'user:pwd_reset:token', token);
 
-      await expect(controller.getUserMeta(victim, 'user:pwd_reset:token')).to.be.rejectedWith(ResourceNotFound);
+      expect((await adminClient.get(`/user/${victim.Uuid}/metadata/user:pwd_reset:token`)).status).to.eq(404);
 
-      const keys = await listed(await controller.readUserMeta(victim, all()));
-      expect(keys.filter((k) => k.startsWith('user:pwd_reset:'))).to.deep.eq([]);
-      expect(JSON.stringify(await body(await controller.readUserMeta(victim, all())))).to.not.contain(token);
+      const list = await adminClient.get(`/user/${victim.Uuid}/metadata${ALL}`);
+      expect(list.status, list.text).to.eq(200);
+      expect(listed(list).filter((k) => k.startsWith('user:pwd_reset:'))).to.deep.eq([]);
+      expect(list.text).to.not.contain(token);
     });
 
     it('SR-01 owner reads own 2fa secret', async () => {
       const owner = await newUser();
-      const totp = DI.resolve(Default2FaToken);
-      await totp.beginEnrolment(await byUuid(owner.Uuid));
-      const secret = (await rowOf(owner, TWO_FA_METATADATA_KEYS.TOKEN))!.Value as string;
-      expect(secret, 'precondition: the secret is stored').to.be.a('string').and.not.empty;
+      const secret = 'JBSWY3DPEHPK3PXP';
+      await plant(owner, TWO_FA_KEYS.TOKEN, secret);
+      await plant(owner, TWO_FA_KEYS.OTP, `otpauth://totp/SpinaJS:${owner.Email}?secret=${secret}&issuer=SpinaJS`);
+      const client = await app.signIn(owner.Uuid);
 
-      for (const key of [TWO_FA_METATADATA_KEYS.TOKEN, TWO_FA_METATADATA_KEYS.OTP]) {
-        await expect(controller.getMeta(owner, key), key).to.be.rejectedWith(ResourceNotFound);
+      for (const key of [TWO_FA_KEYS.TOKEN, TWO_FA_KEYS.OTP]) {
+        expect((await client.get(`/user/metadata/${key}`)).status, key).to.eq(404);
       }
 
-      const page = await body<any[]>(await controller.readMeta(owner, all()));
-      expect(page.map((m) => m.Key).filter((k: string) => k.startsWith('2fa:'))).to.deep.eq([]);
-      expect(JSON.stringify(page)).to.not.contain(secret);
+      const page = await client.get(`/user/metadata${ALL}`);
+      expect(page.status, page.text).to.eq(200);
+      expect(listed(page).filter((k: string) => k.startsWith('2fa:'))).to.deep.eq([]);
+      expect(page.text).to.not.contain(secret);
     });
 
     it('SR-02 2fa:enabled write by owner', async () => {
       const owner = await newUser();
-      await plant(owner, TWO_FA_METATADATA_KEYS.ENABLED, true);
+      await plant(owner, TWO_FA_KEYS.ENABLED, true);
+      const client = await app.signIn(owner.Uuid);
 
       // 2.x: POST /user/metadata {Key:'2fa:enabled', Value:false} turned 2FA off without the password
-      await expect(controller.addMetadata(owner, { Key: '2fa:enabled', Value: false, Type: 'boolean' } as any)).to.be.rejectedWith(InvalidArgument);
-      await expect(controller.addMetadata(owner, { Key: '2FA:Enabled', Value: false, Type: 'boolean' } as any)).to.be.rejectedWith(InvalidArgument);
+      expect((await client.post('/user/metadata', dto('2fa:enabled', false))).status).to.eq(400);
+      expect((await client.post('/user/metadata', dto('2FA:Enabled', false))).status).to.eq(400);
 
-      const row = await rowOf(owner, TWO_FA_METATADATA_KEYS.ENABLED);
+      const row = await rowOf(owner, TWO_FA_KEYS.ENABLED);
       expect(row!.Value).to.eq(true);
-      expect((await rowsOf(owner)).map((m) => m.Key)).to.deep.eq([TWO_FA_METATADATA_KEYS.ENABLED]);
+      expect((await rowsOf(owner)).map((m) => m.Key)).to.deep.eq([TWO_FA_KEYS.ENABLED]);
     });
 
     it('SR-02 admin plants a known 2fa secret', async () => {
       const target = await newUser();
 
-      await expect(controller.addUserMetadata(target, { Key: '2fa:token', Value: 'KNOWNSECRETBASE32', Type: 'string' } as any)).to.be.rejectedWith(InvalidArgument);
+      expect((await adminClient.post(`/user/${target.Uuid}/metadata`, dto('2fa:token', 'KNOWNSECRETBASE32'))).status).to.eq(400);
 
       expect(await rowOf(target, '2fa:token')).to.not.exist;
     });
@@ -180,11 +156,16 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       const ban = await plant(target, 'user:ban:is_banned', true);
 
       // 2.x: DELETE …/metadata/:id deleted any key, protected or not
-      await expect(controller.deleteUserMetadata(target, secret.Id)).to.be.rejectedWith(ResourceNotFound);
-      await expect(controller.deleteMetadata(target, ban.Id)).to.be.rejectedWith(ResourceNotFound);
+      expect((await adminClient.del(`/user/${target.Uuid}/metadata/${secret.Id}`)).status).to.eq(404);
+      // 2.x served the banned owner; 3.0 refuses its session before the route runs.
+      expect((await (await app.signIn(target.Uuid)).del(`/user/metadata/${ban.Id}`)).status).to.eq(401);
+      // An owner who is not banned reaches the route, and the guard refuses the row.
+      const lifted = await unbannedOwner();
+      expect((await lifted.client.del(`/user/metadata/${lifted.row.Id}`)).status).to.eq(404);
 
       expect(await rowOf(target, '2fa:token')).to.exist;
       expect(await rowOf(target, 'user:ban:is_banned')).to.exist;
+      expect(await rowOf(lifted.user, 'user:ban:is_banned')).to.exist;
     });
 
     it('SR-02 rename of a protected row by id', async () => {
@@ -192,15 +173,18 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       const ban = await plant(target, 'user:ban:is_banned', true);
 
       // renaming the row away from its reserved key lifts the ban just like deleting it
-      await expect(controller.updateMetadata(target, String(ban.Id), { Key: 'user:note', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
-      await expect(controller.updateUserMetadata(String(ban.Id), target, { Key: 'user:note', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+      expect((await (await app.signIn(target.Uuid)).patch(`/user/metadata/${ban.Id}`, dto('user:note', 'x'))).status).to.eq(401);
+      expect((await adminClient.patch(`/user/${target.Uuid}/metadata/${ban.Id}`, dto('user:note', 'x'))).status).to.eq(404);
+      const lifted = await unbannedOwner();
+      expect((await lifted.client.patch(`/user/metadata/${lifted.row.Id}`, dto('user:note', 'x'))).status).to.eq(404);
 
       expect((await rowOf(target, 'user:ban:is_banned'))!.Value).to.eq(true);
       expect(await rowOf(target, 'user:note')).to.not.exist;
+      expect(await rowOf(lifted.user, 'user:note')).to.not.exist;
     });
   });
 
-  /** The kit's A12/api cases over the same handlers. */
+  /** The kit's A12/api cases over the same routes. */
   function harness(): Harness {
     const created: User[] = [];
 
@@ -227,36 +211,33 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       async rawValue(id, key) {
         return (await rowOf(await userOf(id), key))?.Value;
       },
-      async write(as: MetadataActor, id, key, value) {
-        const u = await userOf(id);
-        const dto = { Key: key, Value: value, Type: typeOf(value) } as any;
-        return attempt(() => (as === 'owner' ? controller.addMetadata(u, dto) : controller.addUserMetadata(u, dto)));
+      async write(actor, id, key, value) {
+        const { client, base } = await as(actor, await userOf(id));
+        return attempt(await client.post(base, dto(key, value)));
       },
-      async read(as, id, key) {
-        const u = await userOf(id);
-        try {
-          const entry = await body<any>(as === 'owner' ? await controller.getMeta(u, key) : await controller.getUserMeta(u, key));
-          return { found: true, value: entry.Value };
-        } catch (e) {
-          if (e instanceof ResourceNotFound) {
-            return { found: false };
-          }
-          throw e;
+      async read(actor, id, key) {
+        const { client, base } = await as(actor, await userOf(id));
+        const res = await client.get(`${base}/${encodeURIComponent(key)}`);
+        if (res.status === 404) {
+          return { found: false };
         }
+        attempt(res);
+        return { found: true, value: res.body.Value };
       },
-      async list(as, id) {
-        const u = await userOf(id);
-        return listed(as === 'owner' ? await controller.readMeta(u, all()) : await controller.readUserMeta(u, all()));
+      async list(actor, id) {
+        const { client, base } = await as(actor, await userOf(id));
+        const res = await client.get(`${base}${ALL}`);
+        attempt(res);
+        return listed(res);
       },
-      async updateById(as, id, rowId, value) {
-        const u = await userOf(id);
+      async updateById(actor, id, rowId, value) {
+        const { client, base } = await as(actor, await userOf(id));
         // A plain body key, so the refusal has to come from the addressed row, not the body.
-        const dto = { Key: 'kit:renamed', Value: value, Type: typeOf(value) } as any;
-        return attempt(() => (as === 'owner' ? controller.updateMetadata(u, rowId, dto) : controller.updateUserMetadata(rowId, u, dto)));
+        return attempt(await client.patch(`${base}/${rowId}`, dto('kit:renamed', value)));
       },
-      async deleteById(as, id, rowId) {
-        const u = await userOf(id);
-        return attempt(() => (as === 'owner' ? controller.deleteMetadata(u, Number(rowId)) : controller.deleteUserMetadata(u, Number(rowId))));
+      async deleteById(actor, id, rowId) {
+        const { client, base } = await as(actor, await userOf(id));
+        return attempt(await client.del(`${base}/${rowId}`));
       },
     };
 

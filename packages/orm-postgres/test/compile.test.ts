@@ -83,6 +83,25 @@ describe('postgres SQL compilation', function () {
     });
   });
 
+  describe('identifier quoting in joins', () => {
+    it('quotes the FROM table, the join tables and the ON keys with double quotes', () => {
+      const connection = db()!.Connections.get('postgres')!;
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
+
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "test"."adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId" ORDER BY "name" ASC');
+    });
+  });
+
+  describe('recursive CTE', () => {
+    it('quotes the CTE column list and the ON keys alike, so a mixed-case key resolves', () => {
+      const result = sqb().withRecursive('Parent_Id', 'Id').from('roles').columns(['Id', 'Parent_Id']).toDB();
+
+      expect(sql(result)).to.contain('recursive_cte("Id","Parent_Id")');
+      expect(sql(result)).to.contain('ON "$recursive$"."Parent_Id" = "$recursive_cte$"."Id"');
+    });
+  });
+
   describe('whereExist correlation', () => {
     function compiled(query: { toDB(): unknown }) {
       return sql(query.toDB() as ICompilerOutput);

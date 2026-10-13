@@ -204,7 +204,7 @@ export class LocalPasswordPolicy extends SyncService {
       if (name === null || name === undefined || name === '') {
         this._blocklistType = null;
       } else {
-        const type = DI.getRegisteredTypes(PasswordBlocklist).find((t) => t.name === name);
+        const type = (DI.getRegisteredTypes(PasswordBlocklist) ?? []).find((t) => t.name === name);
         if (!type) {
           throw new InvalidOption(`authn.local.policy.blocklist names ${String(name)}, which is not registered as a PasswordBlocklist`);
         }

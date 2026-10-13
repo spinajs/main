@@ -1,20 +1,18 @@
 import { AuthzAdminFailure } from '@spinajs/authz';
 import type { AuthzAdminError, Principal } from '@spinajs/authz';
-import { DI } from '@spinajs/di';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
-import { User, UserPrincipalFactory } from '@spinajs/users';
 
 /**
- * The principal the admin routes act as: the caller of the 2.x session. Without a caller the route refuses,
- * it never falls back to SYSTEM (which AuthzAdmin's guard does not check).
+ * The caller as the actor of AuthzAdmin commands and account guard checks: an authenticated user principal. Anything
+ * else (none, unauthenticated, SYSTEM, a service, an agent acting for a user) is refused; the routes never act as SYSTEM,
+ * which AuthzAdmin's guard does not check.
  */
-export async function actorPrincipal(user: User | null | undefined): Promise<Principal> {
-  if (!user) {
-    throw new Forbidden('No authenticated caller');
+export function userActor(principal: Principal | null | undefined): Principal {
+  if (!principal || principal.authenticated !== true || principal.type !== 'user' || typeof principal.id !== 'string' || principal.id === '') {
+    throw new Forbidden('this route acts for a signed-in user');
   }
 
-  const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
-  return factory.principalOf(user);
+  return principal;
 }
 
 /** The AdminGuard refusals: the caller may not make this change. */

@@ -8,5 +8,8 @@
   "node-option": [
     "experimental-specifier-resolution=node",
     "loader=ts-node/esm"
+  ],
+  "file": [
+    "test/lost-rejections.ts"
   ]
 }

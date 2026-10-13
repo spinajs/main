@@ -85,7 +85,7 @@ function asSeconds(v: unknown, at: string, f: Findings): number | undefined {
 
 function unknownKeys(node: Plain, known: readonly string[], at: string, f: Findings): void {
   for (const k of Object.keys(node)) {
-    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (3.0 drops the rbac.* root: a boot warns about it, and fails once rejectLegacyKeys is on).`, keyPath(at, k));
+    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (3.0 drops the rbac.* root: a boot fails on it unless authz.config.rejectLegacyKeys is false).`, keyPath(at, k));
   }
 }
 

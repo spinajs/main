@@ -81,28 +81,6 @@ export class DbTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        defaultRole: 'guest',
-        roles: [
-          { Name: 'admin', Description: 'Administrator' },
-          { Name: 'user', Description: 'Simple account' },
-          { Name: 'guest', Description: 'Guest account' },
-        ],
-        grants: {
-          admin: {
-            users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-          },
-          user: {
-            user: { 'read:own': ['*'], 'update:own': ['*'] },
-            'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
-          },
-        },
-        auth: { service: 'SimpleDbAuthProvider' },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
       authn: {
         session: {
           service: 'MemorySessionStore',
@@ -110,9 +88,7 @@ export class DbTestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' },
           },
           reset: { ttlSeconds: 60 * 60 },

@@ -117,7 +117,7 @@ describe('authz defaults', () => {
     expect(AUTHZ_DEFAULTS.fields.neverRead).to.deep.equal(['Password']);
     expect(AUTHZ_DEFAULTS.fields.write.mode).to.equal('strip');
     expect(AUTHZ_DEFAULTS.principals.anonymous.enabled).to.equal(true);
-    expect(AUTHZ_DEFAULTS.config.rejectLegacyKeys).to.equal(false);
+    expect(AUTHZ_DEFAULTS.config.rejectLegacyKeys).to.equal(true);
     expect(AUTHZ_DEFAULTS.combine).to.deep.equal({ default: { algorithm: 'deny-overrides' } });
   });
 });
@@ -282,6 +282,13 @@ describe('legacy keys', () => {
     expect(findLegacyKeys(true).map((f) => f.path)).to.deep.equal(['rbac']);
   });
 
+  it("skips the config loader's __file__ marker", () => {
+    expect(findLegacyKeys({ __file__: 'app.js', grants: { admin: 1 } }).map((f) => f.path)).to.deep.equal(['rbac.grants.admin']);
+    const { warnings, log } = logger();
+    checkLegacyKeys({ __file__: 'app.js' }, true, log);
+    expect(warnings).to.deep.equal([]);
+  });
+
   it('does nothing without rbac', () => {
     const { warnings, log } = logger();
     checkLegacyKeys(undefined, true, log);
@@ -310,6 +317,7 @@ describe('legacy keys', () => {
     expect(m).to.contain('rbac.grants.admin.a');
     expect(m).to.contain('rbac.session.cookie');
     expect(m).to.contain('spinajs-authz-convert');
+    expect(m).to.contain('authz.config.rejectLegacyKeys: false');
     expect(warnings).to.deep.equal([]);
   });
 
@@ -355,6 +363,7 @@ describe('authz configuration through a child Configuration', function () {
     const authz = (await booted({})).get<Record<string, unknown>>(['authz']);
     expect(authz).to.deep.include({ combine: AUTHZ_DEFAULTS.combine, engine: AUTHZ_DEFAULTS.engine, fields: AUTHZ_DEFAULTS.fields, cache: AUTHZ_DEFAULTS.cache, audit: AUTHZ_DEFAULTS.audit, config: AUTHZ_DEFAULTS.config });
     expect(authz.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
+    expect(authz.config).to.deep.equal({ rejectLegacyKeys: true });
   });
 
   it('fills only the keys a root section leaves out', async () => {

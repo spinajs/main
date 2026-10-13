@@ -9,7 +9,7 @@ import 'mocha';
 
 import { RBAC_ASSIGNMENT_OP, compileRoles } from '../../src/index.js';
 import type { RbacModel, RoleDef, RoleGraph } from '../../src/index.js';
-import { RbacModelRoleGraphSource, RbacOrmCompiler, RbacRoleGraphSource, RbacScopePathSource, rbacRoleScopes } from '../../src/orm/index.js';
+import { OrmRbacScopePathSource, RbacModelRoleGraphSource, RbacOrmCompiler, RbacRoleGraphSource, RbacScopePathSource, rbacRoleScopes } from '../../src/orm/index.js';
 import { args, bootSqlite, compilerContainer, DocModel, FixedClock, FixturePathSource, GRAPH, NOW, principal, STAFF, T1_MEMBERS, U1, U1_ARGS, UnscopedModel } from './fixture.js';
 import type { BootedDb } from './fixture.js';
 
@@ -64,12 +64,13 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
   it('builds one correlated EXISTS over authz_assignment (sqlite)', () => {
     const { sql, bindings } = compiled(db.driver, compiler, U1_ARGS);
 
-    expect(sql).to.match(/WHERE EXISTS \( SELECT .* FROM `authz_assignment` as `authz_a` WHERE /);
+    expect(sql).to.match(/WHERE \(EXISTS \(SELECT 1 FROM `authz_assignment` `authz_a` WHERE /);
+    expect(sql.match(/EXISTS/g)).to.have.length(1);
     expect(sql).to.contain('`authz_a`.`subject_type` = ? AND `authz_a`.`subject_id` = ? AND `authz_a`.`subject_role` = ?');
-    expect(sql).to.contain('`authz_a`.`role` IN (?,?)');
+    expect(sql).to.contain('`authz_a`.`role` IN (?, ?)');
     expect(sql).to.contain('`authz_a`.`expires_at` IS NULL OR `authz_a`.`expires_at` > ?');
     expect(sql).to.contain('`authz_a`.`scope_type` = ? AND `authz_a`.`scope_id` = ?');
-    expect(sql).to.contain('`authz_a`.`scope_type` = ? AND `authz_a`.`scope_id` <> ? AND `authz_a`.`scope_id` = CAST(`t`.`id` AS CHAR)');
+    expect(sql).to.contain('`authz_a`.`scope_type` = ? AND `authz_a`.`scope_id` <> ? AND `t`.`id` IS NOT NULL AND `authz_a`.`scope_id` = CAST(`t`.`id` AS CHAR)');
     expect(sql).to.contain('`authz_a`.`scope_id` = CAST(`t`.`project_id` AS CHAR)');
     expect(sql).to.contain('`authz_a`.`scope_id` = CAST(`t`.`org_id` AS CHAR)');
 
@@ -115,17 +116,17 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
     expect(() => compiler.compile(args([{ set: { role: '', scope: { type: 'team', id: 't1' } } }], ['viewer']), query, DocModel, principal('u1'))).to.throw(AuthzConfigError, /empty role/);
   });
 
-  it('lists $global, the type-only scope of the row type, the row and every scope column on the path', () => {
+  it('lists the row, every scope column on the path, $global and the type-only scope of the row type', () => {
     const { bindings } = compiled(db.driver, compiler, U1_ARGS);
-    const at = bindings.indexOf('$global');
+    const at = bindings.indexOf('doc');
 
-    expect(bindings.slice(at)).to.deep.equal(['$global', 'doc', '', 'doc', '', 'project', '', 'org', '']);
+    expect(bindings.slice(at)).to.deep.equal(['doc', '', 'project', '', 'org', '', '$global', 'doc', '']);
   });
 
   it('checks each role against its definition: scopeTypes as constants, unassignable and undefined roles left out', () => {
     const { sql, bindings } = compiled(db.driver, compiler, args([U1], ['fixed', 'ghost', 'orgOnly', 'projectLead', 'viewer']));
 
-    expect(sql).to.contain('( `authz_a`.`role` IN (?) ) OR ( `authz_a`.`role` = ? AND `authz_a`.`scope_type` IN (?) ) OR ( `authz_a`.`role` = ? AND `authz_a`.`scope_type` IN (?,?) )');
+    expect(sql).to.contain('(`authz_a`.`role` IN (?)) OR (`authz_a`.`role` = ? AND `authz_a`.`scope_type` IN (?)) OR (`authz_a`.`role` = ? AND `authz_a`.`scope_type` IN (?, ?))');
     expect(bindings).to.include.ordered.members(['user', 'u1', '', 'viewer', 'orgOnly', 'org', 'projectLead', 'project', '$global']);
     expect(bindings).to.not.include.members(['fixed', 'ghost']);
   });
@@ -159,9 +160,9 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
     expect(() => compiler.compile(U1_ARGS, query, UnscopedModel, principal('u1'))).to.throw(AuthzConfigError, /UnscopedModel/);
   });
 
-  it('refuses when no RbacScopePathSource is registered', () => {
+  it('without a host RbacScopePathSource the default reads authz-orm metadata, which an undecorated model lacks', () => {
     const query = db.driver.select().from('doc');
-    expect(() => new RbacOrmCompiler(DI.child()).compile(U1_ARGS, query, DocModel, principal('u1'))).to.throw(AuthzConfigError, /RbacScopePathSource/);
+    expect(() => new RbacOrmCompiler(DI.child()).compile(U1_ARGS, query, DocModel, principal('u1'))).to.throw(AuthzConfigError, /DocModel has no RBAC scope path/);
   });
 
   it('refuses when no RbacRoleGraphSource is registered', () => {
@@ -237,7 +238,7 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
       compiler.compile(U1_ARGS, this, DocModel, principal('u1'));
     });
     const nested = query.toDB().expression;
-    expect(nested).to.match(/OR \( EXISTS \( SELECT .* FROM `authz_assignment` as `authz_a`/);
+    expect(nested).to.match(/OR \( \(EXISTS \(SELECT 1 FROM `authz_assignment` `authz_a`/);
     expect(nested).to.contain('CAST(`t`.`id` AS CHAR)');
   });
 
@@ -275,7 +276,7 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
     it('quotes with double quotes and casts to TEXT, so no id is cut', () => {
       const { sql } = compiled(pg, compiler, U1_ARGS);
 
-      expect(sql).to.match(/EXISTS \( SELECT .* FROM "authz_assignment" as "authz_a" WHERE /);
+      expect(sql).to.match(/EXISTS \(SELECT 1 FROM "authz_assignment" "authz_a" WHERE /);
       expect(sql).to.contain('"authz_a"."subject_type" = ?');
       expect(sql).to.contain('"authz_a"."scope_id" = CAST("t"."id" AS TEXT)');
       expect(sql).to.contain('"authz_a"."scope_id" = CAST("t"."org_id" AS TEXT)');
@@ -289,9 +290,13 @@ describe('authz-rbac orm: RbacOrmCompiler SQL', function () {
       expect(DI.RootContainer.hasRegisteredType(OrmNativeCompiler, RbacOrmCompiler)).to.equal(true);
     });
 
-    it('RbacScopePathSource and RbacRoleGraphSource have no default implementation', () => {
-      expect(DI.RootContainer.hasRegistered(RbacScopePathSource)).to.equal(false);
+    it('RbacScopePathSource defaults to authz-orm metadata; RbacRoleGraphSource has no default implementation', () => {
+      expect(DI.RootContainer.hasRegisteredType(RbacScopePathSource, OrmRbacScopePathSource)).to.equal(true);
       expect(DI.RootContainer.hasRegistered(RbacRoleGraphSource)).to.equal(false);
+    });
+
+    it('a source registered in a child container wins over the default', () => {
+      expect(compilerContainer().container.resolve(RbacScopePathSource)).to.be.instanceOf(FixturePathSource);
     });
   });
 });

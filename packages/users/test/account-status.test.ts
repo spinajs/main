@@ -13,9 +13,8 @@ import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import chaiAsPromised from 'chai-as-promised';
 
-import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User } from '../src/index.js';
+import { USER_COMMON_METADATA, User } from '../src/index.js';
 import { create } from '../src/actions.js';
-import { BasicPasswordProvider } from '../src/password.js';
 import { TestConfiguration, dir } from './common.test.js';
 import { TEST_USER_UUID, TEST_USER_UUID_3 } from './migration/rbac.migration.js';
 import { registerAuthzHost, rootAdmin } from './support/authz-host.js';
@@ -49,10 +48,8 @@ describe('UserAccountStatusSource: accounts in service for the admin guard', fun
   this.timeout(30000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 
@@ -153,7 +150,7 @@ describe('UserAccountStatusSource: accounts in service for the admin guard', fun
     }
 
     async function assigner(): Promise<Principal> {
-      const { User: u } = await create('assigner@spinajs.pl', 'assigner', ['assigner'], { password: 'passw0rd123' });
+      const { User: u } = await create({ Email: 'assigner@spinajs.pl', Login: 'assigner', Password: 'passw0rd123' }, ['assigner']);
       return userPrincipal(u.Uuid);
     }
 

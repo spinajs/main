@@ -2,7 +2,7 @@ import { AuthnEventSink, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation, PrincipalRef } from '@spinajs/authn/contracts';
 import { DI } from '@spinajs/di';
 
-import { PasswordProvider } from '../../src/interfaces.js';
+import { testHasher } from './hasher.js';
 import { User } from '../../src/models/User.js';
 
 export interface PasswordCall {
@@ -41,7 +41,7 @@ export class TestPasswordService extends PasswordService {
       return { status: 'rejected', violations };
     }
 
-    const hash = await ((await DI.resolve(PasswordProvider)) as PasswordProvider).hash(newPassword);
+    const hash = await testHasher.hash(newPassword);
     await User.query().Driver.update().in(User.getModelDescriptor().TableName).update({ Password: hash }).where('Uuid', id.id);
     return { status: 'set' };
   }

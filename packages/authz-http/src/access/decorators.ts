@@ -30,9 +30,9 @@ function declareOnce(target: object, key: AccessKey): void {
 
 /**
  * Guards a route, or every route of a controller, with authorization (design §11.2). One policy
- * group: `AccessPolicy` AND the `also` policies (B23), as 2.x `@Permission` placed `RbacPolicy`;
- * other `@Policy` groups at the same place stay alternatives (OR), and a class-level `@Access`
- * narrows every route (http combines the class and route scopes with AND). On a subclass it
+ * group: `AccessPolicy` AND the `also` policies (B23); other `@Policy` groups at the same place
+ * stay alternatives (OR), and a class-level `@Access` narrows every route (http combines the
+ * class and route scopes with AND). On a subclass it
  * replaces the inherited `@Access` group of that place instead of adding an alternative to it.
  */
 export function Access(permission: Permission | readonly Permission[], opts?: AccessOptions): ClassDecorator & MethodDecorator {

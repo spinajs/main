@@ -149,8 +149,35 @@ describe('DefaultAuthzService', function () {
       expect(() => authz()).to.throw(AuthzConfigError);
     });
 
-    it('boots with legacy rbac keys when rejectLegacyKeys is false', async () => {
+    it('fails boot on legacy rbac keys by default, naming each key, its 3.0 key, the converter and the opt-out', async () => {
+      setConfig('rbac', { grants: { admin: ['*'] }, roles: ['admin'] });
+      const err = await rejection(rootService());
+      expect(err).to.be.instanceOf(AuthzConfigError);
+      expect(err.message)
+        .to.contain('rbac.grants.admin -> authz.rbac.roles')
+        .and.contain('rbac.roles -> authz.rbac.roles')
+        .and.contain('spinajs-authz-convert')
+        .and.contain('authz.config.rejectLegacyKeys: false');
+    });
+
+    it('boots with legacy rbac keys and warns once when rejectLegacyKeys is false', async () => {
       setConfig('rbac', { grants: { admin: ['*'] } });
+      setConfig('authz.config', { rejectLegacyKeys: false });
+      const warned: string[] = [];
+      const original = console.warn;
+      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
+      try {
+        const svc = await rootService();
+        expect(svc.domain).to.equal('root');
+      } finally {
+        console.warn = original;
+      }
+      const legacy = warned.filter((w) => w.includes('rbac.grants'));
+      expect(legacy).to.have.length(1);
+      expect(legacy[0]).to.contain('authz.rbac.roles').and.contain('spinajs-authz-convert');
+    });
+
+    it('boots by default when no 2.x key is set', async () => {
       const svc = await rootService();
       expect(svc.domain).to.equal('root');
     });

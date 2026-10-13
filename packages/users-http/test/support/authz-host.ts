@@ -1,6 +1,6 @@
 import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { Assignment, AuthzAdmin, AuthzCommand } from '@spinajs/authz';
-import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RoleStore } from '@spinajs/authz-rbac';
+import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { Container, DI, Inject, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { PasswordService } from '@spinajs/authn/contracts';
@@ -22,8 +22,8 @@ let registered = false;
 
 /**
  * A real root authz host over the test database: roles from `authz.rbac.roles`, assignments in
- * `authz_assignment`, `AuthzAdmin` on `DbAuthzAdminBackend` with `DefaultAdminGuard`, and the test
- * `PasswordService`. Registered once per process; `DI.clearCache()` makes the next resolve boot a fresh
+ * `authz_assignment`, `AuthzAdmin` on `DbAuthzAdminBackend` with `DefaultAdminGuard`, an `RbacService`, and the test
+ * `PasswordService`. Registered once per process; a reset of the owned root cache (owned-cache.ts) makes the next resolve boot a fresh
  * root service on the fresh database.
  */
 export function registerAuthzHost(): void {
@@ -37,6 +37,8 @@ export function registerAuthzHost(): void {
   DI.register(DbAssignmentStore).as(AdminAssignmentStore);
   DI.register((c: IContainer) => (c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model).as(AuthorizationModel);
   DI.register((c: IContainer) => new RbacContributor((c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model)).as(AuthzContributor);
+  // As registerRbac gives an app; users' credential admin and impersonation guards read it.
+  DI.register((c: IContainer) => new RbacService((c.resolve(UsersHttpTestRbac) as UsersHttpTestRbac).model)).as(RbacService);
   DI.register(TestPasswordService).as(PasswordService);
 }
 

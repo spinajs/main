@@ -1,7 +1,7 @@
 import { ErrorObject } from 'ajv';
 
 export interface ConfigurationViolation {
-  /** Full configuration path of the bad value, eg. `authn.audit.sampleUse`. */
+  /** Full configuration path of the bad value, eg. `authn.audit.sinkTimeoutMs`. */
   path: string;
   /** The schema checked against: its `$id`, else its `$configurationModule`. */
   schema: string;

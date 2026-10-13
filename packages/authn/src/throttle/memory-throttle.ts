@@ -4,6 +4,7 @@ import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
+import { deepFreeze } from '@spinajs/util';
 
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
@@ -14,6 +15,10 @@ import { checkThrottleMaxRows, checkThrottleParams } from '../service/boot/env.j
 import { DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
 import type { ThrottleConfig } from './params.js';
 import type { PeekableThrottle } from './peek.js';
+
+// TODO: move generig throttle code into spinajs/utils ( like resilience implementation )
+// and then use its for implementing auth throttle
+// also - create readme.md file in this folder with full spec, flow and documentation of auth throttle
 
 export interface ThrottleRow {
   attempts: number;
@@ -48,14 +53,11 @@ interface Gate {
 }
 
 // More than the rows one attempt can add, so each sweep pass reaches the end.
+
+//TODO: move contsts into config !
 const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
-
-const deepFreeze = <T extends object>(o: T): T => {
-  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
-  return Object.freeze(o);
-};
 
 const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
 
@@ -77,6 +79,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
   @Config('authn.throttle')
   protected Throttle: ThrottleConfig;
 
+  // TODO: instead of throtle flow - each of throtle should be registered in DI container for specific flows
   protected readonly tables: Readonly<Record<ThrottleFlow, ThrottleTable>>;
   protected sweepBatch = SWEEP_BATCH;
   private readonly secret = randomBytes(32);
@@ -88,6 +91,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     super();
     if (explicit) checkThrottleParams(explicit);
     if (options.maxRows !== undefined) checkThrottleMaxRows(options.maxRows);
+
+    // TODO: it should be resolved via DI continer !
     const table = (): ThrottleTable => ({ rows: new Map(), cursor: undefined, fullUntilMs: 0, fullReported: false });
     this.tables = Object.freeze({ login: table(), mfa: table(), reset: table(), reauth: table() });
   }
@@ -205,18 +210,9 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     return createHmac('sha256', this.secret).update(`${flow}|${k.kind}|${k.value}`).digest('base64url');
   }
 
-  /** Once per full episode of a flow's table; names no key. */
+  /** Once per full episode of a flow's table, again on the next scan when it throws; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
-    const message = `MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`;
-    try {
-      if (DI.check(Log)) {
-        (DI.resolve(Log, ['authn-throttle']) as Log).warn(message);
-        return;
-      }
-    } catch {
-      // no usable Log: fall back to the console
-    }
-    console.warn(message);
+    DI.resolve(Log, ['authn-throttle'], true).warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
   }
 
   private flow(flow: ThrottleFlow): ThrottleFlowParams {
@@ -295,8 +291,12 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     }
     table.fullUntilMs = Number.isFinite(firstFree) ? firstFree : nowMs + FULL_RETRY_SECONDS * 1000;
     if (!table.fullReported) {
-      table.fullReported = true;
-      this.reportFull(flow);
+      try {
+        this.reportFull(flow);
+        table.fullReported = true;
+      } catch {
+        // No root Log (one registered only in a child): under a flood the refusal matters more than the warning.
+      }
     }
     return Math.max(1, Math.ceil((table.fullUntilMs - nowMs) / 1000));
   }

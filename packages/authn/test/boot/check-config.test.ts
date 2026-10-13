@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaStep, checkAuthnConfig } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaStep, checkAuthnConfig } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
 import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
@@ -125,6 +125,51 @@ describe('authn:check-config', () => {
     });
   });
 
+  describe('enrolments in unlisted MFA steps', () => {
+    class Enrolments extends MfaEnrolments {
+      constructor(private readonly names: readonly string[] | Error) {
+        super();
+      }
+      async stepsOf(): Promise<readonly string[]> {
+        return [];
+      }
+      async stepNames(): Promise<readonly string[]> {
+        if (this.names instanceof Error) throw this.names;
+        return this.names;
+      }
+    }
+
+    const withSources =
+      (...sources: Enrolments[]) =>
+      (c: IContainer): void =>
+        sources.forEach((s, i) => bind(c, MfaEnrolments, `KitEnrolments${i}`, s));
+
+    it('reports confirmed steps authn.mfa.steps does not list as an error: those users cannot log in', async () => {
+      const f = await check(sound(), { register: withSources(new Enrolments(['totp', 'fake']), new Enrolments(['webauthn', 'totp'])) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('2 MFA step(s)').and.contain('"totp"').and.contain('"webauthn"').and.contain('authn.mfa.steps').and.contain('refused').and.contain('TotpMfaStep').and.not.contain('"fake"');
+    });
+
+    it('under another authn.mfa.policy.service says DefaultMfaPolicy refuses these logins and the configured policy decides', async () => {
+      const f = await check(merge(sound(), { authn: { mfa: { policy: { service: 'CustomMfaPolicy' } } } }), { register: withSources(new Enrolments(['totp'])) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('"totp"').and.contain('DefaultMfaPolicy refuses').and.contain('"CustomMfaPolicy"').and.contain('decides').and.not.contain('their password logins are refused');
+      const ours = await check(sound(), { register: withSources(new Enrolments(['totp'])) });
+      expect(ours[0].message).to.contain('their password logins are refused').and.not.contain('DefaultMfaPolicy refuses');
+    });
+
+    it('finds nothing when every confirmed step is listed, or no source is registered', async () => {
+      expect(await check(sound(), { register: withSources(new Enrolments(['fake']), new Enrolments([])) })).to.deep.eq([]);
+      expect(await check(merge(sound(), { authn: { mfa: { steps: [] } } }))).to.deep.eq([]);
+    });
+
+    it('reports a source that fails instead of throwing, without its message', async () => {
+      const f = await check(sound(), { register: withSources(new Enrolments(new RangeError('db password hunter2 refused'))) });
+      expect(topics(f)).to.deep.eq(['mfa:error']);
+      expect(f[0].message).to.contain('RangeError').and.not.contain('hunter2');
+    });
+  });
+
   describe('env (SR-16 residual)', () => {
     const saved: Record<string, string | undefined> = {};
     beforeEach(() => {
@@ -208,19 +253,6 @@ describe('authn:check-config', () => {
     });
   });
 
-  describe('legacy keys', () => {
-    it('warns about 2.x keys of the table', async () => {
-      const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } } }));
-      expect(topics(f)).to.deep.eq(['legacy:warning']);
-      expect(f[0].message).to.contain('rbac.password.lockoutTime');
-    });
-
-    it('reports them as an error when rejectLegacyKeys is on', async () => {
-      const f = await check(merge(sound(), { rbac: { password: { lockoutTime: 900 } }, authn: { config: { rejectLegacyKeys: true } } }));
-      expect(topics(f)).to.deep.eq(['legacy:error']);
-    });
-  });
-
   describe('throttle', () => {
     const throttleNamed = (service: string, checkConfiguration?: (c: { get<T>(path: string): T }) => Promise<void>) => ({
       values: merge(sound(), { authn: { throttle: { service } } }),
@@ -254,7 +286,7 @@ describe('authn:check-config', () => {
   });
 
   it('reports every topic at once and never throws', async () => {
-    const bad = merge(sound(), { http: { cookie: { secret: null }, trustProxy: null, cors: { origins: [] } }, authn: { strategies: [] }, rbac: { session: { service: 'x' } } });
-    expect(topics(await check(bad)).sort()).to.deep.eq(['cors:warning', 'legacy:warning', 'proxy:warning', 'secrets:error', 'strategies:warning']);
+    const bad = merge(sound(), { http: { cookie: { secret: null }, trustProxy: null, cors: { origins: [] } }, authn: { strategies: [] } });
+    expect(topics(await check(bad)).sort()).to.deep.eq(['cors:warning', 'proxy:warning', 'secrets:error', 'strategies:warning']);
   });
 });

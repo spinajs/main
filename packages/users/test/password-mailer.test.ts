@@ -5,11 +5,12 @@ import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { DefaultEmailService, EmailPasswordMailer } from '@spinajs/email';
 import type { IEmail } from '@spinajs/email';
+import { PasswordService } from '@spinajs/authn/contracts';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySessionIssuer } from '@spinajs/authn-testing';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
 
 import { QueueAuthnEventSink, RbacBootstrapper, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../src/index.js';
-import { create, expirePassword, passwordChangeRequest } from '../src/actions.js';
+import { create, expirePassword } from '../src/actions.js';
 import './migration/rbac.migration.js';
 import { TestPasswordService } from './support/password-service.js';
 import { bootUsersDb, registerUsersTestHost, storedUser } from './support/users-db.js';
@@ -51,7 +52,8 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
     }
 
     const bootstrap = async () => (await DI.resolve(Array.ofType(Bootstrapper))).find((b) => b instanceof RbacBootstrapper)!.bootstrap();
-    const mailerTypes = () => DI.RootContainer.Registry.getTypes(PasswordMailer).map((t) => t as unknown);
+    // An unregister that empties the key drops it (di c673c88f0), so getTypes answers null.
+    const mailerTypes = () => (DI.RootContainer.Registry.getTypes(PasswordMailer) ?? []).map((t) => t as unknown);
 
     afterEach(() => {
       DI.unregister(AppMailer);
@@ -97,13 +99,13 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
       policy: new LocalPasswordPolicy({}),
       resetUrl: RESET_URL,
     });
-    // create(), passwordChangeRequest() and expirePassword() resolve the PasswordService the suites register.
+    // create() and expirePassword() resolve the PasswordService the suites register.
     for (const method of ['invite', 'requestReset', 'expire'] as const) {
       sinon.stub(TestPasswordService.prototype, method).callsFake(((...args: unknown[]) => (real[method] as (...a: unknown[]) => Promise<unknown>)(...args)) as never);
     }
 
     const { User: invited } = await create({ Email: 'mail-invite@spinajs.pl', Login: 'mail-invite' });
-    await passwordChangeRequest('test@spinajs.pl');
+    await ((await DI.resolve(PasswordService)) as PasswordService).requestReset('test@spinajs.pl', { now: new Date(), purpose: 'request' });
     await real.drain();
     await expirePassword(await storedUser(invited.Uuid));
 

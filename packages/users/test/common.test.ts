@@ -107,90 +107,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         },
       },
-      rbac: {
-        // default roles to manage users & guest account
-        roles: [
-          {
-            Name: 'admin',
-            Description: 'Administrator',
-          },
-          {
-            Name: 'user',
-            Description: 'Simple account without any privlidge',
-          },
-          {
-            Name: 'guest',
-            Description: 'Guest account',
-          },
-          {
-            Name: 'normal',
-            Description: 'test',
-          },
-        ],
-        // The 2.x `AccessControl` grants the legacy permission tests read, not the
-        // shipped `packages/users/src/config/users.ts` defaults. This suite runs via
-        // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
-        // (unlike eg. users-http/authn-token), so the configuration
-        // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
-        // and the shipped defaults never merge in here. `admin`, `guest` and
-        // `admin.users` below are therefore copied verbatim from that shipped
-        // config, not invented, so every role a test assigns stays a real one.
-        grants: {
-          normal: {
-            Test: {
-              'read:own': ['*'],
-            },
-            clients: {
-              'read:own': ['*'],
-            },
-          },
-          guest: {
-            UserBase: {
-              'read:own': ['*'],
-            },
-          },
-          'admin.users': {
-            users: {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-            'user.metadata': {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-          },
-          admin: {
-            $extend: ['admin.users'],
-          },
-          // Exercises `grant()`/`revoke()` (actions.test.ts) with a role distinct
-          // from `admin`/`guest`. A generic content-editor role, mirroring the one
-          // `user.test.ts` already uses for its own (separately scoped)
-          // AccessControl instance.
-          editor: {
-            Article: {
-              'create:any': ['*'],
-              'read:any': ['*'],
-              'update:any': ['*'],
-              'delete:any': ['*'],
-            },
-          },
-        },
-        defaultRole: 'guest',
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
-        password: {
-          /**
-           * Should password expire after some time ?
-           */
-          passwordExpirationTime: 0,
-        },
-      },
-
       // The root authz host of test/support/authz-host.ts: roles are GLOBAL assignments written
       // through AuthzAdmin (DbAuthzAdminBackend) into the test database.
       authz: {
@@ -241,14 +157,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
-
-          // authn.local.generator is deliberately absent: BasicPasswordProvider.generate()
-          // (src/password.ts) falls back to an in-code default that mirrors this exact
-          // value, so tests that auto-generate a password (eg. create() without a
-          // `password` option) still exercise a real, working generate() call.
+          // authn.local.generator is deliberately absent: the shipped default applies.
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: {
               // UNCOMMENT ONE OF BELOW OR MODIFY
               // VALIDATION RULE IS JSON SCHEMA

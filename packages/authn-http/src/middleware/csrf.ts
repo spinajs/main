@@ -117,8 +117,8 @@ export class CsrfOriginGuard extends ServerMiddleware {
     const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
     if (this.Enabled === false) return null;
 
-    // Until AuthnMiddleware replaces the 2.x session code, that code and authn-session can disagree on the
-    // __Host- prefix, so both forms count as the session cookie.
+    // authn-session adds the __Host- prefix only when its `hostPrefix` setting resolves on (`auto` is off in
+    // development and test), so either form can be the session cookie.
     const base = this.SessionCookie?.name ?? SESSION_COOKIE_BASE_NAME;
     const sessionCookies = [base, `__Host-${base}`];
     const warnings = new RefusalWarnings(() => this.Log);

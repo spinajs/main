@@ -34,7 +34,7 @@ export async function service<T>(path: string, type: Class<T>, options?: []): Pr
   const { service: serviceName } = cfg<{ service: string }>(path);
 
   try {
-    const types = getRegisteredTypes(type);
+    const types = getRegisteredTypes(type) ?? [];
     const t = types.find((x) => x.name === serviceName);
 
     if (!t) {

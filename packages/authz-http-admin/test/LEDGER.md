@@ -18,3 +18,11 @@ Rows of `packages/users-http/test/LEDGER.md` (file `users-controller.test.ts`) t
 | 68 | Role guard > is switchable: unknown roles may be allowed | guard switches > refuses an unknown role whatever authz.admin.guard says | 3.0 has no requireKnownRole switch |
 | 69 | Role guard > is switchable: the system role may be handed out | guard switches > protectSystemRole on / off (two tests) | a grant of a system role is refused by validation either way; the switch governs revoking and editing its rows (protected_role) |
 | 71 | Role guard > reports only the roles the caller may assign | roles the caller may assign > a dry run answers ok / escalation, and writes nothing | no list route (design 6.6.5); a UI asks with dryRun |
+
+## test/route-verbs.test.ts (T3)
+
+Row 4 of `packages/users-http/test/LEDGER.md` (`route-contract.test.ts`, "no state-changing route answers GET"), AuthzAdmin half.
+
+| Row | 2.x test | 3.0 test | Note |
+|---|---|---|---|
+| route-contract 4 | Admin route contract > http verbs > no state-changing route answers GET | AuthzAdmin routes: http verbs > no state-changing route answers GET; declares routes; every read-only name is a real GET route | read-only list: listAssignments, listLinks, listRules, listPolicies, attributes |

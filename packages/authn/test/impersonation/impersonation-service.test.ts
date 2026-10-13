@@ -140,6 +140,10 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(e.data, { error: 'RangeError' });
     });
 
+    it('fails boot when a required neighbour is not registered', async () => {
+      await assert.rejects(boot(undefined, { omit: ['SessionIssuer'] }), /SessionIssuer.*is not registered at container/);
+    });
+
     it('is off when no ImpersonationGuard is registered', async () => {
       const { p, svc, a, b } = await boot(undefined, { omit: ['ImpersonationGuard'] });
       const admin = await issue(p, a);
@@ -562,6 +566,14 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(reasons(p, 'impersonation.end'), ['invalid_block']);
     });
 
+    it('rejects a start 1 s in the future when clockSkewSeconds is 0', async () => {
+      const booted = await boot({ clockSkewSeconds: 0 });
+      const { p, svc } = booted;
+      const { imp } = await started(booted, at(SECOND));
+      assert.strictEqual(await svc.principalOf(imp, ctx(T0)), null);
+      assert.deepStrictEqual(reasons(p, 'impersonation.end'), ['invalid_block']);
+    });
+
     for (const [label, block] of [
       ['a start in the future', { startedAt: at(10 * 60 * MINUTE).toISOString() }],
       ['a start before the login', { startedAt: at(-MINUTE).toISOString() }],
@@ -818,12 +830,12 @@ describe('AuthnImpersonationService', function () {
   describe('boot', () => {
     it('takes the impersonation defaults from the schema when authn.impersonation is unset', async () => {
       const { p } = await boot();
-      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: true, requireMfa: true, maxMinutes: 60 });
+      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 });
     });
 
     it('takes what the schema coerces: a numeric string', async () => {
       const { p } = await boot({ maxMinutes: '30', requirePassword: false });
-      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: false, requireMfa: true, maxMinutes: 30 });
+      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: false, requireMfa: true, maxMinutes: 30, clockSkewSeconds: 30 });
     });
 
     it('refuses malformed settings, naming the path of each', async () => {
@@ -866,6 +878,28 @@ describe('AuthnImpersonationService', function () {
         assert.strictEqual(await booted.p.sessions.restore(imp.id), null, label);
         const ended = [...events(booted.p, 'impersonation.expire'), ...events(booted.p, 'impersonation.end')].map((e) => e.reason);
         assert.deepStrictEqual(ended, [reason], label);
+      }
+    });
+
+    it('refuses a future start when authn.impersonation is replaced without clockSkewSeconds', async () => {
+      const booted = await boot();
+      const { imp } = await started(booted);
+      await booted.p.sessions.set(imp, IMPERSONATION_BLOCK, { startedAt: at(10 * 60 * MINUTE).toISOString() });
+      booted.p.configuration.set('authn.impersonation', { requirePassword: true, requireMfa: true, maxMinutes: 60 });
+      assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null);
+      assert.deepStrictEqual(reasons(booted.p, 'impersonation.end'), ['invalid_block']);
+    });
+
+    it('ends the impersonation on a clockSkewSeconds set past the schema that is not a finite number >= 0', async () => {
+      let booted: Booted | undefined;
+      for (const bad of [undefined, null, Number.NaN, Infinity, -1, '30']) {
+        await booted?.p.dispose();
+        booted = await boot();
+        const { imp } = await started(booted);
+        booted.p.configuration.set('authn.impersonation.clockSkewSeconds', bad);
+        const label = String(bad);
+        assert.strictEqual(await booted.svc.principalOf(imp, ctx(at(MINUTE))), null, label);
+        assert.deepStrictEqual(reasons(booted.p, 'impersonation.end'), ['invalid_block'], label);
       }
     });
 

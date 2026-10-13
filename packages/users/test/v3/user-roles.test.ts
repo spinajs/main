@@ -37,13 +37,13 @@ describe('User roles', function () {
       Uuid: TEST_USER_UUID_2,
     });
 
-    expect(user.IsGuest).to.be.true;
+    expect(user.Id).to.not.exist;
 
     await user.insert();
 
-    // Changed (H13): a raw insert grants no role; there is no guest column default. IsGuest means "not persisted" and is false once stored.
+    // Changed (H13): a raw insert grants no role; there is no guest column default.
     const user2 = await User.get(user.Id);
-    expect(user2.IsGuest).to.be.false;
+    expect(user2.Id).to.eq(user.Id);
     expect(await globalRolesOf(user.Uuid)).to.deep.equal([]);
 
     // Changed (H13, B11): the default roles come from create(), as GLOBAL assignments of authz.rbac.defaultRoles.

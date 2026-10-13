@@ -96,9 +96,9 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
       return isPasswordKind(c) ? INVALID : UNSUPPORTED;
     }
 
-    const id = await this.identities().findByLogin(fields.login);
+    const id = await (await this.identities()).findByLogin(fields.login);
     // An unknown login still reads the store, for a fresh ref no cache can know, so its work matches a known one (A02).
-    const stored = await this.passwords().get(id ?? { type: 'user', id: randomUUID() });
+    const stored = await (await this.passwords()).get(id ?? { type: 'user', id: randomUUID() });
     if (!(await hasher.verify(stored, fields.password)) || !id || stored === null) {
       return INVALID;
     }
@@ -115,7 +115,7 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
       const fresh = await hasher.hash(password);
       // Only over the verified hash: a reset, set, change or expiry that stored a new value meanwhile must not get the old
       // password written back over it (A30). A lost race leaves the newer value and needs no retry.
-      await this.passwords().set(id, fresh, verified);
+      await (await this.passwords()).set(id, fresh, verified);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
       this.log().warn(`Could not store the rehashed password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);
@@ -127,12 +127,12 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     return this._hasher;
   }
 
-  protected identities(): IdentityStore {
-    return this.Deps ? this.Deps.identities : DI.resolve(IdentityStore);
+  protected async identities(): Promise<IdentityStore> {
+    return this.Deps ? this.Deps.identities : await DI.resolve(IdentityStore);
   }
 
-  protected passwords(): PasswordCredentialStore {
-    return this.Deps ? this.Deps.passwords : DI.resolve(PasswordCredentialStore);
+  protected async passwords(): Promise<PasswordCredentialStore> {
+    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
   }
 
   protected log(): LocalPasswordStrategyLog {

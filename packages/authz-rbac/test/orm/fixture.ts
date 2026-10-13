@@ -125,6 +125,8 @@ export async function bootPostgres(): Promise<(BootedDb & { database: string }) 
   }
 
   await (admin.driver as PostgresOrmDriver).executeOnDb(`CREATE DATABASE "${database}"`, [], QueryContext.Schema);
+  // authz-orm refuses a connection with jit on unless authz.orm.allowJit; a host turns jit off like this.
+  await (admin.driver as PostgresOrmDriver).executeOnDb(`ALTER DATABASE "${database}" SET jit = off`, [], QueryContext.Schema);
   const db = await bootOrm({ Driver: 'orm-driver-postgres', Name: 'l2-orm-pg', Database: database, ...PG }, PostgresOrmDriver);
 
   return {

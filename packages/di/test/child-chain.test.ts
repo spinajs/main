@@ -167,14 +167,14 @@ describe('child-chain (B29 DI part)', () => {
     expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac]);
   });
 
-  it('a level whose own list is empty contributes nothing and hides nothing', () => {
+  it('a level that unregistered its last entry contributes nothing and hides nothing', () => {
     rootWithRbacAbac();
     const child = DI.child();
     child.register(FsAbac).as(Model);
     child.unregister(FsAbac);
 
-    expect(child.getRegisteredTypes(Model, false)).to.deep.equal([]);
-    expect(child.resolve(Array.ofType(Model))).to.deep.equal([]);
+    expect(child.hasRegistered(Model, false)).to.equal(false);
+    expect((child.resolve(Array.ofType(Model)) as Model[]).map((m) => m.constructor)).to.deep.equal([Rbac, Abac]);
 
     expect(child.getRegisteredTypes(Array.chainOf(Model))).to.deep.equal([Rbac, Abac]);
     const models = child.resolve(Array.chainOf(Model)) as Model[];

@@ -151,7 +151,7 @@ describe('v3 cli: authn:mfa-reset', () => {
         super({ step });
       }
     }
-    /** RbacCliCommand autoinjects the Orm; the reset never touches it. */
+    /** MfaReset autoinjects the Orm; the reset never touches it. */
     class KitOrm {}
 
     before(() => {

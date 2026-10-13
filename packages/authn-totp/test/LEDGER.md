@@ -67,10 +67,12 @@ Base state: at base (F0b) this file never ran; its `beforeEach` hook failed with
 
 2 tests; dominant class rewrite (rewrite 2).
 
+Status (R1d): `test/legacy-v2/z-2fa-throttle-finding.test.ts` and `db-common.ts` deleted with `auth2Fa`, `Default2FaToken` and the second mocha pass (`.mocharc.legacy-v2.json`). The throttle intent is carried by the v3 tests named in the N5 table below.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 71 | 2fa throttling ( finding R2 ) > R2: repeated wrong 2fa codes lock the account like failed logins do | rewrite | N5 | authn-totp/test/v3/ (A05, A06, A10, H31, SR-05): the 2.x lockout (lock instant in metadata after 5 failures) becomes backoff and nobody is locked; the expectation differs |
-| 2 | 86 | 2fa throttling ( finding R2 ) > R2: a successful 2fa check clears the failure counter | rewrite | N5 | authn-totp/test/v3/ (A06, A10): a success resets the key; the counter lives in `authn_throttle`, not in `USER_LOGIN_ATTEMPTS` metadata |
+| 1 | 71 | 2fa throttling ( finding R2 ) > R2: repeated wrong 2fa codes lock the account like failed logins do | rewrite | N5 | authn-totp/test/v3/ (A05, A06, A10, H31, SR-05): the 2.x lockout (lock instant in metadata after 5 failures) becomes backoff and nobody is locked; the expectation differs; R1d: file deleted with its 2.x source (v3 cover: kit "A10 TOTP codes count into the throttle" and `v3/service.test.ts`) |
+| 2 | 86 | 2fa throttling ( finding R2 ) > R2: a successful 2fa check clears the failure counter | rewrite | N5 | authn-totp/test/v3/ (A06, A10): a success resets the key; the counter lives in `authn_throttle`, not in `USER_LOGIN_ATTEMPTS` metadata; R1d: file deleted with its 2.x source (v3 cover: kit "A10 TOTP codes count into the throttle" and `v3/service.test.ts`) |
 
 ## N5 status (done)
 
@@ -79,9 +81,8 @@ deleted (N5 task 5). `z-2fa-throttle-finding.test.ts` and
 `db-common.ts` moved to `test/legacy-v2/` and keep running in their
 own mocha process (`.mocharc.legacy-v2.json`): `test/v3/cli.test.ts`
 leaves an empty `Orm` registration behind that breaks their boot. They
-guard the 2.x `auth2Fa`
-lockout (finding R2), which authn-http still calls, until R1 removes
-`auth2Fa`. Each row maps to the v3 tests that carry its intent. "kit" names a case
+guarded the 2.x `auth2Fa`
+lockout (finding R2); R1d deleted them with `auth2Fa`. Each row maps to the v3 tests that carry its intent. "kit" names a case
 of `@spinajs/authn-testing` A10, run by `test/v3/behaviour-a10.test.ts`
 on the memory store and on sqlite.
 
@@ -102,5 +103,5 @@ on the memory store and on sqlite.
 | user-2fa-actions | 6 | `v3/service.test.ts` begin "a fresh active session gets the provisioning URI"; "audits enrol, disable, …" (begin emits no event) |
 | user-2fa-actions | 7 | `v3/service.test.ts` confirm "the right code returns the recovery codes and enrols"; "audits enrol, disable, …" |
 | user-2fa-actions | 8 | `v3/service.test.ts` confirm "a wrong code is invalid_code and leaves the enrolment pending" and "after the free wrong codes the next one is throttled; after the wait the right one confirms" |
-| z-2fa-throttle-finding | 1 | kept running until R1 removes `auth2Fa`; v3 replacement: kit "A10 TOTP codes count into the throttle"; `v3/service.test.ts` confirm and disable "after the free wrong codes the next one is throttled; …" (backoff, no lockout) |
-| z-2fa-throttle-finding | 2 | kept running until R1 removes `auth2Fa`; v3 replacement: `v3/service.test.ts` disable "after the free wrong codes the next one is throttled; after the wait a valid one disables and resets the account key"; kit "A10 TOTP codes count into the throttle" |
+| z-2fa-throttle-finding | 1 | deleted by R1d with `auth2Fa`; v3 replacement: kit "A10 TOTP codes count into the throttle"; `v3/service.test.ts` confirm and disable "after the free wrong codes the next one is throttled; …" (backoff, no lockout) |
+| z-2fa-throttle-finding | 2 | deleted by R1d with `auth2Fa`; v3 replacement: `v3/service.test.ts` disable "after the free wrong codes the next one is throttled; after the wait a valid one disables and resets the account key"; kit "A10 TOTP codes count into the throttle" |

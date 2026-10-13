@@ -37,7 +37,7 @@ describe('mssql views', function () {
   it('spells OR REPLACE as CREATE OR ALTER and has the plain check option', () => {
     const result = view((v) => v.orReplace().columns(['id', 'name']).checkOption().as(new RawQuery('SELECT id, name FROM users')));
 
-    expect(sent(result.toDB())).to.eq('CREATE OR ALTER VIEW active_users ([id],[name]) AS SELECT id, name FROM users WITH CHECK OPTION');
+    expect(sent(result.toDB())).to.eq('CREATE OR ALTER VIEW [active_users] ([id],[name]) AS SELECT id, name FROM users WITH CHECK OPTION');
   });
 
   it('throws for the clauses mssql does not have', () => {
@@ -64,11 +64,11 @@ describe('mssql views', function () {
   it('inlines raw body bindings', () => {
     const result = view((v) => v.as(new RawQuery('SELECT * FROM users WHERE role = ? AND age > ?', ['admin', 18])));
 
-    expect(sent(result.toDB())).to.eq(`CREATE VIEW active_users AS SELECT * FROM users WHERE role = N'admin' AND age > 18`);
+    expect(sent(result.toDB())).to.eq(`CREATE VIEW [active_users] AS SELECT * FROM users WHERE role = N'admin' AND age > 18`);
   });
 
   it('drops a view', () => {
-    expect(sent(schema().dropView('active_users').ifExists().toDB())).to.eq('DROP VIEW IF EXISTS active_users');
+    expect(sent(schema().dropView('active_users').ifExists().toDB())).to.eq('DROP VIEW IF EXISTS [active_users]');
   });
 
   it('leaves a literal `?` inlined into a compiled view untouched, since it carries no bindings', () => {

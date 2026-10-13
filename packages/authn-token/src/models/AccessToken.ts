@@ -58,7 +58,7 @@ export class AccessToken extends ModelBase<AccessToken> {
   /**
    * The profile (a role name) this token is pinned to; null/undefined = legacy
    * token, scoped by the union of its roles. Validated against
-   * `AccessTokenRolePolicy.allowedProfiles` at creation and on every request.
+   * `TokenProfilePolicy.allowedProfiles` at creation and on every request.
    */
   public Profile?: string;
 

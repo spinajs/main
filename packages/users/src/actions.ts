@@ -5,28 +5,23 @@ import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
 import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedLogin, isReservedMetadataKey } from './models/User.js';
 import { cfg } from '@spinajs/configuration';
-import { legacyService } from './legacy-services.js';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChanged, UserUnbanned } from './events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, LegacySessionProvider, PasswordProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, PasswordChangeConflict, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned } from './exceptions.js';
+import { EmailTemplateNotConfigured, MetadataNotFound, MetadataNotPopulated, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned } from './exceptions.js';
 import { v4 as uuidv4 } from 'uuid';
-import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
-import { DEFAULT_ROLES_KEY, assignGlobalRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
+import { DEFAULT_ROLES_KEY, assignGlobalRoles, globalRoleHolders, userRef } from './role-assignments.js';
 import { PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM, currentPrincipal } from '@spinajs/authz';
-import { USERS_TABLE, isNoPassword, recordPasswordSetAt, usersDriver, usersMatchingLogin } from './identity/sql.js';
-import { UserPasswordStore } from './identity/password-store.js';
-import { UserIdentityStore } from './identity/identity-store.js';
+import { USERS_TABLE, usersDriver, usersMatchingLogin } from './identity/sql.js';
 
 /**
  * ===============================================
@@ -205,11 +200,9 @@ export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
 /**
  * Destroys every session belonging to a user, on every device.
  *
- * Called from each action that invalidates what a live session was granted on:
- * a password change or reset ( the credential behind the session is gone ), a
- * ban or a deactivation ( the account may no longer act at all ). Without this
- * an attacker who is already inside keeps their session while the victim
- * changes the password that was supposed to lock them out.
+ * Called from the actions after which the account may no longer act: a ban, a
+ * deactivation and a deletion. A password change or reset ends sessions in
+ * authn-local (`LocalPasswordService`, `SessionIssuer.revokeAll`), not here.
  *
  * Errors are NOT swallowed: a session store that cannot be reached means the
  * revocation did not happen, and the caller must learn that rather than be told
@@ -217,9 +210,7 @@ export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
  *
  * Ends the authn sessions of `user:<Uuid>` through `SessionIssuer.revokeAll`, also
  * those where the user is the impersonator (N2, SR-06), when an issuer is
- * registered (none: no 3.0 sessions exist). 3.0 session rows carry no numeric
- * `UserId`, so deleting a user needs this too. Then the deprecated 2.x store,
- * which legacy authn-http still fills.
+ * registered (none: no sessions exist).
  *
  * @param user - the user whose sessions are destroyed, or their numeric id
  */
@@ -234,8 +225,6 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
     const issuer = (await DI.resolve(SessionIssuer)) as SessionIssuer;
     await issuer.revokeAll(userRef(u.Uuid), { includeImpersonations: true });
   }
-
-  await revokeLegacySessions(u);
 }
 
 /**
@@ -266,12 +255,6 @@ export async function revokeUserTokens(user: User | number): Promise<void> {
 
 function actorOf(p: Principal): PrincipalRef | undefined {
   return p.type === 'unattended' || p.type === 'anonymous' ? undefined : { type: p.type, id: p.id };
-}
-
-// R1 deletes it with the 2.x session store.
-async function revokeLegacySessions(u: User): Promise<void> {
-  const provider = await legacyService('authn.session', LegacySessionProvider);
-  await provider.deleteByUser(u.Id);
 }
 
 /**
@@ -470,17 +453,6 @@ export interface ICreateUserResult {
 }
 
 /**
- * Optional inputs of the deprecated positional form of {@link create}.
- *
- * @deprecated 3.0: the fields of {@link ICreateUserData}. R1 deletes it.
- */
-export interface ICreateUserOptions {
-  password?: string;
-  id?: number;
-  metadata?: { [key: string]: any };
-}
-
-/**
  * The roles a request denotes, whether it arrives as one name or a list.
  *
  * Trimmed, stripped of blanks and de-duplicated. Order is preserved so a caller
@@ -639,20 +611,7 @@ async function passwordService(): Promise<PasswordService> {
  * @param actor - who creates it, for the AuthzAdmin and authn audit; default SYSTEM. As SYSTEM the grants
  *   skip AuthzAdmin's guard (escalation), so a caller acting for someone passes that principal.
  */
-export async function create(data: ICreateUserData, roles?: string[], actor?: Principal): Promise<ICreateUserResult>;
-/**
- * @deprecated 3.0: create({ Email, Login, Password, Id, Metadata }, roles). The result has no password any more.
- */
-export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<ICreateUserResult>;
-export async function create(dataOrEmail: ICreateUserData | string, a?: string | string[], b?: string[] | Principal, c?: ICreateUserOptions): Promise<ICreateUserResult> {
-  if (typeof dataOrEmail === 'string') {
-    return createUser({ Email: dataOrEmail, Login: a as string, Password: c?.password, Id: c?.id, Metadata: c?.metadata }, b as string[], SYSTEM);
-  }
-
-  return createUser(dataOrEmail, a as string[] | undefined, (b as Principal | undefined) ?? SYSTEM);
-}
-
-async function createUser(data: ICreateUserData, roles: string[] | undefined, actor: Principal): Promise<ICreateUserResult> {
+export async function create(data: ICreateUserData, roles?: string[], actor: Principal = SYSTEM): Promise<ICreateUserResult> {
   const email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(data?.Email, 'email');
   const login = _check_arg(_trim(), _non_empty(), _max_length(32))(data?.Login, 'login');
   assertLoginNotReserved(login);
@@ -759,64 +718,13 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 
   await u.destroy();
 
-  // Same reason a deactivation revokes: the account may no longer act. A live
-  // session outlasting the deletion is worse here than there — the session
-  // middleware resolves its user through `isActiveUser()`, which no longer
-  // matches a soft-deleted row, so every request from that session dies in
-  // the middleware instead of being cleanly logged out.
+  // The account may no longer act: end its sessions and tokens now rather
+  // than leave them to expire.
   await revokeUserSessions(u);
   await revokeUserTokens(u);
 
   await ev(new UserDeleted(u));
   await sendUserEmail(u, 'deleted');
-}
-
-/**
- * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` by `actor`.
- * As SYSTEM, a role the user already holds at GLOBAL is left as it is, expiry and tags included; another
- * actor always goes through AuthzAdmin. An unknown or unassignable role is an `InvalidArgument` (field `role`).
- *
- * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
- * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
- * caller that passes no actor must check first; pass the caller's principal to have the guard run.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param role - role name to grant
- * @param actor - who grants it; default SYSTEM
- * @returns the user
- */
-export async function grant(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
-  role = _check_arg(_trim(), _non_empty())(role, 'role');
-
-  const u = await getUser(identifier);
-
-  // AuthzAdmin's grant is an upsert: it would reset the expiry and tags of the held assignment. Only
-  // SYSTEM skips it; for another actor the answer would tell an unchecked caller which roles a user holds.
-  if (actor !== SYSTEM || !(await holdsGlobalRole(u.Uuid, role))) {
-    await assignGlobalRoles(u.Uuid, [role], { reason: 'users:grant', field: 'role', actor });
-  }
-
-  return u;
-}
-
-/**
- * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` by `actor`.
- *
- * @deprecated 3.0: AuthzAdmin.execute(actor, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role }]) or AuthzAdmin.revoke(actor, id). R1 deletes it.
- * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
- * caller that passes no actor must check first; pass the caller's principal to have the guard run.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param role - role name to revoke
- * @param actor - who revokes it; default SYSTEM
- * @returns the user
- */
-export async function revoke(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
-  role = _check_arg(_trim(), _non_empty())(role, 'role');
-
-  const u = await getUser(identifier);
-
-  await revokeGlobalRole(u.Uuid, role, { reason: 'users:revoke', field: 'role', actor });
-
-  return u;
 }
 
 /**
@@ -847,9 +755,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
     { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
   ]);
 
-  // A ban that leaves the banned user's session alive bans nothing until that
-  // session expires — `isActiveUser` does not filter on the ban flag, so the
-  // session would keep resolving happily.
+  // As for a deletion: end the sessions and tokens now, not at expiry.
   await revokeUserSessions(u);
   await revokeUserTokens(u);
 
@@ -887,130 +793,10 @@ export async function unban(identifier: number | string | User): Promise<User> {
 /** The context users passes to authn for an action it runs itself (no request, no client ip). */
 const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request' });
 
-/** The email a 2.x identifier names; a string is taken as the login authn looks up. */
-async function resetLogin(identifier: number | string | User): Promise<string> {
-  if (typeof identifier === 'string') {
-    return identifier;
-  }
-
-  return (await getUser(identifier)).Email;
-}
-
-/**
- * Asks authn for a reset mail: `PasswordService.requestReset(<email>)`. No token is issued, stored or returned here;
- * authn-local issues the secret and its `PasswordMailer` sends it at once (SR-09).
- *
- * @deprecated 3.0: PasswordService.requestReset(login, ctx). It returns no token any more (`token` is ''), and
- * `waitTime` is `authn.local.reset.ttlSeconds`. R1 deletes it after C2.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param _waitTime - ignored; authn.local.reset.ttlSeconds rules
- */
-export async function issuePasswordResetToken(identifier: number | string | User, _waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
-  const user = await passwordChangeRequest(identifier);
-  return { user, token: '', waitTime: cfg<number>('authn.local.reset.ttlSeconds', 3600) };
-}
-
-/**
- * Asks authn for a reset mail for the user: `PasswordService.requestReset(<email>)`, which counts the request in the
- * reset throttle and mails the link through its `PasswordMailer` (authn-local). users sends no mail and stores nothing.
- *
- * @deprecated 3.0: PasswordService.requestReset(login, ctx). R1 deletes it after N8a and C2.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param _waitTime - ignored; authn.local.reset.ttlSeconds rules
- * @throws LoginAttemptsExceeded when the reset throttle refuses the request
- */
-export async function passwordChangeRequest(identifier: number | string | User, _waitTime?: number): Promise<User> {
-  const user = await getUser(identifier);
-
-  const result = await (await passwordService()).requestReset(user.Email, actionContext());
-  if (result.status === 'throttled') {
-    throw new LoginAttemptsExceeded('Password reset request throttled', { user: user.Uuid, retryAfterSeconds: result.retryAfterSeconds });
-  }
-
-  return user;
-}
-
-/**
- * Redeems a reset (or invite) secret through `PasswordService.redeemReset(<email>, token, newPassword)`, which checks
- * the account's status and the secret, sets the password and ends every session. authn's refusals become the 2.x
- * exceptions: `invalid` → {@link TokenInvalid}, `throttled` → {@link LoginAttemptsExceeded}, a policy violation →
- * `InvalidArgument` (field `password`). An invited account is activated by `UserAccountSink` on `invite.redeem`.
- *
- * @deprecated 3.0: PasswordService.redeemReset(login, secret, newPassword, ctx). R1 deletes it after N8a.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param newPassword - the new plain-text password to set
- * @param token - the secret of the reset or invite mail
- */
-export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string): Promise<User> {
-  const login = await resetLogin(identifier);
-
-  const result = await (await passwordService()).redeemReset(login, String(token ?? ''), String(newPassword ?? ''), actionContext());
-  switch (result.status) {
-    case 'reset': {
-      // authn found the account with the folded lookup; an exact getUser(login) would miss a differently cased email.
-      const ref = await new UserIdentityStore().findByLogin(login);
-      return getUser(ref?.id ?? login);
-    }
-    case 'rejected':
-      throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
-    case 'throttled':
-      throw new LoginAttemptsExceeded('Password reset throttled', { retryAfterSeconds: result.retryAfterSeconds });
-    default:
-      throw new TokenInvalid('Password change token invalid, operation not permitted');
-  }
-}
-
-/**
- * Changes a user's password over the hash the caller loaded (`u.Password`, the one it verified): the 2.x provider
- * hashes it and `UserPasswordStore.set(id, hash, expected)` writes it only while that hash is still stored, so a reset,
- * an expiry or another change that landed meanwhile wins and this throws {@link PasswordChangeConflict}. Then every
- * session ends ({@link revokeUserSessions}) and {@link UserPasswordChanged} is emitted. No metadata is written (A12);
- * the 2.x login lockout of the account is cleared. The new password is checked by `PasswordService.check` and stored as
- * given, spaces included.
- *
- * @deprecated 3.0: PasswordService.change (the user's own change) or PasswordService.set (an admin). R1 deletes it
- * after C2.
- * @param u - user to change the password for, as loaded (with its Password)
- * @param password - new plain-text password
- */
-export async function changeUserPassword(u: User, password: string): Promise<User> {
-  // Not trimmed and checked by authn's policy: 3.0's login takes the password as typed (A04).
-  password = _check_arg(_non_empty())(password, 'password');
-
-  const pwd = await legacyService('authn.local.hasher', PasswordProvider);
-
-  if ((await (await passwordService()).check(password)).length > 0) {
-    // `InvalidArgument`, not a bare `Error`: @spinajs/http maps it to 400, with the field and code in the body.
-    throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
-  }
-
-  const hash = await pwd.hash(password);
-  // Without the loaded hash there is nothing to compare: `null` matches only an account with no password.
-  const expected = typeof u.Password === 'string' && !isNoPassword(u.Password) ? u.Password : null;
-  const ref = userRef(u.Uuid);
-  if (!(await new UserPasswordStore().set(ref, hash, expected))) {
-    throw new PasswordChangeConflict(`The password of user ${u.Uuid} changed meanwhile; load the user and try again`, { user: u.Uuid });
-  }
-  u.Password = hash;
-  // This path publishes no authn event, so UserAccountSink does not see it.
-  await recordPasswordSetAt(u.Uuid, new Date());
-
-  await u.Metadata?.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
-  await u.Metadata?.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
-
-  // Every session was authorized by the OLD password. Callers that want the acting user to stay logged in
-  // ( eg. PATCH /user/password ) mint a fresh session afterwards.
-  await revokeUserSessions(u);
-
-  await ev(new UserPasswordChanged(u));
-
-  return u;
-}
-
 /**
  * Makes the user's password unusable: `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`, which stores
  * authn-local's `'!expired'` marker, ends every authn session and, under `authn.local.reset.revokeTokens`, every API
- * token. users then ends the 2.x sessions too and sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
+ * token. users then sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
  * from authn's event through `QueueAuthnEventSink`.
  *
  * Unlike 2.x the account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks
@@ -1023,8 +809,6 @@ export async function expirePassword(identifier: number | string | User, actor: 
   const u = await getUser(identifier);
 
   await (await passwordService()).expire(userRef(u.Uuid), { cause: 'admin', actor: { type: actor.type, id: actor.id } }, actionContext());
-  await revokeLegacySessions(u);
-
   await sendUserEmail(u, 'passwordExpired');
 }
 
@@ -1042,179 +826,4 @@ export async function notifyPasswordWillExpire(identifier: number | string | Use
   await sendUserEmail(u, 'passwordWillExpire', () => ({ ExpiresAt: expiresAt?.toISO() ?? null }));
 
   return u;
-}
-
-/**
- * Checks if password matches the user's password stored in db.
- *
- * @deprecated 3.0: PasswordService.change verifies the old password itself (inline fresh auth). R1 deletes it after C2.
- * @param u - user to check against
- * @param password - plain-text password to verify
- */
-export async function verifyPassword(u: User, password: string): Promise<boolean> {
-  password = _check_arg(_trim(), _non_empty())(password, 'password');
-
-  const sPwd = await legacyService('authn.local.hasher', PasswordProvider);
-  return sPwd.verify(u.Password, password);
-}
-
-/**
- * Authenticates a user with the given password.
- * Delegates to the configured {@link AuthProvider}, updates `LastLoginAt`, and emits a
- * {@link UserLogged} event on success. On failure a {@link UserLoginFailed} event is emitted
- * and the original error is re-thrown. Failures count in the 2.x metadata lockout.
- *
- * @deprecated 3.0: AuthnService.authenticate({ kind: 'password', login, password }, ctx). R1 deletes it after N8a.
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param password - plain-text password to verify
- * @returns the authenticated {@link User}
- */
-export async function login(identifier: number | string | User, password: string): Promise<User> {
-  password = _check_arg(_trim(), _non_empty())(password, 'password');
-
-  // A lookup failure ( unknown account ) is NOT counted as a failed login -
-  // there is no account to count it against.
-  const u = await loginLookup(identifier);
-
-  try {
-    // Refuse before the password is even checked, so a locked account
-    // cannot be probed at all during the lockout window.
-    assertNotLocked(u);
-
-    const sAuth = await legacyService('rbac.auth', AuthProvider);
-
-    // the authenticated user is a FRESH row read by the auth provider ( with
-    // metadata populated ) - every step below acts on it, not on the lookup
-    const authenticated = await sAuth.authenticate(u.Email, password);
-
-    await updateModel(authenticated, { LastLoginAt: DateTime.now() });
-    await clearLoginThrottle(authenticated);
-    await ev(new UserLogged(authenticated));
-
-    return authenticated;
-  } catch (err) {
-    // count the failure and lock the account once the configured
-    // threshold is reached, then notify and rethrow for the caller
-    await registerFailedLogin(u, err);
-    await ev(new UserLoginFailed(u, err));
-
-    throw err;
-  }
-}
-
-/**
- * Resolves the user a login attempt names, answering an authentication failure
- * rather than an orm one when no such account exists.
- *
- * {@link getUserUnsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
- * neither a rbac exception nor `InvalidArgument`: the login controller cannot read it
- * as an authentication failure, so it rethrows and `@spinajs/orm-http` maps it to
- * a 404 while a wrong password answers 401. That difference is an
- * account-enumeration oracle — the status code alone tells a caller whether an
- * address is registered. Both cases throw {@link InvalidCredentials}, exactly as
- * {@link SimpleDbAuthProvider.authenticate} already does for the password it
- * cannot verify.
- *
- * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
- */
-async function loginLookup(identifier: number | string | User): Promise<User> {
-  const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
-
-  if (id instanceof UserBase) {
-    return id as User;
-  }
-
-  return UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new InvalidCredentials('no user with given email')) as Promise<User>;
-}
-
-/**
- * Throws when the account is inside a lockout window opened by
- * {@link registerFailedLogin}.
- *
- * @deprecated 3.0: authn's throttle (authn.throttle.*), which backs off and never locks. R1 deletes it after N8a, N5 and C2.
- * @param u - user attempting to authenticate
- */
-export function assertNotLocked(u: User): void {
-  const raw = u?.Metadata?.[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
-
-  if (!raw) {
-    return;
-  }
-
-  const lockedUntil = raw instanceof DateTime ? raw : DateTime.fromISO(String(raw));
-
-  if (lockedUntil.isValid && lockedUntil > DateTime.now()) {
-    throw new LoginAttemptsExceeded(`Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
-      user: u.Uuid,
-      lockedUntil,
-    });
-  }
-}
-
-/**
- * Clears the failure counter and any expired lock after a successful login.
- *
- * @deprecated 3.0: authn's throttle (authn.throttle.*). R1 deletes it after N5.
- */
-export async function clearLoginThrottle(u: User): Promise<void> {
-  const meta = u?.Metadata;
-
-  if (!meta) {
-    return;
-  }
-
-  const hasAttempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) > 0;
-  const hasLock = Boolean(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL]);
-
-  if (!hasAttempts && !hasLock) {
-    return;
-  }
-
-  await meta.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
-  await meta.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
-}
-
-/**
- * Records one failed authentication and, at `rbac.password.blockAfterAttempts`
- * consecutive failures, locks the account for `rbac.password.lockoutTime`
- * seconds. The counter lives in metadata, which 3.0 forbids (A12); only the
- * deprecated 2.x login paths call it.
- *
- * @deprecated 3.0: authn's throttle (authn.throttle.*), which backs off and never locks. R1 deletes it after N8a, N5 and C2.
- *
- * `blockAfterAttempts <= 0` disables throttling entirely. A rejection that was
- * itself the lockout is not counted — otherwise hammering a locked account
- * would keep extending the lock indefinitely.
- *
- * @param u - user whose failed attempt is recorded
- * @param err - the error that ended the login attempt
- */
-export async function registerFailedLogin(u: User, err: unknown): Promise<void> {
-  const meta = u?.Metadata;
-
-  if (!meta) {
-    return;
-  }
-
-  if (err instanceof LoginAttemptsExceeded) {
-    return;
-  }
-
-  const blockAfter = cfg<number>('rbac.password.blockAfterAttempts', 5);
-  const lockoutTime = cfg<number>('rbac.password.lockoutTime', 15 * 60);
-
-  if (!blockAfter || blockAfter <= 0) {
-    return;
-  }
-
-  const attempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) + 1;
-
-  if (attempts >= blockAfter) {
-    meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = 0;
-    meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().plus({ seconds: lockoutTime }).toISO();
-  } else {
-    meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = attempts;
-  }
-
-  await meta.update();
 }

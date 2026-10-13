@@ -2,9 +2,6 @@ import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
-import { BasicPasswordProvider, SessionProvider, UserSession, User } from '@spinajs/users';
-import { DateTime } from 'luxon';
-import * as cs from 'cookie-signature';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
@@ -14,7 +11,6 @@ import cookieParser from 'cookie-parser';
 
 import { registerRootSchemas } from './support/root-schemas.js';
 import { dropOwnCompiledDirs } from './token-db-common.js';
-import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -84,14 +80,10 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
       system: {
         dirs: {
-          // `./support` holds test only controllers ( see
-          // `support/TestTokenController.ts` ) used by the end to end policy
-          // suite; they are loaded exactly like the package's own ones.
-          //
-          // `account/controllers` is listed too: the controller listing is memoized
-          // once per process ( `ListFromFiles` in reflection ), so every http suite
-          // in this package has to ask for the same directories.
-          controllers: [dir('./../src/v3/controllers'), dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
+          // The controller listing is memoized once per process ( `ListFromFiles`
+          // in reflection ), so every http suite in this package has to ask for the
+          // same directories. No 2.x controller dir: the shipped config scans none.
+          controllers: [dir('./../src/v3/controllers'), dir('./support')],
         },
       },
       // `@spinajs/http` contributes the providers its own machinery needs
@@ -107,36 +99,6 @@ export class TestConfiguration extends FrameworkConfiguration {
         middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser()],
         AcceptHeaders: 1,
       },
-      rbac: {
-        defaultRole: 'guest',
-        // A guest that is not active cannot satisfy any grant, so an anonymous
-        // request is rejected by the route policy rather than served.
-        enableGuestAccount: false,
-        roles: [
-          { Name: 'admin', Description: 'Administrator' },
-          { Name: 'user', Description: 'Simple account' },
-          { Name: 'guest', Description: 'Guest account' },
-        ],
-        grants: {
-          admin: {
-            users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-            'test.resource': { 'read:any': ['*'] },
-          },
-          user: {
-            user: { 'read:own': ['*'], 'update:own': ['*'] },
-            'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
-            'test.resource': { 'read:own': ['*'] },
-          },
-          // `guest` is deliberately left WITHOUT any grant on `test.resource` -
-          // the end to end suite uses a guest scoped token to prove that a valid
-          // token still gets a 403 when its roles do not carry the grant.
-        },
-        auth: { service: 'SimpleDbAuthProvider' },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
       authn: {
         session: {
           service: 'MemorySessionStore',
@@ -144,8 +106,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: { secure: false },
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
-          policy: { service: 'BasicPasswordValidationProvider', rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' } },
+          policy: { rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' } },
           reset: { ttlSeconds: 60 * 60 },
         },
         token: {
@@ -173,54 +134,6 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
     };
   }
-}
-
-/**
- * Creates a 2.x authorized session for the user and returns the signed session
- * cookie ready for a `Cookie` header, in the shape the 2.x login wrote.
- *
- * Only the suites parked in `legacy-v2/` use it: the 2.x `RbacMiddleware` that
- * read this session is gone since N8c, and the 3.0 session layer revokes a 2.x
- * row that carries an `ActiveRole` (N8c-D2).
- *
- * @param user - the user the session acts AS ( the impersonation target, when
- *               `impersonator` is given )
- * @param impersonator - administrator who started an impersonation of `user`,
- *                       stored under the 2.x `Impersonator` session key.
- */
-export async function sessionCookieFor(user: User, impersonator?: User): Promise<string> {
-  const provider = await DI.resolve(SessionProvider);
-  const session = new UserSession();
-  session.UserId = user.Id;
-  session.Data.set('User', user.Uuid);
-  session.Data.set('Authorized', true);
-  session.Data.set('ActiveRole', user.Role[0]);
-
-  if (impersonator) {
-    session.Data.set('Impersonator', impersonator.Uuid);
-  }
-
-  await provider.save(session);
-
-  const name = (await DI.resolve(SessionCookieFactory)).Name;
-  return `${name}=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
-}
-
-/**
- * An active users row, inserted directly: since C1, `users.create()` assigns roles through
- * `AuthzAdmin` and needs a booted authz host, which authn-http may not depend on. No roles:
- * C1 dropped `users.Role`, and the 2.x code reads roles from nowhere else.
- */
-export async function seedUser(email: string, login: string, password: string): Promise<User> {
-  const user = new User({
-    Email: email,
-    Login: login,
-    Password: await DI.resolve(BasicPasswordProvider).hash(password),
-    RegisteredAt: DateTime.now(),
-    IsActive: true,
-  });
-  await user.insert();
-  return user;
 }
 
 export function ctr() {

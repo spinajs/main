@@ -2,8 +2,13 @@ import type { ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
+import { rbacTables } from '../model/evaluate.js';
+import type { RbacInput } from '../model/evaluate.js';
 import type { RbacModel } from '../model/model.js';
 import type { RoleGraph } from '../model/roles.js';
+
+/** What a list term is evaluated with: the role graph, its grant index and the model's tables (ladders, implies). */
+export type RbacListing = Pick<RbacInput, 'roles' | 'grants' | 'ladders' | 'implies'>;
 
 /**
  * The role definitions of the RbacModel whose residuals reach SQL for `model`. The model lives per
@@ -15,6 +20,13 @@ import type { RoleGraph } from '../model/roles.js';
 export abstract class RbacRoleGraphSource {
   /** undefined: not compiled yet, or not this source's model; the compiler then throws (fail closed). */
   abstract graph(model: Class<ModelBase>): RoleGraph | undefined;
+
+  /**
+   * The graph with the grant index and the tables the model evaluates with (rbacTables over its
+   * extensions), for args v2. undefined, or a source without it: the compiler refuses args v2, since
+   * ladders or implied roles the model does not have would widen the list.
+   */
+  listing?(model: Class<ModelBase>): RbacListing | undefined;
 }
 
 /**
@@ -37,6 +49,13 @@ export class RbacModelRoleGraphSource extends RbacRoleGraphSource {
 
   graph(model: Class<ModelBase>): RoleGraph | undefined {
     return this.serves(model) ? this.rbac.roleGraph() : undefined;
+  }
+
+  listing(model: Class<ModelBase>): RbacListing | undefined {
+    if (!this.serves(model)) return undefined;
+    const roles = this.rbac.roleGraph();
+    const grants = this.rbac.grantIndex();
+    return { roles, grants, ...rbacTables(this.rbac.extensions, roles, grants) };
   }
 }
 

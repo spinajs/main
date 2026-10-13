@@ -8,15 +8,13 @@ import { CredentialExtractor } from '@spinajs/authn/contracts';
 
 import { AuthnPrincipalResolver } from '../api.js';
 import { AuthnMiddleware } from '../middleware/authn.js';
-// Wherever the 3.0 layer runs, the 2.x consumers get their request keys, the guest the users ORM checks need included.
-import '../middleware/legacy-bridge.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../extractors/bearer.js';
 import { HttpSignatureExtractor } from '../extractors/signature.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../resolvers/credential.js';
 import { SessionPrincipalResolver } from '../resolvers/session.js';
 import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../args/authn.js';
 
-const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolved: AuthnMiddleware and LegacyStorageBridge are not in its middleware pipeline, so no request is authenticated and the users ORM row checks see no User. Fix: import @spinajs/authn-http before resolving Controllers or HttpServer (the controller scan loads it too late).';
+const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolved: AuthnMiddleware is not in its middleware pipeline, so no request is authenticated. Fix: import @spinajs/authn-http before resolving Controllers or HttpServer (the controller scan loads it too late).';
 
 // Idempotent: a container's registry skips a class already registered under the same base.
 function register(container: IContainer): void {

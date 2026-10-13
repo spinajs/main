@@ -46,10 +46,10 @@ export class FilterModelRouteArg extends RouteArgs {
     if (typeof filter === 'string') {
       try {
         parsed = JSON.parse(filter);
-      } catch (err) {
+      } catch {
         // A malformed filter string is a client error (400), not an
-        // unhandled 500 out of the route-arg extractor.
-        throw new InvalidArgument(`Filter parameter '${param.Name}' is invalid JSON. Reason: ${(err as Error).message}`, err);
+        // unhandled 500 out of the route-arg extractor. The parser message quotes the input.
+        throw new InvalidArgument(`Filter parameter '${param.Name}' is invalid JSON`, param.Name);
       }
     }
 

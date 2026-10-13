@@ -90,13 +90,6 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
   description: 'Authentication configuration (authn.*, design §22.5)',
   type: 'object',
   properties: {
-    config: {
-      type: 'object',
-      default: {},
-      properties: {
-        rejectLegacyKeys: { type: 'boolean', default: false, description: 'Fail boot on a 2.x key of the old-key table.' },
-      },
-    },
     strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },
     local: {
       type: 'object',
@@ -376,14 +369,14 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         requirePassword: { enum: [true, false], default: true },
         requireMfa: { enum: [true, false], default: true },
         maxMinutes: { type: 'integer', minimum: 1, default: 60 },
+        clockSkewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
       },
     },
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
+      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
-        sampleUse: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
         hashIdentifiers: { enum: [true, false], default: true },
         hashKey: {

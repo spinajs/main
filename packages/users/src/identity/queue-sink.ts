@@ -34,8 +34,8 @@ function loginError(reason: string | undefined): Error {
  * Re-emits, through the queue, the 2.x user events that authn now decides: `UserLogged`, `UserLoginFailed`,
  * `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest` (also for an invite, as 2.x did),
  * `UserImpersonationStarted` and `UserImpersonationEnded`. Each carries the `User` row, deleted ones included;
- * an event about an identity that is not a stored user is not re-emitted. The 2FA events live in authn-totp,
- * which depends on users. Errors propagate to the publisher, which logs their class.
+ * an event about an identity that is not a stored user is not re-emitted. The 2.x `User2Fa*` events are gone:
+ * MFA changes reach sinks as `mfa.enrol` and `mfa.disable`. Errors propagate to the publisher, which logs their class.
  *
  * Unlike 2.x, `create()` with a password also emits `UserPasswordChanged`: authn's `set` event (cause `set`) does not
  * tell a create from an admin or CLI set.

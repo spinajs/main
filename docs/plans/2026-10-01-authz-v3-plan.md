@@ -955,7 +955,9 @@ After G1 the rule in §1.3 applies.
      Postgres, 2,000 runs; `check(subject = row)` ⇔ row in `filter`;
      MySQL and MSSQL in the nightly job.
   9. Bench: 1,000 canvas files, `file:read` list ≤ 2× the plain `EXISTS`
-     query on Postgres (release gate 7).
+     query on Postgres (release gate 7). (G7) For 3.0 the gate is absolute
+     limits on the list and a 50-row page (§12 item 7); the ratio is the
+     3.1 target.
 - **Acceptance:** B06 and B44 on SQLite and Postgres with the full canvas
   config of design §8.5; K1 list conformance (task 9 there) green.
 - **Merge order:** after L1b and L2; before K1's final run and X1.
@@ -1857,9 +1859,20 @@ every `LEDGER.md` line has a target test name or a drop reason.
   `authn.config.rejectLegacyKeys` → `true`.
 - **Depends on:** C1–C9, T1–T4, (r3) N8b.
 - **Tasks:** delete; build; full test run; grep gates:
-  `rg -n "accesscontrol|notation|IGrantsMap|PermissionScope|SkipModelPermission|probeGrant|@Permission\(|@Resource\(|RbacPolicy|LoggedPolicy|AuthorizedPolicy|@spinajs/rbac" packages/*/src`
-  must be empty; (r4, H29) dependency direction (design §4.2), each gate
-  must hold:
+  `rg -n "from '(accesscontrol|notation)'|IGrantsMap|PermissionScope|SkipModelPermission|probeGrant|@Permission\(|@Resource\(|\bRbacPolicy\b|\bLoggedPolicy\b|\bAuthorizedPolicy\b|@spinajs/rbac" packages/*/src --glob '!packages/authz-convert/**' --glob '!**/*.md'`
+  must be empty, doc comments included (reword a comment that still names
+  a 2.x API). Three 3.0 doc comments hit it and no earlier R1 step removes
+  them, so R1 final rewords them: `authn-http/src/api.ts:23`
+  (`Authenticated`, "Replaces LoggedPolicy and AuthorizedPolicy"; frozen,
+  so it needs an RFC and a regenerated `etc/authn-http.api.md`),
+  `authn-http/src/policies/v3/principal.ts:21` (the same sentence) and
+  `authz-http/src/access/decorators.ts:33` (`@Permission`, `RbacPolicy`).
+  `rg -l '"(accesscontrol|notation)"' packages/*/package.json` must be
+  empty too. (R1a) The gate leaves out `authz-convert`, which reads
+  2.x names as text on purpose, and matches imports rather than the bare
+  word `notation`, which hits "annotation" and "dot notation" in `http`,
+  `http-swagger` and `configuration-aws-secretmanager-protocol`;
+  (r4, H29) dependency direction (design §4.2), each gate must hold:
   - `rg -l '"@spinajs/(authz|users)' packages/authn*/package.json` is
     empty (no exception any more);
   - `rg -n '"@spinajs/authn' packages/authz*/package.json` prints one line,
@@ -2141,8 +2154,27 @@ and freezes merges until the checkpoint is green.
    legacy-key detectors on.
 7. Bench: warm `check` p99 ≤ 2 × 2.0.546 `probeGrant` p99; `checkMany(30)`
    warm ≤ 1 ms (also for the canvas config on a 5-level path); ORM select
-   overhead ≤ 10 % against the bench model; (r3) canvas `file:read` list over
-   1,000 files with rules ≤ 2 × the plain `EXISTS` query on Postgres; session
+   overhead ≤ 10 % against the bench model; (G7, the human's option (b) of
+   2026-10-09, replacing the r3 ratio) canvas `file:read` on Postgres with
+   `jit = off`, with and without other tenants' rows in the authz tables
+   (bench `L4B_BENCH_BACKGROUND=90`): the list over 1,000 files with rules
+   p50 ≤ 1.5 s, a 50-row page (first and middle, `updated_at DESC`) p50
+   ≤ 100 ms and p99 ≤ 250 ms; `jit = on` fails boot (or the first query
+   that reaches a scoped model) unless the app sets
+   `authz.orm.allowJit: true` (jit check); ≤ 2 × the plain `EXISTS`
+   query stays the 3.1 target and needs the set-based rewrite of the rule
+   SQL (rules worked out once per scope node:
+   `packages/authz-rbac/bench/RESULTS.md` "Why it fails"). **Status
+   2026-10-09: FAIL**: every page misses the p50 limit by 2.3 to 21 times
+   (RESULTS.md "Release gate 7 for 3.0"; without other tenants only, bg90
+   not run, as the page fails already). **2026-10-10: open: the limits are
+   being rethought by the owner.** After lane S1 (rule terms worked out once
+   per class of rows, Postgres only), p50 at bg0: lists 90–182 ms, pages
+   90–128 ms (p99 133–189 ms); at bg90: lists 94–201 ms, pages 95–174 ms;
+   ≤ 2 × the plain `EXISTS` still not met for guest, external and link,
+   nor for the owner's p99 at bg90 (2.16 ×); RESULTS.md "Release gate 7
+   for 3.0 after S1". The warm `check`, `checkMany`, ORM overhead,
+   session restore and token validation limits were not measured in 3.0. Also part of the gate: session
    restore ≤ 1 ms warm (memory and redis); token validation ≤ 1 ms warm.
 8. Canaries: boxtime-payment suite green; canvas `apps/api` boots and passes
    its tests after the moves; **yourscreen-backend (Y1) suite green**.

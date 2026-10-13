@@ -1,7 +1,7 @@
 import { Autoinject, Container, AsyncService, Singleton } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
-import { IValidationError, ValidationFailed } from './exceptions/index.js';
+import { IValidationError, ValidationFailed, sanitizeError } from './exceptions/index.js';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
@@ -69,6 +69,8 @@ export class DataValidator extends AsyncService {
       },
       ...this.Options,
       $data: true,
+      // `parentSchema` tells sanitizeError which rules are `$data` refs; no error leaves this class unsanitised.
+      verbose: true,
     };
 
 
@@ -188,7 +190,7 @@ export class DataValidator extends AsyncService {
 
     const result = this.Validator.validate(schema, target);
     if (!result) {
-      return [false, (this.Validator.errors as IValidationError[]) ?? []];
+      return [false, this.sanitizedErrors(schema)];
     }
 
     return [true, null];
@@ -212,7 +214,7 @@ export class DataValidator extends AsyncService {
       const isValid = this.Validator.validateSchema(schema) as boolean;
 
       if (!isValid) {
-        return [false, (this.Validator.errors as IValidationError[]) ?? []];
+        return [false, this.sanitizedErrors()];
       }
 
       // meta-valid but uncompilable - an unknown `format`, an unresolvable `$ref`
@@ -222,6 +224,10 @@ export class DataValidator extends AsyncService {
     } catch (err) {
       return [false, [syntheticError('invalid_schema', (err as Error).message)]];
     }
+  }
+
+  private sanitizedErrors(schema?: object): IValidationError[] {
+    return ((this.Validator.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
   }
 
   /**
@@ -270,9 +276,7 @@ export class DataValidator extends AsyncService {
         case 'empty_schema':
           throw new InvalidArgument('objects schema is not set');
         default: {
-          const validatedData = data !== null && data !== undefined ? data : schemaOrData;
-          const usedSchema = this.resolveSchema(schemaOrData, data);
-          throw new ValidationFailed('validation error', errors ?? [], validatedData, usedSchema);
+          throw new ValidationFailed('validation error', errors ?? [], this.resolveSchema(schemaOrData, data));
         }
       }
     }

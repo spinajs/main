@@ -8,5 +8,5 @@ export const AUTHZ_DEFAULTS = Object.freeze({
   cache: Object.freeze({ maxEntries: 10000, ttlSeconds: 60 }),
   audit: Object.freeze({ denials: true, runAs: true, unscoped: true }),
   principals: Object.freeze({ anonymous: Object.freeze({ enabled: true }) }),
-  config: Object.freeze({ rejectLegacyKeys: false }),
+  config: Object.freeze({ rejectLegacyKeys: true }),
 });

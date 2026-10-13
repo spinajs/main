@@ -10,3 +10,4 @@ export * from "./types.js";
 export * from "./process.js";
 export * from "./timespan.js";
 export * from "./resilience/index.js";
+export * from "./object.js";

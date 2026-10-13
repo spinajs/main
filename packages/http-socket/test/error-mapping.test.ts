@@ -103,6 +103,21 @@ describe('socket error mapping', function () {
     expect((wire.details as Array<{ rule: string }>)[0].rule).to.equal('required');
   });
 
+  it('sends validation details without the failing value', async () => {
+    const validator = await DI.resolve(DataValidator);
+    let failure: unknown;
+    try {
+      validator.validate({ type: 'object', properties: { password: { type: 'string', minLength: 12 } } }, { password: 'Zq7sockPw' });
+    } catch (err) {
+      failure = err;
+    }
+
+    const wire = mapper.toWire(failure, 'test');
+    expect((wire.details as Array<{ field: string }>)[0].field).to.equal('/password');
+    expect(wire.details as object[]).to.satisfy((details: object[]) => details.every((d) => !('value' in d)));
+    expect(JSON.stringify(wire)).to.not.contain('Zq7sockPw');
+  });
+
   it('passes socket exceptions through with their own code and retry hints', () => {
     expect(mapper.toWire(new SocketException('deadline_exceeded', 'late'), 'test')).to.deep.equal({ code: 'deadline_exceeded', message: 'late', retryable: true });
     expect(mapper.toWire(new SocketException('cancelled', 'stop'), 'test')).to.deep.equal({ code: 'cancelled', message: 'stop', retryable: false });

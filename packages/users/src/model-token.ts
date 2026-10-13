@@ -7,8 +7,8 @@ export const RBAC_USER_MODEL = 'RbacUserModel';
 /**
  * The user model class the application wants the rbac packages to build queries
  * with. Defaults to the shipped {@link User}. An application substitutes its own
- * subclass — typically carrying `@OrmResource('users')` and `rbac*` scoping
- * hooks, so the rbac query middleware row-scopes every admin route — with:
+ * subclass (for example one carrying `@AccessResource('users')` of
+ * `@spinajs/authz-orm`) with:
  *
  *   DI.register(MyUserModel).asValue(RBAC_USER_MODEL, true);
  *

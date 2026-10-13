@@ -4,6 +4,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import * as cs from 'cookie-signature';
 import { join, normalize, resolve } from 'node:path';
+import { inspect } from 'node:util';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -176,7 +177,13 @@ export async function bootApp(): Promise<void> {
 }
 
 export async function startServer(): Promise<void> {
-  await DI.resolve(Controllers);
+  try {
+    await DI.resolve(Controllers);
+  } catch (err) {
+    // A ts-node compile error in a scanned controller comes out of the off-thread loader as an object without a
+    // message, which mocha cannot report (test/lost-rejections.ts); inspect() still prints its diagnostic.
+    throw err instanceof Error ? err : new Error(inspect(err));
+  }
   await (await DI.resolve(HttpServer)).start();
 }
 
@@ -243,9 +250,13 @@ export class Client {
     return this.send('DELETE', path, body, headers);
   }
 
-  public async send(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
+  public patch(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
+    return this.send('PATCH', path, body, headers);
+  }
+
+  public async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
     const agent = chai.request(APP_ORIGIN);
-    let call = method === 'GET' ? agent.get(path) : method === 'POST' ? agent.post(path) : agent.delete(path);
+    let call = method === 'GET' ? agent.get(path) : method === 'POST' ? agent.post(path) : method === 'PATCH' ? agent.patch(path) : agent.delete(path);
     call = call.set('Accept', 'application/json');
     if (method !== 'GET') call = call.set('Origin', APP_ORIGIN);
     if (this.cookie !== null) call = call.set('Cookie', `${cookieName()}=${encodeURIComponent(this.cookie)}`);

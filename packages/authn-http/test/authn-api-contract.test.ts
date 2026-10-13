@@ -15,10 +15,6 @@ import * as api from '../src/api.js';
 import { Authenticated, AuthnMiddleware, AuthnPrincipalResolver, AuthnSession, ClientIp, CsrfOriginGuard, FreshAuth, FromSession, Identity, KeyPrincipalResolver, MfaSatisfied, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId, SessionPrincipalResolver, TokenPrincipalResolver } from '../src/api.js';
 import type { AuthnIdentity } from '../src/api.js';
 import * as barrel from '../src/index.js';
-import { FromSession as MovedFromSession, SessionId as MovedSessionId } from '../src/decorators.js';
-import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../src/policies/NotLoggedPolicy.js';
-import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
-import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
 import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
 import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
 import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
@@ -172,18 +168,13 @@ describe('authn-http api stubs (api.ts)', function () {
       expect(sub.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
     });
 
-    it('the barrel exports every api name as the lane implementation, the five names the 2.x code also has included (N8c)', () => {
+    it('the barrel exports every api name as the lane implementation, not the api.ts contract class (N8c)', () => {
       const b = barrel as unknown as Record<string, unknown>;
       for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
         const stub = (api as Record<string, unknown>)[n];
         if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
         else expect(b[n], n).to.eq(stub);
       }
-      expect(barrel.FromSession).to.not.eq(MovedFromSession);
-      expect(barrel.SessionId).to.not.eq(MovedSessionId);
-      expect(barrel.NotLoggedPolicy).to.not.eq(MovedNotLoggedPolicy);
-      expect(barrel.NoTokenAuthPolicy).to.not.eq(MovedNoTokenAuthPolicy);
-      expect(barrel.NoImpersonationPolicy).to.not.eq(MovedNoImpersonationPolicy);
     });
 
     it('imports only @spinajs/authn/contracts, @spinajs/http and express', () => {

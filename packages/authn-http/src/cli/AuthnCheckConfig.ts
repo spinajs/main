@@ -12,6 +12,7 @@ const PROVIDER_PACKAGES = ['@spinajs/authn-local', '@spinajs/authn-token', '@spi
 /**
  * Prints one line per finding of authn's checkAuthnConfig, `<level> <topic>: <message>`, to stdout (a report, like
  * migrate-status, not log output). The messages name keys, never values. Sets exit code 1 when any finding is an error.
+ * It opens the authn store (the app database, when authn-orm is loaded) to look for enrolled MFA steps.
  */
 @Command('authn:check-config', 'Reports what the authn configuration gets wrong; prints key names, never secret values')
 export class AuthnCheckConfig extends CliCommand {

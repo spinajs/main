@@ -17,6 +17,10 @@ ORM adapter for SpinaJS authorization.
   only: `fn` gets the row of the checked ref, loaded through the adapter when the subject is not
   that row.
 - `authz.orm.domain` (default `root`) names the domain whose `AuthzService` scopes queries.
+- `authz.orm.allowJit` (default `false`): on Postgres, authz-orm refuses a connection with
+  `jit = on` (Postgres's default; rule lists then take seconds) at domain boot or at its first
+  scoped query. Turn jit off for the app's role or database (`ALTER ROLE … SET jit = off`), or
+  start the process with `PGOPTIONS='-c jit=off'`.
 - Queries run as the ALS principal. `authz().runAs(SYSTEM, reason, fn)` and a route's
   `@Unscoped(reason)` run unscoped (audited); without a principal (UNATTENDED) a query on a scoped
   model throws `AccessDenied`.
@@ -168,7 +172,25 @@ as authz-rbac's `native:rbac.assignment` does), import the helpers from
   parameter name runs on over `::`; PG's `::type`, `@>` and `<@` are fine), an
   unclosed quote, and a backslash, a `?` or a value inside a quoted literal, also where a nested
   fragment meets the text around it. Its NULL handling (Kleene) is the compiler's job;
-- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first.
+- `whereSqlWithAliases(holder, fragment, aliases)`: as `whereSql`, for a fragment whose nested
+  SELECTs name their tables by `aliases`; when the query compiles, a filtered row that goes by one of
+  them (in any letter case) is refused, as the nested SELECT would shadow it;
+- `isNativeBuilder(builder)`: whether `builder` is the native builder, a where group in it or a
+  correlatedQuery sub-query of it (code that also builds SQL outside authz-orm picks `whereSql` by
+  it);
+- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first;
+- `scopePathOf(model)`: how the adapter reads a registered model's rows (null for any other model):
+  its type and table, its primary key and its `@ScopeColumn`s, each with the `IdMode` the adapter
+  reads ids by (`string`, `number`, `text`, or `none` for a column the orm does not know and for
+  every column of a model on a driver other than SQLite or Postgres), and its `@AccessResource`
+  attributes, and the keys of the models of its type registered before it (`before`: `findRow`
+  tries them first; null for one on another connection or without a readable table or key). For an
+  unregistered subclass it gives the registered class's key mode and scope columns, which `findRow`
+  and `ancestors` read, and key mode `none` when the subclass reads another table. With it a compiler
+  matches `ancestors`, `findRow` and `scopeAttributes`;
+- `accessResourceModels(type?)`: the registered model classes (of `type`), in registration order,
+  the order `findRow` tries them in;
+- `accessResourceTypeOf(model)`: the type a class is registered as (undefined for any other class).
 
 Every name is resolved when the query compiles, so an alias given later (`populate()`,
 `setAlias()`), clones, counts of clones and subs nested in subs always name the filtered row; a
@@ -176,7 +198,8 @@ correlation that cannot find that row throws `AuthzConfigError` rather than rend
 `NOT EXISTS` FALSE would allow the row).
 
 authz does not scope these sub-queries: read the principal from the `principal` argument, and read
-only tables that are not `@AccessResource` models (L4b reads `authz_*` tables). A sub-query over a
+only tables that are not `@AccessResource` models (L4b reads `authz_*` tables, and a scope type's
+model table only to test that the node row exists, as the adapter does as SYSTEM). A sub-query over a
 scoped model's table, or its name in an `sql` fragment, sees every row of it. Lazy statements (the
 orm's deferred `EXISTS`) are refused, because the orm moves them after the other conditions and
 would change the grouping.
@@ -184,6 +207,37 @@ would change the grouping.
 A compiler for an op whose `NativeFilter` declares `principalInArgs` must not read its `principal`
 argument: an intersect agent's residual keeps its delegate's terms (RFC E2-2), so `principal` is the
 agent while the args name the delegate.
+
+On PostgreSQL 12 and later, a large native term (authz-rbac's rule terms: many correlated sub-plans,
+a high estimated cost, a few rows) passes the default `jit_above_cost`, and the server JIT-compiles
+every list query: measured 25-30 s per query, 13 s of it JIT, for 3.4 ms of work. Hosts turn JIT off
+for the connection authz lists through (`ALTER ROLE <role> SET jit = off`, or the same per
+database). Raising `jit_above_cost` is no fix: the plans' cost grows with the rows listed.
+
+authz-rbac's terms over stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`) are
+one `WITH … AS MATERIALIZED` each, which needs PostgreSQL 12 or SQLite 3.35 or later (an older server
+fails every such list with a syntax error). SQLite works the row-correlated WITH tables out again at
+each reference: about 0.45 s per filtered row with four stored rules, so on SQLite such lists suit
+small tables only until authz-rbac reads the rule tables by joins. On Postgres they log "Slow
+orm.query" warnings.
+
+On PostgreSQL authz-rbac mostly works these terms out once per class of rows (rows sharing their scope
+path and rule inputs) instead of once per row (lane S1); it keeps the per-row form for a config
+threshold reading `resource.*` and for a scope path with a column node that has no id mode. Each class
+term reads the whole model table once per statement, also the rows the caller's WHERE drops, so its
+cost grows with the table. A stored rule whose definition PostgreSQL cannot parse fails every list of
+that model. Times: `packages/authz-rbac/bench/RESULTS.md`.
+
+### ABAC scope leaves
+
+With `authz.<model>.scopeResiduals` on (`AbacModelOptions.scopeResiduals`), an ABAC model answers a
+list's comparisons of `scope.<type>.*` with residual leaves of the op `native:condition.scope`.
+authz-rbac compiles them (`ConditionScopeOrmCompiler`, registered when its orm module loads), so an
+ABAC list through authz-orm with the switch on needs authz-rbac loaded; without it boot rule 4
+refuses the route (the op is not in this adapter's `compiles`). The leaf reads scope attributes as
+authz-rbac's rule SQL does: layers and schema defaults from the host's `RbacScopeAttributeSource`
+(else no defaults and the layers authz-orm serves), with the same limits (a value SQL cannot
+compare, or a layer it cannot read, refuses the row). On Postgres it too needs `jit = off`.
 
 `@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
 it only together with L4b.

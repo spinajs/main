@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -131,24 +132,27 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
   describe('which roles need the password (N8a-D9)', () => {
     const flags = async (ref: IdentityRef) => Object.fromEntries((await source.rolesOf(await signedIn(ref))).map((r) => [r.role, r.requirePassword]));
 
-    it('asks for the password for every role when neither key is set', async () => {
+    it('asks for the password for every role when the key is unset', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, undefined);
 
       expect(await flags(ref)).to.deep.eq({ member: true, support: true });
     });
 
-    it('reads the 2.x rbac.roleSwitch.requirePassword while the 3.0 key is unset', async () => {
-      const ref = await user('support', 'member');
-      await setConfig(PASSWORD_KEY, undefined);
-      await setConfig(LEGACY_PASSWORD_KEY, ['support']);
+    for (const unset of [undefined, null]) {
+      for (const legacy of [false, [], ['support']]) {
+        it(`ignores a 2.x rbac.roleSwitch.requirePassword of ${JSON.stringify(legacy)} with the 3.0 key ${String(unset)}: every role asks for the password`, async () => {
+          const ref = await user('support', 'member');
+          await setConfig(PASSWORD_KEY, unset);
+          await setConfig(LEGACY_PASSWORD_KEY, legacy);
 
-      expect(await flags(ref)).to.deep.eq({ member: false, support: true });
-    });
+          expect(await flags(ref)).to.deep.eq({ member: true, support: true });
+        });
+      }
+    }
 
-    it('takes the 3.0 key over the 2.x one, an empty list included', async () => {
+    it('flags exactly the roles of the 3.0 list, an empty list included', async () => {
       const ref = await user('support', 'member');
-      await setConfig(LEGACY_PASSWORD_KEY, ['support', 'member']);
 
       await setConfig(PASSWORD_KEY, ['member']);
       expect(await flags(ref)).to.deep.eq({ member: true, support: false });
@@ -165,27 +169,27 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       }
     });
 
-    it('takes a null 3.0 key as unset', async () => {
+    it('takes a null 3.0 key as unset, a 2.x list beside it included', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, null);
 
-      expect(await flags(ref), 'neither').to.deep.eq({ member: true, support: true });
+      expect(await flags(ref), 'alone').to.deep.eq({ member: true, support: true });
 
       await setConfig(LEGACY_PASSWORD_KEY, ['member']);
-      expect(await flags(ref), '2.x').to.deep.eq({ member: true, support: false });
+      expect(await flags(ref), 'with a 2.x list').to.deep.eq({ member: true, support: true });
     });
 
-    it('rejects a malformed 2.x key while it is read, and ignores it once the 3.0 key is set', async () => {
+    it('ignores a malformed 2.x key, with the 3.0 key unset and with it set', async () => {
       const ref = await user('member');
       await setConfig(PASSWORD_KEY, undefined);
 
       for (const bad of ['support', [''], [1], { support: true }]) {
         await setConfig(LEGACY_PASSWORD_KEY, bad);
-        await expect(source.rolesOf(await signedIn(ref)), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /rbac\.roleSwitch\.requirePassword/);
+        expect(await flags(ref), JSON.stringify(bad)).to.deep.eq({ member: true });
       }
 
-      await setConfig(PASSWORD_KEY, ['member']);
-      expect(await flags(ref)).to.deep.eq({ member: true });
+      await setConfig(PASSWORD_KEY, []);
+      expect(await flags(ref)).to.deep.eq({ member: false });
     });
   });
 
@@ -275,11 +279,23 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       DI.unregister(NeverEnrolledStep);
     });
 
+    // A container lists authn.mfa.steps once: each case reads them in a fresh child.
+    const scopes: IContainer[] = [];
+    const policyNow = async (): Promise<DefaultMfaPolicy> => {
+      const scope = DI.child();
+      scopes.push(scope);
+      return scope.resolve(DefaultMfaPolicy);
+    };
+
+    afterEach(async () => {
+      for (const scope of scopes.splice(0)) await scope.dispose();
+    });
+
     it('requires the first step for a holder of a listed role only', async () => {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer);
+      const policy = await policyNow();
       const login = { method: 'password', strategy: 'local' };
 
       expect(await policy.required(await user('support'), login)).to.deep.eq(['totp']);
@@ -290,7 +306,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer);
+      const policy = await policyNow();
       const ref = await user('member');
       await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p2' });
 

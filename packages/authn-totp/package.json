@@ -14,12 +14,20 @@
       "types": "./lib/mjs/db.d.ts",
       "import": "./lib/mjs/db.js",
       "require": "./lib/cjs/db.js"
+    },
+    "./service": {
+      "types": "./lib/mjs/service/index.d.ts",
+      "import": "./lib/mjs/service/index.js",
+      "require": "./lib/cjs/service/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "db": [
         "lib/cjs/db.d.ts"
+      ],
+      "service": [
+        "lib/cjs/service/index.d.ts"
       ]
     }
   },
@@ -38,7 +46,7 @@
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
-    "test": "ts-mocha -p tsconfig.json && ts-mocha -p tsconfig.json --config .mocharc.legacy-v2.json",
+    "test": "ts-mocha -p tsconfig.json",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -70,18 +78,13 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
-    "@spinajs/http": "2.0.549",
     "@spinajs/log": "2.0.549",
-    "@spinajs/queue": "2.0.549",
-    "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/util": "2.0.549",
-    "luxon": "^3.6.1",
+    "@spinajs/orm": "2.0.549",
     "otpauth": "9.4.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.0-alpha.0",
-    "@spinajs/orm": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
     "@types/qrcode": "^1.5.5"
   }

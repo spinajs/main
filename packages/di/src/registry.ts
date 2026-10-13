@@ -32,12 +32,20 @@ export class Registry {
   public unregister(type: any) {
     const tname = getTypeName(type);
 
-    this.registry.forEach((value) => {
+    for (const [key, value] of [...this.registry]) {
       const index = value.findIndex((x) => getTypeName(x) === tname);
-      if (index !== -1) {
-        value.splice(index, 1);
+      if (index === -1) {
+        continue;
       }
-    });
+
+      value.splice(index, 1);
+      // An empty list would still count as a registration and hide the default
+      // resolution ( the type itself, or the parent's entries ).
+      if (value.length === 0) {
+        this.registry.delete(key);
+        this.implicitKeys.delete(key);
+      }
+    }
   }
 
   public register(name: string | Class<any> | TypedArray<any>, type: any, implicit = false) {

@@ -80,6 +80,15 @@ describe('sqlite dialect', function () {
     });
   });
 
+  describe('identifier quoting in joins', () => {
+    it('quotes the FROM table, the join tables and the ON keys with backticks', () => {
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
+
+      expect((result as any).expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.`id` = `adresses`.`addressId` ORDER BY `name` ASC');
+    });
+  });
+
   describe('set membership', () => {
     it('compiles to instr, not to FIND_IN_SET', () => {
       const statement = connection.Container.resolve<InSetStatement>(InSetStatement, ['Role', ['admin'], false, undefined]);

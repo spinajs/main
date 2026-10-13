@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
-import { DI } from '@spinajs/di';
+import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, IdentityRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
@@ -669,5 +669,94 @@ describe('LocalPasswordService DI wiring', function () {
       ['invite', 'https://di.example.com/reset', 120],
     ]);
     expect(await secrets.redeem(erin, 'invite', mailer.mails[1].secret)).to.equal(true);
+  });
+
+  it('awaits stores whose backend boots asynchronously', async () => {
+    const seen: string[] = [];
+    const sharedIdentities = new FakeIdentityStore();
+    const sharedPasswords = new MemoryPasswordCredentialStore();
+    const sharedSecrets = new MemorySecretStore();
+
+    class ServiceBootBackend extends AsyncService {
+      public booted = false;
+      public async resolve(): Promise<void> {
+        await new Promise((res) => setTimeout(res, 5));
+        this.booted = true;
+      }
+    }
+
+    class ServiceBootingIdentityStore extends FakeIdentityStore {
+      @Autoinject(ServiceBootBackend)
+      protected backend: ServiceBootBackend;
+
+      public async findByLogin(login: string) {
+        seen.push(this.backend.booted ? 'identities booted' : 'identities not booted');
+        return sharedIdentities.findByLogin(login);
+      }
+      public async status(id: IdentityRef) {
+        return sharedIdentities.status(id);
+      }
+      public async display(id: IdentityRef) {
+        return sharedIdentities.display(id);
+      }
+    }
+
+    class ServiceBootingSecretStore extends MemorySecretStore {
+      @Autoinject(ServiceBootBackend)
+      protected backend: ServiceBootBackend;
+
+      public async issue(...args: Parameters<MemorySecretStore['issue']>) {
+        seen.push(this.backend.booted ? 'secrets booted' : 'secrets not booted');
+        return sharedSecrets.issue(...args);
+      }
+    }
+
+    class ServiceBootingPasswordStore extends MemoryPasswordCredentialStore {
+      @Autoinject(ServiceBootBackend)
+      protected backend: ServiceBootBackend;
+
+      public async set(id: IdentityRef, hash: string, expected?: string | null) {
+        seen.push(this.backend.booted ? 'passwords booted' : 'passwords not booted');
+        return sharedPasswords.set(id, hash, expected);
+      }
+    }
+
+    DI.unregister(FakeIdentityStore);
+    DI.unregister(MemorySecretStore);
+    DI.unregister(MemoryPasswordCredentialStore);
+    DI.register(ServiceBootingIdentityStore).as(IdentityStore);
+    DI.register(ServiceBootingSecretStore).as(SecretStore);
+    DI.register(ServiceBootingPasswordStore).as(PasswordCredentialStore);
+    DI.uncache(IdentityStore);
+    DI.uncache(SecretStore);
+    DI.uncache(PasswordCredentialStore);
+    DI.uncache(PasswordService);
+    DI.uncache(LocalPasswordService);
+    try {
+      const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
+      const frank = sharedIdentities.add({ login: 'frank@example.com', email: 'frank@example.com' });
+
+      expect(await service.requestReset('frank@example.com', ctx({ purpose: 'request' }))).to.deep.equal({ status: 'accepted' });
+      await service.drain();
+      expect(await service.set(frank, 'Another-Pass-4', ctx())).to.deep.equal({ status: 'set' });
+      expect(seen).to.include.members(['identities booted', 'secrets booted', 'passwords booted']);
+      expect(seen.filter((entry) => entry.includes('not booted'))).to.deep.equal([]);
+    } finally {
+      DI.unregister(ServiceBootingIdentityStore);
+      DI.uncache(ServiceBootingIdentityStore);
+      DI.uncache(ServiceBootingSecretStore);
+      DI.uncache(ServiceBootingPasswordStore);
+      DI.unregister(ServiceBootingSecretStore);
+      DI.unregister(ServiceBootingPasswordStore);
+      DI.register(FakeIdentityStore).as(IdentityStore);
+      DI.register(MemorySecretStore).as(SecretStore);
+      DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
+      DI.uncache(ServiceBootBackend);
+      DI.uncache(IdentityStore);
+      DI.uncache(SecretStore);
+      DI.uncache(PasswordCredentialStore);
+      DI.uncache(PasswordService);
+      DI.uncache(LocalPasswordService);
+    }
   });
 });

@@ -29,6 +29,11 @@
       "types": "./lib/mjs/register-schema.d.ts",
       "import": "./lib/mjs/register-schema.js",
       "require": "./lib/cjs/register-schema.js"
+    },
+    "./mfa-enrolments": {
+      "types": "./lib/mjs/flow/mfa-enrolments.d.ts",
+      "import": "./lib/mjs/flow/mfa-enrolments.js",
+      "require": "./lib/cjs/flow/mfa-enrolments.js"
     }
   },
   "typesVersions": {
@@ -44,6 +49,9 @@
       ],
       "register-schema": [
         "lib/cjs/register-schema.d.ts"
+      ],
+      "mfa-enrolments": [
+        "lib/cjs/flow/mfa-enrolments.d.ts"
       ]
     }
   },
@@ -92,7 +100,8 @@
     "@spinajs/configuration-common": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
-    "@spinajs/log-common": "2.0.549"
+    "@spinajs/log-common": "2.0.549",
+    "@spinajs/util": "2.0.549"
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.0-alpha.0"

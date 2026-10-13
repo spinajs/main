@@ -76,7 +76,5 @@ create (a token that grants nothing); no roles means no role ceiling.
 
 ## 2.x API
 
-The 2.x token API under `src/legacy/` (`createToken`, `validateToken`,
-`touchToken`, `AccessTokenRolePolicy`, the 2.x events and exceptions, and the
-rest) is still exported for `@spinajs/authn-http`. It is deprecated: use
-`TokenService`. R1 removes it.
+The 2.x token API (`createToken`, `validateToken`, `touchToken` and the rest) is gone.
+`TokenService` replaces it.

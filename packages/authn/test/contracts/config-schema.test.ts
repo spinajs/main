@@ -6,8 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { AUTHN_CONFIGURATION_SCHEMA, AUTHN_LEGACY_KEYS } from '../../src/schemas/index.js';
-import type { AuthnLegacyKey } from '../../src/schemas/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA } from '../../src/schemas/index.js';
 import * as root from '../../src/index.js';
 import * as contracts from '../../src/contracts/index.js';
 
@@ -113,7 +112,6 @@ function example(): Json {
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
     },
     throttle: { service: 'DbAuthnThrottle', ...clone(THROTTLE_DEFAULTS) },
-    config: { rejectLegacyKeys: false },
     freshAuth: { maxAgeSeconds: 300 },
     token: { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 },
     jwt: { issuers: [] },
@@ -123,8 +121,8 @@ function example(): Json {
       httpSignature: { maxAgeSeconds: 300, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
     },
     linking: { jit: false, byVerifiedEmail: false },
-    impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-    audit: { sampleUse: 0.01, hashIdentifiers: true },
+    impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
+    audit: { hashIdentifiers: true },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
@@ -179,8 +177,6 @@ function declared(path: string): boolean {
   return true;
 }
 
-const acceptRow = (row: AuthnLegacyKey): AuthnLegacyKey => row;
-
 describe('authn.* configuration schema', () => {
   it('is the authn module schema', () => {
     expect(AUTHN_CONFIGURATION_SCHEMA.$id).to.eq('spinajs/authn.configuration.schema.json');
@@ -200,8 +196,8 @@ describe('authn.* configuration schema', () => {
     expect(missing).to.deep.eq([]);
     // Two schemas on authn.oidc would report every violation twice; @spinajs/authn-oidc owns it.
     expect(declared('oidc')).to.eq(false);
-    expect(declared('config.rejectLegacyKeys')).to.eq(true);
     expect(declared('token.generation.service')).to.eq(true);
+    expect(declared('config')).to.eq(false);
   });
 
   describe('valid configs', () => {
@@ -273,7 +269,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -290,12 +286,11 @@ describe('authn.* configuration schema', () => {
         token: TOKEN_DEFAULTS,
         jwt: { issuers: [] },
         keys: KEYS_DEFAULTS,
-        impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-        audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
+        impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
+        audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
         strategies: [],
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS },
-        config: { rejectLegacyKeys: false },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
         throttle: THROTTLE_DEFAULTS,
@@ -359,7 +354,8 @@ describe('authn.* configuration schema', () => {
       refused({ local: { reset: { ttlSeconds: 0 } } }, '/local/reset/ttlSeconds');
       refused({ session: { pendingTtlSeconds: 0 } }, '/session/pendingTtlSeconds');
       refused({ impersonation: { maxMinutes: 0 } }, '/impersonation/maxMinutes');
-      refused({ audit: { sampleUse: 1.5 } }, '/audit/sampleUse');
+      refused({ impersonation: { clockSkewSeconds: 301 } }, '/impersonation/clockSkewSeconds');
+      refused({ audit: { sinkTimeoutMs: 0 } }, '/audit/sinkTimeoutMs');
     });
 
     it('refuses algorithms outside the allow-lists', () => {
@@ -425,87 +421,15 @@ describe('authn.* configuration schema', () => {
   });
 });
 
-describe('authn old-key table', () => {
-  // Design §22.5's table plus rbac.token.generation, which F0b moved (erratum for the design).
-  const TABLE: [string, string | null, 'key' | 'subtree', 'authn' | 'users'][] = [
-    ['rbac.auth.service', 'authn.strategies', 'key', 'authn'],
-    ['rbac.password.service', 'authn.local.hasher.service', 'key', 'authn'],
-    ['rbac.password.validation', 'authn.local.policy', 'subtree', 'authn'],
-    ['rbac.password.generator', 'authn.local.generator', 'subtree', 'authn'],
-    ['rbac.password.passwordResetWaitTime', 'authn.local.reset.ttlSeconds', 'key', 'authn'],
-    ['rbac.password.invite.waitTime', 'authn.local.invite.ttlSeconds', 'key', 'authn'],
-    ['rbac.password.resetUrl', 'authn.local.reset.url', 'key', 'authn'],
-    ['rbac.password.blockAfterAttempts', 'authn.throttle.login.account.free', 'key', 'authn'],
-    ['rbac.password.lockoutTime', null, 'key', 'authn'],
-    ['rbac.password.expiration', 'authn.local.expiration', 'subtree', 'authn'],
-    ['rbac.session', 'authn.session', 'subtree', 'authn'],
-    ['rbac.twoFactorAuth.enabled', 'authn.mfa.steps', 'key', 'authn'],
-    ['rbac.twoFactorAuth.forceUser', 'authn.mfa.policy.force', 'key', 'authn'],
-    ['rbac.twoFactorAuth.service', 'authn.mfa.steps', 'key', 'authn'],
-    ['rbac.otpauth', 'authn.mfa.totp', 'subtree', 'authn'],
-    ['rbac.token.prefix', 'authn.token.prefix', 'key', 'authn'],
-    ['rbac.token.length', 'authn.token.length', 'key', 'authn'],
-    ['rbac.token.generation', 'authn.token.generation', 'subtree', 'authn'],
-    ['rbac.token.headerName', 'authn.token.headerName', 'key', 'authn'],
-    ['rbac.token.lastUsedUpdateInterval', 'authn.token.lastUsedUpdateInterval', 'key', 'authn'],
-    ['rbac.impersonation.requirePassword', 'authn.impersonation.requirePassword', 'key', 'authn'],
-    ['rbac.user', 'users.user', 'subtree', 'users'],
-    ['rbac.email', 'users.email', 'subtree', 'users'],
-    ['rbac.actions', 'users.actions', 'subtree', 'users'],
-  ];
-
-  it('has one row per 2.x key of the design table and F0b moves, in order', () => {
-    expect(AUTHN_LEGACY_KEYS.map((r) => [r.from, r.to, r.scope, r.family])).to.deep.eq(TABLE);
-    expect(new Set(AUTHN_LEGACY_KEYS.map((r) => r.from)).size).to.eq(AUTHN_LEGACY_KEYS.length);
-  });
-
-  it('maps every authn row to a key the schema declares', () => {
-    const rows = AUTHN_LEGACY_KEYS.filter((r) => r.family === 'authn' && r.to !== null);
-    expect(rows.filter((r) => !r.to!.startsWith('authn.') || !declared(r.to!.slice('authn.'.length))).map((r) => r.to)).to.deep.eq([]);
-  });
-
-  it('sends identity rows to users.*', () => {
-    expect(AUTHN_LEGACY_KEYS.filter((r) => r.family === 'users').every((r) => r.to !== null && r.to.startsWith('users.'))).to.eq(true);
-  });
-
-  it('drops lockoutTime with a warning (H31)', () => {
-    const dropped = AUTHN_LEGACY_KEYS.filter((r) => r.to === null);
-    expect(dropped.map((r) => r.from)).to.deep.eq(['rbac.password.lockoutTime']);
-    expect(dropped[0].note).to.match(/H31/);
-  });
-
-  it('notes every row that is more than a rename', () => {
-    const noted = AUTHN_LEGACY_KEYS.filter((r) => r.note).map((r) => r.from);
-    expect(noted).to.include.members(['rbac.auth.service', 'rbac.password.blockAfterAttempts', 'rbac.password.lockoutTime', 'rbac.password.expiration', 'rbac.twoFactorAuth.enabled', 'rbac.twoFactorAuth.service']);
-  });
-
-  it('is frozen', () => {
-    expect(Object.isFrozen(AUTHN_LEGACY_KEYS)).to.eq(true);
-    expect(AUTHN_LEGACY_KEYS.every((r) => Object.isFrozen(r))).to.eq(true);
-  });
-
-  it('types a dropped row with a note and only the authn and users families', () => {
-    acceptRow({ from: 'rbac.a', to: 'authn.a', scope: 'key', family: 'authn' });
-    acceptRow({ from: 'rbac.b', to: null, scope: 'key', family: 'authn', note: 'dropped' });
-    // @ts-expect-error a dropped row needs a note, the detector's warning
-    acceptRow({ from: 'rbac.c', to: null, scope: 'key', family: 'authn' });
-    // @ts-expect-error authz keys are not in this table
-    acceptRow({ from: 'rbac.d', to: 'authz.d', scope: 'key', family: 'authz' });
-    // @ts-expect-error scope is 'key' or 'subtree'
-    acceptRow({ from: 'rbac.e', to: 'authn.e', scope: 'prefix', family: 'authn' });
-  });
-});
-
 describe('authn config boundary', () => {
-  it('the root entry exports the schema and the table; the contracts entry does not', () => {
-    expect(root).to.include.keys('AUTHN_CONFIGURATION_SCHEMA', 'AUTHN_LEGACY_KEYS');
+  it('the root entry exports the schema; the contracts entry does not', () => {
+    expect(root).to.include.keys('AUTHN_CONFIGURATION_SCHEMA');
     expect(Object.keys(contracts)).to.not.include.members(['AUTHN_CONFIGURATION_SCHEMA']);
-    expect(Object.keys(contracts)).to.not.include.members(['AUTHN_LEGACY_KEYS']);
   });
 
   it('src/schemas imports nothing but its own files', () => {
     const files = readdirSync(SCHEMAS_DIR).filter((f) => f.endsWith('.ts'));
-    expect(files).to.have.members(['authn.configuration.ts', 'legacy-keys.ts', 'index.ts']);
+    expect(files).to.have.members(['authn.configuration.ts', 'index.ts']);
     const outside = files.flatMap((f) =>
       ts
         .preProcessFile(readFileSync(join(SCHEMAS_DIR, f), 'utf8'), true, true)

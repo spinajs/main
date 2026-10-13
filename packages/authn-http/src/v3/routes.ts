@@ -1,6 +1,7 @@
 import type { IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Request } from '@spinajs/http';
+import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_PENDING_STEPS_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
@@ -101,12 +102,21 @@ export async function answerFor(container: IContainer, kind: AnswerKind, princip
   return body;
 }
 
-/** The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy `policyService` (authn.mfa.policy.service) is asked as completeMfa asks it. */
+/**
+ * The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy `policyService`
+ * (authn.mfa.policy.service) is asked as completeMfa asks it. A policy refusal over the stored enrolments gives no step:
+ * MFA verify then answers its usual failure, whoami an empty list.
+ */
 export async function pendingSteps(container: IContainer, session: Restored, policyService: string): Promise<string[]> {
   const stored = session.data.get(SESSION_PENDING_STEPS_KEY);
   if (Array.isArray(stored) && stored.length > 0 && stored.every((s) => typeof s === 'string')) return [...stored];
   const policy = await mfaPolicyOf(container, policyService);
-  return [...(await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy }))];
+  try {
+    return [...(await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy }))];
+  } catch (err) {
+    if (mfaEnrolmentRefusal(err)) return [];
+    throw err;
+  }
 }
 
 /** A user id, or `{ type, id }`, each part a non-empty string of at most `cap` characters. */

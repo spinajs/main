@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Perf } from '@spinajs/log';
 
 import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
+import { urlPath } from '../util/redact-url.js';
 
 /**
  * Emits one perf rollup per request ( eg. "orm.query x14 240ms" ). Creates the
@@ -33,7 +34,7 @@ export class PerfRollup extends ServerMiddleware {
       req.storage.perf = { requestId: req.storage.requestId, byName: {} };
       res.on('finish', () => {
         Perf.flushScope(req.storage.perf, {
-          labels: { method: req.method, route: (req.route as { path?: string })?.path ?? req.originalUrl, status: res.statusCode },
+          labels: { method: req.method, route: (req.route as { path?: string })?.path ?? urlPath(req.originalUrl), status: res.statusCode },
           totalMs: Date.now() - startedAt,
         });
       });

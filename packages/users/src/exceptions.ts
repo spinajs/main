@@ -23,11 +23,6 @@ export class AuthenticationException extends RbacException {}
 export class InvalidCredentials extends AuthenticationException {}
 
 /**
- * Thrown when the account is inside a lockout window after too many failed logins.
- */
-export class LoginAttemptsExceeded extends AuthenticationException {}
-
-/**
  * Thrown when the user is banned - during authentication and when a
  * ban / unban / password-reset action refuses to run on a banned account.
  * ( named UserIsBanned - the UserBanned name is taken by the domain event )
@@ -69,22 +64,3 @@ export class MetadataNotFound extends RbacException {}
  * Thrown when a rbac email template is not configured ( users.email in config ).
  */
 export class EmailTemplateNotConfigured extends RbacException {}
-
-/**
- * Thrown by the deprecated `changeUserPassword` when the stored password is no longer the one the caller loaded (a
- * reset, an expiry or another change landed meanwhile): nothing was written. `data.user` is the Uuid.
- */
-export class PasswordChangeConflict extends RbacException {}
-
-/**
- * Thrown when a password change / reset token has expired.
- *
- * @deprecated 3.0: nothing in users throws it; authn answers an expired secret like any invalid one (A11). R1 deletes
- * it after N8a.
- */
-export class TokenExpired extends RbacException {}
-
-/**
- * Thrown when a password change / reset token does not match.
- */
-export class TokenInvalid extends RbacException {}

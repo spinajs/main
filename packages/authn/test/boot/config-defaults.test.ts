@@ -40,7 +40,7 @@ describe('authn shipped config', () => {
 
   it('ships only the keys whose 3.0 shape authn owns', () => {
     expect(Object.keys(shipped)).to.deep.eq(['authn']);
-    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'config', 'freshAuth', 'impersonation', 'linking', 'mfa', 'strategies', 'throttle']);
+    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'freshAuth', 'impersonation', 'linking', 'mfa', 'strategies', 'throttle']);
     expect(Object.keys(authn.mfa)).to.deep.eq(['policy']);
   });
 
@@ -63,10 +63,10 @@ describe('authn shipped config', () => {
     expect(authn.freshAuth).to.deep.eq(check({}).config.freshAuth);
     expect(check({}).config.freshAuth).to.deep.eq({ maxAgeSeconds: 300 });
     expect(authn.audit).to.deep.eq(check({}).config.audit);
-    expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60 });
+    expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
-    expect(authn.config).to.deep.eq({ rejectLegacyKeys: false });
+    expect(authn).to.not.have.property('config');
   });
 
   it('passes the schema unchanged', () => {
@@ -95,10 +95,6 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } } }).ok).to.eq(true);
   });
 
-  it('gives authn.config its default', () => {
-    expect(check({}).config.config).to.deep.eq({ rejectLegacyKeys: false });
-  });
-
   it('names the pepper and MFA key paths in full on a boot', async () => {
     const paths = await violationPaths(configuredChild({ authn: { local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } }, mfa: { encryptionKey: { secret: {} } } } }));
     expect(paths).to.include('authn.local.pepper.previous.0.version');
@@ -121,8 +117,8 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ audit: { hashKey: { secret: 'h'.repeat(31) } } }).paths).to.include('/audit/hashKey/secret');
     for (const bad of [0, 60001, 1.5]) expect(check({ audit: { sinkTimeoutMs: bad } }).paths, String(bad)).to.include('/audit/sinkTimeoutMs');
     expect(check({ audit: { disabled: ['LogAuthnAuditSink'] } }).paths).to.include('/audit');
-    expect(check({ audit: {} }).config.audit).to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
-    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
+    expect(check({ audit: {} }).config.audit).to.deep.eq({ hashIdentifiers: true, sinkTimeoutMs: 2000 });
+    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ hashIdentifiers: true, sinkTimeoutMs: 2000 });
   });
 
   it('refuses a backoff key missing a field, as the throttle reader does', () => {
@@ -200,7 +196,7 @@ describe('AuthnConfigBootstrapper', () => {
     it('validates the merged 2.x interim shapes and the shipped defaults without an error', async () => {
       const c = await boot({});
       expect(c.get('authn.throttle.login.account')).to.deep.eq(BACKOFF);
-      expect(c.get('authn.audit.sampleUse')).to.eq(0.01);
+      expect(c.get('authn.audit.sinkTimeoutMs')).to.eq(2000);
       expect(c.get('authn.session.hashIds')).to.eq(true);
     });
 

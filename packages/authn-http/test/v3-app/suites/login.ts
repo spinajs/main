@@ -252,4 +252,37 @@ export function loginSuite(): void {
       expect((await new Client().post('/auth/logout', undefined, { Authorization: `Bearer ${token}` })).status).to.eq(401);
     });
   });
+
+  describe('a request body that is not valid JSON', () => {
+    const json = { 'Content-Type': 'application/json' };
+
+    function expectNowhere(res: Res, secrets: string[]): void {
+      const log = logLines().join('\n');
+      for (const secret of secrets) {
+        expect(res.text, 'response').to.not.include(secret);
+        expect(log, 'log').to.not.include(secret);
+      }
+      expect(log, 'the parse failure is logged').to.include('entity.parse.failed');
+    }
+
+    for (const [name, raw, secret] of [
+      ['a truncated password', '{"login":"a","password":"Zq7loginTrKw4', 'Zq7loginTrKw4'],
+      ['an unquoted password', '{"login":"a","password":Zq7loginB}', 'Zq7loginB'],
+    ]) {
+      it(`POST /auth/login with ${name}: 400, the password in neither the answer nor the log`, async () => {
+        clearLog();
+        const res = await new Client().post('/auth/login', raw, json);
+        expect(res.status, res.text).to.eq(400);
+        expectNowhere(res, [secret]);
+      });
+    }
+
+    it('PATCH /user/password with currentPassword and newPassword: 400, neither in the answer nor the log', async () => {
+      const c = await loggedIn(await seedUser());
+      clearLog();
+      const res = await c.patch('/user/password', '{"currentPassword":"Zq7curPwRt5","newPassword":Zq7newPw}', json);
+      expect(res.status, res.text).to.eq(400);
+      expectNowhere(res, ['Zq7curPwRt5', 'Zq7newPw']);
+    });
+  });
 }

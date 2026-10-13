@@ -1,5 +1,5 @@
 import { QueueEvent, Event } from '@spinajs/queue';
-import { User } from '../index.js';
+import type { User } from '../models/User.js';
 
 @Event()
 export class UserEvent extends QueueEvent {

@@ -7,11 +7,13 @@
   ],
   "ignore": [
     "test/v3-app/**",
-    "test/v3-socket/**",
-    "test/legacy-v2/**"
+    "test/v3-socket/**"
   ],
   "node-option": [
     "experimental-specifier-resolution=node",
     "loader=ts-node/esm"
+  ],
+  "file": [
+    "test/lost-rejections.ts"
   ]
 }

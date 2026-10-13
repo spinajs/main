@@ -134,6 +134,29 @@ export interface IContainer extends EventEmitter {
   resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
   resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown;
 
+  /**
+   * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
+   * Unlike `resolve`, it never falls back to instantiating the class itself.
+   */
+  resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
+  resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
+
+  /**
+   * Names of the registrations of `base` across this container and its ancestors (`Array.chainOf(base)`),
+   * nearest container last, without repeats. A factory goes by its function name; an anonymous one is left out.
+   */
+  getRegisteredNames(base: Class<unknown>): string[];
+
+  /**
+   * The registration of `base` named `name`, nearest container first (see `getRegisteredNames`).
+   * A factory is called with this container and its result is returned as is, undefined included. A class
+   * resolves through DI, so its lifetime applies, in the container that registered it; a PerChildContainer
+   * class resolves in this container.
+   *
+   * @throws ServiceNotFound when no registration has that name
+   */
+  resolveNamed<T>(base: Class<T>, name: string): Promise<T>;
+
   dispose(): Promise<void>;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;

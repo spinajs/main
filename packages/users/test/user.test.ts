@@ -1,10 +1,7 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { AccessControl } from 'accesscontrol';
-import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadata } from '../src/index.js';
+import { User, UserMetadata } from '../src/index.js';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -15,6 +12,7 @@ import { DateTime } from 'luxon';
 
 import './migration/rbac.migration.js';
 import { TEST_USER_UUID, TEST_USER_UUID_2 } from './migration/rbac.migration.js';
+import { testHasher } from './support/hasher.js';
 
 chai.use(chaiAsPromised);
 
@@ -26,10 +24,8 @@ describe('User model tests', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
   });
 
   beforeEach(async () => {
@@ -138,22 +134,6 @@ describe('User model tests', function () {
 
       expect(user).to.be.not.null;
       expect((user as any).Login).to.eq('2fast4you');
-    });
-  });
-
-  describe('the deprecated 2.x AccessControl', () => {
-    it('a user is built without reading the 2.x AccessControl; only the deprecated can* read it', () => {
-      DI.get<AccessControl>('AccessControl')!.setGrants({ editor: { Article: { 'read:any': ['*'] } } });
-      const get = sinon.spy(DI.RootContainer, 'get');
-      try {
-        const user = new User({ Role: ['editor'] });
-        expect(get.calledWith('AccessControl')).to.eq(false);
-
-        expect(user.canReadAny('Article').granted).to.be.true;
-        expect(get.calledWith('AccessControl')).to.eq(true);
-      } finally {
-        get.restore();
-      }
     });
   });
 
@@ -316,13 +296,11 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same email is used', async () => {
-      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'test@spinajs.pl',
         Login: 'tesssst',
-        Password: await provider.hash('bbbb'),
-        Role: ['admin'],
+        Password: await testHasher.hash('bbbb'),
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
       });
@@ -331,13 +309,11 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same uuid is used', async () => {
-      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'tessssst@spinajs.pl',
         Login: 'tesw222ssst',
-        Password: await provider.hash('bbbb'),
-        Role: ['admin'],
+        Password: await testHasher.hash('bbbb'),
         IsActive: true,
         Uuid: TEST_USER_UUID,
       });
@@ -346,13 +322,11 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same login is used', async () => {
-      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'test-22222@spinajs.pl',
         Login: 'test',
-        Password: await provider.hash('bbbb'),
-        Role: ['admin'],
+        Password: await testHasher.hash('bbbb'),
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
       });

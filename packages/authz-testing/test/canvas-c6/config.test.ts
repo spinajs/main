@@ -122,8 +122,9 @@ describe('canvas C6 config generator (design §8.5)', () => {
       });
     });
 
-    it('has the agents-disabled policy', () => {
+    it('has the agents-disabled policy, listed through scope residuals (RFC K1b-1)', () => {
       expect(config.abac).to.deep.equal({
+        scopeResiduals: true,
         policies: [{ id: 'agents-disabled', effect: 'deny', actorTypes: ['agent'], permissions: ['*'], when: { attr: 'scope.org.policies.agents_allowed', eq: false }, reason: 'agents_disabled', priority: 100 }],
       });
     });

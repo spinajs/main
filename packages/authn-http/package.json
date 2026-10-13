@@ -66,7 +66,6 @@
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-session": "3.0.0-alpha.0",
-    "@spinajs/authn-token": "3.0.0-alpha.0",
     "@spinajs/authn-totp": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
@@ -74,18 +73,8 @@
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/http": "2.0.549",
     "@spinajs/log": "2.0.549",
-    "@spinajs/orm": "2.0.549",
-    "@spinajs/queue": "2.0.549",
-    "@spinajs/reflection": "2.0.549",
-    "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/validation": "2.0.549",
-    "accesscontrol": "^2.2.1",
     "cookie-signature": "^1.2.2",
-    "express": "^5.1.0",
-    "lodash": "^4.17.21",
-    "luxon": "^3.6.1",
-    "reflect-metadata": "^0.1.13",
-    "uuid": "^9.0.0"
+    "express": "^5.1.0"
   },
   "peerDependencies": {
     "@spinajs/http-socket": "2.0.549"
@@ -96,12 +85,16 @@
     }
   },
   "devDependencies": {
+    "@spinajs/authn-keys": "3.0.0-alpha.0",
+    "@spinajs/authn-local": "3.0.0-alpha.0",
+    "@spinajs/authn-orm": "3.0.0-alpha.0",
     "@spinajs/authn-testing": "3.0.0-alpha.0",
+    "@spinajs/authn-token": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/http-socket": "2.0.549",
-    "@spinajs/intl": "2.0.549",
+    "@spinajs/orm": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
-    "@types/uuid": "^9.0.0",
+    "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
   }
 }

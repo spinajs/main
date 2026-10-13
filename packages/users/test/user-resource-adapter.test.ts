@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -11,7 +10,7 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { GLOBAL, ResourceAdapter, SYSTEM } from '@spinajs/authz';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, User, UserPrincipalFactory, UserResourceAdapter } from '../src/index.js';
+import { User, UserPrincipalFactory, UserResourceAdapter } from '../src/index.js';
 import { activate, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
@@ -34,10 +33,8 @@ describe('UserResourceAdapter', function () {
   this.timeout(30000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
   });
 
@@ -112,7 +109,7 @@ describe('UserResourceAdapter', function () {
 
   describe("end to end: a 'self' grant on user:read", () => {
     async function selfReader() {
-      const { User: created } = await create('reader@spinajs.pl', 'reader', ['self-reader'], { password: 'passw0rd123' });
+      const { User: created } = await create({ Email: 'reader@spinajs.pl', Login: 'reader', Password: 'passw0rd123' }, ['self-reader']);
       await activate(created.Uuid);
       const own = await User.query().whereLogin('reader').populate('Metadata').firstOrFail();
       const me = await ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf(own);

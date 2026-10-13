@@ -20,7 +20,8 @@ import type { PasswordMail } from '@spinajs/authn-local';
 
 import usersConfig from '../src/config/users.js';
 import { QueueAuthnEventSink, UserAccountSink, UserIdentityStore, UserPasswordStore, User } from '../src/index.js';
-import { ban, create, deactivate, grant, revoke, setUserMeta } from '../src/actions.js';
+import { ban, create, deactivate, setUserMeta } from '../src/actions.js';
+import { rootAdmin } from './support/authz-host.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { registerRecordingSessionIssuer } from './support/session-issuer.js';
 import { useKitConfiguration } from './support/kit-configuration.js';
@@ -56,7 +57,8 @@ class UsersAcceptanceBackend extends MemoryAuthzAdminBackend {}
  * The kit's shared host harness (a real `DefaultAuthzService` test domain under root) with authz-rbac's `RbacModel`
  * over `ConfigRoleStore`, and, for the admin parts, `DefaultAuthzAdmin` with authz-rbac's guard defaults. The roles are
  * the world's merged with users' shipped `authz.rbac.roles` fragment, as an application loads both; users' root
- * registrations (the `self` resolvers, `UserResourceAdapter` and its `user:*` permissions) are in the chain.
+ * registrations (the `self` and metadata `owner` resolvers, `UserResourceAdapter` and its `user:*`,
+ * `user.metadata:*` and `users:credentials` permissions) are in the chain.
  */
 function usersRbacHarness(admin: boolean): BehaviourHarness {
   return hostHarness({
@@ -66,7 +68,11 @@ function usersRbacHarness(admin: boolean): BehaviourHarness {
       const c = host.container;
       const rbac = host.world.rbac ?? {};
 
-      host.setConfig(['authz', 'rbac', 'roles'], _.mergeWith({}, roleConfig((rbac.roles ?? []) as readonly RoleDef[]), usersConfig.authz.rbac.roles, mergeArrays));
+      const roleDefs = _.mergeWith({}, roleConfig((rbac.roles ?? []) as readonly RoleDef[]), usersConfig.authz.rbac.roles, mergeArrays) as Record<string, { grants?: readonly unknown[] }>;
+      // The world's superuser grants users' admin (B12.write), and AuthzAdmin's guard wants it to cover every permission
+      // admin.users' 'users:*' and 'user.metadata:*' expand to; the kit world does not know users' permissions.
+      if (admin && roleDefs.superuser) roleDefs.superuser = { ...roleDefs.superuser, grants: [...(roleDefs.superuser.grants ?? []), 'users:credentials', 'user.metadata:*'] };
+      host.setConfig(['authz', 'rbac', 'roles'], roleDefs);
       if (rbac.ladders) host.setConfig(['authz', 'rbac', 'ladders'], ladderConfig(rbac.ladders as readonly LadderDef[]));
 
       const assignments = new MemoryAdminAssignmentStore({ assignments: rbac.assignments });
@@ -109,17 +115,13 @@ function usersRbacHarness(admin: boolean): BehaviourHarness {
 describe('plan C1 acceptance', function () {
   this.timeout(60000);
 
-  describe('B10, B27: the parts that name lane C1, through a real host with users roles', () => {
+  describe('B10, B12, B27: the parts that name lane C1, through a real host with users roles', () => {
     // Still has to run before any suite calls registerAuthzHost: the root RBAC model it leaves registered boots under
     // the kit's config and fails B10's anonymousRoles.
     useKitConfiguration();
 
     runBehaviour(['B10.rbac'], () => usersRbacHarness(false), { strict: true });
-    // B12.write stays off after RFC C1-1 (applied in G2): the guard now covers glob grants against the registry, but a
-    // glob that matches no registered permission refuses. admin.users' 'user.metadata:*' matches none in this world
-    // (no package registers a user.metadata permission yet), so the world's superuser may not grant admin. Run
-    // B12.write here once C2 registers the user.metadata permissions and the world's superuser holds them.
-    runBehaviour(['B27.events'], () => usersRbacHarness(true), { strict: true });
+    runBehaviour(['B12.write', 'B27.events'], () => usersRbacHarness(true), { strict: true });
   });
 
   describe("users' own write path emits RoleAssigned and RoleRevoked through AuthzAdmin (B12, B27)", () => {
@@ -160,9 +162,12 @@ describe('plan C1 acceptance', function () {
       expect(roleEvents()).to.deep.eq([{ type: 'RoleAssigned', actor: SYSTEM.type, subject: { type: 'user', id: u.Uuid }, role: 'user', scope: GLOBAL }]);
     });
 
-    it('grant and revoke emit RoleAssigned and RoleRevoked with the actor', async () => {
-      await grant('test@spinajs.pl', 'editor');
-      await revoke('test@spinajs.pl', 'editor');
+    it('a role assigned and revoked through AuthzAdmin emits RoleAssigned and RoleRevoked with the actor', async () => {
+      const admin = await rootAdmin();
+      const subject = { type: 'user', id: TEST_USER_UUID };
+      await admin.assign(SYSTEM, { subject, role: 'editor', scope: GLOBAL });
+      const [revoked] = await admin.execute(SYSTEM, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role: 'editor' }]);
+      expect(revoked.ok).to.eq(true);
 
       expect(roleEvents().map((e) => [e.type, e.actor, e.role, e.subject.id])).to.deep.eq([
         ['RoleAssigned', SYSTEM.type, 'editor', TEST_USER_UUID],

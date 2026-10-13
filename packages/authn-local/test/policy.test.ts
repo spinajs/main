@@ -355,4 +355,17 @@ describe('LocalPasswordPolicy config wiring', function () {
     }
     expect(error).to.be.instanceOf(InvalidOption);
   });
+
+  it('a blocklist name with no PasswordBlocklist registered at all fails with InvalidOption', async () => {
+    DI.unregister(ConfiguredTestBlocklist);
+    let error: unknown;
+    try {
+      await boot({ policy: { blocklist: 'ConfiguredTestBlocklist' } });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(InvalidOption);
+    expect((error as Error).message).to.contain('is not registered as a PasswordBlocklist');
+  });
+
 });

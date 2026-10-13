@@ -1,4 +1,3 @@
-import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { execFileSync } from 'child_process';
@@ -17,7 +16,7 @@ import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, PasswordProvider, PrincipalAttributeProvider, RBAC_USER_MODEL, SimpleDbAuthProvider, User, UserIsBanned, UserNotActive, UserPrincipalFactory } from '../src/index.js';
+import { PrincipalAttributeProvider, RBAC_USER_MODEL, User, UserIsBanned, UserNotActive, UserPrincipalFactory } from '../src/index.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID, TEST_USER_UUID_3 } from './migration/rbac.migration.js';
 import { registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -65,10 +64,8 @@ describe('UserPrincipalFactory', function () {
   this.timeout(30000);
 
   before(() => {
-    DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    DI.register(BasicPasswordProvider).as(PasswordProvider);
     registerAuthzHost();
     // referenced so the decorators register them
     void [FirstTestProvider, SecondTestProvider];

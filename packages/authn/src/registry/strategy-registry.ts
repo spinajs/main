@@ -2,15 +2,18 @@ import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { isNonEmptyString } from '@spinajs/util';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
 import type { Credentials } from '../contracts/credentials.js';
-import { instantiate, kindOf, nearestRegistration, nonEmpty, q } from './named.js';
-import type { NamedEntry } from './named.js';
+import { kindOf, q } from '../support/format.js';
 import { isCredentialSelector } from './selector.js';
 import type { CredentialSelector } from './selector.js';
 
-export type StrategyEntry = NamedEntry;
+export interface StrategyEntry {
+  readonly name: string;
+  readonly service: string;
+}
 
 interface Listed {
   readonly strategy: AuthenticationStrategy;
@@ -34,7 +37,7 @@ function check(e: StrategyEntry, s: unknown): Listed {
     throw new InvalidOption(`${at}: the strategy's interactive must be a boolean, got ${kindOf(strategy.interactive)}`);
   }
   const kinds: unknown = strategy.kinds;
-  if (!Array.isArray(kinds) || kinds.length === 0 || !kinds.every(nonEmpty)) {
+  if (!Array.isArray(kinds) || kinds.length === 0 || !kinds.every(isNonEmptyString)) {
     throw new InvalidOption(`${at}: the strategy must declare at least one credential kind as a non-empty string`);
   }
   return { strategy, kinds: Object.freeze([...kinds]), selector: isCredentialSelector(strategy) };
@@ -64,7 +67,7 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
 @Inject(Container)
 export class StrategyRegistry extends AsyncService {
   @Config('authn.strategies')
-  protected Entries: NamedEntry[];
+  protected Entries: StrategyEntry[];
 
   private listed: readonly Listed[] | undefined;
   private all: readonly AuthenticationStrategy[] | undefined;
@@ -75,13 +78,13 @@ export class StrategyRegistry extends AsyncService {
 
   public async resolve(): Promise<void> {
     const listed: Listed[] = [];
+    const registered = this.container.getRegisteredNames(AuthenticationStrategy);
     for (const e of this.Entries) {
       // The whole lineage: a child may list a root strategy next to its own.
-      const type = nearestRegistration(this.container, AuthenticationStrategy, e.service);
-      if (!type) {
+      if (!registered.includes(e.service)) {
         throw new InvalidOption(`authn.strategies entry ${q(e.name)}: no AuthenticationStrategy is registered as service ${q(e.service)}`);
       }
-      listed.push(check(e, await instantiate(this.container, type)));
+      listed.push(check(e, await this.container.resolveNamed(AuthenticationStrategy, e.service)));
     }
     this.listed = Object.freeze(listed);
     this.all = Object.freeze(listed.map((l) => l.strategy));

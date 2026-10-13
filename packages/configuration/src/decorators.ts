@@ -1,8 +1,8 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise, ServiceNotFound } from '@spinajs/di';
+import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 
 export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
@@ -145,6 +145,63 @@ export function Config(path: string, options?: IConfigEntryOptions) {
       configurable: false,
     });
   };
+}
+
+export interface IAutoinjectServiceOptions {
+  /** Services are looked up by registration name across the container lineage, nearest container first. */
+  lineage: true;
+  /** The configured list is injected as a Map keyed by this property of each entry; the instance must carry the same value. */
+  keyBy: string;
+}
+
+const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
+
+/**
+ * Resolves the services named by the list at `path` in `container`: the entries,
+ * each `{ [keyBy], service }`, in list order. An unset path gives an empty Map.
+ *
+ * @throws ServiceNotFound when no registration of `type` is named as an entry's service
+ * @throws InvalidOption when the value is not a list, a key is listed twice, or an instance's key differs from its entry's
+ */
+export async function resolveNamedServices<T>(container: IContainer, path: string, type: Class<T>, options: IAutoinjectServiceOptions): Promise<Map<string, T>> {
+  const cfg = getOwnConfiguration(container);
+  if (!cfg) {
+    throw new InvalidOperation(`Cannot resolve the services of ${path}: the Configuration of the container is not resolved`);
+  }
+
+  const { keyBy } = options;
+  const entries = cfg.get<unknown>(path) ?? [];
+  if (!Array.isArray(entries)) {
+    throw new InvalidOption(`${path} must be a list`);
+  }
+
+  const registered = container.getRegisteredNames(type);
+  const services = new Map<string, T>();
+  for (const entry of entries as Record<string, unknown>[]) {
+    const key = entry?.[keyBy];
+    const service = entry?.service;
+    if (typeof key !== 'string' || typeof service !== 'string') {
+      throw new InvalidOption(`${path}: every entry needs a string ${keyBy} and service`);
+    }
+    if (services.has(key)) {
+      throw new InvalidOption(`${path} lists ${keyBy} ${q(key)} twice`);
+    }
+
+    if (!registered.includes(service)) {
+      throw new ServiceNotFound(`${path} entry ${q(key)}: no ${type.name} is registered as service ${q(service)}`);
+    }
+
+    const instance = await container.resolveNamed(type, service);
+    const own = (instance as Record<string, unknown> | null)?.[keyBy];
+    if (own !== key) {
+      const has = typeof own === 'string' ? `${keyBy} ${q(own)}` : `no ${keyBy}`;
+      throw new InvalidOption(`${path} entry ${q(key)} (service ${q(service)}): the service has ${has}; the entry must match it`);
+    }
+
+    services.set(key, instance);
+  }
+
+  return services;
 }
 
 /**

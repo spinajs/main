@@ -1,8 +1,7 @@
 import { IDriverOptions, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 import { USER_COMMON_METADATA, User } from '../../src/models/User.js';
 import { v4 as uuidv4 } from 'uuid';
-import { DI } from '@spinajs/di';
-import { PasswordProvider } from '../../src/interfaces.js';
+import { testHasher } from '../support/hasher.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 //import { ban } from '../../src/actions.js';
 
@@ -55,12 +54,11 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
   public async down(_connection: OrmDriver<IDriverOptions>): Promise<void> {}
 
   public async data() {
-    const provider = await DI.resolve(PasswordProvider);
 
     const user = new User({
       Email: 'test@spinajs.pl',
       Login: 'test',
-      Password: await provider.hash('bbbb'),
+      Password: await testHasher.hash('bbbb'),
       IsActive: true,
       Uuid: TEST_USER_UUID,
     });
@@ -75,7 +73,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     const bannedUser = new User({
       Email: 'test-banned@spinajs.pl',
       Login: 'test-banned',
-      Password: await provider.hash('bbbb'),
+      Password: await testHasher.hash('bbbb'),
       IsActive: true,
       Uuid: TEST_USER_UUID_3,
     });
@@ -89,7 +87,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     const notActiveUser = new User({
       Email: 'test-notactive@spinajs.pl',
       Login: 'test-notactive',
-      Password: await provider.hash('bbbb'),
+      Password: await testHasher.hash('bbbb'),
       IsActive: false,
       Uuid: uuidv4(),
     });
@@ -100,7 +98,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     const deletedUser = new User({
       Email: 'test-deleted@spinajs.pl',
       Login: 'test-deleted',
-      Password: await provider.hash('bbbb'),
+      Password: await testHasher.hash('bbbb'),
       IsActive: false,
       Uuid: uuidv4(),
     });

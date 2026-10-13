@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { Forbidden } from '@spinajs/exceptions';
 import chai from 'chai';
 import { BaseController, Controllers, HttpServer } from '../src/index.js';
 import { join, normalize, resolve } from 'path';
@@ -118,6 +119,12 @@ export class TestConfiguration extends FrameworkConfiguration {
           express.json({
             limit: '5mb',
             verify: (req: any, _res: any, buf: Buffer) => {
+              if (req.headers['x-test-refuse-body']) {
+                throw new Error('request body refused');
+              }
+              if (req.headers['x-test-forbid-body']) {
+                throw new Forbidden('webhook signature mismatch');
+              }
               req.rawBody = buf;
             },
           }),

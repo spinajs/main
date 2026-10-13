@@ -25,7 +25,11 @@ export const TEST_ROLES = {
   'self-editor': { grants: [{ permission: 'users:update', relation: 'self' }] },
   // May change roles without holding users:update: a third party to a demotion.
   'role-manager': { grants: ['authz:assignments.manage'] },
-  admin: { grants: ['users:read', 'users:create', 'users:update', 'users:delete', 'authz:assignments.manage'] },
+  // users:update on the first administrator's record only (ADMIN_UUID of support/admin-world.ts): conditional at type level, never privileged.
+  'admin-editor': { grants: [{ permission: 'users:update', on: [{ type: 'users', id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa' }] }] },
+  // Reads, creates and closes accounts, without users:update (the privilege) or the right to manage assignments.
+  clerk: { grants: ['users:read', 'users:create', 'users:delete'] },
+  admin: { grants: ['users:read', 'users:create', 'users:update', 'users:delete', 'users:credentials', 'authz:assignments.manage'] },
   superadmin: { extends: ['admin'], grants: ['secrets:read'] },
   system: { assignable: false, extends: ['admin'] },
 };
@@ -112,20 +116,6 @@ export class TestConfiguration extends FrameworkConfiguration {
           profile: 'BasicProfileProvider',
         },
       },
-      rbac: {
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
-        twoFactorAuth: {
-          enabled: true,
-          forceUser: false,
-          service: 'Default2FaToken',
-        },
-        password: {
-          passwordExpirationTime: 0,
-        },
-      },
-
       // A real root authz host (test/support/authz-host.ts): roles are GLOBAL assignments written through
       // AuthzAdmin (DbAuthzAdminBackend) into the test database.
       authz: {
@@ -163,9 +153,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           cookie: {},
         },
         local: {
-          hasher: { service: 'BasicPasswordProvider' },
           policy: {
-            service: 'BasicPasswordValidationProvider',
             rule: {
               pattern: '^(?=.*\\d).{8,}$',
               type: 'string',
