@@ -274,6 +274,8 @@ authn: {
 
 ## MFA
 
+Developer guide to the flow, step registration and errors: [MFA flow and steps](../../packages/authn/src/flow/README.md).
+
 TOTP is the 3.0 second factor. The design fixes (§22.8):
 
 - Secrets are stored encrypted with AES-256-GCM under `authn.mfa.encryptionKey` (`authn_mfa`). The key
