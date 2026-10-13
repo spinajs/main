@@ -620,7 +620,7 @@ export default {
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
-| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). |
+| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). Guide: [account linking](../../packages/authn/src/link/README.md). |
 | `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
 | `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |

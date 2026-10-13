@@ -17,12 +17,6 @@ import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 
-// TODO: eplain in readme.md in this folder how linking works
-// * entry points,
-// * DI registration
-// * linking flow, how its related to user session, session states etc.
- 
-
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
 
