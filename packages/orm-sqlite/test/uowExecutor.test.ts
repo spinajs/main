@@ -122,7 +122,7 @@ describe('SubjectExecutor - insert phase', function () {
     capture.restore();
 
     expect(capture.statements).to.have.length(0);
-    expect(result).to.deep.equal({ Inserted: 0, Updated: 0, Deleted: 0, SoftDeleted: 0, JunctionInserted: 0, JunctionDeleted: 0 });
+    expect(result).to.deep.equal({ Inserted: 0, Updated: 0, Deleted: 0, SoftDeleted: 0, JunctionInserted: 0, JunctionUpdated: 0, JunctionDeleted: 0 });
   });
 });
 

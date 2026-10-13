@@ -711,6 +711,67 @@ export class ModelBase<M = unknown> implements IModelBase {
     }) as ModelDataWithRelationData<this>;
   }
 
+  /**
+   * An unsaved copy - `save()` inserts it. It takes every column but the primary key and `omit`
+   * ( `@Hidden()` ones too, unlike `dehydrate()` ), and no snapshot.
+   *
+   * `relations` names populated hasMany / manyToMany relations to carry, dotted for depth
+   * ( `['Offers.Localisations', 'Comments']` ). hasMany members are cloned the same way.
+   * manyToMany members are not: the copy links the same targets, each with a clone of its
+   * junction row. belongsTo relations are not carried - their foreign key columns are.
+   *
+   * @param options - columns to leave out, relations to carry
+   */
+  public clone(options?: { omit?: string[]; relations?: string[] }): this {
+    const descriptor = this.ModelDescriptor!;
+    const skip = [...pkColumns(descriptor), ...(options?.omit ?? [])];
+    const copy = new (this.constructor as Constructor<this>)();
+
+    for (const column of descriptor.Columns) {
+      // eslint-disable-next-line security/detect-object-injection
+      const value = (this as any)[column.Name];
+      // a relation can be listed among the columns too ( seen with a @Filterable relation )
+      if (skip.includes(column.Name) || value === undefined || descriptor.Relations.has(column.Name)) {
+        continue;
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      (copy as any)[column.Name] = value instanceof DateTime ? value : _.cloneDeep(value);
+    }
+
+    const paths = _.groupBy(options?.relations ?? [], (path) => path.split('.')[0]);
+    for (const [name, nested] of Object.entries(paths)) {
+      const relation = descriptor.Relations.get(name);
+      // eslint-disable-next-line security/detect-object-injection
+      const source = (this as any)[name] as Relation<ModelBase, ModelBase>;
+
+      if (!relation || (relation.Type !== RelationType.Many && relation.Type !== RelationType.ManyToMany)) {
+        throw new OrmException(`${descriptor.Name} has no hasMany or manyToMany relation ${name} to clone`);
+      }
+      if (source?.Populated !== true) {
+        throw new OrmException(`relation ${name} of ${descriptor.Name} is not populated, populate it before cloning`);
+      }
+
+      const deeper = nested.map((path) => path.split('.').slice(1).join('.')).filter((path) => path !== '');
+      if (relation.Type === RelationType.ManyToMany && deeper.length > 0) {
+        throw new OrmException(`relation ${name} of ${descriptor.Name} is many-to-many, its targets are linked, not cloned: ${deeper.join(', ')} cannot be carried`);
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      const target = (copy as any)[name] as Relation<ModelBase, ModelBase>;
+      for (const member of source) {
+        if (relation.Type === RelationType.ManyToMany) {
+          target.add(member, source.junction(member)?.clone());
+        } else {
+          target.add(member.clone({ relations: deeper }));
+        }
+      }
+      target.Populated = true;
+    }
+
+    return copy;
+  }
+
   public toSql(onlyDirty?: boolean): Partial<this> {
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
 

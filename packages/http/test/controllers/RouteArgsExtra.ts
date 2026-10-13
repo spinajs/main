@@ -44,6 +44,11 @@ export class RouteArgsExtra extends BaseController {
     return new Ok({ term });
   }
 
+  @Post('requiredbody')
+  public requiredBody(@Body({ required: true }) data: any) {
+    return new Ok(data);
+  }
+
   @Post('form')
   public form(@Form() data: any) {
     return new Ok(data);

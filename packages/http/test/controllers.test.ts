@@ -352,6 +352,17 @@ describe('http & controller tests', function () {
     expect(response).to.have.status(400);
   });
 
+  it('required body rejects a request without one (400)', async () => {
+    const response = await req().post('extra/requiredbody').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+  });
+
+  it('required body passes when present', async () => {
+    const response = await req().post('extra/requiredbody').set('Accept', 'application/json').send({ a: 1 });
+    expect(response).to.have.status(200);
+    expect(response.body.a).to.eq(1);
+  });
+
   it('required query param passes when present', async () => {
     const response = await req().get('extra/required?term=hello').set('Accept', 'application/json').send();
     expect(response).to.have.status(200);

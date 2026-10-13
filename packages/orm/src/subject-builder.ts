@@ -4,7 +4,7 @@ import { identityKey } from './identity-map.js';
 import { IIdentityMap, OrphanPolicy, RelationType } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { resolveOrphanPolicy } from './orphan.js';
-import { SingleRelation } from './relation-objects.js';
+import { Relation, SingleRelation } from './relation-objects.js';
 import { OrmException } from './exceptions.js';
 import { IJunctionDelta, IOrphanDelta, IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
 
@@ -17,8 +17,11 @@ import { IJunctionDelta, IOrphanDelta, IRelationDelta, Subject, SubjectOperation
  * - a `belongsTo` is followed whenever its `Value` is set, populated or not, because
  *   attaching a model to it is an explicit act;
  * - a `hasMany` or `manyToMany` is followed **only when `Populated` is true**, so a relation
- *   the caller never loaded is invisible and `Items: OrderItem[] = []` on a freshly
- *   constructed model deletes nothing;
+ *   the caller never loaded is invisible. A model being inserted has no rows to lose, so its
+ *   relations always count as populated ( see {@link followed} ) - `Items: OrderItem[] = []`
+ *   on it still deletes nothing, there is no snapshot to diff against;
+ * - a `manyToMany` member that is already persisted is a reference: only its junction row is
+ *   this save's business, so it is not traversed - and may live on another connection;
  * - `Query` and `Virtual` relations are read-only projections and are never followed.
  */
 export class SubjectBuilder {
@@ -89,9 +92,14 @@ export class SubjectBuilder {
           break;
 
         case RelationType.Many:
-        case RelationType.ManyToMany:
-          if (value.Populated === true) {
+          if (followed(model, value)) {
             out.push(...[...(value as Iterable<ModelBase>)]);
+          }
+          break;
+
+        case RelationType.ManyToMany:
+          if (followed(model, value)) {
+            out.push(...[...(value as Iterable<ModelBase>)].filter((m) => m.IsNew));
           }
           break;
 
@@ -184,7 +192,7 @@ export class SubjectBuilder {
 
       // eslint-disable-next-line security/detect-object-injection
       const rel = (subject.Model as any)[name];
-      if (!rel || rel.Populated !== true) {
+      if (!rel || !followed(subject.Model, rel)) {
         continue;
       }
 
@@ -227,7 +235,7 @@ export class SubjectBuilder {
 
       // eslint-disable-next-line security/detect-object-injection
       const rel = (subject.Model as any)[name];
-      if (!rel || rel.Populated !== true) {
+      if (!rel || !followed(subject.Model, rel)) {
         continue;
       }
 
@@ -255,7 +263,21 @@ export class SubjectBuilder {
           return key === null || !snapshotSet.has(key);
         }),
         RemovedKeys: snapshotKeys.filter((k) => !presentKeys.has(identityKey(k)!)),
+        Junctions: new Map(),
+        Changed: [],
       };
+
+      for (const member of members) {
+        const junction = (rel as Relation<ModelBase, ModelBase>).junction(member);
+        if (!junction) {
+          continue;
+        }
+
+        delta.Junctions.set(member, junction);
+        if (!delta.Added.includes(member) && !junction.IsNew && junction.IsDirty) {
+          delta.Changed.push(member);
+        }
+      }
 
       set.Junctions.push(delta);
     }
@@ -336,6 +358,19 @@ export class SubjectBuilder {
  * Deliberately not keyed on the primary key: `setDefaults()` pre-fills @Uuid keys on
  * construction, so a brand-new UUID-keyed model already has one.
  */
+/**
+ * Whether `save()` follows a hasMany / manyToMany relation of `owner`: one the caller populated,
+ * or any relation of an owner being inserted. Such a relation holds everything the owner has, so
+ * it is marked populated for good - the saved owner then reads as loaded with it.
+ */
+function followed(owner: ModelBase, relation: Relation<ModelBase, ModelBase>): boolean {
+  if (relation.Populated !== true && owner.IsNew) {
+    relation.Populated = true;
+  }
+
+  return relation.Populated === true;
+}
+
 function classify(model: ModelBase): SubjectOperation {
   if (model.IsNew) {
     return SubjectOperation.Insert;
