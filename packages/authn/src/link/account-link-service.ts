@@ -19,21 +19,13 @@ import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
-
 type Holder = { readonly identity: IdentityRef; readonly session?: string };
 
 type Guarded = { readonly holder?: Holder; readonly refused?: string };
 
 type LinkEvent = 'identity.link' | 'identity.unlink';
 
-
-
-
-
-
-
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
-
 
 /** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);

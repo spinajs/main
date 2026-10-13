@@ -47,15 +47,9 @@ type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 
 type Live = { readonly block: Block } | { readonly ending: Ending };
 
-
-
-
-
-
 const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
 const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
-
 
 const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
 

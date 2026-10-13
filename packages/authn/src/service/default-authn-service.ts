@@ -77,10 +77,6 @@ const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_c
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-
-
-
-
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
 // ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
@@ -90,7 +86,6 @@ const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyStri
 
 /** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
-
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 

@@ -8,7 +8,6 @@ import { q } from '../support/format.js';
 
 const MEMORY_THROTTLE = 'MemoryAuthnThrottle';
 
-
 /**
  * The throttle `name` (authn.throttle.service) registers in the lineage of `container`; when unset, the only registered
  * throttle, or the only one besides `MemoryAuthnThrottle`. Throws when none fits, never falling back to memory.

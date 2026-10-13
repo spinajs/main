@@ -20,8 +20,6 @@ import type { PeekableThrottle } from './peek.js';
 // and then use its for implementing auth throttle
 // also - create readme.md file in this folder with full spec, flow and documentation of auth throttle
 
-
-
 export interface ThrottleRow {
   attempts: number;
   /** Stamped from a per-instance counter when the row is created: a decayed or evicted key starts a new run. */
@@ -60,7 +58,6 @@ interface Gate {
 const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
-
 
 const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
 
