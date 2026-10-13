@@ -166,8 +166,17 @@ export class SubjectExecutor {
    * now-known join column. The overwrite matters: `StandardModelToSqlConverter` already wrote
    * that column from the relation object, and for a target inserted moments ago that value was
    * `undefined` when the model was serialized.
+   *
+   * The pending keys go onto the model before it is serialized too: a key column no relation on
+   * the child manages ( a hasMany's foreign key without a back-reference ) is validated there, and
+   * a NOT NULL one would fail as missing.
    */
   protected insertPayload(subject: Subject): Record<string, unknown> {
+    const pending = subject.PendingForeignKeys.map((fk) => ({ column: fk.Column, value: (fk.Target as any)[fk.JoinColumn] }));
+    for (const { column, value } of pending) {
+      (subject.Model as any)[column] = value;
+    }
+
     const payload = subject.Model.toSql() as Record<string, unknown>;
 
     for (const fk of subject.DeferredForeignKeys) {
@@ -175,11 +184,9 @@ export class SubjectExecutor {
       delete payload[fk.Column];
     }
 
-    for (const fk of subject.PendingForeignKeys) {
-      const value = (fk.Target as any)[fk.JoinColumn];
+    for (const { column, value } of pending) {
       // eslint-disable-next-line security/detect-object-injection
-      payload[fk.Column] = value;
-      (subject.Model as any)[fk.Column] = value;
+      payload[column] = value;
     }
 
     return payload;

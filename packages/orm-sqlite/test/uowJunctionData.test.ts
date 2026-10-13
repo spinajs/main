@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { QueryContext, SortOrder } from '@spinajs/orm';
-import { bootUow, captureStatements, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
+import { bootUow, captureStatements, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowStrictItem, UowTag } from './uowFixture.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -182,6 +182,15 @@ describe('ModelBase.save - many-to-many junction data', function () {
         ['B', order.Id],
       ]);
       expect(order.Items.Populated).to.equal(true);
+    });
+
+    it('fills a NOT NULL foreign key no relation on the child manages', async () => {
+      const order = new UowOrder({ Total: 1 });
+      order.StrictItems.push(new UowStrictItem({ Sku: 'S' }));
+
+      await order.save();
+
+      expect((await rows('uow_strict_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([['S', order.Id]]);
     });
   });
 
