@@ -280,10 +280,10 @@ export class Container extends EventEmitter implements IContainer {
     return [...new Set(names.filter((n) => n !== ''))];
   }
 
-  public async resolveNamed<T>(base: Class<T>, name: string): Promise<T | undefined> {
+  public async resolveNamed<T>(base: Class<T>, name: string): Promise<T> {
     const found = [...this.Registry.getTypesChain(base)].reverse().find((e) => registrationName(e.type) === name);
     if (!found) {
-      return undefined;
+      throw new ServiceNotFound(`No ${base.name} is registered as "${name}"`);
     }
 
     // Unlike in a chain, a factory gets this container: it may read this container's configuration.

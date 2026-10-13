@@ -148,10 +148,14 @@ export interface IContainer extends EventEmitter {
   getRegisteredNames(base: Class<unknown>): string[];
 
   /**
-   * The registration of `base` named `name`, nearest container first. A factory is called with this container,
-   * a class resolves through DI, so its lifetime applies. Undefined when no registration has that name.
+   * The registration of `base` named `name`, nearest container first (see `getRegisteredNames`).
+   * A factory is called with this container and its result is returned as is, undefined included. A class
+   * resolves through DI, so its lifetime applies, in the container that registered it; a PerChildContainer
+   * class resolves in this container.
+   *
+   * @throws ServiceNotFound when no registration has that name
    */
-  resolveNamed<T>(base: Class<T>, name: string): Promise<T | undefined>;
+  resolveNamed<T>(base: Class<T>, name: string): Promise<T>;
 
   dispose(): Promise<void>;
 

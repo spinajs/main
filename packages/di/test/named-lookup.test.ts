@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { AsyncService, DI, PerChildInstance, Singleton } from '../src/index.js';
+import { AsyncService, DI, PerChildInstance, ServiceNotFound, Singleton } from '../src/index.js';
 import type { IContainer } from '../src/index.js';
 
 abstract class Step {
@@ -127,11 +127,28 @@ describe('named lookup across the container lineage', () => {
       expect(await child.resolveNamed(Step, 'OtherStep')).to.be.instanceOf(OtherStep);
     });
 
-    it('is undefined for an unknown name', async () => {
+    it('throws ServiceNotFound for an unknown name', async () => {
       DI.register(RootStep).as(Step);
 
-      expect(await DI.child().resolveNamed(Step, 'Missing')).to.equal(undefined);
-      expect(await DI.child().resolveNamed(OtherStep, 'RootStep')).to.equal(undefined);
+      for (const [base, name] of [
+        [Step, 'Missing'],
+        [OtherStep, 'RootStep'],
+      ] as const) {
+        const error = await DI.child()
+          .resolveNamed(base, name)
+          .then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+        expect(error).to.be.instanceOf(ServiceNotFound);
+        expect((error as Error).message).to.equal(`No ${base.name} is registered as "${name}"`);
+      }
+    });
+
+    it('gives what a factory returns, undefined included', async () => {
+      DI.register(named('Nothing', () => undefined)).as(Step);
+
+      expect(await DI.RootContainer.resolveNamed(Step, 'Nothing')).to.equal(undefined);
     });
   });
 });
