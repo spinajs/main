@@ -8,20 +8,27 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Freezes `v` and everything reachable through its own enumerable properties, in place.
+ * Freezes `v` and everything reachable through its own enumerable properties, in place, including the children of nodes that are already frozen. Buffers and typed arrays are left mutable, as `Object.freeze` refuses them.
  *
  * @param v - value to freeze
  * @returns `v`
  */
 export function deepFreeze<T>(v: T): Readonly<T> {
-  if (v === null || typeof v !== 'object' || Object.isFrozen(v)) return v;
-  Object.freeze(v);
-  for (const x of Object.values(v)) deepFreeze(x);
+  freezeAll(v, new WeakSet());
   return v;
 }
 
+function freezeAll(v: unknown, seen: WeakSet<object>): void {
+  if (v === null || typeof v !== 'object' || ArrayBuffer.isView(v) || seen.has(v)) return;
+  seen.add(v);
+  Object.freeze(v);
+  for (const x of Object.values(v)) freezeAll(x, seen);
+}
+
 /**
- * Deep clone of `v` that is frozen. `Date`s are cloned and their setters throw, as a frozen `Date` can still be changed with `setTime`. This blocks accidental mutation only: `Date.prototype.setTime.call` still bypasses it.
+ * Deep clone of `v` that is frozen, for plain data: arrays, `Date`s and the own enumerable properties of any other object. A `Map`, `Set`, typed array or class instance becomes a plain object of its own enumerable properties (a `Map` or `Set` becomes `{}`), so the `Readonly<T>` type holds for plain data only.
+ *
+ * `Date`s are cloned and their setters throw, as a frozen `Date` can still be changed with `setTime`. This blocks accidental mutation only: `Date.prototype.setTime.call` still bypasses it.
  *
  * @param v - value to copy
  * @param maxDepth - values nested deeper than this become `undefined`
