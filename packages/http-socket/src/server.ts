@@ -2,6 +2,7 @@ import type { EventEmitter } from 'events';
 import { Namespace, Server, ServerOptions, Socket } from 'socket.io';
 import { AsyncService, Autoinject, ClassInfo, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
 import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
