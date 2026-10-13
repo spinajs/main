@@ -534,6 +534,7 @@ authn: { audit: { hashIdentifiers: true, sinkTimeoutMs: 2000, hashKey: { secret:
 ```
 
 ## Impersonation
+Developer guide to the service, the session block, expiry and the routes: [impersonation and the active role](../../packages/authn/src/impersonation/README.md).
 
 Who may impersonate whom is an authorization question. How impersonation works is an authentication
 one.

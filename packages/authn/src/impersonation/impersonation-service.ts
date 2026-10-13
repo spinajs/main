@@ -18,12 +18,6 @@ import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
-// TODO: eplain in readme.md in this folder how impersonation works
-// * entry points,
-// * DI registration
-// * impersonation flow, how its related to user session, session states etc.
-// * actions for impersionation, ending impersonation, exposed controllers and programatic impersonation / elevaing privlidges 
-
 /**
  * The session data key of the impersonation block: `{ startedAt, actorRoles? }`, the start as an ISO string and the
  * `ceiling.roles` of the actor's role switch at start. Not under ActiveRole, which would narrow the target.
@@ -355,8 +349,6 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-
-    // TODO: instead of audit pattern - why not events inside process ? using EventHandler
     return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }
