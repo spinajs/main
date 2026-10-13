@@ -216,10 +216,10 @@ detector names only keys of your own config.
 
 **`authn:check-config`.** The command ships in `authn-http`; the check behind it is the function
 `checkAuthnConfig(container)` of `@spinajs/authn`. It prints findings (`topic`, `level`, `message`)
-and throws nothing. Of what boot refuses it covers the secret, throttle, strategy registration and
-old-key checks, and it also warns about: an empty `authn.strategies`; neither `authn.http.trustProxy` nor `http.trustProxy` set; an `http.cors` whose
+and throws nothing. Of what boot refuses it covers the secret, throttle and strategy registration
+checks, and it also warns about: an empty `authn.strategies`; neither `authn.http.trustProxy` nor `http.trustProxy` set; an `http.cors` whose
 `origins` is not a list (`@spinajs/http` then refuses to start) or is empty or unset; the env fallback.
-The topics are `strategies`, `secrets`, `proxy`, `cors`, `env`, `mfa`, `throttle`, `legacy` and
+The topics are `strategies`, `secrets`, `proxy`, `cors`, `env`, `mfa`, `throttle` and
 `schema` (a value the `authn.*` schema refuses, reported as its path and the rule, never the value).
 
 ## 4. Running `spinajs-authz-convert`
