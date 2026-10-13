@@ -6,7 +6,7 @@ import Express from 'express';
 import _ from 'lodash';
 
 import { DI, IContainer } from '@spinajs/di';
-import { UnexpectedServerError } from '@spinajs/exceptions';
+import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
@@ -189,14 +189,18 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
           return;
         }
 
-        // Report the first failure of the first scope that did not hold, in
-        // declaration order — reporting a later scope's error would name a
-        // requirement the caller never got as far as. Use next(err) directly
-        // (not `throw next(...)`, which would reject this .then() with
-        // `undefined` as an unhandled rejection while the error was already
-        // forwarded).
+        // Report a failure of the first scope that did not hold — reporting a
+        // later scope's error would name a requirement the caller never got as
+        // far as. Within it, a group that authenticated the caller and then
+        // refused outranks one that found no credential: a session without the
+        // grant must get the session group's 403, not the token group's
+        // "access token required" 401, which clients read as a lost session.
+        // Otherwise declaration order decides. Use next(err) directly (not
+        // `throw next(...)`, which would reject this .then() with `undefined`
+        // as an unhandled rejection while the error was already forwarded).
         const blocking = scopeResults.find((groups) => !groups.some((results) => results.every((r) => r.status === 'fulfilled')));
-        const failed = (blocking ?? []).flat().find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        const rejections = (blocking ?? []).flat().filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+        const failed = rejections.find((r) => !(r.reason instanceof AuthenticationFailed)) ?? rejections[0];
         next(failed ? failed.reason : new UnexpectedServerError('Policy evaluation produced no result'));
       })
       // Guard against unexpected throws in the settle/handler chain so the

@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { createPolicyGate } from '../src/route-builder.js';
 import { BaseController, Get, Ok, Policy, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
 import { BasePolicy } from '../src/interfaces.js';
@@ -24,6 +25,23 @@ class StubPolicy extends BasePolicy {
     }
   }
 }
+
+class ThrowingPolicy extends BasePolicy {
+  constructor(private readonly _error: Error) {
+    super();
+  }
+
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {
+    throw this._error;
+  }
+}
+
+const unauthenticated = (name: string) => new ThrowingPolicy(new AuthenticationFailed(`${name} unauthenticated`));
+const forbidden = (name: string) => new ThrowingPolicy(new Forbidden(`${name} forbidden`));
 
 const pass = (name: string) => new StubPolicy(name, true);
 const fail = (name: string) => new StubPolicy(name, false);
@@ -66,6 +84,23 @@ describe('policy groups', () => {
     it('forwards the first rejection in declaration order', async () => {
       const result = await runGate([[fail('A'), fail('B')]]);
       expect(result.error?.message).to.eq('A rejected');
+    });
+
+    it('prefers a refusal over a missing credential when no group holds', async () => {
+      const result = await runGate([[unauthenticated('token')], [forbidden('session')]]);
+      expect(result.error).to.be.instanceOf(Forbidden);
+      expect(result.error?.message).to.eq('session forbidden');
+    });
+
+    it('prefers a refusal over a missing credential whatever the declaration order', async () => {
+      const result = await runGate([[forbidden('token')], [unauthenticated('session')]]);
+      expect(result.error?.message).to.eq('token forbidden');
+    });
+
+    it('reports a missing credential when no group got past authentication', async () => {
+      const result = await runGate([[unauthenticated('token')], [unauthenticated('session')]]);
+      expect(result.error).to.be.instanceOf(AuthenticationFailed);
+      expect(result.error?.message).to.eq('token unauthenticated');
     });
 
     it('runs the route when a later group passes and an earlier one fails', async () => {

@@ -10,7 +10,7 @@ import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProv
 import '@spinajs/rbac-http';
 import { DateTime } from 'luxon';
 
-import { req, restoreHttpErrorMap, useTestConfiguration } from './common.js';
+import { req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from './common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { createToken } from '../src/actions.js';
 import '../src/generator.js';
@@ -148,6 +148,20 @@ describe('TokenPolicy e2e', function () {
     // and the token itself really did authenticate - this is a grant refusal,
     // not a rejected credential
     expect(res.headers['cache-control']).to.equal('no-store');
+  });
+
+  /**
+   * The mirror image for a session: the RbacPolicy group refuses it with a 403 while the
+   * TokenPolicy group finds no token at all (401). Clients treat a 401 as a lost session and log
+   * the user out, so the gate must surface the refusal, not the missing token.
+   */
+  it('session without required grant is refused with 403, not the missing-token 401', async () => {
+    const { User: u } = await create('e7@spinajs.com', 'e7', ['guest'], { password: 'password123' });
+    await activate(u.Id);
+    const cookie = await sessionCookieFor(await User.where('Id', u.Id).populate('Metadata').firstOrFail());
+
+    const res = await req().get('token-protected/data').set('Cookie', cookie);
+    expect(res.status, JSON.stringify(res.body)).to.equal(403);
   });
 
   /**
