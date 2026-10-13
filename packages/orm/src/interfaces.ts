@@ -684,6 +684,7 @@ export interface ISaveResult {
   Deleted: number;
   SoftDeleted: number;
   JunctionInserted: number;
+  JunctionUpdated: number;
   JunctionDeleted: number;
 }
 

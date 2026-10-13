@@ -33,6 +33,7 @@ export class SubjectExecutor {
       Deleted: 0,
       SoftDeleted: 0,
       JunctionInserted: 0,
+      JunctionUpdated: 0,
       JunctionDeleted: 0,
     };
 
@@ -226,11 +227,13 @@ export class SubjectExecutor {
   }
 
   /**
-   * Creates and destroys junction rows.
+   * Creates, updates and destroys junction rows.
    *
-   * Rows are written column-first rather than through the junction model, so a junction model
-   * is not required to declare `@BelongsTo` on both sides — `ManyToManyRelationList.update()`
-   * does require that, and none of the existing junction fixtures satisfy it.
+   * Rows are written column-first rather than through the junction model's `insert()`, so a
+   * junction model is not required to declare `@BelongsTo` on both sides —
+   * `ManyToManyRelationList.update()` does require that, and none of the existing junction
+   * fixtures satisfy it. A junction model the relation holds for a member still supplies the
+   * row's own columns, through its `toSql()`.
    *
    * Inserts run before deletes so that re-linking the same pair inside one save cannot
    * momentarily violate a unique constraint on the junction table in the other order.
@@ -238,15 +241,12 @@ export class SubjectExecutor {
   protected async runJunctions(plan: ISortedPlan, result: ISaveResult): Promise<void> {
     for (const delta of plan.Junctions) {
       await this.insertJunctionRows(delta, result);
+      await this.updateJunctionRows(delta, result);
       await this.deleteJunctionRows(delta, result);
     }
   }
 
-  protected async insertJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
-    if (delta.Added.length === 0) {
-      return;
-    }
-
+  protected junctionColumns(delta: IJunctionDelta): { sourceColumn: string; targetColumn: string } {
     const sourceColumn = delta.Descriptor.JunctionModelSourceModelFKey_Name;
     const targetColumn = delta.Descriptor.JunctionModelTargetModelFKey_Name;
 
@@ -254,18 +254,82 @@ export class SubjectExecutor {
       throw new OrmException(`manyToMany relation ${delta.Descriptor.Name} has no junction foreign-key column names`);
     }
 
+    return { sourceColumn, targetColumn };
+  }
+
+  protected async insertJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.Added.length === 0) {
+      return;
+    }
+
+    const { sourceColumn, targetColumn } = this.junctionColumns(delta);
     const ownerKey = delta.Owner.PrimaryKeyValue;
+    // A generated junction key is never carried over: the row is new even when its model came
+    // from another link.
+    const generated = pkColumns(delta.JunctionDescriptor).filter((c) => pkGeneration(delta.JunctionDescriptor, c) === 'auto');
 
-    for (const batch of this.chunked(delta.Added)) {
-      const values = batch.map((target) => ({
-        [sourceColumn]: ownerKey,
-        [targetColumn]: target.PrimaryKeyValue,
-      }));
+    const rows = delta.Added.map((target) => {
+      const junction = delta.Junctions.get(target);
+      const own = junction ? _.omit(junction.toSql() as Record<string, unknown>, generated) : {};
+      return { ...own, [sourceColumn]: ownerKey, [targetColumn]: target.PrimaryKeyValue };
+    });
 
-      const { query } = createQuery(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
-      await query.values(values);
+    // `values()` takes the union of the rows' columns and binds undefined where a row lacks one,
+    // so rows with different columns go in separate statements.
+    for (const group of _.values(_.groupBy(rows, (row) => Object.keys(row).sort().join(',')))) {
+      for (const batch of this.chunked(group)) {
+        const { query } = createQuery(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
+        await query.values(batch);
 
-      result.JunctionInserted += values.length;
+        result.JunctionInserted += batch.length;
+      }
+    }
+
+    // Written, the junction models are rows: a later change of their columns is an UPDATE.
+    for (const target of delta.Added) {
+      const junction = delta.Junctions.get(target) as any;
+      if (junction) {
+        junction[sourceColumn] = ownerKey;
+        junction[targetColumn] = target.PrimaryKeyValue;
+        junction.takeSnapshot();
+      }
+    }
+  }
+
+  /**
+   * Writes the changed columns of kept links' junction rows - by the junction's own key when it
+   * has one, by the pair otherwise.
+   */
+  protected async updateJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.Changed.length === 0) {
+      return;
+    }
+
+    const { sourceColumn, targetColumn } = this.junctionColumns(delta);
+    const keys = [...pkColumns(delta.JunctionDescriptor), sourceColumn, targetColumn];
+
+    for (const target of delta.Changed) {
+      const junction = delta.Junctions.get(target)!;
+      const changed = junction.changeSet().map((c) => c.Column).filter((c) => !keys.includes(c));
+      if (changed.length === 0) {
+        continue;
+      }
+
+      const { query } = createQuery(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
+      const update = (query as UpdateQueryBuilder<unknown>).update(_.pick(junction.toSql() as Record<string, unknown>, changed));
+
+      const pk = junction.PrimaryKeyValue;
+      const keyed = Array.isArray(pk) ? pk.every((v) => v !== null && v !== undefined) : pk !== null && pk !== undefined;
+      if (keyed) {
+        wherePk(update, delta.JunctionDescriptor, pk);
+      } else {
+        update.where(sourceColumn, delta.Owner.PrimaryKeyValue).where(targetColumn, target.PrimaryKeyValue);
+      }
+
+      await update;
+      junction.takeSnapshot();
+
+      result.JunctionUpdated += 1;
     }
   }
 

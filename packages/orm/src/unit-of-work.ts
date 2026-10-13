@@ -82,13 +82,35 @@ export class UnitOfWork {
   /**
    * A graph spanning two connections cannot be persisted atomically — the transaction only
    * covers one of them. Fail loudly rather than commit half of it.
+   *
+   * A persisted many-to-many target is not collected ( only its junction row is written ), so it
+   * may live anywhere; the junction table is what must be on the root's connection.
    */
   protected static assertSingleConnection(models: ModelBase[], root: IModelDescriptor): void {
+    const refuse = (name: string, connection: string | null) => {
+      throw new OrmException(`save() cannot span connections: ${root.Name} is on connection ${root.Connection} but ${name} is on ${connection}. Save each connection's graph separately.`);
+    };
+
     for (const model of models) {
       const descriptor = extractModelDescriptor(model.constructor);
+      if (!descriptor) {
+        continue;
+      }
 
-      if (descriptor && descriptor.Connection !== root.Connection) {
-        throw new OrmException(`save() cannot span connections: ${root.Name} is on connection ${root.Connection} but ${descriptor.Name} is on ${descriptor.Connection}. Save each connection's graph separately.`);
+      if (descriptor.Connection !== root.Connection) {
+        refuse(descriptor.Name, descriptor.Connection);
+      }
+
+      for (const [name, relation] of descriptor.Relations) {
+        // eslint-disable-next-line security/detect-object-injection
+        if (relation.Type !== RelationType.ManyToMany || !relation.JunctionModel || (model as any)[name]?.Populated !== true) {
+          continue;
+        }
+
+        const junction = extractModelDescriptor(relation.JunctionModel);
+        if (junction && junction.Connection !== root.Connection) {
+          refuse(junction.Name, junction.Connection);
+        }
       }
     }
   }
