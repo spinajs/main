@@ -25,10 +25,10 @@ export async function selectAuthnThrottle(container: IContainer, name: string | 
     }
     name = only[0];
   }
-  const throttle: unknown = await container.resolveNamed(AuthnThrottle, name);
-  if (throttle === undefined) {
+  if (!names.includes(name)) {
     throw new InvalidOption(`authn.throttle.service ${q(name)}: no AuthnThrottle is registered under that name (registered: ${listed}). Install the package that provides it (DbAuthnThrottle: @spinajs/authn-orm); MemoryAuthnThrottle suits a single instance only`);
   }
+  const throttle: unknown = await container.resolveNamed(AuthnThrottle, name);
   if (!isPlainObject(throttle) || typeof throttle.attempt !== 'function' || typeof throttle.succeed !== 'function') {
     throw new InvalidOption(`authn.throttle.service ${q(name)} is not an AuthnThrottle`);
   }

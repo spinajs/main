@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
@@ -326,11 +326,9 @@ export const laneTotpServiceClass = (): TotpModules['TotpService'] => loaded(tot
 export async function laneMfaConfig(over: { steps?: unknown; encryptionKey?: unknown }): Promise<void> {
   const state = totpNow();
   for (const [key, value] of Object.entries(over)) state.undo.push(setConfig(`authn.mfa.${key}`, value));
-  // DefaultMfaPolicy reads the steps when built, and DefaultAuthnService keeps its policy and steps from boot.
-  for (const base of [AuthnService, MfaPolicy] as Class<unknown>[]) {
-    for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type as Class<unknown>);
-    DI.uncache(base);
-  }
+  // A container lists its steps once.
+  const { MFA_STEPS_KEY } = await import('@spinajs/authn');
+  DI.uncache(MFA_STEPS_KEY);
 }
 
 /** Puts the lane's TOTP store out of order (code checks throw) until the case ends. */

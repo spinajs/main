@@ -78,13 +78,13 @@ export class StrategyRegistry extends AsyncService {
 
   public async resolve(): Promise<void> {
     const listed: Listed[] = [];
+    const registered = this.container.getRegisteredNames(AuthenticationStrategy);
     for (const e of this.Entries) {
       // The whole lineage: a child may list a root strategy next to its own.
-      const strategy = await this.container.resolveNamed(AuthenticationStrategy, e.service);
-      if (strategy === undefined) {
+      if (!registered.includes(e.service)) {
         throw new InvalidOption(`authn.strategies entry ${q(e.name)}: no AuthenticationStrategy is registered as service ${q(e.service)}`);
       }
-      listed.push(check(e, strategy));
+      listed.push(check(e, await this.container.resolveNamed(AuthenticationStrategy, e.service)));
     }
     this.listed = Object.freeze(listed);
     this.all = Object.freeze(listed.map((l) => l.strategy));

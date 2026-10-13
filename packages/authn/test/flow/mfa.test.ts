@@ -140,7 +140,28 @@ describe('MFA steps and DefaultMfaPolicy', function () {
         { name: 'fake', service: KIT_MFA_STEP },
         { name: 'fake', service: KIT_MFA_STEP },
       ]);
-      await assert.rejects(mfaSteps(p.child), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
+      const fresh = p.child.child();
+      try {
+        await assert.rejects(mfaSteps(fresh), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
+      } finally {
+        await fresh.dispose();
+      }
+    });
+
+    it('lists the steps once per container: a later Configuration.set changes neither mfaSteps nor DefaultMfaPolicy', async () => {
+      const p = await boot({ mfa: { policy: { force: true } } });
+      const listed = await mfaSteps(p.child);
+      p.configuration.set('authn.mfa.steps', []);
+      assert.strictEqual(await mfaSteps(p.child), listed);
+      assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
+    });
+
+    it('DefaultMfaPolicy refuses a listed service that is not an MfaStep, as the boot does', async () => {
+      parts = await buildCore({}, { strategies: [], raw: { authn: { mfa: { steps: [{ name: 'x', service: 'NotAStep' }] } } }, register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) });
+      await assert.rejects(
+        (async () => (await policyOf(parts!)).required(ALICE, PASSWORD))(),
+        (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps entry "x": the service is not an MfaStep',
+      );
     });
   });
 

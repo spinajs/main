@@ -61,7 +61,8 @@ describe('the N8b route gates read authn.* through @Config', function () {
       child.register({ TotpService: class {} }.TotpService).asSelf();
       const resolve = sinon.stub(child, 'resolve').rejects(new Error('asked the container'));
       const resolveNamed = sinon.stub(child, 'resolveNamed').rejects(new Error('asked the container'));
-      return { asked: () => resolve.called || resolveNamed.called, answer: answer(new TotpEnrolmentOn(), child) };
+      const names = sinon.stub(child, 'getRegisteredNames').throws(new Error('asked the container'));
+      return { asked: () => resolve.called || resolveNamed.called || names.called, answer: answer(new TotpEnrolmentOn(), child) };
     };
     const steps = [{ name: 'totp', service: 'TotpMfaStep' }];
     const unset = await gateWith({ authn: { mfa: { steps } } });

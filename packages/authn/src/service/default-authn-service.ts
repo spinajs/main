@@ -8,12 +8,12 @@ import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
+import { q } from '../support/format.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
-import type { MfaStep } from '../contracts/mfa.js';
 import { ExternalLoginHook } from '../contracts/hooks.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
@@ -77,7 +77,6 @@ const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_c
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
 
 
@@ -159,7 +158,6 @@ export class DefaultAuthnService extends AuthnService {
   private links: IdentityLinkStore | undefined;
   private sessions: SessionIssuer | undefined;
   private policy: MfaPolicy | undefined;
-  private steps: ReadonlyMap<string, MfaStep> | undefined;
   private log!: Log;
 
   // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
@@ -199,7 +197,8 @@ export class DefaultAuthnService extends AuthnService {
     this.links = await this.container.resolveOptional(IdentityLinkStore);
     if (this.registry.strategies().some((s) => s.interactive)) {
       this.sessions = await this.container.resolve(SessionIssuer, true);
-      this.steps = await mfaSteps(this.container);
+      // Lists the steps at boot, so a bad list fails it; every later read gets this list.
+      await mfaSteps(this.container);
       this.policy = await this.selectPolicy();
     }
     this.throttle = await selectAuthnThrottle(this.container, this.ThrottleService);
@@ -486,13 +485,14 @@ export class DefaultAuthnService extends AuthnService {
   private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string): Promise<boolean | string> {
     const required = await this.policy!.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
+    const steps = await mfaSteps(this.container);
     if (step === RECOVERY_STEP) {
-      for (const s of this.steps!.values()) {
+      for (const s of steps.values()) {
         if (typeof s.verifyRecovery === 'function' && (await s.enrolled(id))) return (await s.verifyRecovery(id, response)) === true;
       }
       return 'no_recovery_step';
     }
-    const s = required.includes(step) ? this.steps!.get(step) : undefined;
+    const s = required.includes(step) ? steps.get(step) : undefined;
     if (!s) return 'unknown_step';
     // Under force the required step may be one the identity has not enrolled; the MfaStep contract does not oblige verify to refuse that.
     if (!(await s.enrolled(id))) return 'not_enrolled';
@@ -605,11 +605,11 @@ export class DefaultAuthnService extends AuthnService {
   /** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to this container wins. */
   private async selectPolicy(): Promise<MfaPolicy> {
     const name = this.PolicyService;
-    const policy: unknown = await this.container.resolveNamed(MfaPolicy, name);
-    if (policy === undefined) {
-      const listed = this.container.getRegisteredNames(MfaPolicy).map(q).join(', ') || 'none';
-      throw new InvalidOption(`authn.mfa.policy.service ${q(name)}: no MfaPolicy is registered under that name (registered: ${listed})`);
+    const names = this.container.getRegisteredNames(MfaPolicy);
+    if (!names.includes(name)) {
+      throw new InvalidOption(`authn.mfa.policy.service ${q(name)}: no MfaPolicy is registered under that name (registered: ${names.map(q).join(', ') || 'none'})`);
     }
+    const policy: unknown = await this.container.resolveNamed(MfaPolicy, name);
     if (!isPlainObject(policy) || typeof policy.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
     return policy as unknown as MfaPolicy;
   }

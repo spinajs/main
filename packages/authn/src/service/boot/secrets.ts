@@ -4,6 +4,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import type { MfaStep } from '../../contracts/mfa.js';
 import { mfaSteps } from '../../flow/mfa-steps.js';
+import { kindOf, q } from '../../support/format.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from './env.js';
 import type { AuthnConfigSource } from './env.js';
 
@@ -17,11 +18,7 @@ export interface AuthnConfigFinding {
 /** Names of the configured MFA steps that store secrets (D3). */
 export type SecretStoringSteps = () => Promise<readonly string[]>;
 
-const kindOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
-
 const absent = (v: unknown): v is undefined | null => v === undefined || v === null;
-
-const q = (v: string): string => JSON.stringify(v);
 
 /**
  * Our readers' InvalidOption and ServiceNotFound messages name keys, names and services only; another error may echo a

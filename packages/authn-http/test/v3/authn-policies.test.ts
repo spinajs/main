@@ -15,7 +15,7 @@ import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware }
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MFA_STEPS_KEY, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -371,8 +371,12 @@ describe('3.0 authn policies and route args', function () {
     /** Runs the policy over a pending session of alice, with totp listed and the MfaPolicy answering `required`. */
     async function enrolment(required: () => Promise<readonly string[]>, calls: unknown[] = []): Promise<string> {
       const config = await DI.resolve(Configuration);
-      const listed = config.get<unknown>('authn.mfa.steps');
+      const mfaConfig = config.get<Record<string, unknown> | undefined>('authn.mfa');
+      const had = mfaConfig !== undefined && Object.hasOwn(mfaConfig, 'steps');
+      const before = mfaConfig?.steps;
       config.set('authn.mfa.steps', [{ name: 'totp', service: 'PolicySuiteMfaStep' }]);
+      // The child keeps the steps it listed first.
+      s.child.uncache(MFA_STEPS_KEY);
       const mfa = (await s.child.resolve(MfaPolicy)) as unknown as EnrolledMfaPolicy;
       const original = mfa.required.bind(mfa);
       mfa.required = async (id, facts) => {
@@ -385,7 +389,9 @@ describe('3.0 authn policies and route args', function () {
         return await run(policy, await requestOf('pending'));
       } finally {
         mfa.required = original;
-        config.set('authn.mfa.steps', listed);
+        if (had) config.set('authn.mfa.steps', before);
+        else delete config.get<Record<string, unknown>>('authn.mfa').steps;
+        s.child.uncache(MFA_STEPS_KEY);
       }
     }
 

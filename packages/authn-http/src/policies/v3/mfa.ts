@@ -13,8 +13,8 @@ import { authenticatedPrincipal } from './principal.js';
 
 /** The policy DefaultAuthnService asks at login: the registration named `name` (authn.mfa.policy.service) nearest to `container`. */
 export async function mfaPolicyOf(container: IContainer, name: string): Promise<MfaPolicy> {
+  if (!container.getRegisteredNames(MfaPolicy).includes(name)) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
   const policy = (await container.resolveNamed(MfaPolicy, name)) as MfaPolicy | null | undefined;
-  if (policy === undefined) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
   if (typeof policy?.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required())`);
   return policy;
 }

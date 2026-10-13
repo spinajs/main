@@ -1671,6 +1671,14 @@ describe('DefaultAuthnService', function () {
       assert.ok(!message.includes('undefined'));
     });
 
+    it('fails boot on a registered throttle or MFA policy factory that returns nothing, naming it as no throttle or policy', async () => {
+      const voidThrottle = { raw: { authn: { throttle: { service: 'VoidThrottle' } } }, register: (c: IContainer) => bind(c, AuthnThrottle, 'VoidThrottle', undefined) };
+      await bootFails([failing()], voidThrottle, 'authn.throttle.service "VoidThrottle" is not an AuthnThrottle');
+      const interactive = strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+      const voidPolicy = { raw: { authn: { mfa: { policy: { service: 'VoidPolicy' } } } }, register: (c: IContainer) => bind(c, MfaPolicy, 'VoidPolicy', undefined) };
+      await bootFails([interactive], voidPolicy, 'authn.mfa.policy.service "VoidPolicy" is not an MfaPolicy');
+    });
+
     it('takes the only throttle besides MemoryAuthnThrottle when authn.throttle.service is unset (K6)', async () => {
       const other = new RecordingThrottle(DEFAULT_THROTTLE_PARAMS);
       const p = await boot([failing()], { register: (c) => bind(c, AuthnThrottle, 'OtherThrottle', other) });
