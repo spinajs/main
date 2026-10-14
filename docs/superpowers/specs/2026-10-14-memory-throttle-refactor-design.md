@@ -95,7 +95,7 @@ export class FlowLimiter extends KeyedBackoff {
 
 `MemoryAuthnThrottle`:
 
-- **Limiters.** It builds each flow's limiter lazily, on first use, through `DI.resolve(FlowLimiter, [flow, options])`. That is the root container, matching the throttle's `@Singleton` lifetime. The limiter is cached per flow. An app replaces the limiter for every flow by registering a `FlowLimiter` subclass.
+- **Limiters.** On the first use of any flow it builds all four limiters through `DI.resolve(FlowLimiter, [flow, options])`. That is the root container, matching the throttle's `@Singleton` lifetime. The limiters are cached per flow. An app replaces the limiter for every flow by registering a `FlowLimiter` subclass; a subclass with any DI decorator must declare `@NewInstance()` again, and the throttle throws `InvalidOperation` when DI returns anything but a distinct `FlowLimiter` of each flow.
 - **Options** come from config: `maxRows`, `resetAfterSeconds × 1000`, `authn.throttle.memory.*`, the `delayMs` seam, and `onFull`, which calls `reportFull(flow)`.
 - **Authn-specific logic it keeps:**
   - **Gates per key kind:** `account` and `ip` use the flow's params; `global` uses `params.global`. An `account-ip` key is counted without gating when the flow has `ip` params.
@@ -103,7 +103,7 @@ export class FlowLimiter extends KeyedBackoff {
   - **Sweeping:** before each attempt it sweeps the attempt's own flow with a full batch and every other flow with `ceil(batch / 4)`.
   - **`succeed`:**
     - `reset` clears nothing.
-    - Otherwise it releases the hold-off, deletes the `account` and `account-ip` rows, and lowers the `ip` row by the largest attempt count among `account-ip` runs that began before it (D8). It then recomputes that row's `nextMs`, or deletes the row at 0.
+    - Otherwise it releases the hold-off, deletes the `account` and `account-ip` rows, and lowers the `ip` row by the largest attempt count among `account-ip` runs that began after the `ip` row's run (`a.run > row.run`; an older `account-ip` run counted attempts the `ip` row never saw) (D8). It then recomputes that row's `nextMs`, or deletes the row at 0.
   - **Validation:** unknown flow → `InvalidArgument`; a key value that is not a string → `InvalidArgument`.
   - **Config:** read once, cloned and deep-frozen. The `explicit` params and `options.maxRows` constructor arguments stay for tests.
 - **Protected seams the tests and mutants use:** `delayMs(p, n)`, `keyId(flow, key)`, `reportFull(flow)` and `limiter(flow): FlowLimiter`. `limiter(flow)` replaces `tables` and `sweepBatch`. Tests read rows through `limiter(flow).entries()` and `row()`.
