@@ -1966,4 +1966,7 @@ export interface ITransactionContext {
    * by the first `save()` and discarded with the context, so nothing survives the commit.
    */
   IdentityMap?: IIdentityMap;
+
+  /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
+  afterCommit?: (() => void | Promise<void>)[];
 }
