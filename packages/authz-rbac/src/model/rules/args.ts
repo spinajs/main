@@ -7,7 +7,7 @@ import type { RbacArgsSubject } from '../native.js';
 /*
  * Args v2 of `native:rbac.assignment` and v1 of `native:rbac.threshold` (design §6.1.2, type-level
  * paragraph; §12.4): the contract between the RBAC model and the list compilers, the in-memory
- * NativeFilters of rbacAssignmentExtension with `rules: true` and the SQL of RbacOrmCompiler.
+ * NativeFilters of rbacAssignmentExtension with `rules: true`.
  * The model emits them on a type-level request when the rows' answers depend on rules (or on tags,
  * provenance or implied 'descendants' contributions); otherwise it emits v1 or core ops.
  *

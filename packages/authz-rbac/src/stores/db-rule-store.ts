@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzClock, AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -6,14 +6,12 @@ import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
-import { RoleStore } from '../contracts.js';
-import type { LadderDef } from '../contracts.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
 import type { ScopeColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
-import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toSqlForm } from './rule-sql-form.js';
-import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-sql-form.js';
+import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
+import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
 import { readVersion, bumpVersion } from './version.js';
 
 /** `AuthzAdmin.list({ kind: 'rules' })` without the kind. */
@@ -45,10 +43,10 @@ const INSERT_BATCH = 100;
 type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: string; readonly created_by: string | null; readonly created_at: Date | string };
 
 /**
- * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules with their
- * SQL form (D24). Reads use the `authz.rbac.connection` connection; writes run on the `AuthzTx` of
- * `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27). Registered by
- * class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
+ * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
+ * the rule is its `definition` JSON. Reads use the `authz.rbac.connection` connection; writes run on
+ * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27).
+ * Registered by class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
  */
 @PerChildInstance()
 @Injectable()
@@ -96,59 +94,37 @@ export class DbRuleStore extends AdminRuleStore {
     return row ? (await this.rulesOf(driver, [row]))[0] : null;
   }
 
-  /** `rule.put` with the ladders of the domain's role stores ({@link ladders}). */
+  /** Inserts the rule, or replaces the one with its id (row and subject rows; the first `created_at` and `created_by` stay). */
   async put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void> {
-    await this.writeDriver(tx, `${this.name}.put`);
-    await this.putWithLadders(rule, await this.ladders(), actor, tx);
-  }
-
-  /**
-   * {@link toSqlForm} without the domain's ladders (a synchronous check before the transaction):
-   * every role the rule names is put on the ladder the rule names for it. So it never refuses a
-   * storable rule, but the refusals that depend on the real ladders (without `rule.ladder`, a role
-   * on no ladder or on two, or `maxRole` and `minRole` on different ladders) come from {@link put},
-   * inside the batch transaction.
-   */
-  assertStorable(rule: Omit<RuleDef, 'source'>): void {
-    toSqlForm(rule, probeLadders(rule));
-  }
-
-  /**
-   * Inserts the rule, or replaces the one with its id (columns and subject rows; the first
-   * `created_at` and `created_by` stay). A rule outside SQL form is refused by {@link toSqlForm}
-   * before anything is written.
-   */
-  async putWithLadders(rule: Omit<RuleDef, 'source'>, ladders: readonly LadderDef[], actor: PrincipalRef, tx: AuthzTx): Promise<RuleDef> {
     const driver = await this.writeDriver(tx, `${this.name}.put`);
-    const form = toSqlForm(rule, ladders);
-    const { id, ...columns } = form.rule;
+    const rows = toRuleRows(rule);
+    const { id, ...columns } = rows.rule;
 
-    const existing = await this.existingRule(driver, id);
-    let row: StoredRuleRow;
-
-    if (existing) {
+    if (await this.existingRule(driver, id)) {
       await driver.update().in(AUTHZ_RULE_TABLE).update(columns).where('id', id);
       await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where('rule_id', id);
-      row = { ...existing, ...form.rule };
     } else {
-      row = { ...form.rule, created_by: principalKey(actor), created_at: this.now() };
       try {
-        await driver.insert().into(AUTHZ_RULE_TABLE).values(row);
+        await driver.insert().into(AUTHZ_RULE_TABLE).values({ ...rows.rule, created_by: principalKey(actor), created_at: this.now() });
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
         throw new AuthzAdminFailure('conflict', `${this.name}.put: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
       }
     }
 
-    for (let i = 0; i < form.subjects.length; i += INSERT_BATCH) {
+    for (let i = 0; i < rows.subjects.length; i += INSERT_BATCH) {
       await driver
         .insert()
         .into(AUTHZ_RULE_SUBJECT_TABLE)
-        .values(form.subjects.slice(i, i + INSERT_BATCH));
+        .values(rows.subjects.slice(i, i + INSERT_BATCH));
     }
 
     await bumpVersion(driver, this.domain());
-    return rowToRule(row, form.subjects);
+  }
+
+  /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
+  assertStorable(rule: Omit<RuleDef, 'source'>): void {
+    toRuleRows(rule);
   }
 
   /** `rule.delete` as {@link remove}. */
@@ -225,19 +201,6 @@ export class DbRuleStore extends AdminRuleStore {
     return storeConnection(this.container);
   }
 
-  /** The ladders of every `RoleStore` the store's container registers; a ladder defined twice is refused, as AuthzAdmin does. */
-  protected async ladders(): Promise<readonly LadderDef[]> {
-    if (!this.container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${this.name}.put: no RoleStore is registered; rule ranks are indexes in its ladders`);
-    const out = new Map<string, LadderDef>();
-    for (const s of await this.container.resolve(Array.chainOf(RoleStore))) {
-      for (const l of (await (s as RoleStore).load()).ladders) {
-        if (out.has(l.name)) throw new AuthzConfigError(`${this.name}.put: ladder ${JSON.stringify(l.name)} is defined twice`);
-        out.set(l.name, l);
-      }
-    }
-    return [...out.values()];
-  }
-
   /** Rules oldest first; `window` undefined reads every match in one rule query. */
   private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly RuleDef[]; total: number }> {
     const driver = await this.connection();
@@ -297,7 +260,7 @@ export class DbRuleStore extends AdminRuleStore {
 /**
  * A stored rule: `definition` plus the id, kind, scope and expiry columns, `source: 'db'`. `allow`
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
- * removed is gone for single checks as it is for SQL.
+ * removed is gone.
  */
 export function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
   const def = JSON.parse(String(row.definition)) as Partial<RuleDef>;
@@ -314,28 +277,6 @@ export function rowToRule(row: RuleRow & { readonly definition: unknown }, subje
     expiresAt: toDate(row.expires_at),
     source: 'db',
   };
-}
-
-const PROBE_LADDER = '$assertStorable';
-
-/**
- * Ladders under which every role `rule` names is on the ladder it names: `maxRole`/`minRole` on
- * `rule.ladder` (else on the rank ladder, else on a probe ladder), the rank bounds on
- * `subjects.rank.ladder`. Non-string values are left to toSqlForm to refuse.
- */
-function probeLadders(rule: Omit<RuleDef, 'source'>): LadderDef[] {
-  const named = (v: unknown): string[] => (typeof v === 'string' ? [v] : []);
-  const r = rule as { ladder?: unknown; maxRole?: unknown; minRole?: unknown; subjects?: { rank?: { ladder?: unknown; lt?: unknown; eq?: unknown; gte?: unknown } } };
-  const rank = r.subjects?.rank;
-  const rankLadder = typeof rank?.ladder === 'string' ? rank.ladder : undefined;
-  const own = typeof r.ladder === 'string' ? r.ladder : rankLadder ?? PROBE_LADDER;
-
-  const ladders = new Map<string, Set<string>>();
-  const add = (ladder: string, roles: string[]) => ladders.set(ladder, new Set([...(ladders.get(ladder) ?? []), ...roles]));
-  add(own, [...named(r.maxRole), ...named(r.minRole)]);
-  if (rankLadder !== undefined) add(rankLadder, [...named(rank?.lt), ...named(rank?.eq), ...named(rank?.gte)]);
-
-  return [...ladders].map(([name, roles]) => ({ name, roles: [...roles] }));
 }
 
 function subjectKey(list: string, s: { subject_type: string; subject_id: string; subject_role: string }): string {

@@ -12,8 +12,8 @@ import 'mocha';
 import { CheckConfigCommand } from '../../src/cli/index.js';
 import { RoleStore } from '../../src/contracts.js';
 import { ConfigRoleStore } from '../../src/stores/index.js';
-import { bootSqlite } from '../orm/fixture.js';
-import type { BootedDb } from '../orm/fixture.js';
+import { bootDb } from '../support/db.js';
+import type { TestDb } from '../support/db.js';
 import { capture, fakeAuthz } from './fixture.js';
 import type { Captured } from './fixture.js';
 
@@ -207,12 +207,13 @@ describe('authz:check-config', () => {
 
   describe('--unattended', function () {
     this.timeout(30000);
-    let db: BootedDb;
-    before(async () => {
-      db = await bootSqlite();
+    let db: TestDb;
+    before(async function () {
+      // No migrations: the case "table absent" needs a database without authz_audit.
+      db = await bootDb(this, 'sqlite', 'check_config', { migrate: false });
     });
     after(async () => {
-      await db.close();
+      await db?.dispose();
     });
 
     const withOrm = (cmd: CheckConfigCommand) => {

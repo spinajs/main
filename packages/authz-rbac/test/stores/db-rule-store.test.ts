@@ -2,17 +2,16 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { AuthzAdminFailure, AuthzClock, AuthzConfigError, AuthzDomains, GLOBAL, matchGlob, matchWildcard } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzClock, AuthzConfigError, AuthzDomains, GLOBAL } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, fromSqlForm, likeToGlob, MemoryRoleStore, readVersion, RoleStore, RULE_LIST_MAX_LIMIT, RuleStore, toDate, toSqlForm } from '../../src/index.js';
-import type { LadderDef } from '../../src/index.js';
+import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, readVersion, RULE_LIST_MAX_LIMIT, RuleStore, toDate, toRuleRows } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
-import { CANVAS_LADDERS, CANVAS_RULES, F1, KIT_LADDERS, kitRuleSets, O1, P1 } from '../support/rules.js';
+import { CANVAS_RULES, F1, kitRuleSets, O1, P1 } from '../support/rules.js';
 import type { Rule } from '../support/rules.js';
 
 chai.use(chaiAsPromised);
@@ -52,7 +51,7 @@ for (const kind of DB_KINDS) {
     let store: DbRuleStore;
 
     const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
-    const put = (r: Rule, ladders: readonly LadderDef[] = KIT_LADDERS) => inTx((tx) => store.putWithLadders(r, ladders, root, tx));
+    const put = (r: Rule) => inTx((tx) => store.put(r, root, tx));
 
     const ruleRows = async (): Promise<Row[]> => (await db.driver.select().from('authz_rule').orderBy('id')) as Row[];
     const subjectRows = async (ruleId?: string): Promise<Row[]> => {
@@ -107,71 +106,14 @@ for (const kind of DB_KINDS) {
     });
 
     describe('AdminRuleStore port', () => {
-      /** A store resolved in a child container that registers `roles` as its RoleStores. */
-      const withRoles = (...roles: RoleStore[]): DbRuleStore => {
-        const child = db.container.child();
-        for (const r of roles) child.register(testHost.instance(r)).as(RoleStore);
-        return child.resolve(DbRuleStore);
-      };
-
-      it('put reads the ladders of every RoleStore of its container and writes as putWithLadders', async () => {
-        const project = KIT_LADDERS.find((l) => l.name === 'project')!;
-        const s = withRoles(
-          new MemoryRoleStore([], [project]),
-          new MemoryRoleStore(
-            [],
-            KIT_LADDERS.filter((l) => l !== project),
-          ),
-        );
-        const rule: Rule = { id: 'r1', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer', subjects: { refs: [root] } };
-
-        expect(await inTx((tx) => s.put(rule, alice, tx))).to.eq(undefined);
-
-        const form = toSqlForm(rule, KIT_LADDERS);
-        const [row] = await ruleRows();
-        expect(row).to.include({ id: 'r1', ladder: 'project', created_by: 'user:alice' });
-        expect(Number(row.max_rank)).to.eq(form.rule.max_rank);
-        expect(await s.byId('r1')).to.deep.eq(stored(rule));
-        expect(await version()).to.eq('1');
+      it('put needs no RoleStore: a stored rule is its definition, read back as written', async () => {
+        const bare = new DbRuleStore(db.container.child());
+        await inTx((tx) => bare.put(restrict('r1', F1), root, tx));
+        expect(await store.byId('r1')).to.deep.eq(stored(restrict('r1', F1)));
       });
 
-      it('put refuses without a RoleStore, and outside a transaction before reading one, writing nothing', async () => {
-        const bare = withRoles();
-        await expect(inTx((tx) => bare.put(restrict('r1', F1), root, tx))).to.be.rejectedWith(AuthzConfigError, /RoleStore/);
-        await expect(withRoles(new MemoryRoleStore([], KIT_LADDERS)).put(restrict('r1', F1), root, { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
-        await expect(inTx((tx) => withRoles(new MemoryRoleStore([], KIT_LADDERS)).put({ id: 'bad', kind: 'cap', scope: P1, ladder: 'ghost', maxRole: 'viewer' }, root, tx)))
-          .to.be.rejectedWith(AuthzAdminFailure)
-          .and.eventually.include({ code: 'unknown_ladder' });
-        expect(await ruleRows()).to.deep.eq([]);
-        expect(await version()).to.eq('0');
-      });
-
-      it('put refuses a ladder that two RoleStores define, as AuthzAdmin does', async () => {
-        const project = KIT_LADDERS.find((l) => l.name === 'project')!;
-        const s = withRoles(new MemoryRoleStore([], [project]), new MemoryRoleStore([], [project]));
-        await expect(inTx((tx) => s.put(restrict('r1', F1), root, tx))).to.be.rejectedWith(AuthzConfigError, /ladder "project" is defined twice/);
-        expect(await ruleRows()).to.deep.eq([]);
-        expect(await version()).to.eq('0');
-      });
-
-      it('assertStorable accepts a rule that put refuses with the real ladders (a role on no ladder), and put writes nothing', async () => {
-        const loner: Rule = { id: 'loner', kind: 'cap', scope: P1, maxRole: 'loner' };
-        expect(() => store.assertStorable(loner)).to.not.throw();
-
-        const s = withRoles(new MemoryRoleStore([], KIT_LADDERS));
-        await expect(inTx((tx) => s.put(loner, root, tx)))
-          .to.be.rejectedWith(AuthzAdminFailure)
-          .and.eventually.include({ code: 'rule_not_compilable' });
-        expect(await ruleRows()).to.deep.eq([]);
-        expect(await version()).to.eq('0');
-      });
-
-      it('assertStorable accepts every kit and §8.5 rule without the ladders, and writes nothing', async () => {
-        for (const rule of [...kitRuleSets().flatMap((s) => s.rules), ...CANVAS_RULES]) expect(() => store.assertStorable(rule), rule.id).to.not.throw();
-        expect(await ruleRows()).to.deep.eq([]);
-      });
-
-      it('assertStorable refuses what toSqlForm refuses for the shape of the rule', () => {
+      it('assertStorable refuses only what the columns cannot hold, as invalid_command', () => {
+        const long = (n: number) => 'x'.repeat(n);
         const refused = (rule: Rule, field: string) => {
           let err: unknown;
           try {
@@ -179,13 +121,14 @@ for (const kind of DB_KINDS) {
           } catch (e) {
             err = e;
           }
-          expect(err, rule.id).to.be.instanceOf(AuthzAdminFailure);
-          expect(err, rule.id).to.include({ code: 'rule_not_compilable', field });
+          expect(err, field).to.be.instanceOf(AuthzAdminFailure);
+          expect(err, field).to.include({ code: 'invalid_command', field });
         };
-        refused({ id: 'glob', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'editor', resource: { attr: 'resource.name', glob: 'a*b*' } }, 'resource');
-        refused({ id: 'perm-glob', kind: 'threshold', scope: P1, permissions: ['file:*'], minRole: 'editor' }, 'permissions');
-        refused({ id: 'drops', kind: 'cap', scope: P1, maxRole: null }, 'ladder');
-        refused({ id: 'actor', kind: 'cap', scope: P1, stripTags: true, subjects: { actorTypes: ['user'] } }, 'subjects.actorTypes');
+        refused(restrict(long(161), F1), 'rule.id');
+        refused(restrict('r1', { type: 'file', id: long(65) }), 'rule.scope');
+        refused(restrict('r1', F1, { allow: [{ type: 'user', id: long(65) }] }), 'rule.allow');
+        refused({ id: 'c', kind: 'cap', scope: P1, stripTags: true, subjects: { refs: [{ type: long(33), id: 'a' }] } }, 'rule.subjects.refs');
+        expect(() => store.assertStorable({ id: 't', kind: 'threshold', scope: P1, permissions: ['file:*'], minRole: 'ghost', resource: { attr: 'resource.name', glob: 'a*b*' } })).to.not.throw();
       });
 
       it('find lists by scope and takes the page as a second argument', async () => {
@@ -197,23 +140,29 @@ for (const kind of DB_KINDS) {
     });
 
     describe('put', () => {
-      it('stores every kit and §8.5 rule as toSqlForm says, and reads it back unchanged', async () => {
-        const all = [...kitRuleSets().flatMap((s) => s.rules.map((rule) => ({ rule, ladders: s.ladders }))), ...CANVAS_RULES.map((rule) => ({ rule, ladders: CANVAS_LADDERS }))];
-        expect(all.length).to.be.at.least(28);
-
-        for (const { rule, ladders } of all) {
-          const returned = await put(rule, ladders);
-          expect(returned, rule.id).to.deep.eq(stored(rule));
-
-          const form = toSqlForm(rule, ladders);
-          const [row] = (await db.driver.select().from('authz_rule').where('id', rule.id)) as Row[];
-          const subjects = await subjectRows(rule.id);
-          expect(fromSqlForm(row as never, subjects as never), rule.id).to.deep.eq(fromSqlForm(form.rule, form.subjects));
-          expect(row.definition, rule.id).to.eq(form.rule.definition);
-          expect(subjects, rule.id).to.deep.eq(form.subjects);
+      it('stores every kit and §8.5 rule as its definition and reads it back unchanged', async () => {
+        for (const rule of [...kitRuleSets().flatMap((s) => s.rules), ...CANVAS_RULES]) {
+          await put(rule);
           expect(await store.byId(rule.id), rule.id).to.deep.eq(stored(rule));
+          const [row] = (await db.driver.select().from('authz_rule').where('id', rule.id)) as Row[];
+          expect(Object.keys(row).sort(), rule.id).to.deep.eq(['created_at', 'created_by', 'definition', 'expires_at', 'id', 'kind', 'scope_id', 'scope_type']);
         }
-        expect(await version()).to.eq(String(all.length));
+      });
+
+      it('stores a rule the old SQL form refused (a resource glob with two stars)', async () => {
+        const rule: Rule = { id: 'g', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'maintainer', resource: { attr: 'resource.name', glob: 'a*b*' } };
+        await put(rule);
+        expect(await store.byId('g')).to.deep.eq(stored(rule));
+      });
+
+      it('toRuleRows writes the allow and refs lists as subject rows, deduplicated and sorted', () => {
+        const rows = toRuleRows({ id: 'r', kind: 'restrict', scope: P1, allow: [alice, g1Members, alice] });
+        expect(rows.subjects).to.deep.eq([
+          { rule_id: 'r', list: 'allow', subject_type: 'group', subject_id: 'g1', subject_role: 'group.member' },
+          { rule_id: 'r', list: 'allow', subject_type: 'user', subject_id: 'alice', subject_role: '' },
+        ]);
+        expect(rows.rule).to.deep.include({ id: 'r', kind: 'restrict', scope_type: 'project', scope_id: 'p1', expires_at: null });
+        expect(JSON.parse(rows.rule.definition)).to.deep.eq({ kind: 'restrict', allow: [alice, g1Members, alice] });
       });
 
       it('writes and reads a rule with more subject rows than one insert batch', async () => {
@@ -234,34 +183,19 @@ for (const kind of DB_KINDS) {
 
       it('replaces a rule with the same id: columns and subject rows, keeping created_*', async () => {
         await put(restrict('r1', F1, { allow: [alice, g1Members] }));
-        await inTx((tx) => store.putWithLadders({ id: 'r1', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer', subjects: { refs: [root] } }, KIT_LADDERS, alice, tx));
+        await inTx((tx) => store.put({ id: 'r1', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer', subjects: { refs: [root] } }, alice, tx));
 
         const [row] = await ruleRows();
-        expect(row).to.include({ kind: 'cap', scope_type: 'project', scope_id: 'p1', ladder: 'project', created_by: 'user:root' });
-        expect(Number(row.max_rank)).to.eq(0);
+        expect(row).to.include({ kind: 'cap', scope_type: 'project', scope_id: 'p1', created_by: 'user:root' });
         expect(await subjectRows()).to.deep.eq([{ rule_id: 'r1', list: 'refs', subject_type: 'user', subject_id: 'root', subject_role: '' }]);
         expect(await store.byId('r1')).to.deep.eq(stored({ id: 'r1', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer', subjects: { refs: [root] } }));
         expect(await version()).to.eq('2');
       });
 
-      it('refuses a rule outside SQL form before writing anything', async () => {
-        await expect(put({ id: 'bad', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'editor', resource: { attr: 'resource.name', glob: 'a*b*' } }))
-          .to.be.rejectedWith(AuthzAdminFailure)
-          .and.eventually.include({ code: 'rule_not_compilable', field: 'resource' });
-        await expect(put({ id: 'bad', kind: 'threshold', scope: P1, permissions: ['file:edit'], ladder: 'project', at: 'project', minRole: 'ghost' }))
-          .to.be.rejectedWith(AuthzAdminFailure)
-          .and.eventually.include({ code: 'unknown_role' });
-        await expect(put({ id: 'bad', kind: 'threshold', scope: P1, permissions: ['file:*'], minRole: 'editor' }))
-          .to.be.rejectedWith(AuthzAdminFailure)
-          .and.eventually.include({ code: 'rule_not_compilable', field: 'permissions' });
-        expect(await ruleRows()).to.deep.eq([]);
-        expect(await version()).to.eq('0');
-      });
-
       it('rolls back the rule, its subject rows and the version bump with the surrounding transaction', async () => {
         await expect(
           inTx(async (tx) => {
-            await store.putWithLadders(restrict('r1', F1), KIT_LADDERS, root, tx);
+            await store.put(restrict('r1', F1), root, tx);
             throw new Error('abort');
           }),
         ).to.be.rejectedWith('abort');
@@ -279,7 +213,7 @@ for (const kind of DB_KINDS) {
           }
         }
 
-        await expect(inTx((tx) => new Blind(db.container).putWithLadders(restrict('r1', F2), KIT_LADDERS, root, tx)))
+        await expect(inTx((tx) => new Blind(db.container).put(restrict('r1', F2), root, tx)))
           .to.be.rejectedWith(AuthzAdminFailure)
           .and.eventually.include({ code: 'conflict', field: 'id' });
         expect((await ruleRows()).map((r) => r.scope_id)).to.deep.eq(['f1']);
@@ -351,51 +285,6 @@ for (const kind of DB_KINDS) {
       });
     });
 
-    describe('patterns on this database', () => {
-      const SAMPLES = ['release', 'release/', 'release/1', 'Release/1', 'RELEASE/1', 'release/1/hotfix', 'releasex', 'a%b_c\\dz', 'aXbYc\\d', '50%_off\\', '50%_off\\/x', '50X_off\\', 'x[a]*?^]y', '[a]*?^]', 'é/ü', 'É/ü'];
-      const PATTERNS: { op: 'wildcard' | 'glob'; pattern: string }[] = [
-        { op: 'wildcard', pattern: 'release/*' },
-        { op: 'wildcard', pattern: 'a%b_c\\d*' },
-        { op: 'wildcard', pattern: '*[a]*?^]*' },
-        { op: 'wildcard', pattern: 'é/*' },
-        { op: 'glob', pattern: 'release/*' },
-        { op: 'glob', pattern: 'release/**' },
-        { op: 'glob', pattern: '50%_off\\*' },
-        { op: 'glob', pattern: '[a]*' },
-      ];
-
-      /** The stored patterns of rule `id` against `text`: SQLite GLOB (its LIKE ignores case), Postgres LIKE with the backslash escape. */
-      const SQL = {
-        sqlite: 'SELECT (? GLOB r.resource_glob AND (r.resource_not_glob IS NULL OR NOT ? GLOB r.resource_not_glob)) AS m FROM authz_rule r WHERE r.id = ?',
-        postgres: "SELECT (CAST(? AS text) LIKE r.resource_like ESCAPE '\\' AND (r.resource_not_like IS NULL OR NOT CAST(? AS text) LIKE r.resource_not_like ESCAPE '\\')) AS m FROM authz_rule r WHERE r.id = ?",
-      };
-      const matches = async (id: string, text: string): Promise<boolean> => {
-        const [row] = (await rawQuery(db.driver, SQL[kind], [text, text, id])) as { m: unknown }[];
-        return row.m === true || row.m === 1;
-      };
-
-      it('matches what the core matcher matches, case included, from the stored row', async () => {
-        for (const [i, { op, pattern }] of PATTERNS.entries()) {
-          const rule: Rule = { id: `p${i}`, kind: 'threshold', scope: P1, permissions: ['*'], minRole: 'editor', resource: { attr: 'resource.name', [op]: pattern } };
-          await put(rule);
-          const [row] = (await db.driver.select().from('authz_rule').where('id', rule.id)) as Row[];
-          expect(row.resource_glob).to.eq(likeToGlob(String(row.resource_like)));
-
-          for (const text of SAMPLES) {
-            const core = op === 'glob' ? matchGlob(pattern, text) : matchWildcard(pattern, text);
-            expect(await matches(rule.id, text), `${op} ${pattern} on ${JSON.stringify(text)}`).to.eq(core);
-          }
-        }
-      });
-
-      if (kind === 'sqlite') {
-        it("SQLite's LIKE ignores case, which is why L4b needs GLOB there", async () => {
-          const [row] = (await rawQuery(db.driver, "SELECT ('Release/1' LIKE 'release/%' ESCAPE '\\') AS m", [])) as { m: unknown }[];
-          expect(row.m).to.eq(1);
-        });
-      }
-    });
-
     describe('version', () => {
       it("reads authz_version of the store's domain, '0' when absent", async () => {
         expect(await store.version()).to.eq('0');
@@ -426,7 +315,7 @@ for (const kind of DB_KINDS) {
             }
           }
           const s = new InDomain(domain);
-          await inTx((tx) => s.putWithLadders(restrict('r1', F1), KIT_LADDERS, root, tx));
+          await inTx((tx) => s.put(restrict('r1', F1), root, tx));
 
           expect(await s.version()).to.eq('1');
           expect(await version(`l2_t6_${kind}`)).to.eq('1');
@@ -566,8 +455,8 @@ for (const kind of DB_KINDS) {
     describe('writes outside an AuthzAdmin transaction', () => {
       it('are refused without a transaction in scope, or with something that is not a driver', async () => {
         await put(restrict('w1', P1));
-        await expect(store.putWithLadders(restrict('r1', F1), KIT_LADDERS, root, { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
-        await expect(store.putWithLadders(restrict('r1', F1), KIT_LADDERS, root, { driver: {} })).to.be.rejectedWith(AuthzConfigError, /OrmDriver/);
+        await expect(store.put(restrict('r1', F1), root, { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
+        await expect(store.put(restrict('r1', F1), root, { driver: {} })).to.be.rejectedWith(AuthzConfigError, /OrmDriver/);
         await expect(store.delete('w1', { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
         await expect(store.forgetScope(P1, { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
         expect((await ruleRows()).map((r) => r.id)).to.deep.eq(['w1']);
@@ -578,7 +467,7 @@ for (const kind of DB_KINDS) {
         await put(restrict('w1', P1));
         const other = (fn: (tx: AuthzTx) => Promise<unknown>) => db.second!.transaction((driver: OrmDriver) => fn({ driver }));
 
-        await expect(other((tx) => store.putWithLadders(restrict('r1', F1), KIT_LADDERS, root, tx))).to.be.rejectedWith(AuthzConfigError, /l2-rule_store-second/);
+        await expect(other((tx) => store.put(restrict('r1', F1), root, tx))).to.be.rejectedWith(AuthzConfigError, /l2-rule_store-second/);
         await expect(other((tx) => store.delete('w1', tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
         await expect(other((tx) => store.forgetScope(P1, tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
 
