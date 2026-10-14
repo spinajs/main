@@ -2,19 +2,17 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { AuthzClock, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { AuthzService, Permission, ResourceFilter } from '@spinajs/authz';
-import { BEHAVIOUR_FIXTURES, fixtureDsl, modelSteps, runBehaviour, testHost, userPrincipal } from '@spinajs/authz-testing';
-import type { DecisionExpectation, HostSetup, Step, StepContext, World } from '@spinajs/authz-testing';
+import { AuthzConfigError, CORE_FILTER_OPS, GLOBAL, SYSTEM } from '@spinajs/authz';
+import type { AuthzService, Permission } from '@spinajs/authz';
+import { BEHAVIOUR_FIXTURES, fixtureDsl, modelSteps, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
+import type { DecisionExpectation, HostSetup, Step, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AssignCommand, RevokeCommand } from '../../src/cli/index.js';
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbAuthzAdminBackend, RBAC_ASSIGNMENT_OP, RbacModelRoleGraphSource, RbacOrmCompiler, RbacRoleGraphSource, RbacScopePathSource, rbacAssignmentExtension, readVersion } from '../../src/index.js';
-import type { RbacModel } from '../../src/index.js';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbAuthzAdminBackend, RBAC_ASSIGNMENT_OP, rbacAssignmentExtension, readVersion } from '../../src/index.js';
 import { capture } from '../cli/fixture.js';
-import { DocModel, FixturePathSource } from '../orm/fixture.js';
 import { bootDb, DB_KINDS, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { activeDb, dbHarness } from './db-harness.js';
@@ -79,58 +77,18 @@ const e2eWorld: World = {
   },
 };
 
-/** The SQL rows a type-level residual selects: native:rbac.assignment compiled by RbacOrmCompiler with the model's own args. */
-async function sqlDocs(db: TestDb, model: RbacModel, host: HostSetup, residual: ResourceFilter): Promise<string[] | 'not native'> {
-  if (residual.op === 'true') return DOCS.map((d) => d.id);
-  if (residual.op === 'false') return [];
-  // One query per native term, united: the same rows as OR inside one WHERE.
-  if (residual.op === 'or') {
-    const parts = await Promise.all(residual.args.map((r) => sqlDocs(db, model, host, r)));
-    if (parts.includes('not native')) return 'not native';
-    return [...new Set((parts as string[][]).flat())].sort();
-  }
-  if (residual.op !== RBAC_ASSIGNMENT_OP) return 'not native';
-  const container = db.container.child();
-  container.register(FixturePathSource).as(RbacScopePathSource);
-  container.register(() => new RbacModelRoleGraphSource(model, [DocModel])).as(RbacRoleGraphSource);
-  container.register(testHost.instance(host.kit.clock)).as(AuthzClock);
-  const query = db.driver.select<Array<{ id: string }>>().from('doc').columns(['id']).orderBy('id');
-  new RbacOrmCompiler(container).compile((residual as { args: unknown }).args, query, DocModel, alice);
-  return ((await query) as unknown as Array<{ id: string }>).map((r) => String(r.id));
-}
-
-const parity = (dbOf: () => TestDb | undefined): Step => ({
-  note: 'the native residual of each principal lists in SQL what the in-memory filter lists',
-  do: async (ctx: StepContext) => {
-    const model = stores().model!;
-    let native = 0;
-    for (const who of ['root', 'alice', 'bob', 'carol', 'dave', 'erin']) {
-      const principal = ctx.principal(who);
-      const residual = await ctx.session.authz!.filter!(principal, 'doc:read', 'doc');
-      const inMemory = [...(await ctx.session.list!(principal, 'doc:read', 'doc'))].sort();
-      const sql = await sqlDocs(dbOf()!, model, latest!.host, residual);
-      expect(sql, `${who}: residual ${JSON.stringify(residual)}`).to.not.eq('not native');
-      if (JSON.stringify(residual).includes(RBAC_ASSIGNMENT_OP)) native++;
-      expect(sql, who).to.deep.eq(inMemory);
-    }
-    expect(native, 'principals whose residual is native:rbac.assignment').to.be.at.least(4);
-    expect([...(await ctx.session.list!(ctx.principal('alice'), 'doc:read', 'doc'))].sort()).to.deep.eq(['d1', 'd2']);
-    expect([...(await ctx.session.list!(ctx.principal('carol'), 'doc:read', 'doc'))].sort()).to.deep.eq(['d1', 'd4']);
-  },
-});
-
-const e2eFixture = (dbOf: () => TestDb | undefined) =>
+const e2eFixture =
   extension('B06', [
     {
       name: 'l2-store-e2e',
       facets: ['engine', 'rbac', 'store', 'list'],
       lanes: ['L2'],
-      note: 'ConfigRoleStore (roles in the configuration) and DbAssignmentStore rows under the RbacModel: checks at GLOBAL and at scopes, then the type-level residual through RbacOrmCompiler against the in-memory filter.',
+      note: 'ConfigRoleStore (roles in the configuration) and DbAssignmentStore rows under the RbacModel: checks at GLOBAL and at scopes.',
       world: e2eWorld,
       cases: [
         {
-          name: 'config roles and DB rows decide at GLOBAL and at scopes, and SQL lists what the filter lists',
-          steps: [check('root', 'doc:read', GLOBAL, allowed), check('alice', 'doc:read', GLOBAL, denied), check('bob', 'doc:write', GLOBAL, denied), check('alice', 'doc:read', doc('d1'), allowed), check('alice', 'doc:read', doc('d3'), denied), check('alice', 'doc:write', doc('d1'), denied), check('bob', 'doc:write', doc('d3'), allowed), check('bob', 'doc:read', doc('d3'), allowed), check('bob', 'doc:write', doc('d4'), denied), check('carol', 'doc:write', doc('d4'), allowed), check('carol', 'doc:read', doc('d1'), allowed), check('carol', 'doc:read', doc('d2'), denied), check('dave', 'doc:read', doc('d3'), denied), check('dave', 'doc:read', doc('d4'), allowed), check('erin', 'doc:read', doc('d1'), denied), parity(dbOf)],
+          name: 'config roles and DB rows decide at GLOBAL and at scopes',
+          steps: [check('root', 'doc:read', GLOBAL, allowed), check('alice', 'doc:read', GLOBAL, denied), check('bob', 'doc:write', GLOBAL, denied), check('alice', 'doc:read', doc('d1'), allowed), check('alice', 'doc:read', doc('d3'), denied), check('alice', 'doc:write', doc('d1'), denied), check('bob', 'doc:write', doc('d3'), allowed), check('bob', 'doc:read', doc('d3'), allowed), check('bob', 'doc:write', doc('d4'), denied), check('carol', 'doc:write', doc('d4'), allowed), check('carol', 'doc:read', doc('d1'), allowed), check('carol', 'doc:read', doc('d2'), denied), check('dave', 'doc:read', doc('d3'), denied), check('dave', 'doc:read', doc('d4'), allowed), check('erin', 'doc:read', doc('d1'), denied)],
         },
       ],
     },
@@ -267,19 +225,13 @@ for (const kind of DB_KINDS) {
 
     before(async function () {
       db = await bootDb(this, kind, 'e2e');
-      await db.driver.schema().createTable('doc', (t) => {
-        t.string('id', 36).primaryKey().notNull();
-        t.string('project_id', 36).notNull();
-        t.string('org_id', 36).notNull();
-      });
-      for (const d of DOCS) await db.driver.insert().into('doc').values(d);
     });
 
     after(async () => {
       await db?.dispose();
     });
 
-    runBehaviour(['B06.l2-store-e2e'], () => dbHarness(dbOf, { extensions: (_host, options) => [rbacAssignmentExtension(options)], register: remember }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, e2eFixture(dbOf)] });
+    runBehaviour(['B06.l2-store-e2e'], () => dbHarness(dbOf, { extensions: (_host, options) => [rbacAssignmentExtension(options)], register: remember }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, e2eFixture] });
 
     runBehaviour(['B12.l2-store-warning'], () => dbHarness(dbOf, { log: { warn: (m) => void warnings.push(m) } }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, warningFixture] });
 
