@@ -148,7 +148,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     return checkedMs(ctx?.now, `DbAuthnThrottle.${method}: ctx.now`);
   }
 
-  /** @internal Tests replace the store to interleave or fail its statements. */
+  /** Protected seam: override to wrap or replace the store (tests use it to interleave or fail statements). */
   protected createStore(options: DbThrottleStoreOptions): DbThrottleStore {
     return new DbThrottleStore(options);
   }
