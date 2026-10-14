@@ -116,6 +116,7 @@ Schema `authn.throttle` gains `memory` (and `propertyNames` lists it):
 ```ts
 memory: {
   type: 'object', default: {}, additionalProperties: false,
+  propertyNames: { enum: ['sweepBatch', 'fullRetrySeconds', 'holdOffMs'] },
   properties: {
     sweepBatch: { type: 'integer', minimum: 1, maximum: 1000, default: 8, description: 'Expired rows a MemoryAuthnThrottle checks per attempt.' },
     fullRetrySeconds: { type: 'integer', minimum: 1, maximum: 3600, default: 60, description: 'Retry-After of a full memory table with no delay to wait for.' },

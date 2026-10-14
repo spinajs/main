@@ -31,6 +31,7 @@ class Probe extends MemoryAuthnThrottle {
   /** Leaves freeing rows to eviction alone: no limiter sweeps, in any flow. */
   noSweep(): this {
     this.sweeping = false;
+    for (const f of FLOWS) this.limiter(f);
     return this;
   }
   limiterOf(flow: ThrottleFlow): FlowLimiter {
@@ -63,6 +64,7 @@ class ReadModifyWrite extends MemoryAuthnThrottle {
   async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) {
     const read = FLOWS.map((f) => [f, new Map([...this.limiter(f).entries()].map(([k, r]) => [k, { ...r }]))] as const);
     await new Promise((r) => setImmediate(r));
+    // KeyedBackoff has no insert API: only rows that survived are restored, so rows deleted meanwhile stay gone.
     for (const [f, rows] of read) {
       const l = this.limiter(f);
       for (const [k] of [...l.entries()]) {
