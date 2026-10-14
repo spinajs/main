@@ -55,6 +55,8 @@ export interface ThrottleOptions {
   readonly store: ThrottleStore;
   /** Default `${flow}|${kind}|${value}`; util stays platform-neutral, so a caller that must not keep raw keys hashes here. */
   readonly keyId?: (flow: string, key: ThrottleKey) => string;
+  /** Prefixes its error messages. Default `Throttle`. */
+  readonly name?: string;
 }
 
 const own = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
@@ -72,13 +74,15 @@ export class Throttle {
   private readonly flows: Readonly<Record<string, ThrottleFlowRules>>;
   private readonly store: ThrottleStore;
   private readonly keyId: (flow: string, key: ThrottleKey) => string;
+  private readonly name: string;
 
   constructor(options: ThrottleOptions) {
+    this.name = options.name ?? 'Throttle';
     // A copy: the caller's rules stay editable, a running throttle's do not.
     const flows = deepFreeze(structuredClone(options.flows));
     for (const [flow, rules] of Object.entries(flows)) {
       for (const { kind } of rules.onSuccess?.lower ?? []) {
-        if (!own(rules.gates, kind)) throw new InvalidArgument(`Throttle: flow ${JSON.stringify(flow)} lowers ${JSON.stringify(kind)}, which it does not gate`);
+        if (!own(rules.gates, kind)) throw new InvalidArgument(`${this.name}: flow ${JSON.stringify(flow)} lowers ${JSON.stringify(kind)}, which it does not gate`);
       }
     }
     this.flows = flows;
@@ -118,8 +122,8 @@ export class Throttle {
   }
 
   private rules(flow: string, nowMs: number): ThrottleFlowRules {
-    if (typeof flow !== 'string' || !own(this.flows, flow)) throw new InvalidArgument(`Throttle: unknown flow ${JSON.stringify(String(flow))}`);
-    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) throw new InvalidArgument('Throttle: nowMs must be a finite number');
+    if (typeof flow !== 'string' || !own(this.flows, flow)) throw new InvalidArgument(`${this.name}: unknown flow ${JSON.stringify(String(flow))}`);
+    if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) throw new InvalidArgument(`${this.name}: nowMs must be a finite number`);
     return this.flows[flow];
   }
 
@@ -141,7 +145,7 @@ export class Throttle {
   }
 
   private id(flow: string, key: ThrottleKey): string {
-    if (typeof key.value !== 'string') throw new InvalidArgument(`Throttle: the value of a ${JSON.stringify(String(key.kind))} key must be a string`);
+    if (typeof key.value !== 'string') throw new InvalidArgument(`${this.name}: the value of a ${JSON.stringify(String(key.kind))} key must be a string`);
     return this.keyId(flow, key);
   }
 }

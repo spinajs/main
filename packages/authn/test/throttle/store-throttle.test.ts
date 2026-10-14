@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import type { KeyedBackoffVerdict, ThrottleFlowRules, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 
 import { DEFAULT_THROTTLE_PARAMS, StoreAuthnThrottle } from '../../src/index.js';
@@ -53,6 +53,7 @@ const keys: ThrottleKey[] = [
   { kind: 'account-ip', value: 'alice|192.0.2.1' },
 ];
 const ctx = (now: Date): AuthnContext => ({ now, purpose: 'login' });
+const invalid = (message: RegExp) => (e: unknown): boolean => e instanceof InvalidArgument && message.test(e.message);
 
 describe('StoreAuthnThrottle', () => {
   describe('rules (the flow-rule table)', () => {
@@ -134,8 +135,40 @@ describe('StoreAuthnThrottle', () => {
       await assert.rejects(t.succeed(keys, 'signup' as ThrottleFlow), InvalidArgument);
       assert.deepStrictEqual(t.recording.calls, []);
     });
+
+    it('rejects a bad ctx, then an unknown flow, before it reads the params or builds the store', async () => {
+      const t = new Unconfigured();
+      await assert.rejects(t.attempt(keys, 'signup' as ThrottleFlow, ctx(new Date(NaN))), invalid(/^Unconfigured\.attempt: ctx\.now/));
+      await assert.rejects(t.peek(keys, 'signup' as ThrottleFlow, ctx(new Date(NaN))), invalid(/^Unconfigured\.peek: ctx\.now/));
+      for (const run of [() => t.attempt(keys, 'signup' as ThrottleFlow, ctx(new Date())), () => t.peek(keys, 'signup' as ThrottleFlow, ctx(new Date())), () => t.succeed(keys, 'signup' as ThrottleFlow)]) {
+        await assert.rejects(run(), invalid(/^Unconfigured: unknown flow "signup"$/));
+      }
+      assert.deepStrictEqual({ reads: t.reads, stores: t.stores }, { reads: 0, stores: 0 });
+      await assert.rejects(t.attempt(keys, 'login', ctx(new Date())), InvalidOperation);
+    });
+
+    it('names itself in the errors of its Throttle', async () => {
+      const t = new Recording(PARAMS);
+      await assert.rejects(t.attempt([{ kind: 'ip', value: 42 as unknown as string }], 'login', ctx(new Date())), { message: 'Recording: the value of a "ip" key must be a string' });
+    });
   });
 });
+
+class Unconfigured extends StoreAuthnThrottle {
+  reads = 0;
+  stores = 0;
+  protected get params(): ThrottleParams {
+    this.reads++;
+    throw new InvalidOperation('authn.throttle is unset');
+  }
+  protected async store(): Promise<ThrottleStore> {
+    this.stores++;
+    return new RecordingStore();
+  }
+  protected keyId(flow: ThrottleFlow, key: ThrottleKey): string {
+    return `${flow}:${key.kind}:${key.value}`;
+  }
+}
 
 describe('@spinajs/authn/store-throttle', () => {
   it('exports the StoreAuthnThrottle of the root entry', async () => {

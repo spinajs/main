@@ -394,6 +394,14 @@ describe('MemoryAuthnThrottle', function () {
       await assert.rejects(t.attempt([{ kind: 'account', value: 42 as unknown as string }], 'login', ctx()), InvalidArgument);
       await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', { ...ctx(), now: new Date(NaN) }), InvalidArgument);
     });
+
+    it('names MemoryAuthnThrottle in its errors, also from a subclass', async () => {
+      for (const t of [new MemoryAuthnThrottle(DEFAULT_THROTTLE), new Probe(DEFAULT_THROTTLE)]) {
+        await assert.rejects(t.attempt([], 'signup' as ThrottleFlow, ctx()), { message: 'MemoryAuthnThrottle: unknown flow "signup"' });
+        await assert.rejects(t.attempt([{ kind: 'account', value: 42 as unknown as string }], 'login', ctx()), { message: 'MemoryAuthnThrottle: the value of a "account" key must be a string' });
+        await assert.rejects(t.peek([], 'login', { ...ctx(), now: new Date(NaN) }), { message: 'MemoryAuthnThrottle.peek: ctx.now must be a valid Date' });
+      }
+    });
   });
 
   describe('peek (K5)', () => {

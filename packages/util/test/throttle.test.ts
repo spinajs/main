@@ -295,5 +295,24 @@ describe('Throttle', () => {
       expect(store.calls).to.deep.equal([{ op: 'attempt', flow: 'login', gates: [{ id: 'login|account|alice', backoff: ACCOUNT }], counted: ['login|account-ip|10.0.0.1/alice'], nowMs: 0 }]);
       await rejectsWith(throttle.attempt([], 'signup', 0), InvalidArgument);
     });
+
+    it('names the throttle in its errors, Throttle by default', async () => {
+      const messages = async (name?: string): Promise<string[]> => {
+        const store = new RecordingStore();
+        const throttle = new Throttle({ store, flows: { login: LOGIN }, name });
+        const out: string[] = [];
+        for (const p of [throttle.attempt([], 'signup', 0), throttle.attempt([{ kind: 'ip', value: 42 as unknown as string }], 'login', 0), throttle.peek([], 'login', NaN)]) {
+          await p.catch((e: Error) => out.push(e.message));
+        }
+        try {
+          new Throttle({ store, flows: { f: { gates: {}, onSuccess: { lower: [{ kind: 'b', by: 'a' }] } } }, name });
+        } catch (e) {
+          out.push((e as Error).message);
+        }
+        return out;
+      };
+      expect(await messages()).to.deep.equal(['Throttle: unknown flow "signup"', 'Throttle: the value of a "ip" key must be a string', 'Throttle: nowMs must be a finite number', 'Throttle: flow "f" lowers "b", which it does not gate']);
+      expect(await messages('DbAuthnThrottle')).to.deep.equal(['DbAuthnThrottle: unknown flow "signup"', 'DbAuthnThrottle: the value of a "ip" key must be a string', 'DbAuthnThrottle: nowMs must be a finite number', 'DbAuthnThrottle: flow "f" lowers "b", which it does not gate']);
+    });
   });
 });

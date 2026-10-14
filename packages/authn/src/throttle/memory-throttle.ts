@@ -59,6 +59,10 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
     return this.explicit ?? this.configured.params;
   }
 
+  protected override get throttleName(): string {
+    return 'MemoryAuthnThrottle';
+  }
+
   public get maxRows(): number {
     return this.options.maxRows ?? (this.explicit ? undefined : this.configured.maxRows) ?? DEFAULT_THROTTLE_MAX_ROWS;
   }

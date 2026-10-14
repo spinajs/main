@@ -13,9 +13,11 @@ type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number }
  * An `AuthnThrottle` over a util `Throttle`: the flow rules come from `ThrottleParams` and are the same for every store;
  * a subclass supplies the params, the `ThrottleStore` and the key ids. Side-effect free, also as
  * `@spinajs/authn/store-throttle`.
+ *
+ * `ctx.now` and the flow are checked before the params are read or the store is built.
  */
 export abstract class StoreAuthnThrottle extends AuthnThrottle implements PeekableThrottle {
-  /** Read once by the first attempt, peek or succeed. */
+  /** Read once by the first attempt, peek or succeed, after `store()`. */
   protected abstract readonly params: ThrottleParams;
 
   private throttle: Promise<Throttle> | undefined;
@@ -26,19 +28,24 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
   /** Stores keep this id, never the plain key value (SR-19). */
   protected abstract keyId(flow: ThrottleFlow, key: ThrottleKey): string;
 
+  /** Prefixes the error messages. */
+  protected get throttleName(): string {
+    return this.constructor.name;
+  }
+
   public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
     const nowMs = this.nowMs(ctx, 'attempt');
-    return (await this.throttled()).attempt(keys, flow, nowMs);
+    return (await this.throttled(flow)).attempt(keys, flow, nowMs);
   }
 
   /** Refuses as `attempt` would for a delay, counting nothing. */
   public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
     const nowMs = this.nowMs(ctx, 'peek');
-    return (await this.throttled()).peek(keys, flow, nowMs);
+    return (await this.throttled(flow)).peek(keys, flow, nowMs);
   }
 
   public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
-    await (await this.throttled()).succeed(keys, flow, Date.now());
+    await (await this.throttled(flow)).succeed(keys, flow, Date.now());
   }
 
   /**
@@ -59,8 +66,15 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
     return rules;
   }
 
+  protected nowMs(ctx: AuthnContext, method: string): number {
+    const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
+    if (!Number.isFinite(nowMs)) throw new InvalidArgument(`${this.throttleName}.${method}: ctx.now must be a valid Date`);
+    return nowMs;
+  }
+
   // A failed build is not kept: a store that could not start now may start on the next call.
-  private throttled(): Promise<Throttle> {
+  private throttled(flow: ThrottleFlow): Promise<Throttle> {
+    if (!THROTTLE_FLOWS.includes(flow)) return Promise.reject(new InvalidArgument(`${this.throttleName}: unknown flow ${JSON.stringify(String(flow))}`));
     this.throttle ??= this.build().catch((e: unknown) => {
       this.throttle = undefined;
       throw e;
@@ -68,15 +82,10 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
     return this.throttle;
   }
 
+  // The store first: a subclass may load its params while it builds the store.
   private async build(): Promise<Throttle> {
-    const flows = this.rules(this.params);
     const store = await this.store();
-    return new Throttle({ flows, store, keyId: (flow, key) => this.keyId(flow as ThrottleFlow, key) });
-  }
-
-  private nowMs(ctx: AuthnContext, method: string): number {
-    const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
-    if (!Number.isFinite(nowMs)) throw new InvalidArgument(`${this.constructor.name}.${method}: ctx.now must be a valid Date`);
-    return nowMs;
+    const flows = this.rules(this.params);
+    return new Throttle({ flows, store, keyId: (flow, key) => this.keyId(flow as ThrottleFlow, key), name: this.throttleName });
   }
 }
