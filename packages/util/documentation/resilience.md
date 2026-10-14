@@ -290,6 +290,7 @@ const v = limiter.attempt([gate], [], Date.now()); // { allowed: true } or { all
 
 - `attempt(gates, counted, nowMs)` refuses with the longest running delay among `gates`; otherwise it counts every gate and every `counted` key (a key that is counted but gates nothing). `peek` answers the same without counting. After counted attempt `n` the wait is `backoffDelayMs(p, n)`: `0` while `n < free`, then `min(baseDelayMs × 2^(n − free), maxDelayMs)`.
 - A row with no counted attempt for `resetAfterMs` and no running delay expires. When the table is full, rows that delay nobody are evicted, oldest first; a delaying row never is, and attempts that need a new row are refused until one frees (`onFull` fires once per episode).
+- Eviction goes in two tiers: expired rows and rows below their `free` first, then any row that is not delaying. `sweep(nowMs, batch?)`, `row`, `delete`, `lower` (takes attempts off a row and recomputes its delay) and `release` (lifts the full-table hold-off) serve callers with their own rules; the remaining options (`sweepBatch`, `fullRetryMs`, `holdOffMs`, `delay`, `onFull`) are documented on `KeyedBackoffOptions`.
 - Invalid options and a non-finite `nowMs` throw `InvalidArgument`.
 
 `@spinajs/authn` builds `MemoryAuthnThrottle` on it, one `KeyedBackoff` per flow.

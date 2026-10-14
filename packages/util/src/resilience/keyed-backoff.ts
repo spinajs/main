@@ -131,6 +131,7 @@ export class KeyedBackoff {
       if (retryAfterSeconds !== undefined) return { allowed: false, retryAfterSeconds };
     }
 
+    // Gates first: a counted key created in this attempt gets a later run than the gates created with it (authn D8 relies on it).
     for (const [key, p] of gating) this.count(key, nowMs, p);
     for (const key of books) this.count(key, nowMs);
     return { allowed: true };
