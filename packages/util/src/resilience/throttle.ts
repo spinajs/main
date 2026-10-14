@@ -34,8 +34,8 @@ export interface ThrottleLower {
 }
 
 /**
- * Keeps the throttle's rows; `Throttle` decides which ids to pass. Ids are opaque. Each call must be atomic on its own:
- * parallel `attempt`s of one gate must not both pass a check that only one of them may pass.
+ * Keeps the throttle's rows; `Throttle` decides which ids to pass. Ids are opaque. Parallel `attempt`s of one gate must
+ * not both pass a check that only one of them may pass.
  */
 export interface ThrottleStore {
   /** Atomic per call: refuse with the longest running delay among `gates`, else count every gate and every `counted` id. */
@@ -43,9 +43,13 @@ export interface ThrottleStore {
   /** The same delay check, counting nothing. */
   peek(flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<KeyedBackoffVerdict>;
   /**
-   * Atomic per call. Applies each `lower` rule in order: consumes its `by` rows and lowers each target by the largest
-   * count among them; a target at 0 is deleted, otherwise its delay is recomputed from its last attempt with its
-   * backoff. Then deletes the `clear` rows and ends the store's full-table refusal for that flow, where it has one.
+   * One call per success. A store applies it without interleaving where it can (memory); otherwise row by row with
+   * compare-and-set, where a lost race only throttles more.
+   *
+   * Applies each `lower` rule in order: consumes its `by` rows and lowers each target by the largest count among them,
+   * or by less where the store can tell a `by` row predates the target (memory compares runs); a target at 0 is
+   * deleted, otherwise its delay is recomputed from its last attempt with its backoff. Then deletes the `clear` rows
+   * and ends the store's full-table refusal for that flow, where it has one.
    */
   succeed(flow: string, lower: readonly ThrottleLower[], clear: readonly string[], nowMs: number): Promise<void>;
 }
