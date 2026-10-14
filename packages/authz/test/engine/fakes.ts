@@ -1,5 +1,5 @@
 import { AuthorizationModel, CORE_FILTER_OPS, DecisionAudit, FALSE, GLOBAL, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, TRUE, resourceKey } from '../../src/index.js';
-import type { DecisionRequest, EvaluationContext, ModelCapabilities, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
+import type { DecisionRequest, EvaluationContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
 import { PermissionRegistryImpl } from '../../src/engine/registry.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
 import type { EngineLog } from '../../src/engine/authorizer.js';
@@ -59,6 +59,33 @@ export class StaticModel extends AuthorizationModel {
   invalidate(tags: readonly string[]): void {
     this.invalidations.push(tags);
     this.invalidateImpl?.(tags);
+  }
+}
+
+export interface ListModelOptions extends StaticModelOptions {
+  /** Default true. */
+  readonly listSupport?: ListSupport | ((def: PermissionDef, type: ResourceType) => ListSupport);
+  /** Default abstain; a function's result is returned as is (a promise, a throw, a malformed value). */
+  readonly listPlan?: ModelListPlan | ((req: ListPlanRequest, ctx: EvaluationContext) => unknown);
+}
+
+/** A StaticModel that plans lists; StaticModel itself has no listSupport, so it cannot. */
+export class ListModel extends StaticModel {
+  readonly planCalls: { readonly req: ListPlanRequest; readonly ctx: EvaluationContext }[] = [];
+
+  constructor(name: string, private readonly list: ListModelOptions = {}) {
+    super(name, list);
+  }
+
+  listSupport(def: PermissionDef, type: ResourceType): ListSupport {
+    const support = this.list.listSupport ?? true;
+    return typeof support === 'function' ? support(def, type) : support;
+  }
+
+  listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    this.planCalls.push({ req, ctx });
+    const plan = this.list.listPlan ?? { kind: 'abstain' };
+    return Promise.resolve().then(() => (typeof plan === 'function' ? plan(req, ctx) : plan)) as Promise<ModelListPlan>;
   }
 }
 

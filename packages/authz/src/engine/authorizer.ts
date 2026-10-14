@@ -2,6 +2,8 @@ import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
+import { compareDenyReasons } from '../contracts/decision.js';
+import type { AccessPlan, ListPlanRequest, ModelListPlan } from '../contracts/plan.js';
 import type { AuthorizationModel, Combinator, ModelSummary, NativeFilter } from '../contracts/model.js';
 import type { Permission, PermissionDef, PermissionRegistry } from '../contracts/permission.js';
 import { SYSTEM, UNATTENDED, principalKey } from '../contracts/principal.js';
@@ -31,6 +33,8 @@ import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
 import type { Pipeline, Settled } from './run.js';
 import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, validDate } from './vote.js';
+import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
+import type { PlanAnswer } from './plan.js';
 
 /**
  * summary() and covers() check at most this many permissions (one check per
@@ -216,6 +220,11 @@ class CachedDecision {
     /** A denial no audit has recorded yet (decided nested or by summary/covers): the first audited hit records it. */
     public unaudited: boolean,
   ) {}
+}
+
+/** An L1 access plan; `generation` makes an invalidate drop it too. */
+class CachedPlan {
+  constructor(readonly plan: AccessPlan, readonly generation: number) {}
 }
 
 type Gate = { readonly kind: 'system' } | { readonly kind: 'deny'; readonly principal: PrincipalRef; readonly reason: DenyReason } | { readonly kind: 'run'; readonly principal: Principal; readonly ref: PrincipalRef };
@@ -429,6 +438,33 @@ export class Authorizer {
       out.set(permission, (await runAsync(this.pipeline({ principal, permission }, this.newRun(false, shared), resolved))).decision);
     }
     return out;
+  }
+
+  /**
+   * Design §6.2: the routed models' listPlan answers combined with deny-overrides, under the
+   * principal's ceilings. Throws like check() for an unknown permission or a type outside its
+   * types, and AuthzConfigError for a permission not declared `list: true`. PlanTerms are OR-ed,
+   * so an intersect delegate (whose decision check() ANDs in) gets `none` with `delegate`.
+   */
+  async accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>, scope?: RequestScope): Promise<AccessPlan> {
+    const def = this.requirePermission(permission);
+    if (def.list !== true) throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is not declared with list: true, so it has no access plan`);
+    this.refuseLateType(type);
+    if (!def.types.includes(type)) throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is planned on type ${quote(type)}, which is not in its types (${def.types.join(', ')})`);
+    const gate = this.principalGate(principal);
+    if (gate.kind === 'system') return ALL_PLAN;
+    if (gate.kind === 'deny') return nonePlan(gate.reason);
+    const run = this.newRun(false, scope);
+    const delegation = this.delegation(gate.principal, undefined, run.delegationBudget);
+    if (delegation.denial) return nonePlan(delegation.denial);
+    if (delegation.intersect !== undefined) return nonePlan({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey });
+    // Env facts are not in the key, so a call with a caller env is never memoised.
+    const key = env === undefined ? this.planKey(gate.principal, def, type, run) : undefined;
+    const hit = key === undefined ? undefined : this.cachedPlan(key, run);
+    if (hit) return hit;
+    const built = await this.buildPlan(delegation, def, type, this.envOf(env, run.instant), run);
+    if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
+    return built.plan;
   }
 
   async filter(principal: Principal, permission: Permission, type: ResourceType, scope?: RequestScope): Promise<ResourceFilter> {
@@ -844,6 +880,71 @@ export class Authorizer {
       }
     }
     return undefined;
+  }
+
+  // ---- accessPlan ----
+
+  /** undefined when nothing may be cached for this call (a model version() that fails, a principal without canonical state). */
+  private planKey(principal: Principal, def: PermissionDef, type: ResourceType, run: Run): string | undefined {
+    if (run.versions === undefined) return undefined;
+    const state = principalState(principal);
+    return state === undefined ? undefined : l1Key('plan', this.domain, JSON.stringify([state, def.name, type, run.versions]));
+  }
+
+  private cachedPlan(key: string, run: Run): AccessPlan | undefined {
+    const entry = run.scope.get(key);
+    if (!(entry instanceof CachedPlan) || entry.generation !== this.generation) return undefined;
+    const until = entry.plan.kind === 'filter' ? entry.plan.validUntil : undefined;
+    return until !== undefined && until.getTime() <= run.instant.getTime() ? undefined : entry.plan;
+  }
+
+  private async buildPlan(d: Delegation, def: PermissionDef, type: ResourceType, env: Readonly<Record<string, unknown>>, run: Run): Promise<{ readonly plan: AccessPlan; readonly faulted: boolean }> {
+    const ceiling = this.ceilingOf(d, def, { type }, undefined, run.instant);
+    if (ceiling.denials.length > 0) return { plan: nonePlan([...ceiling.denials].sort(compareDenyReasons)[0]), faulted: false };
+    const within = withinOf(ceiling.restrict);
+    if (within === null) return { plan: nonePlan(CEILING_DENIAL), faulted: false };
+    const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
+    if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
+    const runAs = d.principal;
+    const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env } : { principal: runAs, actor: d.actor, permission: def, type, env });
+    const host = this.hostFor(run);
+    const cacheId = principalCacheId(runAs);
+    const label = `${def.name} on ${quote(type)}`;
+    const answers = await Promise.all(route.models.filter((m) => admits(m, runAs)).map((m) => this.modelPlan(m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
+    const bounds = { ...(within ? { within } : {}), ...(ceiling.expiresAt ? { validUntil: ceiling.expiresAt } : {}) };
+    return { plan: combinePlans(answers, bounds), faulted: answers.some((a) => a.faulted) || run.nested.faulted };
+  }
+
+  /** A failure, a timeout, a ctx fault or a malformed plan is a deny-all with model_error: fail closed like an indeterminate vote (B04). */
+  private async modelPlan(model: AuthorizationModel, req: ListPlanRequest, ctx: ModelContext, label: string): Promise<PlanAnswer & { readonly faulted: boolean }> {
+    let support: unknown;
+    try {
+      support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type) : undefined;
+    } catch (e) {
+      throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} threw from listSupport() for ${label}: ${describeError(e)}`, { cause: e });
+    }
+    if (support !== true || typeof model.listPlan !== 'function') throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} cannot plan lists of ${label} (boot rule 12)`);
+    const settled = await settleWithin(
+      Promise.resolve().then(() => model.listPlan!(req, ctx)),
+      this.config.modelTimeoutMs,
+      describeError,
+      'listPlan',
+    );
+    let fault: string | undefined;
+    let plan: ModelListPlan | undefined;
+    if (!settled.ok) fault = settled.error;
+    else if (ctx.fault !== undefined) fault = ctx.fault;
+    else {
+      try {
+        plan = readModelPlan(settled.value);
+      } catch (e) {
+        fault = `listPlan returned a malformed plan: ${describeError(e)}`;
+      }
+    }
+    if (plan !== undefined) return { model: model.name, plan, faulted: false };
+    this.logAt('error', `${this.where}: model ${quote(model.name)} failed to plan ${label}: ${fault}`);
+    ctx.detachMemo();
+    return { model: model.name, plan: Object.freeze({ kind: 'deny-all', reason: Object.freeze({ code: 'model_error', model: model.name }) }), faulted: true };
   }
 
   // ---- the check pipeline (design §10.1) ----
