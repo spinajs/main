@@ -322,7 +322,7 @@ what each fix changes for an app.
   mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
   becomes a plain object).
 - Util: `KeyedBackoff`, an in-memory per-key backoff table (capacity, eviction that never drops a delaying
-  row, decay), and `backoffDelayMs`. `@spinajs/authn/contracts` keeps its own `backoffDelayMs`.
+  row, decay, `lower` to take attempts off a row), and `backoffDelayMs`. `@spinajs/authn/contracts` keeps its own `backoffDelayMs`.
 
 ### Validation (`@spinajs/validation`)
 

@@ -163,13 +163,27 @@ export class KeyedBackoff {
     }
   }
 
-  /** The live row, or undefined; expires it first when stale. */
-  row(key: string, nowMs?: number): KeyedBackoffRow | undefined {
+  /** The live row, or undefined; expires it first when stale. Change a row through `lower` or `delete`. */
+  row(key: string, nowMs?: number): Readonly<KeyedBackoffRow> | undefined {
     return nowMs === undefined ? this.rows.get(key) : this.live(key, requireNow(nowMs));
   }
 
   delete(key: string): boolean {
     return this.rows.delete(key);
+  }
+
+  /** Takes `by` attempts off a row and recomputes its delay from its last attempt; at 0 it deletes the row. */
+  lower(key: string, by: number, backoff: BackoffParams): void {
+    requireInteger('lower by', by, 0);
+    const row = this.rows.get(key);
+    if (!row) return;
+    row.attempts = Math.max(0, row.attempts - by);
+    if (row.attempts === 0) {
+      this.rows.delete(key);
+      return;
+    }
+    const d = this.delay(backoff, row.attempts);
+    row.nextMs = d > 0 ? row.lastMs + d : 0;
   }
 
   /** Clears the full hold-off (a success frees the table at once). */

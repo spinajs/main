@@ -198,6 +198,52 @@ describe('KeyedBackoff', () => {
     });
   });
 
+  describe('lower', () => {
+    const sevenFailures = (o: Partial<KeyedBackoffOptions> = {}): KeyedBackoff => {
+      const t = make(o);
+      for (let i = 0; i < 7; i++) expect(t.attempt([gate('a')], [], i * 10_000).allowed).to.equal(true);
+      return t;
+    };
+
+    it('takes attempts off a row and recomputes its delay from its last attempt', () => {
+      const t = sevenFailures();
+      const run = t.row('a')!.run;
+      t.lower('a', 2, P);
+      expect(t.row('a')).to.deep.equal({ attempts: 5, run, free: P.free, lastMs: 60_000, nextMs: 61_000 });
+    });
+
+    it('clears the delay once the count is below free', () => {
+      const t = sevenFailures();
+      t.lower('a', 4, P);
+      expect(t.row('a')).to.include({ attempts: 3, nextMs: 0 });
+    });
+
+    it('deletes the row at 0, never going below', () => {
+      const t = sevenFailures();
+      t.lower('a', 9, P);
+      expect(t.row('a')).to.equal(undefined);
+      expect(t.size).to.equal(0);
+    });
+
+    it('takes the delay from the delay option', () => {
+      const t = sevenFailures({ delay: (_p, n) => n * 100 });
+      t.lower('a', 1, P);
+      expect(t.row('a')).to.include({ attempts: 6, nextMs: 60_600 });
+    });
+
+    it('ignores a key without a row', () => {
+      const t = make();
+      t.lower('a', 1, P);
+      expect(t.size).to.equal(0);
+    });
+
+    it('rejects a count that is not an integer >= 0', () => {
+      const t = sevenFailures();
+      for (const by of [-1, 1.5, NaN, Infinity]) expect(() => t.lower('a', by, P), `by ${by}`).to.throw(InvalidArgument);
+      expect(t.row('a')?.attempts).to.equal(7);
+    });
+  });
+
   describe('capacity', () => {
     it('drops expired rows when full, oldest first', () => {
       const t = make({ maxRows: 9, resetAfterMs: 60_000, sweepBatch: 1 });
