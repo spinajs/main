@@ -35,7 +35,7 @@ class RecordingThrottle extends MemoryAuthnThrottle {
   }
 
   ipAttempts(ip: string): number {
-    return this.tables.login.rows.get(this.keyId('login', { kind: 'ip', value: ip }))?.attempts ?? 0;
+    return this.limiter('login').row(this.keyId('login', { kind: 'ip', value: ip }))?.attempts ?? 0;
   }
 }
 

@@ -252,7 +252,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     throttle: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows'] },
+      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         login: flow({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
@@ -262,6 +262,18 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
         global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
         maxRows: { type: 'integer', minimum: 4, maximum: 16000000, default: 1000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows).' },
+        memory: {
+          type: 'object',
+          default: {},
+          additionalProperties: false,
+          // The app validator removes additional properties instead of refusing them; a typo must fail the boot.
+          propertyNames: { enum: ['sweepBatch', 'fullRetrySeconds', 'holdOffMs'] },
+          properties: {
+            sweepBatch: { type: 'integer', minimum: 1, maximum: 1000, default: 8, description: 'Expired rows a MemoryAuthnThrottle checks per attempt.' },
+            fullRetrySeconds: { type: 'integer', minimum: 1, maximum: 3600, default: 60, description: 'Retry-After of a full memory table with no delay to wait for.' },
+            holdOffMs: { type: 'integer', minimum: 0, maximum: 60000, default: 1000, description: 'Pause before the next scan of a nearly full memory table.' },
+          },
+        },
       },
     },
     freshAuth: {

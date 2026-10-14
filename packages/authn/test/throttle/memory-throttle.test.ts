@@ -7,7 +7,9 @@ import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/excep
 import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attackerIp, backoffSchedule, burst, expectAllowed, expectRefused, pwKeys, runThrottleConformance, throttleParams, walkBackoff } from '@spinajs/authn-testing';
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
+import type { KeyedBackoffOptions } from '@spinajs/util';
+
+import { AuthnThrottle, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS, FlowLimiter, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
 import { configuredChild, configurationOf, pinConfiguration, violationPaths } from '../behaviour/harness.js';
 import { Lockout } from '../mutation/throttle-mutants.js';
@@ -22,18 +24,28 @@ const FLOWS: readonly ThrottleFlow[] = ['login', 'mfa', 'reset', 'reauth'];
 /** Reads its rows: the stored ids and how many are held. */
 class Probe extends MemoryAuthnThrottle {
   reported = 0;
+  private sweeping = true;
   has(flow: ThrottleFlow, k: ThrottleKey): boolean {
-    return this.tables[flow].rows.has(this.keyId(flow, k));
+    return this.limiter(flow).row(this.keyId(flow, k)) !== undefined;
   }
+  /** Leaves freeing rows to eviction alone: no limiter sweeps, in any flow. */
   noSweep(): this {
-    this.sweepBatch = 0;
+    this.sweeping = false;
     return this;
+  }
+  limiterOf(flow: ThrottleFlow): FlowLimiter {
+    return this.limiter(flow);
+  }
+  protected limiter(flow: ThrottleFlow): FlowLimiter {
+    const l = super.limiter(flow);
+    if (!this.sweeping) l.sweep = () => undefined;
+    return l;
   }
   protected reportFull(): void {
     this.reported++;
   }
   private entries() {
-    return FLOWS.flatMap((f) => [...this.tables[f].rows]);
+    return FLOWS.flatMap((f) => [...this.limiter(f).entries()]);
   }
   ids(): string[] {
     return this.entries().map(([id]) => id);
@@ -42,18 +54,22 @@ class Probe extends MemoryAuthnThrottle {
     return JSON.stringify(this.entries());
   }
   get rowCount(): number {
-    return FLOWS.reduce((n, f) => n + this.tables[f].rows.size, 0);
+    return FLOWS.reduce((n, f) => n + this.limiter(f).size, 0);
   }
 }
 
 /** 2.x shape (SR-05): reads the rows, awaits, then writes from the stale read. */
 class ReadModifyWrite extends MemoryAuthnThrottle {
   async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) {
-    const read = FLOWS.map((f) => [f, new Map([...this.tables[f].rows].map(([k, r]) => [k, { ...r }]))] as const);
+    const read = FLOWS.map((f) => [f, new Map([...this.limiter(f).entries()].map(([k, r]) => [k, { ...r }]))] as const);
     await new Promise((r) => setImmediate(r));
     for (const [f, rows] of read) {
-      this.tables[f].rows.clear();
-      rows.forEach((r, k) => this.tables[f].rows.set(k, r));
+      const l = this.limiter(f);
+      for (const [k] of [...l.entries()]) {
+        const stale = rows.get(k);
+        if (stale) Object.assign(l.row(k)!, stale);
+        else l.delete(k);
+      }
     }
     return super.attempt(keys, flow, ctx);
   }
@@ -524,9 +540,6 @@ describe('MemoryAuthnThrottle', function () {
           this.reported++;
           throw new Error('Type Log is not registered at container');
         }
-        get warningDue(): boolean {
-          return !this.tables.login.fullReported;
-        }
       }
       const t = new NoLog(LONG, { maxRows: 4 }).noSweep();
       for (const v of ['a1', 'a2', 'a3', 'a4']) expectAllowed(await t.attempt(acct(v), 'login', ctx()));
@@ -534,7 +547,9 @@ describe('MemoryAuthnThrottle', function () {
       expectRefused(await t.attempt(acct('a5'), 'login', ctx()), 599);
       assert.strictEqual(t.has('login', acct('a5')[0]), false, 'a refusal counts nothing');
       assert.strictEqual(t.reported, 1);
-      assert.strictEqual(t.warningDue, true);
+      await t.succeed([], 'login');
+      expectRefused(await t.attempt(acct('a6'), 'login', ctx()), 599, 'the next scan, past the released hold-off');
+      assert.strictEqual(t.reported, 2, 'the warning stayed due');
     });
 
     it('makes room again after a success', async () => {
@@ -636,6 +651,27 @@ describe('MemoryAuthnThrottle', function () {
       assert.strictEqual((await bootWith({ maxRows: 5000 })).maxRows, 5000);
     });
 
+    it('refuses a full table with nothing to wait for during authn.throttle.memory.fullRetrySeconds', async () => {
+      const t = await bootWith({ maxRows: 4, memory: { fullRetrySeconds: 7 } });
+      const five: ThrottleKey[] = ['a', 'b', 'c', 'd', 'e'].map((value) => ({ kind: 'account', value }));
+      expectRefused(await t.attempt(five, 'login', ctx()), 7);
+    });
+
+    it('holds off a rescan of a nearly full table for authn.throttle.memory.holdOffMs', async () => {
+      const long = { free: 1, baseDelayMs: 600_000, maxDelayMs: 600_000 };
+      const t = await bootWith({ maxRows: 1000, login: { account: long }, memory: { holdOffMs: 5000 } });
+      const acct = (value: string): ThrottleKey[] => [{ kind: 'account', value }];
+      for (let i = 0; i < 995; i++) expectAllowed(await t.attempt(acct(`held${i}`), 'login', ctx()));
+      for (let i = 0; i < 5; i++) expectAllowed(await t.attempt([{ kind: 'ip', value: `idle${i}` }], 'login', ctx()));
+      for (let i = 0; i < 5; i++) expectAllowed(await t.attempt(acct(`new${i}`), 'login', ctx()), `new ${i + 1}`);
+      expectRefused(await t.attempt(acct('new5'), 'login', ctx()), 5, 'refused without a rescan');
+    });
+
+    it('keeps authn.throttle.memory out of the limits', async () => {
+      const t = await bootWith({ memory: { sweepBatch: 2 } });
+      assert.deepStrictEqual(t.params, DEFAULT_THROTTLE_PARAMS);
+    });
+
     it('reads the configuration once, on first use: the tables assume fixed limits', async () => {
       const child = await configuredChild({ authn: { throttle: { maxRows: 5000 } } });
       kids.push(child);
@@ -728,6 +764,10 @@ describe('MemoryAuthnThrottle', function () {
       ['a maxRows below 4', { maxRows: 3 }, 'authn.throttle.maxRows'],
       ['a maxRows above 16,000,000', { maxRows: 16_000_001 }, 'authn.throttle.maxRows'],
       ['a fractional maxRows', { maxRows: 1.5 }, 'authn.throttle.maxRows'],
+      ['an unknown memory key', { memory: { sweep: 1 } }, 'authn.throttle.memory.sweep'],
+      ['a zero sweepBatch', { memory: { sweepBatch: 0 } }, 'authn.throttle.memory.sweepBatch'],
+      ['a zero fullRetrySeconds', { memory: { fullRetrySeconds: 0 } }, 'authn.throttle.memory.fullRetrySeconds'],
+      ['a negative holdOffMs', { memory: { holdOffMs: -1 } }, 'authn.throttle.memory.holdOffMs'],
       // The schema requires all three fields of a given backoff key.
       ['a partial backoff key', { login: { account: { free: 2 } } }, 'authn.throttle.login.account.baseDelayMs'],
       ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }, 'authn.throttle.mfa.ip.maxDelayMs'],
@@ -738,6 +778,74 @@ describe('MemoryAuthnThrottle', function () {
         assert.ok(paths.includes(path), paths.join(', '));
       });
     }
+  });
+
+  describe('limiters', () => {
+    class Recording extends FlowLimiter {
+      static made: Recording[] = [];
+      readonly batches: (number | undefined)[] = [];
+      constructor(
+        flow: ThrottleFlow,
+        readonly options: KeyedBackoffOptions,
+      ) {
+        super(flow, options);
+        Recording.made.push(this);
+      }
+      sweep(nowMs: number, batch?: number): void {
+        this.batches.push(batch);
+        super.sweep(nowMs, batch);
+      }
+    }
+
+    const kids: IContainer[] = [];
+    const made = (flow: ThrottleFlow): Recording => Recording.made.find((l) => l.flow === flow)!;
+    const tuning = (o: KeyedBackoffOptions) => ({ maxRows: o.maxRows, resetAfterMs: o.resetAfterMs, sweepBatch: o.sweepBatch, fullRetryMs: o.fullRetryMs, holdOffMs: o.holdOffMs });
+
+    before(() => DI.register(Recording).as(FlowLimiter));
+    beforeEach(() => (Recording.made = []));
+    afterEach(async () => {
+      for (const c of kids.splice(0)) await c.dispose();
+    });
+    after(() => DI.unregister(Recording));
+
+    it('resolves the registered FlowLimiter once per flow, on first use', async () => {
+      const t = new Probe(DEFAULT_THROTTLE);
+      assert.strictEqual(Recording.made.length, 0, 'no limiter before the first attempt');
+      for (const user of [ALICE, BOB]) for (const f of FLOWS) expectAllowed(await t.attempt(pwKeys(user.login, IP_A), f, ctx()));
+      assert.deepStrictEqual(
+        Recording.made.map((l) => l.flow),
+        FLOWS,
+      );
+      for (const f of FLOWS) assert.strictEqual(t.limiterOf(f), made(f));
+      assert.strictEqual(made('login').size, 5, 'two accounts, one ip, two account-ip rows');
+    });
+
+    it('builds each limiter from authn.throttle and authn.throttle.memory', async () => {
+      const child = await configuredChild({ authn: { throttle: { maxRows: 500, resetAfterSeconds: 600, memory: { sweepBatch: 12, fullRetrySeconds: 7, holdOffMs: 250 } } } });
+      kids.push(child);
+      const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+      await t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx());
+      assert.deepStrictEqual(tuning(made('mfa').options), { maxRows: 500, resetAfterMs: 600_000, sweepBatch: 12, fullRetryMs: 7000, holdOffMs: 250 });
+    });
+
+    it('builds the limiters of explicit params with the schema defaults of authn.throttle.memory', async () => {
+      const t = new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows: 50 });
+      await t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx());
+      assert.deepStrictEqual(tuning(made('login').options), { maxRows: 50, resetAfterMs: DEFAULT_THROTTLE.resetAfterSeconds * 1000, sweepBatch: 8, fullRetryMs: 60_000, holdOffMs: 1000 });
+    });
+
+    it("sweeps the attempt's flow with a full batch and every other flow with a quarter", async () => {
+      const child = await configuredChild({ authn: { throttle: { memory: { sweepBatch: 12 } } } });
+      kids.push(child);
+      const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+      for (const f of ['mfa', 'reset'] as const) await t.attempt(pwKeys(ALICE.login, IP_A), f, ctx());
+      for (const l of Recording.made) l.batches.length = 0;
+      await t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx());
+      // undefined: the limiter's own sweepBatch.
+      assert.deepStrictEqual(made('login').batches, [undefined]);
+      assert.deepStrictEqual(made('mfa').batches, [3]);
+      assert.deepStrictEqual(made('reset').batches, [3]);
+    });
   });
 
   describe('DI', () => {

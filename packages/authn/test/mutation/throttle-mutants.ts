@@ -12,6 +12,6 @@ export class Lockout extends MemoryAuthnThrottle {
 export class SuccessClearsIp extends MemoryAuthnThrottle {
   async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
     await super.succeed(keys, flow);
-    for (const k of keys) if (k.kind === 'ip') this.tables[flow].rows.delete(this.keyId(flow, k));
+    for (const k of keys) if (k.kind === 'ip') this.limiter(flow).delete(this.keyId(flow, k));
   }
 }

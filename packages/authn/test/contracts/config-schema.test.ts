@@ -80,6 +80,7 @@ const THROTTLE_DEFAULTS = {
   resetAfterSeconds: 86400,
   global: null as null | Json,
   maxRows: 1_000_000,
+  memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
 };
 
 // Design §22.5; authn.oidc has a schema of its own in @spinajs/authn-oidc.
@@ -317,6 +318,13 @@ describe('authn.* configuration schema', () => {
       refused({ throttle: { login: { account: { ...LOGIN_ACCOUNT, lockoutTime: 900 } } } }, '/throttle/login/account');
       refused({ throttle: { blockAfterAttempts: 5 } }, '/throttle');
       refused({ throttle: { lockoutTime: 900 } }, '/throttle');
+    });
+
+    it('refuses an out of range or unknown authn.throttle.memory key', () => {
+      refused({ throttle: { memory: { sweepBatch: 0 } } }, '/throttle/memory/sweepBatch');
+      refused({ throttle: { memory: { fullRetrySeconds: 3601 } } }, '/throttle/memory/fullRetrySeconds');
+      refused({ throttle: { memory: { holdOffMs: -1 } } }, '/throttle/memory/holdOffMs');
+      refused({ throttle: { memory: { maxRows: 10 } } }, '/throttle/memory');
     });
 
     it('refuses an unknown sameSite and a non-auto secure or hostPrefix', () => {
