@@ -13,6 +13,7 @@ export function backoffDelayMs(p: BackoffParams, n: number): number {
 
 export interface KeyedBackoffGate {
   readonly key: string;
+  /** Trusted: the caller validates it. */
   readonly backoff: BackoffParams;
 }
 
@@ -42,7 +43,7 @@ export interface KeyedBackoffOptions {
   readonly holdOffMs?: number;
   /** Default `backoffDelayMs`; a test seam. */
   readonly delay?: (p: BackoffParams, n: number) => number;
-  /** Called once per full episode; a throw is swallowed and the call retried next episode. */
+  /** Called once per full episode; a throw is swallowed and the call retried on the next scan. */
   readonly onFull?: () => void;
 }
 
@@ -148,6 +149,7 @@ export class KeyedBackoff {
   /** Sweeps up to `batch` rows (default sweepBatch); a caller with several tables spreads sweeps across them. */
   sweep(nowMs: number, batch: number = this.sweepBatch): void {
     requireNow(nowMs);
+    requireInteger('sweep batch', batch, 0);
     for (let i = 0; i < batch; i++) {
       this.cursor ??= this.rows.entries();
       // A Map iterator survives deletes and appends, so each call resumes the pass where the last one stopped.

@@ -44,7 +44,7 @@ export interface KeyedBackoffOptions {
   readonly fullRetryMs?: number;     // default 60_000; Retry-After when a full table has no delaying row to wait for
   readonly holdOffMs?: number;       // default 1000; pause before the next scan while the table stays nearly full
   readonly delay?: (p: BackoffParams, n: number) => number; // default backoffDelayMs (a test seam)
-  readonly onFull?: () => void;      // once per full episode; a throw is swallowed and the call retried next episode
+  readonly onFull?: () => void;      // once per full episode; a throw is swallowed and the call retried on the next scan
 }
 
 export class KeyedBackoff {

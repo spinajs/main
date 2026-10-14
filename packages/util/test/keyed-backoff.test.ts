@@ -146,13 +146,23 @@ describe('KeyedBackoff', () => {
 
     it('sweep(nowMs, batch) checks at most batch rows and resumes where it stopped', () => {
       const t = make({ resetAfterMs: 1000 });
-      for (let i = 0; i < 10; i++) t.attempt([], [`k${i}`], 0);
+      for (let i = 0; i < 4; i++) t.attempt([gate(`held${i}`, LONG)], [], 0);
+      for (let i = 0; i < 8; i++) t.attempt([], [`k${i}`], 0);
+      // Nothing is stale at 0: this pass only ends wherever the attempts left the cursor.
+      t.sweep(0, 100);
       t.sweep(5000, 4);
-      expect(t.size).to.equal(6);
+      expect(t.size, 'the first batch reaches only the delaying rows').to.equal(12);
       t.sweep(5000, 4);
-      expect(t.size).to.equal(2);
+      expect(t.size, 'the second batch resumes past them').to.equal(8);
       t.sweep(5000, 4);
-      expect(t.size).to.equal(0);
+      expect(t.size).to.equal(4);
+    });
+
+    it('sweep(nowMs, 0) checks nothing', () => {
+      const t = make({ resetAfterMs: 1000 });
+      t.attempt([], ['k'], 0);
+      t.sweep(5000, 0);
+      expect(t.size).to.equal(1);
     });
 
     it('never sweeps a row that still delays someone', () => {
@@ -335,6 +345,11 @@ describe('KeyedBackoff', () => {
 
     it('accepts holdOffMs 0', () => {
       expect(() => make({ holdOffMs: 0 })).to.not.throw();
+    });
+
+    it('rejects a sweep batch that is not an integer >= 0', () => {
+      const t = make();
+      for (const batch of [-1, 1.5, NaN, Infinity]) expect(() => t.sweep(0, batch), `batch ${batch}`).to.throw(InvalidArgument);
     });
 
     it('rejects a non-finite nowMs everywhere', () => {
