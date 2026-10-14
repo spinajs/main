@@ -274,3 +274,22 @@ All extend `@spinajs/exceptions`' `Exception` (an `Error`).
 ## Low-level primitives
 
 The building blocks are exported for advanced use / custom strategies: `Outcome`, `ResilienceStrategy`, `Executor`, `_capture`, `_unwrap`, `_delay`, `_backoff`, `_toTimeSpan`, `_linkSignal`, `_resolveShouldHandle`. See [`resilience/core.ts`](../src/resilience/core.ts).
+
+## Per-key backoff — `KeyedBackoff`
+
+Not a pipeline strategy: an in-memory table of keys that back off on their own, for a single process. It never locks a key, it only makes it wait longer. Keys are opaque strings; the caller hashes them.
+
+```ts
+import { KeyedBackoff } from '@spinajs/util';
+
+const limiter = new KeyedBackoff({ maxRows: 100_000, resetAfterMs: 86_400_000 });
+const gate = { key: 'user-42', backoff: { free: 5, baseDelayMs: 1000, maxDelayMs: 60_000 } };
+
+const v = limiter.attempt([gate], [], Date.now()); // { allowed: true } or { allowed: false, retryAfterSeconds }
+```
+
+- `attempt(gates, counted, nowMs)` refuses with the longest running delay among `gates`; otherwise it counts every gate and every `counted` key (a key that is counted but gates nothing). `peek` answers the same without counting. After counted attempt `n` the wait is `backoffDelayMs(p, n)`: `0` while `n < free`, then `min(baseDelayMs × 2^(n − free), maxDelayMs)`.
+- A row with no counted attempt for `resetAfterMs` and no running delay expires. When the table is full, rows that delay nobody are evicted, oldest first; a delaying row never is, and attempts that need a new row are refused until one frees (`onFull` fires once per episode).
+- Invalid options and a non-finite `nowMs` throw `InvalidArgument`.
+
+`@spinajs/authn` builds `MemoryAuthnThrottle` on it, one `KeyedBackoff` per flow.

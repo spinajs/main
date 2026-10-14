@@ -152,6 +152,12 @@ what each fix changes for an app.
 - **No lockout (H31, A06).** Accounts are never locked. Failed attempts back off per account and per IP,
   up to a cap (`authn.throttle.*`). Interactive attempts count before they are verified; per-request
   credentials (tokens, keys) count failures only, keyed by credential and IP.
+- **Memory throttle on `KeyedBackoff`.** `MemoryAuthnThrottle` keeps the same behaviour with one
+  `FlowLimiter` per flow, resolved through DI; register a `FlowLimiter` subclass to replace it (keep the
+  `(flow, options)` constructor). New keys `authn.throttle.memory.sweepBatch` (8),
+  `authn.throttle.memory.fullRetrySeconds` (60) and `authn.throttle.memory.holdOffMs` (1000); an unknown key
+  there fails boot. `ThrottleRow` and `ThrottleTable` are no longer exported. `DbAuthnThrottle` is unchanged.
+  Guide: `packages/authn/src/throttle/README.md`.
 - **A missing env means production (SR-16).** With no `--env`, `APP_ENV` or `NODE_ENV`, authn uses the
   strict secret checks, a `Secure` `__Host-` cookie and https-only OIDC URLs, and warns.
 - **Session cookie `__Host-ssid`** outside development and test, with `Secure`. Every 2.x session is
@@ -313,6 +319,8 @@ what each fix changes for an app.
 - Util: `isPlainObject`, `isNonEmptyString`, `deepFreeze` (in place; buffers and typed arrays stay
   mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
   becomes a plain object).
+- Util: `KeyedBackoff`, an in-memory per-key backoff table (capacity, eviction that never drops a delaying
+  row, decay), and `backoffDelayMs`. `@spinajs/authn/contracts` keeps its own `backoffDelayMs`.
 
 ### Validation (`@spinajs/validation`)
 
