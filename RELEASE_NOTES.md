@@ -154,9 +154,11 @@ what each fix changes for an app.
   credentials (tokens, keys) count failures only, keyed by credential and IP.
 - **Memory throttle on `KeyedBackoff`.** `MemoryAuthnThrottle` keeps the same behaviour with one
   `FlowLimiter` per flow, resolved through DI; register a `FlowLimiter` subclass to replace it (keep the
-  `(flow, options)` constructor). New keys `authn.throttle.memory.sweepBatch` (8),
-  `authn.throttle.memory.fullRetrySeconds` (60) and `authn.throttle.memory.holdOffMs` (1000); an unknown key
-  there fails boot. `ThrottleRow` and `ThrottleTable` are no longer exported. `DbAuthnThrottle` is unchanged.
+  `(flow, options)` constructor, and declare `@NewInstance()` on a subclass with any DI decorator). New keys
+  `authn.throttle.memory.sweepBatch` (8), `authn.throttle.memory.fullRetrySeconds` (60) and
+  `authn.throttle.memory.holdOffMs` (1000); an unknown key there fails boot. `ThrottleRow` and `ThrottleTable`
+  are no longer exported; for `MemoryAuthnThrottle` subclasses, the protected `tables` and `sweepBatch` give way
+  to `limiter(flow)`. `DbAuthnThrottle` is unchanged.
   Guide: `packages/authn/src/throttle/README.md`.
 - **A missing env means production (SR-16).** With no `--env`, `APP_ENV` or `NODE_ENV`, authn uses the
   strict secret checks, a `Secure` `__Host-` cookie and https-only OIDC URLs, and warns.
