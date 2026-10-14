@@ -41,7 +41,7 @@ export abstract class AdminLinkStore extends LinkStore {
 export abstract class AdminRuleStore extends RuleStore {
   /** Expired rules too. */
   abstract byId(id: string): Promise<RuleDef | null>;
-  /** Throws AuthzAdminFailure('rule_not_compilable') when the store cannot hold the rule (DB: not in SQL form, D24). */
+  /** Throws AuthzAdminFailure when the store cannot hold the rule (DB: a value longer than its column). */
   abstract assertStorable(rule: Omit<RuleDef, 'source'>): void;
   /** Insert or replace by id. */
   abstract put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
