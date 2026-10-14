@@ -160,6 +160,12 @@ what each fix changes for an app.
   are no longer exported; for `MemoryAuthnThrottle` subclasses, the protected `tables` and `sweepBatch` give way
   to `limiter(flow)`. `DbAuthnThrottle` is unchanged.
   Guide: `packages/authn/src/throttle/README.md`.
+- **One throttle base, two stores.** `StoreAuthnThrottle` (also at `@spinajs/authn/store-throttle`, which registers
+  nothing in DI) holds the flow rules and the util `Throttle`; `MemoryAuthnThrottle` and `DbAuthnThrottle` only
+  supply params, a `ThrottleStore` and key ids, and a new store (Redis, say) is a subclass. Behaviour, config keys
+  and `authn_throttle` rows are unchanged. For subclasses of `DbAuthnThrottle`, the protected `claimKey`,
+  `writeLive`, `insertOrTakeStale` and `undo` moved to `DbThrottleStore`; override `createStore(options)` to
+  replace it. `@spinajs/authn-orm` now depends on `@spinajs/util`.
 - **A missing env means production (SR-16).** With no `--env`, `APP_ENV` or `NODE_ENV`, authn uses the
   strict secret checks, a `Secure` `__Host-` cookie and https-only OIDC URLs, and warns.
 - **Session cookie `__Host-ssid`** outside development and test, with `Secure`. Every 2.x session is
@@ -323,6 +329,9 @@ what each fix changes for an app.
   becomes a plain object).
 - Util: `KeyedBackoff`, an in-memory per-key backoff table (capacity, eviction that never drops a delaying
   row, decay, `lower` to take attempts off a row), and `backoffDelayMs`. `@spinajs/authn/contracts` keeps its own `backoffDelayMs`.
+- Util: `Throttle`, `ThrottleStore` and `ThrottleLower`: per-key backoff with the flow rules (gates, counted kinds,
+  `lower` and `clear` on success) over pluggable storage, and `MemoryThrottleStore`, a store with one
+  `KeyedBackoff` per flow. "Writing a store" is in `packages/util/documentation/resilience.md`.
 
 ### Validation (`@spinajs/validation`)
 

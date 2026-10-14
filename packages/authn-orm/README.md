@@ -80,3 +80,11 @@ instead.
 - **Races:** two parallel `issue` calls, or two `replaceRecoveryCodes` calls, for the same
   identity and purpose can leave two live rows. This is because the stores use no
   transactions, since the sqlite driver shares one handle.
+
+## Throttle store
+
+`DbAuthnThrottle` is a `StoreAuthnThrottle` (`@spinajs/authn`) over `DbThrottleStore`, a util `ThrottleStore` on
+`authn_throttle`. The flow rules, keys and config are in `packages/authn/src/throttle/README.md`. `DbThrottleStore`
+is exported for reuse and tests; `DbAuthnThrottle.createStore(options)` is the protected seam that builds it.
+Writes are compare-and-set statements without a transaction (the sqlite driver shares one handle), so a lost race
+only throttles more.

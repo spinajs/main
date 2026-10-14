@@ -294,3 +294,51 @@ const v = limiter.attempt([gate], [], Date.now()); // { allowed: true } or { all
 - Invalid options and a non-finite `nowMs` throw `InvalidArgument`.
 
 `@spinajs/authn` builds `MemoryAuthnThrottle` on it, one `KeyedBackoff` per flow.
+
+## Per-key backoff over a store — `Throttle`, `ThrottleStore`, `MemoryThrottleStore`
+
+`Throttle` is `KeyedBackoff`'s rule layer over pluggable storage. It decides which ids gate and which are counted; a `ThrottleStore` keeps the rows. Like `KeyedBackoff`, it never locks a key: a key only waits longer. `MemoryThrottleStore` is the in-process store (one `KeyedBackoff` per flow). A multi-instance app supplies its own store; `@spinajs/authn-orm` has one over SQL (`DbThrottleStore`).
+
+```ts
+import { MemoryThrottleStore, Throttle } from '@spinajs/util';
+
+const login = { free: 5, baseDelayMs: 1000, maxDelayMs: 60_000 };
+const throttle = new Throttle({
+  flows: {
+    signin: {
+      gates: { account: login },
+      counted: ['account-ip'],
+      onSuccess: { clear: ['account', 'account-ip'] },
+    },
+  },
+  store: new MemoryThrottleStore({ flows: ['signin'], maxRows: 100_000, resetAfterMs: 86_400_000 }),
+});
+
+const keys = [{ kind: 'account', value: 'alice' }, { kind: 'account-ip', value: 'alice|192.0.2.1' }];
+const v = await throttle.attempt(keys, 'signin', Date.now()); // { allowed: true } or { allowed: false, retryAfterSeconds }
+await throttle.succeed(keys, 'signin', Date.now());
+```
+
+### Throttle
+
+- A flow is a `ThrottleFlowRules`: `gates` (key kind to `BackoffParams`), `counted` (kinds counted without gating) and `onSuccess` (`lower` and `clear`). Kinds the rules do not name are ignored, so a flow may be given keys it does not use.
+- Each key becomes an id with `keyId(flow, key)`; the default is `${flow}|${kind}|${value}`. Pass your own to hash: util does not touch `node:crypto`, and a store should not keep raw logins or addresses. Ids are de-duplicated; an id that is both gating and counted is a gate.
+- `attempt` and `peek` build the gates (`peek` counts nothing). `succeed` builds the `lower` rules and the `clear` ids and makes one store call, even with no matching key, since a store may also end a full-table refusal there. A flow without `onSuccess` makes no call.
+- Every argument is checked before the store is called: an unknown flow, a non-finite `nowMs`, or a non-string `value` of a key the operation uses throws `InvalidArgument`. A rule that lowers a kind the flow does not gate fails in the constructor. Rules are copied and frozen. `name` prefixes the error messages.
+
+### Writing a store
+
+A `ThrottleStore` has three methods. Ids are opaque; the store does not know kinds or flows beyond the `flow` argument.
+
+- `attempt(flow, gates, counted, nowMs)` must be atomic. If any gate's row has a running delay, refuse with the longest remaining one (`retryAfterSeconds` at least 1) and count nothing. Otherwise count every gate (attempt `n + 1`, next allowed time `backoffDelayMs(backoff, n + 1)` after `nowMs`) and every `counted` id. Two parallel attempts must not both pass a check only one may pass: of N parallel attempts on a fresh key exactly `free` run, then one per delay slot.
+- `peek(flow, gates, nowMs)` is the same delay check, counting nothing.
+- `succeed(flow, lower, clear, nowMs)` is one call per success. Apply it without interleaving where the store can (memory). Otherwise go row by row with compare-and-set: a lost race must only leave a row higher (more throttling), never lower.
+- `lower` semantics: for each rule in order, consume (delete) its `by` rows and lower each target by the largest count among them, never the sum, since several `by` rows of one success counted the same attempts. A store that can tell a `by` row began after its target (`MemoryThrottleStore` compares runs) subtracts only those; one that cannot (`DbThrottleStore`) subtracts the largest count it consumed. A target that reaches 0 is deleted; otherwise its delay is recomputed from its last attempt with its own backoff. `clear` rows are deleted after all rules.
+- Expiry: a row with no counted attempt for `resetAfter` and no running delay is as good as absent, and the store may purge it. A running delay is never cut short by idle time.
+- Capacity is the store's business. `MemoryThrottleStore` evicts rows that delay nobody and refuses attempts that need a new row when none can go; a table store can leave it to the database.
+
+Sketch of a Redis store: one hash per row (`attempts`, `lastAt`, `nextAt`) with a TTL of `resetAfter` plus the longest delay. `attempt` is one Lua script that reads every gate, returns the longest wait, or increments all gates and counted rows, so it is atomic across keys. `succeed` is one Lua script too: it reads and deletes the `by` rows, lowers or deletes the targets, deletes the `clear` rows. Peek is a read-only script.
+
+`MemoryThrottleStore` details: it needs the list of `flows` (an unknown flow throws), builds one `KeyedBackoff` per flow lazily so traffic in one flow never evicts another's rows, and each `attempt` also sweeps a quarter of `sweepBatch` from every other flow. `limiter(flow)` exposes a flow's table for tests; the optional `limiter` factory must return a new `KeyedBackoff` per flow, and a shared or foreign instance fails with `InvalidOperation`. A full table refuses only `attempt`, never `peek`.
+
+`@spinajs/authn` builds `MemoryAuthnThrottle` and `StoreAuthnThrottle` on these; see `packages/authn/src/throttle/README.md`.
