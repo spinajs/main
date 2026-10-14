@@ -41,7 +41,7 @@ parallel attempts on a fresh key exactly `free` run, then one per delay slot.
 
 A row expires when it has had no counted attempt for `resetAfterSeconds` and no delay is running. Idle time alone
 never cuts a running delay short. Each `attempt` sweeps a few rows: `sweepBatch` of its own flow's table and
-`ceil(sweepBatch / 4)` of every other table that exists.
+`ceil(sweepBatch / 4)` of every other flow's table.
 
 ## Success
 
@@ -93,13 +93,17 @@ defaults; `MemoryThrottleConfig` is the type.
   throttle from `selectAuthnThrottle(container, authn.throttle.service)`: the named one; when unset, the only
   registered throttle, or the only one besides `MemoryAuthnThrottle`. An unregistered name, or several
   candidates, fails boot. It never falls back to memory.
-- Each flow's table is a `FlowLimiter` (a `KeyedBackoff` plus its `flow`), `@NewInstance`, built on first use by
-  `DI.resolve(FlowLimiter, [flow, options])` from the root container, matching the throttle's lifetime, and cached
-  per flow. `options` carry `maxRows`, `resetAfterSeconds × 1000`, the `memory` keys, the delay formula and the
-  `reportFull` hook.
+- Each flow's table is a `FlowLimiter` (a `KeyedBackoff` plus its `flow`), `@NewInstance`, resolved by
+  `DI.resolve(FlowLimiter, [flow, options])` from the root container, matching the throttle's lifetime. The first
+  use of any flow resolves all four and caches them per flow. `options` carry `maxRows`,
+  `resetAfterSeconds × 1000`, the `memory` keys, the delay formula and the `reportFull` hook.
 - To replace the limiter of every flow, register a subclass as `FlowLimiter`. It must keep the `(flow, options)`
   constructor (DI passes resolved constructor dependencies before those arguments) and take its own dependencies
-  through property injection.
+  through property injection. A subclass with any DI decorator, such as `@Autoinject`, must declare
+  `@NewInstance()` again: the decorator gives the subclass its own descriptor, a singleton, so one instance would
+  serve every flow. The throttle checks what DI returns: an instance shared between flows, one of another flow, or
+  anything but a `FlowLimiter` (an `AsyncService` dependency makes it a Promise) fails each call that needs a
+  limiter with `InvalidOperation`, from the first attempt on.
 - `MemoryAuthnThrottle` keeps `delayMs`, `keyId`, `reportFull` and `limiter(flow)` protected for subclasses and
   tests. The delay formula stays in `@spinajs/authn/contracts`, which may import only `@spinajs/di`; the throttle
   passes it to the limiter as `delay`.

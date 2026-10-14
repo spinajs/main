@@ -148,11 +148,17 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     }
   }
 
-  /** The flow's limiter, resolved on first use from the root container: the throttle is a root singleton. */
+  /** The flow's limiter. The first use of any flow resolves all four from the root container: the throttle is a root singleton. */
   protected limiter(flow: ThrottleFlow): FlowLimiter {
-    let limiter = this.limiters.get(flow);
-    if (!limiter) {
-      const memory = this.memory;
+    if (this.limiters.size === 0) this.resolveLimiters();
+    return this.limiters.get(flow)!;
+  }
+
+  // All at once, so a FlowLimiter that DI shares between flows fails the first attempt, not the first one of another flow.
+  private resolveLimiters(): void {
+    const memory = this.memory;
+    const resolved = new Map<ThrottleFlow, FlowLimiter>();
+    for (const flow of THROTTLE_FLOWS) {
       const options: KeyedBackoffOptions = {
         maxRows: this.maxRows,
         resetAfterMs: this.params.resetAfterSeconds * 1000,
@@ -162,10 +168,21 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
         delay: (p, n) => this.delayMs(p, n),
         onFull: () => this.reportFull(flow),
       };
-      limiter = DI.resolve(FlowLimiter, [flow, options]);
-      this.limiters.set(flow, limiter);
+      const limiter: unknown = DI.resolve(FlowLimiter, [flow, options]);
+      if (!(limiter instanceof FlowLimiter)) {
+        const what = (limiter as object | null | undefined)?.constructor?.name ?? String(limiter);
+        throw new InvalidOperation(`MemoryAuthnThrottle: DI resolved the ${flow} limiter as ${what}, not a FlowLimiter; a FlowLimiter must resolve synchronously, so it cannot depend on an AsyncService`);
+      }
+      const name = limiter.constructor.name;
+      if ([...resolved.values()].includes(limiter)) {
+        throw new InvalidOperation(`MemoryAuthnThrottle: DI resolved one ${name} for the ${limiter.flow} and ${flow} flows; declare @NewInstance() on ${name}: any DI decorator on a FlowLimiter subclass, such as @Autoinject, replaces the inherited one`);
+      }
+      if (limiter.flow !== flow) {
+        throw new InvalidOperation(`MemoryAuthnThrottle: DI resolved a ${name} of the ${limiter.flow} flow for the ${flow} flow; ${name} must pass its flow argument to FlowLimiter`);
+      }
+      resolved.set(flow, limiter);
     }
-    return limiter;
+    for (const [flow, limiter] of resolved) this.limiters.set(flow, limiter);
   }
 
   protected delayMs(p: BackoffParams, n: number): number {

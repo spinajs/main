@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { DI } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -810,14 +810,16 @@ describe('MemoryAuthnThrottle', function () {
     });
     after(() => DI.unregister(Recording));
 
-    it('resolves the registered FlowLimiter once per flow, on first use', async () => {
+    it('resolves the registered FlowLimiter once per flow, every flow on the first use of any', async () => {
       const t = new Probe(DEFAULT_THROTTLE);
       assert.strictEqual(Recording.made.length, 0, 'no limiter before the first attempt');
-      for (const user of [ALICE, BOB]) for (const f of FLOWS) expectAllowed(await t.attempt(pwKeys(user.login, IP_A), f, ctx()));
+      expectAllowed(await t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()));
       assert.deepStrictEqual(
         Recording.made.map((l) => l.flow),
         FLOWS,
       );
+      for (const user of [ALICE, BOB]) for (const f of FLOWS) expectAllowed(await t.attempt(pwKeys(user.login, IP_A), f, ctx()));
+      assert.strictEqual(Recording.made.length, FLOWS.length);
       for (const f of FLOWS) assert.strictEqual(t.limiterOf(f), made(f));
       assert.strictEqual(made('login').size, 5, 'two accounts, one ip, two account-ip rows');
     });
@@ -848,6 +850,69 @@ describe('MemoryAuthnThrottle', function () {
       assert.deepStrictEqual(made('mfa').batches, [3]);
       assert.deepStrictEqual(made('reset').batches, [3]);
     });
+  });
+
+  describe('limiter lifetime', () => {
+    class Dep {}
+    class AsyncDep extends AsyncService {}
+
+    // @Autoinject gives the subclass its own DI descriptor, a singleton, which hides the inherited @NewInstance.
+    class SharedLimiter extends FlowLimiter {
+      @Autoinject(Dep)
+      dep: Dep;
+    }
+
+    @NewInstance()
+    class OwnLimiter extends FlowLimiter {
+      @Autoinject(Dep)
+      dep: Dep;
+    }
+
+    @NewInstance()
+    class AsyncLimiter extends FlowLimiter {
+      @Autoinject(AsyncDep)
+      dep: AsyncDep;
+    }
+
+    async function withLimiter<T>(type: typeof FlowLimiter, run: () => Promise<T>): Promise<T> {
+      DI.register(type).as(FlowLimiter);
+      try {
+        return await run();
+      } finally {
+        DI.unregister(type);
+        DI.uncache(type);
+        DI.uncache(FlowLimiter);
+      }
+    }
+
+    const refusesShared = (e: unknown) => e instanceof InvalidOperation && e.message.includes('SharedLimiter') && e.message.includes('@NewInstance()');
+
+    it('fails closed at the first attempt when DI hands every flow one instance of a subclass', () =>
+      withLimiter(SharedLimiter, async () => {
+        const t = new Probe(DEFAULT_THROTTLE);
+        await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared);
+        await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), refusesShared, 'and keeps failing');
+        await assert.rejects(t.peek(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared);
+      }));
+
+    it('gives a subclass that re-declares @NewInstance() its own instance per flow, dependencies injected', () =>
+      withLimiter(OwnLimiter, async () => {
+        const t = new Probe(DEFAULT_THROTTLE);
+        expectAllowed(await t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()));
+        const limiters = FLOWS.map((f) => t.limiterOf(f));
+        assert.strictEqual(new Set(limiters).size, FLOWS.length);
+        for (const [i, f] of FLOWS.entries()) {
+          assert.ok(limiters[i] instanceof OwnLimiter);
+          assert.strictEqual(limiters[i].flow, f);
+          assert.ok((limiters[i] as OwnLimiter).dep instanceof Dep);
+        }
+      }));
+
+    it('fails closed when DI resolves the limiter asynchronously', () =>
+      withLimiter(AsyncLimiter, async () => {
+        const t = new Probe(DEFAULT_THROTTLE);
+        await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()), (e: unknown) => e instanceof InvalidOperation && e.message.includes('not a FlowLimiter'));
+      }));
   });
 
   describe('DI', () => {
