@@ -35,7 +35,9 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
 
   public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
     const nowMs = this.nowMs(ctx, 'attempt');
-    return (await this.throttled(flow)).attempt(keys, flow, nowMs);
+    const throttle = await this.throttled(flow);
+    this.checkKeys(keys, flow);
+    return throttle.attempt(keys, flow, nowMs);
   }
 
   /** Refuses as `attempt` would for a delay, counting nothing. */
@@ -45,7 +47,9 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
   }
 
   public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
-    await (await this.throttled(flow)).succeed(keys, flow, Date.now());
+    const throttle = await this.throttled(flow);
+    this.checkKeys(keys, flow);
+    await throttle.succeed(keys, flow, Date.now());
   }
 
   /**
@@ -65,6 +69,9 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
     }
     return rules;
   }
+
+  /** Runs before attempt and succeed reach the Throttle, which checks only the keys the flow uses; a subclass may check the rest. */
+  protected checkKeys(_keys: readonly ThrottleKey[], _flow: ThrottleFlow): void {}
 
   protected nowMs(ctx: AuthnContext, method: string): number {
     const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;

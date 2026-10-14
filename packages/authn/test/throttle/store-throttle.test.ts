@@ -147,6 +147,24 @@ describe('StoreAuthnThrottle', () => {
       await assert.rejects(t.attempt(keys, 'login', ctx(new Date())), InvalidOperation);
     });
 
+    it('lets a subclass check every key of attempt and succeed, after the flow and before the store is called', async () => {
+      class Checking extends Recording {
+        checked: string[] = [];
+        protected override checkKeys(k: readonly ThrottleKey[], flow: ThrottleFlow): void {
+          this.checked.push(`${flow}:${k.length}:${this.stores}`);
+          if (k.length === 0) throw new InvalidArgument('no keys');
+        }
+      }
+      const t = new Checking(PARAMS);
+      await assert.rejects(t.attempt(keys, 'signup' as ThrottleFlow, ctx(new Date())), invalid(/unknown flow/));
+      await t.attempt(keys, 'login', ctx(new Date()));
+      await t.peek(keys, 'login', ctx(new Date()));
+      await t.succeed(keys, 'reset');
+      await assert.rejects(t.succeed([], 'login'), invalid(/^no keys$/));
+      assert.deepStrictEqual(t.checked, ['login:3:1', 'reset:3:1', 'login:0:1']);
+      assert.deepStrictEqual(t.recording.calls.map((c) => c.op), ['attempt', 'peek']);
+    });
+
     it('names itself in the errors of its Throttle', async () => {
       const t = new Recording(PARAMS);
       await assert.rejects(t.attempt([{ kind: 'ip', value: 42 as unknown as string }], 'login', ctx(new Date())), { message: 'Recording: the value of a "ip" key must be a string' });
