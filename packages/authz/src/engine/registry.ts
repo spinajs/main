@@ -13,6 +13,7 @@ interface Entry {
   readonly types: ResourceType[];
   readonly implies: Permission[];
   fields?: boolean;
+  list?: boolean;
   description?: string;
   readonly sources: string[];
   def: PermissionDef;
@@ -63,6 +64,9 @@ export class PermissionRegistryImpl extends PermissionRegistry {
       pushUnique(existing.implies, n.implies);
       if (n.fields !== undefined) {
         existing.fields = existing.fields === true || n.fields;
+      }
+      if (n.list !== undefined) {
+        existing.list = existing.list === true || n.list;
       }
       if (!existing.description && n.description) {
         existing.description = n.description;
@@ -205,11 +209,14 @@ const normalize = (def: PermissionInput, source: string): Normalized => {
   if (def.fields !== undefined && typeof def.fields !== 'boolean') {
     throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: fields must be a boolean`);
   }
+  if (def.list !== undefined && typeof def.list !== 'boolean') {
+    throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: list must be a boolean`);
+  }
   if (def.description !== undefined && typeof def.description !== 'string') {
     throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: description must be a string`);
   }
 
-  return { name, resource, action, types, implies, fields: def.fields, description: def.description };
+  return { name, resource, action, types, implies, fields: def.fields, list: def.list, description: def.description };
 };
 
 const toDef = (e: Omit<Entry, 'def'>): PermissionDef => {
@@ -219,6 +226,9 @@ const toDef = (e: Omit<Entry, 'def'>): PermissionDef => {
   }
   if (e.fields !== undefined) {
     def.fields = e.fields;
+  }
+  if (e.list !== undefined) {
+    def.list = e.list;
   }
   if (e.description) {
     def.description = e.description;

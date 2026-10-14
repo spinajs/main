@@ -585,6 +585,16 @@ describe('DefaultAuthzService', function () {
   });
 
   describe('domain config', () => {
+    it('passes list from the permissions config to the registry', async () => {
+      setConfig('authz.permissions', { 'doc:read': { list: true }, 'doc:write': {} });
+      const m = silent('lister');
+      registerInRoot(AuthorizationModel, instance(m));
+      await rootService();
+      const registry = (m.calls[0].args[0] as ModelInitContext).permissions;
+      expect(registry.get('doc:read')?.list).to.equal(true);
+      expect(registry.get('doc:write')).to.not.have.property('list');
+    });
+
     it('engine, cache and permissions of a child reach its Authorizer', async () => {
       setConfig(['authz', 'domains', 'slow'], { engine: { modelTimeoutMs: 20 } });
       setConfig(['authz', 'domains', 'nol2'], { cache: { ttlSeconds: 0 }, permissions: { 'job:run': {} } });

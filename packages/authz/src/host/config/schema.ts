@@ -48,6 +48,7 @@ const permissions = {
     properties: {
       description: { type: 'string' },
       fields: { type: 'boolean' },
+      list: { type: 'boolean' },
       types: stringList,
       implies: stringList,
     },

@@ -40,6 +40,7 @@ export interface RoleDef {
   readonly grants: readonly GrantDef[];
   readonly implies?: readonly ImpliedRole[];
   readonly subjectSet?: boolean; // holders form a subject set others can be assigned to
+  readonly deny?: boolean; // subtracts its grants on its scope and below; wins over every permit (role_denied)
   readonly assignable: boolean;
   readonly scopeTypes?: readonly ResourceType[];
   readonly description?: string;
@@ -80,6 +81,17 @@ export abstract class LinkStore {
 export abstract class SubjectResolver {
   abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
+
+/** Port: the transitive closure of subject sets (design §4.3). */
+export abstract class MembershipStore {
+  /** Sets every given member key belongs to, live at `at`, each with its membership expiry (none = never). */
+  abstract setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;
+  /** Member keys (principal keys and set keys) of a set, live at `at`. */
+  abstract membersOf(setKey: string, at: Date): Promise<readonly string[]>;
+}
+
+/** Subject key: `type:id` (principal) or `type:id#role` (set); wildcard `type:*`. In `id`, `%`, `#` and `*` are escaped as `%25`, `%23`, `%2A`, so keys never collide. Max 200 characters; longer keys are refused on write. */
+export type SubjectKey = string;
 
 // authz-orm compiles both native ops to SQL (§12.4)
 export const RBAC_ASSIGNMENT_OP = 'native:rbac.assignment' as const; // permit rows whose ancestors carry a live assignment

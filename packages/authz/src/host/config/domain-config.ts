@@ -5,6 +5,7 @@ import { AUTHZ_DEFAULTS } from './defaults.js';
 export interface PermissionConfig {
   readonly description?: string;
   readonly fields?: boolean;
+  readonly list?: boolean;
   readonly types?: readonly string[];
   readonly implies?: readonly string[];
 }

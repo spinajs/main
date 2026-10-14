@@ -15,6 +15,7 @@ import type { Principal, ResourceRef, ResourceType } from '../contracts/principa
 import type { Permission, PermissionDef } from '../contracts/permission.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { Decision } from '../contracts/decision.js';
+import type { AccessPlan } from '../contracts/plan.js';
 import { ConditionCompiler } from '../conditions/contracts.js';
 import { Authorizer } from '../engine/authorizer.js';
 import type { EngineLog } from '../engine/authorizer.js';
@@ -189,6 +190,14 @@ export class DefaultAuthzService extends AuthzService {
 
   async checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>> {
     return this.state().authorizer.checkMany(principal, permissions, resource, requestScope());
+  }
+
+  async checkAll(_principal: Principal, _requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
+    throw new AuthzConfigError('checkAll: not implemented until lane L2');
+  }
+
+  async accessPlan(_principal: Principal, _permission: Permission, _type: ResourceType, _env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
+    throw new AuthzConfigError('accessPlan: not implemented until lane L2');
   }
 
   async filter(principal: Principal, permission: Permission, type: ResourceType): Promise<ResourceFilter> {

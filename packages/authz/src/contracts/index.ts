@@ -8,6 +8,7 @@ export type { FilterOp, Value, ResourceFilter } from './filter.js';
 export * from './fields.js';
 export * from './decision.js';
 export * from './model.js';
+export * from './plan.js';
 export * from './adapter.js';
 export * from './service.js';
 export * from './data.js';

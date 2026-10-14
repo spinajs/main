@@ -3,6 +3,7 @@ import type { Permission, PermissionDef, PermissionRegistry } from './permission
 import type { FilterOp, ResourceFilter } from './filter.js';
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from './decision.js';
 import type { RelationResolver } from './adapter.js';
+import type { ListPlanRequest, ListSupport, ModelListPlan } from './plan.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
 
 export abstract class NativeFilter {
@@ -57,6 +58,10 @@ export abstract class AuthorizationModel {
   abstract evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote>;
   preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
   summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
+  /** List support for `permission` on `type`; absent means the model cannot plan lists. */
+  listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
+  /** The list plan; called only when listSupport answered true. */
+  listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
   invalidate?(tags: readonly string[]): void;
   version?(): string; // changes => host recompiles routes, drops L2
   dispose?(): Promise<void>;

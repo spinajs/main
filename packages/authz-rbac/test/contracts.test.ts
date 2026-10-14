@@ -3,9 +3,9 @@ import type { FieldSet, ResourceType } from '@spinajs/authz';
 import * as chai from 'chai';
 import 'mocha';
 
-import { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../src/index.js';
+import { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../src/index.js';
 import * as root from '../src/index.js';
-import type { Assignment, AssignmentSubject, GrantDef, ImpliedRole, LadderDef, LinkDef, ResourcePattern, RoleDef, RuleDef, SubjectSelector } from '../src/index.js';
+import type { Assignment, AssignmentSubject, GrantDef, ImpliedRole, LadderDef, LinkDef, ResourcePattern, RoleDef, RuleDef, SubjectKey, SubjectSelector } from '../src/index.js';
 import type { Assignment as CoreAssignment, AssignmentSubject as CoreSubject, AuthzTx, LinkDef as CoreLinkDef, Principal, PrincipalRef, ResourceRef, RuleDef as CoreRuleDef, SubjectSelector as CoreSelector } from '@spinajs/authz';
 
 const expect = chai.expect;
@@ -36,7 +36,9 @@ describe('authz-rbac contracts', () => {
 
   it('RoleDef has no namespace and requires assignable', () => {
     const r: RoleDef = { name: 'admin', extends: [], grants: [], assignable: true, source: 'config' };
-    const full: RoleDef = { ...r, ladder: 'project', implies: [], subjectSet: true, scopeTypes: ['org'], description: 'd' };
+    const full: RoleDef = { ...r, ladder: 'project', implies: [], subjectSet: true, deny: false, scopeTypes: ['org'], description: 'd' };
+    const blocked: RoleDef = { name: 'blocked', deny: true, extends: [], grants: [{ permission: 'invoice:edit' }], assignable: true, source: 'config' };
+    expect(blocked.deny).to.equal(true);
     // @ts-expect-error role definitions are global in 3.0
     const ns: RoleDef = { ...r, namespace: 'x' };
     // @ts-expect-error assignable is required
@@ -68,7 +70,7 @@ describe('authz-rbac contracts', () => {
   });
 
   it('store classes are runtime exports of the root', () => {
-    for (const k of ['RoleStore', 'RuleStore', 'AssignmentStore', 'LinkStore', 'SubjectResolver']) {
+    for (const k of ['RoleStore', 'RuleStore', 'AssignmentStore', 'LinkStore', 'SubjectResolver', 'MembershipStore']) {
       expect((root as any)[k], k).to.be.a('function');
     }
   });
@@ -191,6 +193,26 @@ describe('authz-rbac contracts', () => {
     expect(await new Sync().subjects(p)).to.have.length(1);
     expect(await new Async().subjects(p)).to.have.length(0);
   });
+
+  it('MembershipStore fake answers sets with their expiry and members of a set', async () => {
+    const until = new Date('2030-01-01T00:00:00Z');
+    const closure: Record<string, { setKey: string; expiresAt?: Date }[]> = {
+      'user:42': [{ setKey: 'team:7#member' }, { setKey: 'team:1#member', expiresAt: until }],
+      'team:7#member': [{ setKey: 'team:1#member' }],
+    };
+    class M extends MembershipStore {
+      async setsOf(memberKeys: readonly string[], _at: Date) {
+        return memberKeys.flatMap((k) => closure[k] ?? []);
+      }
+      async membersOf(setKey: string, _at: Date) {
+        return Object.keys(closure).filter((k) => closure[k].some((s) => s.setKey === setKey));
+      }
+    }
+    const m = new M();
+    const key: SubjectKey = 'user:42';
+    expect(await m.setsOf([key, 'user:*'], new Date(0))).to.deep.equal([{ setKey: 'team:7#member' }, { setKey: 'team:1#member', expiresAt: until }]);
+    expect(await m.membersOf('team:1#member', new Date(0))).to.deep.equal(['user:42', 'team:7#member']);
+  });
 });
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -213,6 +235,7 @@ describe('authz-rbac pinned shapes', () => {
           readonly grants: readonly GrantDef[];
           readonly implies?: readonly ImpliedRole[];
           readonly subjectSet?: boolean;
+          readonly deny?: boolean;
           readonly assignable: boolean;
           readonly scopeTypes?: readonly ResourceType[];
           readonly description?: string;
@@ -247,6 +270,8 @@ describe('authz-rbac pinned shapes', () => {
       >
     >();
     yes<Equal<Shape<SubjectResolver>, { subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[] }>>();
+    yes<Equal<Shape<MembershipStore>, { setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>; membersOf(setKey: string, at: Date): Promise<readonly string[]> }>>();
+    yes<Equal<SubjectKey, string>>();
     yes<Equal<AssignmentSubject, core.AssignmentSubject>>();
     yes<Equal<Assignment, core.Assignment>>();
     yes<Equal<SubjectSelector, core.SubjectSelector>>();

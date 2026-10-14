@@ -115,6 +115,7 @@ describe('decision contracts', () => {
         unknown_resource: 0,
         unattended: 0,
         anonymous: 0,
+        role_denied: 150,
         ceiling: 200,
         delegate: 200,
         no_access: 400,
@@ -129,6 +130,13 @@ describe('decision contracts', () => {
 
     it('is frozen', () => {
       expect(Object.isFrozen(DEFAULT_DENY_PRIORITY)).to.eq(true);
+    });
+
+    it('ranks role_denied above ceilings and plain no_access', () => {
+      expect(denyPriority({ code: 'role_denied' })).to.eq(150);
+      expect(compareDenyReasons({ code: 'role_denied', model: 'rbac' }, { code: 'ceiling' })).to.be.lessThan(0);
+      expect(compareDenyReasons({ code: 'role_denied', model: 'rbac' }, { code: 'no_access', model: 'rbac' })).to.be.lessThan(0);
+      expect(compareDenyReasons({ code: 'unknown_resource' }, { code: 'role_denied', model: 'rbac' })).to.be.lessThan(0);
     });
 
     it('is exported from the package root', () => {

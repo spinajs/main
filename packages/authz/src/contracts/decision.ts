@@ -19,7 +19,7 @@ export interface FieldSet {
 }
 
 // core codes: no_access, unknown_resource, ceiling, delegate, unattended, anonymous, model_error, needs_subject, residual_false
-// RBAC codes: role_too_low{ladder, role, needed}, tag_missing{tag}, provenance{needed}, rule codes from config
+// RBAC codes: role_denied, role_too_low{ladder, role, needed}, tag_missing{tag}, provenance{needed}, rule codes from config
 export interface DenyReason {
   readonly code: string;
   readonly model?: string;
@@ -82,6 +82,7 @@ export const DEFAULT_DENY_PRIORITY: Readonly<Record<string, number>> = Object.fr
   unknown_resource: 0,
   unattended: 0,
   anonymous: 0,
+  role_denied: 150,
   ceiling: 200,
   delegate: 200,
   no_access: 400,

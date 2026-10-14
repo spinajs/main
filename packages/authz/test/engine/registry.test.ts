@@ -225,6 +225,34 @@ describe('PermissionRegistryImpl', () => {
     });
   });
 
+  describe('list', () => {
+    it('keeps list as given and leaves it out when not given', () => {
+      const reg = new PermissionRegistryImpl();
+      reg.register([{ name: 'task:read', list: true }, { name: 'task:edit', list: false }, { name: 'task:delete' }], 'config');
+      expect(reg.get('task:read')).to.deep.equal({ name: 'task:read', resource: 'task', action: 'read', types: ['task'], list: true, source: 'config' });
+      expect(reg.get('task:edit')?.list).to.equal(false);
+      expect(reg.get('task:delete')).to.not.have.property('list');
+    });
+
+    it('rejects a list that is not a boolean and registers nothing', () => {
+      const reg = new PermissionRegistryImpl();
+      expectConfigError(() => reg.register([{ name: 'task:read' }, { name: 'task:edit', list: 'yes' as unknown as boolean }], 'config'), /list must be a boolean/);
+      expect(reg.all()).to.deep.equal([]);
+    });
+
+    it('ORs list over the registrations of one name', () => {
+      const reg = new PermissionRegistryImpl();
+      reg.register([{ name: 'task:read', list: false }], 'adapter:orm');
+      reg.register([{ name: 'task:read' }], 'model:rbac');
+      expect(reg.get('task:read')?.list).to.equal(false);
+      reg.register([{ name: 'task:read', list: true }], 'config');
+      reg.register([{ name: 'task:read', list: false }], 'model:abac');
+      expect(reg.get('task:read')?.list).to.equal(true);
+      expect(reg.get('task:read')?.source).to.equal('adapter:orm,model:rbac,config,model:abac');
+      expect(Object.isFrozen(reg.get('task:read'))).to.equal(true);
+    });
+  });
+
   describe('require', () => {
     it('returns a registered def', () => {
       const reg = new PermissionRegistryImpl();
