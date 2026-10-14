@@ -35,8 +35,8 @@ interface Loaded {
  * `flow|kind|value` under a random per-instance secret (D7).
  *
  * Capacity: each flow has its own `FlowLimiter` of at most `maxRows` rows (schema default 1,000,000; a fresh login
- * attempt adds 3), so traffic in one flow never evicts another flow's rows. Each attempt sweeps a few expired rows.
- * When a table is full, rows that delay nobody at that moment are evicted, oldest last attempt first: first expired
+ * attempt adds 3, 4 with `global`), so traffic in one flow never evicts another flow's rows. Each attempt sweeps a
+ * few expired rows. When a table is full, rows that delay nobody at that moment are evicted, oldest last attempt first: first expired
  * rows and rows below their key's `free`, then rows deeper in backoff, which loses their count between two slots. A
  * row that is delaying is never evicted; when no row can go, attempts that need a new row are refused.
  * Internet-facing or multi-instance apps use `DbAuthnThrottle`.

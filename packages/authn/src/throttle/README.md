@@ -10,12 +10,14 @@ only waits longer. `MemoryAuthnThrottle` (this package) serves one process; `DbA
   `{ allowed: true }`, or `{ allowed: false, retryAfterSeconds }` when a delay holds: the longest one among the
   gating keys. A refused attempt is counted nowhere (A05, A06). `ctx.now` must be a valid `Date`.
 - `peek(keys, flow, ctx)` (`PeekableThrottle`) answers the same way and counts nothing. A full table does not
-  refuse it. With a peekable throttle, `DefaultAuthnService` counts only the failures of per-request strategies
-  (K5): it peeks before verify and calls `attempt` after a failure.
+  refuse it. With a peekable throttle, when every candidate strategy is per-request, `DefaultAuthnService` peeks
+  before verify and counts only failures, with `attempt` (K5).
 - `succeed(keys, flow)` is the success rule, below.
 
-Flows are `login`, `mfa`, `reset` and `reauth`. They never share rows. Any other flow, or a key whose `value` is
-not a string, is an `InvalidArgument`.
+Flows are `login`, `mfa`, `reset` and `reauth`. They never share rows. Any other flow is an `InvalidArgument`, and
+so is a key whose `value` is not a string when the call hashes it: `attempt` and `peek` hash the gating keys,
+`attempt` also the `account-ip` key when the flow has `ip`, and `succeed` (outside `reset`) the `account`,
+`account-ip` and gating `ip` keys. A key the call does not hash is not checked.
 
 ## Keys
 
@@ -55,7 +57,8 @@ never cuts a running delay short. Each `attempt` sweeps a few rows: `sweepBatch`
 ## Capacity
 
 Each flow has its own table of at most `authn.throttle.maxRows` rows (default 1,000,000; memory grows with
-4 × `maxRows`). A login attempt adds up to 3 rows, so one flow never evicts another flow's rows.
+4 × `maxRows`), so one flow never evicts another flow's rows. A fresh login attempt adds 3 rows (`account`, `ip`,
+`account-ip`), 4 with `authn.throttle.global`.
 
 When a table is full and an attempt needs `k` new rows, it scans for room down to
 `maxRows − max(k, ceil(maxRows / 100))`:
@@ -66,8 +69,9 @@ When a table is full and an attempt needs `k` new rows, it scans for room down t
 
 If room is still short, attempts that need a new row are refused with `Retry-After` of the earliest end of a
 delay, or `fullRetrySeconds` when nothing is delaying. Attempts on existing keys still work. The refusal also
-holds the scan off until that time. When the scan frees room but stops short of the slack, the next scan waits
-`min(earliest delay end, holdOffMs)`. A success lifts the hold-off.
+holds the scan off until that time. When the scan frees room but stops short of the slack, the scan is held off
+until the earlier of the first delay end and `holdOffMs` from now; until then, attempts that need a new row in a
+full table are refused. A success lifts the hold-off.
 
 Once per full episode a warning goes to the `authn-throttle` log (`reportFull`); it names the flow and `maxRows`,
 never a key. A logging failure is swallowed and retried on the next scan.
@@ -77,11 +81,11 @@ never a key. A logging failure is swallowed and retried on the next scan.
 `authn.throttle.*`, read once at first use, cloned and frozen. The per-flow keys, `resetAfterSeconds`, `global`
 and `maxRows` are described in `docs/authn/README.md` (Throttling). `memory` tunes `MemoryAuthnThrottle` only:
 
-| Key                                      | Default | Range    | Meaning                                                  |
-| ---------------------------------------- | ------- | -------- | -------------------------------------------------------- |
-| `authn.throttle.memory.sweepBatch`       | `8`     | 1 - 1000 | Expired rows checked per attempt.                        |
-| `authn.throttle.memory.fullRetrySeconds` | `60`    | 1 - 3600 | `Retry-After` of a full table with no delay to wait for. |
-| `authn.throttle.memory.holdOffMs`        | `1000`  | 0 - 60000 | Pause before the next scan of a nearly full table.      |
+| Key                                      | Default | Range     | Meaning                                                  |
+| ---------------------------------------- | ------- | --------- | -------------------------------------------------------- |
+| `authn.throttle.memory.sweepBatch`       | `8`     | 1 - 1000  | Expired rows checked per attempt.                        |
+| `authn.throttle.memory.fullRetrySeconds` | `60`    | 1 - 3600  | `Retry-After` of a full table with no delay to wait for. |
+| `authn.throttle.memory.holdOffMs`        | `1000`  | 0 - 60000 | Pause before the next scan of a nearly full table.       |
 
 An unknown key under `memory` fails the boot (the schema also has `propertyNames`, because the app validator
 would otherwise strip it silently). `DbAuthnThrottle` ignores `memory`. `DEFAULT_MEMORY_THROTTLE` holds the
