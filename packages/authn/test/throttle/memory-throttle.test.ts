@@ -901,6 +901,7 @@ describe('MemoryAuthnThrottle', function () {
         await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared);
         await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), refusesShared, 'and keeps failing');
         await assert.rejects(t.peek(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared);
+        for (let i = 0; i < 3; i++) await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared, 'every retry of one flow');
       }));
 
     it('gives a subclass that re-declares @NewInstance() its own instance per flow, dependencies injected', () =>

@@ -92,7 +92,7 @@ The flow rules match today's behaviour in both throttles:
 
 - **`login`, `mfa` and `reauth`:**
   - gates: `account` and `ip` from the flow's params, plus `global` when `params.global` is set;
-  - `counted: ['account-ip']` when the flow has `ip` params;
+  - `counted: ['account-ip']` when the flow has `ip` params (reset included);
   - `onSuccess: { lower: [{ kind: 'ip', by: 'account-ip' }] (only when the flow has ip params), clear: ['account', 'account-ip'] }`.
 - **`reset`:** the same gates; no `onSuccess`, so a success clears nothing (§22.13).
 

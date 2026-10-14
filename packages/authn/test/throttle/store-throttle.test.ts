@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import 'mocha';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import type { KeyedBackoffVerdict, ThrottleFlowRules, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
@@ -40,6 +43,8 @@ class Recording extends StoreAuthnThrottle {
     return `${flow}:${key.kind}:${key.value}`;
   }
 }
+
+const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const backoff = (free: number): BackoffParams => ({ free, baseDelayMs: 1000, maxDelayMs: 60_000 });
 const ACCOUNT = backoff(5);
@@ -125,6 +130,40 @@ describe('StoreAuthnThrottle', () => {
       assert.strictEqual(t.stores, 1);
     });
 
+    it('does not cache a failed store build: the next call builds again', async () => {
+      class Flaky extends Recording {
+        failures = 1;
+        protected override async store(): Promise<ThrottleStore> {
+          if (this.failures-- > 0) throw new InvalidOperation('store down');
+          return super.store();
+        }
+      }
+      const t = new Flaky(PARAMS);
+      await assert.rejects(t.attempt(keys, 'login', ctx(new Date())), InvalidOperation);
+      assert.deepStrictEqual(await t.attempt(keys, 'login', ctx(new Date())), { allowed: false, retryAfterSeconds: 3 });
+      assert.strictEqual(t.stores, 1);
+    });
+
+    it('does not cache failed params: the next call reads them again', async () => {
+      let fail = true;
+      class FlakyParams extends StoreAuthnThrottle {
+        protected get params(): ThrottleParams {
+          if (fail) throw new InvalidOperation('params unavailable');
+          return PARAMS;
+        }
+        protected async store(): Promise<ThrottleStore> {
+          return new RecordingStore();
+        }
+        protected keyId(flow: ThrottleFlow, key: ThrottleKey): string {
+          return `${flow}:${key.kind}:${key.value}`;
+        }
+      }
+      const t = new FlakyParams();
+      await assert.rejects(t.peek(keys, 'login', ctx(new Date())), InvalidOperation);
+      fail = false;
+      assert.deepStrictEqual(await t.peek(keys, 'login', ctx(new Date())), { allowed: true });
+    });
+
     it('rejects a ctx without a valid now and an unknown flow before the store is called', async () => {
       const t = new Recording(PARAMS);
       for (const bad of [new Date(NaN), undefined as unknown as Date]) {
@@ -193,5 +232,19 @@ describe('@spinajs/authn/store-throttle', () => {
     const root = await import('@spinajs/authn');
     const sub = await import('@spinajs/authn/store-throttle');
     assert.strictEqual(sub.StoreAuthnThrottle, root.StoreAuthnThrottle);
+  });
+
+  it('loads through require (cjs), and registers no AuthnThrottle in DI on its own', () => {
+    const body = `
+      const sub = require('@spinajs/authn/store-throttle');
+      const { DI } = require('@spinajs/di');
+      const { AuthnThrottle } = require('@spinajs/authn/contracts');
+      console.log(JSON.stringify({ type: typeof sub.StoreAuthnThrottle, names: DI.RootContainer.getRegisteredNames(AuthnThrottle) }));
+    `;
+    const env = { ...process.env };
+    delete env.NODE_OPTIONS;
+    const r = spawnSync(process.execPath, ['--input-type=commonjs', '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(JSON.parse(r.stdout.trim().split(/\r?\n/).pop()!), { type: 'function', names: [] });
   });
 });

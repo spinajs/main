@@ -138,7 +138,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     return this.rowKey(flow, key);
   }
 
-  // As before the util Throttle: a bad key fails attempt and succeed also when the flow ignores its kind, and in a reset.
+  // The Throttle checks only the keys a flow uses; here a bad key fails attempt and succeed even when the flow ignores its kind, and in a reset.
   protected override checkKeys(keys: readonly ThrottleKey[]): void {
     for (const key of keys) checkKey(key);
   }

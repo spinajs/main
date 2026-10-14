@@ -7,7 +7,7 @@ import type { BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '.
 import type { AuthnContext } from '../contracts/credentials.js';
 import type { PeekableThrottle } from './peek.js';
 
-type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+type Verdict = Awaited<ReturnType<AuthnThrottle['attempt']>>;
 
 /**
  * An `AuthnThrottle` over a util `Throttle`: the flow rules come from `ThrottleParams` and are the same for every store;
