@@ -11,6 +11,7 @@ export interface AssignmentRow {
   subject_type: string;
   subject_id: string;
   subject_role: string;
+  subject_key: string;
   role: string;
   scope_type: string;
   scope_id: string;

@@ -23,6 +23,8 @@ export abstract class AdminAssignmentStore extends AssignmentStore {
   abstract revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
   abstract update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
   abstract find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }>;
+  /** Live rows whose subject has one of these keys (subjectKeyOf): how the membership closure walks up. */
+  abstract forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]>;
   /** Removes every row AT the scope (not rows whose subject is a set at it); returns the removed rows. */
   abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]>;
 }

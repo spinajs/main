@@ -7,6 +7,7 @@ import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, Page } from '../ports.js';
 import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
+import { subjectKeyOf } from '../../stores/columns.js';
 
 export interface MemoryAdminAssignmentStoreOptions {
   readonly name?: string;
@@ -58,6 +59,11 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
     const keys = new Set(subjects.map(subjectKey));
     return [...this.rows.values()].filter((a) => keys.has(subjectKey(a.subject)) && isLive(a.expiresAt, at)).map(copy);
+  }
+
+  async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
+    const wanted = new Set(keys);
+    return [...this.rows.values()].filter((a) => wanted.has(subjectKeyOf(a.subject)) && isLive(a.expiresAt, at)).map(copy);
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {

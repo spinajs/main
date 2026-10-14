@@ -10,7 +10,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthzAdminFailure, DefaultAuthzAdmin, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
+import { AUTHZ_ASSIGNMENT_TABLE, subjectFromColumns, subjectKeyOf } from '@spinajs/authz-rbac';
 import { v4 as uuidv4 } from 'uuid';
 import { join, normalize, resolve } from 'path';
 
@@ -64,7 +64,7 @@ async function insertAssignmentRow(row: { subject_type: string; subject_id: stri
   await User.query()
     .Driver.insert()
     .into(AUTHZ_ASSIGNMENT_TABLE)
-    .values({ id: uuidv4(), subject_role: '', scope_id: '', tags: '', expires_at: null, granted_by: null, source: 'test', created_at: new Date(), ...row });
+    .values({ id: uuidv4(), subject_role: '', scope_id: '', tags: '', expires_at: null, granted_by: null, source: 'test', created_at: new Date(), ...row, subject_key: subjectKeyOf(subjectFromColumns(row.subject_type, row.subject_id, row.subject_role ?? '')) });
 }
 
 describe('roles as GLOBAL assignments (H13)', function () {

@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
 
 import adminConfig from '../../src/config/admin.js';
-import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectToColumns } from '../../src/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
 import type { ConfigRoleStore, DbAssignmentStore, DbLinkStore, DbRuleStore } from '../../src/index.js';
 import type { LadderDef, RbacExtension, RbacModelOptions, RoleDef } from '../../src/index.js';
 import { RecordingEventSink } from '../admin/admin-harness.js';
@@ -41,7 +41,7 @@ export async function insertAssignment(db: TestDb, a: Assignment, createdAt = ne
   await db.driver
     .insert()
     .into(AUTHZ_ASSIGNMENT_TABLE)
-    .values({ id: a.id, ...subjectToColumns(a.subject), role: a.role, ...scopeToColumns(a.scope), tags: normaliseTags(a.tags), expires_at: a.expiresAt ?? null, granted_by: a.grantedBy ? principalKey(a.grantedBy) : null, source: a.source ?? 'db', created_at: createdAt });
+    .values({ id: a.id, ...subjectToColumns(a.subject), subject_key: subjectKeyOf(a.subject), role: a.role, ...scopeToColumns(a.scope), tags: normaliseTags(a.tags), expires_at: a.expiresAt ?? null, granted_by: a.grantedBy ? principalKey(a.grantedBy) : null, source: a.source ?? 'db', created_at: createdAt });
 }
 
 /** A world link as `authz.link` holds it (the token only hashed) and its `link:<id>` assignment, expiring with it. */

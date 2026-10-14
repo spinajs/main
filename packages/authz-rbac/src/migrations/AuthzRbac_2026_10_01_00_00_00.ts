@@ -12,6 +12,8 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
       table.string('subject_type', 32).notNull();
       table.string('subject_id', 64).notNull();
       table.string('subject_role', 128).notNull().default().value('');
+      // One portable key column: a row-value IN over (type, id, role) does not work on MSSQL or older SQLite.
+      table.string('subject_key', 200).notNull();
       table.string('role', 128).notNull();
       table.string('scope_type', 64).notNull().default().value('$global');
       table.string('scope_id', 64).notNull().default().value('');
@@ -25,6 +27,7 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
     await connection.index().unique().table('authz_assignment').name('authz_assignment_uq').columns(['subject_type', 'subject_id', 'subject_role', 'role', 'scope_type', 'scope_id']);
     await connection.index().table('authz_assignment').name('authz_assignment_scope').columns(['scope_type', 'scope_id', 'role']);
     await connection.index().table('authz_assignment').name('authz_assignment_expires').columns(['expires_at']);
+    await connection.index().table('authz_assignment').name('authz_assignment_subject').columns(['subject_key', 'role']);
 
     await connection.schema().createTable('authz_rule', (table) => {
       table.string('id', 160).notNull().primaryKey();

@@ -24,6 +24,7 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['subject_type', 'string', 32, false],
     ['subject_id', 'string', 64, false],
     ['subject_role', 'string', 128, false],
+    ['subject_key', 'string', 200, false],
     ['role', 'string', 128, false],
     ['scope_type', 'string', 64, false],
     ['scope_id', 'string', 64, false],
@@ -128,7 +129,10 @@ function insert(driver: OrmDriver, table: string, values: Record<string, unknown
   return driver.insert().into(table).values(values);
 }
 
-const assignment = (over: Record<string, unknown> = {}) => ({ id: 'a1', subject_type: 'user', subject_id: 'u1', role: 'editor', created_at: NOW, ...over });
+const assignment = (over: Record<string, unknown> = {}) => {
+  const r = { id: 'a1', subject_type: 'user', subject_id: 'u1', subject_role: '', role: 'editor', created_at: NOW, ...over };
+  return { subject_key: r.subject_role ? `${r.subject_type}:${r.subject_id}#${r.subject_role}` : `${r.subject_type}:${r.subject_id}`, ...r };
+};
 
 for (const kind of DB_KINDS) {
   describe(`${MIGRATION} (${kind})`, function () {
@@ -183,6 +187,7 @@ for (const kind of DB_KINDS) {
       expect(await find('authz_assignment', 'authz_assignment_uq')).to.deep.eq({ name: 'authz_assignment_uq', unique: true, columns: ['subject_type', 'subject_id', 'subject_role', 'role', 'scope_type', 'scope_id'] });
       expect(await find('authz_assignment', 'authz_assignment_scope')).to.deep.eq({ name: 'authz_assignment_scope', unique: false, columns: ['scope_type', 'scope_id', 'role'] });
       expect(await find('authz_assignment', 'authz_assignment_expires')).to.deep.eq({ name: 'authz_assignment_expires', unique: false, columns: ['expires_at'] });
+      expect(await find('authz_assignment', 'authz_assignment_subject')).to.deep.eq({ name: 'authz_assignment_subject', unique: false, columns: ['subject_key', 'role'] });
       expect(await find('authz_rule', 'authz_rule_scope')).to.deep.eq({ name: 'authz_rule_scope', unique: false, columns: ['scope_type', 'scope_id', 'kind'] });
       expect(await find('authz_link', 'authz_link_token')).to.deep.eq({ name: 'authz_link_token', unique: true, columns: ['token_hash'] });
     });
@@ -203,6 +208,11 @@ for (const kind of DB_KINDS) {
 
     it('authz_assignment refuses a missing required column', async () => {
       await expect(insert(db.driver, 'authz_assignment', { id: 'nn-1', subject_type: 'user', subject_id: 'u1', created_at: NOW })).to.be.rejected;
+    });
+
+    it('authz_assignment refuses a row without subject_key', async () => {
+      const { subject_key: _key, ...rest } = assignment({ id: 'nk-1' });
+      await expect(insert(db.driver, 'authz_assignment', rest)).to.be.rejected;
     });
 
     it('authz_assignment_uq refuses a second identical grant and keeps subject sets apart', async () => {

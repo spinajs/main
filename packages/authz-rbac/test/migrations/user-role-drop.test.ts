@@ -6,7 +6,7 @@ import { HostLog } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
-import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, readVersion } from '../../src/index.js';
+import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
@@ -85,10 +85,11 @@ async function assignments(driver: OrmDriver): Promise<Record<string, any>[]> {
 }
 
 async function grant(driver: OrmDriver, row: Record<string, unknown>): Promise<void> {
+  const r: Record<string, unknown> = { id: `g-${Math.random().toString(16).slice(2)}`, subject_type: 'user', subject_role: '', created_at: new Date(), ...row };
   await driver
     .insert()
     .into('authz_assignment')
-    .values({ id: `g-${Math.random().toString(16).slice(2)}`, subject_type: 'user', created_at: new Date(), ...row });
+    .values({ subject_key: subjectKeyOf(subjectFromColumns(String(r.subject_type), String(r.subject_id), String(r.subject_role))), ...r });
 }
 
 const asSet = (roles: string) =>

@@ -1,5 +1,7 @@
-import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, PrincipalRef, ResourceRef } from '@spinajs/authz';
+
+import type { SubjectKey } from '../contracts.js';
 
 /** A subject as `authz_assignment` and `authz_rule_subject` store it (D-L2-7). */
 export interface SubjectColumns {
@@ -73,4 +75,25 @@ export function toDate(value: unknown): Date | null {
   }
 
   throw new AuthzConfigError(`Unreadable datetime value ${JSON.stringify(value)}`);
+}
+
+/** `authz_assignment.subject_key` and the keys of `authz_subject_membership` hold this many characters. */
+export const SUBJECT_KEY_MAX_LENGTH = 200;
+
+// '%' first, so an escape is never escaped again.
+const escapeKeyId = (id: string): string => id.replace(/%/g, '%25').replace(/#/g, '%23').replace(/\*/g, '%2A');
+
+/**
+ * The one-column key of a subject (design §4.2): `type:id` for a principal (`user:*` for the wildcard subject),
+ * `type:id#role` for a subject set. The type is escaped as the core `principalKey` does; the id escapes `%`, `#`
+ * and `*`, so the first `#` after the `:` starts the role and no principal key equals a set key or a wildcard.
+ */
+export function subjectKeyOf(subject: AssignmentSubject): SubjectKey {
+  if ('set' in subject) {
+    const c = subjectToColumns(subject);
+    // A set at node '*' is a set like any other, not a wildcard.
+    return `${principalKey({ type: c.subject_type, id: escapeKeyId(c.subject_id) })}#${c.subject_role}`;
+  }
+  // The bare id '*' is the wildcard subject (design §4.2) and stays literal.
+  return principalKey({ type: subject.type, id: subject.id === '*' ? '*' : escapeKeyId(subject.id) });
 }

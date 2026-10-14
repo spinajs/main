@@ -107,6 +107,19 @@ describe('MemoryAdminAssignmentStore', () => {
     expect(await ids([])).to.deep.equal([]);
   });
 
+  it('forSubjectKeys matches by subjectKeyOf and leaves out expired rows', async () => {
+    const live = await grant();
+    const set = await grant({ subject: MEMBERS, role: 'editor' });
+    const odd = await grant({ subject: { type: 'org', id: 'o1#org.member' } });
+    await grant({ subject: BOB, expiresAt: T0 });
+    const ids = async (keys: readonly string[]) => (await store.forSubjectKeys(keys, T0)).map((r) => r.id).sort();
+    expect(await ids(['user:alice'])).to.deep.equal([live.id]);
+    expect(await ids(['org:o1#org.member'])).to.deep.equal([set.id]);
+    expect(await ids(['org:o1%23org.member'])).to.deep.equal([odd.id]);
+    expect(await ids(['user:bob', 'user:*'])).to.deep.equal([]);
+    expect(await ids([])).to.deep.equal([]);
+  });
+
   it('holders lists the live subjects of a role at exactly that scope', async () => {
     await grant();
     await grant({ subject: MEMBERS });

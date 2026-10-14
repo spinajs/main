@@ -14,7 +14,7 @@ async function seedGlobalRole(uuid: string, role: string): Promise<void> {
   await User.query()
     .Driver.insert()
     .into(AUTHZ_ASSIGNMENT_TABLE)
-    .values({ id: uuidv4(), subject_type: 'user', subject_id: uuid, subject_role: '', role, scope_type: '$global', scope_id: '', tags: '', expires_at: null, granted_by: null, source: 'test', created_at: new Date() });
+    .values({ id: uuidv4(), subject_type: 'user', subject_id: uuid, subject_role: '', subject_key: `user:${uuid}`, role, scope_type: '$global', scope_id: '', tags: '', expires_at: null, granted_by: null, source: 'test', created_at: new Date() });
 }
 
 @Migration('default')
