@@ -27,7 +27,6 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
-    "bench": "node --no-warnings --loader ts-node/esm --experimental-specifier-resolution=node bench/run.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -54,7 +53,6 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
-    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
@@ -63,6 +61,7 @@
   },
   "devDependencies": {
     "@spinajs/authz-abac": "3.0.0-alpha.0",
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/log": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",

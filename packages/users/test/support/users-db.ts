@@ -72,7 +72,6 @@ const USERS_HOST_KEYS = [
   'DefaultRolesBootCheck',
   'OwnRolesTokenRolePolicy',
   'OrmNativeCompiler',
-  'RbacOrmCompiler',
   'TimeBetween',
   'IpIn',
   'GlobMatch',

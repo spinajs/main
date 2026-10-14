@@ -149,7 +149,7 @@ export function scopeMatcher(type: ResourceType, path: readonly ResourceRef[]): 
 /**
  * Makes type-level votes list scoped assignments with `native:rbac.assignment` instead of the default
  * `under` over the assignment scopes, and registers its in-memory filter. Use it for types whose
- * adapters compile the op (authz-orm's RbacOrmCompiler). `types` limits the native term to those
+ * adapters compile the op. `types` limits the native term to those
  * resource types; the others keep `under`. The op is still declared model-wide, so boot rule 4 refuses
  * it on any list-scoped type routed to this model whose adapter does not compile it.
  *
