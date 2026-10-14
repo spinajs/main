@@ -72,8 +72,8 @@ describe('MemoryThrottleStore', () => {
       await store.peek('mfa', [], 0);
       expect(calls).to.deep.equal(FLOWS);
       for (const f of FLOWS) await store.attempt(f, [gate('a')], [], 0);
-      await store.lower('login', [], [], 0);
-      await store.clear('login', [], 0);
+      await store.succeed('login', [{ targets: [], by: [] }], [], 0);
+      await store.succeed('login', [], [], 0);
       expect(calls).to.deep.equal(FLOWS);
     });
 
@@ -102,8 +102,7 @@ describe('MemoryThrottleStore', () => {
       await rejectsWith(store.attempt('login', [gate('a')], [], 0), InvalidOperation, /mfa.*not a KeyedBackoff/);
       await rejectsWith(store.attempt('login', [gate('a')], [], 0), InvalidOperation);
       await rejectsWith(store.peek('reset', [], 0), InvalidOperation);
-      await rejectsWith(store.lower('login', [], [], 0), InvalidOperation);
-      await rejectsWith(store.clear('login', [], 0), InvalidOperation);
+      await rejectsWith(store.succeed('login', [], [], 0), InvalidOperation);
     });
 
     it('fails closed when the factory hands two flows one instance', async () => {
@@ -119,8 +118,7 @@ describe('MemoryThrottleStore', () => {
       const store = make();
       await rejectsWith(store.attempt('signup', [], [], 0), InvalidArgument);
       await rejectsWith(store.peek('toString', [], 0), InvalidArgument);
-      await rejectsWith(store.lower('signup', [], [], 0), InvalidArgument);
-      await rejectsWith(store.clear('signup', [], 0), InvalidArgument);
+      await rejectsWith(store.succeed('signup', [], [], 0), InvalidArgument);
     });
   });
 
@@ -140,11 +138,10 @@ describe('MemoryThrottleStore', () => {
       expect(made.get('login')!.batches).to.deep.equal([2]);
     });
 
-    it('sweeps nothing on peek, lower or clear', async () => {
+    it('sweeps nothing on peek or succeed', async () => {
       const { store, made } = recording();
       await store.peek('login', [gate('a')], 0);
-      await store.lower('login', [gate('a')], ['b'], 0);
-      await store.clear('login', ['a'], 0);
+      await store.succeed('login', [{ targets: [gate('a')], by: ['b'] }], ['a'], 0);
       for (const f of FLOWS) expect(made.get(f)!.batches).to.deep.equal([]);
     });
   });
@@ -196,14 +193,14 @@ describe('MemoryThrottleStore', () => {
     });
   });
 
-  describe('lower', () => {
+  describe('succeed: lower', () => {
     const IP: BackoffParams = { free: 6, baseDelayMs: 1000, maxDelayMs: 300_000 };
 
     it('consumes the by rows and takes the largest count off the target, not the sum', async () => {
       const { store, made } = recording();
       for (let i = 0; i < 3; i++) await store.attempt('login', [gate('ip', IP)], ['bob'], 0);
       for (let i = 0; i < 2; i++) await store.attempt('login', [gate('ip', IP)], ['alice', 'alice2'], 0);
-      await store.lower('login', [gate('ip', IP)], ['alice', 'alice2', 'missing'], 0);
+      await store.succeed('login', [{ targets: [gate('ip', IP)], by: ['alice', 'alice2', 'missing'] }], [], 0);
       const l = made.get('login')!;
       expect(l.row('ip')!.attempts).to.equal(3);
       expect(l.row('alice')).to.equal(undefined);
@@ -215,7 +212,7 @@ describe('MemoryThrottleStore', () => {
       const { store, made } = recording();
       for (let i = 0; i < 2; i++) await store.attempt('login', [], ['alice'], 0);
       for (let i = 0; i < 2; i++) await store.attempt('login', [gate('ip', IP)], [], 1000);
-      await store.lower('login', [gate('ip', IP)], ['alice'], 1000);
+      await store.succeed('login', [{ targets: [gate('ip', IP)], by: ['alice'] }], [], 1000);
       const l = made.get('login')!;
       expect(l.row('ip')!.attempts).to.equal(2);
       expect(l.row('alice')).to.equal(undefined);
@@ -224,7 +221,7 @@ describe('MemoryThrottleStore', () => {
     it('deletes a target lowered to 0', async () => {
       const { store, made } = recording();
       for (let i = 0; i < 2; i++) await store.attempt('login', [gate('ip', IP)], ['alice'], 0);
-      await store.lower('login', [gate('ip', IP)], ['alice'], 0);
+      await store.succeed('login', [{ targets: [gate('ip', IP)], by: ['alice'] }], [], 0);
       expect(made.get('login')!.size).to.equal(0);
     });
 
@@ -235,7 +232,7 @@ describe('MemoryThrottleStore', () => {
       await store.attempt('login', [gate('ip', P)], [], 0);
       await store.attempt('login', [gate('ip', P)], [], 1000);
       await store.attempt('login', [gate('ip', P)], ['alice'], 3000);
-      await store.lower('login', [gate('ip', P)], ['alice'], 4000);
+      await store.succeed('login', [{ targets: [gate('ip', P)], by: ['alice'] }], [], 4000);
       expect(made.get('login')!.row('ip')).to.include({ attempts: 3, lastMs: 3000, nextMs: 5000 });
       expectRefused(await store.attempt('login', [gate('ip', P)], [], 4000), 1);
     });
@@ -243,7 +240,7 @@ describe('MemoryThrottleStore', () => {
     it('recomputes a target without by rows, with the backoff it is given', async () => {
       const { store, made } = recording({ delay: (p, n) => n * p.baseDelayMs });
       await store.attempt('login', [gate('ip', { free: 1, baseDelayMs: 100, maxDelayMs: 100 })], [], 5000);
-      await store.lower('login', [gate('ip', { free: 1, baseDelayMs: 300, maxDelayMs: 300 })], [], 6000);
+      await store.succeed('login', [{ targets: [gate('ip', { free: 1, baseDelayMs: 300, maxDelayMs: 300 })], by: [] }], [], 6000);
       expect(made.get('login')!.row('ip')).to.include({ attempts: 1, nextMs: 5300 });
     });
 
@@ -251,16 +248,16 @@ describe('MemoryThrottleStore', () => {
       const { store, made } = recording();
       await store.attempt('mfa', [gate('ip', IP)], ['alice'], 0);
       await store.attempt('login', [gate('ip', IP)], ['alice'], 0);
-      await store.lower('login', [gate('ip', IP)], ['alice'], 0);
+      await store.succeed('login', [{ targets: [gate('ip', IP)], by: ['alice'] }], [], 0);
       expect(made.get('mfa')!.size).to.equal(2);
     });
   });
 
-  describe('clear', () => {
+  describe('succeed: clear', () => {
     it('deletes the rows of its flow', async () => {
       const { store, made } = recording();
       for (const f of ['login', 'mfa']) await store.attempt(f, [gate('a'), gate('b')], ['c'], 0);
-      await store.clear('login', ['a', 'c', 'missing'], 0);
+      await store.succeed('login', [], ['a', 'c', 'missing'], 0);
       expect([...made.get('login')!.entries()].map(([k]) => k)).to.deep.equal(['b']);
       expect(made.get('mfa')!.size).to.equal(3);
     });
@@ -271,7 +268,7 @@ describe('MemoryThrottleStore', () => {
       expectAllowed(await store.attempt('login', [gate('idle')], [], 0));
       expectAllowed(await store.attempt('login', [gate('x')], [], 0), 'evicts idle, less than the slack');
       expectRefused(await store.attempt('login', [gate('y')], [], 0), 1, 'held off without a rescan');
-      await store.clear('login', [], 0);
+      await store.succeed('login', [], [], 0);
       expectAllowed(await store.attempt('login', [gate('y')], [], 0), 'rescans and evicts x');
     });
 
@@ -279,8 +276,28 @@ describe('MemoryThrottleStore', () => {
       const store = make({ maxRows: 4 });
       for (const id of ['a1', 'a2', 'a3', 'a4']) expectAllowed(await store.attempt('login', [gate(id, LONG)], [], 0));
       expectRefused(await store.attempt('login', [gate('a5', LONG)], [], 0), 600);
-      await store.clear('login', ['a1'], 0);
+      await store.succeed('login', [], ['a1'], 0);
       expectAllowed(await store.attempt('login', [gate('a5', LONG)], [], 0));
+    });
+  });
+
+  describe('succeed: one atomic step', () => {
+    const IP: BackoffParams = { free: 6, baseDelayMs: 1000, maxDelayMs: 300_000 };
+
+    it('lowers before it clears, so a by id listed in clear still counts', async () => {
+      const { store, made } = recording();
+      for (let i = 0; i < 3; i++) await store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0);
+      await store.succeed('login', [{ targets: [gate('ip', IP)], by: ['pair'] }], ['acct', 'pair'], 0);
+      expect(made.get('login')!.size).to.equal(0);
+    });
+
+    it('applies every rule in the call itself: no attempt can land between lower and clear', () => {
+      const { store, made } = recording();
+      void store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0);
+      void store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0);
+      void store.succeed('login', [{ targets: [gate('ip', IP)], by: ['pair'] }], ['acct'], 0);
+      // Not awaited: the rows already show the whole success.
+      expect(made.get('login')!.size).to.equal(0);
     });
   });
 

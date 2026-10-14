@@ -2,7 +2,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 
 import { KeyedBackoff } from './keyed-backoff.js';
 import type { BackoffParams, KeyedBackoffGate, KeyedBackoffOptions, KeyedBackoffRow, KeyedBackoffVerdict } from './keyed-backoff.js';
-import type { ThrottleGate, ThrottleStore } from './throttle.js';
+import type { ThrottleGate, ThrottleLower, ThrottleStore } from './throttle.js';
 
 export interface MemoryThrottleStoreOptions {
   /** Every flow the store serves; each gets its own table. */
@@ -49,9 +49,22 @@ export class MemoryThrottleStore implements ThrottleStore {
     return this.limiter(flow).peek(gates.map(toGate), nowMs);
   }
 
-  /** Takes off a target only the `by` rows whose run began after the target's: older ones counted attempts it never saw. */
-  async lower(flow: string, targets: readonly ThrottleGate[], by: readonly string[], _nowMs: number): Promise<void> {
+  async succeed(flow: string, lower: readonly ThrottleLower[], clear: readonly string[], _nowMs: number): Promise<void> {
     const limiter = this.limiter(flow);
+    for (const { targets, by } of lower) this.lower(limiter, targets, by);
+    limiter.release();
+    for (const id of clear) limiter.delete(id);
+  }
+
+  /** The flow's table (tests, diagnostics). The first call for any flow builds them all, so a factory that shares one fails at once. */
+  limiter(flow: string): KeyedBackoff {
+    if (!this.flows.includes(flow)) throw new InvalidArgument(`MemoryThrottleStore: unknown flow ${JSON.stringify(String(flow))}`);
+    if (this.limiters.size === 0) this.build();
+    return this.limiters.get(flow)!;
+  }
+
+  /** Takes off a target only the `by` rows whose run began after the target's: older ones counted attempts it never saw. */
+  private lower(limiter: KeyedBackoff, targets: readonly ThrottleGate[], by: readonly string[]): void {
     const spent: Readonly<KeyedBackoffRow>[] = [];
     for (const id of by) {
       // Without expiry: a stale row still holds attempts its target counted.
@@ -69,19 +82,6 @@ export class MemoryThrottleStore implements ThrottleStore {
         backoff,
       );
     }
-  }
-
-  async clear(flow: string, ids: readonly string[], _nowMs: number): Promise<void> {
-    const limiter = this.limiter(flow);
-    limiter.release();
-    for (const id of ids) limiter.delete(id);
-  }
-
-  /** The flow's table (tests, diagnostics). The first call for any flow builds them all, so a factory that shares one fails at once. */
-  limiter(flow: string): KeyedBackoff {
-    if (!this.flows.includes(flow)) throw new InvalidArgument(`MemoryThrottleStore: unknown flow ${JSON.stringify(String(flow))}`);
-    if (this.limiters.size === 0) this.build();
-    return this.limiters.get(flow)!;
   }
 
   private build(): void {

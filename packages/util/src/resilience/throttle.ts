@@ -26,6 +26,12 @@ export interface ThrottleGate {
   readonly backoff: BackoffParams;
 }
 
+/** One `onSuccess.lower` rule, keyed: lower `targets` by what the `by` rows counted, consuming them. */
+export interface ThrottleLower {
+  readonly targets: readonly ThrottleGate[];
+  readonly by: readonly string[];
+}
+
 /**
  * Keeps the throttle's rows; `Throttle` decides which ids to pass. Ids are opaque. Each call must be atomic on its own:
  * parallel `attempt`s of one gate must not both pass a check that only one of them may pass.
@@ -35,10 +41,12 @@ export interface ThrottleStore {
   attempt(flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict>;
   /** The same delay check, counting nothing. */
   peek(flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<KeyedBackoffVerdict>;
-  /** Success: consumes the `by` rows and lowers each target by the largest count among them; a target at 0 is deleted, otherwise its delay is recomputed from its last attempt with its backoff. */
-  lower(flow: string, targets: readonly ThrottleGate[], by: readonly string[], nowMs: number): Promise<void>;
-  /** Success: deletes rows; also ends a store's full-table refusal for that flow, where it has one. */
-  clear(flow: string, ids: readonly string[], nowMs: number): Promise<void>;
+  /**
+   * Atomic per call. Applies each `lower` rule in order: consumes its `by` rows and lowers each target by the largest
+   * count among them; a target at 0 is deleted, otherwise its delay is recomputed from its last attempt with its
+   * backoff. Then deletes the `clear` rows and ends the store's full-table refusal for that flow, where it has one.
+   */
+  succeed(flow: string, lower: readonly ThrottleLower[], clear: readonly string[], nowMs: number): Promise<void>;
 }
 
 export interface ThrottleOptions {
@@ -90,21 +98,20 @@ export class Throttle {
     return this.store.peek(flow, this.gates(keys, flow, rules), nowMs);
   }
 
-  /** Runs the flow's `onSuccess`: every `lower` rule in order, then `clear`. */
+  /**
+   * Runs the flow's `onSuccess` in one store call: every `lower` rule in order, then `clear`. The call is made even when
+   * no key matches, since it also ends a full-table refusal.
+   */
   async succeed(keys: readonly ThrottleKey[], flow: string, nowMs: number): Promise<void> {
     const { gates, onSuccess } = this.rules(flow, nowMs);
     if (!onSuccess) return;
-    const lowers = (onSuccess.lower ?? []).map(({ kind, by }) => ({
-      targets: this.ids(keys, flow, [kind]).map((id) => ({ id, backoff: gates[kind] })),
-      by: this.ids(keys, flow, [by]),
-    }));
-    const cleared = onSuccess.clear ? this.ids(keys, flow, onSuccess.clear) : undefined;
-
-    for (const { targets, by } of lowers) {
-      if (targets.length > 0 || by.length > 0) await this.store.lower(flow, targets, by, nowMs);
-    }
-    // Called even with no ids: clearing also ends a full-table refusal.
-    if (cleared) await this.store.clear(flow, cleared, nowMs);
+    const lower = (onSuccess.lower ?? [])
+      .map(({ kind, by }) => ({
+        targets: this.ids(keys, flow, [kind]).map((id) => ({ id, backoff: gates[kind] })),
+        by: this.ids(keys, flow, [by]),
+      }))
+      .filter(({ targets, by }) => targets.length > 0 || by.length > 0);
+    await this.store.succeed(flow, lower, this.ids(keys, flow, onSuccess.clear ?? []), nowMs);
   }
 
   private rules(flow: string, nowMs: number): ThrottleFlowRules {

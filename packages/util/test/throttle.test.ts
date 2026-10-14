@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Throttle } from '../src/index.js';
-import type { BackoffParams, KeyedBackoffVerdict, ThrottleFlowRules, ThrottleGate, ThrottleKey, ThrottleStore } from '../src/index.js';
+import type { BackoffParams, KeyedBackoffVerdict, ThrottleFlowRules, ThrottleGate, ThrottleKey, ThrottleLower, ThrottleStore } from '../src/index.js';
 
 const ACCOUNT: BackoffParams = { free: 5, baseDelayMs: 1000, maxDelayMs: 60_000 };
 const IP: BackoffParams = { free: 50, baseDelayMs: 1000, maxDelayMs: 300_000 };
@@ -9,8 +9,7 @@ const IP: BackoffParams = { free: 50, baseDelayMs: 1000, maxDelayMs: 300_000 };
 type Call =
   | { op: 'attempt'; flow: string; gates: readonly ThrottleGate[]; counted: readonly string[]; nowMs: number }
   | { op: 'peek'; flow: string; gates: readonly ThrottleGate[]; nowMs: number }
-  | { op: 'lower'; flow: string; targets: readonly ThrottleGate[]; by: readonly string[]; nowMs: number }
-  | { op: 'clear'; flow: string; ids: readonly string[]; nowMs: number };
+  | { op: 'succeed'; flow: string; lower: readonly ThrottleLower[]; clear: readonly string[]; nowMs: number };
 
 class RecordingStore implements ThrottleStore {
   readonly calls: Call[] = [];
@@ -24,11 +23,8 @@ class RecordingStore implements ThrottleStore {
     this.calls.push({ op: 'peek', flow, gates, nowMs });
     return this.verdict;
   }
-  async lower(flow: string, targets: readonly ThrottleGate[], by: readonly string[], nowMs: number): Promise<void> {
-    this.calls.push({ op: 'lower', flow, targets, by, nowMs });
-  }
-  async clear(flow: string, ids: readonly string[], nowMs: number): Promise<void> {
-    this.calls.push({ op: 'clear', flow, ids, nowMs });
+  async succeed(flow: string, lower: readonly ThrottleLower[], clear: readonly string[], nowMs: number): Promise<void> {
+    this.calls.push({ op: 'succeed', flow, lower, clear, nowMs });
   }
 }
 
@@ -155,12 +151,17 @@ describe('Throttle', () => {
   });
 
   describe('succeed', () => {
-    it('lowers each rule, then clears the listed kinds', async () => {
+    it('passes every lower rule and the ids to clear in one store call', async () => {
       const { store, throttle } = make();
       await throttle.succeed(keys('alice', '10.0.0.1'), 'login', 11);
       expect(store.calls).to.deep.equal([
-        { op: 'lower', flow: 'login', targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: ['login|account-ip|10.0.0.1/alice'], nowMs: 11 },
-        { op: 'clear', flow: 'login', ids: ['login|account|alice', 'login|account-ip|10.0.0.1/alice'], nowMs: 11 },
+        {
+          op: 'succeed',
+          flow: 'login',
+          lower: [{ targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: ['login|account-ip|10.0.0.1/alice'] }],
+          clear: ['login|account|alice', 'login|account-ip|10.0.0.1/alice'],
+          nowMs: 11,
+        },
       ]);
     });
 
@@ -188,39 +189,52 @@ describe('Throttle', () => {
         0,
       );
       expect(store.calls).to.deep.equal([
-        { op: 'lower', flow: 'f', targets: [{ id: 'f|b|2', backoff: IP }], by: ['f|y|4'], nowMs: 0 },
-        { op: 'lower', flow: 'f', targets: [{ id: 'f|a|1', backoff: ACCOUNT }], by: ['f|x|3'], nowMs: 0 },
+        {
+          op: 'succeed',
+          flow: 'f',
+          lower: [
+            { targets: [{ id: 'f|b|2', backoff: IP }], by: ['f|y|4'] },
+            { targets: [{ id: 'f|a|1', backoff: ACCOUNT }], by: ['f|x|3'] },
+          ],
+          clear: [],
+          nowMs: 0,
+        },
       ]);
     });
 
     it('skips a lower rule no key matches', async () => {
       const { store, throttle } = make();
       await throttle.succeed([{ kind: 'account', value: 'alice' }], 'login', 0);
-      expect(store.calls).to.deep.equal([{ op: 'clear', flow: 'login', ids: ['login|account|alice'], nowMs: 0 }]);
+      expect(store.calls).to.deep.equal([{ op: 'succeed', flow: 'login', lower: [], clear: ['login|account|alice'], nowMs: 0 }]);
     });
 
     it('lowers a target without by keys, and consumes by keys without a target', async () => {
       const { store, throttle } = make();
       await throttle.succeed([{ kind: 'ip', value: '10.0.0.1' }], 'login', 0);
       await throttle.succeed([{ kind: 'account-ip', value: 'p' }], 'login', 0);
-      expect(store.calls.filter((c) => c.op === 'lower')).to.deep.equal([
-        { op: 'lower', flow: 'login', targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: [], nowMs: 0 },
-        { op: 'lower', flow: 'login', targets: [], by: ['login|account-ip|p'], nowMs: 0 },
+      expect(store.calls.map((c) => (c as Extract<Call, { op: 'succeed' }>).lower)).to.deep.equal([
+        [{ targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: [] }],
+        [{ targets: [], by: ['login|account-ip|p'] }],
       ]);
     });
 
-    it('still clears with no matching key: a store may end a full-table refusal there', async () => {
+    it('still calls the store with no matching key: a store may end a full-table refusal there', async () => {
       const { store, throttle } = make();
       await throttle.succeed([], 'login', 0);
-      expect(store.calls).to.deep.equal([{ op: 'clear', flow: 'login', ids: [], nowMs: 0 }]);
+      expect(store.calls).to.deep.equal([{ op: 'succeed', flow: 'login', lower: [], clear: [], nowMs: 0 }]);
     });
 
     it('de-duplicates the ids it passes', async () => {
       const { store, throttle } = make();
       await throttle.succeed([...keys('alice', '10.0.0.1'), ...keys('alice', '10.0.0.1')], 'login', 0);
       expect(store.calls).to.deep.equal([
-        { op: 'lower', flow: 'login', targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: ['login|account-ip|10.0.0.1/alice'], nowMs: 0 },
-        { op: 'clear', flow: 'login', ids: ['login|account|alice', 'login|account-ip|10.0.0.1/alice'], nowMs: 0 },
+        {
+          op: 'succeed',
+          flow: 'login',
+          lower: [{ targets: [{ id: 'login|ip|10.0.0.1', backoff: IP }], by: ['login|account-ip|10.0.0.1/alice'] }],
+          clear: ['login|account|alice', 'login|account-ip|10.0.0.1/alice'],
+          nowMs: 0,
+        },
       ]);
     });
 

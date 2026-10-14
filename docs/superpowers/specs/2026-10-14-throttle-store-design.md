@@ -29,15 +29,15 @@ export interface ThrottleFlowRules {
 
 export interface ThrottleGate { readonly id: string; readonly backoff: BackoffParams }
 
+export interface ThrottleLower { readonly targets: readonly ThrottleGate[]; readonly by: readonly string[] }
+
 export interface ThrottleStore {
   /** Atomic per call: refuse with the longest running delay among `gates`, else count every gate and every `counted` id. */
   attempt(flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict>;
   /** The same delay check, counting nothing. */
   peek(flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<KeyedBackoffVerdict>;
-  /** Success: consumes the `by` rows and lowers each target by the largest count among them; a target at 0 is deleted, otherwise its delay is recomputed from its last attempt with its backoff. */
-  lower(flow: string, targets: readonly ThrottleGate[], by: readonly string[], nowMs: number): Promise<void>;
-  /** Success: deletes rows; also ends a store's full-table refusal for that flow, where it has one. */
-  clear(flow: string, ids: readonly string[], nowMs: number): Promise<void>;
+  /** Atomic per call. Each `lower` rule in order: consumes its `by` rows and lowers each target by the largest count among them; a target at 0 is deleted, otherwise its delay is recomputed from its last attempt with its backoff. Then deletes the `clear` rows and ends a store's full-table refusal for that flow, where it has one. */
+  succeed(flow: string, lower: readonly ThrottleLower[], clear: readonly string[], nowMs: number): Promise<void>;
 }
 
 export interface ThrottleOptions {
@@ -60,7 +60,7 @@ The `Throttle` itself does the following, with no storage logic:
 - **Validation.** An unknown flow, a key value that is not a string, or a non-finite `nowMs` throws `InvalidArgument`. All of this happens before the store is called.
 - **Turning keys into ids.** Each key becomes `keyId(flow, key)`. Ids are de-duplicated; when an id is both gating and counted, the gate wins.
 - **`attempt` / `peek`.** Keys whose kind is in `gates` become gates. On `attempt` only, kinds in `counted` become counted ids. Every other kind is ignored.
-- **`succeed`.** It runs `lower` for each rule, then `clear` for the listed kinds. Rules with no matching keys are skipped. A flow without `onSuccess` does nothing on success.
+- **`succeed`.** It makes exactly one `store.succeed` call, so a success stays atomic as it is today. The call carries every `lower` rule in order, then the ids of the `clear` kinds. A rule is skipped when neither its `kind` nor its `by` matches a key. The call is made even with empty lists, because it also ends a full-table refusal. A flow without `onSuccess` makes no call.
 
 ## 2. `MemoryThrottleStore` (util)
 
@@ -69,8 +69,7 @@ New file `packages/util/src/resilience/memory-throttle-store.ts`. It keeps one `
 - **One table per flow.** Each flow's limiter is built lazily through `limiter(flow, options)`, which defaults to `new KeyedBackoff`. It is cached, and each instance is checked: it must be a `KeyedBackoff`, and no other flow may already use it. Otherwise `InvalidOperation`. This replaces the check that now sits in `MemoryAuthnThrottle`.
   - On the first call for any flow, all flows the store knows are built. They are passed in as `flows: readonly string[]`.
 - **Sweeping.** `attempt` sweeps the other flows with `ceil(sweepBatch / 4)`; the attempt's own flow sweeps inside `KeyedBackoff.attempt`.
-- **`lower`.** Uses `KeyedBackoff.lower`: rows compared by run, then the largest count. The `by` rows are deleted.
-- **`clear`.** Deletes the rows and calls `release()`.
+- **`succeed`.** Applies each lower rule through `KeyedBackoff.lower`: rows compared by run, then the largest count. The `by` rows are deleted. Then it calls `release()` and deletes the `clear` rows.
 - **Options:** `{ flows, maxRows, resetAfterMs, sweepBatch?, fullRetryMs?, holdOffMs?, delay?, onFull?: (flow) => void, limiter? }`.
 - Each method has no `await` inside, so a single call is atomic.
 
@@ -113,7 +112,7 @@ The flow rules match today's behaviour in both throttles:
   - the dialect handling and SQL-text times;
   - `blockedWait`, `countBook`, `takeBook` (consume) and `subtract` (lower);
   - `purge`.
-- Its `lower` subtracts the largest consumed `by` count without comparing runs, because DB rows carry no run. Today's DB behaviour stays.
+- Its `succeed` subtracts the largest consumed `by` count without comparing runs, because DB rows carry no run. Today's DB behaviour stays.
 - `DbAuthnThrottle` keeps:
   - `@Singleton @Injectable(AuthnThrottle)`;
   - `init()`, `purge()` and `checkConfiguration()`;
@@ -137,12 +136,12 @@ authn-orm imports `StoreAuthnThrottle` from a subpath of `@spinajs/authn` (for e
   - gates vs counted;
   - de-duplication, gate wins;
   - unknown kinds ignored;
-  - the `succeed` order (lower, then clear) and skipped rules;
+  - `succeed` makes one store call (lower rules in order, then clear) and skips rules;
   - validation errors raised before the store is called.
 - **util `memory-throttle-store.test.ts`:**
   - the per-flow limiter factory and its checks;
   - the sweep split;
-  - lower and clear;
+  - `succeed`: lower, then clear, in one call with no interleaving;
   - parity cases moved over from authn.
 - **authn:** `memory-throttle.test.ts` and the mutation suite stay green, with their seams moved to the subclass.
 - **authn-orm:** `db-throttle.test.ts`, `throttle-config.test.ts`, `throttle-conformance.test.ts` and `throttle-dialects.test.ts` stay green on sqlite. The Postgres cases are skipped here, as today.
@@ -150,6 +149,6 @@ authn-orm imports `StoreAuthnThrottle` from a subpath of `@spinajs/authn` (for e
 
 ## 6. Docs
 
-- util `documentation/resilience.md`: sections for `Throttle` and `ThrottleStore`, and how to write a store (atomic `attempt`, `lower` semantics), with Redis as the example.
+- util `documentation/resilience.md`: sections for `Throttle` and `ThrottleStore`, and how to write a store (atomic `attempt` and `succeed`, `lower` semantics), with Redis as the example.
 - The authn throttle README covers only what is authn-specific: key kinds, the flow-rule table, A06/D8, config, DI, and choosing a store.
 - Release notes.
