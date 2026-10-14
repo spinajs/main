@@ -923,7 +923,7 @@ describe('DefaultAuthzService', function () {
       setConfig('authz.bus.service', 'NamedBus');
       try {
         await rootService();
-        expect(DI.RootContainer.get(NamedBus)!.subscribers.size).to.equal(1);
+        expect(DI.RootContainer.get(NamedBus)!.subscribers.size, 'the root service and its AccessChangeRouter').to.equal(2);
         expect(DI.RootContainer.Cache.has(OtherBus)).to.equal(false);
       } finally {
         await resetRoot();
