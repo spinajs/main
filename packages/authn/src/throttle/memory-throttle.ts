@@ -5,7 +5,7 @@ import { Config } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
 import { deepFreeze } from '@spinajs/util';
-import type { KeyedBackoffGate, KeyedBackoffOptions, KeyedBackoffRow, KeyedBackoffVerdict } from '@spinajs/util';
+import type { KeyedBackoffGate, KeyedBackoffOptions, KeyedBackoffRow } from '@spinajs/util';
 
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
@@ -82,7 +82,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     return this.loaded;
   }
 
-  public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<KeyedBackoffVerdict> {
+  public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): ReturnType<AuthnThrottle['attempt']> {
     const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
     if (!Number.isFinite(nowMs)) throw new InvalidArgument('MemoryAuthnThrottle.attempt: ctx.now must be a valid Date');
     const f = this.flow(flow);
@@ -102,7 +102,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
   }
 
   /** Refuses as `attempt` would for a delay, counting nothing; a full table refuses only `attempt`. */
-  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<KeyedBackoffVerdict> {
+  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): ReturnType<PeekableThrottle['peek']> {
     const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
     if (!Number.isFinite(nowMs)) throw new InvalidArgument('MemoryAuthnThrottle.peek: ctx.now must be a valid Date');
     const f = this.flow(flow);
