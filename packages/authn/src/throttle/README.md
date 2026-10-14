@@ -47,7 +47,7 @@ Rows are keyed by an HMAC of `flow|kind|value` in base64url (D7, SR-19), so no t
 
 | Flow                     | `gates`                                        | `counted`                         | `onSuccess`                                                                 |
 | ------------------------ | ---------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
-| `login`, `mfa`, `reauth` | `account`, `ip` (if the flow has it), `global` | `account-ip` if the flow has `ip` | `lower` `ip` by `account-ip` (if the flow has `ip`); `clear` `account`, `account-ip` |
+| `login`, `mfa`, `reauth` | `account`, `ip` (if the flow has it), `global` (if `authn.throttle.global` is set) | `account-ip` if the flow has `ip` | `lower` `ip` by `account-ip` (if the flow has `ip`); `clear` `account`, `account-ip` |
 | `reset`                  | the same                                       | `account-ip` if the flow has `ip` | none: a success clears nothing (§22.13)                                     |
 
 ## Success
@@ -124,10 +124,12 @@ balancer or with several instances, use `DbAuthnThrottle`, or a store of your ow
 
 Extend `StoreAuthnThrottle` (also at `@spinajs/authn/store-throttle`, which registers nothing in DI) and implement:
 
-- `params`: the `ThrottleParams`, read once, after `store()`;
+- `params`: the `ThrottleParams`, read once. They are available while `store()` builds the store, and the store must
+  apply `params.resetAfterSeconds` as its expiry: the `ThrottleStore` interface does not pass it;
 - `store()`: the `ThrottleStore` (see "Writing a store" in the util documentation), built lazily, once; a failed
   build is not kept;
-- `keyId(flow, key)`: an opaque id that never holds the plain key value (SR-19).
+- `keyId(flow, key)`: an opaque id that never holds the plain key value (SR-19). It must include the flow: ids are
+  unique per flow, and `DbThrottleStore` ignores its `flow` argument because it relies on that.
 
 Optionally override `rules(params)`, `checkKeys`, `nowMs` and `throttleName`. Register the class with
 `@Injectable(AuthnThrottle)` and name it in `authn.throttle.service`. `ctx.now` and the flow are checked before

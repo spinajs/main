@@ -443,7 +443,7 @@ logged in.
 
 ## Throttling
 
-The memory throttle's keys, eviction, `authn.throttle.memory.*` and `FlowLimiter` are in
+Key kinds, flow rules, `authn.throttle.memory.*`, DI and writing a store are in
 [`packages/authn/src/throttle/README.md`](../../packages/authn/src/throttle/README.md).
 
 3.0 never locks an account (H31). It backs off. The rule (A05, A06, §22.13):
