@@ -119,7 +119,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     if (flow === 'reset') return;
     const limiter = this.limiter(flow);
     limiter.release();
-    const spent: KeyedBackoffRow[] = [];
+    const spent: Readonly<KeyedBackoffRow>[] = [];
     for (const k of keys) {
       if (k.kind !== 'account-ip') continue;
       const id = this.keyId(flow, k);
@@ -136,14 +136,7 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
         if (!row) continue;
         // An account-ip run that began before this ip run has attempts the ip row never counted. Several account-ip
         // rows of one success counted the same attempts, so the largest is taken, never the sum (D8).
-        const taken = spent.reduce((n, a) => (a.run > row.run ? Math.max(n, a.attempts) : n), 0);
-        row.attempts = Math.max(0, row.attempts - taken);
-        if (row.attempts === 0) {
-          limiter.delete(id);
-        } else {
-          const d = this.delayMs(f.ip, row.attempts);
-          row.nextMs = d > 0 ? row.lastMs + d : 0;
-        }
+        limiter.lower(id, spent.reduce((n, a) => (a.run > row.run ? Math.max(n, a.attempts) : n), 0), f.ip);
       }
     }
   }
