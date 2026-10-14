@@ -88,6 +88,7 @@
     "@spinajs/authz-testing": "file:packages/authz-testing",
     "@spinajs/authz-rbac": "file:packages/authz-rbac",
     "@spinajs/authz-abac": "file:packages/authz-abac",
+    "@spinajs/eslint-plugin-authz": "file:packages/eslint-plugin-authz",
     "@spinajs/authz-orm": "file:packages/authz-orm",
     "@spinajs/authz-http": "file:packages/authz-http",
     "@spinajs/authz-http-admin": "file:packages/authz-http-admin",
