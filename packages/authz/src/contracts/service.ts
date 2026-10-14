@@ -6,6 +6,7 @@ import type { ResourceFilter } from './filter.js';
 import type { Decision, DecisionRequest, FieldSet, Trace } from './decision.js';
 import type { AuthzAdmin } from './admin.js';
 import type { AuthorizationModel, ModelSummary } from './model.js';
+import type { AccessPlan } from './plan.js';
 
 // The @PerChildInstance() implementation is the host's.
 export abstract class AuthzService extends AsyncService {
@@ -16,6 +17,8 @@ export abstract class AuthzService extends AsyncService {
   abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
   abstract assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>; // throws AccessDenied
   abstract checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>>;
+  abstract checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]>;
+  abstract accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>): Promise<AccessPlan>;
   abstract filter(principal: Principal, permission: Permission, type: ResourceType): Promise<ResourceFilter>;
   abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined; // undefined => a model needs IO
   abstract explain(req: CheckInput): Promise<Decision>; // trace on, all models evaluated
@@ -63,6 +66,21 @@ export interface AuthzChange {
 export abstract class ChangeBus {
   abstract publish(change: AuthzChange): Promise<void>;
   abstract subscribe(fn: (c: AuthzChange) => void): () => void;
+}
+
+export interface AccessChangedEvent {
+  /** Present only when exact: no changed scope has descendants. Absent means "refetch everything". */
+  readonly objects?: readonly ResourceRef[];
+}
+
+/** Principal keys a change affects, or '*' for every session. */
+export abstract class ChangeAudience {
+  abstract audience(change: AuthzChange): Promise<{ readonly principals: readonly string[] | '*'; readonly objects?: readonly ResourceRef[] }>;
+}
+
+export abstract class AccessPushTransport {
+  abstract readonly name: string;
+  abstract push(principals: readonly string[] | '*', event: AccessChangedEvent): Promise<void>;
 }
 
 export abstract class DecisionAudit {

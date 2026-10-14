@@ -4,7 +4,7 @@ import 'mocha';
 import { AsyncService, type IContainer } from '@spinajs/di';
 import * as authz from '../../src/index.js';
 import { AuthorizationModel, AuthzDomains, AuthzService, ChangeBus, Combinator, ConditionCompiler, ConditionFunction, DecisionAudit, DecisionCache, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, FALSE, TRUE, GLOBAL, UNATTENDED } from '../../src/index.js';
-import type { AccessSummary, AuthzAdmin, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, FilterOp, PermissionRegistry, PrincipalType, TraceStep, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
+import type { AccessPlan, AccessSummary, AuthzAdmin, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, FilterOp, PermissionRegistry, PrincipalType, TraceStep, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -135,6 +135,12 @@ class FakeService extends AuthzService {
   public async checkMany(_p: Principal, permissions: readonly Permission[], _resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>> {
     return new Map(permissions.map((p) => [p, decision]));
   }
+  public async checkAll(_p: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
+    return requests.map(() => decision);
+  }
+  public async accessPlan(_p: Principal, _permission: Permission, _type: ResourceType, _env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
+    return { kind: 'filter', permit: 'all', deny: [] };
+  }
   public async filter(_p: Principal, _permission: Permission, _type: ResourceType): Promise<ResourceFilter> {
     return TRUE;
   }
@@ -212,7 +218,7 @@ class FakeCompiler extends ConditionCompiler {
 
 describe('model, adapter, host and condition contracts', () => {
   it('exports every abstract class as a runtime value from the barrel', () => {
-    for (const name of ['AuthorizationModel', 'Combinator', 'NativeFilter', 'ResourceAdapter', 'ScopeResolver', 'RelationResolver', 'AuthzService', 'AuthzDomains', 'DecisionCache', 'ChangeBus', 'DecisionAudit', 'ConditionFunction', 'ConditionCompiler', 'PlanTermSql']) {
+    for (const name of ['AuthorizationModel', 'Combinator', 'NativeFilter', 'ResourceAdapter', 'ScopeResolver', 'RelationResolver', 'AuthzService', 'AuthzDomains', 'DecisionCache', 'ChangeBus', 'DecisionAudit', 'ConditionFunction', 'ConditionCompiler', 'PlanTermSql', 'ChangeAudience', 'AccessPushTransport']) {
       expect((authz as Record<string, unknown>)[name], name).to.be.a('function');
     }
   });
@@ -255,6 +261,8 @@ describe('model, adapter, host and condition contracts', () => {
     expect(s).to.be.instanceOf(AuthzService);
     expect(await s.runAs(UNATTENDED, 'r', async () => 7)).to.eq(7);
     expect((await s.checkMany(UNATTENDED, ['a:b'])).get('a:b')).to.eq(decision);
+    expect(await s.checkAll(UNATTENDED, [{ permission: 'a:b', resource: GLOBAL }])).to.deep.eq([decision]);
+    expect(await s.accessPlan(UNATTENDED, 'a:b', 't')).to.deep.eq({ kind: 'filter', permit: 'all', deny: [] });
   });
 
   it('domains, cache, bus and audit instantiate', () => {
