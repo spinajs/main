@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
 
 import adminConfig from '../../src/config/admin.js';
-import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_SUBJECT_MEMBERSHIP_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
 import type { ConfigRoleStore, DbAssignmentStore, DbLinkStore, DbRuleStore } from '../../src/index.js';
 import type { LadderDef, RbacExtension, RbacModelOptions, RoleDef } from '../../src/index.js';
 import { RecordingEventSink } from '../admin/admin-harness.js';
@@ -25,7 +25,7 @@ const HARNESS_STORES = { roles: ['ConfigRoleStore'], assignments: ['DbAssignment
 
 const ADMIN_PERMISSIONS = ['authz:assignments.manage', 'authz:links.manage', 'authz:rules.manage'];
 
-const CLEARED = [AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_LINK_TABLE, AUTHZ_ASSIGNMENT_TABLE, AUTHZ_VERSION_TABLE, 'authz_admin_idempotency'];
+const CLEARED = [AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_LINK_TABLE, AUTHZ_SUBJECT_MEMBERSHIP_TABLE, AUTHZ_ASSIGNMENT_TABLE, AUTHZ_VERSION_TABLE, 'authz_admin_idempotency'];
 
 /** A world RoleDef as `authz.rbac.roles.<name>`, so ConfigRoleStore reads it back. */
 export function roleConfig(roles: readonly RoleDef[]): Record<string, unknown> {

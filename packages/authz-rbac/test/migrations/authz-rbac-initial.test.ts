@@ -11,7 +11,7 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const MIGRATION = 'AuthzRbac_2026_10_01_00_00_00';
-const TABLES = ['authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_link', 'authz_version'];
+const TABLES = ['authz_assignment', 'authz_subject_membership', 'authz_rule', 'authz_rule_subject', 'authz_link', 'authz_version'];
 
 type ColumnKind = 'string' | 'text' | 'int' | 'bigint' | 'boolean' | 'datetime';
 
@@ -33,6 +33,12 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['granted_by', 'string', 100, true],
     ['source', 'string', 32, false],
     ['created_at', 'datetime', null, false],
+  ],
+  authz_subject_membership: [
+    ['member_key', 'string', 200, false],
+    ['set_key', 'string', 200, false],
+    ['depth', 'int', null, false],
+    ['expires_at', 'datetime', null, true],
   ],
   authz_rule: [
     ['id', 'string', 160, false],
@@ -70,6 +76,7 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
 
 const PRIMARY_KEYS: Record<string, string[]> = {
   authz_assignment: ['id'],
+  authz_subject_membership: ['member_key', 'set_key'],
   authz_rule: ['id'],
   authz_rule_subject: ['rule_id', 'list', 'subject_type', 'subject_id', 'subject_role'],
   authz_link: ['id'],
@@ -188,6 +195,7 @@ for (const kind of DB_KINDS) {
       expect(await find('authz_assignment', 'authz_assignment_scope')).to.deep.eq({ name: 'authz_assignment_scope', unique: false, columns: ['scope_type', 'scope_id', 'role'] });
       expect(await find('authz_assignment', 'authz_assignment_expires')).to.deep.eq({ name: 'authz_assignment_expires', unique: false, columns: ['expires_at'] });
       expect(await find('authz_assignment', 'authz_assignment_subject')).to.deep.eq({ name: 'authz_assignment_subject', unique: false, columns: ['subject_key', 'role'] });
+      expect(await find('authz_subject_membership', 'authz_subject_membership_set')).to.deep.eq({ name: 'authz_subject_membership_set', unique: false, columns: ['set_key'] });
       expect(await find('authz_rule', 'authz_rule_scope')).to.deep.eq({ name: 'authz_rule_scope', unique: false, columns: ['scope_type', 'scope_id', 'kind'] });
       expect(await find('authz_link', 'authz_link_token')).to.deep.eq({ name: 'authz_link_token', unique: true, columns: ['token_hash'] });
     });

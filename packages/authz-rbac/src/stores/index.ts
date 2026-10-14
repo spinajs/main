@@ -7,6 +7,7 @@ export * from './db-assignment-store.js';
 export * from './rule-rows.js';
 export * from './db-rule-store.js';
 export * from './db-link-store.js';
+export * from './db-membership-store.js';
 export * from './schema.js';
 export * from './bootstrap.js';
 export * from './config-role-store.js';

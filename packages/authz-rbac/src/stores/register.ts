@@ -2,8 +2,8 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, IContainer } from '@spinajs/di';
 
-import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from '../admin/ports.js';
-import { AssignmentStore, LinkStore, RoleStore, RuleStore } from '../contracts.js';
+import { AdminAssignmentStore, AdminLinkStore, AdminMembershipStore, AdminRuleStore } from '../admin/ports.js';
+import { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore } from '../contracts.js';
 import { rbacStoreNames } from './defaults.js';
 import type { RbacStoreKind } from './defaults.js';
 
@@ -13,6 +13,7 @@ const PORTS: Readonly<Record<RbacStoreKind, { readonly token: Class<unknown>; re
   assignments: { token: AssignmentStore, admin: AdminAssignmentStore },
   rules: { token: RuleStore, admin: AdminRuleStore },
   links: { token: LinkStore, admin: AdminLinkStore },
+  membership: { token: MembershipStore, admin: AdminMembershipStore },
 };
 
 /**

@@ -1,7 +1,8 @@
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-import { AssignmentStore, LinkStore, RuleStore } from '../contracts.js';
+import { AssignmentStore, LinkStore, MembershipStore, RuleStore } from '../contracts.js';
 import type { Assignment, AssignmentSubject, LinkDef, RuleDef } from '../contracts.js';
+import type { MembershipRow } from '../membership/closure.js';
 
 export interface AssignmentQuery {
   readonly scope?: ResourceRef;
@@ -60,4 +61,17 @@ export abstract class AdminRuleStore extends RuleStore {
  */
 export abstract class AccountStatusSource {
   abstract inService(refs: readonly PrincipalRef[]): Promise<ReadonlyMap<string, boolean>>;
+}
+
+/** The closure table AuthzAdmin maintains (design §4.3); `replace` runs inside the batch transaction. */
+export abstract class AdminMembershipStore extends MembershipStore {
+  abstract readonly name: string;
+  /** The stored rows of these members, expired ones too. */
+  abstract rowsOf(memberKeys: readonly string[]): Promise<readonly MembershipRow[]>;
+  /** Members with a stored row for any of these sets, expired ones too: everything below them. Sorted. */
+  abstract allMembersOf(setKeys: readonly string[]): Promise<readonly string[]>;
+  /** Every member key with a stored row. Sorted. */
+  abstract memberKeys(): Promise<readonly string[]>;
+  /** Replaces every stored row of `memberKey` with `rows`. */
+  abstract replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void>;
 }

@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
+import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_MAX_SET_DEPTH, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 import rbacStores from '../../src/config/rbac-stores.js';
@@ -435,6 +435,7 @@ describe('authz-rbac stores: authz.rbac schema', function () {
       anonymousRoles: [],
       serviceRoles: {},
       cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
+      maxSetDepth: DEFAULT_MAX_SET_DEPTH,
     });
   });
 
@@ -444,6 +445,7 @@ describe('authz-rbac stores: authz.rbac schema', function () {
       anonymousRoles: [],
       serviceRoles: {},
       cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
+      maxSetDepth: DEFAULT_MAX_SET_DEPTH,
     };
     for (const sample of [SAMPLE_8_2(), SAMPLE_8_5(), {}]) {
       expect(await configured(sample)).to.deep.equal(_.merge({}, defaults, sample));
