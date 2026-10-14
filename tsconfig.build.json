@@ -73,6 +73,7 @@
     { "path": "packages/authz-testing/tsconfig.mjs.json" },
     { "path": "packages/authz-rbac/tsconfig.mjs.json" },
     { "path": "packages/authz-abac/tsconfig.mjs.json" },
+    { "path": "packages/eslint-plugin-authz/tsconfig.mjs.json" },
     { "path": "packages/authz-orm/tsconfig.mjs.json" },
     { "path": "packages/authz-http/tsconfig.mjs.json" },
     { "path": "packages/authz-http-admin/tsconfig.mjs.json" },

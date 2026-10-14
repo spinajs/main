@@ -72,6 +72,7 @@
     { "path": "./packages/authz-testing/tsconfig.cjs.json" },
     { "path": "./packages/authz-rbac/tsconfig.cjs.json" },
     { "path": "./packages/authz-abac/tsconfig.cjs.json" },
+    { "path": "./packages/eslint-plugin-authz/tsconfig.cjs.json" },
     { "path": "./packages/authz-orm/tsconfig.cjs.json" },
     { "path": "./packages/authz-http/tsconfig.cjs.json" },
     { "path": "./packages/authz-http-admin/tsconfig.cjs.json" },
