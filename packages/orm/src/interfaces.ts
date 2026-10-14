@@ -1647,11 +1647,11 @@ export interface IBuilderMiddleware<T = any[]> {
 }
 
 /**
- * Hooks into the lifetime of every query builder. Both hooks run for EVERY builder type —
+ * Hooks into the lifetime of every query builder. The hooks run for EVERY builder type —
  * select, insert, update and delete.
  *
- * The two differ in what the query is guaranteed to contain, and that difference is
- * load-bearing rather than stylistic:
+ * The two required hooks differ in what the query is guaranteed to contain, and that
+ * difference is load-bearing rather than stylistic:
  *
  * - `afterQueryCreation` runs from the builder's CONSTRUCTOR. The model and the query context
  *   are set; nothing the caller does afterwards has happened yet — no `where()`, no
@@ -1662,12 +1662,18 @@ export interface IBuilderMiddleware<T = any[]> {
  *   (rbac stamps the owner column of an INSERT here, because a value written at construction
  *   would be overwritten by the caller's own `values()` call).
  *
- * A middleware that throws from either hook aborts the query.
+ * The optional `afterQueryExecution` runs once per builder right after the driver call, in the
+ * same order as `beforeQueryExecution`. When any middleware's optional `transactional` answers
+ * true and no transaction is in scope, the builder runs the before hooks, the statement and the
+ * after hooks inside one `driver.transaction()`, so a hook that throws also rolls the statement
+ * back. Inside a caller's transaction the caller's transaction is used as it is.
+ *
+ * A middleware that throws from any hook aborts the query.
  */
 export abstract class QueryMiddleware {
   /**
-   * Position in the pipeline: lower runs first, ties keep registration order. Both hooks
-   * follow it. authz scopes queries at 100 and intl-orm translates at 1000, so translation
+   * Position in the pipeline: lower runs first, ties keep registration order. Every hook
+   * follows it. authz scopes queries at 100 and intl-orm translates at 1000, so translation
    * never runs on a query authz has not scoped yet.
    */
   public order = 0;
@@ -1689,6 +1695,25 @@ export abstract class QueryMiddleware {
    * @param query - the completed builder
    */
   abstract beforeQueryExecution(query: QueryBuilder): void | Promise<void>;
+
+  /**
+   * Called once per builder right after the driver returned, before result middlewares and
+   * hydration. Awaited in the same order as `beforeQueryExecution`; a hook runs only when every
+   * earlier one resolved.
+   *
+   * @param query - the executed builder
+   * @param result - the driver's raw result: rows for a select, the driver's write result otherwise
+   */
+  afterQueryExecution?(query: QueryBuilder, result: unknown): void | Promise<void>;
+
+  /**
+   * Whether this middleware needs the before hooks, the statement and the after hooks in one
+   * transaction. Asked with the completed builder before `beforeQueryExecution`, and only when
+   * no transaction is in scope on the builder's driver. Must answer synchronously.
+   *
+   * @param query - the completed builder
+   */
+  transactional?(query: QueryBuilder): boolean;
 }
 
 export abstract class ModelMiddleware {
