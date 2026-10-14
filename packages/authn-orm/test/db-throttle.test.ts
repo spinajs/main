@@ -1,6 +1,6 @@
 import { DEFAULT_THROTTLE, FakeClock, pwKeys } from '@spinajs/authn-testing';
 import type { AuthnContext, ThrottleKey } from '@spinajs/authn/contracts';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
@@ -8,7 +8,8 @@ import 'mocha';
 import { createHmac } from 'node:crypto';
 
 import { DbAuthnThrottle, ThrottleParams } from '../src/index.js';
-import type { ClaimState, Claimed, StoreTimes } from '../src/throttle/db-throttle.js';
+import { DbThrottleStore } from '../src/throttle/db-throttle-store.js';
+import type { ClaimState, Claimed, DbThrottleStoreOptions, StoreTimes } from '../src/throttle/db-throttle-store.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const IP = '192.0.2.10';
@@ -38,18 +39,34 @@ async function plant(db: TestDb, k: string, attempts: number, last: string, next
   await rawQuery(db.driver, 'INSERT INTO authn_throttle (k, attempts, last_attempt_at, next_allowed_at, updated_at) VALUES (?, ?, ?, ?, ?)', [k, attempts, last, next, last], QueryContext.Insert);
 }
 
+async function rejectsWith(p: Promise<unknown>, message: RegExp): Promise<void> {
+  let err: unknown;
+  try {
+    await p;
+  } catch (e) {
+    err = e;
+  }
+  expect(err).to.be.instanceOf(InvalidArgument);
+  expect((err as Error).message).to.match(message);
+}
+
 /** Runs `between` once, right after the first gating key of the next attempt was claimed. */
 class InterleavingThrottle extends DbAuthnThrottle {
   public between: (() => Promise<void>) | undefined;
 
-  protected override async claimKey(db: OrmDriver, k: string, delay: (n: number) => number, state: ClaimState | undefined, t: StoreTimes, rest?: readonly string[]): Promise<Claimed> {
-    const r = await super.claimKey(db, k, delay, state, t, rest);
-    const between = this.between;
-    if (between && r.ok) {
-      this.between = undefined;
-      await between();
-    }
-    return r;
+  protected override createStore(options: DbThrottleStoreOptions): DbThrottleStore {
+    const owner = this;
+    return new (class extends DbThrottleStore {
+      protected override async claimKey(db: OrmDriver, k: string, delay: (n: number) => number, state: ClaimState | undefined, t: StoreTimes, rest?: readonly string[]): Promise<Claimed> {
+        const r = await super.claimKey(db, k, delay, state, t, rest);
+        const between = owner.between;
+        if (between && r.ok) {
+          owner.between = undefined;
+          await between();
+        }
+        return r;
+      }
+    })(options);
   }
 }
 
@@ -57,14 +74,19 @@ class InterleavingThrottle extends DbAuthnThrottle {
 class AlwaysMissThrottle extends DbAuthnThrottle {
   public writes = 0;
 
-  protected override async writeLive(): Promise<boolean> {
-    this.writes++;
-    return false;
-  }
+  protected override createStore(options: DbThrottleStoreOptions): DbThrottleStore {
+    const owner = this;
+    return new (class extends DbThrottleStore {
+      protected override async writeLive(): Promise<boolean> {
+        owner.writes++;
+        return false;
+      }
 
-  protected override async insertOrTakeStale(): Promise<boolean> {
-    this.writes++;
-    return false;
+      protected override async insertOrTakeStale(): Promise<boolean> {
+        owner.writes++;
+        return false;
+      }
+    })(options);
   }
 }
 
@@ -99,6 +121,38 @@ describe('DbAuthnThrottle arguments', () => {
       err = e;
     }
     expect(err).to.be.instanceOf(InvalidArgument);
+  });
+
+  it('attempt and succeed reject any bad key, also one the flow ignores, a null one and one passed to a reset', async () => {
+    const valid = pwKeys('a@example.test', IP);
+    const badKeys = [[...valid, { kind: 'device', value: 42 }], [...valid, null], [null]] as unknown as ThrottleKey[][];
+    for (const keys of badKeys) {
+      for (const flow of ['login', 'reset'] as const) {
+        await rejectsWith(throttle.attempt(keys, flow, ctxAt(T0)), /^DbAuthnThrottle: the value of a "(device|undefined)" key must be a string$/);
+        await rejectsWith(throttle.succeed(keys, flow), /^DbAuthnThrottle: the value of a "(device|undefined)" key must be a string$/);
+      }
+    }
+    // A peek checks only the keys that gate.
+    expect(await new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE).peek([{ kind: 'device', value: 42 }] as unknown as ThrottleKey[], 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
+  });
+
+  it('rejects ctx.now first, then the flow, before it loads anything', async () => {
+    class CountingInit extends DbAuthnThrottle {
+      public inits = 0;
+      public override async init(): Promise<void> {
+        this.inits++;
+        throw new InvalidOperation('init');
+      }
+    }
+    const t = new CountingInit();
+    const bad = [{ kind: 'account', value: 42 }] as unknown as ThrottleKey[];
+    await rejectsWith(t.attempt(bad, 'signup' as never, ctxAt(new Date(NaN))), /^DbAuthnThrottle\.attempt: ctx\.now must be a valid Date$/);
+    await rejectsWith(t.attempt(bad, 'login', ctxAt(new Date(Date.UTC(10000, 0, 1)))), /^DbAuthnThrottle\.attempt: ctx\.now must be a valid Date$/);
+    await rejectsWith(t.peek(bad, 'signup' as never, ctxAt(new Date(NaN))), /^DbAuthnThrottle\.peek: ctx\.now must be a valid Date$/);
+    await rejectsWith(t.attempt(bad, 'signup' as never, ctxAt(T0)), /^DbAuthnThrottle: unknown flow "signup"$/);
+    await rejectsWith(t.peek(bad, 'signup' as never, ctxAt(T0)), /^DbAuthnThrottle: unknown flow "signup"$/);
+    await rejectsWith(t.succeed(bad, 'signup' as never), /^DbAuthnThrottle: unknown flow "signup"$/);
+    expect(t.inits).to.eq(0);
   });
 
   it('keeps k stable for the same input and apart per flow, kind and hash key', () => {

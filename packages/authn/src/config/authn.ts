@@ -20,6 +20,7 @@ const authn = {
       reauth: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } },
       resetAfterSeconds: 86400,
       global: null as null | { free: number; baseDelayMs: number; maxDelayMs: number },
+      memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
     },
     freshAuth: {
       maxAgeSeconds: 300,

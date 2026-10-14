@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import shipped from '../../src/config/authn.js';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_MEMORY_THROTTLE, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
 import { configuredChild, configurationOf, violationPaths } from '../behaviour/harness.js';
 
 const expect = chai.expect;
@@ -53,10 +53,11 @@ describe('authn shipped config', () => {
   });
 
   it('keeps the throttle block equal to the schema defaults, maxRows aside', () => {
-    const { maxRows, ...limits } = check({}).config.throttle;
+    const { maxRows, memory, ...limits } = check({}).config.throttle;
     expect(maxRows).to.eq(DEFAULT_THROTTLE_MAX_ROWS);
-    expect(authn.throttle).to.deep.eq(limits);
+    expect(authn.throttle).to.deep.eq({ ...limits, memory });
     expect(limits).to.deep.eq(clone(DEFAULT_THROTTLE_PARAMS));
+    expect(memory).to.deep.eq(clone(DEFAULT_MEMORY_THROTTLE));
   });
 
   it('keeps the other values equal to the code defaults', () => {
@@ -105,6 +106,17 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ throttle: { maxRows: 5000 } }).ok).to.eq(true);
     expect(check({}).config.throttle.maxRows).to.eq(1_000_000);
     for (const bad of [3, 16_000_001, 1.5]) expect(check({ throttle: { maxRows: bad } }).paths, String(bad)).to.include('/throttle/maxRows');
+  });
+
+  it('takes authn.throttle.memory within its floors and ceilings, 8 / 60 s / 1000 ms by default', () => {
+    expect(check({}).config.throttle.memory).to.deep.eq({ sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 });
+    expect(check({ throttle: { memory: { sweepBatch: 2 } } }).config.throttle.memory).to.deep.eq({ sweepBatch: 2, fullRetrySeconds: 60, holdOffMs: 1000 });
+    expect(check({ throttle: { memory: { sweepBatch: 1, fullRetrySeconds: 1, holdOffMs: 0 } } }).ok).to.eq(true);
+    expect(check({ throttle: { memory: { sweepBatch: 1000, fullRetrySeconds: 3600, holdOffMs: 60000 } } }).ok).to.eq(true);
+    for (const bad of [0, 1001, 1.5]) expect(check({ throttle: { memory: { sweepBatch: bad } } }).paths, `sweepBatch ${bad}`).to.include('/throttle/memory/sweepBatch');
+    for (const bad of [0, 3601, 1.5]) expect(check({ throttle: { memory: { fullRetrySeconds: bad } } }).paths, `fullRetrySeconds ${bad}`).to.include('/throttle/memory/fullRetrySeconds');
+    for (const bad of [-1, 60001, 1.5]) expect(check({ throttle: { memory: { holdOffMs: bad } } }).paths, `holdOffMs ${bad}`).to.include('/throttle/memory/holdOffMs');
+    expect(check({ throttle: { memory: { sweep: 1 } } }).ok, 'an unknown memory key').to.eq(false);
   });
 
   it('documents that the global key counts per flow', () => {
