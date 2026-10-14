@@ -13,6 +13,7 @@ import type { RbacArgsSubject, RbacAssignmentArgs } from '../model/native.js';
 import { parseRbacListArgs } from '../model/rules/args.js';
 import type { RbacAssignmentArgsV2, RbacListContext, RbacThresholdArgs } from '../model/rules/args.js';
 import type { RoleGraph } from '../model/roles.js';
+import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
 import { RbacScopeAttributeSource, RbacScopeDefaults } from './compile/attributes.js';
 import { rbacDialectOf } from './compile/dialect.js';
 import { RbacPathSql } from './compile/path.js';
@@ -26,8 +27,6 @@ import { RbacRoleGraphSource, isEmptyRoleScopes, rbacRoleScopes } from './role-g
 import type { RbacListing, RbacRoleScopes } from './role-graph.js';
 import { RbacScopePathSource } from './scope-path.js';
 import type { RbacScopePath } from './scope-path.js';
-
-export const AUTHZ_ASSIGNMENT_TABLE = 'authz_assignment';
 
 /** One `native:rbac.assignment` term, ready for SQL: the args' subjects as columns, their roles checked against the role definitions. */
 export interface RbacAssignmentTerm {
