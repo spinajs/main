@@ -54,6 +54,10 @@ export declare abstract class ResourceAdapter<T = unknown> {
     abstract ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
     scopeAttributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
     load?(ref: ResourceRef): Promise<unknown | null>;
+    /** Rows by resourceKey; missing keys mean unknown resources. */
+    loadMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>>;
+    /** Ancestors by resourceKey, each `[self, parent, ..., GLOBAL]`; null = unknown resource. */
+    ancestorsMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>>;
     attribute?(subject: unknown, field: string): unknown;
     relations?(): readonly RelationResolver[];
     permissions?(): readonly Omit<PermissionDef, "source">[];
@@ -475,6 +479,7 @@ const DEFAULT_DENY_PRIORITY = Object.freeze({
     unknown_resource: 0,
     unattended: 0,
     anonymous: 0,
+    role_denied: 150,
     ceiling: 200,
     delegate: 200,
     no_access: 400,
@@ -641,6 +646,7 @@ export type { FilterOp, Value, ResourceFilter } from "./filter.js";
 export * from "./fields.js";
 export * from "./decision.js";
 export * from "./model.js";
+export * from "./plan.js";
 export * from "./adapter.js";
 export * from "./service.js";
 export * from "./data.js";
@@ -655,6 +661,7 @@ import type { Permission, PermissionDef, PermissionRegistry } from "./permission
 import type { FilterOp, ResourceFilter } from "./filter.js";
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from "./decision.js";
 import type { RelationResolver } from "./adapter.js";
+import type { ListPlanRequest, ListSupport, ModelListPlan } from "./plan.js";
 import type { ConditionCompiler } from "../conditions/contracts.js";
 export declare abstract class NativeFilter {
     abstract readonly op: `native:${string}`;
@@ -702,6 +709,10 @@ export declare abstract class AuthorizationModel {
     abstract evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote>;
     preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
     summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
+    /** List support for `permission` on `type`; absent means the model cannot plan lists. */
+    listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
+    /** The list plan; called only when listSupport answered true. */
+    listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
     invalidate?(tags: readonly string[]): void;
     version?(): string;
     dispose?(): Promise<void>;
@@ -772,6 +783,83 @@ const NAME = /^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$/;
 const GLOB = /^(?:\*|(?:[A-Za-z0-9_.-]|\*(?!\*))+:(?:[A-Za-z0-9_.-]|\*(?!\*))+)$/;
 const PERMISSION_PATTERN = Object.freeze(new RegExp(NAME.source));
 const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
+```
+
+## src/contracts/plan.ts
+
+```ts
+import type { Principal, ResourceRef, ResourceType } from "./principal.js";
+import type { PermissionDef } from "./permission.js";
+import type { DenyReason } from "./decision.js";
+/** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
+export interface PlanTerm {
+    readonly op: string;
+    readonly args: unknown;
+}
+/** What one model says about a list of `type` for a permission. */
+export type ModelListPlan = {
+    readonly kind: "abstain";
+} | {
+    readonly kind: "all";
+    readonly deny?: readonly PlanTerm[];
+    readonly validUntil?: Date;
+} | {
+    readonly kind: "deny-all";
+    readonly reason: DenyReason;
+} | {
+    readonly kind: "terms";
+    readonly permit: readonly PlanTerm[];
+    readonly deny: readonly PlanTerm[];
+    readonly validUntil?: Date;
+};
+/** The combined plan the engine returns. `permit: 'all'` means no permit filter. */
+export type AccessPlan = {
+    readonly kind: "none";
+    readonly reason: DenyReason;
+} | {
+    readonly kind: "filter";
+    readonly permit: "all" | readonly PlanTerm[];
+    readonly deny: readonly PlanTerm[];
+    /** Ceiling resources: the row must be one of them or descend from one. */
+    readonly within?: readonly ResourceRef[];
+    readonly validUntil?: Date;
+};
+/** Why a model cannot plan a permission on a type, or true. */
+export type ListSupport = true | {
+    readonly reason: string;
+};
+export interface ListPlanRequest {
+    readonly principal: Principal;
+    /** The acting principal under `inherit` delegation, as `DecisionRequest.actor`. */
+    readonly actor?: Principal;
+    readonly permission: PermissionDef;
+    readonly type: ResourceType;
+    /** Request env, built like check() builds it (`now` always present). */
+    readonly env?: Readonly<Record<string, unknown>>;
+}
+/** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
+export interface SqlRowContext {
+    readonly type: ResourceType;
+    readonly rowId: string;
+    readonly rowColumn: (column: string) => string;
+    readonly ancestorTable: string;
+    /** Columns of the row's `owner`/`self` relation, when the resource declares one. */
+    readonly relation: (name: "owner" | "self") => {
+        readonly column: string;
+        readonly typeColumn?: string;
+    } | undefined;
+    readonly now: Date;
+    readonly dialect: "sqlite" | "postgres" | "mysql" | "mssql";
+}
+export interface SqlFragment {
+    readonly sql: string;
+    readonly bindings: readonly unknown[];
+}
+/** Renders one PlanTerm op to a boolean SQL expression over the current row. */
+export declare abstract class PlanTermSql {
+    abstract readonly op: string;
+    abstract toSql(args: unknown, row: SqlRowContext): SqlFragment;
+}
 ```
 
 ## src/contracts/principal.ts

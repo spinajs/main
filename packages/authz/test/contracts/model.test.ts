@@ -212,7 +212,7 @@ class FakeCompiler extends ConditionCompiler {
 
 describe('model, adapter, host and condition contracts', () => {
   it('exports every abstract class as a runtime value from the barrel', () => {
-    for (const name of ['AuthorizationModel', 'Combinator', 'NativeFilter', 'ResourceAdapter', 'ScopeResolver', 'RelationResolver', 'AuthzService', 'AuthzDomains', 'DecisionCache', 'ChangeBus', 'DecisionAudit', 'ConditionFunction', 'ConditionCompiler']) {
+    for (const name of ['AuthorizationModel', 'Combinator', 'NativeFilter', 'ResourceAdapter', 'ScopeResolver', 'RelationResolver', 'AuthzService', 'AuthzDomains', 'DecisionCache', 'ChangeBus', 'DecisionAudit', 'ConditionFunction', 'ConditionCompiler', 'PlanTermSql']) {
       expect((authz as Record<string, unknown>)[name], name).to.be.a('function');
     }
   });
