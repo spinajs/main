@@ -24,7 +24,7 @@ function newAjv(): any {
 }
 
 const validConfig = () => ({
-  permissions: { 'fs.read': { description: 'Read', fields: true, types: ['File'], implies: ['fs.list'] }, 'fs.list': {} },
+  permissions: { 'fs.read': { description: 'Read', fields: true, list: true, types: ['File'], implies: ['fs.list'] }, 'fs.list': {} },
   combine: { default: { algorithm: 'deny-overrides' }, types: { File: { algorithm: 'first-applicable', models: ['rbac'] } } },
   domains: { fs: { parent: 'root', combine: { default: { algorithm: 'permit-overrides' } }, disable: ['abac'], permissions: { 'fs.x': {} }, engine: { modelTimeoutMs: 500 }, fields: { neverRead: ['Secret'] }, cache: { ttlSeconds: 5 }, audit: { denials: false } } },
   principals: { anonymous: { enabled: false }, roleSwitch: { requirePassword: ['admin'] } },
@@ -105,6 +105,8 @@ describe('authz config schema', () => {
     fails({ bus: { service: '' } }, '/bus/service', 'minLength');
     fails({ cache: { maxEntries: -1 } }, '/cache/maxEntries', 'minimum');
     fails({ permissions: { a: { types: 'File' } } }, '/permissions/a/types', 'type');
+    fails({ permissions: { a: { list: 'yes' } } }, '/permissions/a/list', 'type');
+    fails({ domains: { fs: { permissions: { a: { list: 'yes' } } } } }, '/domains/fs/permissions/a/list', 'type');
     fails({ domains: { fs: { parent: 'a b' } } }, '/domains/fs/parent', 'pattern');
   });
 });

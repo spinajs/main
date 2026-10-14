@@ -744,6 +744,8 @@ export interface PermissionDef {
     readonly types: readonly ResourceType[];
     readonly implies?: readonly Permission[];
     readonly fields?: boolean;
+    /** Usable with list helpers (`.accessible()`); boot rule 12 checks every model can plan it. */
+    readonly list?: boolean;
     readonly description?: string;
     readonly source: string;
 }
