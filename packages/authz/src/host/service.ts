@@ -192,12 +192,12 @@ export class DefaultAuthzService extends AuthzService {
     return this.state().authorizer.checkMany(principal, permissions, resource, requestScope());
   }
 
-  async checkAll(_principal: Principal, _requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
-    throw new AuthzConfigError('checkAll: not implemented until lane L2');
+  async checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
+    return this.state().authorizer.checkAll(principal, requests, requestScope());
   }
 
-  async accessPlan(_principal: Principal, _permission: Permission, _type: ResourceType, _env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
-    throw new AuthzConfigError('accessPlan: not implemented until lane L2');
+  async accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
+    return this.state().authorizer.accessPlan(principal, permission, type, env, requestScope());
   }
 
   async filter(principal: Principal, permission: Permission, type: ResourceType): Promise<ResourceFilter> {
