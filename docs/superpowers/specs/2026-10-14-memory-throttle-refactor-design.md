@@ -79,7 +79,7 @@ The behaviour is carried over exactly from today's `MemoryAuthnThrottle`:
   - When it ends up just short of the target, it holds off the next scan for `min(firstFree, now + holdOffMs)`.
 - An invalid option throws `InvalidArgument` from `@spinajs/exceptions`, which is already a util dependency. So does a non-finite `nowMs`.
 
-The `backoffDelayMs` and `BackoffParams` exports of `@spinajs/authn/contracts` stay. They become re-exports of the util ones (same shape), so `DbAuthnThrottle` and the authn-orm tests compile unchanged.
+`@spinajs/authn/contracts` keeps its own `BackoffParams` and `backoffDelayMs` (structurally identical to util's): the contracts boundary allows only `@spinajs/di` (`test/contracts/boundary.test.ts`, frozen API). MemoryAuthnThrottle passes its `delayMs` seam, which uses the contracts formula, as the limiter's `delay`, so authn keeps one formula source.
 
 ## 2. authn: `FlowLimiter`, resolved per flow
 
