@@ -34,6 +34,11 @@
       "types": "./lib/mjs/flow/mfa-enrolments.d.ts",
       "import": "./lib/mjs/flow/mfa-enrolments.js",
       "require": "./lib/cjs/flow/mfa-enrolments.js"
+    },
+    "./store-throttle": {
+      "types": "./lib/mjs/throttle/store-throttle.d.ts",
+      "import": "./lib/mjs/throttle/store-throttle.js",
+      "require": "./lib/cjs/throttle/store-throttle.js"
     }
   },
   "typesVersions": {
@@ -52,6 +57,9 @@
       ],
       "mfa-enrolments": [
         "lib/cjs/flow/mfa-enrolments.d.ts"
+      ],
+      "store-throttle": [
+        "lib/cjs/throttle/store-throttle.d.ts"
       ]
     }
   },

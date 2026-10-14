@@ -2,21 +2,18 @@ import { createHmac, randomBytes } from 'node:crypto';
 
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
-import { deepFreeze } from '@spinajs/util';
-import type { KeyedBackoffGate, KeyedBackoffOptions, KeyedBackoffRow } from '@spinajs/util';
+import { MemoryThrottleStore, deepFreeze } from '@spinajs/util';
+import type { KeyedBackoffOptions, ThrottleStore } from '@spinajs/util';
 
-import { AuthnThrottle } from '../contracts/throttle.js';
-import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
-import type { AuthnContext } from '../contracts/credentials.js';
-import { THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
-import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from '../contracts/throttle.js';
+import { AuthnThrottle, THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
+import type { BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
 import { checkThrottleMaxRows, checkThrottleParams } from '../service/boot/env.js';
 import { FlowLimiter } from './flow-limiter.js';
 import { DEFAULT_MEMORY_THROTTLE, DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
 import type { MemoryThrottleConfig, ThrottleConfig } from './params.js';
-import type { PeekableThrottle } from './peek.js';
+import { StoreAuthnThrottle } from './store-throttle.js';
 
 export interface MemoryThrottleOptions {
   /** Overrides `authn.throttle.maxRows`. */
@@ -43,11 +40,11 @@ interface Loaded {
  */
 @Singleton()
 @Injectable(AuthnThrottle)
-export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrottle {
+export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   @Config('authn.throttle')
   protected Throttle: ThrottleConfig;
 
-  private readonly limiters = new Map<ThrottleFlow, FlowLimiter>();
+  private memoryStore: MemoryThrottleStore | undefined;
   private readonly secret = randomBytes(32);
   private loaded: Loaded | undefined;
 
@@ -82,85 +79,39 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     return this.loaded;
   }
 
-  public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): ReturnType<AuthnThrottle['attempt']> {
-    const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
-    if (!Number.isFinite(nowMs)) throw new InvalidArgument('MemoryAuthnThrottle.attempt: ctx.now must be a valid Date');
-    const f = this.flow(flow);
-    const gates: KeyedBackoffGate[] = [];
-    const counted: string[] = [];
-    for (const k of keys) {
-      const backoff = this.gateParams(f, k.kind);
-      if (backoff) gates.push({ key: this.keyId(flow, k), backoff });
-      else if (k.kind === 'account-ip' && f.ip !== undefined) counted.push(this.keyId(flow, k));
-    }
-
-    const limiter = this.limiter(flow);
-    // The limiter's own attempt sweeps its full batch.
-    const batch = Math.ceil(this.memory.sweepBatch / 4);
-    for (const [fl, other] of this.limiters) if (fl !== flow) other.sweep(nowMs, batch);
-    return limiter.attempt(gates, counted, nowMs);
-  }
-
-  /** Refuses as `attempt` would for a delay, counting nothing; a full table refuses only `attempt`. */
-  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): ReturnType<PeekableThrottle['peek']> {
-    const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
-    if (!Number.isFinite(nowMs)) throw new InvalidArgument('MemoryAuthnThrottle.peek: ctx.now must be a valid Date');
-    const f = this.flow(flow);
-    const gates: KeyedBackoffGate[] = [];
-    for (const k of keys) {
-      const backoff = this.gateParams(f, k.kind);
-      if (backoff) gates.push({ key: this.keyId(flow, k), backoff });
-    }
-    return this.limiter(flow).peek(gates, nowMs);
-  }
-
-  public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
-    const f = this.flow(flow);
-    if (flow === 'reset') return;
-    const limiter = this.limiter(flow);
-    limiter.release();
-    const spent: Readonly<KeyedBackoffRow>[] = [];
-    for (const k of keys) {
-      if (k.kind !== 'account-ip') continue;
-      const id = this.keyId(flow, k);
-      const row = limiter.row(id);
-      if (row) spent.push(row);
-      limiter.delete(id);
-    }
-    for (const k of keys) {
-      if (k.kind === 'account') {
-        limiter.delete(this.keyId(flow, k));
-      } else if (k.kind === 'ip' && f.ip) {
-        const id = this.keyId(flow, k);
-        const row = limiter.row(id);
-        if (!row) continue;
-        // An account-ip run that began before this ip run has attempts the ip row never counted. Several account-ip
-        // rows of one success counted the same attempts, so the largest is taken, never the sum (D8).
-        limiter.lower(id, spent.reduce((n, a) => (a.run > row.run ? Math.max(n, a.attempts) : n), 0), f.ip);
-      }
-    }
+  protected async store(): Promise<ThrottleStore> {
+    return this.tables;
   }
 
   /** The flow's limiter. The first use of any flow resolves all four from the root container: the throttle is a root singleton. */
   protected limiter(flow: ThrottleFlow): FlowLimiter {
-    if (this.limiters.size === 0) this.resolveLimiters();
-    return this.limiters.get(flow)!;
+    return this.tables.limiter(flow) as FlowLimiter;
   }
 
-  // All at once, so a FlowLimiter that DI shares between flows fails the first attempt, not the first one of another flow.
-  private resolveLimiters(): void {
-    const memory = this.memory;
-    const resolved = new Map<ThrottleFlow, FlowLimiter>();
-    for (const flow of THROTTLE_FLOWS) {
-      const options: KeyedBackoffOptions = {
+  private get tables(): MemoryThrottleStore {
+    if (!this.memoryStore) {
+      const memory = this.memory;
+      this.memoryStore = new MemoryThrottleStore({
+        flows: THROTTLE_FLOWS,
         maxRows: this.maxRows,
         resetAfterMs: this.params.resetAfterSeconds * 1000,
         sweepBatch: memory.sweepBatch,
         fullRetryMs: memory.fullRetrySeconds * 1000,
         holdOffMs: memory.holdOffMs,
         delay: (p, n) => this.delayMs(p, n),
-        onFull: () => this.reportFull(flow),
-      };
+        onFull: (flow) => this.reportFull(flow as ThrottleFlow),
+        limiter: this.resolveLimiter(),
+      });
+    }
+    return this.memoryStore;
+  }
+
+  // The store checks the limiters too; these checks come first, so the error says what to fix in the DI setup.
+  private resolveLimiter(): (flow: string, options: KeyedBackoffOptions) => FlowLimiter {
+    const resolved = new Map<string, FlowLimiter>();
+    return (flow, options) => {
+      // The store asks once per flow and builds again after a failed build.
+      if (resolved.has(flow)) resolved.clear();
       const limiter: unknown = DI.resolve(FlowLimiter, [flow, options]);
       if (!(limiter instanceof FlowLimiter)) {
         const what = (limiter as object | null | undefined)?.constructor?.name ?? String(limiter);
@@ -174,8 +125,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
         throw new InvalidOperation(`MemoryAuthnThrottle: DI resolved a ${name} of the ${limiter.flow} flow for the ${flow} flow; ${name} must pass its flow argument to FlowLimiter`);
       }
       resolved.set(flow, limiter);
-    }
-    for (const [flow, limiter] of resolved) this.limiters.set(flow, limiter);
+      return limiter;
+    };
   }
 
   protected delayMs(p: BackoffParams, n: number): number {
@@ -183,24 +134,11 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
   }
 
   protected keyId(flow: ThrottleFlow, k: ThrottleKey): string {
-    if (typeof k.value !== 'string') throw new InvalidArgument(`MemoryAuthnThrottle: the value of a ${JSON.stringify(String(k.kind))} key must be a string`);
     return createHmac('sha256', this.secret).update(`${flow}|${k.kind}|${k.value}`).digest('base64url');
   }
 
   /** Once per full episode of a flow's table, again on the next scan when it throws; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
     DI.resolve(Log, ['authn-throttle'], true).warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
-  }
-
-  private flow(flow: ThrottleFlow): ThrottleFlowParams {
-    if (!THROTTLE_FLOWS.includes(flow)) throw new InvalidArgument(`MemoryAuthnThrottle: unknown flow ${JSON.stringify(String(flow))}`);
-    return this.params[flow];
-  }
-
-  private gateParams(f: ThrottleFlowParams, kind: ThrottleKey['kind']): BackoffParams | undefined {
-    if (kind === 'account') return f.account;
-    if (kind === 'ip') return f.ip;
-    if (kind === 'global') return this.params.global ?? undefined;
-    return undefined;
   }
 }
