@@ -26,7 +26,7 @@ export abstract class AdminAssignmentStore extends AssignmentStore {
   abstract find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }>;
   /** Live rows whose subject has one of these keys (subjectKeyOf): how the membership closure walks up. */
   abstract forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]>;
-  /** Removes every row AT the scope (not rows whose subject is a set at it); returns the removed rows. */
+  /** Removes every row AT the scope and every row whose subject is a set at it, wherever held; returns the removed rows. */
   abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]>;
 }
 

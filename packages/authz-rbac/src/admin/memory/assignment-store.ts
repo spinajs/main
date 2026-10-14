@@ -6,7 +6,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, isSetSubject, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
 import { subjectKeyOf } from '../../stores/columns.js';
 
 export interface MemoryAdminAssignmentStoreOptions {
@@ -107,7 +107,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
 
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]> {
     const undo = memoryTx(tx);
-    const gone = [...this.rows.values()].filter((a) => sameRef(a.scope, scope));
+    const gone = [...this.rows.values()].filter((a) => sameRef(a.scope, scope) || (isSetSubject(a.subject) && sameRef(a.subject.set.scope, scope)));
     for (const a of gone) this.write(undo, a.id, undefined);
     return gone.map(copy);
   }

@@ -6,9 +6,9 @@ import { event, linkTags, optionalStore, subjectTag } from './common.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 
 /**
- * scope.forget for RBAC data AT the node: links (with their assignments), assignments, rules. Assignments
- * elsewhere whose subject is a set at the node stay (the command's contract: data AT this scope). A store the
- * domain does not register holds nothing to forget.
+ * scope.forget for RBAC data AT the node: links (with their assignments), assignments, rules, and every grant
+ * whose subject is a set living at the node, wherever it is held, so a later node with the same id inherits
+ * nothing. A store the domain does not register holds nothing to forget.
  */
 @Singleton()
 @Injectable(ScopeForgetter)

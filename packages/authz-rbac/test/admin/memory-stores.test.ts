@@ -166,14 +166,14 @@ describe('MemoryAdminAssignmentStore', () => {
     expect(page.items.map((r) => r.id)).to.deep.equal([rows[1].id, rows[2].id]);
   });
 
-  it('forgetScope removes the rows at the scope, not rows whose subject is a set at it', async () => {
+  it('forgetScope removes the rows at the scope and every row whose subject is a set at it, as DbAssignmentStore does', async () => {
     const atOrg = await grant({ scope: O1, role: 'org.member' });
     const setSubject = await grant({ subject: MEMBERS, scope: P1 });
     const elsewhere = await grant({ scope: P2 });
     const gone = await inTx(backend, (tx) => store.forgetScope(O1, tx));
-    expect(gone!.map((r) => r.id)).to.deep.equal([atOrg.id]);
+    expect(gone!.map((r) => r.id).sort()).to.deep.equal([atOrg.id, setSubject.id].sort());
     expect(await store.byId(atOrg.id)).to.equal(null);
-    expect(await store.byId(setSubject.id)).to.not.equal(null);
+    expect(await store.byId(setSubject.id)).to.equal(null);
     expect(await store.byId(elsewhere.id)).to.not.equal(null);
   });
 
