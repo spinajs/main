@@ -41,7 +41,7 @@ export interface BootInput {
   readonly joinTypes?: readonly ResourceType[];
 }
 
-type Rule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 10 | 'models' | 'combine' | 'routes';
+type Rule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 10 | 12 | 'models' | 'combine' | 'routes';
 
 interface Problem {
   readonly rule: Rule;
@@ -85,7 +85,7 @@ const STRUCTURAL_OPS: ReadonlySet<string> = new Set(['true', 'false', 'and', 'or
 const CORE_OPS: ReadonlySet<string> = new Set(CORE_FILTER_OPS);
 const FALLBACK_ALGORITHM = 'deny-overrides';
 
-/** Design §6.5 rules 1–8 and 10; rules 9 and 11 are checked by the models. */
+/** Design §6.5 rules 1–8 and 10, and rule 12 (list permissions, resource-access plan decision 8); rules 9 and 11 are checked by the models. */
 export function validateBoot(input: BootInput): { readonly warnings: readonly string[] } {
   const { domain, registry } = input;
   const problems: Problem[] = [];
@@ -159,6 +159,7 @@ export function validateBoot(input: BootInput): { readonly warnings: readonly st
     );
     const joinTypes = new Set<unknown>(listOf(input.joinTypes));
     guard(4, () => checkRoutes(routes, caps, adaptersByType, natives, joinTypes, add));
+    guard(12, () => checkListPermissions(routes, registry, add));
   }
 
   guard(7, () => checkPermissions(registry, listOf(input.permissionRefs), add));
@@ -309,6 +310,36 @@ function checkRoutes(table: RouteTable, caps: ReadonlyMap<AuthorizationModel, Mo
       }
     }
   }
+}
+
+/** Rule 12: every model routed for a `list: true` permission on one of its types plans it, under deny-overrides (the only algorithm plans combine with). */
+function checkListPermissions(table: RouteTable, registry: PermissionRegistry, add: Add): void {
+  for (const def of registry.all()) {
+    if (def.list !== true) continue;
+    for (const type of new Set(listOf(def.types))) {
+      const plan = table.get(def.name, type);
+      if (!plan) continue;
+      if (plan.algorithm !== 'deny-overrides') add({ rule: 12, type, permission: def.name, text: `list permissions combine with deny-overrides only, got ${q(plan.algorithm)}` });
+      for (const model of plan.models) {
+        const text = listProblem(model, def, type);
+        if (text !== undefined) add({ rule: 12, type, permission: def.name, model: model.name, text });
+      }
+    }
+  }
+}
+
+function listProblem(model: AuthorizationModel, def: PermissionDef, type: ResourceType): string | undefined {
+  const support: unknown = (model as { listSupport?: unknown }).listSupport;
+  if (typeof support !== 'function') return 'cannot plan lists: it has no listSupport()';
+  let answer: unknown;
+  try {
+    answer = support.call(model, def, type);
+  } catch (err) {
+    return `listSupport() threw: ${message(err)}`;
+  }
+  if (answer === true) return typeof (model as { listPlan?: unknown }).listPlan === 'function' ? undefined : 'answers listSupport() true but has no listPlan()';
+  if (isObject(answer) && typeof answer.reason === 'string') return `not list-filterable: ${answer.reason}`;
+  return `listSupport() answered ${q(answer)}; expected true or { reason }`;
 }
 
 function checkPermissions(registry: PermissionRegistry, refs: readonly PermissionRefDecl[], add: Add): void {

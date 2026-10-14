@@ -587,7 +587,8 @@ describe('DefaultAuthzService', function () {
   describe('domain config', () => {
     it('passes list from the permissions config to the registry', async () => {
       setConfig('authz.permissions', { 'doc:read': { list: true }, 'doc:write': {} });
-      const m = silent('lister');
+      // Boot rule 12 refuses a list permission routed to a model that cannot plan it.
+      const m = Object.assign(silent('lister'), { listSupport: () => true as const, listPlan: () => Promise.reject(new Error('listPlan must not run at boot')) });
       registerInRoot(AuthorizationModel, instance(m));
       await rootService();
       const registry = (m.calls[0].args[0] as ModelInitContext).permissions;
