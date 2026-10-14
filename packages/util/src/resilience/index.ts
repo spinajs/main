@@ -8,3 +8,5 @@ export * from './strategies/circuitBreaker.js';
 export * from './strategies/hedging.js';
 export * from './strategies/concurrencyLimiter.js';
 export * from './keyed-backoff.js';
+export * from './throttle.js';
+export * from './memory-throttle-store.js';
