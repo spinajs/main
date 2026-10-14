@@ -280,5 +280,20 @@ describe('Throttle', () => {
       const store = new RecordingStore();
       expect(() => new Throttle({ store, flows: { f: { gates: { a: ACCOUNT }, onSuccess: { lower: [{ kind: 'b', by: 'a' }] } } } })).to.throw(InvalidArgument, /f.*b/);
     });
+
+    it('snapshots the flow rules: editing them after construction changes nothing', async () => {
+      const store = new RecordingStore();
+      const backoff = { ...ACCOUNT };
+      const rules = { gates: { account: backoff } as Record<string, BackoffParams>, counted: ['account-ip'] };
+      const flows: Record<string, ThrottleFlowRules> = { login: rules };
+      const throttle = new Throttle({ store, flows });
+      flows.signup = rules;
+      rules.gates.ip = IP;
+      rules.counted.push('ip');
+      backoff.free = 0;
+      await throttle.attempt(keys('alice', '10.0.0.1'), 'login', 0);
+      expect(store.calls).to.deep.equal([{ op: 'attempt', flow: 'login', gates: [{ id: 'login|account|alice', backoff: ACCOUNT }], counted: ['login|account-ip|10.0.0.1/alice'], nowMs: 0 }]);
+      await rejectsWith(throttle.attempt([], 'signup', 0), InvalidArgument);
+    });
   });
 });

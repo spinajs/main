@@ -291,13 +291,16 @@ describe('MemoryThrottleStore', () => {
       expect(made.get('login')!.size).to.equal(0);
     });
 
-    it('applies every rule in the call itself: no attempt can land between lower and clear', () => {
+    it('applies every rule in the call itself: no attempt can land between lower and clear', async () => {
       const { store, made } = recording();
-      void store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0);
-      void store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0);
-      void store.succeed('login', [{ targets: [gate('ip', IP)], by: ['pair'] }], ['acct'], 0);
-      // Not awaited: the rows already show the whole success.
+      const calls = [
+        store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0),
+        store.attempt('login', [gate('ip', IP), gate('acct')], ['pair'], 0),
+        store.succeed('login', [{ targets: [gate('ip', IP)], by: ['pair'] }], ['acct'], 0),
+      ];
+      // Not awaited yet: the rows already show the whole success.
       expect(made.get('login')!.size).to.equal(0);
+      await Promise.all(calls);
     });
   });
 

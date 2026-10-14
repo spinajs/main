@@ -11,6 +11,9 @@ export function backoffDelayMs(p: BackoffParams, n: number): number {
   return n < p.free ? 0 : Math.min(p.baseDelayMs * 2 ** (n - p.free), p.maxDelayMs);
 }
 
+/** `KeyedBackoffOptions.sweepBatch` when unset. */
+export const DEFAULT_SWEEP_BATCH = 8;
+
 export interface KeyedBackoffGate {
   readonly key: string;
   /** Trusted: the caller validates it. */
@@ -96,7 +99,7 @@ export class KeyedBackoff {
   constructor(options: KeyedBackoffOptions) {
     this.maxRows = requireInteger('maxRows', options.maxRows, 1);
     this.resetAfterMs = requireNumber('resetAfterMs', options.resetAfterMs, 0, false);
-    this.sweepBatch = requireInteger('sweepBatch', options.sweepBatch ?? 8, 1);
+    this.sweepBatch = requireInteger('sweepBatch', options.sweepBatch ?? DEFAULT_SWEEP_BATCH, 1);
     this.fullRetryMs = requireNumber('fullRetryMs', options.fullRetryMs ?? 60_000, 0, false);
     this.holdOffMs = requireNumber('holdOffMs', options.holdOffMs ?? 1000, 0, true);
     this.delay = options.delay ?? backoffDelayMs;

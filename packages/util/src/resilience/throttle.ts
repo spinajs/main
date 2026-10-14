@@ -1,5 +1,6 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 
+import { deepFreeze } from '../object.js';
 import type { BackoffParams, KeyedBackoffVerdict } from './keyed-backoff.js';
 
 export interface ThrottleKey {
@@ -73,12 +74,14 @@ export class Throttle {
   private readonly keyId: (flow: string, key: ThrottleKey) => string;
 
   constructor(options: ThrottleOptions) {
-    for (const [flow, rules] of Object.entries(options.flows)) {
+    // A copy: the caller's rules stay editable, a running throttle's do not.
+    const flows = deepFreeze(structuredClone(options.flows));
+    for (const [flow, rules] of Object.entries(flows)) {
       for (const { kind } of rules.onSuccess?.lower ?? []) {
         if (!own(rules.gates, kind)) throw new InvalidArgument(`Throttle: flow ${JSON.stringify(flow)} lowers ${JSON.stringify(kind)}, which it does not gate`);
       }
     }
-    this.flows = options.flows;
+    this.flows = flows;
     this.store = options.store;
     this.keyId = options.keyId ?? defaultKeyId;
   }

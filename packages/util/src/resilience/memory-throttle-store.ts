@@ -1,6 +1,6 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 
-import { KeyedBackoff } from './keyed-backoff.js';
+import { DEFAULT_SWEEP_BATCH, KeyedBackoff } from './keyed-backoff.js';
 import type { BackoffParams, KeyedBackoffGate, KeyedBackoffOptions, KeyedBackoffRow, KeyedBackoffVerdict } from './keyed-backoff.js';
 import type { ThrottleGate, ThrottleLower, ThrottleStore } from './throttle.js';
 
@@ -10,7 +10,7 @@ export interface MemoryThrottleStoreOptions {
   /** Rows per flow, see `KeyedBackoffOptions`. */
   readonly maxRows: number;
   readonly resetAfterMs: number;
-  /** Per flow; an attempt sweeps every other flow with a quarter of it. Default 8. */
+  /** Per flow; an attempt sweeps every other flow with a quarter of it. Default `DEFAULT_SWEEP_BATCH`. */
   readonly sweepBatch?: number;
   readonly fullRetryMs?: number;
   readonly holdOffMs?: number;
@@ -34,7 +34,7 @@ export class MemoryThrottleStore implements ThrottleStore {
 
   constructor(private readonly options: MemoryThrottleStoreOptions) {
     this.flows = [...options.flows];
-    this.otherSweepBatch = Math.ceil((options.sweepBatch ?? 8) / 4);
+    this.otherSweepBatch = Math.ceil((options.sweepBatch ?? DEFAULT_SWEEP_BATCH) / 4);
   }
 
   async attempt(flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict> {
