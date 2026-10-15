@@ -6,7 +6,8 @@ import { SwaggerService } from '@spinajs/http-swagger';
 import { bootHttp, stopHttp } from './common.js';
 
 describe('scheduler-http swagger', function () {
-  this.timeout(30000);
+  // the first spec build after a rebuild scans every controller and takes tens of seconds
+  this.timeout(60000);
 
   let spec: any;
 
