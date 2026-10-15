@@ -70,6 +70,12 @@ async function withClient<T>(database: string, fn: (client: pg.Client) => Promis
   }
 }
 
+/** Runs one statement on a fresh session of the integration database, outside any suite. */
+export async function onDatabase(sql: string): Promise<void> {
+  await ensureDatabase();
+  await withClient(PG.Database, (c) => c.query(sql));
+}
+
 async function ensureDatabase(): Promise<void> {
   await withClient('postgres', async (c) => {
     const found = await c.query('SELECT 1 FROM pg_database WHERE datname = $1', [PG.Database]);
@@ -87,41 +93,44 @@ async function ensureDatabase(): Promise<void> {
   });
 }
 
-function configurationFor(schema: string, options: IPgSuiteOptions) {
-  return class PgIntegrationConf extends FrameworkConfiguration {
-    public async resolve(): Promise<void> {
-      await super.resolve();
+// One class for every suite: DI.register(...).as(Configuration) appends, and a class registered
+// per suite would leave the container resolving the first suite's configuration ever after.
+let current: { schema: string; options: IPgSuiteOptions };
 
-      _.mergeWith(
-        this.Config,
-        {
-          logger: {
-            targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
-            rules: [{ name: '*', level: 'error', target: 'Empty' }],
-          },
-          db: {
-            Migration: { Startup: false },
-            Connections: [
-              {
-                Driver: 'orm-driver-postgres',
-                Name: CONNECTION,
-                Host: PG.Host,
-                Port: PG.Port,
-                User: PG.User,
-                Password: PG.Password,
-                Database: PG.Database,
-                Pool: { Max: 4, IdleTimeout: 5000, AcquireTimeout: 5000, ...options.pool },
-                ...(options.resilience ? { Resilience: options.resilience } : {}),
-                Options: { Schema: schema },
-                Migration: { Table: 'orm_migrations', OnStartup: true },
-              },
-            ],
-          },
+class PgIntegrationConf extends FrameworkConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    const { schema, options } = current;
+
+    _.mergeWith(
+      this.Config,
+      {
+        logger: {
+          targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
+          rules: [{ name: '*', level: 'error', target: 'Empty' }],
         },
-        (target: any, source: any) => (_.isArray(target) ? target.concat(source) : undefined),
-      );
-    }
-  };
+        db: {
+          Migration: { Startup: false },
+          Connections: [
+            {
+              Driver: 'orm-driver-postgres',
+              Name: CONNECTION,
+              Host: PG.Host,
+              Port: PG.Port,
+              User: PG.User,
+              Password: PG.Password,
+              Database: PG.Database,
+              Pool: { Max: 4, IdleTimeout: 5000, AcquireTimeout: 5000, ...options.pool },
+              ...(options.resilience ? { Resilience: options.resilience } : {}),
+              Options: { Schema: schema },
+              Migration: { Table: 'orm_migrations', OnStartup: true },
+            },
+          ],
+        },
+      },
+      (target: any, source: any) => (_.isArray(target) ? target.concat(source) : undefined),
+    );
+  }
 }
 
 export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): Promise<IPgSuite> {
@@ -137,8 +146,9 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
   const schema = `it_${options.name}_${process.pid}_${randomBytes(3).toString('hex')}`.toLowerCase();
   await withClient(PG.Database, (c) => c.query(`CREATE SCHEMA ${pgEscapeIdentifier(schema)}`));
 
+  current = { schema, options };
   DI.clearCache();
-  DI.register(configurationFor(schema, options)).as(Configuration);
+  DI.register(PgIntegrationConf).as(Configuration);
   DI.register(PostgresOrmDriver).as('orm-driver-postgres');
 
   await DI.resolve(Orm);
