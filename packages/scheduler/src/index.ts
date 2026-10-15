@@ -5,3 +5,6 @@ export * from './time/spec.js';
 export * from './time/occurrences.js';
 export * from './time/clock.js';
 export * from './testing/FakeClock.js';
+export * from './interfaces.js';
+export * from './errors.js';
+export * from './ScheduledTask.js';
