@@ -106,19 +106,20 @@ export class SseAccessPushTransport extends AccessPushTransport {
   }
 
   /**
-   * Ends the streams `identity` opened with the session `session`. Without one (a revoke of several sessions), the
-   * identity's session streams are checked against the SessionIssuer's list and those it no longer lists end.
+   * Ends the session streams of `identity` that `session` names or the SessionIssuer no longer lists. The re-check also
+   * catches a stream whose handle went stale while it was open: a rotation or role switch re-keys the session row and
+   * publishes no event, so the logout names a handle the stream never saw.
    */
   public async sessionEnded(identity: PrincipalRef, session?: string): Promise<void> {
-    const streams = (this.owned.get(principalKey(identity)) ?? []).filter((s) => s.session !== undefined);
-    if (streams.length === 0) return;
-    if (session !== undefined) {
-      for (const s of streams) if (s.session === session) this.end(s);
-      return;
-    }
-    if (!DI.check(SessionIssuer)) return;
+    if (session !== undefined) for (const s of this.sessionStreams(identity)) if (s.session === session) this.end(s);
+    const rest = this.sessionStreams(identity);
+    if (rest.length === 0 || !DI.check(SessionIssuer)) return;
     const live = new Set((await ((await DI.resolve(SessionIssuer)) as SessionIssuer).list({ type: identity.type, id: identity.id })).map((r) => r.handle));
-    for (const s of streams) if (!live.has(s.session!)) this.end(s);
+    for (const s of rest) if (!live.has(s.session!)) this.end(s);
+  }
+
+  protected sessionStreams(identity: PrincipalRef): EventStream[] {
+    return (this.owned.get(principalKey(identity)) ?? []).filter((s) => s.session !== undefined);
   }
 
   protected end(stream: EventStream): void {
@@ -162,14 +163,22 @@ export class AccessEventStream extends HttpResponse {
   }
 }
 
-const SESSION_ENDS: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['logout', 'session.revoke', 'session.expire', 'impersonation.end', 'impersonation.expire']);
+const SESSION_ENDS: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['logout', 'session.revoke', 'session.expire']);
 
-/** Ends a session's event streams when authn reports the session's end (logout, revoke, impersonation end). */
+/**
+ * Their `session` is not always the ended one (stopNow names the impersonator's new session, startNow the
+ * impersonation's), so the identity's and the actor's streams are only re-checked against the SessionIssuer.
+ */
+const IMPERSONATION: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['impersonation.start', 'impersonation.end', 'impersonation.expire']);
+
+/** Ends a session's event streams when authn reports the session's end (logout, revoke, impersonation start and end). */
 @Injectable(AuthnEventSink)
 export class SseSessionEndSink extends AuthnEventSink {
   public async publish(e: AuthnEvent): Promise<void> {
-    if (e.outcome !== 'success' || !e.identity || !SESSION_ENDS.has(e.type)) return;
+    const ends = SESSION_ENDS.has(e.type);
+    if (e.outcome !== 'success' || !e.identity || (!ends && !IMPERSONATION.has(e.type))) return;
     const transport = (await DI.resolve(SseAccessPushTransport)) as SseAccessPushTransport;
-    await transport.sessionEnded(e.identity, e.session);
+    if (ends) await transport.sessionEnded(e.identity, e.session);
+    else await Promise.all([e.identity, ...(e.actor ? [e.actor] : [])].map((who) => transport.sessionEnded(who)));
   }
 }

@@ -490,9 +490,11 @@ const rows = await Task.where(...).accessible('Task:read').withAccess(['Task:upd
   Both take the principal from the session and serve authenticated principals only.
 - SSE streams are bounded: at most `authz.http.events.maxStreamsPerPrincipal` (default 5) per principal,
   and a new one past that closes the oldest. A stream ends with its session: an `AuthnEventSink` closes
-  the streams whose principal key and session handle match a `logout`, `session.revoke`,
-  `session.expire` or impersonation end event; a revoke without a handle re-checks the principal's
-  streams against `SessionIssuer.list`.
+  the streams whose principal key and session handle match a `logout`, `session.revoke` or
+  `session.expire` event. It then re-checks the principal's other session streams against
+  `SessionIssuer.list`. That catches a revoke without a handle, and a handle that a rotation or role
+  switch changed without an event. Impersonation start, end and expiry only re-check the identity and
+  the actor, since the explicit stop's event names the impersonator's new session.
 
 **Epoch.** `X-Access-Epoch` is a per-session counter, sent on every response of `authn-http` and
 `authz-http`. It changes when the principal's access may change without any authz data changing: a role

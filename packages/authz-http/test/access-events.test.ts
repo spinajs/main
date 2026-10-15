@@ -56,9 +56,9 @@ function openStream(app: TestApp, headers: Record<string, string>): Promise<Open
 
 const ended = (s: OpenStream) => (s.res.readableEnded ? Promise.resolve() : new Promise<void>((resolve) => s.res.once('end', () => resolve())));
 
-/** Lists `live` as the only sessions of every identity; nothing else of the issuer is used. */
+/** Lists `live[id]` as the only sessions of an identity; nothing else of the issuer is used. */
 class ListOnlySessions extends SessionIssuer {
-  public static live: string[] = [];
+  public static live: Record<string, string[]> = {};
   public static asked: IdentityRef[] = [];
   public issue(): never {
     throw new Error('unused');
@@ -86,7 +86,7 @@ class ListOnlySessions extends SessionIssuer {
   }
   public async list(subject: IdentityRef) {
     ListOnlySessions.asked.push(subject);
-    return ListOnlySessions.live.map((handle) => ({ handle, createdAt: new Date(0), lastSeenAt: new Date(0) }));
+    return (ListOnlySessions.live[subject.id] ?? []).map((handle) => ({ handle, createdAt: new Date(0), lastSeenAt: new Date(0) }));
   }
 }
 
@@ -239,7 +239,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
   it('re-checks the sessions of a principal against the SessionIssuer when a revoke names no session', async () => {
     const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
     DI.register(ListOnlySessions).as(SessionIssuer);
-    ListOnlySessions.live = ['h2'];
+    ListOnlySessions.live = { ivy: ['h2'] };
     ListOnlySessions.asked = [];
     const h1 = await openStream(app, { 'x-user': 'ivy', 'x-session': 'h1' });
     const h2 = await openStream(app, { 'x-user': 'ivy', 'x-session': 'h2' });
@@ -254,6 +254,68 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
       expect(ListOnlySessions.asked).to.deep.equal([{ type: 'user', id: 'ivy' }]);
     } finally {
       for (const s of [h1, h2, h3]) s.close();
+      DI.unregister(ListOnlySessions);
+      DI.uncache(ListOnlySessions);
+      DI.uncache(SessionIssuer);
+    }
+  });
+
+  it('ends a stream whose session was rotated before the logout: the stale handle is re-checked against the SessionIssuer', async () => {
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
+    DI.register(ListOnlySessions).as(SessionIssuer);
+    // h0 became h0r on a role switch (no event), then h0r logged out; h9 is another live session.
+    ListOnlySessions.live = { jill: ['h9'] };
+    ListOnlySessions.asked = [];
+    const stale = await openStream(app, { 'x-user': 'jill', 'x-session': 'h0' });
+    const other = await openStream(app, { 'x-user': 'jill', 'x-session': 'h9' });
+    try {
+      for (const s of [stale, other]) await s.frame();
+
+      await sink.publish({ type: 'logout', at: new Date(), outcome: 'success', identity: { type: 'user', id: 'jill' }, session: 'h0r' });
+      await ended(stale);
+      expect(transport.count('user:jill')).to.eq(1);
+      expect(other.res.readableEnded).to.eq(false);
+    } finally {
+      for (const s of [stale, other]) s.close();
+      DI.unregister(ListOnlySessions);
+      DI.uncache(ListOnlySessions);
+      DI.uncache(SessionIssuer);
+    }
+  });
+
+  it("ends the impersonation's streams on impersonation.end whose session is the impersonator's new one, and the actor's revoked ones on start", async () => {
+    const sink = ((await DI.resolve(Array.ofType(AuthnEventSink))) as AuthnEventSink[]).find((s) => s instanceof SseSessionEndSink)!;
+    DI.register(ListOnlySessions).as(SessionIssuer);
+    const target = { type: 'user', id: 'kate' } as const;
+    const actor = { type: 'user', id: 'liam' } as const;
+    const before = await openStream(app, { 'x-user': 'liam', 'x-session': 'a0' });
+    const own = await openStream(app, { 'x-user': 'kate', 'x-session': 'k1' });
+    const opened = [before, own];
+    try {
+      for (const s of opened) await s.frame();
+
+      // ImpersonationService.startNow revokes a0 and publishes the impersonation session's handle.
+      ListOnlySessions.live = { kate: ['k1', 'imp'], liam: [] };
+      await sink.publish({ type: 'impersonation.start', at: new Date(), outcome: 'success', identity: target, actor, session: 'imp' });
+      await ended(before);
+      expect(own.res.readableEnded, "the target's own session stays").to.eq(false);
+
+      const imp = await openStream(app, { 'x-user': 'kate', 'x-session': 'imp' });
+      opened.push(imp);
+      await imp.frame();
+
+      // stopNow revokes imp and publishes the impersonator's new session a1.
+      ListOnlySessions.live = { kate: ['k1'], liam: ['a1'] };
+      const after = await openStream(app, { 'x-user': 'liam', 'x-session': 'a1' });
+      opened.push(after);
+      await after.frame();
+      await sink.publish({ type: 'impersonation.end', at: new Date(), outcome: 'success', identity: target, actor, session: 'a1' });
+      await ended(imp);
+      expect(transport.count('user:kate')).to.eq(1);
+      expect(after.res.readableEnded, "the impersonator's new session, named by the event, stays").to.eq(false);
+      expect(own.res.readableEnded).to.eq(false);
+    } finally {
+      for (const s of opened) s.close();
       DI.unregister(ListOnlySessions);
       DI.uncache(ListOnlySessions);
       DI.uncache(SessionIssuer);
