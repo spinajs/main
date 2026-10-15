@@ -36,7 +36,7 @@ export const AuthzAttributesBody: JsonSchema = { ...anyObject, description: 'PUT
 
 const errorShape = obj(['code', 'message'], { code: text, message: text, field: { ...text, description: 'the offending field, when one is known' } });
 
-export const AuthzAdminError: JsonSchema = obj(['error'], { error: errorShape }, 'The body of a refused request. Codes: invalid_request, invalid_query, invalid_batch, invalid_command, unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable, invalid_attributes (400); forbidden, escalation, last_holder, self_lockout, protected_role (403); not_found (404); conflict (409)');
+export const AuthzAdminError: JsonSchema = obj(['error'], { error: errorShape }, 'The body of a refused request. Codes: invalid_request, invalid_query, invalid_batch, invalid_command, unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable, invalid_attributes, set_cycle, set_too_deep (400); forbidden, escalation, last_holder, self_lockout, protected_role (403); not_found (404); conflict (409)');
 
 const commandResult: JsonSchema = {
   oneOf: [obj(['ok', 'kind', 'affected'], { ok: { type: 'boolean', enum: [true] }, kind: text, id: text, token: { ...text, description: 'link.create only, shown once' }, affected: { type: 'integer' } }), obj(['ok', 'kind', 'error'], { ok: { type: 'boolean', enum: [false] }, kind: text, error: errorShape })],

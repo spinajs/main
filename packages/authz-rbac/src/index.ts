@@ -3,6 +3,7 @@ export * from './model/index.js';
 export * from './admin/index.js';
 export * from './migrations/index.js';
 export * from './stores/index.js';
+export * from './membership/index.js';
 export * from './host/index.js';
 export * from './cli/index.js';
 export * from './token/index.js';

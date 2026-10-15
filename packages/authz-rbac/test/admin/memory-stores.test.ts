@@ -107,6 +107,19 @@ describe('MemoryAdminAssignmentStore', () => {
     expect(await ids([])).to.deep.equal([]);
   });
 
+  it('forSubjectKeys matches by subjectKeyOf and leaves out expired rows', async () => {
+    const live = await grant();
+    const set = await grant({ subject: MEMBERS, role: 'editor' });
+    const odd = await grant({ subject: { type: 'org', id: 'o1#org.member' } });
+    await grant({ subject: BOB, expiresAt: T0 });
+    const ids = async (keys: readonly string[]) => (await store.forSubjectKeys(keys, T0)).map((r) => r.id).sort();
+    expect(await ids(['user:alice'])).to.deep.equal([live.id]);
+    expect(await ids(['org:o1#org.member'])).to.deep.equal([set.id]);
+    expect(await ids(['org:o1%23org.member'])).to.deep.equal([odd.id]);
+    expect(await ids(['user:bob', 'user:*'])).to.deep.equal([]);
+    expect(await ids([])).to.deep.equal([]);
+  });
+
   it('holders lists the live subjects of a role at exactly that scope', async () => {
     await grant();
     await grant({ subject: MEMBERS });
@@ -153,14 +166,14 @@ describe('MemoryAdminAssignmentStore', () => {
     expect(page.items.map((r) => r.id)).to.deep.equal([rows[1].id, rows[2].id]);
   });
 
-  it('forgetScope removes the rows at the scope, not rows whose subject is a set at it', async () => {
+  it('forgetScope removes the rows at the scope and every row whose subject is a set at it, as DbAssignmentStore does', async () => {
     const atOrg = await grant({ scope: O1, role: 'org.member' });
     const setSubject = await grant({ subject: MEMBERS, scope: P1 });
     const elsewhere = await grant({ scope: P2 });
     const gone = await inTx(backend, (tx) => store.forgetScope(O1, tx));
-    expect(gone!.map((r) => r.id)).to.deep.equal([atOrg.id]);
+    expect(gone!.map((r) => r.id).sort()).to.deep.equal([atOrg.id, setSubject.id].sort());
     expect(await store.byId(atOrg.id)).to.equal(null);
-    expect(await store.byId(setSubject.id)).to.not.equal(null);
+    expect(await store.byId(setSubject.id)).to.equal(null);
     expect(await store.byId(elsewhere.id)).to.not.equal(null);
   });
 

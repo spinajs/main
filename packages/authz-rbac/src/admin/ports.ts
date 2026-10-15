@@ -1,7 +1,8 @@
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-import { AssignmentStore, LinkStore, RuleStore } from '../contracts.js';
+import { AssignmentStore, LinkStore, MembershipStore, RuleStore } from '../contracts.js';
 import type { Assignment, AssignmentSubject, LinkDef, RuleDef } from '../contracts.js';
+import type { MembershipRow } from '../membership/closure.js';
 
 export interface AssignmentQuery {
   readonly scope?: ResourceRef;
@@ -23,7 +24,9 @@ export abstract class AdminAssignmentStore extends AssignmentStore {
   abstract revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
   abstract update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
   abstract find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }>;
-  /** Removes every row AT the scope (not rows whose subject is a set at it); returns the removed rows. */
+  /** Live rows whose subject has one of these keys (subjectKeyOf): how the membership closure walks up. */
+  abstract forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]>;
+  /** Removes every row AT the scope and every row whose subject is a set at it, wherever held; returns the removed rows. */
   abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]>;
 }
 
@@ -58,4 +61,17 @@ export abstract class AdminRuleStore extends RuleStore {
  */
 export abstract class AccountStatusSource {
   abstract inService(refs: readonly PrincipalRef[]): Promise<ReadonlyMap<string, boolean>>;
+}
+
+/** The closure table AuthzAdmin maintains (design §4.3); `replace` runs inside the batch transaction. */
+export abstract class AdminMembershipStore extends MembershipStore {
+  abstract readonly name: string;
+  /** The stored rows of these members, expired ones too. */
+  abstract rowsOf(memberKeys: readonly string[]): Promise<readonly MembershipRow[]>;
+  /** Members with a stored row for any of these sets, expired ones too: everything below them. Sorted. */
+  abstract allMembersOf(setKeys: readonly string[]): Promise<readonly string[]>;
+  /** Every member key with a stored row. Sorted. */
+  abstract memberKeys(): Promise<readonly string[]>;
+  /** Replaces every stored row of `memberKey` with `rows`. */
+  abstract replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void>;
 }

@@ -9,8 +9,7 @@ import { AdminAssignmentStore } from '../admin/ports.js';
 import type { AssignmentQuery, Page } from '../admin/ports.js';
 import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
-import { scopeToColumns, subjectToColumns } from './columns.js';
-import type { SubjectColumns } from './columns.js';
+import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
 import { normaliseTags, parseTags } from './tags.js';
@@ -35,7 +34,7 @@ export interface AssignmentListQuery {
 /** The most rows one `list` call returns, with or without a page. */
 export const ASSIGNMENT_LIST_MAX_LIMIT = 1000;
 
-// One bound parameter per subject plus two per (type, role) group: far below SQLite's 999.
+// One bound parameter per subject key: far below SQLite's 999.
 const SUBJECT_BATCH = 250;
 const ID_BATCH = 500;
 const TAG_RETRIES = 5;
@@ -61,20 +60,11 @@ export class DbAssignmentStore extends AdminAssignmentStore {
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
     if (subjects.length === 0) return [];
+    return (await this.rowsForKeys(await this.connection(), subjects.map(subjectKeyOf), at)).map(rowToAssignment);
+  }
 
-    const keys = uniqueSubjects(subjects);
-    const driver = await this.connection();
-    const out: Assignment[] = [];
-
-    for (let i = 0; i < keys.length; i += this.subjectBatch) {
-      const batch = keys.slice(i, i + this.subjectBatch);
-      const query = driver.select().from(AUTHZ_ASSIGNMENT_TABLE);
-      whereSubjects(query, batch);
-      whereLive(query, at);
-      out.push(...(await rowsOf(query)).map(rowToAssignment));
-    }
-
-    return out;
+  async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
+    return (await this.rowsForKeys(await this.connection(), keys, at)).map(rowToAssignment);
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
@@ -94,6 +84,10 @@ export class DbAssignmentStore extends AdminAssignmentStore {
   async assign(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
     const driver = await this.writeDriver(tx, `${this.name}.assign`);
     const key = { ...subjectToColumns(a.subject), role: a.role, ...scopeToColumns(a.scope) };
+    const subjectKey = subjectKeyOf(a.subject);
+    if (subjectKey.length > SUBJECT_KEY_MAX_LENGTH) {
+      throw new AuthzAdminFailure('invalid_command', `${this.name}.assign: the subject key ${JSON.stringify(subjectKey.slice(0, 40))}… is longer than ${SUBJECT_KEY_MAX_LENGTH} characters`, 'subject');
+    }
     const change = { tags: normaliseTags(a.tags), expires_at: a.expiresAt ?? null, granted_by: principalKey(actor) };
 
     const existing = await this.existingRow(driver, key);
@@ -103,7 +97,7 @@ export class DbAssignmentStore extends AdminAssignmentStore {
       await driver.update().in(AUTHZ_ASSIGNMENT_TABLE).update(change).where('id', existing.id);
       row = { ...existing, ...change };
     } else {
-      row = { id: randomUUID(), ...key, ...change, source: 'db', created_at: this.now() };
+      row = { id: randomUUID(), ...key, subject_key: subjectKey, ...change, source: 'db', created_at: this.now() };
       try {
         await driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values(row);
       } catch (err) {
@@ -182,16 +176,7 @@ export class DbAssignmentStore extends AdminAssignmentStore {
   /** Deletes every row of `subjects` at any scope, expired ones too (a revoked share link); returns them. */
   async revokeSubjects(subjects: readonly AssignmentSubject[], tx: AuthzTx): Promise<readonly Assignment[]> {
     const driver = await this.writeDriver(tx, `${this.name}.revokeSubjects`);
-    const keys = uniqueSubjects(subjects);
-    const rows: AssignmentRow[] = [];
-
-    for (let i = 0; i < keys.length; i += this.subjectBatch) {
-      const query = driver.select().from(AUTHZ_ASSIGNMENT_TABLE);
-      whereSubjects(query, keys.slice(i, i + this.subjectBatch));
-      rows.push(...(await rowsOf(query)));
-    }
-
-    return this.deleteRows(driver, rows);
+    return this.deleteRows(driver, await this.rowsForKeys(driver, subjects.map(subjectKeyOf), undefined));
   }
 
   /**
@@ -236,6 +221,21 @@ export class DbAssignmentStore extends AdminAssignmentStore {
 
   protected connection(): Promise<OrmDriver> {
     return storeConnection(this.container);
+  }
+
+  /** Rows of these subject keys, in batches; `at` undefined keeps expired rows. */
+  private async rowsForKeys(driver: OrmDriver, keys: readonly string[], at: Date | undefined): Promise<AssignmentRow[]> {
+    const unique = [...new Set(keys)];
+    const out: AssignmentRow[] = [];
+    for (let i = 0; i < unique.length; i += this.subjectBatch) {
+      const query = driver
+        .select()
+        .from(AUTHZ_ASSIGNMENT_TABLE)
+        .whereIn('subject_key', unique.slice(i, i + this.subjectBatch));
+      if (at) whereLive(query, at);
+      out.push(...(await rowsOf(query)));
+    }
+    return out;
   }
 
   /** The filtered rows, oldest first; `window` undefined reads every match in one query. */
@@ -320,34 +320,6 @@ export class DbAssignmentStore extends AdminAssignmentStore {
     await bumpVersion(driver, this.domain());
     return rows.map(rowToAssignment);
   }
-}
-
-function uniqueSubjects(subjects: readonly AssignmentSubject[]): SubjectColumns[] {
-  const seen = new Map<string, SubjectColumns>();
-  for (const s of subjects) {
-    const c = subjectToColumns(s);
-    seen.set(JSON.stringify([c.subject_type, c.subject_id, c.subject_role]), c);
-  }
-  return [...seen.values()];
-}
-
-/** `(type = ? AND role = ? AND id IN (…)) OR …`, one group per (type, role); row-value `IN` is not portable. */
-function whereSubjects(query: IWhereBuilder<unknown>, subjects: readonly SubjectColumns[]): void {
-  const groups = new Map<string, { type: string; role: string; ids: string[] }>();
-  for (const s of subjects) {
-    const key = JSON.stringify([s.subject_type, s.subject_role]);
-    const group = groups.get(key) ?? { type: s.subject_type, role: s.subject_role, ids: [] };
-    group.ids.push(s.subject_id);
-    groups.set(key, group);
-  }
-
-  query.where(function () {
-    for (const g of groups.values()) {
-      this.orWhere(function () {
-        this.where('subject_type', g.type).where('subject_role', g.role).whereIn('subject_id', g.ids);
-      });
-    }
-  });
 }
 
 function whereFilter(query: IWhereBuilder<unknown>, filter: { scope?: ResourceRef; subject?: AssignmentSubject; role?: string }): void {

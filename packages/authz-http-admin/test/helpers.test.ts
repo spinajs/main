@@ -85,7 +85,7 @@ describe('status mapping', () => {
     for (const code of ['forbidden', 'escalation', 'last_holder', 'self_lockout', 'protected_role']) expect(adminErrorStatus(code), code).to.equal(403);
     expect(adminErrorStatus('not_found')).to.equal(404);
     expect(adminErrorStatus('conflict')).to.equal(409);
-    for (const code of ['unknown_role', 'invalid_command', 'invalid_batch', 'invalid_query', 'external_sharing_off', 'rule_not_compilable']) expect(adminErrorStatus(code), code).to.equal(400);
+    for (const code of ['unknown_role', 'invalid_command', 'invalid_batch', 'invalid_query', 'external_sharing_off', 'rule_not_compilable', 'set_cycle', 'set_too_deep']) expect(adminErrorStatus(code), code).to.equal(400);
   });
 
   it('answers 200 when every result is ok, else the status of the failed result', () => {

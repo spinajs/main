@@ -141,6 +141,7 @@ for (const kind of DB_KINDS) {
       for (const r of rows) {
         expect(r.id).to.match(UUID);
         expect(r).to.deep.include({ subject_type: 'user', subject_role: '', scope_type: '$global', scope_id: '', tags: '', source: 'users.Role', expires_at: null, granted_by: null });
+        expect(r.subject_key).to.eq(`user:${r.subject_id}`);
         const created = toDate(r.created_at)!.getTime();
         // SQLite keeps milliseconds; Postgres TIMESTAMP keeps microseconds
         expect(created).to.be.within(before.getTime() - 1, after.getTime() + 1);
@@ -170,7 +171,7 @@ for (const kind of DB_KINDS) {
       await db.driver
         .insert()
         .into('authz_assignment')
-        .values({ id: 'granted-earlier', subject_type: 'user', subject_id: UUIDS[1], role: 'admin', source: 'db', granted_by: 'user:9', created_at: new Date('2025-01-01T00:00:00Z') });
+        .values({ id: 'granted-earlier', subject_type: 'user', subject_id: UUIDS[1], subject_key: `user:${UUIDS[1]}`, role: 'admin', source: 'db', granted_by: 'user:9', created_at: new Date('2025-01-01T00:00:00Z') });
 
       await db.orm.Migration.up();
 
@@ -186,7 +187,10 @@ for (const kind of DB_KINDS) {
       await createUsers(db.driver);
       await seedUsers(db.driver, ['', 'admin']);
       await db.orm.Migration.up(INITIAL);
-      await db.driver.insert().into('authz_assignment').values({ id: 'granted-earlier', subject_type: 'user', subject_id: UUIDS[1], role: 'admin', created_at: new Date() });
+      await db.driver
+        .insert()
+        .into('authz_assignment')
+        .values({ id: 'granted-earlier', subject_type: 'user', subject_id: UUIDS[1], subject_key: `user:${UUIDS[1]}`, role: 'admin', created_at: new Date() });
 
       await db.orm.Migration.up();
 
@@ -365,7 +369,10 @@ for (const kind of DB_KINDS) {
       await createUsers(db.driver);
       await seedUsers(db.driver, ROLES);
       await db.orm.Migration.up();
-      await db.driver.insert().into('authz_assignment').values({ id: 'granted-later', subject_type: 'user', subject_id: UUIDS[1], role: 'editor', source: 'db', created_at: new Date() });
+      await db.driver
+        .insert()
+        .into('authz_assignment')
+        .values({ id: 'granted-later', subject_type: 'user', subject_id: UUIDS[1], subject_key: `user:${UUIDS[1]}`, role: 'editor', source: 'db', created_at: new Date() });
 
       const undone = await db.orm.Migration.down(MIGRATION);
 

@@ -4,7 +4,7 @@ import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
-import { scopeToColumns, subjectToColumns } from '../stores/columns.js';
+import { scopeToColumns, subjectKeyOf, subjectToColumns } from '../stores/columns.js';
 import { bumpVersion } from '../stores/version.js';
 import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 import type { UsersColumns } from './users-table.js';
@@ -27,7 +27,7 @@ const NAME = 'AuthzRbacUserRoles_2026_10_01_00_01_00';
 export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
   protected log: HostLog = engineLog('authz-rbac');
   protected readonly pageSize: number = 500;
-  /** 10 columns a row keep one insert under SQLite's 999 bound parameters. */
+  /** 11 columns a row keep one insert under SQLite's 999 bound parameters. */
   protected readonly insertBatch: number = 50;
 
   public async up(connection: OrmDriver): Promise<void> {
@@ -124,6 +124,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     return splitRoles(roles).map((role) => ({
       id: randomUUID(),
       ...subject,
+      subject_key: subjectKeyOf({ type: 'user', id }),
       role,
       ...scope,
       tags: '',

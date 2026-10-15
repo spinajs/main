@@ -1,6 +1,7 @@
 import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
+import { DEFAULT_MAX_SET_DEPTH } from '../membership/closure.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
@@ -153,7 +154,7 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     defaultRoles: roleList,
     anonymousRoles: { ...roleList, default: [] },
     serviceRoles: { type: 'object', additionalProperties: roleList, default: {} },
-    stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList } },
+    stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList, membership: stringList } },
     cache: {
       type: 'object',
       default: {},
@@ -170,6 +171,8 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: LINK_SECRET_MIN_LENGTH } } },
     connection: name,
+    // Levels a membership walk may climb (design §4.3); a deeper nesting is refused when written (set_too_deep).
+    maxSetDepth: { type: 'integer', minimum: 1, maximum: 64, default: DEFAULT_MAX_SET_DEPTH },
   },
 };
 

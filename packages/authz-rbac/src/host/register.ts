@@ -60,6 +60,7 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   count('assignments', 1, 1);
   count('rules', 0, 2);
   count('links', 0, 1);
+  count('membership', 0, 1);
   const ruleNames = rbacStoreNames(configuration, 'rules');
   const configRules = configuration.get<unknown>(['authz', 'rbac', 'rules']);
   // Otherwise those rules (restrict, cap, threshold: they only narrow) would be dropped without a word.

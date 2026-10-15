@@ -17,7 +17,7 @@ describe('authz cli discovery', function () {
     for (const d of dirs) expect(d.split(/[\\/]/).slice(-6)).to.deep.equal(['@spinajs', 'authz-rbac', 'lib', 'mjs', 'cli', 'commands']);
   });
 
-  it('finds exactly the four commands: the first export of every built file is a command', async () => {
+  it('finds exactly the six commands: the first export of every built file is a command', async () => {
     const dir = join(PKG_ROOT, 'lib', 'mjs', 'cli', 'commands');
     expect(existsSync(dir)).to.equal(true);
     const files = readdirSync(dir).filter((f) => f.endsWith('.js'));
@@ -28,6 +28,6 @@ describe('authz cli discovery', function () {
       expect(meta, f).to.not.equal(undefined);
       names.push(meta!.nameAndArgs.split(' ')[0]);
     }
-    expect(names.sort()).to.deep.equal(['authz:assign', 'authz:check-config', 'authz:explain', 'authz:revoke']);
+    expect(names.sort()).to.deep.equal(['authz:assign', 'authz:check-config', 'authz:explain', 'authz:membership-rebuild', 'authz:membership-verify', 'authz:revoke']);
   });
 });

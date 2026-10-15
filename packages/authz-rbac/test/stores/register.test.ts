@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAssignmentStore, DbLinkStore, DbRuleStore, LinkStore, RoleStore, RuleStore, registerRbacStores } from '../../src/index.js';
+import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAssignmentStore, DbLinkStore, DbRuleStore, LinkStore, RoleStore, RuleStore, rbacStoreNames, registerRbacStores } from '../../src/index.js';
 
 const DB_STORES = { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['DbRuleStore'], links: ['DbLinkStore'] };
 
@@ -78,6 +78,12 @@ describe('registerRbacStores', () => {
     expect(container.hasRegistered(AssignmentStore, false)).to.eq(true);
     expect(container.hasRegistered(LinkStore, false)).to.eq(true);
     expect(DI.RootContainer.hasRegistered(RuleStore)).to.eq(false);
+  });
+
+  it('registers DbMembershipStore by default next to DbAssignmentStore, and none next to another assignment store', () => {
+    const cfg = (stores: Record<string, unknown> | undefined) => ({ get: (path: unknown) => (JSON.stringify(path) === JSON.stringify(['authz', 'rbac', 'stores', 'membership']) ? undefined : JSON.stringify(path) === JSON.stringify(['authz', 'rbac', 'stores', 'assignments']) ? stores?.assignments : undefined) } as never);
+    expect(rbacStoreNames(cfg(undefined), 'membership')).to.deep.equal(['DbMembershipStore']);
+    expect(rbacStoreNames(cfg({ assignments: ['MemoryAssignmentStore'] }), 'membership')).to.deep.equal([]);
   });
 
   it('refuses an unknown name or a class of another port, naming the key, and registers nothing', () => {
