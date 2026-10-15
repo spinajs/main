@@ -1,10 +1,10 @@
-import { BasePath, Get, Ok, Param, Policy, Query } from '@spinajs/http';
+import { BasePath, Body, Get, HTTP_STATUS_CODE, Ok, Param, Policy, Post, Query } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 import type { RunStatus, RunTrigger } from '@spinajs/scheduler';
 
 import { compact, SchedulerControllerBase } from '../scheduler-controller.js';
-import { SCHEDULER_READ, SCHEDULER_RESOURCE } from '../permissions.js';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
+import { SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
 
 /**
  * Scheduler runs: history, details, live events, cancel and retry.
@@ -59,5 +59,50 @@ export class RunsController extends SchedulerControllerBase {
   @Permission(SCHEDULER_READ)
   public async show(@Param(RUN_ID_SCHEMA) id: string) {
     return new Ok(await this.Scheduler.getRun(id));
+  }
+
+  /**
+   * Cancel a run
+   * Requests cancellation. The replica holding the run aborts it on its next heartbeat and the run
+   * ends `aborted` with reason `cancelled`.
+   * @security cookieAuth
+   * @param id Run id
+   * @response 202 {RunInfo} Cancellation requested; the run as it is now
+   * @response 400 Malformed run id
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 404 Run not found
+   * @response 409 The run already ended
+   */
+  @Post(':id/cancel')
+  @Permission(SCHEDULER_RUN)
+  public async cancel(@Param(RUN_ID_SCHEMA) id: string) {
+    return new Ok(await this.Scheduler.cancel(id, { triggeredBy: this.triggeredBy() }), { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+  }
+
+  /**
+   * Retry a run
+   * Allowed for failed, dead and aborted runs. Creates a new run with trigger `retry`, linked to this
+   * one. With `resume` ( default: the schedule's `resumable` ) the retry reuses the last checkpoint and
+   * skips completed steps, or starts at `fromStep`.
+   * @security cookieAuth
+   * @param id Run id
+   * @response 202 {ISchedulerRunAccepted} Retry queued
+   * @response 400 Malformed run id or body
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 404 Run not found
+   * @response 409 The run is not in a retryable state
+   */
+  @Post(':id/retry')
+  @Permission(SCHEDULER_RUN)
+  public async retry(@Param(RUN_ID_SCHEMA) id: string, @Body() body: RetryRunDto) {
+    const dto = body ?? new RetryRunDto();
+    const result = await this.Scheduler.retry(id, {
+      ...compact({ fromStep: dto.fromStep, params: dto.params, resume: dto.resume }),
+      triggeredBy: this.triggeredBy(),
+    });
+
+    return new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
   }
 }
