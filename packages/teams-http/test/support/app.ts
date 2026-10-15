@@ -86,6 +86,12 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
     const roles = this.get<Record<string, unknown>>(['authz', 'rbac', 'roles']) ?? {};
     this.set(['authz', 'rbac', 'roles'], Object.fromEntries(Object.entries(roles).filter(([name]) => /^(team|group|test)\./.test(name))));
     this.set(['authz', 'rbac', 'serviceRoles'], {});
+    // Installed packages declare list permissions over types this app has no @AccessResource model for
+    // (configuration:read), and boot rule 12 refuses them; only the team and group lists stay on.
+    for (const [name, def] of Object.entries(this.get<Record<string, unknown>>(['authz', 'permissions']) ?? {})) {
+      if (/^(team|group):/.test(name)) continue;
+      if (typeof def === 'object' && def !== null && (def as { list?: unknown }).list === true) this.set(['authz', 'permissions', name, 'list'], false);
+    }
   }
 
   protected onLoad(): unknown {
