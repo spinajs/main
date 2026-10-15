@@ -125,3 +125,39 @@ export class AddGroupMemberBody {
     Object.assign(this, data);
   }
 }
+
+export const INVITATION_MAX_HOURS = 8760;
+
+@Schema(
+  object(
+    ['role'],
+    {
+      groupId: { ...idSchema(), description: 'join this group of the team instead of the team' },
+      role: { ...roleSchema(), description: 'assigned on accept: a team role, or a group role with groupId; the inviter must be able to grant it' },
+      email: { type: 'string', format: 'email', maxLength: 255, description: 'only this verified email may accept; absent for a shareable link' },
+      maxUses: { type: 'integer', minimum: 1, nullable: true, description: 'default 1 for an email invitation, unlimited for a link; null for unlimited until expiry' },
+      expiresInHours: { type: 'integer', minimum: 1, maximum: INVITATION_MAX_HOURS, description: 'default teams.invitations.defaultTtlHours' },
+    },
+    { title: 'CreateInvitationBody' },
+  ),
+)
+export class CreateInvitationBody {
+  public groupId?: string;
+  public role: string;
+  public email?: string;
+  public maxUses?: number | null;
+  public expiresInHours?: number;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema(object(['token'], { token: { type: 'string', minLength: 1, maxLength: 256, description: 'the token of the create answer or the invitation mail' } }, { title: 'AcceptInvitationBody' }))
+export class AcceptInvitationBody {
+  public token: string;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}

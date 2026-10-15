@@ -9,3 +9,5 @@ export * from './controllers/TeamsController.js';
 export * from './controllers/TeamMembersController.js';
 export * from './controllers/TeamGroupsController.js';
 export * from './controllers/GroupsController.js';
+export * from './controllers/TeamInvitationsController.js';
+export * from './controllers/InvitationsController.js';
