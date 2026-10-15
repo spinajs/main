@@ -1,7 +1,8 @@
 import { Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import type { IWhereBuilder } from '@spinajs/orm';
-import type { RunStatus } from '../contract.js';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { isTerminalStatus, type RunStatus } from '../contract.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { defined } from '../models/converters.js';
@@ -27,6 +28,8 @@ export interface RunExpiry {
   nextAttemptAt: number | null;
 }
 
+type ScheduleLeaseTake = 'free' | 'own' | false;
+
 const leaseFree = (now: number) =>
   function (this: IWhereBuilder<unknown>) {
     this.whereNull('LeaseOwner').orWhere('LeaseUntil', '<', now);
@@ -34,9 +37,14 @@ const leaseFree = (now: number) =>
 
 /**
  * Every write is a single conditional UPDATE whose WHERE is the ownership rule; the affected-row
- * count says whether this replica won. That count means "rows matched" on every driver: SQLite
- * `changes`, Postgres `rowCount`, and MySQL `affectedRows` because mysql2 always connects with
- * CLIENT_FOUND_ROWS, so an update that writes identical values still counts as a win.
+ * count says whether this replica won. That count must mean "rows matched": SQLite `changes` and
+ * Postgres `rowCount` do; MySQL `affectedRows` does only with CLIENT_FOUND_ROWS, which mysql2 sets
+ * by default. Never connect the scheduler with `-FOUND_ROWS`: an update that writes identical
+ * values (a heartbeat in the same millisecond) would then read as a lost lease.
+ *
+ * Run writes are fenced by `Attempt` as well as `LeaseOwner`: the owner is a replica, so an old
+ * executor of a run that its own replica re-claimed would otherwise still match. A run becomes
+ * claimable again only as `retrying`, and that claim increments the attempt.
  */
 @NewInstance()
 @Injectable()
@@ -72,14 +80,30 @@ export class LeaseStore {
   }
 
   public async acquireScheduleLease(name: string, now: number): Promise<boolean> {
-    const r = await ScheduleModel.update({
-      LeaseOwner: this.ReplicaId,
-      LeaseUntil: now + this.LeaseTtl,
-      UpdatedAt: now,
-    })
+    return (await this.takeScheduleLease(name, now)) !== false;
+  }
+
+  /**
+   * Same rule as `leaseFree`, split in two statements to tell whether the expired lease was this
+   * replica's own: a run of this replica may still be relying on it, so a failed claim must not release it.
+   */
+  protected async takeScheduleLease(name: string, now: number): Promise<ScheduleLeaseTake> {
+    const values = { LeaseOwner: this.ReplicaId, LeaseUntil: now + this.LeaseTtl, UpdatedAt: now };
+    const me = this.ReplicaId;
+    const fromOthers = await ScheduleModel.update(values)
       .where('Name', name)
-      .where(leaseFree(now));
-    return r.RowsAffected === 1;
+      .where(function (this: IWhereBuilder<unknown>) {
+        this.whereNull('LeaseOwner').orWhere(function (this: IWhereBuilder<unknown>) {
+          this.where('LeaseUntil', '<', now).where('LeaseOwner', '<>', me);
+        });
+      });
+    if (fromOthers.RowsAffected === 1) return 'free';
+
+    const own = await ScheduleModel.update(values)
+      .where('Name', name)
+      .where('LeaseOwner', me)
+      .where('LeaseUntil', '<', now);
+    return own.RowsAffected === 1 ? 'own' : false;
   }
 
   public async renewScheduleLease(name: string, now: number): Promise<boolean> {
@@ -108,7 +132,10 @@ export class LeaseStore {
    * A non-forced run first takes the schedule lease, which is what keeps runs of one schedule from overlapping.
    */
   public async claimRun(run: RunModel, now: number): Promise<boolean> {
-    if (!run.Forced && !(await this.acquireScheduleLease(run.Schedule, now))) return false;
+    if (run.Status !== 'queued' && run.Status !== 'retrying') return false;
+
+    const lease = run.Forced ? null : await this.takeScheduleLease(run.Schedule, now);
+    if (lease === false) return false;
 
     const claimed = {
       Status: 'running' as const,
@@ -129,7 +156,7 @@ export class LeaseStore {
       });
 
     if (r.RowsAffected !== 1) {
-      if (!run.Forced) await this.releaseScheduleLease(run.Schedule, now);
+      if (lease === 'free') await this.releaseScheduleLease(run.Schedule, now);
       return false;
     }
 
@@ -140,6 +167,7 @@ export class LeaseStore {
   /** Heartbeat of a running run (and its schedule lease); `ok: false` means this replica lost the run. */
   public async renewRun(
     runId: string,
+    attempt: number,
     scheduleLease: string | null,
     now: number,
     patch: RunProgressPatch = {},
@@ -147,6 +175,7 @@ export class LeaseStore {
     const r = await RunModel.update({ ...defined(patch), LeaseUntil: now + this.LeaseTtl, UpdatedAt: now })
       .where('Id', runId)
       .where('LeaseOwner', this.ReplicaId)
+      .where('Attempt', attempt)
       .where('Status', 'running');
     if (r.RowsAffected !== 1) return { ok: false, cancelRequested: false };
     if (scheduleLease && !(await this.renewScheduleLease(scheduleLease, now)))
@@ -156,10 +185,11 @@ export class LeaseStore {
   }
 
   /** `patch` holds static-update values: JSON columns already serialized with `jsonColumn()`. */
-  public async finishRun(runId: string, patch: Record<string, unknown>): Promise<boolean> {
+  public async finishRun(runId: string, attempt: number, patch: Record<string, unknown>): Promise<boolean> {
     const r = await RunModel.update(patch as never)
       .where('Id', runId)
-      .where('LeaseOwner', this.ReplicaId);
+      .where('LeaseOwner', this.ReplicaId)
+      .where('Attempt', attempt);
     return r.RowsAffected === 1;
   }
 
@@ -168,6 +198,10 @@ export class LeaseStore {
    * `LeaseUntil`, so a heartbeat that landed after `run` was read wins over the expiry.
    */
   public async expireRun(run: RunModel, now: number, next: RunExpiry): Promise<boolean> {
+    // A run that could be claimed again without a new attempt would defeat the attempt fence.
+    if (next.status !== 'retrying' && !isTerminalStatus(next.status)) {
+      throw new InvalidArgument(`scheduler: a run cannot expire to '${next.status}'`);
+    }
     const final = next.status !== 'retrying';
     const r = await RunModel.update({
       Status: next.status,

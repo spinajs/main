@@ -73,7 +73,7 @@ describe('LeaseStore: runs', () => {
   it('renews only while it owns the run and reports cancel requests', async () => {
     await r1.claimRun(await run('q1'), T);
     expect(
-      await r1.renewRun('q1', 'a', T + 20_000, { Progress: 40, CurrentStep: 'load', Message: 'loading' }),
+      await r1.renewRun('q1', 1, 'a', T + 20_000, { Progress: 40, CurrentStep: 'load', Message: 'loading' }),
     ).to.deep.eq({ ok: true, cancelRequested: false });
     expect(await get('q1')).to.include({
       Progress: 40,
@@ -83,8 +83,8 @@ describe('LeaseStore: runs', () => {
       UpdatedAt: T + 20_000,
     });
     await RunModel.update({ CancelRequested: true }).where('Id', 'q1');
-    expect(await r1.renewRun('q1', 'a', T + 30_000)).to.deep.eq({ ok: true, cancelRequested: true });
-    expect((await r2.renewRun('q1', null, T + 30_000)).ok).to.eq(false);
+    expect(await r1.renewRun('q1', 1, 'a', T + 30_000)).to.deep.eq({ ok: true, cancelRequested: true });
+    expect((await r2.renewRun('q1', 1, null, T + 30_000)).ok).to.eq(false);
   });
 
   it('loses the run when another replica expires it', async () => {
@@ -106,16 +106,71 @@ describe('LeaseStore: runs', () => {
       LeaseOwner: null,
       NextAttemptAt: T + 120_000,
     });
-    expect((await r1.renewRun('q1', null, T + r1.LeaseTtl + 2)).ok).to.eq(false);
-    expect(await r1.finishRun('q1', { Status: 'succeeded' })).to.eq(false);
+    expect((await r1.renewRun('q1', 1, null, T + r1.LeaseTtl + 2)).ok).to.eq(false);
+    expect(await r1.finishRun('q1', 1, { Status: 'succeeded' })).to.eq(false);
   });
 
   it('finishes only its own run', async () => {
     await r1.claimRun(await run('q1'), T);
-    expect(await r2.finishRun('q1', { Status: 'failed' })).to.eq(false);
+    expect(await r2.finishRun('q1', 1, { Status: 'failed' })).to.eq(false);
     expect(
-      await r1.finishRun('q1', { Status: 'succeeded', LeaseOwner: null, LeaseUntil: null, FinishedAt: T + 5 }),
+      await r1.finishRun('q1', 1, { Status: 'succeeded', LeaseOwner: null, LeaseUntil: null, FinishedAt: T + 5 }),
     ).to.eq(true);
     expect(await get('q1')).to.include({ Status: 'succeeded', LeaseOwner: null, FinishedAt: T + 5 });
+  });
+
+  it('only claims queued or retrying runs', async () => {
+    const live = await run('live', { Status: 'running', LeaseOwner: 'r2', LeaseUntil: T + 1000, Forced: true });
+    expect(await r1.claimRun(live, T + 2000)).to.eq(false);
+    expect(await get('live')).to.include({ Status: 'running', LeaseOwner: 'r2' });
+    const done = await run('done', { Status: 'failed' });
+    expect(await r1.claimRun(done, T)).to.eq(false);
+    expect((await get('done')).Status).to.eq('failed');
+    expect((await ScheduleModel.where('Name', 'a').first()).LeaseOwner).to.eq(null);
+  });
+
+  it('fences an old attempt after its own replica re-claimed the run', async () => {
+    await r1.claimRun(await run('q1'), T);
+    const late = T + r1.LeaseTtl + 1;
+    const stalled = await get('q1');
+    expect(
+      await r2.expireRun(stalled, late, { status: 'retrying', reason: 'lease-expired', nextAttemptAt: late }),
+    ).to.eq(true);
+    expect(await r1.claimRun(await get('q1'), late)).to.eq(true);
+    expect((await get('q1')).Attempt).to.eq(2);
+
+    expect((await r1.renewRun('q1', 1, 'a', late + 1000)).ok).to.eq(false);
+    expect(await r1.finishRun('q1', 1, { Status: 'failed', LeaseOwner: null, LeaseUntil: null })).to.eq(false);
+    expect(await get('q1')).to.include({ Status: 'running', Attempt: 2, LeaseOwner: 'r1' });
+
+    expect((await r1.renewRun('q1', 2, 'a', late + 1000)).ok).to.eq(true);
+    expect(await r1.finishRun('q1', 2, { Status: 'succeeded', LeaseOwner: null, LeaseUntil: null })).to.eq(true);
+  });
+
+  it('keeps a schedule lease it already held when a claim loses the run', async () => {
+    await r1.claimRun(await run('q1'), T);
+    const observed = await run('q2');
+    await RunModel.update({ Status: 'aborted' }).where('Id', 'q2');
+    const late = T + r1.LeaseTtl + 1;
+    expect(await r1.claimRun(observed, late)).to.eq(false);
+    expect((await ScheduleModel.where('Name', 'a').first()).LeaseOwner).to.eq('r1');
+    expect((await r1.renewRun('q1', 1, 'a', late + 1)).ok).to.eq(true);
+  });
+
+  it('expires a run only to retrying or a final status', async () => {
+    await r1.claimRun(await run('q1'), T);
+    const stale = await get('q1');
+    let error: unknown;
+    try {
+      await r2.expireRun(stale, T + r1.LeaseTtl + 1, {
+        status: 'queued',
+        reason: 'lease-expired',
+        nextAttemptAt: null,
+      });
+    } catch (err) {
+      error = err;
+    }
+    expect(error).to.be.instanceOf(Error);
+    expect((await get('q1')).Status).to.eq('running');
   });
 });
