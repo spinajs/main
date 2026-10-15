@@ -8,7 +8,7 @@ import { expect } from 'chai';
 import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { join, normalize, resolve } from 'path';
-import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait } from '@spinajs/threading';
+import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait, processIdentity } from '@spinajs/threading';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import { DateTime } from 'luxon';
@@ -269,6 +269,43 @@ describe('orm-threading', function () {
       const now = await dbNowMs({ Options: { Driver: 'orm-driver-unknown' } } as any);
 
       expect(Math.abs(now - Date.now())).to.be.lessThan(50);
+    });
+  });
+  describe('default tenant', () => {
+    it('Should use the process identity when Tenant is not given', async () => {
+      const r = await mutex_acquire({ Name: 'test' });
+
+      expect(r.Locked).to.be.true;
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq(processIdentity());
+    });
+
+    it('Should not share a lock with another replica of the same app', async () => {
+      // what replica A stored under the old default tenant
+      const appName = DI.get(Configuration)!.get<string>('app.name', 'spina-js');
+      await mutex_acquire({ Name: 'test', Tenant: appName });
+
+      const r = await mutex_acquire({ Name: 'test' });
+
+      expect(r.Locked).to.be.false;
+    });
+
+    it('Should use threading.mutex.tenant when configured', async () => {
+      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+
+      await mutex_acquire({ Name: 'test' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('fixed-tenant');
+    });
+
+    it('Should prefer an explicit Tenant over the configured one', async () => {
+      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+
+      await mutex_acquire({ Name: 'test', Tenant: 'explicit' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('explicit');
     });
   });
 });

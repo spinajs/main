@@ -1,5 +1,5 @@
 import { _check_arg, _default, _non_empty, _trim } from '@spinajs/util';
-import { Mutex, MutexLockOptions, LockResult, MutexLock } from '@spinajs/threading';
+import { Mutex, MutexLockOptions, LockResult, MutexLock, processIdentity } from '@spinajs/threading';
 import { Config } from '@spinajs/configuration';
 import { __mutex__ } from './models/__mutex__.js';
 import { DateTime } from 'luxon';
@@ -13,12 +13,13 @@ export * from './db-clock.js';
 
 export class OrmMutex extends Mutex {
   /**
-   * App name used as tenant when creating mutex by default
+   * Fixed default tenant. Empty = identity of the current process. Setting one value on
+   * every replica brings back the old shared tenant, where replicas do not exclude each other.
    */
-  @Config('app.name', {
-    defaultValue: 'spina-js',
+  @Config('threading.mutex.tenant', {
+    defaultValue: '',
   })
-  protected AppName: string;
+  protected ConfiguredTenant: string;
 
   /**
    * When waiting, interval time for check in db in ms
@@ -29,8 +30,8 @@ export class OrmMutex extends Mutex {
   protected MutexWaitInterval: number;
 
   public async acquire(options: MutexLockOptions): Promise<LockResult> {
-    const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
-    const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
+    const _tenant = this.tenantOf(options);
+    const _name = this.nameOf(options.Name);
 
     let mutex = await this.get(options.Name);
     if (!mutex) {
@@ -63,8 +64,8 @@ export class OrmMutex extends Mutex {
   }
 
   public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
-    const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
-    const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
+    const _name = this.nameOf(options.Name);
+    const _tenant = this.tenantOf(options);
     let result: IUpdateResult = null as any;
 
     if (deleteOnClose) {
@@ -86,8 +87,8 @@ export class OrmMutex extends Mutex {
   }
 
   public async create(options: MutexLockOptions): Promise<MutexLock> {
-    const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
-    const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
+    const _name = this.nameOf(options.Name);
+    const _tenant = this.tenantOf(options);
 
     const mutex = await (__mutex__ as any).getOrCreate(_name, {
       Name: _name,
@@ -100,8 +101,8 @@ export class OrmMutex extends Mutex {
   }
 
   public async delete(options: MutexLockOptions): Promise<boolean> {
-    const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
-    const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
+    const _name = this.nameOf(options.Name);
+    const _tenant = this.tenantOf(options);
 
     /**
      * Delete mutex can only tenant
@@ -113,7 +114,7 @@ export class OrmMutex extends Mutex {
   }
 
   public async get(name: string): Promise<MutexLock | null> {
-    const _name = _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
+    const _name = this.nameOf(name);
     return (__mutex__ as any).get(_name);
   }
 
@@ -140,5 +141,13 @@ export class OrmMutex extends Mutex {
         }
       }, this.MutexWaitInterval);
     });
+  }
+
+  protected nameOf(name: string): string {
+    return _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
+  }
+
+  protected tenantOf(options: MutexLockOptions): string {
+    return _check_arg(_trim(), _default(() => this.ConfiguredTenant || processIdentity()))(options.Tenant, '');
   }
 }
