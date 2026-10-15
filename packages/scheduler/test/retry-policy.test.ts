@@ -25,7 +25,9 @@ describe('retry policy', () => {
   it('honours NonRetryableError and retryOn', () => {
     expect(isRetryable(fixed, new Error('x'))).to.eq(true);
     expect(isRetryable(fixed, new NonRetryableError('x'))).to.eq(false);
-    expect(isRetryable({ ...fixed, retryOn: (e) => (e as Error).message !== 'fatal' }, new Error('fatal'))).to.eq(false);
+    expect(isRetryable({ ...fixed, retryOn: (e) => (e as Error).message !== 'fatal' }, new Error('fatal'))).to.eq(
+      false,
+    );
     expect(
       isRetryable(
         {
@@ -41,7 +43,10 @@ describe('retry policy', () => {
 
   it('decides retrying, dead, failed and aborted', () => {
     const err = new Error('boom');
-    expect(decideAfterFailure({ emit: false, attempt: 1, error: err })).to.deep.eq({ status: 'failed', countsAsFailure: true });
+    expect(decideAfterFailure({ emit: false, attempt: 1, error: err })).to.deep.eq({
+      status: 'failed',
+      countsAsFailure: true,
+    });
     expect(decideAfterFailure({ retry: fixed, emit: false, attempt: 1, error: err })).to.deep.eq({
       status: 'retrying',
       delayMs: 60_000,
@@ -85,16 +90,33 @@ describe('retry policy', () => {
     const onlyHttp: NormalizedRetry = { ...fixed, retryOn: (e) => (e as Error).name === 'HttpError' };
     for (const reason of ['shutdown', 'lease-expired'] as const) {
       expect(
-        decideAfterFailure({ retry: onlyHttp, emit: false, attempt: 1, error: new RunAbortedError(reason), abortReason: reason })
-          .status,
+        decideAfterFailure({
+          retry: onlyHttp,
+          emit: false,
+          attempt: 1,
+          error: new RunAbortedError(reason),
+          abortReason: reason,
+        }).status,
       ).to.eq('retrying');
       expect(
-        decideAfterFailure({ retry: onlyHttp, emit: false, attempt: 3, error: new RunAbortedError(reason), abortReason: reason }),
+        decideAfterFailure({
+          retry: onlyHttp,
+          emit: false,
+          attempt: 3,
+          error: new RunAbortedError(reason),
+          abortReason: reason,
+        }),
       ).to.deep.eq({ status: 'dead', countsAsFailure: true });
     }
     // a timeout is the task's own failure, so retryOn decides
     expect(
-      decideAfterFailure({ retry: onlyHttp, emit: false, attempt: 1, error: new RunAbortedError('timeout'), abortReason: 'timeout' }),
+      decideAfterFailure({
+        retry: onlyHttp,
+        emit: false,
+        attempt: 1,
+        error: new RunAbortedError('timeout'),
+        abortReason: 'timeout',
+      }),
     ).to.deep.eq({ status: 'aborted', countsAsFailure: true });
   });
 });

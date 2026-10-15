@@ -43,9 +43,10 @@ describe('Scheduler: runOn all', () => {
     await s.tickOnce();
     clock.set('2026-01-05T10:02:00Z');
     await s.tickOnce();
-    expect(
-      (await RunModel.where('Schedule', 'local-cache').orderBy('CreatedAt')).map((r) => r.Status),
-    ).to.deep.eq(['running', 'skipped']);
+    expect((await RunModel.where('Schedule', 'local-cache').orderBy('CreatedAt')).map((r) => r.Status)).to.deep.eq([
+      'running',
+      'skipped',
+    ]);
     gate.resolve();
     await s.idle();
   });
@@ -76,7 +77,7 @@ describe('Scheduler: runOn all', () => {
     await clock.advance(0);
     for (let i = 0; i < 20 && (await RunModel.where('Schedule', 'local-cache')).length === 0; i++) {
       await clock.advance(50);
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(await RunModel.where('Schedule', 'local-cache')).to.have.length(1);
     await s.stop();

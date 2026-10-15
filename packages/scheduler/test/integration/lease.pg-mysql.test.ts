@@ -329,7 +329,7 @@ for (const target of REAL_DB_TARGETS) {
       const next = (await ScheduleModel.where('Name', 'it-every-second').first()).NextRunAt;
       expect(Math.abs((next ?? 0) - Date.now())).to.be.lessThan(10_000);
       // the first occurrence was computed from real database time when the scheduler booted
-      await new Promise((r) => setTimeout(r, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 1100));
       await r1.tickOnce();
       await r1.idle();
       const run = await RunModel.where('Schedule', 'it-every-second').orderByDescending('CreatedAt').first();

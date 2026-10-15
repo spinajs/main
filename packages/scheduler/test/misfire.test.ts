@@ -8,7 +8,11 @@ const iso = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 
 describe('planOccurrence', () => {
   it('runs an on-time occurrence (within the threshold)', () => {
-    const p = planOccurrence(makeDef('a', { every: '1m' }, MisfirePlanTask), at('2026-01-05T10:01:00Z'), at('2026-01-05T10:01:04Z'));
+    const p = planOccurrence(
+      makeDef('a', { every: '1m' }, MisfirePlanTask),
+      at('2026-01-05T10:01:00Z'),
+      at('2026-01-05T10:01:04Z'),
+    );
     expect(p).to.deep.include({ kind: 'run', trigger: 'schedule', skipped: 0 });
     expect(iso(p.next)).to.eq('2026-01-05T10:02:00.000Z');
   });
@@ -30,14 +34,24 @@ describe('planOccurrence', () => {
       at('2026-01-05T10:01:00Z'),
       at('2026-01-05T10:10:30Z'),
     );
-    expect(p).to.deep.include({ kind: 'run', trigger: 'catch-up', scheduledAt: at('2026-01-05T10:10:00Z'), skipped: 9 });
+    expect(p).to.deep.include({
+      kind: 'run',
+      trigger: 'catch-up',
+      scheduledAt: at('2026-01-05T10:10:00Z'),
+      skipped: 9,
+    });
     expect(iso(p.next)).to.eq('2026-01-05T10:11:00.000Z');
   });
 
   it('catch-up(3): runs the last three one after another', () => {
     const def = makeDef('a', { every: '1m', misfire: 'catch-up(3)' }, MisfirePlanTask);
     const p = planOccurrence(def, at('2026-01-05T10:01:00Z'), at('2026-01-05T10:10:30Z'));
-    expect(p).to.deep.include({ kind: 'run', trigger: 'catch-up', scheduledAt: at('2026-01-05T10:08:00Z'), skipped: 7 });
+    expect(p).to.deep.include({
+      kind: 'run',
+      trigger: 'catch-up',
+      scheduledAt: at('2026-01-05T10:08:00Z'),
+      skipped: 7,
+    });
     expect(iso(p.next)).to.eq('2026-01-05T10:09:00.000Z');
     const p2 = planOccurrence(def, at('2026-01-05T10:09:00Z'), at('2026-01-05T10:10:40Z'));
     expect(p2).to.deep.include({ scheduledAt: at('2026-01-05T10:09:00Z'), skipped: 0 });
@@ -54,7 +68,13 @@ describe('planOccurrence', () => {
   it('plans a missed one-off occurrence', () => {
     const def = makeDef('a', { at: '2026-01-05T10:00:00Z', misfire: 'run-once' }, MisfirePlanTask);
     const p = planOccurrence(def, at('2026-01-05T10:00:00Z'), at('2026-01-06T00:00:00Z'));
-    expect(p).to.deep.include({ kind: 'run', trigger: 'catch-up', scheduledAt: at('2026-01-05T10:00:00Z'), skipped: 0, next: null });
+    expect(p).to.deep.include({
+      kind: 'run',
+      trigger: 'catch-up',
+      scheduledAt: at('2026-01-05T10:00:00Z'),
+      skipped: 0,
+      next: null,
+    });
   });
 
   describe('after a long downtime on a cron schedule', () => {
@@ -87,19 +107,33 @@ describe('planOccurrence', () => {
 
     it('run-once: finds the latest missed occurrence without enumerating the window', () => {
       const p = planOccurrence(cronDef('run-once'), from, now);
-      expect(p).to.deep.include({ kind: 'run', trigger: 'catch-up', scheduledAt: at('2027-01-05T10:10:00Z'), skippedCapped: true });
+      expect(p).to.deep.include({
+        kind: 'run',
+        trigger: 'catch-up',
+        scheduledAt: at('2027-01-05T10:10:00Z'),
+        skippedCapped: true,
+      });
       expect(iso(p.next)).to.eq('2027-01-05T10:11:00.000Z');
       expect(calls).to.be.below(300);
     });
 
     it('catch-up(3): starts with the third-to-last missed occurrence', () => {
       const p = planOccurrence(cronDef('catch-up(3)'), from, now);
-      expect(p).to.deep.include({ kind: 'run', trigger: 'catch-up', scheduledAt: at('2027-01-05T10:08:00Z'), skippedCapped: true });
+      expect(p).to.deep.include({
+        kind: 'run',
+        trigger: 'catch-up',
+        scheduledAt: at('2027-01-05T10:08:00Z'),
+        skippedCapped: true,
+      });
       expect(iso(p.next)).to.eq('2027-01-05T10:09:00.000Z');
       expect(calls).to.be.below(400);
     });
 
-    const warsaw = makeDef('a', { cron: '30 2 * * *', timezone: 'Europe/Warsaw', misfire: 'catch-up(3)' }, MisfirePlanTask);
+    const warsaw = makeDef(
+      'a',
+      { cron: '30 2 * * *', timezone: 'Europe/Warsaw', misfire: 'catch-up(3)' },
+      MisfirePlanTask,
+    );
     const fullScan = (start: number, end: number) => {
       const all: number[] = [];
       for (let t: number | null = start; t !== null && t <= end; t = nextOccurrence(warsaw.spec, t)) all.push(t);
@@ -120,7 +154,11 @@ describe('planOccurrence', () => {
       const end = at('2026-04-02T12:00:00Z');
       const all = fullScan(start, end);
       const p = planOccurrence(warsaw, start, end);
-      expect(p).to.deep.include({ scheduledAt: all[all.length - 3], next: all[all.length - 2], skipped: all.length - 3 });
+      expect(p).to.deep.include({
+        scheduledAt: all[all.length - 3],
+        next: all[all.length - 2],
+        skipped: all.length - 3,
+      });
       expect(p).to.not.have.property('skippedCapped');
     });
   });

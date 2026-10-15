@@ -29,7 +29,7 @@ interface Missed {
 
 const after = (spec: ScheduleSpec, t: number) => nextOccurrence(spec, t) ?? Infinity;
 
-/** Latest occurrence in `[from, to]`, where `from` is an occurrence: bisects on "the next one after p is still <= to". */
+/** Latest occurrence in `[from, to]`, where `from` is an occurrence: bisects on "the next one after p is not past to". */
 function lastAtOrBefore(spec: ScheduleSpec, from: number, to: number): number {
   if (after(spec, from) > to) return from;
   let lo = from;
@@ -85,7 +85,14 @@ export function planOccurrence(def: ScheduleDefinition, expected: number, now: n
     case 'skip':
       return { kind: 'misfire', scheduledAt: expected, next: next(latest), skipped: m.total, ...capped };
     case 'run-once':
-      return { kind: 'run', scheduledAt: latest, trigger: 'catch-up', next: next(latest), skipped: m.total - 1, ...capped };
+      return {
+        kind: 'run',
+        scheduledAt: latest,
+        trigger: 'catch-up',
+        next: next(latest),
+        skipped: m.total - 1,
+        ...capped,
+      };
     case 'catch-up': {
       const first = m.items[0];
       return {

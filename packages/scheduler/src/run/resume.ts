@@ -57,7 +57,9 @@ export async function loadResumeMap(run: RunModel, def: ScheduleDefinition): Pro
   const from = run.ResumeFrom ?? null;
   if (!from && !(def.resumable && run.Attempt > 1)) return null;
 
-  const map = from ? buildResumeMap(await RunStepModel.where('RunId', from.runId), from.fromStep) : new Map<string, unknown>();
+  const map = from
+    ? buildResumeMap(await RunStepModel.where('RunId', from.runId), from.fromStep)
+    : new Map<string, unknown>();
   // the run's own attempts come later than the resumed run's, so their results win
   const own = await RunStepModel.where('RunId', run.Id);
   for (const [key, value] of buildResumeMap(own)) map.set(key, value);

@@ -231,7 +231,8 @@ export class RunExecutor {
 
     const abortReason = outcome.kind === 'aborted' ? outcome.reason : undefined;
     const raw = outcome.kind === 'error' ? outcome.error : new RunAbortedError(outcome.reason);
-    const error = abortReason === 'cancelled' ? null : toStructuredError(raw, { attempt: run.Attempt, occurredAt: now, step });
+    const error =
+      abortReason === 'cancelled' ? null : toStructuredError(raw, { attempt: run.Attempt, occurredAt: now, step });
     // a task still running may still need the schedule lease to keep others out
     const keepScheduleLease = outcome.kind === 'aborted' && !outcome.settled;
     const f = decideAfterFailure({ retry: def.retry, emit: !!def.emit, attempt: run.Attempt, error: raw, abortReason });

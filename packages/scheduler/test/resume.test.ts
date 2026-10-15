@@ -14,7 +14,13 @@ import { bootTestEnv } from './support/env.js';
 import { getRun, journal, queuedRun } from './support/fixtures.js';
 
 describe('buildResumeMap', () => {
-  const r = (Attempt: number, Seq: number, Name: string, Status: 'succeeded' | 'failed' | 'skipped', Result: unknown = null) => ({
+  const r = (
+    Attempt: number,
+    Seq: number,
+    Name: string,
+    Status: 'succeeded' | 'failed' | 'skipped',
+    Result: unknown = null,
+  ) => ({
     Attempt,
     Seq,
     Name,
@@ -93,7 +99,11 @@ describe('resume on automatic retry', () => {
   afterEach(() => NAMES.forEach(undefineSchedule));
 
   async function boot() {
-    defineSchedule(ResumableImport, 'resumable-import', { manual: true, resumable: true, retry: { attempts: 2, delay: '1s' } });
+    defineSchedule(ResumableImport, 'resumable-import', {
+      manual: true,
+      resumable: true,
+      retry: { attempts: 2, delay: '1s' },
+    });
     defineSchedule(ResumableImport, 'plain-import', { manual: true, retry: { attempts: 2, delay: '1s' } });
     defineSchedule(ResumableImport, 'resumed-retry', { manual: true, retry: { attempts: 3, delay: '1s' } });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
@@ -116,13 +126,12 @@ describe('resume on automatic retry', () => {
       ['save', 'succeeded'],
     ]);
     expect(second[0].Result).to.deep.eq({ rows: 3 });
-    const events = (await journal(run.Id)).filter((e) => e.attempt === 2 && e.type.startsWith('step-'));
-    expect(events.map((e) => e.type === 'step-end' ? `end:${e.step}:${e.status}` : `${e.type}:${'step' in e ? e.step : ''}`)).to.deep.eq([
-      'step-start:load',
-      'end:load:skipped',
-      'step-start:save',
-      'end:save:succeeded',
-    ]);
+    const steps = (await journal(run.Id)).flatMap((e) => {
+      if (e.attempt !== 2) return [];
+      if (e.type === 'step-start') return [`start:${e.step}`];
+      return e.type === 'step-end' ? [`end:${e.step}:${e.status}`] : [];
+    });
+    expect(steps).to.deep.eq(['start:load', 'end:load:skipped', 'start:save', 'end:save:succeeded']);
   });
 
   it('re-runs every step when the schedule is not resumable', async () => {
@@ -137,8 +146,22 @@ describe('resume on automatic retry', () => {
   it('a resumed manual retry also skips the steps its own earlier attempt completed', async () => {
     await boot();
     // the failed parent: nothing of it is reused because the retry restarts at `load`
-    const parent = await queuedRun('resumed-retry', clock.now(), { Status: 'failed', StartedAt: clock.now(), MaxAttempts: 3 });
-    await RunStepModel.create({ RunId: parent.Id, Attempt: 1, Seq: 1, Name: 'load', Status: 'succeeded', Weight: 1, StartedAt: clock.now(), Progress: 100, Result: { rows: 99 } });
+    const parent = await queuedRun('resumed-retry', clock.now(), {
+      Status: 'failed',
+      StartedAt: clock.now(),
+      MaxAttempts: 3,
+    });
+    await RunStepModel.create({
+      RunId: parent.Id,
+      Attempt: 1,
+      Seq: 1,
+      Name: 'load',
+      Status: 'succeeded',
+      Weight: 1,
+      StartedAt: clock.now(),
+      Progress: 100,
+      Result: { rows: 99 },
+    });
     const retry = await queuedRun('resumed-retry', clock.now(), {
       Trigger: 'retry',
       ParentRunId: parent.Id,
