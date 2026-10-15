@@ -10,3 +10,6 @@ export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
 export * from './ancestors/index.js';
 export { OrmResourceAdapter } from './adapter.js';
+// Registers AncestorMiddleware as a QueryMiddleware.
+import './ancestors/middleware.js';
+export { AncestorMiddleware } from './ancestors/middleware.js';
