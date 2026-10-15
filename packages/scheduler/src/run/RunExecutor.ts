@@ -179,7 +179,8 @@ export class RunExecutor {
         Params: run.Params ?? {},
       };
       const sent = await this.boundedEmit(
-        (job as unknown as typeof QueueJob).emit(payload),
+        // a synchronous throw is a failed emit like a rejection
+        new Promise((resolve) => resolve((job as unknown as typeof QueueJob).emit(payload))),
         signal,
         Math.max(0, emitDeadline - this.Clock.now()),
         cfg.shutdownGrace,
