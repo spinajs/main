@@ -295,5 +295,5 @@ L0 → L1 → L7 → L12 → L2 → L3 → L4 → L6 → L8 → L10 → L11 → 
 
 - `npm run build` at the root succeeds; `node scripts/api-snapshot.mjs --check` passes.
 - `npm test` passes in: orm, authz, authz-rbac, authz-abac, authz-orm, authz-http, http-socket, authz-queue, authz-fs, authz-testing, users, configuration-http, queue-http-progress, eslint-plugin-authz.
-- No file in the repo imports `@spinajs/authz-orm/native`, `OrmScope`, `OrmScopePolicy`, `OrmNativeCompiler`, `ScopeColumn` or `RbacOrmCompiler` (`grep -rE "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test` returns nothing).
+- No file in the repo imports `@spinajs/authz-orm/native`, `OrmScope`, `OrmScopePolicy`, `OrmNativeCompiler`, `ScopeColumn` or `RbacOrmCompiler` (`grep -rE --exclude='*.md' "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test | grep -v '^packages/authz-convert/test/analyze\.test\.ts:'` returns nothing). Markdown files (history such as `users/test/LEDGER.md`) and `authz-convert/test/analyze.test.ts`, whose negative assertion names `@OrmScope`, are excluded on purpose.
 - L9's end-to-end suite passes on SQLite and PostgreSQL.
