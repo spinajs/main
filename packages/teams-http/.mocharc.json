@@ -6,7 +6,8 @@
     "test/**/*.test.ts"
   ],
   "file": [
-    "test/setup.ts"
+    "test/setup.ts",
+    "test/hooks.ts"
   ],
   "timeout": 60000,
   "node-option": [
