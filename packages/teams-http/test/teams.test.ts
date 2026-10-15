@@ -41,6 +41,18 @@ describe('teams routes', function () {
       expect((await as(alice).post('/teams', { slug: uniq('team'), name: 'x', parentId: team.id })).status).to.eq(403);
     });
 
+    it('checks team:create at the body parentId: an owner of only the parent creates a sub-team, not under an archived parent', async () => {
+      const { owner, team } = await ownedTeam();
+      const other = uniq('owner');
+      await grantAt(other, 'team.owner', teamRef(team.id));
+      const child = await as(other).post('/teams', { slug: uniq('team'), name: 'Child', parentId: team.id });
+      expect(child.status, JSON.stringify(child.body)).to.eq(200);
+      expect(child.body.parentId).to.eq(team.id);
+
+      expect((await as(owner).post(`/teams/${team.id}/archive`)).status).to.eq(200);
+      expect((await as(other).post('/teams', { slug: uniq('team'), name: 'x', parentId: team.id })).status, 'teams.archived.write denies team:create').to.eq(403);
+    });
+
     it('validates the body against the CreateTeamBody schema', async () => {
       const owner = await platformUser();
       for (const body of [{ name: 'no slug' }, { slug: 'Bad Slug', name: 'x' }, { slug: uniq('team'), name: '' }, { slug: uniq('team'), name: 'x', color: 'red' }]) {
