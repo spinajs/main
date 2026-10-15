@@ -11,7 +11,11 @@ const clamp01 = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v))
 
 export function normalizeProgress(p: ProgressInput): NormalizedProgress {
   if (typeof p === 'number') return { fraction: clamp01(p / 100) };
-  const out: NormalizedProgress = { fraction: p.total > 0 ? clamp01(p.done / p.total) : 0, done: p.done, total: p.total };
+  const out: NormalizedProgress = {
+    fraction: p.total > 0 ? clamp01(p.done / p.total) : 0,
+    done: p.done,
+    total: p.total,
+  };
   if (p.message !== undefined) out.message = p.message;
   return out;
 }

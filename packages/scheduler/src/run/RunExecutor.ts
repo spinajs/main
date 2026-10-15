@@ -6,7 +6,8 @@ import { RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
-import type { RunModel } from '../models/RunModel.js';
+import { RunModel } from '../models/RunModel.js';
+import { RunStepModel } from '../models/RunStepModel.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock } from '../time/clock.js';
@@ -135,15 +136,34 @@ export class RunExecutor {
     }
   }
 
-  protected createContext(
+  protected async createContext(
     run: RunModel,
     def: ScheduleDefinition,
     signal: AbortSignal,
     cfg: SchedulerConfig,
   ): Promise<RunContext> {
-    return Promise.resolve(
-      new RunContext({ run, def, signal, events: this.Events, clock: this.Clock, log: this.Log, config: cfg }),
-    );
+    return new RunContext({
+      run,
+      def,
+      signal,
+      events: this.Events,
+      clock: this.Clock,
+      log: this.Log,
+      config: cfg,
+      plannedWeight: await this.plannedWeight(def.name),
+      onStepFinished: (step, status, ms) => this.Signals.stepFinished(run, step, status, ms),
+    });
+  }
+
+  /** Step weight of the schedule's last succeeded run: the best guess for this run's total (R10). */
+  protected async plannedWeight(schedule: string): Promise<number> {
+    const last = await RunModel.where('Schedule', schedule)
+      .where('Status', 'succeeded')
+      .orderByDescending('FinishedAt')
+      .first();
+    if (!last) return 0;
+    const steps = await RunStepModel.where('RunId', last.Id).where('Attempt', last.Attempt);
+    return steps.reduce((sum, s) => sum + (s.Weight ?? 1), 0);
   }
 
   protected async invoke(def: ScheduleDefinition, ctx: RunContext): Promise<unknown> {
@@ -227,7 +247,7 @@ export class RunExecutor {
       return;
     }
 
-    const d = this.decide(run, def, outcome, now, ctx.currentStepName);
+    const d = this.decide(run, def, outcome, now, ctx.stepOf(outcome));
     const explicit = ctx.explicitResult;
     const result = outcome.kind === 'ok' ? safeJson(explicit.set ? explicit.value : outcome.value) : undefined;
     const snap = ctx.snapshot();
