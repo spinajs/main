@@ -5,13 +5,12 @@ import type { ModelFactory } from '@spinajs/authz-testing';
 import * as fc from 'fast-check';
 import 'mocha';
 
-import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, createRbacExtensions, rbacAssignmentExtension } from '../../src/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '../../src/index.js';
 import type { LadderDef, RbacModelOptions, RoleDef } from '../../src/index.js';
 
 /*
  * runModelConformance over RbacModel with what L1b adds: a ladder (implicit extends, ranks), implied
- * roles, a subject set, and restrict, cap and threshold rules (org-attribute conditions included),
- * once with the default extensions and once with the list extension (args v2, rules: true).
+ * roles, a subject set, and cap and threshold rules.
  */
 
 const O1: ResourceRef = { type: 'org', id: 'o1' };
@@ -33,13 +32,6 @@ const ROLES: RoleDef[] = [role('viewer', [{ permission: 'file:read' }], { ladder
 const GLOBAL_RULES: Omit<RuleDef, 'source'>[] = [
   { id: 'cap-dave', kind: 'cap', scope: GLOBAL, ladder: 'files', maxRole: 'viewer', subjects: { refs: [{ type: 'user', id: 'dave' }] } },
   { id: 'delete-admins', kind: 'threshold', scope: GLOBAL, permissions: ['file:delete'], minRole: 'admin' },
-];
-// Rules per path and per row, which the list extension carries in its terms.
-const PATH_RULES: Omit<RuleDef, 'source'>[] = [
-  { id: 'cap-p2', kind: 'cap', scope: P2, ladder: 'files', maxRole: 'viewer' },
-  { id: 'restrict-p3', kind: 'restrict', scope: P3, allow: [{ type: 'user', id: 'bob' }] },
-  { id: 'cap-locked', kind: 'cap', scope: GLOBAL, ladder: 'files', maxRole: 'viewer', when: { attr: 'scope.org.policies.locked', eq: true } },
-  { id: 'strict-delete', kind: 'threshold', scope: O1, permissions: ['file:delete', 'file:write'], minRole: 'admin', when: { attr: 'scope.org.policies.strict', eq: true } },
 ];
 
 const USERS = ['alice', 'bob', 'dave', 'erin'];
@@ -86,7 +78,7 @@ function adapter(): FakeAdapter {
 }
 
 const factory =
-  (pool: readonly Omit<RuleDef, 'source'>[], lists: boolean): ModelFactory<Seed> =>
+  (pool: readonly Omit<RuleDef, 'source'>[]): ModelFactory<Seed> =>
   ({ seed, shuffle }) => {
     const temp: Assignment = { id: 'temp', subject: user('temp'), role: 'viewer', scope: GLOBAL, source: 'conformance', expiresAt: new Date(CONFORMANCE_NOW.getTime() + HOUR) };
     const rows: Assignment[] = [
@@ -109,7 +101,7 @@ const factory =
     const store = new MemoryAssignmentStore(shuffle(rows));
     const rules = new ConfigRuleStore(shuffle(seed.rules.map((i) => ({ ...pool[i], source: 'conformance' }))));
     const options: RbacModelOptions = { roles: new MemoryRoleStore(shuffle(ROLES), LADDERS), assignments: store, rules, log: { warn: () => undefined } };
-    const model = new RbacModel({ ...options, ...(lists ? { extensions: [...createRbacExtensions(options), rbacAssignmentExtension(options, { rules: true })] } : {}) });
+    const model = new RbacModel(options);
     const files = adapter();
     const rowA = files.all('file')[0];
     const scopes = new FakeScopeResolver({
@@ -155,6 +147,5 @@ const factory =
   };
 
 describe('authz-rbac L1b: conformance', () => {
-  runModelConformance('RbacModel with ladders, implies, sets and rules (default extensions)', factory(GLOBAL_RULES, false), { seeds: seeds(GLOBAL_RULES), timeoutMs: 300_000 });
-  runModelConformance('RbacModel with ladders, implies, sets and rules on every path (list extension)', factory([...GLOBAL_RULES, ...PATH_RULES], true), { seeds: seeds([...GLOBAL_RULES, ...PATH_RULES]), timeoutMs: 300_000 });
+  runModelConformance('RbacModel with ladders, implies, sets and rules (default extensions)', factory(GLOBAL_RULES), { seeds: seeds(GLOBAL_RULES), timeoutMs: 300_000 });
 });

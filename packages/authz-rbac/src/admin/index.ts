@@ -8,6 +8,7 @@ export * from './forgetter.js';
 export * from './membership.js';
 export * from './facts.js';
 export * from './guard.js';
+export * from './list-guard.js';
 export { plannedRemovals } from './common.js';
 export type { PlannedRemovals } from './common.js';
 export { loadRoleIndex } from './common.js';

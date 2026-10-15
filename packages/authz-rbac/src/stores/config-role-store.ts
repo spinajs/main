@@ -16,7 +16,7 @@ interface RoleEntry extends Partial<Omit<RoleDef, 'name' | 'grants' | 'source'>>
 type LadderEntry = Omit<LadderDef, 'name'>;
 type Raw = Record<string, unknown>;
 
-const ROLE_KEYS = ['ladder', 'extends', 'grants', 'revoke', 'implies', 'subjectSet', 'assignable', 'scopeTypes', 'description'];
+const ROLE_KEYS = ['ladder', 'extends', 'grants', 'revoke', 'implies', 'subjectSet', 'deny', 'assignable', 'scopeTypes', 'description'];
 const GRANT_KEYS = ['permission', 'relation', 'on', 'fields', 'requiresTag', 'grantedAt'];
 const LADDER_KEYS = ['roles', 'resourceTypes'];
 
@@ -64,6 +64,7 @@ function role(name: string, entry: RoleEntry, path: string): RoleDef {
   refuse(!Array.isArray(grants), `${path}.grants`, 'must be a list');
   refuse(typeof assignable !== 'boolean', `${path}.assignable`, 'must be true or false');
   refuse(rest.scopeTypes !== undefined && !isNames(rest.scopeTypes), `${path}.scopeTypes`, 'must be a list of scope types');
+  refuse(rest.deny !== undefined && typeof rest.deny !== 'boolean', `${path}.deny`, 'must be true or false');
   const revoked = new Set(revoke);
   return {
     name,

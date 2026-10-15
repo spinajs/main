@@ -37,6 +37,12 @@ export interface GrantIndex {
   /** Sorted. */
   permissions(role: string): readonly Permission[];
   granted(permission: Permission): boolean;
+  /** Deny roles only: whether `role` denies `permission` (its grants and those of the deny roles it extends, globs expanded, `implies` not followed). */
+  denies(role: string, permission: Permission): boolean;
+  /** Sorted; empty for a permit role. */
+  deniedPermissions(role: string): readonly Permission[];
+  /** Some deny role denies it. */
+  denied(permission: Permission): boolean;
   /** Globs that matched no registered permission; accepted so optional packages' config stays bootable. */
   readonly unmatchedGlobs: readonly GlobNote[];
   /** Glob grants with `fields` whose matched permissions all lack `fields: true`, so the fields reach none of them. */
@@ -64,7 +70,16 @@ const NONE: readonly never[] = Object.freeze([]);
 export function compileGrants(graph: RoleGraph, registry: PermissionRegistry): GrantIndex {
   const notes: Notes = { unmatchedGlobs: [], droppedFields: [] };
   const own = new Map<string, Grants>();
-  for (const name of graph.names) own.set(name, ownGrants(graph.get(name)!.def, registry, notes));
+  const ownDenied = new Map<string, readonly Permission[]>();
+  for (const name of graph.names) {
+    const def = graph.get(name)!.def;
+    if (def.deny === true) {
+      own.set(name, new Map());
+      ownDenied.set(name, deniedOf(def, registry, notes));
+    } else {
+      own.set(name, ownGrants(def, registry, notes));
+    }
+  }
 
   const byRole = new Map<string, { grants: Grants; permissions: readonly Permission[] }>();
   const granted = new Set<Permission>();
@@ -86,10 +101,22 @@ export function compileGrants(graph: RoleGraph, registry: PermissionRegistry): G
     byRole.set(name, { grants, permissions: Object.freeze(permissions) });
   }
 
+  const denials = new Map<string, readonly Permission[]>();
+  const denied = new Set<Permission>();
+  for (const name of graph.names) {
+    if (graph.get(name)!.def.deny !== true) continue;
+    const list = [...new Set(graph.get(name)!.closure.flatMap((r) => ownDenied.get(r) ?? []))].sort(compareCodePoints);
+    denials.set(name, Object.freeze(list));
+    for (const p of list) denied.add(p);
+  }
+
   return Object.freeze({
     grants: (role: string, permission: Permission) => byRole.get(role)?.grants.get(permission) ?? NONE,
     permissions: (role: string) => byRole.get(role)?.permissions ?? NONE,
     granted: (permission: Permission) => granted.has(permission),
+    denies: (role: string, permission: Permission) => denials.get(role)?.includes(permission) === true,
+    deniedPermissions: (role: string) => denials.get(role) ?? NONE,
+    denied: (permission: Permission) => denied.has(permission),
     unmatchedGlobs: Object.freeze(notes.unmatchedGlobs.map((u) => Object.freeze(u))),
     droppedFields: Object.freeze(notes.droppedFields.map((u) => Object.freeze(u))),
   });
@@ -148,6 +175,19 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
       }
     }
     if (grant.fields !== undefined && direct.length > 0 && !fieldsCarried) notes.droppedFields.push({ role: role.name, glob: grant.permission });
+  }
+  return out;
+}
+
+/** The registered permissions a deny role names, never what they imply (lane decision 2). */
+function deniedOf(role: RoleDef, registry: PermissionRegistry, notes: Notes): readonly Permission[] {
+  const at = `Role '${role.name}' (source: ${role.source})`;
+  const out: Permission[] = [];
+  for (const grant of role.grants) {
+    validateGrant(grant, at);
+    const direct = matchGrant(grant, registry, at);
+    if (direct.length === 0) notes.unmatchedGlobs.push({ role: role.name, glob: grant.permission });
+    out.push(...direct.map((d) => d.name));
   }
   return out;
 }

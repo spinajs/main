@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import * as fc from 'fast-check';
 import 'mocha';
 
-import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, createRbacExtensions, rbacAssignmentExtension } from '../../src/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, createRbacExtensions } from '../../src/index.js';
 import type { LadderDef, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -101,7 +101,7 @@ async function build(w: World, opts: { readonly extra?: readonly Omit<RuleDef, '
   const rows = w.assignments.map((a, i): Assignment => ({ id: `a${i}`, subject: { type: 'user', id: PEOPLE[a.who] }, role: ROLE_NAMES[a.role], scope: SCOPES[a.scope], source: 'test' }));
   const rules = [...w.rules.map((i) => RULES[i]), ...(opts.extra ?? [])].map((x): RuleDef => ({ ...x, source: 'test' }));
   const base = { roles: new MemoryRoleStore(shuffled(roles, order), ladders), assignments: new MemoryAssignmentStore(shuffled(rows, order)), rules: new ConfigRuleStore(shuffled(rules, order)) };
-  const model = new RbacModel({ ...base, extensions: [...createRbacExtensions(base), rbacAssignmentExtension(base, { rules: true })], log: { warn: () => undefined } });
+  const model = new RbacModel({ ...base, extensions: createRbacExtensions(base), log: { warn: () => undefined } });
   await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
   const scopes = new FakeScopeResolver({
     types: ['org', 'project', 'file'],
@@ -111,7 +111,8 @@ async function build(w: World, opts: { readonly extra?: readonly Omit<RuleDef, '
   return { model, ctx: () => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes], conditions: new DefaultConditionCompiler(undefined, [scopes]), nativeFilters: natives }) };
 }
 
-const vote = (b: Built, principal: Principal, permission: string, resource: ResourceRef, c = b.ctx()): Promise<Vote> => Promise.resolve(b.model.evaluate({ principal, permission, resource }, c));
+// After preload a vote is synchronous, so a type-level RuleRowsError throws instead of rejecting.
+const vote = (b: Built, principal: Principal, permission: string, resource: ResourceRef, c = b.ctx()): Promise<Vote> => Promise.resolve().then(() => b.model.evaluate({ principal, permission, resource }, c));
 const decided = (v: Vote): ResourceFilter => ({ op: 'and', args: [v.permitWhen, { op: 'not', arg: v.denyWhen }] });
 const holds = (f: ResourceFilter, row: (typeof FILES)[number], principal: Principal, c: EvaluationContext) => evaluateFilter(f, { id: row.ref.id, name: row.name }, { principal, ref: row.ref, context: c }).then((t) => t === true);
 

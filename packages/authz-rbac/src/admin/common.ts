@@ -265,6 +265,13 @@ export function surelyGrantsPermission(roles: RoleIndex, role: string, permissio
   });
 }
 
+export const isDenyRoleDef = (roles: RoleIndex, role: string): boolean => roles.roles.get(role)?.deny === true;
+
+/** A deny role whose grants, or those of the deny roles it extends, name `permission` (names or globs; a deny follows no `implies`). */
+export function deniesPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
+  return isDenyRoleDef(roles, role) && roleClosure(roles, role).defs.some((d) => d.deny === true && d.grants.some((g) => matchesAny(g.permission, [permission])));
+}
+
 // ---- command fields ----
 
 /** A command field of the wrong shape; the codes list of the contract has none for it. */
@@ -284,6 +291,7 @@ export function readRef(v: unknown, field: string): ResourceRef {
 export function readScope(v: unknown, field: string): ResourceRef {
   const ref = readRef(v, field);
   if (ref.type !== GLOBAL.type && ref.id === undefined) throw invalid(field, `${field} must be GLOBAL or name one resource (a type and an id)`);
+  if (ref.id === '*') throw invalid(field, `${field} must name one resource; '*' is a wildcard of principal subjects only`);
   return ref.type === GLOBAL.type ? { type: GLOBAL.type } : ref;
 }
 
@@ -296,6 +304,7 @@ export function readNode(v: unknown, field: string): ResourceRef {
 
 export function readPrincipal(v: unknown, field: string): PrincipalRef {
   if (!isObject(v) || typeof v.type !== 'string' || v.type === '' || typeof v.id !== 'string' || v.id === '') throw invalid(field, `${field} must be a principal ref { type, id }`);
+  if (v.type === '*') throw invalid(field, `${field} must name a principal type; '*:*' is refused, a wildcard is { type, id: '*' }`);
   return copyPrincipalRef(v as unknown as PrincipalRef);
 }
 

@@ -24,10 +24,10 @@ export interface ActiveRule {
   readonly indeterminate?: string;
 }
 
-/** Rules make the answer differ per row of a type-level request in a way the v1 terms cannot express: the vote fails closed. */
+/** Rules make the answer differ per row of a type-level request in a way a type-level vote cannot express: the vote fails closed. */
 export class RuleRowsError extends Error {
   constructor(ids: readonly string[], type: ResourceType, detail?: string) {
-    super(`rbac: rule(s) ${ids.map((id) => `'${id}'`).join(', ')} may apply differently to each row of '${type}', which the v1 list terms cannot express; use rbacAssignmentExtension with rules: true for this type${detail ? ` (${detail})` : ''}`);
+    super(`rbac: rule(s) ${ids.map((id) => `'${id}'`).join(', ')} may apply differently to each row of '${type}', which a type-level vote cannot express; check rows one by one, lists of it are refused (listSupport)${detail ? ` (${detail})` : ''}`);
     this.name = 'RuleRowsError';
   }
 }
