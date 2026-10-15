@@ -3,6 +3,8 @@ import { Config } from '@spinajs/configuration';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { RunStatus } from '../contract.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
+import { RunModel } from '../models/RunModel.js';
+import { defined } from '../models/converters.js';
 import { defaultReplicaId } from './replica.js';
 
 export interface OccurrenceInput {
@@ -11,6 +13,18 @@ export interface OccurrenceInput {
   nextRunAt: number | null;
   /** Database time (DbClock), never the replica clock. */
   now: number;
+}
+
+export interface RunProgressPatch {
+  Progress?: number;
+  CurrentStep?: string | null;
+  Message?: string | null;
+}
+
+export interface RunExpiry {
+  status: RunStatus;
+  reason: string;
+  nextAttemptAt: number | null;
 }
 
 const leaseFree = (now: number) =>
@@ -65,5 +79,73 @@ export class LeaseStore {
 
   public async recordLast(name: string, now: number, status: RunStatus, runId: string): Promise<void> {
     await ScheduleModel.update({ LastFinishedAt: now, LastStatus: status, LastRunId: runId, UpdatedAt: now }).where('Name', name);
+  }
+
+  /**
+   * Claims a `queued` or `retrying` run as observed in `run`, which is updated on success.
+   * A non-forced run first takes the schedule lease, which is what keeps runs of one schedule from overlapping.
+   */
+  public async claimRun(run: RunModel, now: number): Promise<boolean> {
+    if (!run.Forced && !(await this.acquireScheduleLease(run.Schedule, now))) return false;
+
+    const claimed = {
+      Status: 'running' as const,
+      Attempt: run.Status === 'retrying' ? run.Attempt + 1 : run.Attempt,
+      LeaseOwner: this.ReplicaId,
+      LeaseUntil: now + this.LeaseTtl,
+      StartedAt: run.StartedAt ?? now,
+      UpdatedAt: now,
+      NextAttemptAt: null,
+      Reason: null,
+    };
+    const r = await RunModel.update(claimed)
+      .where('Id', run.Id)
+      .where('Status', run.Status)
+      .where('Attempt', run.Attempt)
+      .where(function (this: IWhereBuilder<unknown>) {
+        this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now);
+      });
+
+    if (r.RowsAffected !== 1) {
+      if (!run.Forced) await this.releaseScheduleLease(run.Schedule, now);
+      return false;
+    }
+
+    Object.assign(run, claimed);
+    return true;
+  }
+
+  /** Heartbeat of a running run (and its schedule lease); `ok: false` means this replica lost the run. */
+  public async renewRun(runId: string, scheduleLease: string | null, now: number, patch: RunProgressPatch = {}): Promise<{ ok: boolean; cancelRequested: boolean }> {
+    const r = await RunModel.update({ ...defined(patch), LeaseUntil: now + this.LeaseTtl, UpdatedAt: now })
+      .where('Id', runId)
+      .where('LeaseOwner', this.ReplicaId)
+      .where('Status', 'running');
+    if (r.RowsAffected !== 1) return { ok: false, cancelRequested: false };
+    if (scheduleLease && !(await this.renewScheduleLease(scheduleLease, now))) return { ok: false, cancelRequested: false };
+    const row = await RunModel.where('Id', runId).first();
+    return { ok: true, cancelRequested: !!row?.CancelRequested };
+  }
+
+  /** `patch` holds static-update values: JSON columns already serialized with `jsonColumn()`. */
+  public async finishRun(runId: string, patch: Record<string, unknown>): Promise<boolean> {
+    const r = await RunModel.update(patch as never)
+      .where('Id', runId)
+      .where('LeaseOwner', this.ReplicaId);
+    return r.RowsAffected === 1;
+  }
+
+  /**
+   * Takes over another replica's `running` run whose lease ran out. Conditional on the observed
+   * `LeaseUntil`, so a heartbeat that landed after `run` was read wins over the expiry.
+   */
+  public async expireRun(run: RunModel, now: number, next: RunExpiry): Promise<boolean> {
+    const final = next.status !== 'retrying';
+    const r = await RunModel.update({ Status: next.status, Reason: next.reason, LeaseOwner: null, LeaseUntil: null, NextAttemptAt: next.nextAttemptAt, FinishedAt: final ? now : null, UpdatedAt: now })
+      .where('Id', run.Id)
+      .where('Status', 'running')
+      .where('LeaseUntil', run.LeaseUntil)
+      .where('LeaseUntil', '<', now);
+    return r.RowsAffected === 1;
   }
 }
