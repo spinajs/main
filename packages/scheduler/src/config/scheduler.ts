@@ -42,6 +42,26 @@ const scheduler = {
       schedules: [] as string[],
     },
   },
+  // Scheduler events go nowhere until an app routes them to a real connection.
+  queue: {
+    routing: {
+      ScheduleRunStarted: { connection: 'scheduler-empty-queue' },
+      ScheduleRunSucceeded: { connection: 'scheduler-empty-queue' },
+      ScheduleRunFailed: { connection: 'scheduler-empty-queue' },
+      ScheduleRetrying: { connection: 'scheduler-empty-queue' },
+      ScheduleDead: { connection: 'scheduler-empty-queue' },
+      ScheduleErrorRegressed: { connection: 'scheduler-empty-queue' },
+      SchedulePausedByFailures: { connection: 'scheduler-empty-queue' },
+    },
+    connections: [
+      {
+        name: 'scheduler-empty-queue',
+        service: 'BlackHoleQueueClient',
+        defaultQueueChannel: 'scheduler-jobs',
+        defaultTopicChannel: 'scheduler-events',
+      },
+    ],
+  },
   scheduler: {
     enabled: true,
     tick: 1000,
