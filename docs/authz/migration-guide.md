@@ -27,6 +27,7 @@ release notes (`RELEASE_NOTES.md` at the repository root) list every breaking ch
 9. [Behaviour changes, lane by lane](#9-behaviour-changes-lane-by-lane)
 10. [Security fixes an app sees](#10-security-fixes-an-app-sees)
 11. [Open items in 3.0.0-rc.1](#11-open-items-in-300-rc1)
+12. [From query scoping (2.x and 3.0.0-rc.1)](#12-from-query-scoping-2x-and-300-rc1)
 
 ## 1. Who must read this, and what changes
 
@@ -47,7 +48,6 @@ What bites, on one screen:
 | **Resets and invites carry over (H35)** | Pending password resets and invites become hashed `authn_secret` rows with their 2.x expiry. A link already mailed works once. `down()` cannot restore them. | Nothing, unless you roll back. |
 | **No re-export shims (H25)** | The old npm names stop at 2.x. They get `npm deprecate` and nothing else. | Change dependencies and imports (step 1). |
 | **`rbac.*` config fails boot** | No package reads or ships a `rbac.*` key. Boot fails on one and names the converter, because `authz.config.rejectLegacyKeys` defaults to `true`. `false` only warns. | Run the converter, then delete every `rbac.*` key (step 2). |
-| **PostgreSQL needs `jit = off`** | authz-orm refuses a PostgreSQL connection that runs with `jit = on`, the server default, at domain boot or at the first scoped query. With JIT on, rule lists take seconds. | `ALTER ROLE <role> SET jit = off` (or per database, or `PGOPTIONS='-c jit=off'`). `authz.orm.allowJit: true` turns the check off. |
 | **`@Access` on class and route combine** | 2.x let the route replace the class. 3.0 ANDs them. | Check controllers that relied on the replacement. |
 | **Token expiry is mandatory** | Tokens without `ExpiresAt` get `CreatedAt + authn.token.maxTtlDays` at migration. | Tell the owners (the converter lists them with `--db`). |
 | **A token's role never exceeds its owner's** | The 2.x grant-subset check is gone. A role the owner lacks grants nothing. | Port or drop a custom token role policy (example g). |
@@ -240,7 +240,7 @@ npx spinajs-authz-convert lib/mjs/config --out src/config --db rbac-facts.json -
   themselves or through what they import.
 - `--out <dir>`: where the files go (default `./authz-convert-output`). Existing files need `--force`.
 - `--src <dir>`: scans app sources for `@OrmResource`, `@ResourceOwner` and `@OrmPermission`, to
-  say which models need `@Owner` or an `@OrmScope` class.
+  say which models need `@Owner` and which relations become role assignments on the resource.
 - `--self-resources a,b`: resources whose `:own` means the caller's own account (default `user`).
 
 ### 4.1 Output
@@ -351,9 +351,9 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `@SkipModelPermission()` | `@Unscoped('reason')` or `authz().runAs(SYSTEM, 'reason', fn)` |
 | `user.canReadAny('X').granted`, `checkUserPermission`, `probeGrant`, `checkRbacPermission` | `await authz().can(authz().current(), 'X:read')` |
 | `permission.filter(data)` | `filterFields(decision, data, 'read')` (`authz-orm`) |
-| `PermissionService`, `ResourceRules<T>.owns()` | a `RelationResolver`, or `ownsBy(type, relation, fn)` (`authz-orm`), plus `authz().assert(...)` |
-| `@OrmResource`, `@ResourceOwner` | `@AccessResource`, `@Owner` (`authz-orm`); the 2.x scoping is gone, so a model without `@AccessResource` is not scoped at all |
-| `@OrmPermission(M, 'x') class P extends OrmPermissionPolicy` | `@OrmScope(M, 'x') class P extends OrmScopePolicy` with `scope(query, principal, op)` |
+| `PermissionService`, `ResourceRules<T>.owns()` | a `RelationResolver`, plus `authz().assert(...)` |
+| `@OrmResource`, `@ResourceOwner` | `@AccessResource`, `@Owner` (`authz-orm`); lists call `.accessible(permission)`, single objects are checked before access (section 12) |
+| `@OrmPermission(M, 'x') class P extends OrmPermissionPolicy` | no ORM form: assign a role on each resource row to the subjects the policy selected (section 12); a `RelationResolver` keeps single-object checks of relation `x` working meanwhile |
 | `effectiveRoles(user, storage)`, `req.storage.ActiveRole` | `principal.ceiling?.roles`; `RbacService.rolesOf(principal, at)`. `req.storage.ActiveRole` and `req.storage.Session` are never set. |
 | `grant(user, role)`, `revoke`, CLI `rbac:user-grant` | `AuthzAdmin.assign(actor, ...)`, `revoke`; CLI `authz:assign`, `authz:revoke` (`authz-rbac`) |
 | `GET /grants`, `/user/grants`, `Grants` in login | `GET /user/access`, `POST /user/access/checks`, and `Access` in the login, MFA, role switch, impersonation and whoami answers (users' `AccessResponseExtension`) |
@@ -457,22 +457,25 @@ Roles that are only extended get `assignable: false` (with `--db`), such as `rou
 
 ### 6.3 Example (b): the scope policy
 
+3.0 has no query policy. The partner relation becomes a role on each campaign, and the list asks for
+it:
+
 ```ts
-// 3.0 (@spinajs/authz-orm)
-@OrmScope(Campaign, 'partner')
-export class CampaignPartnerPolicy extends OrmScopePolicy<Campaign> {
-  scope(q: IWhereBuilder<Campaign>, p: Principal) { partnerManagedWithinPool(q, p.attributes.pool as string | undefined); }
-  authorizeCreate(q: InsertQueryBuilder, p: Principal) { q.forceColumn('campaign_management_company', 'partner'); }
-  authorizeUpdate(q: UpdateQueryBuilder, values: Record<string, unknown>) { assertStaysInScope('campaign_management_company', [values.campaign_management_company], 'partner'); }
-}
+// authz.rbac.roles: { 'campaign.partner': { scopeTypes: ['ArrowCampaign'], grants: ['ArrowCampaign:read', 'ArrowCampaign:update'] } }
+// authz.permissions: { 'ArrowCampaign:read': { list: true } }
+
+// when a campaign is created or its management company changes (one batch, as SYSTEM or an admin)
+await authz().admin().execute(actor, [
+  { kind: 'assignment.revokeWhere', scope: { type: 'ArrowCampaign', id: campaign.Id }, role: 'campaign.partner' },
+  { kind: 'assignment.grant', subject: { set: { role: 'pool.member', scope: { type: 'pool', id: campaign.Pool } } }, role: 'campaign.partner', scope: { type: 'ArrowCampaign', id: campaign.Id } },
+]);
+
+// the list
+const rows = await ArrowCampaign.where(filters).accessible('ArrowCampaign:read');
 ```
 
-A separate `QueryMiddleware` that guarded updates (`PolsatCampaignUpdateGuard`) is deleted:
-`authorizeUpdate` replaces it. It gets the update's values and, as its third argument, the principal.
-A policy whose `scope` reads a column an update can write must implement it, because the update
-check reads the relation from the stored row. `scope` runs as `SYSTEM` (for the check and for the
-list), so read the principal from its argument, never from `authz().current()`. More rules:
-`packages/authz-orm/README.md`.
+The update guard is a check before the write: `await authz().assert(me, 'ArrowCampaign:update',
+campaign)` on the stored row, and a check of the new pool when the request moves the campaign.
 
 ### 6.4 Example (c): a controller
 
@@ -493,13 +496,12 @@ The long comment about decorator order and the OR trap goes away. `@Access` is o
 
 ### 6.5 Example (d): a rules class
 
-`CampaignCommentPermission.owns()` becomes
-`ownsBy('CampaignComments', 'author', (p, c) => c.addedBy === p.identity.Id)`. The service calls
+`CampaignCommentPermission.owns()` becomes a `RelationResolver` for `author` on `CampaignComments`
+that compares `addedBy` with the principal's id. The service calls
 `await authz().assert(authz().current(), 'CampaignComments:update', comment)` and maps
-`decision.reason` to its own errors. `ownsBy` (from `@spinajs/authz-orm`) returns a `RelationResolver`
-with no SQL form, for `@AccessResource` types only; register it in the domain's container before the
-domain boots. A list cannot use such a relation in SQL, so give lists of that type an `@OrmScope`
-policy when they need one.
+`decision.reason` to its own errors. Register the resolver in the domain's container before the
+domain boots. A relation from a resolver works for single objects only; for lists of that type, make
+the relation a role assignment (section 12).
 
 ### 6.6 Example (e): effective roles
 
@@ -711,9 +713,9 @@ role grants (`relation: 'owner'`). Check: the compiler finds no `@Permission`, `
 ### Step 4: runtime checks and unattended entry points
 
 - Replace runtime checks (`user.can*`, `checkUserPermission`) with `authz().can(...)`.
-- Port every `OrmPermissionPolicy` class to an `OrmScopePolicy`, and mark scoped models with
-  `@AccessResource`. The 2.x `@OrmResource` scoping is gone: a model you do not mark is not scoped
-  at all.
+- Mark resource models with `@AccessResource` and `@Parent` / `@Owner`. Turn every
+  `OrmPermissionPolicy` into role assignments on the resource (section 12). Give every list query
+  `.accessible(permission)` and every single-object route a check before the write.
 - Add `runAs` where your code runs with no principal and touches a scoped model: your own CLI
   commands, `@Task` bodies, migrations, and `configuration-db-source` polling when its model has
   `@AccessResource`. users runs its own identity lookups (session restore, login, password reset) as
@@ -1612,9 +1614,66 @@ Known gaps an app may meet. None of them widens access.
 - **HTTP log redaction** covers query values, not secrets in a URL path (`/verify/<token>`) or short
   query keys. Some body-parser errors (too large, charset, parameters) still answer 500.
 - **OIDC** has no run against a real Keycloak yet (lane IC2).
-- **SQLite lists over stored rules** suit tests and small tables only (section 9, L4b).
 - **`configuration-db-source`** in a guarded app starts persisting and polling only once the HTTP
   server listens; a worker without an HTTP server waits.
 
 The `npm deprecate` pointers for the five 2.x package names (`@spinajs/rbac`, `rbac-http`,
 `rbac-http-user`, `rbac-http-admin`, `rbac-http-token`) are set at `3.0.0` final (H25).
+
+## 12. From query scoping (2.x and 3.0.0-rc.1)
+
+3.0.0-rc.1 scoped every select, update and delete of an `@AccessResource` model in a query middleware.
+3.0 does not rewrite queries (design: `docs/plans/2026-10-14-authz-resource-access-design.md`). Section
+9, lanes L4 and L4b, describes rc.1; this section replaces it. A 2.x app reads it after section 8.
+
+### 12.1 What changed
+
+| rc.1 | 3.0 |
+|---|---|
+| `@ScopeColumn('project_id', 'project')` | `@Parent('project')` on the column; ancestors live in `authz_resource_ancestor` |
+| `@OrmScope(Model, 'team')` with `OrmScopePolicy` | removed: a role assigned on the resource to a user or a subject set (`team:42#member`) |
+| `@AccessResource(type, { relationScope, attributes })` | `@AccessResource(type)`; scope attributes come from the scope resolver and `authz_scope_attribute` |
+| every select scoped | single objects checked before access; lists call `.accessible(permission)` on a `list: true` permission |
+| a select without a principal threw `AccessDenied` | a multi-row select without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM)` throws `AuthzConfigError` in the `test` env; a select on one primary key is a single-object load |
+| inserts stamped the owner, `authorizeCreate` / `authorizeUpdate` | the app checks the parent before a create and the row before an update |
+| `populate()`, junctions and clones scoped | not filtered: authorize the aggregate root |
+| rule SQL forms, `rule_not_compilable` | rules are check-only; `not_list_filterable` refuses what lists cannot honour |
+| `authz.abac.scopeResiduals`, `native:condition.scope` | removed |
+| `authz.orm.allowJit`, the PostgreSQL JIT check | removed |
+| `POST /user/access/check` | `POST /user/access/checks` (`{ checks }` → `{ results, reasons }`), `GET /user/access/events`, `X-Access-Epoch` |
+| job relation `initiator` | job relation `owner` (the initiator, `@Owner`-style with `typeColumn: 'InitiatorType'`) |
+| — | deny roles (`deny: true`), wildcard subjects (`user:*`), nested teams (`authz_subject_membership`) |
+
+### 12.2 Steps
+
+1. **Recreate the database.** 3.0 is unreleased, so the migrations were edited in place
+   (`authz_assignment.subject_key`, `authz_subject_membership`, `authz_resource_ancestor`, the rule
+   columns). Export what you need from an rc.1 database (`authz_assignment`, `authz_link`, `authz_policy`,
+   `authz_rule` definitions), recreate it, and import through `AuthzAdmin` (`assignment.grant`,
+   `set.addMember`, `policy.put`, `rule.put`).
+2. **Declarations.** Replace `@ScopeColumn(column, type)` with `@Parent(type)` on that column (add
+   `{ nullable: true }` for an optional or self parent). Drop `relationScope` and `attributes` from
+   `@AccessResource`. `registerAccessResource(model, type, { parents, owner })` replaces the rc.1 form
+   for models you do not own.
+3. **Relations.** For each `@OrmScope(Model, 'x')`: define a role holding the permissions that relation
+   gave, assign it on each row to the subjects the policy selected (a user, a team as
+   `{ set: { role, scope } }`, or `user:*`), keep the assignments right where rows are created or
+   moved, and delete the policy class. Grants with `relation: 'x'` in config become plain grants of
+   that role.
+4. **Lists.** Declare each permission a list uses with `list: true`, and give every list query
+   `.accessible(permission)`. Boot names every permission that something can grant only by reading the
+   row (`[6.5/12]`); for those, keep single-object checks and write the list's own WHERE.
+5. **Single objects.** Load as `SYSTEM` (or through `@Access` with `fromModel`), then
+   `authz().assert(me, permission, row)`. A create checks the parent; a move checks the new parent.
+6. **Run the tests in the `test` env.** The runtime guard fails every multi-row select that forgot
+   `.accessible()`; add `@spinajs/eslint-plugin-authz` to catch them in the editor.
+7. **Clients.** Move from `POST /user/access/check` to `POST /user/access/checks`; read `$access` from
+   lists made with `.withAccess(...)`; drop cached answers when `X-Access-Epoch` changes, and refetch
+   on `authz.changed`.
+8. **Imports outside the ORM.** After a raw import of rows with `@Parent` columns, run
+   `authz:ancestors-rebuild`.
+
+### 12.3 A 2.x app
+
+Follow sections 1 to 8, then 12.2 steps 2 to 7 in place of the `@OrmScope` advice of earlier drafts:
+an `OrmPermissionPolicy` becomes role assignments (step 3), never a query policy.
