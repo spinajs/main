@@ -23,7 +23,7 @@ const err = (message: string): StructuredError => ({
 });
 
 const LOCK_WAITS: Record<string, string> = {
-  postgres: `SELECT COUNT(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock'`,
+  postgres: `SELECT COUNT(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`,
   mysql: `SELECT COUNT(*) AS n FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'`,
 };
 

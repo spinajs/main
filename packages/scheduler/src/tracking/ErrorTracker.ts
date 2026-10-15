@@ -4,7 +4,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import type { StructuredError } from '../contract.js';
 import { ErrorGroupModel } from '../models/ErrorGroupModel.js';
 import { computeFingerprint } from './fingerprint.js';
-import { counterSql } from './sql.js';
+import { counterSql } from '../store/raw-sql.js';
 
 const MAX_SAMPLE = 2000;
 const MAX_NAME = 128;

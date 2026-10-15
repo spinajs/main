@@ -1,15 +1,9 @@
-import { DI } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { QueryContext } from '@spinajs/orm';
 import { RunLogModel } from '../models/RunLogModel.js';
+import { defaultSqlDriver, quoteFor, RawSqlDriver, sqlDialect } from '../store/raw-sql.js';
 
 export type JournalRow = Pick<RunLogModel, 'RunId' | 'Schedule' | 'Seq' | 'Attempt' | 'Ts' | 'Kind' | 'Data'> &
   Partial<Pick<RunLogModel, 'Level' | 'Step' | 'Message'>>;
-
-// executeOnDb lives on orm-sql's SqlDriver, not on the OrmDriver contract
-interface RawSqlDriver {
-  executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown>;
-}
 
 export interface JournalPositionSql {
   bump: string;
@@ -19,17 +13,14 @@ export interface JournalPositionSql {
 }
 
 export function journalPositionSql(driverName: string): JournalPositionSql {
-  const d = driverName.toLowerCase();
-  if (!d.includes('sqlite') && !d.includes('mysql') && !d.includes('postgres')) {
-    throw new InvalidOperation(`scheduler: no journal position statements for driver '${driverName}'`);
-  }
-  const q = (id: string) => (d.includes('mysql') ? `\`${id}\`` : `"${id}"`);
+  const dialect = sqlDialect(driverName, 'journal position statements');
+  const q = quoteFor(dialect);
   const table = q('__scheduler_journal_pos');
   return {
     bump: `UPDATE ${table} SET ${q('LastPos')} = ${q('LastPos')} + 1 WHERE ${q('Id')} = 1`,
     unbump: `UPDATE ${table} SET ${q('LastPos')} = ${q('LastPos')} - 1 WHERE ${q('Id')} = 1`,
     read: `SELECT ${q('LastPos')} AS pos FROM ${table} WHERE ${q('Id')} = 1`,
-    serializeInProcess: d.includes('sqlite'),
+    serializeInProcess: dialect === 'sqlite',
   };
 }
 
@@ -47,8 +38,7 @@ async function readPosition(driver: RawSqlDriver, sql: string): Promise<number> 
  * other async paths, so appends are serialized in memory instead (SQLite is not a multi-replica target).
  */
 export async function appendJournalRow(row: JournalRow): Promise<RunLogModel> {
-  const driver = (await DI.resolve(Orm)).Connections.get('default') as (OrmDriver & RawSqlDriver) | undefined;
-  if (!driver) throw new InvalidOperation('scheduler: ORM connection "default" not found');
+  const driver = await defaultSqlDriver();
   const sql = journalPositionSql(driver.Options.Driver);
 
   if (!sql.serializeInProcess) {

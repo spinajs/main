@@ -1,7 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import type { ScheduleHealth } from '../contract.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
-import { counterSql } from './sql.js';
+import { counterSql } from '../store/raw-sql.js';
 
 export function healthOf(row: {
   Paused: boolean;
