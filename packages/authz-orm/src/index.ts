@@ -8,3 +8,4 @@ export * from './schema.js';
 export { AccessResource, Parent, Owner, Self, registerAccessResource } from './decorators.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
+export * from './ancestors/index.js';
