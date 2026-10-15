@@ -27,5 +27,14 @@ export function principalSubjectKey(p: PrincipalRef): string {
   return `${wildcard.slice(0, -WILDCARD_ID.length)}%2A`;
 }
 
+/** The principal a `subjectKeyOf` principal key names; undefined for a set key or a wildcard. */
+export function parsePrincipalSubjectKey(key: string): PrincipalRef | undefined {
+  const colon = key.indexOf(':');
+  if (colon <= 0) return undefined;
+  const id = key.slice(colon + 1);
+  if (id === '' || id === WILDCARD_ID || id.includes('#')) return undefined;
+  return { type: unescapeType(key.slice(0, colon)), id: unescapeId(id) };
+}
+
 /** The keys `MembershipStore.setsOf` takes for these subjects, each once, in order. */
 export const memberKeysOf = (subjects: readonly AssignmentSubject[]): string[] => [...new Set(subjects.map(subjectKeyOf))];
