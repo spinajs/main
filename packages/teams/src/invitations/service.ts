@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { SYSTEM, principalKey } from '@spinajs/authz';
+import { AccessDenied, AuthzAdminFailure, SYSTEM, principalKey } from '@spinajs/authz';
 import type { AuthzCommand, Principal, PrincipalRef } from '@spinajs/authz';
 import { AssignmentStore } from '@spinajs/authz-rbac';
 import { Config } from '@spinajs/configuration';
@@ -32,6 +32,19 @@ const PROBE: PrincipalRef = Object.freeze({ type: 'user', id: '$teams-invitation
 export function acceptCommand(member: PrincipalRef, role: string, teamId: string, groupId: string | null): AuthzCommand {
   if (groupId !== null && role === GROUP_MEMBER_ROLE) return { kind: 'set.addMember', set: { role: GROUP_MEMBER_ROLE, scope: groupRef(groupId) }, member };
   return { kind: 'assignment.grant', subject: member, role, scope: groupId !== null ? groupRef(groupId) : teamRef(teamId) };
+}
+
+/**
+ * The inviter back from `created_by` (a principalKey). Only the key is stored, so the attributes, ceiling and delegation
+ * of the original call are gone: the re-check judges the inviter's assignments, not the session that invited.
+ */
+function inviterOf(createdBy: string): Principal | null {
+  const at = createdBy.indexOf(':');
+  if (at <= 0) return null;
+  const type = createdBy.slice(0, at).replace(/%3A/g, ':').replace(/%25/g, '%');
+  const id = createdBy.slice(at + 1);
+  if (type === SYSTEM.type && id === SYSTEM.id) return SYSTEM;
+  return Object.freeze({ type, id, authenticated: true, source: 'invitation', attributes: Object.freeze({}) });
 }
 
 function readMaxUses(v: unknown, email: string | null): number | null {
@@ -143,6 +156,7 @@ export class DefaultInvitationService extends InvitationService {
       const verified = await (await this.emailSource()).verifiedEmail(principal);
       if (typeof verified !== 'string' || verified.trim().toLowerCase() !== invitation.email) throw new InvitationRefused('email_mismatch');
     }
+    await this.assertInviterMay(invitation);
 
     await this.recordUse(invitation.id, who);
     const member: PrincipalRef = { type: principal.type, id: principal.id };
@@ -189,6 +203,20 @@ export class DefaultInvitationService extends InvitationService {
         .update({ uses: Math.max(0, Number(row.uses) - 1) })
         .where('id', invitationId);
     });
+  }
+
+  /** The grant runs as SYSTEM, so the inviter's authority is judged again as in create(): an inviter demoted since grants nothing. */
+  protected async assertInviterMay(invitation: TeamInvitation): Promise<void> {
+    const inviter = inviterOf(invitation.created_by);
+    if (inviter === SYSTEM) return;
+    if (!inviter) throw new InvitationRefused('inviter_lost_authority');
+    try {
+      await assertAllowed(inviter, 'team:invitations.manage', teamRef(invitation.team_id));
+      await execute(inviter, [acceptCommand(PROBE, invitation.role, invitation.team_id, invitation.group_id ?? null)], `invitation:${invitation.id}`, { dryRun: true });
+    } catch (e) {
+      if (e instanceof AccessDenied || (e instanceof AuthzAdminFailure && (e.code === 'escalation' || e.code === 'forbidden'))) throw new InvitationRefused('inviter_lost_authority');
+      throw e;
+    }
   }
 
   /** Teams design §8: as SYSTEM, reason `invitation:<id>`; a role already held at the scope is not granted twice. */

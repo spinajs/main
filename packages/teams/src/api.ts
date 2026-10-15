@@ -200,7 +200,7 @@ export abstract class VerifiedEmailSource {
 }
 
 /** Stable codes: HTTP layers map them (L15). */
-export const INVITATION_REFUSALS = Object.freeze(['unknown', 'revoked', 'expired', 'used_up', 'email_mismatch', 'not_a_user'] as const);
+export const INVITATION_REFUSALS = Object.freeze(['unknown', 'revoked', 'expired', 'used_up', 'email_mismatch', 'not_a_user', 'inviter_lost_authority'] as const);
 export type InvitationRefusal = (typeof INVITATION_REFUSALS)[number];
 
 /** `code` is one of INVITATION_REFUSALS and is part of the contract; the message is not. */

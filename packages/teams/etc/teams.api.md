@@ -208,7 +208,8 @@ export declare const INVITATION_REFUSALS: readonly [
     "expired",
     "used_up",
     "email_mismatch",
-    "not_a_user"
+    "not_a_user",
+    "inviter_lost_authority"
 ];
 export type InvitationRefusal = (typeof INVITATION_REFUSALS)[number];
 /** `code` is one of INVITATION_REFUSALS and is part of the contract; the message is not. */
@@ -231,6 +232,7 @@ const INVITATION_REFUSALS = Object.freeze([
     "expired",
     "used_up",
     "email_mismatch",
-    "not_a_user"
+    "not_a_user",
+    "inviter_lost_authority"
 ] as const);
 ```

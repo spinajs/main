@@ -72,7 +72,10 @@ run), so nobody invites into a role they could not grant. The token (32 random b
 and stored as `v1:` + HMAC-SHA256. Email invitations are mailed at once (never queued) through `InvitationMailer`
 and bound to the address; `accept` compares it with the app's `VerifiedEmailSource`. `resend` mails a new token.
 `accept` is idempotent per user, honours `maxUses`, expiry and revocation, and runs as SYSTEM with reason
-`invitation:<id>`. New users sign up through the app's own flow and then accept with the token they kept.
+`invitation:<id>`. Before it grants, `accept` judges the inviter (`created_by`) again as `create` did:
+`team:invitations.manage` at the team and the dry run, by the inviter's assignments at that moment. An inviter
+demoted or removed since then gets `InvitationRefused` `inviter_lost_authority`, and no use is counted. New users
+sign up through the app's own flow and then accept with the token they kept.
 
 ## Config (`teams.*`)
 

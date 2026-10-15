@@ -11,7 +11,7 @@ export interface TeamsHttpError {
 }
 
 // The AuthzAdmin codes answer as on authz-http-admin's routes; test/helpers.test.ts compares the two tables.
-const REFUSED = new Set(['forbidden', 'escalation', 'last_holder', 'self_lockout', 'protected_role', 'invitation_email_mismatch', 'invitation_not_a_user']);
+const REFUSED = new Set(['forbidden', 'escalation', 'last_holder', 'self_lockout', 'protected_role', 'invitation_email_mismatch', 'invitation_not_a_user', 'invitation_inviter_lost_authority']);
 const MISSING = new Set(['not_found', 'invitation_unknown']);
 const CONFLICTING = new Set(['conflict', 'invitation_expired', 'invitation_revoked', 'invitation_used_up']);
 
