@@ -96,6 +96,7 @@
     "@spinajs/authz-fs": "file:packages/authz-fs",
     "@spinajs/authz-convert": "file:packages/authz-convert",
     "@spinajs/teams": "file:packages/teams",
+    "@spinajs/teams-http": "file:packages/teams-http",
     "@spinajs/authn": "file:packages/authn",
     "@spinajs/authn-testing": "file:packages/authn-testing",
     "@spinajs/authn-orm": "file:packages/authn-orm",
