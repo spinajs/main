@@ -128,7 +128,29 @@ export function serviceParityDriver(
   };
 }
 
-async function captureJson(fn: () => Promise<void>): Promise<unknown> {
+const NO_JSON = Symbol('no-json');
+
+/**
+ * The command's document is the last one printed: a host logger writing to the console (an audit
+ * line at info) prints before it. Pretty-printed JSON spans several lines.
+ */
+function lastJson(printed: string[]): unknown {
+  const text = printed.join('\n').split('\n');
+  for (let end = text.length - 1; end >= 0; end--) {
+    if (!/[}\]]\s*$/.test(text.at(end) ?? '')) continue;
+    for (let start = end; start >= 0; start--) {
+      if (!/^\s*[{[]/.test(text.at(start) ?? '')) continue;
+      try {
+        return JSON.parse(text.slice(start, end + 1).join('\n')) as unknown;
+      } catch {
+        // not a whole document yet; widen it
+      }
+    }
+  }
+  return NO_JSON;
+}
+
+async function captureJson(action: ParityAction, fn: () => Promise<void>): Promise<unknown> {
   const lines: string[] = [];
   const log = console.log;
   const error = console.error;
@@ -142,19 +164,23 @@ async function captureJson(fn: () => Promise<void>): Promise<unknown> {
     console.error = error;
     process.exitCode = exitCode;
   }
-  return JSON.parse(lines.join('\n'));
+  const out = lastJson(lines);
+  if (out === NO_JSON) {
+    throw new Error(`no JSON document in the CLI output of ${JSON.stringify(action)}:\n${lines.join('\n')}`);
+  }
+  return out;
 }
 
 type Executable = { execute(...args: never[]): Promise<void> };
 
 /** Runs the real `scheduler:*` command classes with `--json`; a failure prints `{ error: { code } }`. */
 export function cliParityDriver(): ParityDriver {
-  const run = async (type: new () => Executable, ...args: unknown[]): Promise<unknown> => {
-    const cmd = (await DI.resolve(type)) as unknown as { execute(...a: unknown[]): Promise<void> };
-    return captureJson(() => cmd.execute(...args));
-  };
   const json = { json: true };
   const call = (a: ParityAction): Promise<unknown> => {
+    const run = async (type: new () => Executable, ...args: unknown[]): Promise<unknown> => {
+      const cmd = (await DI.resolve(type)) as unknown as { execute(...x: unknown[]): Promise<void> };
+      return captureJson(a, () => cmd.execute(...args));
+    };
     switch (a.action) {
       case 'listSchedules':
         return run(SchedulerListCommand, json);
@@ -450,7 +476,13 @@ export async function runParityCases(o: {
       if (i > 0) service = await o.reset();
       const driver = o.drivers(service).at(i) as ParityDriver;
       const vars = c.arrange ? await c.arrange(service) : {};
-      const r = await driver.invoke(c.act(vars));
+      const action = c.act(vars);
+      let r: ParityResult;
+      try {
+        r = await driver.invoke(action);
+      } catch (err) {
+        throw new Error(`parity case '${c.title}', driver ${driver.name}: ${(err as Error).message}`);
+      }
       results[driver.name] = r.ok ? { ok: true, value: normalizeForParity(r.value) } : r;
     }
     out.push({ title: c.title, expect: c.expect, results });

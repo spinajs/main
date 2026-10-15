@@ -1,13 +1,16 @@
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
   cliParityDriver,
+  DefaultSchedulerService,
   defineParitySchedules,
   normalizeForParity,
   PARITY_CASES,
   ParityAction,
   ParityDriver,
   runParityCases,
+  SchedulerListCommand,
   SchedulerService,
   serviceParityDriver,
   undefineParitySchedules,
@@ -24,6 +27,7 @@ describe('API / CLI parity', function () {
   this.timeout(120_000);
   before(() => defineParitySchedules());
   after(() => undefineParitySchedules());
+  afterEach(() => sinon.restore());
 
   it('every action gives the same normalized result through the service and the CLI', async () => {
     const outcomes = await runParityCases({
@@ -69,23 +73,69 @@ describe('API / CLI parity', function () {
 
   it('gives every driver of a case fresh state', async () => {
     let resets = 0;
-    const counting: ParityDriver = { name: 'count', invoke: async () => ({ ok: true, value: resets }) };
     const outcomes = await runParityCases({
       reset: async () => {
         resets++;
         return reset();
       },
-      drivers: (service) => [serviceParityDriver(service), counting],
+      drivers: (service) => {
+        const runs: ParityDriver = {
+          name: 'runs',
+          invoke: async () => ({ ok: true, value: (await service.listRuns()).total }),
+        };
+        return [serviceParityDriver(service), runs];
+      },
       cases: [
         {
-          title: 'a run created by the first driver is gone for the second',
-          act: () => ({ action: 'listRuns', schedule: 'parity-ok' }),
+          title: 'a run the first driver created is gone for the second',
+          act: () => ({ action: 'runNow', name: 'parity-ok', params: { n: 1 } }),
           expect: 'ok',
         },
       ],
     });
     expect(resets).to.eq(2);
-    expect(outcomes[0].results.count).to.deep.eq({ ok: true, value: 2 });
+    expect(outcomes[0].results.service.ok).to.eq(true);
+    expect(outcomes[0].results.runs).to.deep.eq({ ok: true, value: 0 });
+  });
+
+  it('reads the command output after console lines of the host logger', async () => {
+    const audit = (DefaultSchedulerService.prototype as unknown as { audit: (...a: unknown[]) => void }).audit;
+    sinon
+      .stub(DefaultSchedulerService.prototype as unknown as { audit: (...a: unknown[]) => void }, 'audit')
+      .callsFake(function (this: unknown, ...a: unknown[]) {
+        console.log('2026-01-05 10:00:00 INFO SCHEDULER {"audit":true}');
+        console.log('[a bracketed line]');
+        return audit.apply(this, a);
+      });
+    const outcomes = await runParityCases({
+      reset,
+      drivers: (service) => [serviceParityDriver(service), cliParityDriver()],
+      cases: PARITY_CASES.filter((c) => ['pause', 'cancel a queued run'].includes(c.title)),
+    });
+    expect(outcomes).to.have.length(2);
+    for (const o of outcomes) {
+      expect(o.results.cli, o.title).to.deep.eq(o.results.service);
+      expect(o.results.cli.ok, o.title).to.eq(true);
+    }
+  });
+
+  it('names the case and shows the output when the CLI prints no JSON', async () => {
+    sinon.stub(SchedulerListCommand.prototype, 'execute').callsFake(() => {
+      console.log('not json at all');
+      return Promise.resolve();
+    });
+    let message = '';
+    try {
+      await runParityCases({
+        reset,
+        drivers: () => [cliParityDriver()],
+        cases: PARITY_CASES.filter((c) => c.title === 'list schedules'),
+      });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).to.contain("parity case 'list schedules', driver cli");
+    expect(message).to.contain('not json at all');
   });
 
   it('normalizes volatile values only', () => {
