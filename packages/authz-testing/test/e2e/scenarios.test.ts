@@ -1,11 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { GLOBAL, SYSTEM } from '@spinajs/authz';
+import { GLOBAL, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import { anonymousPrincipal, fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
 import type { HarnessSession } from '@spinajs/authz-testing';
 
-import { E2E_DIALECTS, e2eHarness, withPostgres } from './support/stack.js';
+import { E2E_DIALECTS, e2eDb, e2eHarness, withPostgres } from './support/stack.js';
 import { NOW, agrees, authzOf, open, stackWorld } from './support/world.js';
 
 const { assignment, ref } = fixtureDsl;
@@ -107,6 +107,39 @@ for (const kind of E2E_DIALECTS) {
       const withinF2 = userPrincipal('alice', { ceiling: { resources: [ref('folder', 'f2')] } });
       await agrees(s, withinF2, 'task:read', ['t2', 't3', 't5']);
       await agrees(s, withinF2, 'task:update', ['t2', 't3', 't5']);
+    });
+
+    it('a move (reparent) changes access at once, for the moved subtree', async () => {
+      s = await open(harness, stackWorld([assignment('a1', alice, 'viewer', ref('folder', 'f1'))]), 'move');
+      await agrees(s, alice, 'task:read', P1_TASKS);
+      const Folder = harness.model('Folder') as unknown as { update(v: unknown): any };
+      const Task = harness.model('Task') as unknown as { update(v: unknown): any };
+      await runWithPrincipal(SYSTEM, async () => {
+        await Folder.update({ parent_id: null }).where('id', 'f2');
+        await Task.update({ folder_id: 'f1' }).where('id', 't4');
+      });
+      await agrees(s, alice, 'task:read', ['t1', 't4']);
+      const ancestors = await e2eDb().raw(`SELECT ancestor_type, ancestor_id FROM authz_resource_ancestor WHERE resource_type = 'task' AND resource_id = 't3' ORDER BY depth`, [], kind);
+      expect(ancestors.map((r: { ancestor_type: string; ancestor_id: string }) => `${r.ancestor_type}:${r.ancestor_id}`)).to.deep.equal(['folder:f3', 'folder:f2', 'project:p1', 'org:o1']);
+    });
+
+    it('deleting a resource drops its grants and ancestor links, so a reused id inherits nothing', async () => {
+      s = await open(harness, stackWorld(), 'delete');
+      const [granted] = await authzOf(s).admin().execute(SYSTEM, [{ kind: 'assignment.grant', subject: { type: 'user', id: 'bob' }, role: 'editor', scope: ref('project', 'p2') }]);
+      expect(granted.ok).to.equal(true);
+      await agrees(s, bob, 'task:read', ['t4']);
+
+      const Project = harness.model('Project') as unknown as { destroy(pk: unknown): any; insert(v: unknown): any };
+      await runWithPrincipal(SYSTEM, async () => void (await Project.destroy('p2')));
+
+      const count = async (sql: string) => Number(((await e2eDb().raw(sql, [], kind)) as { n: number | string }[])[0].n);
+      expect(await count(`SELECT COUNT(*) AS n FROM authz_assignment WHERE scope_type = 'project' AND scope_id = 'p2'`)).to.equal(0);
+      expect(await count(`SELECT COUNT(*) AS n FROM authz_resource_ancestor WHERE ancestor_type = 'project' AND ancestor_id = 'p2'`)).to.equal(0);
+      expect(await count(`SELECT COUNT(*) AS n FROM authz_resource_ancestor WHERE resource_type = 'project' AND resource_id = 'p2'`)).to.equal(0);
+      await agrees(s, bob, 'task:read', []);
+
+      await runWithPrincipal(SYSTEM, async () => void (await Project.insert({ id: 'p2', org_id: 'o1' })));
+      await agrees(s, bob, 'task:read', []);
     });
   });
 }
