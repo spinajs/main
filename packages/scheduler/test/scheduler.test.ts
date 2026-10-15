@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import {
   activeSchedulers,
   defineSchedule,
@@ -217,6 +218,29 @@ describe('Scheduler', () => {
     const later = await queuedRun('every-minute', clock.now());
     await s.tickOnce();
     expect((await getRun(later.Id)).Status).to.eq('queued');
+  });
+
+  it('stops before the database disconnects on DI.dispose()', async () => {
+    const s = await scheduler('r1');
+    const run = await queuedRun('patient', clock.now());
+    await s.tickOnce();
+    await waitFor(() => s.isRunningLocally(run.Id));
+
+    const orm = DI.get(Orm);
+    const disconnect = orm.dispose.bind(orm);
+    let atDisconnect: { run?: RunModel; leaseOwner?: string | null } = {};
+    orm.dispose = async () => {
+      atDisconnect = {
+        run: await getRun(run.Id),
+        leaseOwner: (await ScheduleModel.where('Name', 'patient').first()).LeaseOwner,
+      };
+      await disconnect();
+    };
+    await DI.dispose();
+
+    expect(atDisconnect.run).to.include({ Status: 'aborted', Reason: 'shutdown', LeaseOwner: null });
+    expect(atDisconnect.leaseOwner).to.eq(null);
+    expect(activeSchedulers()).to.not.include(s);
   });
 
   it('fails the boot on an invalid schedule', async () => {
