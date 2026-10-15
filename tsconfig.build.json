@@ -80,6 +80,7 @@
     { "path": "packages/authz-queue/tsconfig.mjs.json" },
     { "path": "packages/authz-fs/tsconfig.mjs.json" },
     { "path": "packages/authz-convert/tsconfig.mjs.json" },
+    { "path": "packages/teams/tsconfig.mjs.json" },
     { "path": "packages/authn/tsconfig.mjs.json" },
     { "path": "packages/authn-testing/tsconfig.mjs.json" },
     { "path": "packages/authn-orm/tsconfig.mjs.json" },
