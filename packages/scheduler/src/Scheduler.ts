@@ -89,6 +89,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   protected ticking: Promise<void> | undefined;
   /** Database time of the last tick. */
   protected lastTickAt: number | undefined;
+  /** Next occurrence of each `runOn: 'all'` schedule on this replica. */
+  protected localNext = new Map<string, number | null>();
 
   constructor(public readonly Options: SchedulerInstanceOptions = {}) {
     super();
@@ -177,7 +179,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   /**
-   * Time until the next instant after the last tick: a fire time, or a retry becoming claimable.
+   * Time until the next instant after the last tick: a fire time (also of a local `runOn: 'all'`
+   * occurrence), or a retry becoming claimable.
    * Instants the last tick already saw are not counted, so an item that is due but blocked (a
    * jitter window, a retry whose schedule lease another replica holds, a schedule this replica
    * does not know) is retried at the normal tick rate instead of in a tight loop.
@@ -203,6 +206,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
         instants.push(fireTime(def, row.NextRunAt));
     }
     if (typeof retry?.NextAttemptAt === 'number') instants.push(retry.NextAttemptAt);
+    for (const [name, due] of this.localNext) {
+      const def = this.Registry.find(name);
+      if (def && due !== null) instants.push(fireTime(def, due));
+    }
     const now = this.Clock.now();
     const until = instants.filter((t) => t > since).map((t) => t - now);
     return Math.max(0, Math.min(tick, ...until));
@@ -218,8 +225,35 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     await this.extraTickWork(now);
   }
 
-  protected async extraTickWork(_now: number): Promise<void> {
-    // runOn: all (Task 26) and emit mirroring (Task 42) hook in here
+  protected async extraTickWork(now: number): Promise<void> {
+    await this.fireLocal(now);
+  }
+
+  /** `runOn: 'all'`: every replica fires from its own in-memory next occurrence, without the schedule lease. */
+  protected async fireLocal(now: number): Promise<void> {
+    for (const def of this.Registry.all()) {
+      if (this.stopping) return;
+      if (def.runOn !== 'all' || !def.enabled) continue;
+      if (!this.localNext.has(def.name)) this.localNext.set(def.name, nextOccurrence(def.spec, now));
+      const due = this.localNext.get(def.name);
+      if (due === null || due === undefined || now < fireTime(def, due)) continue;
+      // local schedules never catch up: the next one is the first after now
+      this.localNext.set(def.name, nextOccurrence(def.spec, Math.max(due, now)));
+
+      if ([...this.active.values()].some((h) => h.schedule === def.name)) {
+        await this.recordWithoutRunning(def, 'skipped', due, now, 'overlap', null);
+        continue;
+      }
+      const run = await this.createRun(def, {
+        status: 'running',
+        trigger: 'schedule',
+        scheduledAt: due,
+        now,
+        owned: true,
+        forced: true,
+      });
+      this.launch(run, def);
+    }
   }
 
   /**
