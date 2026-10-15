@@ -1,0 +1,176 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
+
+// Times are BIGINT epoch milliseconds (UTC): DATETIME round-trips are zone- and
+// precision-dependent across the three drivers, and lease checks need exact equality.
+// JSON payloads are LONGTEXT (TEXT on Postgres / SQLite), read through `@JsonText()`: JSON columns
+// come back already parsed on Postgres / MySQL, which loses the difference between "123" and 123.
+@Migration('default')
+export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().createTable('__scheduler', (t) => {
+      t.string('Name', 128).primaryKey().notNull();
+      t.longtext('Definition').notNull();
+      t.string('DefinitionHash', 64).notNull();
+      t.bigint('NextRunAt');
+      t.bigint('LastFiredAt');
+      t.bigint('LastFinishedAt');
+      t.string('LastStatus', 16);
+      t.string('LastRunId', 36);
+      t.boolean('Paused').notNull();
+      t.string('PausedReason', 16);
+      t.boolean('HardPaused').notNull();
+      t.int('ConsecutiveFailures').notNull();
+      t.bigint('LastSuccessAt');
+      t.string('LeaseOwner', 128);
+      t.bigint('LeaseUntil');
+      t.boolean('Orphaned').notNull();
+      t.bigint('UpdatedAt').notNull();
+    });
+
+    await connection.schema().createTable('__scheduler_run', (t) => {
+      t.string('Id', 36).primaryKey().notNull();
+      t.string('Schedule', 128).notNull();
+      t.string('Trigger', 16).notNull();
+      t.longtext('TriggeredBy');
+      t.string('ParentRunId', 36);
+      t.longtext('Params');
+      t.string('Status', 16).notNull();
+      t.string('Reason', 64);
+      t.int('Attempt').notNull();
+      t.int('MaxAttempts').notNull();
+      t.bigint('NextAttemptAt');
+      t.bigint('ScheduledAt');
+      t.bigint('CreatedAt').notNull();
+      t.bigint('StartedAt');
+      t.bigint('FinishedAt');
+      t.bigint('UpdatedAt');
+      t.int('Progress').notNull();
+      t.string('CurrentStep', 128);
+      t.text('Message');
+      t.longtext('Checkpoint');
+      t.longtext('Result');
+      t.longtext('Error');
+      t.string('JobId', 36);
+      t.string('LeaseOwner', 128);
+      t.bigint('LeaseUntil');
+      t.boolean('CancelRequested').notNull();
+      t.boolean('Forced').notNull();
+      t.longtext('ResumeFrom');
+      // A numeric default compiles to DEFAULT 0 on MySQL/SQLite and DEFAULT FALSE on Postgres.
+      t.boolean('ProgressCapped').notNull().default().value(0);
+    });
+
+    await connection.schema().createTable('__scheduler_run_attempt', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('RunId', 36).notNull();
+      t.int('Attempt').notNull();
+      t.bigint('StartedAt').notNull();
+      t.bigint('FinishedAt');
+      t.string('Status', 16).notNull();
+      t.longtext('Error');
+    });
+
+    await connection.schema().createTable('__scheduler_run_step', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('RunId', 36).notNull();
+      t.int('Attempt').notNull();
+      t.int('Seq').notNull();
+      t.string('Name', 128).notNull();
+      t.string('Status', 16).notNull();
+      // DECIMAL, not INT: weights and done / total may be fractional, and totals (bytes) exceed INT
+      t.decimal('Weight', 16, 4).notNull();
+      t.bigint('StartedAt').notNull();
+      t.bigint('FinishedAt');
+      t.int('Progress').notNull();
+      t.decimal('Done', 24, 4);
+      t.decimal('Total', 24, 4);
+      t.text('Message');
+      t.longtext('Result');
+      // false when the step's return value was not kept (persistResult: false, not JSON, too large)
+      t.boolean('ResultStored').notNull().default().value(0);
+      t.longtext('Error');
+    });
+
+    await connection.schema().createTable('__scheduler_run_log', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('RunId', 36).notNull();
+      t.string('Schedule', 128).notNull();
+      t.int('Seq').notNull();
+      t.int('Attempt').notNull();
+      t.bigint('Ts').notNull();
+      t.string('Kind', 16).notNull();
+      t.string('Level', 8);
+      t.string('Step', 128);
+      t.text('Message');
+      t.longtext('Data');
+      t.bigint('Pos').notNull();
+    });
+
+    // One row; appendJournalRow() bumps it in the insert's transaction, so positions follow commit order.
+    await connection.schema().createTable('__scheduler_journal_pos', (t) => {
+      t.int('Id').primaryKey().notNull();
+      t.bigint('LastPos').notNull();
+    });
+    await connection.insert().into('__scheduler_journal_pos').values({ Id: 1, LastPos: 0 });
+
+    await connection.schema().createTable('__scheduler_error', (t) => {
+      t.int('Id').primaryKey().autoIncrement();
+      t.string('Schedule', 128).notNull();
+      t.string('Fingerprint', 64).notNull();
+      t.string('Name', 128).notNull();
+      t.text('SampleMessage').notNull();
+      t.text('SampleStack');
+      t.int('Count').notNull();
+      t.bigint('FirstSeen').notNull();
+      t.bigint('LastSeen').notNull();
+      t.string('LastRunId', 36);
+      t.string('Status', 16).notNull();
+    });
+
+    await connection.index().table('__scheduler').name('__scheduler_due').columns(['Paused', 'NextRunAt']);
+    await connection
+      .index()
+      .table('__scheduler_run')
+      .name('__scheduler_run_status')
+      .columns(['Status', 'NextAttemptAt']);
+    await connection
+      .index()
+      .table('__scheduler_run')
+      .name('__scheduler_run_schedule')
+      .columns(['Schedule', 'CreatedAt']);
+    await connection.index().table('__scheduler_run').name('__scheduler_run_finished').columns(['FinishedAt']);
+    await connection
+      .index()
+      .table('__scheduler_run_attempt')
+      .name('__scheduler_run_attempt_run')
+      .columns(['RunId', 'Attempt']);
+    await connection
+      .index()
+      .table('__scheduler_run_step')
+      .name('__scheduler_run_step_run')
+      .columns(['RunId', 'Attempt', 'Seq']);
+    await connection
+      .index()
+      .unique()
+      .table('__scheduler_run_log')
+      .name('__scheduler_run_log_seq')
+      .columns(['RunId', 'Seq']);
+    await connection.index().unique().table('__scheduler_run_log').name('__scheduler_run_log_pos').columns(['Pos']);
+    await connection
+      .index()
+      .table('__scheduler_run_log')
+      .name('__scheduler_run_log_schedule')
+      .columns(['Schedule', 'Pos']);
+    await connection.index().table('__scheduler_run_log').name('__scheduler_run_log_ts').columns(['Ts']);
+    await connection
+      .index()
+      .unique()
+      .table('__scheduler_error')
+      .name('__scheduler_error_fp')
+      .columns(['Schedule', 'Fingerprint']);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  public async down(_connection: OrmDriver): Promise<void> {}
+}
