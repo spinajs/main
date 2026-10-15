@@ -1130,9 +1130,10 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
 /**
  * ON CONFLICT needs one arbiter: the key when the row carries it, else the single unique
  * column the row carries. Naming every unique column at once matches no single constraint on
- * postgres or sqlite; MySQL's ON DUPLICATE KEY ignores the target either way.
+ * postgres or sqlite. With several unique columns there is nothing to choose, so the old
+ * default stays: MySQL's ON DUPLICATE KEY ignores the target and keeps working there.
  */
-function _upsertTarget(row: any, description: IModelDescriptor): string[] {
+function _upsertTarget(row: any, description: IModelDescriptor): string[] | undefined {
   const keys = pkColumns(description);
   const has = (c: string) => row[c] !== undefined && row[c] !== null;
   if (keys.every(has)) {
@@ -1141,7 +1142,7 @@ function _upsertTarget(row: any, description: IModelDescriptor): string[] {
 
   const unique = description.Columns.filter((c) => c.Unique && !c.PrimaryKey && has(c.Name)).map((c) => c.Name);
   if (unique.length > 1) {
-    throw new OrmException(`cannot choose an upsert target for ${description.Name}: the row carries several unique columns (${unique.join(', ')}); use insert().onDuplicate(column)`);
+    return undefined;
   }
 
   return unique.length === 1 ? unique : keys;

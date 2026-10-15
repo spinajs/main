@@ -89,7 +89,9 @@ describe('model upsert conflict target', () => {
     expect(onDuplicate.firstCall.args[0]).to.deep.equal(['Email']);
   });
 
-  it('refuses to guess between several unique columns', async () => {
-    await expect(new UpsertAccount({ Email: 'a@x.io', Login: 'a', Name: 'A' }).insert(InsertBehaviour.InsertOrUpdate)).to.be.rejectedWith('several unique columns (Email, Login)');
+  it('keeps the previous default when the row carries several unique columns', async () => {
+    await new UpsertAccount({ Email: 'a@x.io', Login: 'a', Name: 'A' }).insert(InsertBehaviour.InsertOrUpdate);
+
+    expect(onDuplicate.firstCall.args[0]).to.equal(undefined);
   });
 });
