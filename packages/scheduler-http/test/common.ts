@@ -208,7 +208,7 @@ async function boot(configuration: Constructor<FrameworkConfiguration>, register
   await DI.resolve(Controllers);
 
   const server = await DI.resolve(HttpServer);
-  server.start();
+  await server.start();
 }
 
 let fakeFactory: (() => FakeSchedulerService) | null = null;
