@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AsyncService, Autoinject, DI, IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder } from '@spinajs/orm';
+import { QueueService } from '@spinajs/queue';
 import type { AbortReason, RunStatus, RunTrigger } from './contract.js';
 import { EmitMirror } from './emit/emit.js';
 import { RunAbortedError } from './errors.js';
@@ -124,6 +125,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     this.Executor = DI.resolve(RunExecutor, [this.Leases]);
     const now = await this.Clock.sync();
     await this.Sync.sync(this.Registry.all(), now, { owner: this.Options.syncOwner !== false });
+    await this.resolveQueue();
     INSTANCES.add(this);
     await super.resolve();
     if (this.config.enabled && this.Options.autoStart !== false) this.start();
@@ -180,6 +182,18 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   public async dispose(): Promise<void> {
     await this.stop();
+  }
+
+  /**
+   * DI disposes in reverse resolution order, so a queue service first resolved by an event send would
+   * be disposed before this loop and drop the events of runs that end in stop().
+   */
+  protected async resolveQueue(): Promise<void> {
+    try {
+      await DI.resolve(QueueService);
+    } catch (err) {
+      this.Log.warn(err as Error, 'queue service could not be resolved; scheduler events may be lost');
+    }
   }
 
   protected schedule(delayMs: number): void {

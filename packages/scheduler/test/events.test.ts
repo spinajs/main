@@ -16,7 +16,7 @@ import {
   StructuredError,
   undefineSchedule,
 } from '../src/index.js';
-import { bootTestEnv } from './support/env.js';
+import { bootTestEnv, waitFor } from './support/env.js';
 import { driveUntil, getRun, queuedRun, untilAborted } from './support/fixtures.js';
 
 let fail = false;
@@ -239,5 +239,21 @@ describe('scheduler event routing', () => {
     await s.idle();
     await sent();
     expect(connections).to.deep.eq(['scheduler-empty-queue', 'scheduler-empty-queue']);
+  });
+
+  it('still sends the events of runs that end while DI disposes the scheduler', async () => {
+    const names: string[] = [];
+    sinon.stub(BlackHoleQueueClient.prototype, 'emit').callsFake(async (e: { Name: string }) => {
+      names.push(e.Name);
+    });
+    defineSchedule(EventsHangTask, 'ev-routed', { manual: true, retry: { attempts: 2, delay: '1s' } });
+    const { clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' });
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    await queuedRun('ev-routed', clock.now(), { MaxAttempts: 2 });
+    await s.tickOnce();
+    await waitFor(() => names.includes('ScheduleRunStarted'));
+    // the shutdown abort turns the run `retrying`, whose event is sent from inside Scheduler.stop()
+    await DI.dispose();
+    expect(names).to.deep.eq(['ScheduleRunStarted', 'ScheduleRetrying']);
   });
 });
