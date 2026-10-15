@@ -275,7 +275,9 @@ export class RunExecutor {
   protected async withCancelFromRow(run: RunModel, outcome: ExecutionOutcome): Promise<ExecutionOutcome> {
     if (outcome.kind === 'ok' || (outcome.kind === 'aborted' && outcome.reason === 'cancelled')) return outcome;
     const row = await RunModel.where('Id', run.Id).first();
-    return row?.CancelRequested ? { kind: 'aborted', reason: 'cancelled', settled: true } : outcome;
+    if (!row?.CancelRequested) return outcome;
+    // a body still running past its grace keeps the schedule lease, whatever ended it
+    return { kind: 'aborted', reason: 'cancelled', settled: outcome.kind === 'aborted' ? outcome.settled : true };
   }
 
   protected async complete(

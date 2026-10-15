@@ -252,12 +252,7 @@ export class DefaultSchedulerService extends SchedulerService {
     return { runId: run.Id, run: await this.waitForEnd(run.Id, timeoutMs) };
   }
 
-  /**
-   * A `queued` or `retrying` run ends `aborted` / `cancelled` at once. A `running` run is flagged, and
-   * its holder aborts it on its next heartbeat (at once when it runs in this process); a run whose
-   * holder is gone (lease expired) ends at once. Every later decision point (the executor's outcome,
-   * the reaper, the claim of a retry) turns a flagged run into `aborted` / `cancelled`.
-   */
+  /** A running run is only flagged: its holder, the reaper and the claim of a retry all end a flagged run. */
   public async cancel(runId: string, ctx: ActionContext): Promise<RunInfo> {
     // every write is conditional on the state just read; a run that moved on meanwhile is looked at again
     for (let round = 0; round < CANCEL_ROUNDS; round++) {
@@ -297,11 +292,8 @@ export class DefaultSchedulerService extends SchedulerService {
   }
 
   /**
-   * One retry per `failed` / `dead` run finished at or after `since` that has none yet, oldest first.
-   * The retries are validated before the first one is created; a parent whose params no longer pass
-   * the schema fails the whole call with an error naming that run, so nothing is retried half-way.
-   * They run one at a time: on a `runOn: 'all'` schedule they are not `Forced`, so they take the
-   * schedule lease one after another instead of starting on several replicas at once.
+   * All retries are validated before the first is created, so a batch is never half done. They are never
+   * `Forced` (also on `runOn: 'all'`), so they serialize on the schedule lease.
    */
   public async retryFailed(name: string, since: Date | string, ctx: ActionContext): Promise<{ runIds: string[] }> {
     this.Registry.get(name);

@@ -306,7 +306,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     if (!run || (run.Status !== 'queued' && run.Status !== 'retrying')) return false;
     const def = this.Registry.find(run.Schedule);
     if (!def) return false;
-    if (run.CancelRequested) {
+    if (run.CancelRequested && !this.active.has(run.Id)) {
       await this.endCancelled(run, def, now);
       return false;
     }
@@ -463,7 +463,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const tried = new Set<string>();
     for (const run of due) {
       if (this.stopping) return;
-      if (run.CancelRequested) {
+      // a handle still in its grace period ends the attempt itself first
+      if (run.CancelRequested && !this.active.has(run.Id)) {
         await this.endCancelled(run, this.Registry.find(run.Schedule), now);
         continue;
       }
