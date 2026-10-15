@@ -34,6 +34,7 @@ export * from './run/outcome.js';
 export * from './signals.js';
 export * from './run/RunFinalizer.js';
 export * from './run/Heartbeat.js';
+export * from './run/progress.js';
 export * from './run/RunContext.js';
 export * from './run/RunExecutor.js';
 export * from './policy/misfire.js';
