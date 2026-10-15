@@ -51,6 +51,7 @@ import { toRunEvent } from '../run/events.js';
 import { RunEventHub } from '../run/RunEventHub.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
 import { abortWaitingRun, CancelDeps } from '../run/cancel.js';
+import { journalAttemptEnd } from '../run/end.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
 import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
@@ -427,7 +428,7 @@ export class DefaultSchedulerService extends SchedulerService {
   }
 
   protected cancelDeps(run: RunModel): CancelDeps {
-    return { events: this.Events, finalizer: this.Finalizer, def: this.Registry.find(run.Schedule) };
+    return { events: this.Events, finalizer: this.Finalizer, log: this.Log, def: this.Registry.find(run.Schedule) };
   }
 
   /**
@@ -441,11 +442,13 @@ export class DefaultSchedulerService extends SchedulerService {
       nextAttemptAt: null,
     });
     if (!ended) return;
-    await RunAttemptModel.update({ FinishedAt: now, Status: 'aborted' })
-      .where('RunId', run.Id)
-      .where('Attempt', run.Attempt);
     Object.assign(run, { Status: 'aborted', Reason: 'cancelled', CancelRequested: true, FinishedAt: now });
-    await this.Events.write(run, run.Attempt, { type: 'status', status: 'aborted', reason: 'cancelled' });
+    await journalAttemptEnd(
+      run,
+      { now, status: 'aborted', reason: 'cancelled', error: null, attemptStatus: 'aborted' },
+      this.Events,
+      this.Log,
+    );
     await this.Finalizer.finalized({
       run,
       def: this.Registry.find(run.Schedule),

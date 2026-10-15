@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log-common';
 import { Job, JobModel, QueueJob, QueueService } from '@spinajs/queue';
 import {
   abortWaitingRun,
@@ -316,7 +317,11 @@ describe('emit mode status mirroring', () => {
     await jobRow(run.JobId!, 'success', { Progress: 100 });
     const stale = await getRun(run.Id);
     expect(await DI.resolve(EmitMirror).sync(clock.now())).to.eq(1);
-    const deps = { events: DI.resolve(RunEventWriter), finalizer: DI.resolve(RunFinalizer) };
+    const deps = {
+      events: DI.resolve(RunEventWriter),
+      finalizer: DI.resolve(RunFinalizer),
+      log: DI.resolve(Log, ['SCHEDULER']),
+    };
     expect(await abortWaitingRun(stale, clock.now(), deps)).to.eq(false);
     expect(await statuses(run.Id)).to.deep.eq(['running:', 'emitted:', 'succeeded:queue']);
     const err = await (await DI.resolve(SchedulerService)).cancel(run.Id, { triggeredBy: by }).catch((e: unknown) => e);

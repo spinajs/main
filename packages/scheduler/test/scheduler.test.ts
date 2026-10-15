@@ -3,11 +3,13 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+import sinon from 'sinon';
 import {
   activeSchedulers,
   defineSchedule,
   FakeClock,
   fireTime,
+  RunAttemptModel,
   RunContext,
   RunModel,
   Scheduler,
@@ -17,7 +19,7 @@ import {
   undefineSchedule,
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
-import { deferred, getRun, queuedRun, untilAborted } from './support/fixtures.js';
+import { deferred, getRun, journal, queuedRun, untilAborted } from './support/fixtures.js';
 
 chai.use(chaiAsPromised);
 
@@ -57,7 +59,10 @@ describe('Scheduler', () => {
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:30Z' }));
   });
 
-  afterEach(() => ['every-minute', 'once', 'gated', 'patient', 'jittered'].forEach(undefineSchedule));
+  afterEach(() => {
+    sinon.restore();
+    ['every-minute', 'once', 'gated', 'patient', 'jittered'].forEach(undefineSchedule);
+  });
 
   /** The delay the timer loop waits after one tick; anything below `tick` would mean a tight loop. */
   async function delayAfterTick(s: Scheduler): Promise<number> {
@@ -177,6 +182,27 @@ describe('Scheduler', () => {
     });
     await s.tickOnce();
     expect(await getRun(ghost.Id)).to.include({ Status: 'aborted', Reason: 'lease-expired' });
+  });
+
+  it('journals the final status of a reaped run even when its attempt row cannot be written', async () => {
+    const s = await scheduler('r1');
+    const ghost = await queuedRun('patient', clock.now(), {
+      Status: 'running',
+      LeaseOwner: 'ghost',
+      LeaseUntil: clock.now() - 1,
+      StartedAt: clock.now() - 120_000,
+    });
+    const failing = {
+      where: () => failing,
+      then: (_: unknown, reject: (e: Error) => void) => reject(new Error('disk full')),
+    };
+    sinon.stub(RunAttemptModel, 'update').returns(failing as never);
+    await s.tickOnce();
+    expect(await getRun(ghost.Id)).to.include({ Status: 'aborted', Reason: 'lease-expired' });
+    expect((await journal(ghost.Id)).map((e) => (e.type === 'status' ? e.status : e.type))).to.deep.eq([
+      'error',
+      'aborted',
+    ]);
   });
 
   it('ticks on its own timer once started', async () => {

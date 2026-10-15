@@ -19,6 +19,7 @@ import { Heartbeat } from './Heartbeat.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
 import { withRunContext } from './current.js';
+import { journalAttemptEnd } from './end.js';
 import { RunEventWriter } from './RunEventWriter.js';
 import { RunFinalizer } from './RunFinalizer.js';
 import { loadResumeMap } from './resume.js';
@@ -439,15 +440,18 @@ export class RunExecutor {
       return;
     }
 
-    await RunAttemptModel.update({
-      FinishedAt: now,
-      Status: d.status === 'retrying' ? 'failed' : d.status,
-      Error: jsonColumn(d.error) as never,
-    })
-      .where('RunId', run.Id)
-      .where('Attempt', run.Attempt);
-    if (d.error) await this.Events.write(run, run.Attempt, { type: 'error', error: d.error });
-    await this.Events.write(run, run.Attempt, { type: 'status', status: d.status, reason: d.reason });
+    await journalAttemptEnd(
+      run,
+      {
+        now,
+        status: d.status,
+        reason: d.reason,
+        error: d.error,
+        attemptStatus: d.status === 'retrying' ? 'failed' : d.status,
+      },
+      this.Events,
+      this.Log,
+    );
     if (!run.Forced && !d.keepScheduleLease) await this.Leases.releaseScheduleLease(run.Schedule, now);
 
     Object.assign(run, {

@@ -7,14 +7,13 @@ import type { AbortReason, RunStatus, RunTrigger } from './contract.js';
 import { EmitMirror } from './emit/emit.js';
 import { RunAbortedError } from './errors.js';
 import type { ScheduleDefinition, SchedulerConfig } from './interfaces.js';
-import { jsonColumn } from './models/converters.js';
-import { RunAttemptModel } from './models/RunAttemptModel.js';
 import { RunModel } from './models/RunModel.js';
 import { ScheduleModel } from './models/ScheduleModel.js';
 import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
 import { automaticRetry, decideAfterFailure } from './policy/retry.js';
 import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
 import { abortWaitingRun } from './run/cancel.js';
+import { journalAttemptEnd } from './run/end.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
 import { RunFinalizer } from './run/RunFinalizer.js';
@@ -509,7 +508,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     }
   }
 
-  protected dueRuns(now: number, skipSchedules: string[]): Promise<RunModel[]> {
+  protected async dueRuns(now: number, skipSchedules: string[]): Promise<RunModel[]> {
     const due = RunModel.query()
       .whereIn('Status', ['queued', 'retrying'])
       .where(function (this: IWhereBuilder<unknown>) {
@@ -517,7 +516,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
         this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now).orWhere('CancelRequested', true);
       });
     const query = skipSchedules.length ? due.whereNotIn('Schedule', skipSchedules) : due;
-    return query.orderBy('CreatedAt').take(CLAIM_PAGE_SIZE);
+    return await query.orderBy('CreatedAt').take(CLAIM_PAGE_SIZE);
   }
 
   /**
@@ -525,7 +524,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
    * holder nor the decision that made it `retrying`) ends here instead of starting another attempt.
    */
   protected async endCancelled(run: RunModel, def: ScheduleDefinition | undefined, now: number): Promise<void> {
-    await abortWaitingRun(run, now, { events: this.Events, finalizer: this.Finalizer, def });
+    await abortWaitingRun(run, now, { events: this.Events, finalizer: this.Finalizer, log: this.Log, def });
   }
 
   protected expiryDecision(
@@ -563,15 +562,18 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
         next.reason === 'cancelled'
           ? null
           : toStructuredError(new RunAbortedError('lease-expired'), { attempt: run.Attempt, occurredAt: now });
-      await RunAttemptModel.update({
-        FinishedAt: now,
-        Status: next.status === 'retrying' ? 'failed' : next.status,
-        Error: jsonColumn(error) as never,
-      })
-        .where('RunId', run.Id)
-        .where('Attempt', run.Attempt);
-      if (error) await this.Events.write(run, run.Attempt, { type: 'error', error });
-      await this.Events.write(run, run.Attempt, { type: 'status', status: next.status, reason: next.reason });
+      await journalAttemptEnd(
+        run,
+        {
+          now,
+          status: next.status,
+          reason: next.reason,
+          error,
+          attemptStatus: next.status === 'retrying' ? 'failed' : next.status,
+        },
+        this.Events,
+        this.Log,
+      );
       Object.assign(run, { Status: next.status, Reason: next.reason, NextAttemptAt: next.nextAttemptAt });
       await this.Finalizer.finalized({
         run,

@@ -8,9 +8,9 @@ import type { RunStatus, StructuredError } from '../contract.js';
 import { QueueJobFailedError } from '../errors.js';
 import { resolveSchedulerConfig, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
-import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
+import { journalAttemptEnd } from '../run/end.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
 import { parseDuration } from '../time/duration.js';
@@ -255,11 +255,12 @@ export class EmitMirror {
       Message: end.message,
       Error: end.error,
     });
-    await RunAttemptModel.update({ FinishedAt: now, Status: end.status, Error: jsonColumn(end.error) as never })
-      .where('RunId', run.Id)
-      .where('Attempt', run.Attempt);
-    if (end.error) await this.Events.write(run, run.Attempt, { type: 'error', error: end.error });
-    await this.Events.write(run, run.Attempt, { type: 'status', status: end.status, reason: end.reason });
+    await journalAttemptEnd(
+      run,
+      { now, status: end.status, reason: end.reason, error: end.error, attemptStatus: end.status },
+      this.Events,
+      this.Log,
+    );
     await this.Finalizer.finalized({
       run,
       def: this.Registry.find(run.Schedule),

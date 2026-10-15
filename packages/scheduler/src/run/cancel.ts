@@ -1,12 +1,14 @@
+import type { Log } from '@spinajs/log-common';
 import type { ScheduleDefinition } from '../interfaces.js';
-import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunModel } from '../models/RunModel.js';
+import { journalAttemptEnd } from './end.js';
 import type { RunEventWriter } from './RunEventWriter.js';
 import type { RunFinalizer } from './RunFinalizer.js';
 
 export interface CancelDeps {
   events: RunEventWriter;
   finalizer: RunFinalizer;
+  log: Log;
   def?: ScheduleDefinition;
 }
 
@@ -30,11 +32,6 @@ export async function abortWaitingRun(run: RunModel, now: number, deps: CancelDe
     .where('Status', run.Status)
     .where('Attempt', run.Attempt);
   if (r.RowsAffected !== 1) return false;
-  if (observed === 'emitted') {
-    await RunAttemptModel.update({ FinishedAt: now, Status: 'aborted' })
-      .where('RunId', run.Id)
-      .where('Attempt', run.Attempt);
-  }
 
   // the finalizer decides error grouping and health from Reason
   Object.assign(run, {
@@ -44,7 +41,19 @@ export async function abortWaitingRun(run: RunModel, now: number, deps: CancelDe
     FinishedAt: now,
     NextAttemptAt: null,
   });
-  await deps.events.write(run, run.Attempt, { type: 'status', status: 'aborted', reason: 'cancelled' });
+  await journalAttemptEnd(
+    run,
+    {
+      now,
+      status: 'aborted',
+      reason: 'cancelled',
+      error: null,
+      // a queued or retrying run has no open attempt row
+      attemptStatus: observed === 'emitted' ? 'aborted' : undefined,
+    },
+    deps.events,
+    deps.log,
+  );
   await deps.finalizer.finalized({
     run,
     def: deps.def,
