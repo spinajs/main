@@ -84,6 +84,8 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.int('Total');
       t.text('Message');
       t.json('Result');
+      // false when the step's return value was not kept (persistResult: false, not JSON, too large)
+      t.boolean('ResultStored').notNull().default().value(0);
       t.json('Error');
     });
 

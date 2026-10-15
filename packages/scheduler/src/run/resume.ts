@@ -9,12 +9,14 @@ export interface StepRecord {
   Name: string;
   Status: StepStatus;
   Result: unknown;
+  /** `false`: the step's value was not kept, so it has to run again. Absent counts as stored. */
+  ResultStored?: boolean;
 }
 
 /**
  * Results of completed steps keyed `${name}#${occurrence}` (occurrence counts repeated names within
  * one attempt). With `fromStep`, that step and everything after it in the latest attempt that ran it
- * are left out.
+ * are left out; so are steps whose value was not stored.
  */
 export function buildResumeMap(rows: StepRecord[], fromStep?: string): Map<string, unknown> {
   const sorted = [...rows].sort((a, b) => a.Attempt - b.Attempt || a.Seq - b.Seq);
@@ -43,7 +45,8 @@ export function buildResumeMap(rows: StepRecord[], fromStep?: string): Map<strin
   const map = new Map<string, unknown>();
   for (const { key, row } of keyed) {
     if (excluded.has(key)) continue;
-    if (row.Status === 'succeeded' || row.Status === 'skipped') map.set(key, row.Result);
+    if ((row.Status === 'succeeded' || row.Status === 'skipped') && row.ResultStored !== false)
+      map.set(key, row.Result);
   }
   return map;
 }

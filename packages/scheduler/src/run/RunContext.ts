@@ -37,6 +37,8 @@ export interface RunContextInit {
   onLeaseLost?: () => void;
   /** Results of steps completed by an earlier attempt, keyed `${name}#${occurrence}`. */
   resume?: Map<string, unknown> | null;
+  /** Starts the run without the checkpoint stored on its row (a retry that does not resume). */
+  discardCheckpoint?: boolean;
 }
 
 export interface StepOptions {
@@ -140,7 +142,7 @@ export class RunContext {
     this.plannedWeight = init.plannedWeight ?? 0;
     this.lastMessage = r.Message ?? null;
     this.lastEmittedProgress = r.Progress ?? 0;
-    this.checkpointValue = r.Checkpoint ?? null;
+    this.checkpointValue = init.discardCheckpoint ? null : r.Checkpoint ?? null;
     this.log = this.createLogger();
   }
 
@@ -203,7 +205,7 @@ export class RunContext {
 
     try {
       const value = await fn(this.handle(name));
-      await this.closeStep(s, 'succeeded', null, opts.persistResult === false ? undefined : value);
+      await this.closeStep(s, 'succeeded', null, opts.persistResult === false ? undefined : { value });
       return value;
     } catch (err) {
       const aborted = this.signal.aborted;
@@ -211,7 +213,7 @@ export class RunContext {
         ? null
         : toStructuredError(err, { attempt: this.attempt, occurredAt: this.init.clock.now(), step: name });
       if (err !== null && typeof err === 'object') this.stepErrors.set(err as object, name);
-      await this.closeStep(s, aborted ? 'aborted' : 'failed', error, undefined);
+      await this.closeStep(s, aborted ? 'aborted' : 'failed', error);
       throw err;
     }
   }
@@ -331,7 +333,7 @@ export class RunContext {
   /** Ends a step the task left open (it did not settle after an abort) and waits for every queued write. */
   public async close(_outcome: ExecutionOutcome): Promise<void> {
     const s = this.open;
-    if (s && !s.closed) await this.closeStep(s, 'aborted', null, undefined);
+    if (s && !s.closed) await this.closeStep(s, 'aborted', null);
     this.closed = true;
     await this.queue;
   }
@@ -350,6 +352,7 @@ export class RunContext {
         FinishedAt: now,
         Progress: 100,
         Result: value ?? null,
+        ResultStored: true,
       }),
     );
     this.completedWeight += weight;
@@ -427,7 +430,8 @@ export class RunContext {
     s: OpenStep,
     status: StepStatus,
     error: StructuredError | null,
-    value: unknown,
+    /** The return value to keep; absent for a failed step or `persistResult: false`. */
+    kept?: { value: unknown },
   ): Promise<void> {
     if (s.closed) return;
     s.closed = true;
@@ -437,8 +441,10 @@ export class RunContext {
     }
     if (status === 'aborted') this.abortedStep = s.name;
     const now = this.init.clock.now();
-    const json = value === undefined ? null : safeJson(value);
-    const result = json !== null && json.length <= this.init.config.maxStepResultBytes ? json : undefined;
+    const json = kept === undefined || kept.value === undefined ? null : safeJson(kept.value);
+    const fits = json !== null && json.length <= this.init.config.maxStepResultBytes;
+    // a step that returned nothing has nothing to lose; one whose value was dropped must run again on resume
+    const stored = kept !== undefined && (kept.value === undefined || fits);
     await this.enqueue(() =>
       RunStepModel.update(
         defined({
@@ -448,7 +454,8 @@ export class RunContext {
           Done: s.done ?? null,
           Total: s.total ?? null,
           Message: s.message,
-          Result: result,
+          Result: fits ? json : undefined,
+          ResultStored: stored,
           Error: jsonColumn(error) as never,
         }),
       ).where('Id', s.rowId),

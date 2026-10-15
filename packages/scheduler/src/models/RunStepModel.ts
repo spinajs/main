@@ -1,4 +1,4 @@
-import { Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Bool, Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { StepStatus, StructuredError } from '../contract.js';
 import { EpochMs } from './converters.js';
 
@@ -36,6 +36,10 @@ export class RunStepModel extends ModelBase {
 
   @Json()
   public Result: unknown;
+
+  /** `Result` holds the step's return value; a resumed run re-runs steps without one. */
+  @Bool()
+  public ResultStored: boolean;
 
   @Json()
   public Error: StructuredError | null;

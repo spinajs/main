@@ -8,7 +8,7 @@ import { defined, jsonColumn } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
-import { decideAfterFailure } from '../policy/retry.js';
+import { automaticRetry, decideAfterFailure } from '../policy/retry.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock } from '../time/clock.js';
@@ -145,6 +145,8 @@ export class RunExecutor {
     cfg: SchedulerConfig,
     onLeaseLost?: () => void,
   ): Promise<RunContext> {
+    // design §5/§8: only a resumable or resumed run continues from the previous attempt's checkpoint
+    const discardCheckpoint = run.Attempt > 1 && !def.resumable && !run.ResumeFrom;
     return new RunContext({
       run,
       def,
@@ -160,6 +162,7 @@ export class RunExecutor {
         this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: json, UpdatedAt: this.Clock.now() }),
       onLeaseLost,
       resume: await loadResumeMap(run, def),
+      discardCheckpoint,
     });
   }
 
@@ -235,7 +238,14 @@ export class RunExecutor {
       abortReason === 'cancelled' ? null : toStructuredError(raw, { attempt: run.Attempt, occurredAt: now, step });
     // a task still running may still need the schedule lease to keep others out
     const keepScheduleLease = outcome.kind === 'aborted' && !outcome.settled;
-    const f = decideAfterFailure({ retry: def.retry, emit: !!def.emit, attempt: run.Attempt, error: raw, abortReason });
+    const f = decideAfterFailure({
+      retry: automaticRetry(def),
+      emit: !!def.emit,
+      attempt: run.Attempt,
+      maxAttempts: run.MaxAttempts,
+      error: raw,
+      abortReason,
+    });
 
     if (f.status === 'retrying') {
       return {

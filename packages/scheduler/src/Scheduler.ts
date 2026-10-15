@@ -10,7 +10,7 @@ import { RunAttemptModel } from './models/RunAttemptModel.js';
 import { RunModel } from './models/RunModel.js';
 import { ScheduleModel } from './models/ScheduleModel.js';
 import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
-import { decideAfterFailure } from './policy/retry.js';
+import { automaticRetry, decideAfterFailure } from './policy/retry.js';
 import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
@@ -209,7 +209,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     if (typeof retry?.NextAttemptAt === 'number') instants.push(retry.NextAttemptAt);
     for (const [name, due] of this.localNext) {
       const def = this.Registry.find(name);
-      if (def && due !== null) instants.push(fireTime(def, due));
+      if (def && def.enabled && def.runOn === 'all' && due !== null) instants.push(fireTime(def, due));
     }
     const now = this.Clock.now();
     const until = instants.filter((t) => t > since).map((t) => t - now);
@@ -232,14 +232,28 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   /** `runOn: 'all'`: every replica fires from its own in-memory next occurrence, without the schedule lease. */
   protected async fireLocal(now: number): Promise<void> {
-    for (const def of this.Registry.all()) {
+    const local = this.Registry.all().filter((d) => d.runOn === 'all' && d.enabled);
+    if (local.length === 0) return;
+    const halted = new Set(
+      (
+        await ScheduleModel.query().whereIn(
+          'Name',
+          local.map((d) => d.name),
+        )
+      )
+        .filter((r) => r.Paused || r.Orphaned)
+        .map((r) => r.Name),
+    );
+
+    for (const def of local) {
       if (this.stopping) return;
-      if (def.runOn !== 'all' || !def.enabled) continue;
       if (!this.localNext.has(def.name)) this.localNext.set(def.name, nextOccurrence(def.spec, now));
       const due = this.localNext.get(def.name);
       if (due === null || due === undefined || now < fireTime(def, due)) continue;
       // local schedules never catch up: the next one is the first after now
       this.localNext.set(def.name, nextOccurrence(def.spec, Math.max(due, now)));
+      // a paused occurrence is dropped, like a paused leader schedule's (S9 resume re-anchors on now)
+      if (halted.has(def.name)) continue;
 
       if ([...this.active.values()].some((h) => h.schedule === def.name)) {
         await this.recordWithoutRunning(def, 'skipped', due, now, 'overlap', null);
@@ -390,7 +404,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       Status: o.status,
       Reason: o.reason ?? null,
       Attempt: 1,
-      MaxAttempts: def.retry?.attempts ?? 1,
+      MaxAttempts: automaticRetry(def)?.attempts ?? 1,
       NextAttemptAt: null,
       ScheduledAt: o.scheduledAt,
       CreatedAt: o.now,
@@ -439,9 +453,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     now: number,
   ): RunExpiry & { countsAsFailure: boolean } {
     const f = decideAfterFailure({
-      retry: def?.retry,
+      retry: automaticRetry(def),
       emit: !!def?.emit,
       attempt: run.Attempt,
+      maxAttempts: run.MaxAttempts,
       error: new RunAbortedError('lease-expired'),
       abortReason: 'lease-expired',
     });

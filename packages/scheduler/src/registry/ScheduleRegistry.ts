@@ -1,5 +1,6 @@
 import { AsyncService, DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { Log, Logger } from '@spinajs/log-common';
 import { ListFromFiles } from '@spinajs/reflection';
 import { DataValidator } from '@spinajs/validation';
 import { ScheduleNotFound } from '../contract.js';
@@ -10,6 +11,9 @@ import { buildDefinitions } from './definitions.js';
 @Singleton()
 @Injectable()
 export class ScheduleRegistry extends AsyncService {
+  @Logger('SCHEDULER')
+  protected Log: Log;
+
   @Config('scheduler', { defaultValue: {} })
   protected RawConfig: Partial<SchedulerConfig>;
 
@@ -37,6 +41,13 @@ export class ScheduleRegistry extends AsyncService {
     });
 
     this.definitions = new Map(defs.map((d) => [d.name, d]));
+    for (const d of defs) {
+      if (d.runOn === 'all' && d.retry) {
+        this.Log.warn(
+          `schedule ${d.name}: retry is ignored for runOn 'all'; a failed local run waits for the next occurrence`,
+        );
+      }
+    }
     await super.resolve();
   }
 

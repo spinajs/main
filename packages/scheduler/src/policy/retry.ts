@@ -1,6 +1,17 @@
 import type { AbortReason } from '../contract.js';
 import { NonRetryableError } from '../errors.js';
-import type { NormalizedRetry } from '../interfaces.js';
+import type { NormalizedRetry, ScheduleDefinition } from '../interfaces.js';
+
+/**
+ * The retry policy the scheduler applies itself. `runOn: 'all'` runs are local work: a retry would be a
+ * claimable row any replica could pick up, so they get none (the next local occurrence is the retry).
+ * Emit mode leaves retries to the queue, which `decideAfterFailure` handles through `emit`.
+ */
+export function automaticRetry(
+  def: Pick<ScheduleDefinition, 'retry' | 'runOn'> | undefined,
+): NormalizedRetry | undefined {
+  return def?.runOn === 'all' ? undefined : def?.retry;
+}
 
 export function computeBackoff(retry: NormalizedRetry, attempt: number, random: () => number = Math.random): number {
   if (retry.backoff === 'fixed') return retry.delayMs;
@@ -24,6 +35,8 @@ export interface FailureInput {
   emit: boolean;
   /** The attempt that just ended. */
   attempt: number;
+  /** Total attempts of this run (the run row's `MaxAttempts`); defaults to `retry.attempts`. */
+  maxAttempts?: number;
   error: unknown;
   abortReason?: AbortReason;
 }
@@ -49,7 +62,7 @@ export function decideAfterFailure(input: FailureInput, random?: () => number): 
       : isRetryable(input.retry, input.error);
   if (!retryable) return { status: terminal, countsAsFailure: true };
   // R11: `attempts` counts the first try
-  if (input.attempt < input.retry.attempts) {
+  if (input.attempt < (input.maxAttempts ?? input.retry.attempts)) {
     return { status: 'retrying', delayMs: computeBackoff(input.retry, input.attempt, random), countsAsFailure: false };
   }
   return { status: 'dead', countsAsFailure: true };
