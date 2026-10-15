@@ -142,8 +142,8 @@ describe('emit mode', () => {
       JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')),
       LeaseOwner: null,
     });
-    expect(run.Error.message).to.contain('may still be delivered');
-    expect(run.FinishedAt - at('2026-01-05T10:01:00Z')).to.be.within(30_000, 40_000);
+    expect(run.Error?.message).to.contain('may still be delivered');
+    expect(Number(run.FinishedAt) - at('2026-01-05T10:01:00Z')).to.be.within(30_000, 40_000);
     expect((await ScheduleModel.where('Name', 'daily-digest').first()).LeaseOwner).to.eq(null);
   });
 
