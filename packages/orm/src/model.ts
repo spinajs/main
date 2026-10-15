@@ -1707,8 +1707,9 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    const row = await query.takeFirst().asRaw<{ count: number }>();
-    return row?.count ?? 0;
+    const row = await query.takeFirst().asRaw<{ count: number | string }>();
+    // COUNT is bigint on postgres, which node-postgres returns as a string
+    return Number(row?.count ?? 0);
   },
 
   async transaction<T extends typeof ModelBase, R>(this: T, callback: (trx: OrmDriver) => Promise<R>, options?: ITransactionOptions): Promise<R> {
