@@ -107,6 +107,8 @@ export function queueHarness(): BehaviourHarness {
       nodeBus = new NodeBus();
       host.setConfig(['authz', 'queue', 'domain'], host.domain);
       host.setConfig(['authz', 'orm', 'domain'], host.domain);
+      // authz-orm's runtime guard throws only in the test env.
+      host.setConfig(['process', 'env', 'APP_ENV'], 'test');
       host.setConfig(['db'], {
         DefaultConnection: 'queue',
         Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: MIGRATION }],

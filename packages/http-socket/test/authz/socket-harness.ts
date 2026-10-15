@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { io } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { ResourceAdapter, SYSTEM, UNATTENDED, authz, currentPrincipal } from '@spinajs/authz';
+import { SYSTEM, UNATTENDED, authz, currentPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 // From the lib, as every other package of the process loads it: a second copy would register a second middleware.
 import { AccessResource, Owner } from '@spinajs/authz-orm';
@@ -66,15 +66,14 @@ interface Defined {
 
 const pk = (row: ModelBase): string => String((row as unknown as { id: unknown }).id);
 
-/** What this harness maps: `@AccessResource(type, { attributes })` and `@Owner()` over text columns. */
+/** What this harness maps: `@AccessResource(type)` and `@Owner()` over text columns. */
 function checkSpec(s: OrmModelSpec): void {
   const where = `model ${s.name}`;
-  for (const key of ['relationScope', 'scopeColumns', 'scopes', 'json', 'junctions', 'belongsTo'] as const) if (s[key] !== undefined) fail(`${where}: ${key} is not supported here`);
+  if (s.parents !== undefined) fail(`${where}: parents are not supported here`);
   const columns = new Set(s.columns);
   if (columns.size !== s.columns.length || columns.has('id')) fail(`${where}: columns repeat a name or list id`);
-  if (s.type === undefined && (s.owner !== undefined || s.attributes !== undefined)) fail(`${where}: owner and attributes need a type`);
+  if (s.type === undefined && s.owner !== undefined) fail(`${where}: owner needs a type`);
   if (s.owner !== undefined && !columns.has(s.owner)) fail(`${where}: the owner ${s.owner} is not one of its columns`);
-  for (const a of s.attributes ?? []) if (!columns.has(a)) fail(`${where}: the attribute ${a} is not one of its columns`);
   for (const r of s.rows ?? []) {
     if (typeof r.id !== 'string') fail(`${where}: rows need string ids`);
     for (const [k, v] of Object.entries(r)) {
@@ -126,7 +125,7 @@ class SocketOrm {
     const cls = { [name]: class extends ModelBase {} }[name] as typeof ModelBase & (new () => ModelBase);
     Primary()(cls.prototype, 'id');
     if (s.type !== undefined) {
-      AccessResource(s.type, s.attributes ? { attributes: [...s.attributes] } : {})(cls);
+      AccessResource(s.type)(cls);
       if (s.owner !== undefined) Owner()(cls.prototype, s.owner);
     }
     Connection('sqlite')(cls);
@@ -143,10 +142,11 @@ class SocketOrm {
   }
 
   async run(q: OrmQuery): Promise<{ ids: string[] }> {
-    if (q.op !== 'select' || q.clone || q.populate !== undefined) return fail(`only a plain select is supported here, not ${JSON.stringify(q)}`);
+    if (q.op !== 'select' || q.withAccess !== undefined) return fail(`only a select (with or without accessible) is supported here, not ${JSON.stringify(q)}`);
     const d = this.current.get(q.model) ?? fail(`no model ${q.model} in the world`);
     let b = (d.cls as unknown as { query(): any }).query();
     for (const [k, v] of Object.entries(q.where ?? {})) b = b.where(k, v);
+    if (q.accessible) b = b.accessible(q.accessible);
     return { ids: ((await b) as ModelBase[]).map(pk) };
   }
 
@@ -255,17 +255,6 @@ export function socketHarness(opts: SocketHarnessOptions = {}): BehaviourHarness
       host.setConfig(['authz', 'orm', 'domain'], host.domain);
       const specs = world.lane?.orm?.models ?? [];
       await r.orm.use(specs);
-
-      // The test domain declares the ORM adapter's permissions of the world's types: root boots once,
-      // before the case's classes exist (as authz-orm's own harness does).
-      const declared = new Set(world.permissions.map((p) => (typeof p === 'string' ? p : p.name)));
-      const types = new Set(specs.flatMap((m) => (m.type === undefined ? [] : [m.type])));
-      const adapters = (await DI.resolve(Array.ofType(ResourceAdapter))) as ResourceAdapter[];
-      const ormAdapter = adapters.find((a) => (a as unknown as { kind?: string }).kind === 'orm') as unknown as { permissions(): readonly { name: string; types?: readonly string[] }[] } | undefined;
-      if (types.size > 0 && !ormAdapter) fail('the authz-orm adapter is not registered');
-      for (const { name, ...def } of ormAdapter?.permissions() ?? []) {
-        if (!declared.has(name) && def.types?.some((t) => types.has(t))) host.setConfig(['authz', 'domains', host.domain, 'permissions', name], { ...def, types: [...(def.types ?? [])] });
-      }
 
       const domain = host.domain;
       const commands = new Map<string, () => Promise<unknown>>();

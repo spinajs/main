@@ -90,6 +90,12 @@ describe('analyze', () => {
       expect(byCode(list, 'scope-relation')[0].severity).to.equal('info');
       expect(byCode(findings({ rbac: { grants: { r: { Campaign: { 'read:own': ['scope:other'] } } } } }, { src: scanSources(dir) }), 'scope-relation')[0].severity).to.equal('warning');
     });
+
+    it('advises roles on the resource, never @OrmScope', () => {
+      const list = findings({ rbac: { grants: { r: { Campaign: { 'read:own': ['scope:partner'] }, Note: { 'read:own': ['*'] } } } } });
+      for (const f of list) expect(f.message).to.not.match(/OrmScope/);
+      expect(byCode(list, 'scope-relation')[0].message).to.match(/role/);
+    });
   });
 
   describe('db facts', () => {

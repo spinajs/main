@@ -76,12 +76,12 @@ const queueCases: Case[] = [
   },
 ];
 
-// job:read with relation 'initiator' for users, unconditional for carol (design §14.2).
+// job:read on the owner relation (the initiator columns) for users, unconditional for carol (design 2026-10-14 §6.3).
 const statusWorld: World = {
   permissions: [],
   principals: { alice, bob, carol },
   combine: combine('deny-overrides', 'm1'),
-  models: [staticModel('m1', { votes: (req) => (req.permission !== 'job:read' ? {} : req.principal.id === 'carol' ? permit() : permit(relation('initiator'))) })],
+  models: [staticModel('m1', { votes: (req) => (req.permission !== 'job:read' ? {} : req.principal.id === 'carol' ? permit() : permit(relation('owner'))) })],
   lane: { queue: { records: [{ id: 'j1', job: 'export', initiator: ALICE, status: 'success' }] } },
 };
 

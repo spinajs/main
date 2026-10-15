@@ -68,6 +68,15 @@ describe('validateWorld and validateCase', () => {
     assert.deepEqual(validateWorld(good), []);
   });
 
+  it('accepts a wildcard subject and scopes at rows of the ORM lane models', () => {
+    const orm: World = {
+      ...good,
+      rbac: { roles: [role('viewer', ['file:read'])], assignments: [assignment('a1', { type: 'user', id: '*' }, 'viewer', ref('doc', 'd1'))] },
+      lane: { orm: { models: [{ name: 'Doc', type: 'doc', columns: [], rows: [{ id: 'd1' }] }] } },
+    };
+    assert.deepEqual(validateWorld(orm), []);
+  });
+
   const BROKEN: readonly [string, World, RegExp][] = [
     ['an invalid permission name', { ...good, permissions: ['file:read', 'nope'] }, /permission "nope"/],
     ['a permission declared twice', { ...good, permissions: ['file:read', 'file:read'] }, /declared twice/],

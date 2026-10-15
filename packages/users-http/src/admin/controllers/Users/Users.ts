@@ -363,8 +363,9 @@ export class Users extends BaseController {
       countQuery.withDeleted();
     }
 
-    const result = await query;
-    const count = await countQuery.selectCount();
+    // requireEveryUser decided for every row; the application's user model may be an @AccessResource.
+    const authz = (await DI.resolve(AuthzService)) as AuthzService;
+    const [result, count] = await authz.runAs(SYSTEM, 'users-http-list', async () => [await query, await countQuery.selectCount()] as const);
 
     return new Ok(
       result.map((x) =>

@@ -53,7 +53,8 @@ runBehaviour(
             orm: {
               async run(q) {
                 if (q.op !== 'select') throw new Error('B20.configuration only selects');
-                const rows = await DbConfig.query();
+                const query = DbConfig.query();
+                const rows = await (q.accessible ? query.accessible(q.accessible) : query);
                 return { ids: rows.map((r) => String(r.Id)), count: rows.length, sql: [] };
               },
               rows: async () => [],

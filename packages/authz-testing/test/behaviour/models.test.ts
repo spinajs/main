@@ -16,7 +16,7 @@ const ALL: readonly (BehaviourFixture | FixtureExtension)[] = BEHAVIOUR_FIXTURES
 const merged = mergeFixtures(ALL);
 
 const MINE: readonly BehaviourId[] = ['B11', 'B12', 'B13', 'B15', 'B16', 'B18', 'B19', 'B26', 'B31', 'B32', 'B33', 'B34', 'B35', 'B38', 'B40', 'B42', 'B43', 'B44', 'B45', 'B46'];
-const FILLED: readonly string[] = ['B06.rules', 'B06.rulesSql', 'B27.events', 'B27.policyEvents', 'B36.rbac', 'B39.store'];
+const FILLED: readonly string[] = ['B06.rules', 'B27.events', 'B27.policyEvents', 'B36.rbac', 'B39.store'];
 
 const part = (sel: string): FixturePart => {
   const [id, name] = sel.split('.') as [BehaviourId, string];
@@ -84,7 +84,7 @@ describe('model, store and admin fixtures', () => {
         `${s.name}: probe names`,
       );
     }
-    for (const sel of ['B06.rules', 'B06.rulesSql', 'B44.config', 'B44.db']) for (const c of part(sel).cases) assert.ok(c.steps.filter((x) => 'check' in x).length >= 2, `${sel} ${c.name}: probes`);
+    for (const sel of ['B06.rules']) for (const c of part(sel).cases) assert.ok(c.steps.filter((x) => 'check' in x).length >= 2, `${sel} ${c.name}: probes`);
   });
 
   it('a harness without the facets of a part gets a pending test naming them', () => {

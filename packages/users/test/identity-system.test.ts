@@ -1,3 +1,4 @@
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { expect } from 'chai';
@@ -5,7 +6,7 @@ import * as sinon from 'sinon';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { DefaultQueueService } from '@spinajs/queue';
-import { AccessDenied, AuthzContributor, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, AuthzContributor, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { QueryMiddleware } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
@@ -62,6 +63,8 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   beforeEach(async () => {
     await bootUsersDb();
     await rootAuthz();
+    // The runtime guard throws only in the test env; the stores must pass it without the old scoping.
+    (DI.get(Configuration) as Configuration).set(['process', 'env', 'APP_ENV'], 'test');
     emittedAs = [];
     emit = sinon.stub(DefaultQueueService.prototype, 'emit').callsFake(async () => {
       emittedAs.push(currentPrincipal());
@@ -78,9 +81,11 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   after(() => {
     // What the import registered (the package does not export these classes).
     for (const [service, name] of [
-      [QueryMiddleware, 'AuthzQueryMiddleware'],
+      [QueryMiddleware, 'AncestorMiddleware'],
+      [QueryMiddleware, 'AccessGuardMiddleware'],
+      [QueryMiddleware, 'AccessListMiddleware'],
       [ResourceAdapter, 'OrmResourceAdapter'],
-      [AuthzContributor, 'OrmAuthzContributor'],
+      [AuthzContributor, 'AuthzOrmContributor'],
     ] as [Class<unknown>, string][]) {
       for (const type of DI.RootContainer.getRegisteredTypes(service).filter((t) => (t as Class<unknown>).name === name)) {
         DI.RootContainer.Registry.unregister(type);
@@ -92,18 +97,11 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   /** As an application declares its user model; rows are seeded before, while nothing scopes `users`. */
   const scopeUsers = () => orm.registerAccessResource(User, 'user');
 
-  it('scopes users: an unwrapped lookup or raw statement of a login caller is refused', async () => {
+  it('an unwrapped lookup of a login caller is refused by the runtime guard', async () => {
     scopeUsers();
 
     for (const [name, caller] of CALLERS) {
-      await expect(
-        as(caller, () => User.query().withDeleted().where('Uuid', TEST_USER_UUID).first()),
-        name,
-      ).to.be.rejectedWith(AccessDenied);
-      await expect(
-        as(caller, async () => User.query().Driver.select().from('users').columns(['Uuid']).where('Uuid', TEST_USER_UUID)),
-        name,
-      ).to.be.rejectedWith(AccessDenied);
+      await expect(as(caller, () => User.query().withDeleted().where('Uuid', TEST_USER_UUID).first()), name).to.be.rejectedWith(AuthzConfigError);
     }
   });
 

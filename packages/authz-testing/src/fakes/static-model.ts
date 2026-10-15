@@ -31,7 +31,7 @@ export interface StaticModelOptions {
 }
 
 export interface ModelCall {
-  readonly method: 'init' | 'evaluate' | 'preload' | 'summarize' | 'invalidate' | 'dispose';
+  readonly method: 'init' | 'evaluate' | 'preload' | 'summarize' | 'invalidate' | 'dispose' | 'listPlan';
   readonly args: readonly unknown[];
 }
 
