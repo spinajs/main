@@ -17,3 +17,4 @@ export * from './models/RunLogModel.js';
 export * from './models/ErrorGroupModel.js';
 export * from './migrations/Scheduler_2026_10_15_00_00_00.js';
 export * from './decorators.js';
+export * from './registry/definitions.js';
