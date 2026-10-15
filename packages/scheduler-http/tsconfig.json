@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "references": [
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../fs/tsconfig.json" },
+    { "path": "../http/tsconfig.json" },
+    { "path": "../http-swagger/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../rbac/tsconfig.json" },
+    { "path": "../rbac-http/tsconfig.json" },
+    { "path": "../scheduler/tsconfig.json" },
+    { "path": "../validation/tsconfig.json" }
+  ]
+}
