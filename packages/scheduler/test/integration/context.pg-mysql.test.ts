@@ -87,6 +87,7 @@ for (const target of REAL_DB_TARGETS) {
         ['process', 'succeeded', 100, 8, 10, 'eight of ten'],
       ]);
       expect(steps[0].Result).to.deep.eq({ rows: [1, 2] });
+      expect(steps.map((s) => s.ResultStored)).to.deep.eq([true, true]);
       const run = await getRun(row.Id);
       expect(run).to.deep.include({ Status: 'succeeded', Progress: 100, Result: { imported: 8 } });
 
@@ -100,7 +101,7 @@ for (const target of REAL_DB_TARGETS) {
       const { row, handle } = await start('fails', Fails);
       await handle.done;
       const [step] = await RunStepModel.where('RunId', row.Id);
-      expect(step.Status).to.eq('failed');
+      expect(step).to.include({ Status: 'failed', ResultStored: false });
       expect(step.Error).to.include({ name: 'SyntaxError', step: 'parse' });
       expect((await getRun(row.Id)).Error).to.include({ step: 'parse' });
     });

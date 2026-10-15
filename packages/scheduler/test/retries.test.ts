@@ -98,6 +98,18 @@ describe('automatic retries', () => {
     expect(await statuses(run.Id)).to.deep.eq(['running', 'retrying', 'running', 'dead']);
   });
 
+  it("takes the attempt budget from the run's MaxAttempts, not from the current definition", async () => {
+    // e.g. a manual retry given its own budget, or a definition changed while the run was in flight
+    const run = await queuedRun('always', clock.now(), { MaxAttempts: 3 });
+    await tick();
+    clock.set(clock.now() + 60_000);
+    await tick();
+    expect(await getRun(run.Id)).to.include({ Status: 'retrying', Attempt: 2 });
+    clock.set(clock.now() + 60_000);
+    await tick();
+    expect(await getRun(run.Id)).to.include({ Status: 'dead', Attempt: 3 });
+  });
+
   it('keeps a run subscription open through retrying until the final status', async () => {
     const run = await queuedRun('always', clock.now(), { MaxAttempts: 2 });
     const seen: string[] = [];

@@ -59,6 +59,15 @@ describe('buildResumeMap', () => {
     ]);
     expect([...map.entries()]).to.deep.eq([['load#1', 1]]);
   });
+
+  it('leaves out completed steps whose result was not stored', () => {
+    const map = buildResumeMap([
+      { ...r(1, 1, 'secret', 'succeeded'), ResultStored: false },
+      { ...r(1, 2, 'prepare', 'succeeded'), ResultStored: true },
+      r(1, 3, 'save', 'failed'),
+    ]);
+    expect([...map.entries()]).to.deep.eq([['prepare#1', null]]);
+  });
 });
 
 let loads = 0;
@@ -80,7 +89,27 @@ class ResumableImport extends ScheduledTask {
   }
 }
 
-const NAMES = ['resumable-import', 'plain-import', 'resumed-retry'];
+let fetches = 0;
+let prepares = 0;
+let bigs = 0;
+let partSaves = 0;
+let savedWith: unknown;
+class PartlyStoredImport extends ScheduledTask {
+  public async execute(ctx: RunContext) {
+    const secret = await ctx.step('fetch', () => (fetches++, { token: 't' }), { persistResult: false });
+    await ctx.step('prepare', () => {
+      prepares++;
+    });
+    // larger than maxStepResultBytes (64 KiB)
+    const big = await ctx.step('big', () => (bigs++, 'x'.repeat(70_000)));
+    await ctx.step('save', () => {
+      savedWith = [secret, big.length];
+      if (++partSaves === 1) throw new Error('db down');
+    });
+  }
+}
+
+const NAMES = ['resumable-import', 'plain-import', 'resumed-retry', 'partly-stored'];
 
 describe('resume on automatic retry', () => {
   let clock: FakeClock;
@@ -91,6 +120,8 @@ describe('resume on automatic retry', () => {
   };
 
   beforeEach(() => {
+    fetches = prepares = bigs = partSaves = 0;
+    savedWith = undefined;
     loads = 0;
     saveCalls = 0;
     received = undefined;
@@ -106,6 +137,11 @@ describe('resume on automatic retry', () => {
     });
     defineSchedule(ResumableImport, 'plain-import', { manual: true, retry: { attempts: 2, delay: '1s' } });
     defineSchedule(ResumableImport, 'resumed-retry', { manual: true, retry: { attempts: 3, delay: '1s' } });
+    defineSchedule(PartlyStoredImport, 'partly-stored', {
+      manual: true,
+      resumable: true,
+      retry: { attempts: 2, delay: '1s' },
+    });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
     s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
   }
@@ -141,6 +177,26 @@ describe('resume on automatic retry', () => {
     clock.set(clock.now() + 1000);
     await tick();
     expect(loads).to.eq(2);
+    // the checkpoint of attempt 1 is handed over to resumable runs only
+    expect(checkpointSeen).to.eq(null);
+  });
+
+  it('re-runs a completed step whose result was not stored', async () => {
+    await boot();
+    const run = await queuedRun('partly-stored', clock.now(), { MaxAttempts: 2 });
+    await tick();
+    clock.set(clock.now() + 1000);
+    await tick();
+    expect((await getRun(run.Id)).Status).to.eq('succeeded');
+    expect({ fetches, prepares, bigs }).to.deep.eq({ fetches: 2, prepares: 1, bigs: 2 });
+    expect(savedWith).to.deep.eq([{ token: 't' }, 70_000]);
+    const second = await RunStepModel.where('RunId', run.Id).where('Attempt', 2).orderBy('Seq');
+    expect(second.map((x) => [x.Name, x.Status, x.ResultStored])).to.deep.eq([
+      ['fetch', 'succeeded', false],
+      ['prepare', 'skipped', true],
+      ['big', 'succeeded', false],
+      ['save', 'succeeded', true],
+    ]);
   });
 
   it('a resumed manual retry also skips the steps its own earlier attempt completed', async () => {

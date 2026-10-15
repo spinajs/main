@@ -10,6 +10,7 @@ import {
   jsonColumn,
   RunLogModel,
   RunModel,
+  RunStepModel,
   ScheduleModel,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
@@ -82,6 +83,21 @@ describe('scheduler models', () => {
       Forced: 0,
     });
     expect((await RunModel.where('Id', 'raw').first()).ProgressCapped).to.eq(false);
+  });
+
+  it('defaults ResultStored to false for step rows written without it', async () => {
+    const orm = await DI.resolve(Orm);
+    await orm.Connections.get('default')!.insert().into('__scheduler_run_step').values({
+      RunId: 'raw',
+      Attempt: 1,
+      Seq: 1,
+      Name: 's',
+      Status: 'succeeded',
+      Weight: 1,
+      StartedAt: T,
+      Progress: 100,
+    });
+    expect((await RunStepModel.where('RunId', 'raw').first()).ResultStored).to.eq(false);
   });
 
   it('round-trips a run row and supports a conditional static update', async () => {
