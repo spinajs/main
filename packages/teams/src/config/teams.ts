@@ -1,5 +1,7 @@
 const team = (description: string, extra: Record<string, unknown> = {}) => ({ types: ['team'], description, ...extra });
-const group = (description: string, extra: Record<string, unknown> = {}) => ({ types: ['group'], description, ...extra });
+// Team roles grant group permissions at a team, and DefaultAdminGuard checks a granted role's permissions at the
+// grant scope (an undeclared type counts as not held), so they declare team too.
+const group = (description: string, extra: Record<string, unknown> = {}) => ({ types: ['group', 'team'], description, ...extra });
 
 /**
  * Teams design §4-5. Apps extend, replace or drop any part through their own config; arrays (policies,
@@ -18,8 +20,7 @@ const teamsConfig = {
       'team:ownership.transfer': team('Hand the team to another owner'),
       'team:create': team('Create a sub-team here (at $global: a root team)'),
       'group:read': group('Read a group', { list: true }),
-      // Checked at the team the group goes into, so it declares team as well as group.
-      'group:create': { types: ['group', 'team'], description: 'Create a group in a team' },
+      'group:create': group('Create a group in a team'),
       'group:update': group('Rename or move a group'),
       'group:delete': group('Delete a group'),
       'group:members.manage': group('Add and remove group members'),

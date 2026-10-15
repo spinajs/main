@@ -7,17 +7,19 @@ import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
-import { TEAM_OWNER_ROLE, TeamService } from '../api.js';
+import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_TYPE, TeamService } from '../api.js';
 import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
 import { asSystem, assertAllowed, execute } from '../host.js';
-import { liveTeam, teamLineage } from '../lookup.js';
+import { liveGroup, liveTeam, teamLineage } from '../lookup.js';
 import { principalTeams } from '../membership.js';
 import { Team } from '../models/Team.js';
 import { teamRef } from '../refs.js';
-import { readDescription, readId, readName, readPage, readSlug } from '../validate.js';
+import { assertSubjectExists, readSubject, toAssignmentSubject } from '../subjects.js';
+import { readDescription, readId, readName, readPage, readRole, readScope, readSlug } from '../validate.js';
 import { toTeamView } from '../views.js';
-import { createdBy, ownerOf, pageOf, reasonOf, undoOnFailure } from './common.js';
-import { archivedAttribute, linkSubTeam, unlinkSubTeam } from './links.js';
+import { createdBy, isSystem, ownerOf, pageOf, reasonOf, undoOnFailure } from './common.js';
+import { archivedAttribute, linkSubTeam, unlink, unlinkSubTeam } from './links.js';
+import { holdsAt, listMembers, structuralLink } from './members.js';
 
 @Singleton()
 @Injectable(TeamService)
@@ -121,32 +123,76 @@ export class DefaultTeamService extends TeamService {
 
   // ---- Task 6 ----
 
-  async members(_actor: Principal, _teamId: string, _page?: Page): Promise<Paged<MemberEntry>> {
-    throw new MethodNotImplemented('DefaultTeamService.members: lane L14 Task 6');
+  async members(actor: Principal, teamId: string, page?: Page): Promise<Paged<MemberEntry>> {
+    const team = await liveTeam(teamId);
+    await assertAllowed(actor, 'team:read', teamRef(team.id));
+    return listMembers(actor, teamRef(team.id), page);
   }
 
-  async addTeamMember(_actor: Principal, _teamId: string, _subject: TeamSubject, _role?: string): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.addTeamMember: lane L14 Task 6');
+  async addTeamMember(actor: Principal, teamId: string, subject: TeamSubject, role: string = TEAM_MEMBER_ROLE): Promise<void> {
+    const team = await liveTeam(teamId);
+    const s = await this.memberSubject(team.id, subject);
+    const r = readRole(role);
+    await assertAllowed(actor, 'team:members.manage', teamRef(team.id));
+    await execute(actor, [{ kind: 'assignment.grant', subject: toAssignmentSubject(s), role: r, scope: teamRef(team.id) }], reasonOf('add-member', actor));
   }
 
-  async removeTeamMember(_actor: Principal, _teamId: string, _subject: TeamSubject): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.removeTeamMember: lane L14 Task 6');
+  async removeTeamMember(actor: Principal, teamId: string, subject: TeamSubject): Promise<void> {
+    const team = await liveTeam(teamId);
+    const s = readSubject(subject);
+    await assertAllowed(actor, 'team:members.manage', teamRef(team.id));
+    const why = await structuralLink(team.id, s, this.SubTeamsInParent);
+    if (why) throw new InvalidArgument(`subject: ${why}`, 'subject');
+    await execute(actor, [unlink(toAssignmentSubject(s), teamRef(team.id))], reasonOf('remove-member', actor));
   }
 
-  async setTeamRole(_actor: Principal, _teamId: string, _subject: TeamSubject, _role: string): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.setTeamRole: lane L14 Task 6');
+  async setTeamRole(actor: Principal, teamId: string, subject: TeamSubject, role: string): Promise<void> {
+    const team = await liveTeam(teamId);
+    const s = await this.memberSubject(team.id, subject);
+    const r = readRole(role);
+    await assertAllowed(actor, 'team:roles.manage', teamRef(team.id));
+    const subjectRef = toAssignmentSubject(s);
+    // Revoke first: the guard judges the removal (ranks, keepHolders) before the new role exists.
+    await execute(actor, [unlink(subjectRef, teamRef(team.id)), { kind: 'assignment.grant', subject: subjectRef, role: r, scope: teamRef(team.id) }], reasonOf('set-role', actor));
   }
 
-  async transferOwnership(_actor: Principal, _teamId: string, _to: PrincipalRef, _opts?: { readonly keepAs?: string | null }): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.transferOwnership: lane L14 Task 6');
+  async transferOwnership(actor: Principal, teamId: string, to: PrincipalRef, opts: { readonly keepAs?: string | null } = {}): Promise<void> {
+    const team = await liveTeam(teamId);
+    const target = readSubject(to, 'to');
+    if ('group' in target || 'team' in target) throw new InvalidArgument('to must be a principal { type, id }', 'to');
+    if (isSystem(actor)) throw new InvalidArgument('actor: SYSTEM owns nothing to hand over; use setTeamRole', 'actor');
+    const keepAs = opts.keepAs === undefined ? TEAM_ADMIN_ROLE : opts.keepAs === null ? null : readRole(opts.keepAs, 'keepAs');
+    await assertAllowed(actor, 'team:ownership.transfer', teamRef(team.id));
+    if (target.type === actor.type && target.id === actor.id) return;
+    const scope = teamRef(team.id);
+    const self: PrincipalRef = { type: actor.type, id: actor.id };
+    const commands: AuthzCommand[] = [{ kind: 'assignment.grant', subject: target, role: TEAM_OWNER_ROLE, scope }];
+    if (keepAs !== null && keepAs !== TEAM_OWNER_ROLE && !(await holdsAt(self, keepAs, scope))) commands.push({ kind: 'assignment.grant', subject: self, role: keepAs, scope });
+    commands.push({ kind: 'assignment.revokeWhere', scope, subject: self, role: TEAM_OWNER_ROLE });
+    // The guard runs per command: the new owner exists before the old one goes (keepHolders), and the actor's own
+    // keepAs grant is judged while the actor is still owner (escalation).
+    await execute(actor, commands, reasonOf('transfer', actor));
   }
 
-  async grant(_actor: Principal, _subject: TeamSubject, _role: string, _scope: ResourceRef): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.grant: lane L14 Task 6');
+  async grant(actor: Principal, subject: TeamSubject, role: string, scope: ResourceRef): Promise<void> {
+    const s = readSubject(subject);
+    const r = readRole(role);
+    const at = readScope(scope);
+    await assertSubjectExists(s);
+    await this.assertRolesAt(actor, at);
+    await execute(actor, [{ kind: 'assignment.grant', subject: toAssignmentSubject(s), role: r, scope: at }], reasonOf('grant', actor));
   }
 
-  async revoke(_actor: Principal, _subject: TeamSubject, _role: string, _scope: ResourceRef): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.revoke: lane L14 Task 6');
+  async revoke(actor: Principal, subject: TeamSubject, role: string, scope: ResourceRef): Promise<void> {
+    const s = readSubject(subject);
+    const r = readRole(role);
+    const at = readScope(scope);
+    await this.assertRolesAt(actor, at);
+    if (at.type === TEAM_TYPE && r === TEAM_MEMBER_ROLE) {
+      const why = await structuralLink(String(at.id), s, this.SubTeamsInParent);
+      if (why) throw new InvalidArgument(`subject: ${why}`, 'subject');
+    }
+    await execute(actor, [{ kind: 'assignment.revokeWhere', scope: at, subject: toAssignmentSubject(s), role: r }], reasonOf('revoke', actor));
   }
 
   // ---- Task 8 ----
@@ -168,6 +214,21 @@ export class DefaultTeamService extends TeamService {
   }
 
   // ---- helpers ----
+
+  protected async memberSubject(teamId: string, subject: unknown): Promise<TeamSubject> {
+    const s = readSubject(subject);
+    if ('team' in s && s.team === teamId) throw new InvalidArgument('subject: a team cannot be its own member', 'subject');
+    await assertSubjectExists(s);
+    return s;
+  }
+
+  /** At teams and groups teams decide; at any other scope AuthzAdmin's permission for that scope type does. */
+  protected async assertRolesAt(actor: Principal, at: ResourceRef): Promise<void> {
+    if (at.type === TEAM_TYPE) await liveTeam(at.id, 'scope');
+    else if (at.type === GROUP_TYPE) await liveGroup(at.id, 'scope');
+    else return;
+    await assertAllowed(actor, 'team:roles.manage', at);
+  }
 
   protected async assertSlugFree(slug: string): Promise<void> {
     // Deleted teams keep their slug until they are purged.

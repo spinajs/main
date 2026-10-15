@@ -40,7 +40,8 @@ export function deepMerge(target: Record<string, unknown>, source: Record<string
 export const TEST_CONFIG = {
   teams: { membership: { subTeamsInParent: true }, deletion: { graceDays: 30 }, invitations: { secret: INVITATION_SECRET, defaultTtlHours: 168, subject: 'You are invited to join a team' } },
   authz: {
-    permissions: { 'authz:assignments.manage': {}, 'project:read': { types: ['project'] }, 'project:update': { types: ['project'] } },
+    // project:* declare team: team roles grant them at a team, where the admin guard checks them.
+    permissions: { 'authz:assignments.manage': {}, 'project:read': { types: ['project', 'team'] }, 'project:update': { types: ['project', 'team'] } },
     rbac: {
       connection: 'default',
       stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] },
