@@ -106,7 +106,7 @@ export function makeErrorGroup(overrides: Partial<ErrorGroupInfo> = {}): ErrorGr
 
 const identity = (seq: number, runId: string, id: number) => ({ id, seq, runId, schedule: SCHEDULE_NAME, attempt: 1, ts: TS });
 
-export function statusEvent(seq: number, status: RunStatus, runId = RUN_ID, id = seq): RunEvent {
+export function statusEvent(seq: number, status: RunStatus, runId = RUN_ID, id = seq): Extract<RunEvent, { type: 'status' }> {
   return { ...identity(seq, runId, id), type: 'status', status, reason: null };
 }
 
@@ -114,7 +114,7 @@ export function stepStartEvent(seq: number, step: string, runId = RUN_ID, id = s
   return { ...identity(seq, runId, id), type: 'step-start', step, stepSeq: 1 };
 }
 
-export function progressEvent(seq: number, progress: number, runId = RUN_ID, id = seq): RunEvent {
+export function progressEvent(seq: number, progress: number, runId = RUN_ID, id = seq): Extract<RunEvent, { type: 'progress' }> {
   return { ...identity(seq, runId, id), type: 'progress', progress, step: null, stepProgress: null };
 }
 

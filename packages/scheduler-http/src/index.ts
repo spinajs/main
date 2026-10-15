@@ -10,3 +10,4 @@ export * from './controllers/SchedulesController.js';
 export * from './controllers/RunsController.js';
 export * from './controllers/ErrorsController.js';
 export * from './controllers/MaintenanceController.js';
+export * from './sse/run-events.js';
