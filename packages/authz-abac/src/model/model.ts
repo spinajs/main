@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
-import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListSupport, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { notListFilterable, rowDependence } from './list.js';
@@ -130,6 +130,34 @@ export class AbacModel extends AuthorizationModel {
       if (type !== undefined) return notListFilterable(p, why, name, type);
     }
     return undefined;
+  }
+
+  /**
+   * Design §6.2 for ABAC: every candidate policy is decided now for the principal, actor and env of
+   * the request (overview decision 8), so the plan is deny-all, all or abstain and never holds terms.
+   */
+  async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    await this.upTo(this.generation);
+    const permission = req.permission.name;
+    const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission, resource: { type: req.type }, env: req.env ?? { now: ctx.now } };
+    const held: LoadedPolicy[] = [];
+    for (const p of this.index().candidates(permission, req.type)) {
+      if (!targets(p, request, ctx.now)) continue;
+      const why = rowDependence(p);
+      if (why !== undefined) throw new Error(notListFilterable(p, why, permission, req.type));
+      if (!p.when) {
+        held.push(p);
+        continue;
+      }
+      const c = await this.compile(p, request, ctx);
+      if (c.filter.op === 'true') held.push(p);
+      else if (c.filter.op !== 'false') throw new Error(`${p.where}: its condition is not decided before the query (${JSON.stringify(c.filter)})`);
+    }
+    const denies = held.filter((p) => p.policy.effect === 'deny').map((p) => reasonOf({ p, when: TRUE, needsSubject: false }));
+    if (denies.length > 0) return Object.freeze({ kind: 'deny-all', reason: Object.freeze(denies.sort(compareDenyReasons)[0]) });
+    if (!held.some((p) => p.policy.effect === 'permit')) return Object.freeze({ kind: 'abstain' });
+    const expiries = held.flatMap((p) => (p.expiresAt ? [p.expiresAt.getTime()] : []));
+    return Object.freeze({ kind: 'all', ...(expiries.length > 0 ? { validUntil: new Date(Math.min(...expiries)) } : {}) });
   }
 
   /**
