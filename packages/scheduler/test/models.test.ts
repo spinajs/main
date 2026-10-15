@@ -24,6 +24,33 @@ describe('scheduler models', () => {
     await bootTestEnv();
   });
 
+  it('takes a JSON value of unknown shape in Model.create() only as jsonColumn() text', async () => {
+    const run = (Id: string, Result: unknown) =>
+      RunModel.create({
+        Id,
+        Schedule: 's',
+        Trigger: 'manual',
+        Status: 'succeeded',
+        Attempt: 1,
+        MaxAttempts: 1,
+        CreatedAt: T,
+        Progress: 100,
+        CancelRequested: false,
+        Forced: false,
+        Result,
+      });
+    // create() hydrates its input through the column converter, which reads a string as JSON text
+    await expect(run('raw', 'ok')).to.be.rejectedWith(SyntaxError);
+    for (const [id, value] of [
+      ['text', 'ok'],
+      ['digits', '123'],
+      ['number', 123],
+    ] as const) {
+      await run(id, jsonColumn(value));
+      expect((await RunModel.where('Id', id).first()).Result).to.deep.eq(value);
+    }
+  });
+
   it('round-trips a schedule row with epoch ms, json and booleans', async () => {
     await ScheduleModel.create({
       Name: 'a',
