@@ -5,6 +5,8 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import { join, normalize, resolve } from 'path';
 
+import { dropUnknownRoleRefs } from './support/shipped-config.js';
+
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
 
@@ -49,6 +51,7 @@ export class TestConfiguration extends FrameworkConfiguration {
     // (users' `admin` with glob grants, configuration-http's `admin.configuration`, ...) would merge
     // into this fixture's. The suites test this package against a world they define.
     this.set(['authz', 'rbac'], { roles: TEST_ROLES });
+    dropUnknownRoleRefs(this);
   }
 
   protected onLoad(): unknown {
