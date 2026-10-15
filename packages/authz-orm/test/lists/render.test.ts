@@ -123,6 +123,20 @@ describe('renderPlan', function () {
         expect(await ids(filter({ permit: [flag('green')], within: [{ type: 'project', id: 'p1' }] }))).to.deep.equal([1]);
       });
 
+      it('the sql is self-contained when AND-ed after another predicate', async () => {
+        const row = rowContext(Task.query(), entryOf(Task)!, new Date());
+        for (const plan of [filter({ permit: [flag('green'), flag('red')] }), filter({ permit: [owner('alice', 'bob')] })]) {
+          const r = renderPlan(plan, row);
+          if (r.kind !== 'sql') throw new Error(`expected sql, got ${r.kind}`);
+          const rows = await db
+            .driver(dialect)
+            .select()
+            .from(db.table(Task))
+            .where(RawQuery.create(`1 = 0 AND ${r.sql}`, [...r.bindings]));
+          expect(rows).to.deep.equal([]);
+        }
+      });
+
       it('all without deny and within is no filter; none is none', async () => {
         expect(await ids(filter({}))).to.equal('all');
         expect(await ids({ kind: 'none', reason: { code: 'no_access' } })).to.equal('none');

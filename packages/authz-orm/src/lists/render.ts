@@ -59,5 +59,6 @@ export function renderPlan(plan: AccessPlan, row: SqlRowContext, compilers: Read
   if (plan.within !== undefined) parts.push(withinSql(plan.within, row));
   if (parts.length === 0) return { kind: 'all' };
   const all = join(parts, 'AND', EVERYTHING);
-  return { kind: 'sql', sql: all.sql, bindings: all.bindings };
+  // Callers AND this into a WHERE that may hold other predicates; a bare top-level OR would escape them.
+  return { kind: 'sql', sql: `(${all.sql})`, bindings: all.bindings };
 }
