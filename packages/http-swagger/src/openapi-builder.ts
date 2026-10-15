@@ -111,6 +111,14 @@ const FILE_RESPONSE_MEDIA_TYPES: Record<string, string> = {
 };
 
 /**
+ * Response classes that keep the connection open and stream text. Their body is neither JSON
+ * nor a download, so they get their own media type and a plain string schema.
+ */
+const STREAM_RESPONSE_MEDIA_TYPES: Record<string, string> = {
+  SseResponse: 'text/event-stream',
+};
+
+/**
  * Mapping from ParameterType to OpenAPI 'in' location
  */
 const PARAM_LOCATION_MAP: Record<string, 'query' | 'path' | 'header' | 'cookie'> = {
@@ -1089,6 +1097,11 @@ export class OpenApiBuilder {
     const schema = returns.schema;
     const tagged = schema && schema.type === 'object' && !schema.properties && !schema.items ? schema.description : undefined;
     const name = (returns.type ?? tagged)?.replace(/[{}]/g, '').trim();
+
+    const streamType = name ? STREAM_RESPONSE_MEDIA_TYPES[name] : undefined;
+    if (streamType) {
+      return { [streamType]: { schema: { type: 'string' } } };
+    }
 
     const mediaType = name ? FILE_RESPONSE_MEDIA_TYPES[name] : undefined;
 
