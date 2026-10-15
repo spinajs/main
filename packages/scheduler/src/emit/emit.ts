@@ -106,6 +106,7 @@ export class EmitMirror {
 
   protected batchSize = 100;
   protected warned = false;
+  protected configuredEmitTimeout: number | undefined;
   /** Keyset position of the last full batch, so runs whose job never shows up cannot starve newer ones. */
   protected cursor: { createdAt: number; id: string } | null = null;
 
@@ -149,8 +150,11 @@ export class EmitMirror {
 
   /** The longer of `scheduler.emitTimeout` and the schedule's `timeout`. */
   public emitTimeoutMs(schedule: string): number {
-    const configured = parseDuration(resolveSchedulerConfig(this.RawConfig).emitTimeout, 'scheduler.emitTimeout');
-    return Math.max(configured, this.Registry.find(schedule)?.timeoutMs ?? 0);
+    this.configuredEmitTimeout ??= parseDuration(
+      resolveSchedulerConfig(this.RawConfig).emitTimeout,
+      'scheduler.emitTimeout',
+    );
+    return Math.max(this.configuredEmitTimeout, this.Registry.find(schedule)?.timeoutMs ?? 0);
   }
 
   protected async nextBatch(): Promise<RunModel[]> {
