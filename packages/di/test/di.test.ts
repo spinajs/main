@@ -1325,6 +1325,30 @@ describe('Dependency injection', () => {
     expect(await DI.resolve(A, ['r2'])).to.eq(r2);
   });
 
+  it('Should dispose services in reverse resolution order', async () => {
+    const disposed: string[] = [];
+
+    @Singleton()
+    class Database extends AsyncService {
+      public async dispose() {
+        disposed.push('Database');
+      }
+    }
+
+    @Singleton()
+    class UsesDatabase extends AsyncService {
+      public async dispose() {
+        disposed.push('UsesDatabase');
+      }
+    }
+
+    await DI.resolve(Database);
+    await DI.resolve(UsesDatabase);
+    await DI.dispose();
+
+    expect(disposed).to.deep.eq(['UsesDatabase', 'Database']);
+  });
+
   it('Should dispose every per-check instance', async () => {
     const disposed: string[] = [];
 
