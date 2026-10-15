@@ -11,6 +11,7 @@ import {
   RunFinalizer,
   RunModel,
   Scheduler,
+  SchedulerSignals,
   ScheduledTask,
   StructuredError,
   undefineSchedule,
@@ -31,6 +32,8 @@ class EventsHangTask extends ScheduledTask {
 }
 
 const NAMES = ['ev-plain', 'ev-retry', 'ev-hang', 'ev-timeout'];
+// sends are fire-and-forget; tests wait for them before reading what was sent
+const sent = () => DI.resolve(SchedulerSignals).drain();
 
 describe('scheduler events', () => {
   let clock: FakeClock;
@@ -42,6 +45,7 @@ describe('scheduler events', () => {
     const r = await queuedRun(name, clock.now(), extra);
     await s.tickOnce();
     await s.idle();
+    await sent();
     return r;
   };
 
@@ -83,6 +87,7 @@ describe('scheduler events', () => {
     clock.set(clock.now() + 1000);
     await s.tickOnce();
     await s.idle();
+    await sent();
     expect(names()).to.deep.eq([
       'ScheduleRunStarted',
       'ScheduleRetrying',
@@ -97,10 +102,10 @@ describe('scheduler events', () => {
     expect(emitted[4]).to.include({ RunId: r.Id, Attempts: 2 });
   });
 
-  it('emits failed and paused-by-failures', async () => {
+  it('emits failed, then paused-by-failures', async () => {
     fail = true;
     const r = await run('ev-plain');
-    expect(names()).to.include.members(['ScheduleRunFailed', 'SchedulePausedByFailures']);
+    expect(names()).to.deep.eq(['ScheduleRunStarted', 'ScheduleRunFailed', 'SchedulePausedByFailures']);
     expect(named('ScheduleRunFailed')[0]).to.include({ RunId: r.Id, Attempt: 1, Status: 'failed' });
     expect(named('SchedulePausedByFailures')[0]).to.include({ Schedule: 'ev-plain', ConsecutiveFailures: 1 });
     expect(names()).to.not.include('ScheduleDead');
@@ -113,6 +118,7 @@ describe('scheduler events', () => {
     await ErrorGroupModel.update({ Status: 'resolved' }).where('Id', group.Id);
     emitted.length = 0;
     const r = await run('ev-retry', { MaxAttempts: 1 });
+    expect(names()).to.deep.eq(['ScheduleRunStarted', 'ScheduleRunFailed', 'ScheduleDead', 'ScheduleErrorRegressed']);
     const [ev] = named('ScheduleErrorRegressed');
     expect(ev).to.include({ Schedule: 'ev-retry', RunId: r.Id, Fingerprint: group.Fingerprint });
     expect((ev.Error as StructuredError).message).to.eq('down');
@@ -122,6 +128,7 @@ describe('scheduler events', () => {
     const timedOut = await queuedRun('ev-timeout', clock.now());
     await s.tickOnce();
     await driveUntil(clock, s.idle());
+    await sent();
     expect(await getRun(timedOut.Id)).to.include({ Status: 'aborted', Reason: 'timeout' });
     expect(named('ScheduleRunFailed')).to.have.length(1);
     expect(named('ScheduleRunFailed')[0]).to.include({ RunId: timedOut.Id, Status: 'aborted' });
@@ -130,11 +137,12 @@ describe('scheduler events', () => {
     const stopped = await queuedRun('ev-hang', clock.now());
     await s.tickOnce();
     await s.stop();
+    await sent();
     expect(await getRun(stopped.Id)).to.include({ Status: 'aborted', Reason: 'shutdown' });
     expect(names()).to.deep.eq(['ScheduleRunStarted']);
   });
 
-  it('emits failed only for aborts that count against the schedule', async () => {
+  it('emits failed exactly when the finalizer counts the run as a failure', async () => {
     const finalizer = DI.resolve(RunFinalizer);
     const reasons: AbortReason[] = ['cancelled', 'shutdown', 'lease-lost', 'lease-expired', 'timeout'];
     for (const reason of reasons) {
@@ -147,7 +155,20 @@ describe('scheduler events', () => {
         countsAsFailure: reason === 'timeout',
       });
     }
-    expect(named('ScheduleRunFailed').map((e) => e.RunId)).to.deep.eq(['x-timeout']);
+    // the caller's decision wins: signals do not re-derive it from the reason
+    const odd = { Id: 'x-flagged', Schedule: 'ev-hang', Attempt: 1, Trigger: 'manual', Reason: 'shutdown' } as RunModel;
+    await finalizer.finalized({ run: odd, status: 'aborted', error: null, now: clock.now(), countsAsFailure: true });
+    await sent();
+    expect(named('ScheduleRunFailed').map((e) => e.RunId)).to.deep.eq(['x-timeout', 'x-flagged']);
+  });
+
+  it('emits retrying before a regression of the same attempt', async () => {
+    fail = true;
+    await run('ev-retry', { MaxAttempts: 1 });
+    await ErrorGroupModel.update({ Status: 'resolved' }).where('Schedule', 'ev-retry');
+    emitted.length = 0;
+    await run('ev-retry', { MaxAttempts: 2 });
+    expect(names()).to.deep.eq(['ScheduleRunStarted', 'ScheduleRetrying', 'ScheduleErrorRegressed']);
   });
 
   it('reports the queue attempts of a dead emit-mode run', async () => {
@@ -166,6 +187,7 @@ describe('scheduler events', () => {
       now: clock.now(),
       countsAsFailure: true,
     });
+    await sent();
     expect(named('ScheduleDead')[0]).to.include({ RunId: 'x-emit', Attempts: 3 });
   });
 
@@ -176,6 +198,24 @@ describe('scheduler events', () => {
     fail = true;
     const f = await run('ev-plain');
     expect((await getRun(f.Id)).Status).to.eq('failed');
+  });
+
+  it('never waits for a send that does not settle', async () => {
+    (DefaultQueueService.prototype.emit as sinon.SinonStub).callsFake(() => new Promise(() => undefined));
+    const r = await queuedRun('ev-plain', clock.now());
+    await s.tickOnce();
+    await s.idle();
+    expect((await getRun(r.Id)).Status).to.eq('succeeded');
+    fail = true;
+    const f = await queuedRun('ev-retry', clock.now(), { MaxAttempts: 2 });
+    await s.tickOnce();
+    await s.idle();
+    expect((await getRun(f.Id)).Status).to.eq('retrying');
+
+    // stop() drains pending sends, bounded by min(shutdownGrace, 5 s); the test env uses 2 s
+    const started = Date.now();
+    await s.stop();
+    expect(Date.now() - started).to.be.lessThan(4000);
   });
 });
 
@@ -197,6 +237,7 @@ describe('scheduler event routing', () => {
     await queuedRun('ev-routed', clock.now());
     await s.tickOnce();
     await s.idle();
+    await sent();
     expect(connections).to.deep.eq(['scheduler-empty-queue', 'scheduler-empty-queue']);
   });
 });

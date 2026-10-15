@@ -17,6 +17,7 @@ import { abortWaitingRun } from './run/cancel.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
 import { RunFinalizer } from './run/RunFinalizer.js';
+import { SchedulerSignals } from './signals.js';
 import { DefinitionSync } from './store/DefinitionSync.js';
 import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
 import { defaultReplicaId } from './store/replica.js';
@@ -48,6 +49,7 @@ interface NewRun {
 }
 
 const INSTANCES = new Set<Scheduler>();
+const SIGNAL_DRAIN_MAX_MS = 5000;
 
 const missedCount = (plan: OccurrencePlan) => (plan.skippedCapped ? `more than ${plan.skipped}` : String(plan.skipped));
 
@@ -86,6 +88,9 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   @Autoinject(EmitMirror)
   protected Mirror: EmitMirror;
+
+  @Autoinject(SchedulerSignals)
+  protected Signals: SchedulerSignals;
 
   public readonly ReplicaId: string;
   public Leases: LeaseStore;
@@ -168,6 +173,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     for (const h of this.active.values()) h.abort('shutdown');
     // each execution is bounded by shutdownGrace inside the executor
     await this.idle();
+    // events of the last runs get a short chance to leave; a broker that hangs does not hold up the shutdown
+    await this.Signals.drain(Math.min(this.config?.shutdownGrace ?? SIGNAL_DRAIN_MAX_MS, SIGNAL_DRAIN_MAX_MS));
     INSTANCES.delete(this);
   }
 

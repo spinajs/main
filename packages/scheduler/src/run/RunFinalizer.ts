@@ -40,15 +40,21 @@ export class RunFinalizer {
     // Every failed attempt counts in its error group, also one that will be retried. A shutdown is
     // routine (every deploy) and a cancel is a user's choice, so neither is grouped.
     const error = input.error;
+    let regressed: string | null = null;
     if (error && run.Reason !== 'shutdown' && run.Reason !== 'cancelled') {
       await this.bestEffort(`record the error of run ${run.Id}`, async () => {
         const recorded = await this.Errors.record(run.Schedule, run.Id, error, now);
-        if (recorded.regressed) await this.Signals.errorRegressed(run, recorded.fingerprint, error);
+        if (recorded.regressed) regressed = recorded.fingerprint;
       });
     }
+    // the run's own event goes out before the regression and the auto-pause it caused
+    const signalRegression = async () => {
+      if (error && regressed !== null) await this.Signals.errorRegressed(run, regressed, error);
+    };
 
     if (status === 'retrying') {
       await this.Signals.retrying(run, input.nextAttemptAt ?? now, input.error);
+      await signalRegression();
       return;
     }
 
@@ -62,11 +68,13 @@ export class RunFinalizer {
         await this.Health.recordSuccess(run.Schedule, now);
         await this.Signals.healthChanged(run.Schedule, 0);
       });
-    } else if (input.countsAsFailure) {
+    }
+    let pausedAfter: number | null = null;
+    if (status !== 'succeeded' && input.countsAsFailure) {
       await this.bestEffort(`record the failure of ${run.Schedule}`, async () => {
         const h = await this.Health.recordFailure(run.Schedule, input.def?.pauseAfterFailures, now);
         await this.Signals.healthChanged(run.Schedule, h.consecutive);
-        if (h.paused) await this.Signals.pausedByFailures(run.Schedule, h.consecutive);
+        if (h.paused) pausedAfter = h.consecutive;
       });
     }
 
@@ -74,7 +82,10 @@ export class RunFinalizer {
       status,
       durationMs: run.StartedAt ? now - run.StartedAt : null,
       error: input.error,
+      countsAsFailure: status !== 'succeeded' && input.countsAsFailure,
     });
+    await signalRegression();
+    if (pausedAfter !== null) await this.Signals.pausedByFailures(run.Schedule, pausedAfter);
   }
 
   /** The run row is final already: a failed tracking write must not skip the rest of the hook. */

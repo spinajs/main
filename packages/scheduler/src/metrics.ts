@@ -44,13 +44,28 @@ export const SCHEDULER_METRIC_DEFS: MetricDef[] = [
 // defineMetrics rebuilds (and so resets) the set on every call: build it once per Metrics instance.
 const DEFINED = new WeakMap<Metrics, MetricMap>();
 
+/**
+ * Another copy of this module (src next to lib, ESM next to CJS) may have built the set already;
+ * rebuilding would orphan the metric objects that copy records into.
+ */
+function registered(service: Metrics): MetricMap | null {
+  const registry = service.getRegistry();
+  const map: MetricMap = {};
+  for (const def of SCHEDULER_METRIC_DEFS) {
+    const metric = registry.getSingleMetric(`${SCHEDULER_METRIC_PREFIX}_${def.name}`);
+    if (!metric) return null;
+    map[def.name] = metric as MetricMap[string];
+  }
+  return map;
+}
+
 /** Null when the metrics service cannot be resolved: publishing a metric must never fail a run. */
 export function schedulerMetrics(): MetricMap | null {
   try {
     const service = DI.get(Metrics) ?? DI.resolve(Metrics);
     let map = DEFINED.get(service);
     if (!map) {
-      map = service.defineMetrics(SCHEDULER_METRIC_PREFIX, SCHEDULER_METRIC_DEFS);
+      map = registered(service) ?? service.defineMetrics(SCHEDULER_METRIC_PREFIX, SCHEDULER_METRIC_DEFS);
       DEFINED.set(service, map);
     }
     return map;

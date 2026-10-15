@@ -93,7 +93,6 @@ export class RunExecutor {
 
     await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
-    await this.Signals.runStarted(run, startedAt);
 
     const ctx = await this.createContext(run, def, ac.signal, cfg, () => abort('lease-lost'));
     const scheduleLease = run.Forced ? null : run.Schedule;
@@ -118,6 +117,7 @@ export class RunExecutor {
     });
 
     heartbeat.start();
+    await this.Signals.runStarted(run, startedAt);
     const timeout = def.timeoutMs ? this.Timers.setTimeout(() => abort('timeout'), def.timeoutMs) : undefined;
 
     let outcome: ExecutionOutcome;

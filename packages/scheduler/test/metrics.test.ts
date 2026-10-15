@@ -7,6 +7,9 @@ import {
   RunContext,
   Scheduler,
   ScheduledTask,
+  SCHEDULER_METRIC_DEFS,
+  SCHEDULER_METRIC_PREFIX,
+  schedulerMetrics,
   SchedulerService,
   undefineSchedule,
 } from '../src/index.js';
@@ -116,5 +119,14 @@ describe('scheduler metrics', () => {
     await s.tickOnce();
     await s.idle();
     expect(await valueOf('scheduler_runs_total', { name: 'm-fragile', status: 'succeeded' })).to.eq(1);
+  });
+
+  it('reuses a set another copy of the module registered', async () => {
+    ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:30Z' }));
+    const service = DI.resolve(Metrics);
+    const other = service.defineMetrics(SCHEDULER_METRIC_PREFIX, SCHEDULER_METRIC_DEFS);
+    const mine = schedulerMetrics();
+    expect(mine?.runs_total).to.eq(other.runs_total);
+    expect(mine?.consecutive_failures).to.eq(other.consecutive_failures);
   });
 });
