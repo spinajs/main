@@ -1,10 +1,11 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListSupport, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
+import { rbacListSupport } from './list/support.js';
 import { ruleStoreParts } from './rules/extension.js';
 import { unlessRowRules } from './rules/steps.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
@@ -138,6 +139,15 @@ export class RbacModel extends AuthorizationModel {
   applies(permission: PermissionDef, _type: ResourceType): boolean {
     const index = this.grantIndex();
     return index.granted(permission.name) || index.denied(permission.name);
+  }
+
+  /** Design §7, at boot (rule 12) and per call: whether lists of `permission` on `type` can be planned. */
+  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
+    const { graph } = this.state();
+    const grants = this.grantIndex();
+    const { ladders, implies } = rbacTables(this.extensions, graph, grants);
+    const { config } = ruleStoreParts(this.opts.rules);
+    return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type);
   }
 
   /**
