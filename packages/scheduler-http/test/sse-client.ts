@@ -47,7 +47,7 @@ export function parseFrames(buffer: string): { frames: ISseFrame[]; rest: string
  */
 export function openSse(path: string, headers: Record<string, string> = {}): Promise<ISseConnection> {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: '127.0.0.1', port: PORT, path, headers: { Accept: 'text/event-stream', ...headers } }, (res) => {
+    const request = http.get({ host: '127.0.0.1', port: PORT, path, agent: false, headers: { Accept: 'text/event-stream', ...headers } }, (res) => {
       const frames: ISseFrame[] = [];
       const waiters = new Set<() => void>();
       let buffer = '';

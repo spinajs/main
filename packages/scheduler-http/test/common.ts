@@ -28,7 +28,8 @@ chai.use(chaiSubset);
 export const PORT = 19731;
 export const TEST_USER_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 export const TEST_HEARTBEAT_MS = 200;
-export const JSON_HEADERS = { Accept: 'application/json' };
+// a reused keep-alive socket can be reset by the server closing it at the same moment
+export const JSON_HEADERS = { Accept: 'application/json', Connection: 'close' };
 
 const CACHE_DIR = join(os.tmpdir(), 'spinajs-scheduler-http-cache');
 mkdirSync(CACHE_DIR, { recursive: true });
@@ -210,10 +211,26 @@ async function boot(configuration: Constructor<FrameworkConfiguration>, register
   server.start();
 }
 
+let fakeFactory: (() => FakeSchedulerService) | null = null;
+
 export async function bootHttp(): Promise<FakeSchedulerService> {
   const fake = new FakeSchedulerService();
-  await boot(TestConfiguration, () => DI.register(() => fake).as(SchedulerService));
+  fakeFactory = () => fake;
+  await boot(TestConfiguration, () => DI.register(fakeFactory!).as(SchedulerService));
   return fake;
+}
+
+/**
+ * The registry keeps a class once, so registering DefaultSchedulerService again would not move it
+ * after the fake factories of earlier suites, and the last factory would still win.
+ */
+function unregisterFake(): void {
+  const types = DI.RootContainer.Registry.getTypes(SchedulerService);
+  const index = fakeFactory && types ? types.indexOf(fakeFactory) : -1;
+  if (index >= 0) {
+    types.splice(index, 1);
+  }
+  fakeFactory = null;
 }
 
 export async function bootRealHttp(configuration: Constructor<FrameworkConfiguration>, registerScheduler: () => void): Promise<void> {
@@ -223,6 +240,7 @@ export async function bootRealHttp(configuration: Constructor<FrameworkConfigura
 export async function stopHttp(): Promise<void> {
   const server = DI.get(HttpServer);
   await server?.stop();
+  unregisterFake();
 
   const orm = DI.get(Orm);
   if (orm) {
