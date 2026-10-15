@@ -9,7 +9,9 @@ import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import { entryOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
+import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { rowContext } from './context.js';
+import { quoterOf } from './dialect.js';
 import { renderPlan } from './render.js';
 import type { Rendered } from './render.js';
 
@@ -80,6 +82,15 @@ export class AccessListMiddleware extends QueryMiddleware {
     if (marks.withAccess !== undefined && query instanceof SelectQueryBuilder) await this.withAccess(query, run, row);
   }
 
-  // Task 4 fills this in.
-  protected async withAccess(_query: SelectQueryBuilder, _run: ListRun, _row: ReturnType<typeof rowContext>): Promise<void> {}
+  protected async withAccess(query: SelectQueryBuilder, run: ListRun, row: ReturnType<typeof rowContext>): Promise<void> {
+    const permissions = run.marks.withAccess ?? [];
+    const q = quoterOf(query.Driver);
+    if (query.getColumns().length === 0) query.select('*');
+    for (const [i, permission] of permissions.entries()) {
+      const r = renderPlan(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
+      const expr = r.kind === 'none' ? { sql: '0', bindings: [] as unknown[] } : r.kind === 'all' ? { sql: '1', bindings: [] as unknown[] } : { sql: `CASE WHEN ${r.sql} THEN 1 ELSE 0 END`, bindings: [...r.bindings] };
+      query.select(RawQuery.create(`${expr.sql} AS ${q(accessColumn(i))}`, expr.bindings));
+    }
+    query.middleware(new AccessFieldMiddleware(permissions, accessField()));
+  }
 }

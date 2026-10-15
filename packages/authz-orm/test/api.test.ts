@@ -45,6 +45,6 @@ describe('authz-orm api', () => {
 
   it('keeps the scope attribute store and the config schema on the root', () => {
     expect(root.DbScopeAttributeStore).to.be.a('function');
-    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain']);
+    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain', 'accessField']);
   });
 });

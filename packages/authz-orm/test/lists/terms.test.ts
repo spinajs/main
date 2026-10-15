@@ -4,6 +4,7 @@ import 'mocha';
 import { AuthzConfigError, PlanTermSql } from '@spinajs/authz';
 import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
 import { RawQuery } from '@spinajs/orm';
 import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
@@ -47,6 +48,8 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
   });
 
   afterEach(async () => {
+    // Unregistering leaves the resolved instances in the cached PlanTermSql array.
+    DI.RootContainer.uncache(PlanTermSql);
     await db.clear();
   });
 
