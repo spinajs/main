@@ -8,3 +8,5 @@ export * from './dto/responses.js';
 export * from './scheduler-controller.js';
 export * from './controllers/SchedulesController.js';
 export * from './controllers/RunsController.js';
+export * from './controllers/ErrorsController.js';
+export * from './controllers/MaintenanceController.js';
