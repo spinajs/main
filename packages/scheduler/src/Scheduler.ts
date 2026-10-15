@@ -3,6 +3,7 @@ import { AsyncService, Autoinject, DI, IInstanceCheck, Injectable, PerInstanceCh
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { AbortReason, RunStatus, RunTrigger } from './contract.js';
+import { EmitMirror } from './emit/emit.js';
 import { RunAbortedError } from './errors.js';
 import type { ScheduleDefinition, SchedulerConfig } from './interfaces.js';
 import { jsonColumn } from './models/converters.js';
@@ -82,6 +83,9 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   @Autoinject(RunFinalizer)
   protected Finalizer: RunFinalizer;
+
+  @Autoinject(EmitMirror)
+  protected Mirror: EmitMirror;
 
   public readonly ReplicaId: string;
   public Leases: LeaseStore;
@@ -234,6 +238,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   protected async extraTickWork(now: number): Promise<void> {
     await this.fireLocal(now);
+    await this.Mirror.sync(now);
   }
 
   /** `runOn: 'all'`: every replica fires from its own in-memory next occurrence, without the schedule lease. */

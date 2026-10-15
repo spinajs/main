@@ -23,7 +23,7 @@ export class ScheduleValidationError extends Error {
 }
 
 export class QueueJobFailedError extends Error {
-  constructor(message: string) {
+  constructor(message: string, public readonly data?: unknown) {
     super(message);
     this.name = 'QueueJobFailedError';
   }
