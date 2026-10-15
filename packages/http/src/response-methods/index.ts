@@ -18,3 +18,4 @@ export * from './notAcceptable.js';
 export * from './validationError.js';
 export * from './entityTooLarge.js';
 
+export * from './sse.js';
