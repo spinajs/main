@@ -1,7 +1,7 @@
-# Starting tests
+# Tests
 
-Run docker file to start activemq container for testing purposes
-```
-docker build -t spinajs/activemq .
-docker run   -p 8161:8161 -p 61614:61614 spinajs/activemq
-```
+`npm test` needs no broker: the core suites use an in-memory transport and SQLite.
+
+Broker-backed tests live in `packages/queue-stomp-transport/test/integration`. Start ActiveMQ from the
+repo root with `docker compose --profile test up -d activemq`. See "Running integration tests" in the
+root README.

@@ -86,3 +86,30 @@ from a git worktree — or any directory whose basename differs from the one tha
 container — `docker compose --profile test restart mysql` matches nothing, prints nothing and
 **exits 0**. The restart silently does not happen. The test also asserts that MySQL's `Uptime`
 went *down*, so it cannot pass without a real restart.
+
+### ActiveMQ ( queue transport )
+
+```bash
+docker compose --profile test up -d activemq
+node scripts/docker/activemq/stomp-probe.mjs   # prints CONNECTED
+
+cd packages/queue-stomp-transport && npm run test:integration
+```
+
+ActiveMQ Classic 6.1 with the scheduler enabled ( needed for retry backoff and `ScheduleDelay` ), auth on
+( `spinajs` / `spinajs` ), WebSocket STOMP on `127.0.0.1:61614` and the web console on `127.0.0.1:8161`
+( `admin` / `admin` ). Config: `scripts/docker/activemq/activemq.xml`. Both ports are published on
+`127.0.0.1` only; `QUEUE_TEST_STOMP_WS_PORT` / `QUEUE_TEST_ACTIVEMQ_CONSOLE_PORT` move them.
+
+Without a broker the suite skips itself. With `QUEUE_IT_REQUIRE_BROKER=1` a missing broker fails the run.
+
+| Variable | Default |
+| --- | --- |
+| `QUEUE_IT_STOMP_URL` | `ws://127.0.0.1:61614/ws` |
+| `QUEUE_IT_STOMP_LOGIN` | `spinajs` |
+| `QUEUE_IT_STOMP_PASSWORD` | `spinajs` |
+| `QUEUE_IT_ACTIVEMQ_CONTAINER` | `spinajs-queue-test-activemq` |
+| `QUEUE_IT_REQUIRE_BROKER` | unset |
+
+**The suite stops and restarts the broker container** ( `docker stop|start|restart` by name ), so do
+not point it at a broker you care about.
