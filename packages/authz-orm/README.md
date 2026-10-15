@@ -74,3 +74,29 @@ A select of many rows of an `@AccessResource` model must use `.accessible(permis
 primary key (`where(pk, v)`, `get(v)`, `findOrFail([v])`, `@FromModel`) is a single-object load that the
 route's `@Access` check covers, and is not flagged. With `APP_ENV=test` a select without one throws
 `AuthzConfigError`; with `APP_ENV=development` it warns once per call site; otherwise it is off.
+
+## Lists
+
+```ts
+const tasks = await Task.where('status', 'open').accessible('Task:read');
+await Task.update({ archived: true }).where('project_id', 7).accessible('Task:update');
+const page = await Task.query().accessible('Task:read').withAccess(['Task:update', 'Task:delete']);
+// page[i].$access = { 'Task:update': true, 'Task:delete': false }
+```
+
+- The permission must be declared `list: true` (`authz.permissions['Task:read'] = { list: true }`);
+  `accessPlan` refuses any other with `AuthzConfigError`.
+- The plan is asked for the principal the query runs as, when it executes. A plan that grants nothing
+  throws `AccessDenied` (a list with no permit is a 403, not an empty list). `{ env }` passes request
+  env facts: `.accessible('Task:read', { env: { ip } })`.
+- The caller's where stays one group: `(where) AND (plan)`. Works on select, update and delete.
+- `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
+  (`authz.audit.unscoped`).
+- `.withAccess(permissions)` adds one boolean per permission, from the same SQL as `.accessible()`, in
+  the same query; the key is `authz.orm.accessField` (default `$access`), sent by `toJSON()` and
+  `dehydrate()`.
+- Models add list support by registering a `PlanTermSql` (`@Injectable(PlanTermSql)`) for the ops
+  their `listPlan` returns. Built in: `relation.owner` and `relation.self`
+  (`{ principals: { type, id }[] }`; the columns come from `@Owner()` / `@Self()`).
+- `populate('tasks', (q) => q.accessible('Task:read'))` works for relations that run their own query
+  (has-many, many-to-many); a belongs-to populate is a join of the parent and is not filtered.
