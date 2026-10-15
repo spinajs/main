@@ -79,10 +79,6 @@ export class LeaseStore {
     return r.RowsAffected === 1;
   }
 
-  public async acquireScheduleLease(name: string, now: number): Promise<boolean> {
-    return (await this.takeScheduleLease(name, now)) !== false;
-  }
-
   /**
    * Same rule as `leaseFree`, split in two statements to tell whether the expired lease was this
    * replica's own: a run of this replica may still be relying on it, so a failed claim must not release it.

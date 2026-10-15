@@ -78,15 +78,15 @@ describe('LeaseStore: schedule occurrences', () => {
     expect(await r1.advanceOccurrence(o)).to.eq(false);
   });
 
-  it('acquires, renews and releases the schedule lease only for its owner', async () => {
-    expect(await r1.acquireScheduleLease('a', T)).to.eq(true);
-    expect(await r2.acquireScheduleLease('a', T)).to.eq(false);
+  it('renews and releases the schedule lease only for its owner', async () => {
+    expect(await r1.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T, nextRunAt: T + MIN, now: T })).to.eq(true);
     expect(await r1.renewScheduleLease('a', T + 10_000)).to.eq(true);
     expect((await row()).LeaseUntil).to.eq(T + 10_000 + r1.LeaseTtl);
     expect(await r2.renewScheduleLease('a', T + 10_000)).to.eq(false);
     expect(await r2.releaseScheduleLease('a', T)).to.eq(false);
     expect(await r1.releaseScheduleLease('a', T)).to.eq(true);
-    expect(await r2.acquireScheduleLease('a', T)).to.eq(true);
+    const next = { name: 'a', expectedNextRunAt: T + MIN, nextRunAt: T + 2 * MIN, now: T + 20_000 };
+    expect(await r2.tryClaimOccurrence(next)).to.eq(true);
   });
 
   it('records the last run on the schedule', async () => {

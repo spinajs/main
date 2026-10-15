@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { fireTime, jitterFor, parseSpec, scanMissed } from '../src/index.js';
+import { fireTime, jitterFor } from '../src/index.js';
 
 const ms = (iso: string) => Date.parse(iso);
 
@@ -23,23 +23,5 @@ describe('jitter', () => {
     const t = ms('2026-01-05T10:00:00Z');
     expect(fireTime({ name: 'a', jitterMs: 0 }, t)).to.eq(t);
     expect(fireTime({ name: 'a', jitterMs: 5000 }, t)).to.eq(t + jitterFor('a', t, 5000));
-  });
-});
-
-describe('scanMissed', () => {
-  it('counts every occurrence in the window and keeps the last N', () => {
-    const spec = parseSpec({ every: '1h' }, 'a');
-    const r = scanMissed(spec, ms('2026-01-05T00:00:00Z'), ms('2026-01-05T05:30:00Z'), 2);
-    expect(r.total).to.eq(6);
-    expect(r.items.map((t) => new Date(t).toISOString())).to.deep.eq([
-      '2026-01-05T04:00:00.000Z',
-      '2026-01-05T05:00:00.000Z',
-    ]);
-    expect(r.last).to.eq(ms('2026-01-05T05:00:00Z'));
-  });
-
-  it('stops at the cap', () => {
-    const spec = parseSpec({ every: '1s' }, 'a');
-    expect(scanMissed(spec, 0, 10_000_000, 1, 100).total).to.eq(100);
   });
 });

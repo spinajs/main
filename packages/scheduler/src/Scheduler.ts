@@ -254,10 +254,6 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     await this.reapExpired(now);
     await this.fireDue(now);
     await this.claimQueued(now);
-    await this.extraTickWork(now);
-  }
-
-  protected async extraTickWork(now: number): Promise<void> {
     await this.fireLocal(now);
     await this.Mirror.sync(now);
   }
@@ -360,12 +356,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     }
   }
 
-  protected planFor(def: ScheduleDefinition, expected: number, now: number): OccurrencePlan {
-    return planOccurrence(def, expected, now);
-  }
-
   protected async fireOccurrence(def: ScheduleDefinition, expected: number, now: number): Promise<void> {
-    const plan = this.planFor(def, expected, now);
+    const plan = planOccurrence(def, expected, now);
     const input: OccurrenceInput = { name: def.name, expectedNextRunAt: expected, nextRunAt: plan.next, now };
 
     if (plan.kind === 'run' && !this.holdsScheduleLocally(def.name) && (await this.Leases.tryClaimOccurrence(input))) {
