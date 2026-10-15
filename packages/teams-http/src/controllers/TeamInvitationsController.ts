@@ -3,6 +3,7 @@ import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Post, Query } from '@spinajs/http';
 import { InvitationService } from '@spinajs/teams';
+import '../schemas/provider.js';
 
 import { NO_STORE, done } from '../http/answers.js';
 import { guarded } from '../http/errors.js';

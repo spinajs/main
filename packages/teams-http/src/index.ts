@@ -4,7 +4,7 @@ export * from './http/request.js';
 export * from './http/subjects.js';
 export * from './controller-list.js';
 export * from './http/refs.js';
-export * from './schemas/bodies.js';
+export * from './schemas/index.js';
 export * from './controllers/TeamsController.js';
 export * from './controllers/TeamMembersController.js';
 export * from './controllers/TeamGroupsController.js';

@@ -3,6 +3,7 @@ import { Access, CurrentPrincipal } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query } from '@spinajs/http';
 import { TeamService, parseSubjectLabel } from '@spinajs/teams';
+import '../schemas/provider.js';
 
 import { done, membersJson } from '../http/answers.js';
 import { guarded } from '../http/errors.js';

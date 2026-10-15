@@ -4,6 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Post, Query } from '@spinajs/http';
 import { TeamService } from '@spinajs/teams';
+import '../schemas/provider.js';
 
 import { done } from '../http/answers.js';
 import { guarded } from '../http/errors.js';

@@ -3,6 +3,7 @@ import { CurrentPrincipal, IsAuthenticated } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
 import { TeamService } from '@spinajs/teams';
+import '../schemas/provider.js';
 
 import { guarded } from '../http/errors.js';
 

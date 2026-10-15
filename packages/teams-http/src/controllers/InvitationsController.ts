@@ -3,6 +3,7 @@ import { CurrentPrincipal, IsAuthenticated } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Ok, Policy, Post } from '@spinajs/http';
 import { InvitationService } from '@spinajs/teams';
+import '../schemas/provider.js';
 
 import { NO_STORE } from '../http/answers.js';
 import { guarded } from '../http/errors.js';
