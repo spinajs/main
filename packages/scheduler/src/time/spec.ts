@@ -54,11 +54,14 @@ export function parseSpec(input: SpecInput, name: string): ScheduleSpec {
   }
 
   if (input.at !== undefined) {
-    const at = DateTime.fromISO(input.at, { zone: timezone });
-    if (!at.isValid) {
+    const asUtc = DateTime.fromISO(input.at, { zone: 'UTC' });
+    if (!asUtc.isValid) {
       throw new InvalidArgument(`schedule '${name}': at must be an ISO-8601 instant (got '${input.at}')`);
     }
-    return { kind: 'at', expression: input.at, at: Math.floor(at.toMillis() / 1000) * 1000, timezone };
+    // Same instant under another default zone = the string carries its own offset.
+    const hasOffset = DateTime.fromISO(input.at, { zone: 'UTC+5' }).toMillis() === asUtc.toMillis();
+    const at = hasOffset ? asUtc.toMillis() : fromWall(asUtc.toMillis(), IANAZone.create(timezone));
+    return { kind: 'at', expression: input.at, at: Math.floor(at / 1000) * 1000, timezone };
   }
 
   return { kind: 'manual', expression: 'manual', timezone };

@@ -97,6 +97,22 @@ for (const [label, now] of [
       Settings.now = realNow;
     });
 
+    it('at: a local time without offset resolves like a cron wall time', () => {
+      const at = (value: string) => iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
+      expect(at('2026-06-01T12:00:00')).to.eq('2026-06-01T10:00:00.000Z');
+      expect(at('2026-01-05T12:00:00.750')).to.eq('2026-01-05T11:00:00.000Z');
+      // repeated autumn hour: first pass (CEST)
+      expect(at('2026-10-25T02:30:00')).to.eq('2026-10-25T00:30:00.000Z');
+      // missing spring hour: shifted forward to 03:30 CEST
+      expect(at('2026-03-29T02:30:00')).to.eq('2026-03-29T01:30:00.000Z');
+    });
+
+    it('at: an explicit offset wins over the time zone', () => {
+      const at = (value: string) => iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
+      expect(at('2026-10-25T02:30:00+01:00')).to.eq('2026-10-25T01:30:00.000Z');
+      expect(at('2026-10-25T02:30:00Z')).to.eq('2026-10-25T02:30:00.000Z');
+    });
+
     it('cron: daily 08:00 Europe/Warsaw follows the offset change in autumn', () => {
       const spec = parseSpec({ cron: '0 8 * * *', timezone: 'Europe/Warsaw' }, 'a');
       expect(occurrences(spec, '2026-10-23T12:00:00Z', '2026-10-26T12:00:00Z').map(iso)).to.deep.eq([
