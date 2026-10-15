@@ -20,7 +20,8 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
    ladder `team`, `group.member`, `group.manager`), the permissions, the archived-team policy, the
    `authz.admin.permissions` mapping and `authz.admin.guard.keepHolders: [{ role: 'team.owner', scopeType: 'team' }]`.
    The ladder applies to every type below a team: grants you add to the team roles (e.g. `project:read` to
-   `team.member`) reach your team-owned resources.
+   `team.member`) reach your team-owned resources. Such a permission must also declare type `team` (see
+   [App permissions on team roles](#app-permissions-on-team-roles)).
 2. Run the migrations `Teams_2026_10_14_00_00_00` and `TeamsInvitations_2026_10_14_00_01_00` on the connection
    `default`, next to the authz-rbac, authz-orm and authz-abac tables (one connection: authz-orm checks it at boot).
 3. Use `DbAssignmentStore` (the membership closure needs it) and `DbAuthzAdminBackend`.
@@ -32,6 +33,34 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
    `teams.invitations.subject`, `teams.invitations.connection` (else `email.defaultConnection`).
 7. Archiving needs `@spinajs/authz-abac`; without an ABAC model the policy is not evaluated and archived teams stay
    writable.
+
+## App permissions on team roles
+
+Every app permission that a team role (`team.member`, `team.admin`, `team.owner`) grants must list `team` in its
+`types`, next to the app's own type. The admin guard (`CheckRbacAdminFacts.covers`) checks each permission of a
+granted role at the grant scope, which for a team role is the team. A permission whose `types` leave out `team`
+counts as not held there, so every grant of that role by a user (adding a member, `setTeamRole`,
+`transferOwnership`, creating an invitation) fails with `escalation`, even for the team's owner, and the `escalation`
+message names the role, not the permission at fault. Only grants made as SYSTEM (the owner at team creation) skip the
+guard. The same applies to group roles at a `group` scope: their app permissions list `group`.
+
+```ts
+// The app's config, merged with the teams fragment (role grants concatenate).
+export default {
+  authz: {
+    permissions: {
+      'project:read': { types: ['project', 'team'] },
+      'project:update': { types: ['project', 'team'] },
+    },
+    rbac: {
+      roles: {
+        'team.member': { grants: ['project:read'] },
+        'team.admin': { grants: ['project:update'] },
+      },
+    },
+  },
+};
+```
 
 ## Services
 
