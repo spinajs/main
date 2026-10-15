@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/scheduler",
-  "version": "2.0.555",
+  "version": "2.0.556",
   "description": "Cluster-safe recurring and manual jobs with run tracking, retries and error grouping",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,23 +53,23 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@sinonjs/fake-timers": "^10.3.0",
-    "@spinajs/cli": "2.0.555",
-    "@spinajs/configuration": "2.0.555",
-    "@spinajs/di": "2.0.555",
-    "@spinajs/exceptions": "2.0.555",
-    "@spinajs/log": "2.0.555",
-    "@spinajs/log-common": "2.0.555",
-    "@spinajs/orm": "2.0.555",
-    "@spinajs/queue": "2.0.555",
-    "@spinajs/reflection": "2.0.555",
-    "@spinajs/telemetry-common": "2.0.555",
-    "@spinajs/validation": "2.0.555",
+    "@spinajs/cli": "2.0.556",
+    "@spinajs/configuration": "2.0.556",
+    "@spinajs/di": "2.0.556",
+    "@spinajs/exceptions": "2.0.556",
+    "@spinajs/log": "2.0.556",
+    "@spinajs/log-common": "2.0.556",
+    "@spinajs/orm": "2.0.556",
+    "@spinajs/queue": "2.0.556",
+    "@spinajs/reflection": "2.0.556",
+    "@spinajs/telemetry-common": "2.0.556",
+    "@spinajs/validation": "2.0.556",
     "cron": "^4.3.0",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "peerDependencies": {
-    "@spinajs/tasks": "2.0.555"
+    "@spinajs/tasks": "2.0.556"
   },
   "peerDependenciesMeta": {
     "@spinajs/tasks": {
@@ -77,11 +77,11 @@
     }
   },
   "devDependencies": {
-    "@spinajs/orm-mysql": "2.0.555",
-    "@spinajs/orm-postgres": "2.0.555",
-    "@spinajs/orm-sqlite": "2.0.555",
-    "@spinajs/tasks": "2.0.555",
-    "@spinajs/threading": "2.0.555",
+    "@spinajs/orm-mysql": "2.0.556",
+    "@spinajs/orm-postgres": "2.0.556",
+    "@spinajs/orm-sqlite": "2.0.556",
+    "@spinajs/tasks": "2.0.556",
+    "@spinajs/threading": "2.0.556",
     "@types/node": "^22.14.1",
     "@types/sinonjs__fake-timers": "^15.0.1"
   }
