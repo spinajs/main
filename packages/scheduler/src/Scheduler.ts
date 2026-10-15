@@ -9,7 +9,7 @@ import { jsonColumn } from './models/converters.js';
 import { RunAttemptModel } from './models/RunAttemptModel.js';
 import { RunModel } from './models/RunModel.js';
 import { ScheduleModel } from './models/ScheduleModel.js';
-import type { OccurrencePlan } from './policy/misfire.js';
+import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
 import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
@@ -40,6 +40,8 @@ interface NewRun {
 }
 
 const INSTANCES = new Set<Scheduler>();
+
+const missedCount = (plan: OccurrencePlan) => (plan.skippedCapped ? `more than ${plan.skipped}` : String(plan.skipped));
 
 /** Schedulers resolved in this process and not stopped; the service wakes them and aborts local runs through them. */
 export function activeSchedulers(): Scheduler[] {
@@ -252,14 +254,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     }
   }
 
-  protected planFor(def: ScheduleDefinition, expected: number, _now: number): OccurrencePlan {
-    return {
-      kind: 'run',
-      scheduledAt: expected,
-      trigger: 'schedule',
-      next: nextOccurrence(def.spec, expected),
-      skipped: 0,
-    };
+  protected planFor(def: ScheduleDefinition, expected: number, now: number): OccurrencePlan {
+    return planOccurrence(def, expected, now);
   }
 
   protected async fireOccurrence(def: ScheduleDefinition, expected: number, now: number): Promise<void> {
@@ -267,7 +263,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const input: OccurrenceInput = { name: def.name, expectedNextRunAt: expected, nextRunAt: plan.next, now };
 
     if (plan.kind === 'run' && !this.holdsScheduleLocally(def.name) && (await this.Leases.tryClaimOccurrence(input))) {
-      const message = plan.skipped ? `caught up; ${plan.skipped} earlier occurrence(s) were not run` : null;
+      const message = plan.skipped ? `caught up; ${missedCount(plan)} earlier occurrence(s) were not run` : null;
       const run = await this.createRun(def, {
         status: 'running',
         trigger: plan.trigger,
@@ -284,16 +280,37 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   protected async onNotClaimed(def: ScheduleDefinition, plan: OccurrencePlan, input: OccurrenceInput): Promise<void> {
+    // a catch-up occurrence waits for the lease instead of being skipped
+    if (plan.kind === 'run' && plan.trigger === 'catch-up') return;
     // the replica that advances NextRunAt owns the decision for this occurrence
     if (!(await this.Leases.advanceOccurrence(input))) return;
-    await this.recordWithoutRunning(
-      def,
-      'skipped',
-      plan.scheduledAt,
-      input.now,
-      'overlap',
-      await this.runningRunId(def.name),
-    );
+
+    if (plan.kind === 'misfire') {
+      const message = `missed ${missedCount(plan)} occurrence(s)`;
+      await this.recordWithoutRunning(def, 'misfired', plan.scheduledAt, input.now, 'misfire', message);
+      return;
+    }
+
+    const running = await this.runningRunId(def.name);
+    if (def.overlap === 'queue' && !(await this.hasQueued(def.name))) {
+      const run = await this.createRun(def, {
+        status: 'queued',
+        trigger: plan.trigger,
+        scheduledAt: plan.scheduledAt,
+        now: input.now,
+        owned: false,
+        reason: 'overlap',
+        message: running ? `queued behind run ${running}` : null,
+      });
+      await this.Events.write(run, 1, { type: 'status', status: 'queued', reason: 'overlap' });
+      return;
+    }
+
+    await this.recordWithoutRunning(def, 'skipped', plan.scheduledAt, input.now, 'overlap', running);
+  }
+
+  protected async hasQueued(schedule: string): Promise<boolean> {
+    return Number(await RunModel.count((b) => b.where('Schedule', schedule).where('Status', 'queued'))) > 0;
   }
 
   protected async runningRunId(schedule: string): Promise<string | null> {
