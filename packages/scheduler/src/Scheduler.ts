@@ -212,6 +212,13 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     return false;
   }
 
+  /** Every path that claims a queued/retrying run for this process goes through this check first. */
+  protected mayClaimLocally(run: RunModel): boolean {
+    // e.g. reaped to `retrying` by another replica while the local executor is still in its grace period
+    if (this.active.has(run.Id)) return false;
+    return run.Forced || !this.holdsScheduleLocally(run.Schedule);
+  }
+
   protected async fireDue(now: number): Promise<void> {
     const rows = await ScheduleModel.where('Paused', false)
       .where('Orphaned', false)
@@ -344,13 +351,11 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const tried = new Set<string>();
     for (const run of due) {
       if (this.stopping) return;
-      // e.g. reaped to `retrying` by another replica while the local executor is still in its grace period
-      if (this.active.has(run.Id)) continue;
       if (!run.Forced) {
         if (tried.has(run.Schedule)) continue;
         tried.add(run.Schedule);
-        if (this.holdsScheduleLocally(run.Schedule)) continue;
       }
+      if (!this.mayClaimLocally(run)) continue;
       const def = this.Registry.find(run.Schedule);
       if (!def) continue;
       if (await this.Leases.claimRun(run, now)) this.launch(run, def);
