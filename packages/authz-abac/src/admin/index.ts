@@ -1,6 +1,7 @@
 /**
- * AuthzAdmin support for ABAC policies: the `policy.put` / `policy.delete` handler, the `policies` reader and
- * the scope.forget forgetter. Importing the package registers all three in root DI.
+ * AuthzAdmin support for ABAC policies: the `policy.put` / `policy.delete` handler, the `policies` reader,
+ * the scope.forget forgetter and the policy.put list-support guard. Importing the package registers all four
+ * in root DI.
  *
  * They write to the domain's one writable policy store: the MemoryPolicyStore or DbPolicyStore instance an
  * app passes to `new AbacModel({ stores })`, which it must also register under `PolicyStore` in the domain
@@ -13,3 +14,4 @@ export type { WritablePolicyStore } from './common.js';
 export * from './handler.js';
 export * from './reader.js';
 export * from './forgetter.js';
+export * from './list-guard.js';
