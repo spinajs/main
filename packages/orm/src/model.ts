@@ -1024,6 +1024,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     this.ModelDescriptor!.Columns?.forEach((c) => {
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
+      } else if (c.DefaultValue instanceof RawQuery) {
+        // a server-side expression (postgres `gen_random_uuid()`, `CURRENT_TIMESTAMP`): left unset so the insert takes it
       } else {
         (this as any)[c.Name] = c.DefaultValue;
       }

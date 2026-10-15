@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { IdentifierQuoter, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
-import { PostgresOrmDriver, PostgresServerResponseMapper, toPositionalParameters } from '../src/index.js';
+import { parseColumnDefault, PostgresOrmDriver, PostgresServerResponseMapper, toPositionalParameters } from '../src/index.js';
 
 /**
  * Postgres' side of the dialect contract.
@@ -97,5 +97,37 @@ describe('postgres dialect', function () {
       expect(response.RowsAffected).to.eq(2);
       expect(response.Returning).to.have.lengthOf(2);
     });
+  });
+});
+
+describe('postgres column defaults (information_schema.columns.column_default)', () => {
+  it('reads literal defaults as values of the column type', () => {
+    expect(parseColumnDefault(`'abc'::character varying`, 'varchar')).to.eq('abc');
+    expect(parseColumnDefault(`'it''s'::text`, 'text')).to.eq("it's");
+    expect(parseColumnDefault('0', 'int4')).to.eq(0);
+    expect(parseColumnDefault(`'-1'::integer`, 'int4')).to.eq(-1);
+    expect(parseColumnDefault('1.5', 'float8')).to.eq(1.5);
+    expect(parseColumnDefault('12.50', 'numeric')).to.eq('12.50');
+    expect(parseColumnDefault(`'9007199254740993'::bigint`, 'int8')).to.eq('9007199254740993');
+    expect(parseColumnDefault('true', 'bool')).to.eq(true);
+    expect(parseColumnDefault('false', 'bool')).to.eq(false);
+  });
+
+  it('reads no default and a NULL default as null', () => {
+    expect(parseColumnDefault(null, 'varchar')).to.eq(null);
+    expect(parseColumnDefault('NULL::character varying', 'varchar')).to.eq(null);
+  });
+
+  it('keeps an expression default as raw SQL, so the server evaluates it', () => {
+    for (const [raw, type] of [
+      ['gen_random_uuid()', 'uuid'],
+      ['CURRENT_TIMESTAMP', 'timestamptz'],
+      [`nextval('t_id_seq'::regclass)`, 'int4'],
+      [`'{}'::jsonb`, 'jsonb'],
+    ]) {
+      const parsed = parseColumnDefault(raw, type);
+      expect(parsed, raw).to.be.instanceOf(RawQuery);
+      expect((parsed as RawQuery).Query).to.eq(raw);
+    }
   });
 });

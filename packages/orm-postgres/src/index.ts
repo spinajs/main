@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
 import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
@@ -41,6 +41,44 @@ export function toDriverStatement(stmt: string, params?: unknown[]): string {
   const count = params?.length ?? 0;
   let i = 0;
   return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
+}
+
+const QUOTED_LITERAL_DEFAULT = /^'((?:[^']|'')*)'::[a-z0-9_ ."]+$/i;
+const NUMERIC_LITERAL_DEFAULT = /^\(?-?\d+(\.\d+)?\)?$/;
+
+/**
+ * `column_default` is SQL text, and a new model copies `DefaultValue` into its properties.
+ * Scalar literals become values of the column type (int8/numeric stay strings, as node-postgres
+ * reads them); anything else is an expression only the server can evaluate, so it stays a
+ * RawQuery and the insert leaves the column to the server default.
+ */
+export function parseColumnDefault(raw: string | null | undefined, udtName: string): unknown {
+  if (raw === null || raw === undefined || /^NULL(::.+)?$/i.test(raw)) {
+    return null;
+  }
+
+  const quoted = QUOTED_LITERAL_DEFAULT.exec(raw);
+  const text = quoted ? quoted[1].replace(/''/g, "'") : NUMERIC_LITERAL_DEFAULT.test(raw) ? raw.replace(/[()]/g, '') : /^(true|false)$/i.test(raw) ? raw.toLowerCase() : undefined;
+
+  if (text !== undefined) {
+    switch (udtName) {
+      case 'varchar':
+      case 'bpchar':
+      case 'text':
+      case 'int8':
+      case 'numeric':
+        return text;
+      case 'int2':
+      case 'int4':
+      case 'float4':
+      case 'float8':
+        return Number(text);
+      case 'bool':
+        return text === 'true' || text === 't';
+    }
+  }
+
+  return RawQuery.create(raw);
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
@@ -361,7 +399,7 @@ export class PostgresOrmDriver extends SqlDriver {
         Type: r.udt_name,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: r.column_default,
+        DefaultValue: parseColumnDefault(r.column_default, r.udt_name),
         NativeType: r.udt_name,
         Unsigned: false,
         Nullable: r.is_nullable === 'YES',

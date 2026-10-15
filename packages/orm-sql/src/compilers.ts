@@ -677,7 +677,8 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
         const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
 
         if (descriptor) {
-          if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
+          const serverDefault = v === undefined && descriptor.DefaultValue instanceof RawQuery;
+          if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement && !serverDefault) {
             throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
           }
 
