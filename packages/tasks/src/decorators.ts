@@ -79,91 +79,157 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
   };
 }
 
+export interface TaskDeclaration {
+  name: string;
+  description: string;
+  options: TaskOptions;
+  /** The class that declares the method (the constructor itself for a static method). */
+  target: Function;
+  isStatic: boolean;
+  propertyKey: string | symbol;
+  /** The undecorated method. */
+  method: (...args: any[]) => unknown;
+}
+
+export interface RunTaskOptions {
+  /** false: skip the task mutex, its heartbeat and the in-process guard (the caller holds a lock of its own). */
+  lock: boolean;
+  /** true: rethrow the task's error after history is written, instead of resolving with `{ error: true }`. */
+  rethrow: boolean;
+}
+
+const declarations = new Map<string, TaskDeclaration[]>();
+
+export function getTaskDeclarations(name?: string): TaskDeclaration[] {
+  if (name !== undefined) {
+    return [...(declarations.get(name) ?? [])];
+  }
+  return [...declarations.values()].flat();
+}
+
+const NO_LOCK: Unlock = () => Promise.resolve();
+
+/**
+ * Runs a task method with the `@Task` bookkeeping: `__tasks` state, a `__task_history` row and
+ * TaskSuccess / TaskFailed. The decorator calls it with `{ lock: true, rethrow: false }`.
+ */
+export async function runTask(
+  decl: TaskDeclaration,
+  thisArg: unknown,
+  args: unknown[],
+  opts: RunTaskOptions,
+): Promise<unknown> {
+  const log = DI.resolve('__log__', ['TASKS']) as Log;
+  log.info(`Executing task ${decl.name} ...`);
+
+  let task: __task;
+  let unlock: Unlock;
+  try {
+    task = await __task.getOrCreate(null, {
+      Name: decl.name,
+      Description: decl.description,
+      State: 'stopped',
+    });
+
+    const lock = opts.lock ? await lockTask(decl.name, decl.options, log) : NO_LOCK;
+    if (!lock) {
+      return undefined;
+    }
+    unlock = lock;
+
+    try {
+      task.State = 'running';
+      task.LastRunAt = DateTime.now();
+      await task.update();
+    } catch (err) {
+      await unlock();
+      throw err;
+    }
+  } catch (err) {
+    log.error(err, `Cannot start task ${decl.name}`);
+    throw err;
+  }
+
+  let taskResult: unknown = null;
+  let failure: { error: unknown } | null = null;
+  const start = DateTime.now();
+  try {
+    taskResult = await decl.method.apply(thisArg, args);
+    await TaskSuccess.emit({
+      TaskName: decl.name,
+    });
+
+    log.success(`Task ${decl.name} executed !`);
+  } catch (err) {
+    failure = { error: err };
+    log.error(err, `Cannot execute task ${decl.name}`);
+    taskResult = {
+      error: true,
+      message: err.Message,
+    };
+
+    try {
+      await TaskFailed.emit({
+        TaskName: decl.name,
+        Reason: err.Message,
+      });
+    } catch (emitErr) {
+      log.error(emitErr, `Cannot emit TaskFailed for ${decl.name}`);
+    }
+  } finally {
+    try {
+      await unlock();
+
+      await task.update({
+        State: 'stopped',
+      });
+
+      await __task_history.insert({
+        TaskId: task.Id,
+        Result: taskResult,
+        Duration: DateTime.now().diff(start).milliseconds,
+      });
+    } catch (err) {
+      log.error(err, `Cannot finalize task`);
+    }
+  }
+
+  if (failure && opts.rethrow) {
+    throw failure.error;
+  }
+  return taskResult;
+}
+
 /**
  * Marks a method as a task: records runs in `__tasks` / `__task_history`, emits
  * TaskSuccess / TaskFailed and, unless `taskStacking` is set, lets only one run
- * happen at a time across all processes sharing the database.
+ * happen at a time across all processes sharing the database. The declaration is
+ * also recorded, so `@spinajs/scheduler` can schedule the method by task name.
  *
  * @param taskName - unique task name
  * @param description - short description
  * @param opts - see {@link TaskOptions}, defaults to {@link DEFAULT_TASK_OPTIONS}
  */
 export function Task(taskName: string, description: string, opts?: Partial<TaskOptions>) {
-  const _name = _check_arg(_trim(), _non_empty())(taskName, 'Task name is empty');
-  const _description = _check_arg(_trim(), _non_empty())(description, 'Task description is empty');
+  const _name: string = _check_arg(_trim(), _non_empty())(taskName, 'Task name is empty');
+  const _description: string = _check_arg(_trim(), _non_empty())(description, 'Task description is empty');
   const _opts: TaskOptions = { ...DEFAULT_TASK_OPTIONS, ...opts };
 
-  return function (_target: any, _propertyKey: string | symbol, descriptor: PropertyDescriptor) {
-    const oldFunction: Function = descriptor.value;
-    descriptor.value = async function (...args: any[]) {
-      const log = DI.resolve('__log__', ['TASKS']) as Log;
+  return function (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) {
+    const isStatic = typeof target === 'function';
+    const decl: TaskDeclaration = {
+      name: _name,
+      description: _description,
+      options: _opts,
+      target: isStatic ? target : target.constructor,
+      isStatic,
+      propertyKey,
+      method: descriptor.value,
+    };
+    declarations.set(_name, [...(declarations.get(_name) ?? []), decl]);
 
-      log.info(`Executing task ${_name} ...`);
-
-      try {
-        const task = await __task.getOrCreate(null, {
-          Name: _name,
-          Description: _description,
-          State: 'stopped',
-        });
-
-        const unlock = await lockTask(_name, _opts, log);
-        if (!unlock) {
-          return;
-        }
-
-        try {
-          task.State = 'running';
-          task.LastRunAt = DateTime.now();
-          await task.update();
-        } catch (err) {
-          await unlock();
-          throw err;
-        }
-
-        let taskResult = null;
-        const start = DateTime.now();
-        try {
-          taskResult = await oldFunction.apply(this, args);
-          await TaskSuccess.emit({
-            TaskName: taskName,
-          });
-
-          log.success(`Task ${taskName} executed !`);
-        } catch (err) {
-          log.error(err, `Cannot execute task ${taskName}`);
-          taskResult = {
-            error: true,
-            message: err.Message,
-          };
-
-          await TaskFailed.emit({
-            TaskName: taskName,
-            Reason: err.Message,
-          });
-        } finally {
-          try {
-            await unlock();
-
-            await task.update({
-              State: 'stopped',
-            });
-
-            await __task_history.insert({
-              TaskId: task.Id,
-              Result: taskResult,
-              Duration: DateTime.now().diff(start).milliseconds,
-            });
-          } catch (err) {
-            log.error(err, `Cannot finalize task`);
-          }
-
-          return taskResult;
-        }
-      } catch (err) {
-        log.error(err, `Cannot start task ${taskName}`);
-        throw err;
-      }
+    descriptor.value = function (...args: any[]) {
+      return runTask(decl, this, args, { lock: true, rethrow: false });
     };
   };
 }

@@ -12,6 +12,7 @@ import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
+import { DEFAULT_TASK_OPTIONS, getTaskDeclarations, runTask } from '../src/decorators.js';
 import '@spinajs/orm-sqlite';
 import { TestTask2 } from './Tasks/TestTask2.js';
 import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
@@ -192,6 +193,44 @@ describe('Commands', function () {
 
       expect(other.Locked).to.be.false;
       await run;
+    });
+  });
+
+  describe('task declarations', () => {
+    it('Should record a declaration per @Task method', () => {
+      const [decl] = getTaskDeclarations('TestTaskNoOptions');
+
+      expect(decl).to.include({ name: 'TestTaskNoOptions', description: 'Task declared without options', target: TestTaskNoOptions, isStatic: false, propertyKey: 'execute' });
+      expect(decl.options).to.deep.equal(DEFAULT_TASK_OPTIONS);
+      expect(decl.method).to.not.equal(TestTaskNoOptions.prototype.execute);
+      expect(getTaskDeclarations('NoSuchTask')).to.deep.equal([]);
+    });
+
+    it('Should run without the task mutex and leave a foreign lock alone when lock is false', async () => {
+      await mutex_acquire({ Name: 'task-TestTaskNoOptions', Tenant: 'other-replica' });
+      const [decl] = getTaskDeclarations('TestTaskNoOptions');
+
+      await runTask(decl, new TestTaskNoOptions(), [], { lock: false, rethrow: true });
+
+      expect(await __task_history.all()).to.have.length(1);
+      const m = await mutex_get('task-TestTaskNoOptions');
+      expect(m).to.include({ Locked: true, Tenant: 'other-replica' });
+    });
+
+    it('Should write history and rethrow the error when rethrow is true', async () => {
+      const [decl] = getTaskDeclarations('TestTaskFailing');
+
+      await expect(runTask(decl, new TestTaskFailing(), [], { lock: false, rethrow: true })).to.be.rejectedWith('boom');
+
+      const [row] = await __task_history.all();
+      expect(row.Result).to.include({ error: true });
+    });
+
+    it('Should keep the decorated method resolving with the error result', async () => {
+      const result = await new TestTaskFailing().execute();
+
+      expect(result).to.include({ error: true });
+      expect(await __task_history.all()).to.have.length(1);
     });
   });
 });
