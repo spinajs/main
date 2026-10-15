@@ -282,11 +282,31 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     return false;
   }
 
+  /** Any run of the schedule in this process, forced or not. */
+  protected runsScheduleLocally(schedule: string): boolean {
+    for (const h of this.active.values()) if (h.schedule === schedule) return true;
+    return false;
+  }
+
   /** Every path that claims a queued/retrying run for this process goes through this check first. */
   protected mayClaimLocally(run: RunModel): boolean {
     // e.g. reaped to `retrying` by another replica while the local executor is still in its grace period
     if (this.active.has(run.Id)) return false;
+    // a manual run of a `runOn: 'all'` schedule is forced, but must not overlap this replica's own runs of it
+    if (this.Registry.find(run.Schedule)?.runOn === 'all') return !this.runsScheduleLocally(run.Schedule);
     return run.Forced || !this.holdsScheduleLocally(run.Schedule);
+  }
+
+  /** Claims a queued or retrying run with the normal lease rules and executes it in this process. */
+  public async runLocally(runId: string): Promise<boolean> {
+    if (this.stopping) return false;
+    const now = await this.Clock.sync();
+    const run = await RunModel.where('Id', runId).first();
+    if (!run || (run.Status !== 'queued' && run.Status !== 'retrying')) return false;
+    const def = this.Registry.find(run.Schedule);
+    if (!def || !this.mayClaimLocally(run) || !(await this.Leases.claimRun(run, now))) return false;
+    this.launch(run, def);
+    return true;
   }
 
   protected async fireDue(now: number): Promise<void> {

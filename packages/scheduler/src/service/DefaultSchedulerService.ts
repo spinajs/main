@@ -1,16 +1,21 @@
+import { v4 as uuidv4 } from 'uuid';
 import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder } from '@spinajs/orm';
+import { DataValidator } from '@spinajs/validation';
 import {
   ActionContext,
   ErrorFilter,
   ErrorGroupInfo,
   ErrorGroupStatus,
+  InvalidRunParams,
+  isTerminalStatus,
   Page,
   PauseOptions,
   PruneResult,
   RetryOptions,
+  RunConflict,
   RunDetail,
   RunEventListener,
   RunFilter,
@@ -18,9 +23,11 @@ import {
   RunNotFound,
   RunNowOptions,
   RunNowResult,
+  RunTrigger,
   ScheduleDetail,
   ScheduleInfo,
   ScheduleNotFound,
+  SchedulePaused,
   SchedulerService,
   SubscribeOptions,
   SubscribeTarget,
@@ -33,24 +40,52 @@ import { RunLogModel } from '../models/RunLogModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
+import type { ScheduleDefinition } from '../interfaces.js';
+import { automaticRetry } from '../policy/retry.js';
 import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
 import { toRunEvent } from '../run/events.js';
 import { RunEventHub } from '../run/RunEventHub.js';
+import { RunEventWriter } from '../run/RunEventWriter.js';
+import { activeSchedulers } from '../Scheduler.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
-import { DbClock } from '../time/clock.js';
-import { toArray, toAttemptInfo, toErrorGroupInfo, toMs, toRunInfo, toScheduleInfo, toStepInfo } from './mappers.js';
+import { Clock, DbClock, TimerHandle } from '../time/clock.js';
+import {
+  toArray,
+  toAttemptInfo,
+  toErrorGroupInfo,
+  toMs,
+  toParamErrors,
+  toRunInfo,
+  toScheduleInfo,
+  toStepInfo,
+} from './mappers.js';
 
 const DEFAULT_PAGE = 50;
 const MAX_PAGE = 500;
 const RECENT_RUNS = 20;
 const DETAIL_LOGS = 200;
 
+export interface NewManualRun {
+  trigger: RunTrigger;
+  triggeredBy: TriggeredBy;
+  params: Record<string, unknown> | null;
+  now: number;
+  forced: boolean;
+  /** Claim order of queued runs; defaults to `now`. */
+  createdAt?: number;
+  parentRunId?: string;
+  attempt?: number;
+  resumeFrom?: { runId: string; fromStep?: string } | null;
+  checkpoint?: unknown;
+}
+
 const intOr = (v: number | undefined, fallback: number) =>
   typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : fallback;
 
 /**
  * The single façade over schedules and runs; the CLI and `@spinajs/scheduler-http` call only this.
- * Errors leave it only as the contract's error classes, which `httpStatusForError` / `exitCodeForError` map.
+ * Expected failures are thrown as the contract's error classes, which `httpStatusForError` /
+ * `exitCodeForError` map; anything else is an internal error.
  */
 @Singleton()
 @Injectable(SchedulerService)
@@ -67,8 +102,17 @@ export class DefaultSchedulerService extends SchedulerService {
   @Autoinject(DbClock)
   protected Clock: DbClock;
 
+  @Autoinject(Clock)
+  protected Timers: Clock;
+
   @Autoinject(RunEventHub)
   protected Hub: RunEventHub;
+
+  @Autoinject(RunEventWriter)
+  protected Events: RunEventWriter;
+
+  @Autoinject(DataValidator)
+  protected Validator: DataValidator;
 
   /** A process that never starts the loop (CLI, API-only replica) still sees every schedule. */
   public async resolve(): Promise<void> {
@@ -161,10 +205,31 @@ export class DefaultSchedulerService extends SchedulerService {
     return (await q.orderByDescending('LastSeen')).map(toErrorGroupInfo);
   }
 
-  // Replaced in Tasks 35-37.
-  public runNow(_name: string, _options: RunNowOptions): Promise<RunNowResult> {
-    throw new MethodNotImplemented('runNow');
+  /**
+   * A `runOn: 'all'` schedule may be run manually too: the run is `Forced` (no schedule lease) and
+   * executes once, on the first replica that claims it while not running that schedule itself. Local
+   * occurrences on replicas are per-replica work, so there only a queued manual run is a conflict.
+   */
+  public async runNow(name: string, o: RunNowOptions): Promise<RunNowResult> {
+    const def = this.Registry.get(name);
+    const params = this.validateParams(def, o.params);
+    const now = await this.now();
+    await this.assertManualRunsAllowed(name);
+
+    const busy = await this.busyRunId(def, now);
+    if (busy && !o.force) throw new RunConflict(`schedule '${name}' already has run ${busy} in progress`, busy);
+
+    const forced = def.runOn === 'all' || (!!busy && def.overlap === 'skip');
+    const run = await this.createQueuedRun(def, { trigger: 'manual', triggeredBy: o.triggeredBy, params, now, forced });
+    this.audit('run', o.triggeredBy, { schedule: name, runId: run.Id, force: !!o.force, params });
+    this.wakeLocal();
+
+    if (!o.wait) return { runId: run.Id };
+    const timeoutMs = typeof o.wait === 'object' ? o.wait.timeoutMs : undefined;
+    return { runId: run.Id, run: await this.waitForEnd(run.Id, timeoutMs) };
   }
+
+  // Replaced in Tasks 36-37.
   public cancel(_runId: string, _ctx: ActionContext): Promise<RunInfo> {
     throw new MethodNotImplemented('cancel');
   }
@@ -185,6 +250,96 @@ export class DefaultSchedulerService extends SchedulerService {
   }
   public prune(_ctx: ActionContext): Promise<PruneResult> {
     throw new MethodNotImplemented('prune');
+  }
+
+  protected async assertManualRunsAllowed(name: string): Promise<void> {
+    if ((await this.loadScheduleRow(name)).HardPaused) throw new SchedulePaused(name);
+  }
+
+  /** The run a manual run would overlap: a queued run first, else a running one whose lease is live. */
+  protected async busyRunId(def: ScheduleDefinition, now: number): Promise<string | null> {
+    const queued = await RunModel.where('Schedule', def.name).where('Status', 'queued').orderBy('CreatedAt').first();
+    if (queued) return queued.Id;
+    if (def.runOn === 'all') return null;
+    const running = await RunModel.where('Schedule', def.name)
+      .where('Status', 'running')
+      .where('LeaseUntil', '>', now)
+      .orderByDescending('StartedAt')
+      .first();
+    return running?.Id ?? null;
+  }
+
+  /** Returns what to store: a validated copy with ajv's coercion and defaults applied. */
+  protected validateParams(
+    def: ScheduleDefinition,
+    params?: Record<string, unknown> | null,
+  ): Record<string, unknown> | null {
+    if (!def.paramsSchema) {
+      if (params && Object.keys(params).length) {
+        throw new InvalidRunParams(`schedule '${def.name}' takes no parameters`, [
+          { path: '', message: 'no parameters are allowed' },
+        ]);
+      }
+      return null;
+    }
+    // ajv coerces and fills defaults in place; never touch the caller's object
+    const data = structuredClone(params ?? {});
+    const [ok, errors] = this.Validator.tryValidate(def.paramsSchema, data);
+    if (!ok) throw new InvalidRunParams(`invalid parameters for schedule '${def.name}'`, toParamErrors(errors ?? []));
+    return data;
+  }
+
+  /**
+   * `MaxAttempts` is the run's total attempt budget (R11). A manual retry starts at `parent + 1` and
+   * still gets the schedule's whole automatic budget on top, also when the parent ran out of it (`dead`).
+   */
+  protected async createQueuedRun(def: ScheduleDefinition, o: NewManualRun): Promise<RunModel> {
+    const attempt = o.attempt ?? 1;
+    const run = await RunModel.create({
+      Id: uuidv4(),
+      Schedule: def.name,
+      Trigger: o.trigger,
+      TriggeredBy: o.triggeredBy,
+      ParentRunId: o.parentRunId ?? null,
+      Params: o.params,
+      Status: 'queued',
+      Reason: null,
+      Attempt: attempt,
+      MaxAttempts: attempt + (automaticRetry(def)?.attempts ?? 1) - 1,
+      NextAttemptAt: null,
+      ScheduledAt: o.now,
+      CreatedAt: o.createdAt ?? o.now,
+      UpdatedAt: o.now,
+      Progress: 0,
+      CancelRequested: false,
+      Forced: o.forced,
+      ResumeFrom: o.resumeFrom ?? null,
+      Checkpoint: o.checkpoint ?? null,
+    });
+    await this.Events.write(run, attempt, { type: 'status', status: 'queued', reason: o.trigger });
+    return run;
+  }
+
+  protected wakeLocal(): void {
+    for (const s of activeSchedulers()) s.wake();
+  }
+
+  /** The run once it reached a terminal status, or as it is when `timeoutMs` passed (the run goes on). */
+  protected async waitForEnd(runId: string, timeoutMs?: number): Promise<RunInfo> {
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => (finish = resolve));
+    let timer: TimerHandle | undefined;
+    const off = await this.Hub.subscribe({ runId }, (e) => {
+      if (e.type === 'status' && isTerminalStatus(e.status)) finish();
+    });
+    try {
+      if (timeoutMs !== undefined) timer = this.Timers.setTimeout(finish, timeoutMs);
+      await finished;
+    } finally {
+      off();
+      if (timer !== undefined) this.Timers.clearTimeout(timer);
+    }
+    return this.info(await this.loadRun(runId), await this.now());
   }
 
   protected now(): Promise<number> {
