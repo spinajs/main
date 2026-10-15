@@ -63,3 +63,12 @@ export async function bootTestEnv(options: TestEnvOptions = {}): Promise<{ clock
   await DI.resolve(Orm);
   return { clock };
 }
+
+/** DB work behind fake timers completes on real I/O, so tests poll for the outcome. */
+export async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error(`waitFor: condition not met within ${timeoutMs} ms`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}

@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm, QueryContext } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmDriver, QueryContext } from '@spinajs/orm';
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
 import { bootTestEnv } from '../support/env.js';
@@ -81,4 +81,37 @@ export async function bootRealDb(target: RealDbTarget, scheduler: Record<string,
   };
   for (const t of TABLES) await driver.executeOnDb(`DROP TABLE IF EXISTS ${t}`, [], QueryContext.Schema);
   await bootTestEnv({ extra: { db: db(target, true) }, scheduler });
+}
+
+export type RawDriver = OrmDriver & { executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown> };
+export const defaultDriver = async () => (await DI.resolve(Orm)).Connections.get('default') as RawDriver;
+
+/**
+ * Runs `work` in a transaction that stays open until `commit()`, so a competing statement
+ * started meanwhile on another pooled connection has to wait for the row lock.
+ */
+export async function heldOpen<T>(work: () => Promise<T>): Promise<{ result: T; commit: () => Promise<void> }> {
+  const driver = await defaultDriver();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let done!: (value: T) => void;
+  let fail!: (err: unknown) => void;
+  const result = new Promise<T>((resolve, reject) => ((done = resolve), (fail = reject)));
+  const committed = driver.transaction(async () => {
+    try {
+      done(await work());
+    } catch (err) {
+      fail(err);
+      throw err;
+    }
+    await gate;
+  });
+  committed.catch(() => undefined);
+  return {
+    result: await result,
+    commit: async () => {
+      release();
+      await committed;
+    },
+  };
 }

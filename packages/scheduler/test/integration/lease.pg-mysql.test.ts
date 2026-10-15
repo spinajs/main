@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { QueryContext } from '@spinajs/orm';
 import { LeaseStore, RunModel, ScheduleModel, SqlDbTimeSource } from '../../src/index.js';
-import { bootRealDb, REAL_DB_TARGETS } from './real-db.js';
+import { bootRealDb, defaultDriver, heldOpen, REAL_DB_TARGETS } from './real-db.js';
 
 const MIN = 60_000;
 // Beyond 2^31 on purpose: the columns must be BIGINT on every driver.
@@ -22,39 +22,6 @@ const queued = (id: string, extra: Partial<RunModel> = {}) =>
     Forced: false,
     ...extra,
   });
-
-type RawDriver = OrmDriver & { executeOnDb(sql: string, p: unknown[], c: QueryContext): Promise<unknown> };
-const defaultDriver = async () => (await DI.resolve(Orm)).Connections.get('default') as RawDriver;
-
-/**
- * Runs `work` in a transaction that stays open until `commit()`, so a competing statement
- * started meanwhile on another pooled connection has to wait for the row lock.
- */
-async function heldOpen<T>(work: () => Promise<T>): Promise<{ result: T; commit: () => Promise<void> }> {
-  const driver = await defaultDriver();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => (release = resolve));
-  let done!: (value: T) => void;
-  let fail!: (err: unknown) => void;
-  const result = new Promise<T>((resolve, reject) => ((done = resolve), (fail = reject)));
-  const committed = driver.transaction(async () => {
-    try {
-      done(await work());
-    } catch (err) {
-      fail(err);
-      throw err;
-    }
-    await gate;
-  });
-  committed.catch(() => undefined);
-  return {
-    result: await result,
-    commit: async () => {
-      release();
-      await committed;
-    },
-  };
-}
 
 async function losesAfterWaitingOn(
   held: { commit: () => Promise<void> },
