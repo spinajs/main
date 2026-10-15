@@ -3,7 +3,7 @@ import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
@@ -193,7 +193,7 @@ export class PostgresInsertQueryCompiler extends SqlInsertQueryCompiler {
  *   it back.
  * - UNSIGNED, CHARACTER SET and inline COMMENT have no postgres spelling and are dropped;
  *   COLLATE is kept ( postgres collations are identifiers, so it is quoted ).
- * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMP,
+ * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMPTZ(3),
  *   DOUBLE → DOUBLE PRECISION, BLOB → BYTEA, JSON → JSONB ).
  * - BOOLEAN takes no integer default: a numeric default on a boolean column ( MySQL's
  *   0/1 ) renders as FALSE/TRUE.
@@ -299,7 +299,8 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
         return 'TIME';
       case 'dateTime':
       case 'timestamp':
-        return 'TIMESTAMP';
+        // instants: the driver converts to UTC; precision 3 because JS dates carry milliseconds
+        return 'TIMESTAMPTZ(3)';
       case 'json':
         return 'JSONB';
       default:
@@ -348,6 +349,15 @@ export class PostgresAlterColumnQueryCompiler extends SqlAlterColumnQueryCompile
     actions.push(defaultExpression ? `ALTER COLUMN ${column} SET ${defaultExpression}` : `ALTER COLUMN ${column} DROP DEFAULT`);
 
     return actions.join(', ');
+  }
+}
+
+/** Postgres folds an unquoted identifier to lower case, so a dropped column is quoted. */
+@NewInstance()
+@Inject(Container)
+export class PostgresAlterTableQueryCompiler extends SqlAlterTableQueryCompiler {
+  protected droppedColumn(column: string): string {
+    return this.container.resolve<IdentifierQuoter>(IdentifierQuoter).quote(column);
   }
 }
 

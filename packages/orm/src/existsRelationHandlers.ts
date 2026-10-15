@@ -5,6 +5,7 @@ import { IRelationDescriptor, IModelStatic, ISelectQueryBuilder, RelationType } 
 import { RawQuery } from './builders.js';
 import type { WhereBuilder } from './builders.js';
 import { WhereFunction } from './types.js';
+import { quoterOf } from './quoting.js';
 
 /**
  * Strategy that builds the EXISTS / NOT EXISTS clause for one relation type.
@@ -39,7 +40,8 @@ function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; P
  */
 function sourceColumnRef(builder: WhereBuilder<any>, tDesc: { TableName: string }, column: string): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
-  return `\`${sourceAlias}\`.\`${column}\``;
+  const q = quoterOf(builder);
+  return `${q.quote(sourceAlias)}.${q.quote(column)}`;
 }
 
 /**
@@ -102,7 +104,8 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     // into an uncorrelated one that is true for every outer row.
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
-        this.where(new RawQuery(`\`${alias}\`.\`${rel.PrimaryKey}\` = ${sourceColumnRef(correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
+        const q = quoterOf(this);
+        this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.PrimaryKey)} = ${sourceColumnRef(correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
       }),
     );
 
@@ -127,7 +130,7 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
     const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`).correlateWith(builder);
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
-        this.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
+        this.where(new RawQuery(`${quoterOf(this).quote(rel.ForeignKey)} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
       }),
     );
 
@@ -153,7 +156,7 @@ export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
     const relQuery = junctionModel.query().setAlias(`${junctionTableName}_exists`).correlateWith(builder);
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
-        this.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
+        this.where(new RawQuery(`${quoterOf(this).quote(rel.JunctionModelSourceModelFKey_Name!)} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
       }),
     );
 

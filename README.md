@@ -87,6 +87,14 @@ container — `docker compose --profile test restart mysql` matches nothing, pri
 **exits 0**. The restart silently does not happen. The test also asserts that MySQL's `Uptime`
 went *down*, so it cannot pass without a real restart.
 
+### PostgreSQL
+
+```bash
+docker compose --profile test up -d postgres
+cd packages/orm-postgres && npm run test:integration
+```
+
+Port **15432** (`ORM_TEST_POSTGRES_PORT`). Settings and isolation: [packages/orm-postgres/README.md](packages/orm-postgres/README.md#running-integration-tests).
 ### ActiveMQ ( queue transport )
 
 ```bash

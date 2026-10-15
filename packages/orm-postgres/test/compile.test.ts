@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -80,6 +81,19 @@ describe('postgres SQL compilation', function () {
       expect(result.expression).to.equal('SELECT * FROM "users" OFFSET ?');
       expect(result.bindings).to.deep.equal([20]);
     });
+
+    it('joins without a database qualifier and quotes the join key columns', () => {
+      const result = sqb()
+        .select('*')
+        .from('orders')
+        .leftJoin({ joinTable: 'clients', joinTableAlias: '$c$', joinTableDriver: connection(), sourceTablePrimaryKey: 'client_id', joinTableForeignKey: 'Id' } as any)
+        .toDB();
+
+      const s = sql(result);
+      expect(s).to.contain('LEFT JOIN "clients" as "$c$" ON');
+      expect(s).to.contain('"$orders$"."client_id" = "$c$"."Id"');
+      expect(s).to.not.contain('"test".');
+    });
   });
 
   describe('insert', () => {
@@ -131,13 +145,15 @@ describe('postgres SQL compilation', function () {
     it('maps MySQL type names to their postgres equivalents', () => {
       const stmt = createTable((table) => {
         table.dateTime('CreatedAt');
+        table.timestamp('Seen');
         table.double('Ratio');
         table.json('Payload');
         table.binary('Blob', 255);
         table.tinyint('Small');
       });
 
-      expect(stmt).to.contain('"CreatedAt" TIMESTAMP');
+      expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3)');
+      expect(stmt).to.contain('"Seen" TIMESTAMPTZ(3)');
       expect(stmt).to.contain('"Ratio" DOUBLE PRECISION');
       expect(stmt).to.contain('"Payload" JSONB');
       expect(stmt).to.contain('"Blob" BYTEA');
@@ -198,6 +214,16 @@ describe('postgres SQL compilation', function () {
         .toDB() as unknown as ICompilerOutput[];
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" ADD COLUMN "Id2" INTEGER');
+    });
+
+    it('quotes a dropped column, so a mixed-case name is not folded', () => {
+      const result = schqb()
+        .alterTable('test', (table) => {
+          table.dropColumn('Gone');
+        })
+        .toDB() as unknown as ICompilerOutput[];
+
+      expect(result[0].expression).to.equal('ALTER TABLE "test" DROP COLUMN "Gone"');
     });
 
     it('spells MODIFY as ALTER COLUMN actions, restating NOT NULL and dropping an omitted default', () => {

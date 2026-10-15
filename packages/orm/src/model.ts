@@ -14,6 +14,7 @@ import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
+import { quoterOf } from './quoting.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
@@ -893,7 +894,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -1024,6 +1025,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     this.ModelDescriptor!.Columns?.forEach((c) => {
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
+      } else if (c.DefaultValue instanceof RawQuery) {
+        // a server-side expression (postgres `gen_random_uuid()`, `CURRENT_TIMESTAMP`): left unset so the insert takes it
       } else {
         (this as any)[c.Name] = c.DefaultValue;
       }
@@ -1122,6 +1125,27 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
   // auto-increment values only for the rows that omitted one, so index arithmetic would both
   // mis-key the generated rows and overwrite the supplied ones.
   return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+}
+
+/**
+ * ON CONFLICT needs one arbiter: the key when the row carries it, else the single unique
+ * column the row carries. Naming every unique column at once matches no single constraint on
+ * postgres or sqlite. With several unique columns there is nothing to choose, so the old
+ * default stays: MySQL's ON DUPLICATE KEY ignores the target and keeps working there.
+ */
+function _upsertTarget(row: any, description: IModelDescriptor): string[] | undefined {
+  const keys = pkColumns(description);
+  const has = (c: string) => row[c] !== undefined && row[c] !== null;
+  if (keys.every(has)) {
+    return keys;
+  }
+
+  const unique = description.Columns.filter((c) => c.Unique && !c.PrimaryKey && has(c.Name)).map((c) => c.Name);
+  if (unique.length > 1) {
+    return undefined;
+  }
+
+  return unique.length === 1 ? unique : keys;
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
@@ -1251,7 +1275,7 @@ export const MODEL_STATIC_MIXINS = {
         JoinQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
           // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
@@ -1283,7 +1307,7 @@ export const MODEL_STATIC_MIXINS = {
         junctionQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
           joinTableForeignKey: relationDescriptor.ForeignKey,
@@ -1707,8 +1731,9 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    const row = await query.takeFirst().asRaw<{ count: number }>();
-    return row?.count ?? 0;
+    const row = await query.takeFirst().asRaw<{ count: number | string }>();
+    // COUNT is bigint on postgres, which node-postgres returns as a string
+    return Number(row?.count ?? 0);
   },
 
   async transaction<T extends typeof ModelBase, R>(this: T, callback: (trx: OrmDriver) => Promise<R>, options?: ITransactionOptions): Promise<R> {
