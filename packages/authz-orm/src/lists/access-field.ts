@@ -32,17 +32,25 @@ function attach(model: ModelBase, field: string, access: Readonly<Record<string,
 
 /** Moves the `__authz_access_<i>` columns of each raw row onto the hydrated model as `{ [permission]: boolean }`. */
 export class AccessFieldMiddleware implements IBuilderMiddleware {
-  private readonly answers: Readonly<Record<string, boolean>>[] = [];
+  private readonly answers: (Readonly<Record<string, boolean>> | undefined)[] = [];
 
   constructor(private readonly permissions: readonly Permission[], private readonly field: string) {}
 
+  // A clone shares this instance with the builder it came from and its run adds another one: whichever
+  // instance reads the columns first answers the rows, the other attaches nothing. Holding the answers
+  // between hooks is safe because afterQuery and afterHydration run in one synchronous stretch of `_run`.
   afterQuery(data: unknown[]): unknown[] {
+    this.answers.length = 0;
     if (!Array.isArray(data)) return data;
     for (const raw of data as Record<string, unknown>[]) {
+      if (raw === null || typeof raw !== 'object' || !(accessColumn(0) in raw)) {
+        this.answers.push(undefined);
+        continue;
+      }
       const access: Record<string, boolean> = {};
       this.permissions.forEach((p, i) => {
-        access[p] = truthy(raw?.[accessColumn(i)]);
-        if (raw) delete raw[accessColumn(i)];
+        access[p] = truthy(raw[accessColumn(i)]);
+        delete raw[accessColumn(i)];
       });
       this.answers.push(Object.freeze(access));
     }

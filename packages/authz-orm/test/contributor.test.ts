@@ -36,14 +36,14 @@ describe('authz-orm resource connection check', function () {
     expect(storesConnection(config({ 'authz.admin.connection': 'admin', 'authz.rbac.connection': 'rbac' }))).to.deep.equal({ name: 'rbac', key: 'authz.rbac.connection' });
   });
 
-  it('passes when every @Parent model is on the stores connection, refuses one that is not', async () => {
+  it('passes when every @AccessResource model is on the stores connection, refuses any that is not, @Parent or not', async () => {
     await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } });
     await db.define({ name: 'Plain', columns: { title: 'TEXT' }, decorate: (c) => AccessResource('plain')(c) });
     const sqlite = db.driver();
     const other = { Options: { Name: 'other' } } as unknown as OrmDriver;
     const orm = { Connections: new Map<string, OrmDriver>([['default', sqlite], ['sqlite', sqlite], ['other', other]]) } as unknown as Orm;
     expect(() => checkResourceConnections(orm, config({}))).to.not.throw();
-    expect(() => checkResourceConnections(orm, config({ 'authz.rbac.connection': 'other' }))).to.throw(AuthzConfigError, /"other" \(authz\.rbac\.connection\).*Task_\d+_\d+ \(connection "sqlite"\)/);
+    expect(() => checkResourceConnections(orm, config({ 'authz.rbac.connection': 'other' }))).to.throw(AuthzConfigError, /@AccessResource models must use the authz stores' connection "other" \(authz\.rbac\.connection\).*Task_\d+_\d+ \(connection "sqlite"\), Plain_\d+_\d+ \(connection "sqlite"\)/);
     expect(() => checkResourceConnections(orm, config({ 'authz.rbac.connection': 'nope' }))).to.throw(AuthzConfigError, /no ORM connection named "nope"/);
   });
 

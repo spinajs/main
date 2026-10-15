@@ -49,7 +49,7 @@
 18. **ORM gains `driver.afterCommit(cb)`** (L1): a callback on the current transaction, run after the outermost commit, dropped on rollback; outside a transaction it runs at once. L3 publishes `AuthzChange` with it instead of patching `OrmDriver.prototype.transaction`.
 19. **ORM raw select columns keep their bindings** (L1 bug fix in orm-sql `SqlColumnRawStatement`), so `.withAccess()` binds values instead of inlining them; no orm-sql dependency in authz-orm.
 20. **Delete clean-up with the memory admin backend** runs after the ORM commit inside `AuthzAdminBackend.transaction()` (best effort, logged on failure); with `DbAuthzAdminBackend` it runs in the ORM statement's transaction. DB stores bump `authz_version` themselves; the memory backend bumps through its transaction.
-21. **authz-orm checks at domain boot** that every `@AccessResource` model with `@Parent` lives on the authz stores' connection (`AuthzConfigError`), since boot rule 12 cannot see model connections.
+21. **authz-orm checks at domain boot** that every `@AccessResource` model lives on the authz stores' connection (`AuthzConfigError`), since boot rule 12 cannot see model connections: every list joins `authz_assignment` and every delete forgets scopes through the same driver.
 22. **`SqlRowContext.ancestorTable` arrives quoted**; compilers use it as is. `reparent(model, ids, newParentId)` is an authz-orm export (frozen in its `api.ts`), not an `authz()` method.
 23. **Combination for list permissions:** a `list: true` permission must be routed with `deny-overrides` in every domain; boot rule 12 refuses `permit-overrides` and `first-applicable` for it (the plan combination is defined for deny-overrides only).
 
