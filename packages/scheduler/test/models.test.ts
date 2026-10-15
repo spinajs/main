@@ -3,7 +3,15 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
-import { EpochMsConverter, ErrorGroupModel, jsonColumn, RunLogModel, RunModel, ScheduleModel } from '../src/index.js';
+import {
+  EpochMsConverter,
+  ErrorGroupModel,
+  Int8Converter,
+  jsonColumn,
+  RunLogModel,
+  RunModel,
+  ScheduleModel,
+} from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 
 chai.use(chaiAsPromised);
@@ -40,6 +48,40 @@ describe('scheduler models', () => {
     const converter = column!.Converter as EpochMsConverter;
     expect(converter.fromDB(String(T))).to.eq(T);
     expect(converter.fromDB(null)).to.eq(null);
+  });
+
+  it('stores journal positions as int8 and reads them back as numbers', async () => {
+    const column = RunLogModel.getModelDescriptor().Columns.find((c) => c.Name === 'Pos');
+    expect(column?.Converter).to.be.instanceOf(Int8Converter);
+    const pos = 2 ** 40;
+    await RunLogModel.create({
+      RunId: 'r1',
+      Schedule: 'a',
+      Seq: 1,
+      Attempt: 1,
+      Ts: T,
+      Kind: 'status',
+      Data: {} as never,
+      Pos: pos,
+    });
+    expect((await RunLogModel.where('Pos', pos).first()).Pos).to.eq(pos);
+  });
+
+  it('defaults ProgressCapped to false for rows written without it', async () => {
+    const orm = await DI.resolve(Orm);
+    await orm.Connections.get('default')!.insert().into('__scheduler_run').values({
+      Id: 'raw',
+      Schedule: 'a',
+      Trigger: 'manual',
+      Status: 'queued',
+      Attempt: 1,
+      MaxAttempts: 1,
+      CreatedAt: T,
+      Progress: 0,
+      CancelRequested: 0,
+      Forced: 0,
+    });
+    expect((await RunModel.where('Id', 'raw').first()).ProgressCapped).to.eq(false);
   });
 
   it('round-trips a run row and supports a conditional static update', async () => {

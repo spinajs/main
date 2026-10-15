@@ -78,10 +78,7 @@ export class RunModel extends ModelBase {
   @Json()
   public ResumeFrom: { runId: string; fromStep?: string } | null;
 
-  /**
-   * Set once the journal dropped a progress row of this run (runLogLimit); a NULL column reads as false.
-   * Typed without `| null`: transpile-only builds emit `Object` as the design type of a union, which `@Bool()` rejects.
-   */
+  /** Set once the journal dropped a progress row of this run (runLogLimit). */
   @Bool()
   public ProgressCapped: boolean;
 }

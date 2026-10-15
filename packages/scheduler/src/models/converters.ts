@@ -1,9 +1,12 @@
 import { Injectable } from '@spinajs/di';
 import { extractDecoratorPropertyDescriptor, IModelDescriptor, ValueConverter } from '@spinajs/orm';
 
-// The ORM attaches a decorator's converter only when its class is registered in DI.
+/**
+ * BIGINT column as a JS number; Postgres returns int8 as a string.
+ * `@Injectable()` because the ORM attaches a decorator's converter only when its class is registered in DI.
+ */
 @Injectable()
-export class EpochMsConverter extends ValueConverter {
+export class Int8Converter extends ValueConverter {
   public toDB(value: unknown): number | null {
     return value === null || value === undefined ? null : Number(value);
   }
@@ -12,7 +15,16 @@ export class EpochMsConverter extends ValueConverter {
   }
 }
 
-/** BIGINT epoch-ms column; normalizes the string Postgres returns for int8. */
+@Injectable()
+export class EpochMsConverter extends Int8Converter {}
+
+export function Int8() {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
+    model.Converters.set(propertyKey, { Class: Int8Converter });
+  });
+}
+
+/** BIGINT epoch-ms column. */
 export function EpochMs() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
     model.Converters.set(propertyKey, { Class: EpochMsConverter });

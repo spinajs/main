@@ -55,8 +55,8 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.boolean('CancelRequested').notNull();
       t.boolean('Forced').notNull();
       t.json('ResumeFrom');
-      // nullable: a boolean default is not portable to Postgres through the schema builder
-      t.boolean('ProgressCapped');
+      // A numeric default compiles to DEFAULT 0 on MySQL/SQLite and DEFAULT FALSE on Postgres.
+      t.boolean('ProgressCapped').notNull().default().value(0);
     });
 
     await connection.schema().createTable('__scheduler_run_attempt', (t) => {
@@ -99,7 +99,7 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.string('Step', 128);
       t.text('Message');
       t.json('Data');
-      t.int('Pos').notNull();
+      t.bigint('Pos').notNull();
     });
 
     // One row; appendJournalRow() bumps it in the insert's transaction (R15).
