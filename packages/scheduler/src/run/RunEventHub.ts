@@ -10,11 +10,15 @@ const keyOf = (t: SubscribeTarget) => ('runId' in t ? `run:${t.runId}` : `schedu
 const PAGE = 500;
 
 /**
- * Live run events. A run stream's cursor is the per-run `seq` (written by the run's single owner),
- * so local events are delivered directly. A schedule stream's cursor is the global journal
- * position `Pos` (R15) and is fed only from the journal: delivering a local event directly could
- * move the cursor past a lower position another replica committed just before, which this
- * process has not read yet. Local events only wake an immediate fetch there.
+ * Live run events, replayed from the journal and then delivered as they happen.
+ *
+ * A schedule stream's cursor is the global journal position `Pos` (R15) and is fed only from the
+ * journal: delivering a local event directly could move the cursor past a lower position another
+ * replica committed just before, which this process has not read yet. Local events only wake a fetch.
+ *
+ * A run stream's cursor is the per-run `seq`, which is dense in commit order. A local event is
+ * delivered directly only when it is the next seq; anything else (another replica, e.g. the
+ * reaper, wrote in between) wakes a fetch instead, so no lower seq is skipped.
  */
 @Singleton()
 @Injectable()
@@ -46,6 +50,7 @@ export class RunEventHub {
     let cursor = options.after ?? 0;
     let closed = false;
     let ready = false;
+    let wokenBeforeReady = false;
     const buffered: RunEvent[] = [];
 
     const deliver = (e: RunEvent) => {
@@ -62,41 +67,54 @@ export class RunEventHub {
         again = true;
         return fetching;
       }
-      fetching = (async () => {
-        do {
-          again = false;
-          let page: RunEvent[];
+      const rounds = async () => {
+        try {
           do {
-            page = await this.fetchAfter(target, cursor, PAGE);
-            for (const e of page) deliver(e);
-          } while (page.length === PAGE && !closed);
-        } while (again && !closed);
-      })().finally(() => (fetching = null));
+            again = false;
+            let page: RunEvent[];
+            do {
+              page = await this.fetchAfter(target, cursor, PAGE);
+              for (const e of page) deliver(e);
+            } while (page.length === PAGE && !closed);
+          } while (again && !closed);
+        } finally {
+          // same microtask as the last `again` check, so a wake-up cannot fall in between
+          fetching = null;
+        }
+      };
+      fetching = rounds();
       return fetching;
     };
+    const wake = () => void poll().catch(() => undefined);
 
-    const live = byRun
-      ? (e: RunEvent) => (ready ? deliver(e) : buffered.push(e))
-      : () => {
-          if (ready) void poll().catch(() => undefined);
-          else again = true;
-        };
+    const offer = (e: RunEvent) => {
+      if (e.seq === cursor + 1) deliver(e);
+      else if (e.seq > cursor) wake();
+    };
+
+    const live = (e: RunEvent) => {
+      if (closed) return;
+      if (!ready) {
+        if (byRun) buffered.push(e);
+        else wokenBeforeReady = true;
+      } else if (byRun) offer(e);
+      else wake();
+    };
 
     const key = keyOf(target);
     this.emitter.on(key, live);
     try {
-      try {
-        if (options.after === undefined && !byRun) cursor = await this.lastPosition(target.schedule);
-        else await poll();
-      } finally {
-        ready = true;
-        buffered.sort((a, b) => cursorOf(a) - cursorOf(b)).forEach(deliver);
-      }
-      if (!byRun && again) await poll();
+      if (options.after === undefined && !byRun) cursor = await this.lastPosition(target.schedule);
+      else await poll();
+      ready = true;
+      if (byRun) buffered.sort((a, b) => a.seq - b.seq).forEach(offer);
+      else if (wokenBeforeReady) await poll();
     } catch (err) {
       closed = true;
       this.emitter.off(key, live);
       throw err;
+    } finally {
+      buffered.length = 0;
     }
 
     let polling = false;
