@@ -35,7 +35,8 @@ describe('authz-orm api', () => {
     same<typeof root.Owner, typeof stubs.Owner>(true);
     same<typeof root.Self, typeof stubs.Self>(true);
     same<typeof root.registerAccessResource, typeof stubs.registerAccessResource>(true);
-    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'registerAccessResource']) {
+    same<typeof root.reparent, typeof stubs.reparent>(true);
+    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'registerAccessResource', 'reparent']) {
       expect((root as Record<string, unknown>)[k], k).to.not.equal((stubs as Record<string, unknown>)[k]);
     }
     const t: ResourceType = 'task';
@@ -44,6 +45,6 @@ describe('authz-orm api', () => {
 
   it('keeps the scope attribute store and the config schema on the root', () => {
     expect(root.DbScopeAttributeStore).to.be.a('function');
-    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain']);
+    expect(root.AUTHZ_ORM_CONFIGURATION_SCHEMA.properties).to.have.keys(['domain', 'accessField']);
   });
 });

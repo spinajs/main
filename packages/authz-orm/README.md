@@ -53,3 +53,55 @@ other zones compare and the hour repeated when daylight saving ends sorts right.
 it reads back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })`
 gives the instant.
 
+## Keeping `authz_resource_ancestor` right
+
+- Run the migration `AuthzResourceAncestor_2026_10_14_00_00_00` (connection `default`, like the RBAC
+  tables). The table must be in the database of the resource tables and of `authz_assignment`.
+- Writes through model builders keep it right: an insert writes the new rows' links; an update of a
+  `@Parent` column recomputes the row and its subtree; a delete removes the links, turns undeleted
+  children into roots, forgets the authz data at each deleted scope (assignments, links, rules, scope
+  attributes) and, after the commit, publishes `AuthzChange` and audits `resource-deleted` as SYSTEM.
+  `@Parent` updates and deletes run in a transaction (the caller's, or one the ORM opens).
+- Bulk moves: `reparent(Model, ids, newParentId, column?)`. The app checks the new parent first.
+- Raw SQL, another service or an import that writes `@Parent` columns: run
+  `authz:ancestors-rebuild [type]` afterwards. `authz:ancestors-verify [type]` reports differences
+  with exit code 1 (CI, health checks).
+
+## Runtime guard
+
+A select of many rows of an `@AccessResource` model must use `.accessible(permission)`,
+`.unscoped(reason)` or run as SYSTEM (`authz().runAs(SYSTEM, reason, fn)`). A load of one row by its
+primary key (`where(pk, v)`, `get(v)`, `findOrFail([v])`, `@FromModel`) is a single-object load that the
+route's `@Access` check covers, and is not flagged. With `APP_ENV=test` a select without one throws
+`AuthzConfigError`; with `APP_ENV=development` it warns once per call site; otherwise it is off.
+
+## Lists
+
+```ts
+const tasks = await Task.where('status', 'open').accessible('Task:read');
+await Task.update({ archived: true }).where('project_id', 7).accessible('Task:update');
+const page = await Task.query().accessible('Task:read').withAccess(['Task:update', 'Task:delete']);
+// page[i].$access = { 'Task:update': true, 'Task:delete': false }
+const teamTasks = await Task.query().within({ type: 'team', id: teamId }).accessible('Task:read');
+```
+
+- The permission must be declared `list: true` (`authz.permissions['Task:read'] = { list: true }`);
+  `accessPlan` refuses any other with `AuthzConfigError`.
+- The plan is asked for the principal the query runs as, when it executes. A plan that grants nothing
+  throws `AccessDenied` (a list with no permit is a 403, not an empty list). `{ env }` passes request
+  env facts: `.accessible('Task:read', { env: { ip } })`.
+- The caller's where stays one group: `(where) AND (plan)`. Works on select, update and delete.
+- `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
+  (`authz.audit.unscoped`).
+- `.within(ref | refs)` keeps rows that are one of the refs or lie below one in the resource tree
+  (any scope type: a team, a project, a folder). The refs of one call are OR-ed, chained calls are
+  AND-ed, `[]` keeps nothing. It narrows a list and authorizes nothing: a select still needs
+  `.accessible()`, `.unscoped()` or SYSTEM. Works on select, update and delete.
+- `.withAccess(permissions)` adds one boolean per permission, from the same SQL as `.accessible()`, in
+  the same query; the key is `authz.orm.accessField` (default `$access`), sent by `toJSON()` and
+  `dehydrate()`.
+- Models add list support by registering a `PlanTermSql` (`@Injectable(PlanTermSql)`) for the ops
+  their `listPlan` returns. Built in: `relation.owner` and `relation.self`
+  (`{ principals: { type, id }[] }`; the columns come from `@Owner()` / `@Self()`).
+- `populate('tasks', (q) => q.accessible('Task:read'))` works for relations that run their own query
+  (has-many, many-to-many); a belongs-to populate is a join of the parent and is not filtered.

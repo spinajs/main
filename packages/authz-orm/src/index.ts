@@ -6,7 +6,18 @@ export * from './schema.js';
 // api.ts is the frozen contract and keeps its stubs; the implementations shadow them here (an
 // explicit export wins over export *), and test/api.test.ts pins that their types equal the contract's.
 export { AccessResource, Parent, Owner, Self, registerAccessResource } from './decorators.js';
+export { reparent } from './ancestors/reparent.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
 export * from './ancestors/index.js';
 export { OrmResourceAdapter } from './adapter.js';
+// Registers AncestorMiddleware as a QueryMiddleware.
+import './ancestors/middleware.js';
+export { AncestorMiddleware } from './ancestors/middleware.js';
+// Registers AccessGuardMiddleware as a QueryMiddleware.
+import './guard/middleware.js';
+export { AccessGuardMiddleware } from './guard/middleware.js';
+export { guardMode } from './guard/env.js';
+// Registers AuthzOrmContributor: the domain boot checks the resource connection.
+export { AuthzOrmContributor, checkResourceConnections, storesConnection } from './contributor.js';
+export * from './lists/index.js';
