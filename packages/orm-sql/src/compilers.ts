@@ -835,6 +835,11 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     super();
   }
 
+  /** Left unquoted here because the MySQL/SQLite suites pin that byte output. */
+  protected droppedColumn(column: string): string {
+    return column;
+  }
+
   public compile(): ICompilerOutput[] {
     const _table = this._table();
     let _outputs: ICompilerOutput[] = [];
@@ -844,7 +849,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
         this.builder.DroppedColumns.map((c) => {
           return {
             bindings: [] as any[],
-            expression: `${_table} DROP COLUMN ${c}`,
+            expression: `${_table} DROP COLUMN ${this.droppedColumn(c)}`,
           };
         }),
       );

@@ -3,7 +3,7 @@ import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
@@ -349,6 +349,15 @@ export class PostgresAlterColumnQueryCompiler extends SqlAlterColumnQueryCompile
     actions.push(defaultExpression ? `ALTER COLUMN ${column} SET ${defaultExpression}` : `ALTER COLUMN ${column} DROP DEFAULT`);
 
     return actions.join(', ');
+  }
+}
+
+/** Postgres folds an unquoted identifier to lower case, so a dropped column is quoted. */
+@NewInstance()
+@Inject(Container)
+export class PostgresAlterTableQueryCompiler extends SqlAlterTableQueryCompiler {
+  protected droppedColumn(column: string): string {
+    return this.container.resolve<IdentifierQuoter>(IdentifierQuoter).quote(column);
   }
 }
 

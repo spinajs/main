@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, JoinStatement, JsonValueConverter, DatetimeValueConverter } from '@spinajs/orm';
-import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
+import { PostgresTableExistsCompiler, PostgresAlterTableQueryCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresJoinStatement, PostgresLiteralQuoter } from './statements.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './converters.js';
@@ -271,6 +271,7 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(PostgresColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(PostgresAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+    this.Container.register(PostgresAlterTableQueryCompiler).as(AlterTableQueryCompiler);
     this.Container.register(PostgresLimitQueryCompiler).as(LimitQueryCompiler);
     this.Container.register(PostgresCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
     this.Container.register(PostgresDefaultValueBuilder).as(DefaultValueBuilder);
@@ -291,7 +292,6 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(SqlDropDatabaseQueryCompiler).as(DropDatabaseCompiler);
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
-    this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
 
     // No native scheduler in this engine, and nothing is simulated in its place.
     this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
