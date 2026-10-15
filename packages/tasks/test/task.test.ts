@@ -14,6 +14,10 @@ import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
 import '@spinajs/orm-sqlite';
 import { TestTask2 } from './Tasks/TestTask2.js';
+import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
+import { OrmMutex } from '@spinajs/orm-threading';
+import { TestTaskNoOptions } from './Tasks/TestTaskNoOptions.js';
+import { TestTaskFailing } from './Tasks/TestTaskFailing.js';
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -100,6 +104,7 @@ describe('Commands', function () {
     DI.clearCache();
     DI.setESMModuleSupport();
     DI.register(ConnectionConf).as(Configuration);
+    DI.register(OrmMutex).as(Mutex);
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
     await DI.resolve(QueueService);
@@ -137,4 +142,35 @@ describe('Commands', function () {
   it('Should save error when task function fails', async () => {});
 
   it('Should emit succeed event to queue', async () => {});
+  describe('mutex', () => {
+    it('Should release the task mutex after a run', async () => {
+      await new TestTask().execute(1);
+
+      const m = await mutex_get('task-TestTask');
+      expect(m).to.not.be.undefined;
+      expect(m!.Locked).to.be.false;
+    });
+
+    it('Should release the task mutex when the task throws', async () => {
+      await new TestTaskFailing().execute();
+
+      const m = await mutex_get('task-TestTaskFailing');
+      expect(m!.Locked).to.be.false;
+    });
+
+    it('Should run a task declared without options', async () => {
+      await new TestTaskNoOptions().execute();
+
+      expect(await __task_history.all()).to.have.length(1);
+      expect((await mutex_get('task-TestTaskNoOptions'))!.Locked).to.be.false;
+    });
+
+    it('Should skip the run while another process holds the task mutex', async () => {
+      await mutex_acquire({ Name: 'task-TestTask', Tenant: 'other-replica' });
+
+      await new TestTask().execute(1);
+
+      expect(await __task_history.all()).to.have.length(0);
+    });
+  });
 });
