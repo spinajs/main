@@ -27,11 +27,12 @@ import {
   SchedulerResumeCommand,
   SchedulerRetryCommand,
   SchedulerRunCommand,
+  SchedulerService,
   undefineSchedule,
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
 import { captureConsole } from './support/console.js';
-import { driveUntil } from './support/fixtures.js';
+import { driveUntil, queuedRun } from './support/fixtures.js';
 
 let fail = false;
 class CliActSum extends ScheduledTask {
@@ -54,7 +55,7 @@ class CliActFlaky extends ScheduledTask {
 }
 
 const SCHEMA = { type: 'object', properties: { a: { type: 'integer' }, b: { type: 'integer' } }, required: ['a', 'b'] };
-const NAMES = ['sum', 'flaky', 'flaky-dead'];
+const NAMES = ['sum', 'flaky', 'flaky-dead', 'queue-behind'];
 const CLI_DIR = fileURLToPath(new URL('../src/cli', import.meta.url));
 const cmd = async <T>(type: new () => T) => (await DI.resolve(type as never)) as T;
 const runsOf = (schedule: string) => RunModel.where('Schedule', schedule).orderBy('CreatedAt');
@@ -70,6 +71,7 @@ describe('CLI action commands', () => {
     defineSchedule(CliActSum, 'sum', { manual: true, params: SCHEMA });
     defineSchedule(CliActFlaky, 'flaky', { manual: true, retry: { attempts: 3, backoff: 'fixed', delay: '10s' } });
     defineSchedule(CliActFlaky, 'flaky-dead', { manual: true, retry: { attempts: 2, backoff: 'fixed', delay: '10s' } });
+    defineSchedule(CliActFlaky, 'queue-behind', { manual: true, overlap: 'queue' });
     ({ clock } = await bootTestEnv({
       now: '2026-01-05T10:00:00Z',
       extra: { system: { dirs: { cli: [CLI_DIR] } } },
@@ -242,6 +244,57 @@ describe('CLI action commands', () => {
       expect(out.json<{ run: RunDetail }>().run.status).to.eq('succeeded');
       expect(process.exitCode).to.eq(0);
     });
+  });
+
+  describe('--local when the first claim is refused', () => {
+    it('follows a run another replica claimed first and exits with its result', async () => {
+      const r2 = await DI.resolve(Scheduler, [{ replicaId: 'r2', autoStart: false }]);
+      const original = Scheduler.prototype.runLocally;
+      let first = true;
+      sinon.stub(Scheduler.prototype, 'runLocally').callsFake(async function (this: Scheduler, id: string) {
+        if (first && this !== r2) {
+          first = false;
+          await r2.tickOnce();
+          await r2.idle();
+          return false;
+        }
+        return original.call(this, id);
+      });
+      await (await cmd(SchedulerRunCommand)).execute('sum', { param: ['a=1', 'b=6'], local: true, json: true });
+      expect(out.json<{ run: RunInfo }>().run).to.include({ status: 'succeeded', result: 7 });
+      expect(process.exitCode).to.eq(0);
+    });
+
+    it('exits 3 and names the run that holds the schedule when the run stays queued', async () => {
+      // resolving the service syncs the schedule rows
+      await DI.resolve(SchedulerService);
+      const now = clock.now();
+      const blocking = await queuedRun('queue-behind', now, {
+        Status: 'running',
+        StartedAt: now,
+        LeaseOwner: 'other',
+        LeaseUntil: now + 60_000,
+      });
+      await ScheduleModel.update({ LeaseOwner: 'other', LeaseUntil: now + 60_000 }).where('Name', 'queue-behind');
+      await (await cmd(SchedulerRunCommand)).execute('queue-behind', { local: true, force: true, json: true });
+      const { error } = out.json<{ error: { code: string; runId: string; message: string } }>();
+      expect(error).to.include({ code: 'conflict', runId: blocking.Id });
+      expect(error.message).to.contain('stays queued');
+      expect(process.exitCode).to.eq(3);
+      const runs = await runsOf('queue-behind');
+      expect(runs.map((r) => r.Status)).to.have.members(['running', 'queued']);
+    });
+  });
+
+  it('prints valid NDJSON with --follow --json', async () => {
+    await (
+      await cmd(SchedulerRunCommand)
+    ).execute('sum', { param: ['a=1', 'b=1'], local: true, follow: true, json: true });
+    // one console.log call may hold several physical lines
+    const physical = out.lines.join('\n').split('\n');
+    const docs = physical.map((l) => JSON.parse(l) as { type?: string; run?: RunInfo });
+    expect(docs.at(-1)?.run).to.include({ status: 'succeeded' });
+    expect(docs.slice(0, -1).every((d) => typeof d.type === 'string')).to.eq(true);
   });
 
   describe('through the real @spinajs/cli argv parsing', () => {

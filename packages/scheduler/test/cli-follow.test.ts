@@ -7,6 +7,7 @@ import { DI } from '@spinajs/di';
 import {
   defineSchedule,
   FakeClock,
+  followInProcess,
   followOverSse,
   formatSseEvent,
   RunContext,
@@ -16,6 +17,7 @@ import {
   RunStatus,
   Scheduler,
   ScheduledTask,
+  SchedulerService,
   SchedulerRunCommand,
   SchedulerRunShowCommand,
   ScheduleNotFound,
@@ -85,6 +87,15 @@ async function sseServer(handler: Handler) {
 }
 const stream = (res: ServerResponse) => res.writeHead(200, { 'Content-Type': 'text/event-stream' });
 
+/** A port nothing listens on, so connecting to it is refused. */
+async function freePort(): Promise<number> {
+  const s = createServer();
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+  const port = (s.address() as AddressInfo).port;
+  await new Promise<void>((r) => s.close(() => r()));
+  return port;
+}
+
 describe('SseParser', () => {
   it('parses frames split across chunks, multi-line data and comments', () => {
     const p = new SseParser();
@@ -93,6 +104,13 @@ describe('SseParser', () => {
       { id: '1', event: 'status', data: '{"a":\n1}' },
       { id: '2', event: undefined, data: 'x' },
     ]);
+  });
+
+  it('delivers a frame whose CR-only blank line ends the stream', () => {
+    const p = new SseParser();
+    expect(p.push('data: z\r\r')).to.deep.eq([]);
+    expect(p.end()).to.deep.eq([{ id: undefined, event: undefined, data: 'z' }]);
+    expect(new SseParser().end('data: half\r')).to.deep.eq([]);
   });
 
   it('keeps a CRLF split between chunks as one line end', () => {
@@ -234,6 +252,96 @@ describe('followOverSse', () => {
     expect(srv.seen).to.have.length(2);
   });
 
+  it('counts synthetic progress as a live stream', async () => {
+    srv = await sseServer((_req, res, n) => {
+      stream(res);
+      if (n < 6) res.end(formatSseEvent({ runId: 'r1' }, progress(4, 50 + n, true)));
+      else res.end(formatSseEvent({ runId: 'r1' }, ev(5, 'succeeded')));
+    });
+    const got: number[] = [];
+    await followOverSse(
+      { baseUrl: srv.url },
+      { target: { runId: 'r1' }, after: 4, onEvent: (e) => got.push(e.seq), until: (e) => e.type === 'status' },
+    );
+    expect(got).to.deep.eq([4, 4, 4, 4, 4, 4, 5]);
+    expect(srv.seen.map((s) => s.lastEventId)).to.deep.eq(['4', '4', '4', '4', '4', '4', '4']);
+  });
+
+  it('retries a gateway error with backoff', async () => {
+    srv = await sseServer((_req, res, n) => {
+      if (n < 2) {
+        res.writeHead(n === 0 ? 503 : 502);
+        res.end();
+        return;
+      }
+      stream(res);
+      res.end(formatSseEvent({ runId: 'r1' }, ev(1, 'succeeded')));
+    });
+    const got: number[] = [];
+    await followOverSse(
+      { baseUrl: srv.url, retryDelayMs: 10 },
+      { target: { runId: 'r1' }, onEvent: (e) => got.push(e.seq), until: () => true },
+    );
+    expect(got).to.deep.eq([1]);
+    expect(srv.seen).to.have.length(3);
+  });
+
+  it('retries a refused connection until the server is up', async () => {
+    const port = await freePort();
+    let server: Server | undefined;
+    setTimeout(() => {
+      server = createServer((_req, res) => {
+        stream(res);
+        res.end(formatSseEvent({ runId: 'r1' }, ev(1, 'succeeded')));
+      }).listen(port, '127.0.0.1');
+    }, 300);
+    const got: number[] = [];
+    try {
+      await followOverSse(
+        { baseUrl: `http://127.0.0.1:${port}`, retryDelayMs: 50, maxDownMs: 10_000 },
+        { target: { runId: 'r1' }, onEvent: (e) => got.push(e.seq), until: () => true },
+      );
+    } finally {
+      await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
+    }
+    expect(got).to.deep.eq([1]);
+  });
+
+  it('gives up on a refused connection after maxDownMs', async () => {
+    const port = await freePort();
+    const started = Date.now();
+    await expect(
+      followOverSse(
+        { baseUrl: `http://127.0.0.1:${port}`, retryDelayMs: 20, maxDownMs: 300 },
+        { target: { runId: 'r1' }, onEvent: () => undefined, until: () => true },
+      ),
+    ).to.be.rejectedWith(/unreachable/);
+    expect(Date.now() - started).to.be.lessThan(5000);
+  });
+
+  it('returns quietly when aborted while waiting to reconnect', async () => {
+    const port = await freePort();
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 150);
+    const started = Date.now();
+    await followOverSse(
+      { baseUrl: `http://127.0.0.1:${port}`, retryDelayMs: 60_000 },
+      { target: { runId: 'r1' }, onEvent: () => undefined, until: () => true, signal: ac.signal },
+    );
+    expect(Date.now() - started).to.be.lessThan(5000);
+  });
+
+  it('fails at once on an answer that is not an event stream', async () => {
+    srv = await sseServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"items":[]}');
+    });
+    await expect(
+      followOverSse({ baseUrl: srv.url }, { target: { runId: 'r1' }, onEvent: () => undefined, until: () => true }),
+    ).to.be.rejectedWith(/application\/json.*instead of an event stream/);
+    expect(srv.seen).to.have.length(1);
+  });
+
   it('gives up after five connections in a row without a new event', async () => {
     srv = await sseServer((_req, res) => {
       stream(res);
@@ -243,6 +351,26 @@ describe('followOverSse', () => {
       followOverSse({ baseUrl: srv.url }, { target: { runId: 'r1' }, onEvent: () => undefined, until: () => true }),
     ).to.be.rejectedWith(/closed 5 times/);
     expect(srv.seen).to.have.length(5);
+  });
+});
+
+describe('followInProcess', () => {
+  it('rejects when a callback throws instead of hanging', async () => {
+    let offCalled = false;
+    const service = {
+      subscribe: (_t: unknown, listener: (e: RunEvent) => void) => {
+        setTimeout(() => listener(ev(1, 'running')), 0);
+        return Promise.resolve(() => (offCalled = true));
+      },
+    } as unknown as SchedulerService;
+    const boom = new Error('print failed');
+    const onEvent = () => {
+      throw boom;
+    };
+    await expect(followInProcess(service, { target: { runId: 'r1' }, onEvent, until: () => false })).to.be.rejectedWith(
+      boom,
+    );
+    expect(offCalled).to.eq(true);
   });
 });
 
