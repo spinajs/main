@@ -45,7 +45,7 @@ export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEnt
 
 // The builder is built through DI and the ORM's statics, so their frames (and native ones such as the
 // middleware loop's Array.forEach) sit between this hook and the app.
-const INTERNAL = /[\\/](di|util|orm|orm-sql|orm-sqlite|orm-postgres|orm-mysql|orm-mssql|authz|authz-orm)[\\/](src|lib)[\\/]|node:internal|<anonymous>|node_modules[\\/](typescript-mix|lodash)/;
+const INTERNAL = /[\\/](di|util|orm|orm-sql|orm-sqlite|orm-postgres|orm-mysql|orm-mssql|authz|authz-orm)[\\/](src|lib)[\\/]|node:internal|\(<anonymous>\)$|node_modules[\\/](typescript-mix|lodash)/;
 
 /** The first stack frame outside the ORM and this package: the app line that built the query. */
 function callSite(stack: string | undefined): string {
