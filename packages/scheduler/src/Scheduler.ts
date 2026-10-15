@@ -85,6 +85,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   protected running = false;
   protected stopping = false;
   protected ticking: Promise<void> | undefined;
+  /** Database time of the last tick. */
+  protected lastTickAt: number | undefined;
 
   constructor(public readonly Options: SchedulerInstanceOptions = {}) {
     super();
@@ -172,25 +174,42 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     if (this.running && !this.stopping) this.schedule(delay);
   }
 
+  /**
+   * Time until the next instant after the last tick: a fire time, or a retry becoming claimable.
+   * Instants the last tick already saw are not counted, so an item that is due but blocked (a
+   * jitter window, a retry whose schedule lease another replica holds, a schedule this replica
+   * does not know) is retried at the normal tick rate instead of in a tight loop.
+   */
   protected async nextDelay(): Promise<number> {
-    const now = this.Clock.now();
-    const [s, r] = await Promise.all([
+    const tick = this.config.tick;
+    const since = this.lastTickAt;
+    if (since === undefined) return tick;
+    const defs = this.Registry.all();
+    const maxJitter = Math.max(0, ...defs.map((d) => d.jitterMs));
+    const [rows, retry] = await Promise.all([
       ScheduleModel.where('Paused', false)
         .where('Orphaned', false)
         .whereNotNull('NextRunAt')
-        .orderBy('NextRunAt')
-        .first(),
-      RunModel.where('Status', 'retrying').whereNotNull('NextAttemptAt').orderBy('NextAttemptAt').first(),
+        .where('NextRunAt', '>', since - maxJitter)
+        .where('NextRunAt', '<=', since + tick),
+      RunModel.where('Status', 'retrying').where('NextAttemptAt', '>', since).orderBy('NextAttemptAt').first(),
     ]);
-    const until = [s?.NextRunAt, r?.NextAttemptAt]
-      .filter((t): t is number => typeof t === 'number')
-      .map((t) => t - now);
-    return Math.max(0, Math.min(this.config.tick, ...until));
+    const instants: number[] = [];
+    for (const row of rows) {
+      const def = this.Registry.find(row.Name);
+      if (def && def.enabled && def.runOn === 'leader' && row.NextRunAt !== null)
+        instants.push(fireTime(def, row.NextRunAt));
+    }
+    if (typeof retry?.NextAttemptAt === 'number') instants.push(retry.NextAttemptAt);
+    const now = this.Clock.now();
+    const until = instants.filter((t) => t > since).map((t) => t - now);
+    return Math.max(0, Math.min(tick, ...until));
   }
 
   protected async doTick(): Promise<void> {
     if (this.stopping) return;
     const now = await this.Clock.sync();
+    this.lastTickAt = now;
     await this.reapExpired(now);
     await this.fireDue(now);
     await this.claimQueued(now);

@@ -6,6 +6,7 @@ import {
   activeSchedulers,
   defineSchedule,
   FakeClock,
+  fireTime,
   RunContext,
   RunModel,
   Scheduler,
@@ -51,10 +52,26 @@ describe('Scheduler', () => {
     defineSchedule(Quick, 'once', { at: '2026-01-05T10:03:00Z' });
     defineSchedule(Gated, 'gated', { every: '1m' });
     defineSchedule(Patient, 'patient', { manual: true });
+    defineSchedule(Quick, 'jittered', { every: '1m', jitter: '50s' });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:30Z' }));
   });
 
-  afterEach(() => ['every-minute', 'once', 'gated', 'patient'].forEach(undefineSchedule));
+  afterEach(() => ['every-minute', 'once', 'gated', 'patient', 'jittered'].forEach(undefineSchedule));
+
+  /** Runs the timer loop over `ms` of fake time in small steps and counts the ticks. */
+  async function ticksDuring(s: Scheduler, ms: number, stepMs = 50): Promise<number> {
+    let ticks = 0;
+    const tick = s.tickOnce.bind(s);
+    s.tickOnce = () => (ticks++, tick());
+    s.start();
+    for (let t = 0; t < ms; t += stepMs) {
+      await clock.advance(stepMs);
+      // lets the tick's database I/O finish before the next step
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    await s.stop();
+    return ticks;
+  }
 
   it('resolves one scheduler per replica id, also concurrently', async () => {
     const [a, b, a2] = await Promise.all([scheduler('r1'), scheduler('r2'), scheduler('r1')]);
@@ -168,6 +185,24 @@ describe('Scheduler', () => {
       return (await runsOf('every-minute')).length === 1;
     });
     await s.stop();
+  });
+
+  it('does not spin while a due occurrence waits for its jitter', async () => {
+    const s = await scheduler('r1');
+    const nominal = at('2026-01-05T10:01:00Z');
+    expect(fireTime({ name: 'jittered', jitterMs: 50_000 }, nominal)).to.eq(nominal + 36_000);
+    clock.set(nominal);
+    expect(await ticksDuring(s, 2000)).to.be.at.most(3);
+    expect(await runsOf('jittered')).to.have.length(0);
+  });
+
+  it('does not spin on a due retry it cannot claim', async () => {
+    const s = await scheduler('r1');
+    const now = clock.now();
+    const run = await queuedRun('patient', now, { Status: 'retrying', NextAttemptAt: now - 1000, StartedAt: now - 5000 });
+    await ScheduleModel.update({ LeaseOwner: 'other', LeaseUntil: now + 600_000 }).where('Name', 'patient');
+    expect(await ticksDuring(s, 2000)).to.be.at.most(3);
+    expect((await getRun(run.Id)).Status).to.eq('retrying');
   });
 
   it('stops claiming and aborts running runs on shutdown', async () => {

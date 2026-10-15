@@ -10,7 +10,7 @@ import {
   ScheduledTask,
   ScheduleModel,
 } from '../src/index.js';
-import { bootTestEnv } from './support/env.js';
+import { bootTestEnv, waitFor } from './support/env.js';
 import { deferred, driveUntil, getRun, journal, makeDef, queuedRun, seedSchedules, untilAborted } from './support/fixtures.js';
 
 const T = Date.parse('2026-01-05T10:00:00Z');
@@ -28,6 +28,11 @@ class Boom extends ScheduledTask {
 class WaitsForAbort extends ScheduledTask {
   public async execute(ctx: RunContext) {
     await untilAborted(ctx.signal);
+  }
+}
+class SyncThrowingExecutor extends RunExecutor {
+  protected invoke(): Promise<unknown> {
+    throw new Error('sync boom');
   }
 }
 const stuck = deferred();
@@ -111,6 +116,33 @@ describe('RunExecutor', () => {
     leases.renewRun = () => new Promise(() => undefined);
     await driveUntil(clock, handle.done, 5000);
     expect(await getRun(run.Id)).to.include({ Status: 'running', LeaseOwner: 'r1' });
+  });
+
+  it('records a synchronous throw from invoke as a failure and leaves no timers behind', async () => {
+    executor = DI.resolve(SyncThrowingExecutor, [leases]);
+    const { run, handle } = await startRun('sync-throw', { timeout: '5s' }, Ok);
+    await handle.done;
+    expect(await getRun(run.Id)).to.include({ Status: 'failed', LeaseOwner: null });
+    expect((await getRun(run.Id)).Error).to.include({ message: 'sync boom' });
+    expect(clock.pendingTimers).to.eq(0);
+  });
+
+  it('bounds shutdown by the grace period while a renewal hangs', async () => {
+    const { run, handle } = await startRun('hang-on-shutdown', {}, WaitsForAbort);
+    let renewing = false;
+    leases.renewRun = () => ((renewing = true), new Promise(() => undefined));
+    // the first renewal starts at leaseTtl / 3 and hangs
+    await waitFor(async () => {
+      await clock.advance(1000);
+      return renewing;
+    }, 10_000);
+    const abortedAt = clock.now();
+    handle.abort('shutdown');
+    await driveUntil(clock, handle.done, 250);
+    // shutdownGrace is 2000 ms in the test config and the lease would only count as lost ~39 s later;
+    // driveUntil keeps advancing fake time while the completion writes run, hence the slack
+    expect(clock.now() - abortedAt).to.be.at.most(10_000);
+    expect(await getRun(run.Id)).to.include({ Status: 'aborted', Reason: 'shutdown' });
   });
 
   it('marks a task that ignores the abort as aborted after the grace period and keeps the schedule lease', async () => {

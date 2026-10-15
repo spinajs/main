@@ -150,6 +150,19 @@ describe('Heartbeat', () => {
     expect(calls.lost).to.eq(0);
   });
 
+  it('waits for a hanging renewal at most the given time when stopping', async () => {
+    const clock = new FakeClock(T);
+    const { hb } = make(clock, () => new Promise(() => undefined));
+    hb.start();
+    await clock.advance(20_000);
+    let stopped = false;
+    void hb.stop(5000).then(() => (stopped = true));
+    await clock.advance(4000);
+    expect(stopped).to.eq(false);
+    await clock.advance(1000);
+    expect(stopped).to.eq(true);
+  });
+
   it('counts the lease from leaseStartedAt, not from construction', async () => {
     const clock = new FakeClock(T);
     let renewals = 0;

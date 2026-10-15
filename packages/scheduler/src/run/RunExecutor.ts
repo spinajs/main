@@ -83,6 +83,8 @@ export class RunExecutor {
   ): Promise<void> {
     const cfg = resolveSchedulerConfig(this.RawConfig);
     const startedAt = this.Clock.now();
+    let abortedAt: number | undefined;
+    ac.signal.addEventListener('abort', () => (abortedAt = this.Timers.now()), { once: true });
 
     await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
@@ -113,12 +115,24 @@ export class RunExecutor {
     heartbeat.start();
     const timeout = def.timeoutMs ? this.Timers.setTimeout(() => abort('timeout'), def.timeoutMs) : undefined;
 
-    const outcome = await this.settle(this.invoke(def, ctx), ac.signal, cfg.shutdownGrace);
+    let outcome: ExecutionOutcome;
+    try {
+      // a synchronous throw from an overridden invoke() is a task failure like any other
+      const work = new Promise<unknown>((resolve) => resolve(this.invoke(def, ctx)));
+      outcome = await this.settle(work, ac.signal, cfg.shutdownGrace);
+    } finally {
+      if (timeout !== undefined) this.Timers.clearTimeout(timeout);
+      // after an abort the whole wind-down stays within shutdownGrace, even while a renewal hangs
+      const graceLeft = abortedAt === undefined ? Infinity : abortedAt + cfg.shutdownGrace - this.Timers.now();
+      await heartbeat.stop(Math.max(0, graceLeft));
+    }
 
-    if (timeout !== undefined) this.Timers.clearTimeout(timeout);
-    await heartbeat.stop();
-    await ctx.close(outcome);
-    await this.complete(run, def, ctx, outcome);
+    try {
+      await ctx.close(outcome);
+      await this.complete(run, def, ctx, outcome);
+    } finally {
+      this.Events.forget(run.Id);
+    }
   }
 
   protected createContext(
@@ -210,7 +224,6 @@ export class RunExecutor {
 
     if (outcome.kind === 'aborted' && outcome.reason === 'lease-lost') {
       this.Log.warn(`run ${run.Id} of ${run.Schedule} lost its lease; another replica owns the row now`);
-      this.Events.forget(run.Id);
       return;
     }
 
@@ -240,7 +253,6 @@ export class RunExecutor {
     );
     if (!finished) {
       this.Log.warn(`run ${run.Id} could not be finished: the lease is gone`);
-      this.Events.forget(run.Id);
       return;
     }
 
@@ -271,6 +283,5 @@ export class RunExecutor {
       countsAsFailure: d.countsAsFailure,
       nextAttemptAt: d.nextAttemptAt,
     });
-    if (d.status !== 'retrying') this.Events.forget(run.Id);
   }
 }

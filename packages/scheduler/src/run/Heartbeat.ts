@@ -39,13 +39,16 @@ export class Heartbeat {
     this.handle = this.o.timers.setInterval(() => this.tick(), this.o.intervalMs);
   }
 
-  /** Waits for a renewal in flight, but never past the moment the lease is lost (a hanging renewal must not block). */
-  public async stop(): Promise<void> {
+  /**
+   * Waits for a renewal in flight, but never past the moment the lease is lost nor longer than
+   * `maxWaitMs` (a hanging renewal must not block shutdown).
+   */
+  public async stop(maxWaitMs = Infinity): Promise<void> {
     this.stopped = true;
     if (this.handle !== undefined) this.o.timers.clearInterval(this.handle);
     if (this.lost) return;
     const ac = new AbortController();
-    const remaining = Math.max(0, this.lastOk + this.o.leaseTtlMs - this.o.now());
+    const remaining = Math.max(0, Math.min(maxWaitMs, this.lastOk + this.o.leaseTtlMs - this.o.now()));
     await Promise.race([this.inflight, this.o.timers.sleep(remaining, ac.signal)]);
     ac.abort();
   }
