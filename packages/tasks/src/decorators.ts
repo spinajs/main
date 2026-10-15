@@ -107,6 +107,10 @@ export function getTaskDeclarations(name?: string): TaskDeclaration[] {
   return [...declarations.values()].flat();
 }
 
+function errorMessage(err: unknown): string {
+  return (err as { message?: string } | null | undefined)?.message ?? String(err);
+}
+
 const NO_LOCK: Unlock = () => Promise.resolve();
 
 /**
@@ -154,27 +158,33 @@ export async function runTask(
   let failure: { error: unknown } | null = null;
   const start = DateTime.now();
   try {
-    taskResult = await decl.method.apply(thisArg, args);
-    await TaskSuccess.emit({
-      TaskName: decl.name,
-    });
-
-    log.success(`Task ${decl.name} executed !`);
-  } catch (err) {
-    failure = { error: err };
-    log.error(err, `Cannot execute task ${decl.name}`);
-    taskResult = {
-      error: true,
-      message: err.Message,
-    };
-
     try {
-      await TaskFailed.emit({
-        TaskName: decl.name,
-        Reason: err.Message,
-      });
+      taskResult = await decl.method.apply(thisArg, args);
+    } catch (err) {
+      failure = { error: err };
+      log.error(err, `Cannot execute task ${decl.name}`);
+      taskResult = {
+        error: true,
+        message: errorMessage(err),
+      };
+    }
+
+    // An emit failure (queue outage) is logged only: it must not turn a run whose side effects
+    // already happened into a failure that a caller would retry.
+    try {
+      if (failure) {
+        await TaskFailed.emit({
+          TaskName: decl.name,
+          Reason: errorMessage(failure.error),
+        });
+      } else {
+        await TaskSuccess.emit({
+          TaskName: decl.name,
+        });
+        log.success(`Task ${decl.name} executed !`);
+      }
     } catch (emitErr) {
-      log.error(emitErr, `Cannot emit TaskFailed for ${decl.name}`);
+      log.error(emitErr, `Cannot emit ${failure ? 'TaskFailed' : 'TaskSuccess'} for ${decl.name}`);
     }
   } finally {
     try {

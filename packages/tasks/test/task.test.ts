@@ -3,6 +3,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
+import sinon from 'sinon';
 
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -20,6 +21,9 @@ import { OrmMutex } from '@spinajs/orm-threading';
 import { TestTaskNoOptions } from './Tasks/TestTaskNoOptions.js';
 import { TestTaskFailing } from './Tasks/TestTaskFailing.js';
 import { TestTaskHeartbeat } from './Tasks/TestTaskHeartbeat.js';
+import { TestTaskThrowsNull } from './Tasks/TestTaskThrowsNull.js';
+import { TestTaskValue } from './Tasks/TestTaskValue.js';
+import { TaskSuccess } from '../src/events/TaskSuccess.js';
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -229,8 +233,39 @@ describe('Commands', function () {
     it('Should keep the decorated method resolving with the error result', async () => {
       const result = await new TestTaskFailing().execute();
 
-      expect(result).to.include({ error: true });
+      expect(result).to.deep.equal({ error: true, message: 'boom' });
       expect(await __task_history.all()).to.have.length(1);
+    });
+
+    it('Should record the message of a non-Error throw', async () => {
+      const result = await new TestTaskThrowsNull().execute();
+
+      expect(result).to.deep.equal({ error: true, message: 'null' });
+      const [row] = await __task_history.all();
+      expect(row.Result).to.deep.equal({ error: true, message: 'null' });
+    });
+
+    describe('when TaskSuccess cannot be emitted', () => {
+      beforeEach(() => sinon.stub(TaskSuccess, 'emit').rejects(new Error('broker down')));
+      afterEach(() => sinon.restore());
+
+      it('Should return the value of a succeeded method and not rethrow', async () => {
+        const [decl] = getTaskDeclarations('TestTaskValue');
+
+        const result = await runTask(decl, new TestTaskValue(), [], { lock: false, rethrow: true });
+
+        expect(result).to.deep.equal({ sent: 3 });
+        const [row] = await __task_history.all();
+        expect(row.Result).to.deep.equal({ sent: 3 });
+      });
+
+      it('Should keep the decorated method resolving with the method value', async () => {
+        const result = await new TestTaskValue().execute();
+
+        expect(result).to.deep.equal({ sent: 3 });
+        expect(await __task_history.all()).to.have.length(1);
+        expect((await mutex_get('task-TestTaskValue'))!.Locked).to.be.false;
+      });
     });
   });
 });
