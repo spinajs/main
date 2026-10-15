@@ -32,7 +32,15 @@ class SchedulerTestConf extends FrameworkConfiguration {
       // `queue` exists because importing @spinajs/queue registers JobModel on that connection.
       // The queue itself is the shipped default (black-hole); config arrays concatenate, so it is not repeated here.
       db: { DefaultConnection: 'sqlite', Connections: [sqlite('sqlite'), sqlite('queue')] },
-      scheduler: { tick: 1000, leaseTtl: 60_000, shutdownGrace: 2000, progressFlush: 1000, schedules: [], retention: { enabled: false }, ...current.scheduler },
+      scheduler: {
+        tick: 1000,
+        leaseTtl: 60_000,
+        shutdownGrace: 2000,
+        progressFlush: 1000,
+        schedules: [],
+        retention: { enabled: false },
+        ...current.scheduler,
+      },
       ...current.extra,
     };
   }

@@ -31,7 +31,10 @@ describe('scanMissed', () => {
     const spec = parseSpec({ every: '1h' }, 'a');
     const r = scanMissed(spec, ms('2026-01-05T00:00:00Z'), ms('2026-01-05T05:30:00Z'), 2);
     expect(r.total).to.eq(6);
-    expect(r.items.map((t) => new Date(t).toISOString())).to.deep.eq(['2026-01-05T04:00:00.000Z', '2026-01-05T05:00:00.000Z']);
+    expect(r.items.map((t) => new Date(t).toISOString())).to.deep.eq([
+      '2026-01-05T04:00:00.000Z',
+      '2026-01-05T05:00:00.000Z',
+    ]);
     expect(r.last).to.eq(ms('2026-01-05T05:00:00Z'));
   });
 

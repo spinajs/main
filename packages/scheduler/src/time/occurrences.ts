@@ -13,7 +13,13 @@ export function fireTime(def: { name: string; jitterMs: number }, nominalMs: num
   return nominalMs + jitterFor(def.name, nominalMs, def.jitterMs);
 }
 
-export function scanMissed(spec: ScheduleSpec, fromInclusive: number, toInclusive: number, keepLast = 1, cap = 100_000): { items: number[]; total: number; last: number } {
+export function scanMissed(
+  spec: ScheduleSpec,
+  fromInclusive: number,
+  toInclusive: number,
+  keepLast = 1,
+  cap = 100_000,
+): { items: number[]; total: number; last: number } {
   const items: number[] = [];
   let total = 0;
   let t: number | null = fromInclusive;

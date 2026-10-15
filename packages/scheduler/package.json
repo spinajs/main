@@ -25,7 +25,7 @@
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json --exit test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs/api && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",

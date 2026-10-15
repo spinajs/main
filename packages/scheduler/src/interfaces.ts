@@ -38,7 +38,7 @@ export interface ScheduleOptions {
 
 export interface ConfigScheduleEntry extends Omit<ScheduleOptions, 'emit' | 'retry'> {
   name: string;
-  /** Class name of a @Schedule class, or the name of a @Task method (R13, Task 33b). */
+  /** Class name of a `@Schedule` class, or the name of a `@Task` method (R13, Task 33b). */
   task?: string;
   retry?: Omit<RetryPolicyOptions, 'retryOn'>;
 }

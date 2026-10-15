@@ -20,7 +20,17 @@ import {
   sseEventId,
 } from '../src/index.js';
 
-const status = (s: RunStatus): RunEvent => ({ type: 'status', status: s, reason: null, id: 41, seq: 3, runId: 'r1', schedule: 'a', attempt: 1, ts: '2026-01-05T10:00:00.000Z' });
+const status = (s: RunStatus): RunEvent => ({
+  type: 'status',
+  status: s,
+  reason: null,
+  id: 41,
+  seq: 3,
+  runId: 'r1',
+  schedule: 'a',
+  attempt: 1,
+  ts: '2026-01-05T10:00:00.000Z',
+});
 
 describe('contract', () => {
   it('maps service errors to codes, HTTP statuses and exit codes', () => {
@@ -54,7 +64,18 @@ describe('contract', () => {
   });
 
   it('treats only final statuses as terminal; retrying and emitted keep a stream open', () => {
-    const all: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'retrying', 'dead', 'aborted', 'emitted', 'skipped', 'misfired'];
+    const all: RunStatus[] = [
+      'queued',
+      'running',
+      'succeeded',
+      'failed',
+      'retrying',
+      'dead',
+      'aborted',
+      'emitted',
+      'skipped',
+      'misfired',
+    ];
     expect(all.filter(isTerminalStatus)).to.deep.eq(['succeeded', 'failed', 'dead', 'aborted', 'skipped', 'misfired']);
     expect(isTerminalEvent(status('succeeded'))).to.eq(true);
     expect(isTerminalEvent(status('retrying'))).to.eq(false);

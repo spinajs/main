@@ -3,7 +3,8 @@ import { Clock, DbTimeSource, TimerHandle } from '../time/clock.js';
 
 type FakeTimerClock = ReturnType<typeof FakeTimers.createClock>;
 
-const toMs = (v: string | number | Date) => (typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : v.getTime());
+const toMs = (v: string | number | Date) =>
+  typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : v.getTime();
 
 export class FakeDbTimeSource extends DbTimeSource {
   constructor(protected readonly clock: FakeClock) {
@@ -15,7 +16,7 @@ export class FakeDbTimeSource extends DbTimeSource {
 }
 
 /**
- * Test clock on a non-global @sinonjs/fake-timers clock, so mocha and the
+ * Test clock on a non-global `@sinonjs/fake-timers` clock, so mocha and the
  * database driver keep their real timers.
  */
 export class FakeClock extends Clock {
