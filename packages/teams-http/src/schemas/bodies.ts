@@ -62,3 +62,24 @@ export class TransferTeamBody {
     Object.assign(this, data);
   }
 }
+
+export const roleSchema = () => ({ type: 'string', minLength: 1, maxLength: 128, description: 'a role name, e.g. team.member, team.admin' });
+
+@Schema(object(['subject'], { subject: subjectSchema(), role: { ...roleSchema(), description: 'default team.member' } }, { title: 'AddTeamMemberBody' }))
+export class AddTeamMemberBody {
+  public subject: string;
+  public role?: string;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema(object(['role'], { role: roleSchema() }, { title: 'SetRoleBody' }))
+export class SetRoleBody {
+  public role: string;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}

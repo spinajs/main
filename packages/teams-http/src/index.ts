@@ -6,3 +6,4 @@ export * from './controller-list.js';
 export * from './http/refs.js';
 export * from './schemas/bodies.js';
 export * from './controllers/TeamsController.js';
+export * from './controllers/TeamMembersController.js';
