@@ -894,7 +894,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -1125,6 +1125,26 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
   // auto-increment values only for the rows that omitted one, so index arithmetic would both
   // mis-key the generated rows and overwrite the supplied ones.
   return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+}
+
+/**
+ * ON CONFLICT needs one arbiter: the key when the row carries it, else the single unique
+ * column the row carries. Naming every unique column at once matches no single constraint on
+ * postgres or sqlite; MySQL's ON DUPLICATE KEY ignores the target either way.
+ */
+function _upsertTarget(row: any, description: IModelDescriptor): string[] {
+  const keys = pkColumns(description);
+  const has = (c: string) => row[c] !== undefined && row[c] !== null;
+  if (keys.every(has)) {
+    return keys;
+  }
+
+  const unique = description.Columns.filter((c) => c.Unique && !c.PrimaryKey && has(c.Name)).map((c) => c.Name);
+  if (unique.length > 1) {
+    throw new OrmException(`cannot choose an upsert target for ${description.Name}: the row carries several unique columns (${unique.join(', ')}); use insert().onDuplicate(column)`);
+  }
+
+  return unique.length === 1 ? unique : keys;
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
