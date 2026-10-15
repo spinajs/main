@@ -70,6 +70,8 @@ describe('scheduling @Task methods', () => {
     calls = 0;
     failFirst = false;
     seenParams = undefined;
+    constructedIn = 'never constructed';
+    staticThis = undefined;
   });
   afterEach(() => sinon.restore());
 
