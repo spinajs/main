@@ -513,6 +513,21 @@ describe('stomp queue transport - unit', function () {
       expect(msg.nack.called).to.be.false;
     });
 
+    it('does not treat an ack lost to a dropped socket as a job failure', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      const handler = sinon.stub().resolves();
+      await c.subscribe('/queue/ok', handler);
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/ok')!;
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any));
+      msg.ack.throws(new TypeError("Cannot read properties of undefined (reading 'ack')"));
+      sub.callback(msg);
+      await tick();
+
+      expect(handler.calledOnce).to.be.true;
+      expect(c.fake.published, 'a processed job must not be retried or dead-lettered').to.have.length(0);
+    });
+
     it('drops ( acks ) a failed EVENT - events are not retried or dead-lettered', async () => {
       const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
       await c.subscribe('/topic/evt', sinon.stub().rejects(new Error('boom')));
@@ -588,6 +603,35 @@ describe('stomp queue transport - unit', function () {
   });
 
   describe('job retry ( RetryCount )', () => {
+    it('does not ack a failed job until the broker confirms the retry republish', async () => {
+      const c = await connected({ options: { receiptTimeout: 30 } });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      c.fake.autoReceipt = false;
+
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any));
+      sub.callback(msg);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(msg.ack.called, 'acked before the retry was stored').to.be.false;
+      expect(msg.nack.calledOnce).to.be.true;
+      expect(c.fake.published.find((p) => p.destination === '/queue/job')!.headers.receipt).to.be.a('string');
+    });
+
+    it('does not ack a failed job until the broker confirms the dead-letter publish', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq', options: { receiptTimeout: 30 } });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      c.fake.autoReceipt = false;
+
+      const msg = brokerMessage(jobMessage({ RetryCount: 0 } as any));
+      sub.callback(msg);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(msg.ack.called, 'acked before the dead letter was stored').to.be.false;
+      expect(msg.nack.calledOnce).to.be.true;
+    });
+
     it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
       const c = await connected();
       await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));

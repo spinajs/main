@@ -458,13 +458,10 @@ export class StompQueueClient extends QueueClient {
           qMessage.CreatedAt = DateTime.fromISO(qMessage.CreatedAt as unknown as string);
         }
 
-        this.dispatch(desc, qMessage)
-          .then(() => {
-            message.ack();
-          })
-          .catch((err) => {
-            this.handleFailedMessage(message, qMessage, desc, err);
-          });
+        this.dispatch(desc, qMessage).then(
+          () => this.settle(message, 'ack'),
+          (err) => this.handleFailedMessage(message, qMessage, desc, err),
+        );
       },
       headers,
     );
@@ -492,7 +489,7 @@ export class StompQueueClient extends QueueClient {
     // events are not retried or tracked - drop them
     if (qMessage.Type !== QueueMessageType.Job) {
       this.Log.warn(`Event handler failed on channel ${desc.channel}, dropping message ${qMessage.Name}. ${reason}`);
-      message.ack();
+      this.settle(message, 'ack');
       return;
     }
 
@@ -523,16 +520,15 @@ export class StompQueueClient extends QueueClient {
         headers['AMQ_SCHEDULED_DELAY'] = `${delay}`;
       }
 
-      try {
-        // ack the original and reschedule a fresh delivery to the same channel
-        this.Client.publish({ destination: desc.channel, body: message.body, headers });
-        message.ack();
-
-        this.Log.warn(`Job ${qMessage.Name} failed on ${desc.channel}, retry ${nextAttempt}/${maxRetries} scheduled in ${delay}ms. ${reason}`);
-      } catch (retryErr) {
-        this.Log.error(`Failed to reschedule job ${qMessage.Name} on ${desc.channel}, nacking instead: ${(retryErr as Error).message}`);
-        message.nack();
-      }
+      this.publishWithReceipt(desc.channel, message.body, headers, `retry of ${qMessage.Name}`)
+        .then(() => {
+          this.settle(message, 'ack');
+          this.Log.warn(`Job ${qMessage.Name} failed on ${desc.channel}, retry ${nextAttempt}/${maxRetries} scheduled in ${delay}ms. ${reason}`);
+        })
+        .catch((retryErr) => {
+          this.Log.error(`Failed to reschedule job ${qMessage.Name} on ${desc.channel}, nacking instead: ${(retryErr as Error).message}`);
+          this.settle(message, 'nack');
+        });
 
       return;
     }
@@ -560,29 +556,46 @@ export class StompQueueClient extends QueueClient {
       // retries are already exhausted here; nacking would just redeliver into another exhausted
       // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
       this.Log.warn(`Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}`);
-      message.ack();
+      this.settle(message, 'ack');
       return;
     }
 
+    const headers: Stomp.StompHeaders = {
+      persistent: 'true',
+      'content-type': 'application/json',
+      'x-original-destination': channel,
+      'x-error': reason,
+    };
+
+    if (attempt !== undefined) {
+      headers[RETRY_COUNT_HEADER] = `${attempt}`;
+    }
+
+    this.publishWithReceipt(dlq, message.body, headers, `dead letter from ${channel}`)
+      .then(() => {
+        this.settle(message, 'ack');
+        this.Log.warn(`Message failed on channel ${channel}, routed to dead-letter ${dlq}. ${reason}`);
+      })
+      .catch((dlqErr) => {
+        this.Log.error(`Failed to route message to dead-letter ${dlq}, nacking instead: ${(dlqErr as Error).message}`);
+        this.settle(message, 'nack');
+      });
+  }
+
+  /**
+   * stompjs throws from ack() / nack() once the socket is gone. The broker redelivers an unsettled
+   * message after the reconnect anyway, so a failed settle is logged instead of escaping as an
+   * unhandled rejection.
+   */
+  protected settle(message: Stomp.IMessage, how: 'ack' | 'nack') {
     try {
-      const headers: Stomp.StompHeaders = {
-        persistent: 'true',
-        'content-type': 'application/json',
-        'x-original-destination': channel,
-        'x-error': reason,
-      };
-
-      if (attempt !== undefined) {
-        headers[RETRY_COUNT_HEADER] = `${attempt}`;
+      if (how === 'ack') {
+        message.ack();
+      } else {
+        message.nack();
       }
-
-      this.Client.publish({ destination: dlq, body: message.body, headers });
-      message.ack();
-
-      this.Log.warn(`Message failed on channel ${channel}, routed to dead-letter ${dlq}. ${reason}`);
-    } catch (dlqErr) {
-      this.Log.error(`Failed to route message to dead-letter ${dlq}, nacking instead: ${(dlqErr as Error).message}`);
-      message.nack();
+    } catch (err) {
+      this.Log.warn(`Cannot ${how} message on ${message.headers?.destination ?? '<unknown>'} ( ${this.Options.name} ), the broker will redeliver it: ${(err as Error).message}`);
     }
   }
 
@@ -645,33 +658,27 @@ export class StompQueueClient extends QueueClient {
 
     const body = JSON.stringify(message);
 
-    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWithReceipt(c, body, headers, message)))).then(() => undefined);
+    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWithReceipt(c, body, headers, `${message.Type} Name: ${message.Name}`)))).then(() => undefined);
   }
 
   /**
    * Publishes to a single channel and waits for the broker RECEIPT frame so the
    * caller gets real delivery confirmation ( bounded by `ReceiptTimeout` ).
    */
-  protected publishWithReceipt(channel: string, body: string, headers: Stomp.StompHeaders, message: IQueueMessage): Promise<void> {
+  protected publishWithReceipt(channel: string, body: string, headers: Stomp.StompHeaders, label: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const receiptId = randomUUID();
-      let timer: ReturnType<typeof setTimeout>;
-
-      this.Client.watchForReceipt(receiptId, () => {
-        clearTimeout(timer);
-        this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${channel} ( ${this.Options.name} )`);
-        resolve();
-      });
-
-      timer = setTimeout(() => {
+      const timer = setTimeout(() => {
         reject(new UnexpectedServerError(`Timeout waiting for broker receipt while publishing to ${channel} ( ${this.Options.name} )`));
       }, this.ReceiptTimeout);
 
-      this.Client.publish({
-        destination: channel,
-        body,
-        headers: { ...headers, receipt: receiptId },
+      this.Client.watchForReceipt(receiptId, () => {
+        clearTimeout(timer);
+        this.Log.trace(`Published ${label} to channel ${channel} ( ${this.Options.name} )`);
+        resolve();
       });
+
+      this.Client.publish({ destination: channel, body, headers: { ...headers, receipt: receiptId } });
     });
   }
 
