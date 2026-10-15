@@ -9,6 +9,7 @@
     "node": ">=16.11"
   },
   "scripts": {
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "compile": "tsc -b tsconfig.mjs.json",
     "start": "node lib/mjs/main.js",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts"
