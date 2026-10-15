@@ -24,3 +24,4 @@ export * from './bootstrap.js';
 export * from './store/DefinitionSync.js';
 export * from './time/db-time.js';
 export * from './store/replica.js';
+export * from './store/LeaseStore.js';
