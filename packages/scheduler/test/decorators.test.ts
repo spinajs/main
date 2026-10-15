@@ -33,17 +33,22 @@ describe('@Schedule declarations', () => {
   });
 
   it('builds builtin declarations from config', () => {
-    registerBuiltinSchedule((cfg) =>
+    const unregister = registerBuiltinSchedule((cfg) =>
       cfg.retention.enabled
         ? { name: 'builtin-test', options: { cron: cfg.retention.schedule }, target: Plain, source: 'builtin' }
         : null,
     );
-    expect(getBuiltinDeclarations(SCHEDULER_DEFAULTS).map((d) => d.name)).to.include('builtin-test');
-    expect(
-      getBuiltinDeclarations({
-        ...SCHEDULER_DEFAULTS,
-        retention: { ...SCHEDULER_DEFAULTS.retention, enabled: false },
-      }).map((d) => d.name),
-    ).to.not.include('builtin-test');
+    try {
+      expect(getBuiltinDeclarations(SCHEDULER_DEFAULTS).map((d) => d.name)).to.include('builtin-test');
+      expect(
+        getBuiltinDeclarations({
+          ...SCHEDULER_DEFAULTS,
+          retention: { ...SCHEDULER_DEFAULTS.retention, enabled: false },
+        }).map((d) => d.name),
+      ).to.not.include('builtin-test');
+    } finally {
+      unregister();
+    }
+    expect(getBuiltinDeclarations(SCHEDULER_DEFAULTS).map((d) => d.name)).to.not.include('builtin-test');
   });
 });

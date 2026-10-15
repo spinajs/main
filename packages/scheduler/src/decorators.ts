@@ -32,8 +32,13 @@ export function Schedule(name: string, options?: ScheduleOptions) {
   };
 }
 
-export function registerBuiltinSchedule(factory: (cfg: SchedulerConfig) => ScheduleDeclaration | null): void {
+/** Returns a function that removes the factory again. */
+export function registerBuiltinSchedule(factory: (cfg: SchedulerConfig) => ScheduleDeclaration | null): () => void {
   BUILTINS.push(factory);
+  return () => {
+    const i = BUILTINS.indexOf(factory);
+    if (i >= 0) BUILTINS.splice(i, 1);
+  };
 }
 
 export function getBuiltinDeclarations(cfg: SchedulerConfig): ScheduleDeclaration[] {
