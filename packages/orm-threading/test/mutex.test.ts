@@ -155,8 +155,6 @@ describe('orm-threading', function () {
     expect(m.Locked).to.be.true;
   });
 
-  it('Should not acquire when already locked', async () => {});
-
   it('should release', async () => {
     const r = await mutex_acquire({
       Name: 'test',
@@ -306,6 +304,45 @@ describe('orm-threading', function () {
 
       const m = await __mutex__.get('test');
       expect(m.Tenant).to.eq('explicit');
+    });
+  });
+  describe('atomic acquire', () => {
+    it('Should not acquire when locked by another tenant', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+
+      expect(r.Locked).to.be.false;
+      expect(r.Mutex.Tenant).to.eq('test-1');
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('test-1');
+    });
+
+    it('Should grant exactly one of concurrent acquires on an existing mutex', async () => {
+      await mutex_create({ Name: 'test', Tenant: 'creator' });
+
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+
+      const winners = results.filter((r) => r.Locked);
+      expect(winners).to.have.length(1);
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq(winners[0].Mutex.Tenant);
+    });
+
+    it('Should grant exactly one of concurrent acquires on a missing mutex', async () => {
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+
+      expect(results.filter((r) => r.Locked)).to.have.length(1);
+    });
+
+    it('Should let the holder acquire again, and free it with one release', async () => {
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
+
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Locked).to.be.false;
     });
   });
 });

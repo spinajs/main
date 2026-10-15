@@ -30,36 +30,18 @@ export class OrmMutex extends Mutex {
   protected MutexWaitInterval: number;
 
   public async acquire(options: MutexLockOptions): Promise<LockResult> {
-    const _tenant = this.tenantOf(options);
-    const _name = this.nameOf(options.Name);
+    const name = this.nameOf(options.Name);
+    const tenant = this.tenantOf(options);
 
-    let mutex = await this.get(options.Name);
-    if (!mutex) {
-      mutex = await this.create(options);
+    let granted = await this.tryLock(name, tenant);
+    if (!granted && !(await this.get(name))) {
+      await this.createIfMissing(name, tenant);
+      granted = await this.tryLock(name, tenant);
     }
-
-    if (mutex.Locked && mutex.Tenant !== _tenant) {
-      return {
-        Locked: false,
-        Mutex: null as any,
-      };
-    }
-
-    const result = await (__mutex__ as any)
-      .update({
-        Locked: true,
-        Tenant: _tenant,
-      })
-      .where({
-        Name: _name,
-      });
 
     return {
-      Locked: result.RowsAffected === 1,
-      Mutex: {
-        ...mutex,
-        Tenant: _tenant,
-      },
+      Locked: granted,
+      Mutex: (await this.get(name))!,
     };
   }
 
@@ -141,6 +123,34 @@ export class OrmMutex extends Mutex {
         }
       }, this.MutexWaitInterval);
     });
+  }
+
+  /**
+   * One conditional UPDATE: atomic per row on every driver, so whoever changes the row owns the lock.
+   */
+  protected async tryLock(name: string, tenant: string): Promise<boolean> {
+    const result: IUpdateResult = await (__mutex__ as any)
+      .update({
+        Locked: true,
+        Tenant: tenant,
+      })
+      .where('Name', name)
+      .where(function (this: any) {
+        this.where('Locked', false).orWhere('Tenant', tenant);
+      });
+
+    return result.RowsAffected === 1;
+  }
+
+  protected async createIfMissing(name: string, tenant: string): Promise<void> {
+    try {
+      await this.create({ Name: name, Tenant: tenant });
+    } catch (err) {
+      // a concurrent acquire inserted the row first
+      if (!(await this.get(name))) {
+        throw err;
+      }
+    }
   }
 
   protected nameOf(name: string): string {
