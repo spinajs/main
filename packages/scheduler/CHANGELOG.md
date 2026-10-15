@@ -3,7 +3,7 @@
 ## Unreleased
 
 First release of the package, versioned in lockstep with the other workspace packages (the
-workspace is at 2.0.553; the next `bump-all` release ships it).
+workspace is at 2.0.554; the next `bump-all` release ships it).
 
 ### Added
 
