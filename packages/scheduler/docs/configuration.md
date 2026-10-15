@@ -41,7 +41,7 @@ entry.
 |---|---|---|
 | `cron` / `every` / `at` / `manual` | one is required | cron with an optional seconds field; a duration in whole seconds, at least `1s`; an ISO-8601 instant; `true` for on-demand only |
 | `timezone` | `'UTC'` | IANA zone for `cron` and offset-less `at` (DST rules in the README) |
-| `jitter` | `0` | random `0..jitter` added to each fire time |
+| `jitter` | `0` | delay of `0..jitter` whole seconds added to each fire time; derived from the schedule name and the occurrence, so every replica picks the same one; below `1s` it is `0` |
 | `misfire` | `'run-once'` | `skip`, `run-once` or `catch-up(n)` with `n >= 1` |
 | `misfireThreshold` | `max(2 × tick, 5s)` | how late an occurrence may be seen before it counts as missed |
 | `overlap` | `'skip'` | `skip` records a `skipped` run while one is in progress; `queue` keeps one `queued` run |
