@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { __mutex__, OrmMutex } from '../src/index';
+import { __mutex__, OrmMutex, dbNowMs, Mutex_2026_10_15_00_00_01 } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -8,10 +8,11 @@ import { expect } from 'chai';
 import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { join, normalize, resolve } from 'path';
-import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait } from '@spinajs/threading';
+import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait, mutex_renew, processIdentity } from '@spinajs/threading';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import { DateTime } from 'luxon';
+import * as sinon from 'sinon';
 
 chai.use(chaiAsPromised);
 
@@ -155,8 +156,6 @@ describe('orm-threading', function () {
     expect(m.Locked).to.be.true;
   });
 
-  it('Should not acquire when already locked', async () => {});
-
   it('should release', async () => {
     const r = await mutex_acquire({
       Name: 'test',
@@ -239,5 +238,211 @@ describe('orm-threading', function () {
 
     const diff = DateTime.now().diff(start);
     expect(diff.milliseconds).to.be.gt(2500);
+  });
+  describe('schema and clock', () => {
+    it('Should add the LockedUntil column', async () => {
+      const orm = await DI.resolve(Orm);
+      const columns = await orm.Connections.get('sqlite')!.tableInfo('__mutex__');
+
+      expect(columns.map((c) => c.Name)).to.include('LockedUntil');
+    });
+
+    it('Should release locks held at upgrade time', async () => {
+      const orm = await DI.resolve(Orm);
+      await mutex_acquire({ Name: 'stale', Tenant: 'spina-js' });
+
+      await new Mutex_2026_10_15_00_00_01().up(orm.Connections.get('sqlite')!);
+
+      const m = await __mutex__.get('stale');
+      expect(m.Locked).to.eq(false);
+    });
+
+    it('Should read epoch ms from the sqlite clock', async () => {
+      const orm = await DI.resolve(Orm);
+      const now = await dbNowMs(orm.Connections.get('sqlite')!);
+
+      expect(Math.abs(now - Date.now())).to.be.lessThan(2000);
+    });
+
+    it('Should fall back to the app clock for an unknown driver', async () => {
+      const now = await dbNowMs({ Options: { Driver: 'orm-driver-unknown' } } as any);
+
+      expect(Math.abs(now - Date.now())).to.be.lessThan(50);
+    });
+  });
+  describe('default tenant', () => {
+    it('Should use the process identity when Tenant is not given', async () => {
+      const r = await mutex_acquire({ Name: 'test' });
+
+      expect(r.Locked).to.be.true;
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq(processIdentity());
+    });
+
+    it('Should not share a lock with another replica of the same app', async () => {
+      // what replica A stored under the old default tenant
+      const appName = DI.get(Configuration)!.get<string>('app.name', 'spina-js');
+      await mutex_acquire({ Name: 'test', Tenant: appName });
+
+      const r = await mutex_acquire({ Name: 'test' });
+
+      expect(r.Locked).to.be.false;
+    });
+
+    it('Should use threading.mutex.tenant when configured', async () => {
+      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+
+      await mutex_acquire({ Name: 'test' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('fixed-tenant');
+    });
+
+    it('Should prefer an explicit Tenant over the configured one', async () => {
+      DI.get(Configuration)!.set('threading.mutex.tenant', 'fixed-tenant');
+
+      await mutex_acquire({ Name: 'test', Tenant: 'explicit' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('explicit');
+    });
+  });
+  describe('atomic acquire', () => {
+    it('Should not acquire when locked by another tenant', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+
+      expect(r.Locked).to.be.false;
+      expect(r.Mutex.Tenant).to.eq('test-1');
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq('test-1');
+    });
+
+    it('Should grant exactly one of concurrent acquires on an existing mutex', async () => {
+      await mutex_create({ Name: 'test', Tenant: 'creator' });
+
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+
+      const winners = results.filter((r) => r.Locked);
+      expect(winners).to.have.length(1);
+      const m = await __mutex__.get('test');
+      expect(m.Tenant).to.eq(winners[0].Mutex.Tenant);
+    });
+
+    it('Should grant exactly one of concurrent acquires on a missing mutex', async () => {
+      const results = await Promise.all(Array.from({ length: 10 }, (_v, i) => mutex_acquire({ Name: 'test', Tenant: `replica-${i}` })));
+
+      expect(results.filter((r) => r.Locked)).to.have.length(1);
+    });
+
+    it('Should let the holder acquire again, and free it with one release', async () => {
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-1' })).Locked).to.be.true;
+
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      const m = await __mutex__.get('test');
+      expect(m.Locked).to.be.false;
+    });
+  });
+  describe('lock expiry', () => {
+    const T0 = 1_000_000;
+    let now: sinon.SinonStub;
+
+    beforeEach(() => {
+      now = sinon.stub(DI.resolve(Mutex) as any, 'now').resolves(T0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('Should store LockedUntil = now + ttl', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 5000);
+    });
+
+    it('Should use threading.mutex.ttl when ttl is not given', async () => {
+      DI.get(Configuration)!.set('threading.mutex.ttl', 2000);
+
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 2000);
+    });
+
+    it('Should never expire with ttl 0', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 0 });
+      now.resolves(T0 + 10 * 365 * 24 * 3600 * 1000);
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.be.null;
+      expect(r.Locked).to.be.false;
+    });
+
+    it('Should not let another tenant take a lock that has not expired', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 4999);
+
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+    });
+
+    it('Should let another tenant take an expired lock', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 5001);
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+
+      expect(r.Locked).to.be.true;
+      expect(r.Mutex.Tenant).to.eq('test-2');
+      expect(r.Mutex.LockedUntil).to.eq(T0 + 5001 + 5000);
+    });
+
+    it('Should extend the lock on renew', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 4000);
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.true;
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 9000);
+
+      now.resolves(T0 + 6000);
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+    });
+
+    it('Should not renew a lock another tenant took over', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 6000);
+      await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+    });
+
+    it('Should not renew a released lock', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+    });
+
+    it('Should clear LockedUntil on release', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.be.null;
+    });
+
+    it('Should reject a negative ttl', async () => {
+      await expect(mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: -1 })).to.be.rejected;
+    });
+
+    it('Should treat an expired lock as released in wait()', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 6000);
+
+      expect(await mutex_wait('test', 2000)).to.be.true;
+    });
   });
 });

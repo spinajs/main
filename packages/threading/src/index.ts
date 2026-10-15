@@ -3,6 +3,7 @@ import { Log } from '@spinajs/log-common';
 import { sleep as _utilSleep } from '@spinajs/util';
 
 export * from "./mutex.js";
+export * from "./identity.js";
 
 /**
  *
