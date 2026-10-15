@@ -7,6 +7,7 @@ import { DI } from '@spinajs/di';
 import {
   collect,
   DefaultSchedulerService,
+  DefinitionSync,
   defineSchedule,
   ErrorGroupModel,
   FakeClock,
@@ -33,7 +34,7 @@ import {
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
 import { captureConsole } from './support/console.js';
-import { driveUntil, queuedRun } from './support/fixtures.js';
+import { driveUntil, makeDef, queuedRun } from './support/fixtures.js';
 
 let fail = false;
 class CliActSum extends ScheduledTask {
@@ -285,6 +286,31 @@ describe('CLI action commands', () => {
       const runs = await runsOf('queue-behind');
       expect(runs.map((r) => r.Status)).to.have.members(['running', 'queued']);
     });
+  });
+
+  it('--local never orphans or rewrites schedule rows', async () => {
+    await DI.resolve(SchedulerService);
+    // a row no definition in this process names, inserted without orphaning the others
+    await DI.resolve(DefinitionSync).sync([makeDef('ghost', { every: '5m' }, CliActSum)], clock.now(), {
+      owner: false,
+    });
+    await ScheduleModel.update({ DefinitionHash: 'from-the-loop', NextRunAt: 123_000 }).where('Name', 'sum');
+    await (await cmd(SchedulerRunCommand)).execute('sum', { param: ['a=1', 'b=1'], local: true, json: true });
+    expect(out.json<{ run: RunInfo }>().run.status).to.eq('succeeded');
+    expect(await ScheduleModel.where('Name', 'ghost').first()).to.include({ Orphaned: false });
+    expect(await ScheduleModel.where('Name', 'sum').first()).to.include({
+      DefinitionHash: 'from-the-loop',
+      NextRunAt: 123_000,
+      Orphaned: false,
+    });
+  });
+
+  it('prints an error as one JSON line with --follow --json', async () => {
+    await (await cmd(SchedulerRunCommand)).execute('nope', { follow: true, json: true });
+    expect(process.exitCode).to.eq(4);
+    expect(out.lines).to.have.length(1);
+    expect(out.lines[0]).not.to.contain('\n');
+    expect(JSON.parse(out.lines[0])).to.deep.eq({ error: { code: 'not-found', message: "Schedule 'nope' not found" } });
   });
 
   it('prints valid NDJSON with --follow --json', async () => {

@@ -150,7 +150,7 @@ describe('DefinitionSync', () => {
       expect(after.UpdatedAt).to.eq(before.UpdatedAt);
     });
 
-    it('clears Orphaned on a row it knows, without rewriting it', async () => {
+    it('leaves an orphaned row it knows orphaned and unchanged', async () => {
       await sync.sync(defs(['a', { every: '5m' }], ['b', { every: '5m' }]), NOW);
       await sync.sync(defs(['a', { every: '5m' }]), NOW);
       const orphaned = await row('b');
@@ -158,9 +158,10 @@ describe('DefinitionSync', () => {
       await sync.sync(defs(['b', { every: '10m' }]), NOW + 60_000, { owner: false });
       const known = await row('b');
       expect(known).to.include({
-        Orphaned: false,
+        Orphaned: true,
         DefinitionHash: orphaned.DefinitionHash,
         NextRunAt: orphaned.NextRunAt,
+        UpdatedAt: orphaned.UpdatedAt,
       });
       expect((await row('a')).Orphaned).to.eq(false);
     });
@@ -168,6 +169,8 @@ describe('DefinitionSync', () => {
     it('is how the service syncs: only the scheduler loop orphans a row', async () => {
       await sync.sync(defs(['ghost', { every: '5m' }]), NOW);
       await DI.resolve(SchedulerService);
+      expect((await row('ghost')).Orphaned).to.eq(false);
+      await DI.resolve(Scheduler, [{ replicaId: 'r-local', autoStart: false, syncOwner: false }]);
       expect((await row('ghost')).Orphaned).to.eq(false);
       await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
       expect((await row('ghost')).Orphaned).to.eq(true);

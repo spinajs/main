@@ -342,6 +342,45 @@ describe('followOverSse', () => {
     expect(srv.seen).to.have.length(1);
   });
 
+  it('counts failures in a row: a reachable empty stream ends a run of failures', async () => {
+    // a run of 4 failures takes about 150 ms; without the reset the doubling delays of one long run pass 1.5 s
+    srv = await sseServer((_req, res, n) => {
+      if (n < 4 || (n >= 5 && n < 9)) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
+      stream(res);
+      res.end(n === 4 ? ': ping\n\n' : formatSseEvent({ runId: 'r1' }, ev(1, 'succeeded')));
+    });
+    const got: number[] = [];
+    await followOverSse(
+      { baseUrl: srv.url, retryDelayMs: 20, maxDownMs: 1500 },
+      { target: { runId: 'r1' }, onEvent: (e) => got.push(e.seq), until: () => true },
+    );
+    expect(got).to.deep.eq([1]);
+    expect(srv.seen).to.have.length(10);
+  });
+
+  it('counts empty streams in a row: a failure ends a run of empty streams', async () => {
+    srv = await sseServer((_req, res, n) => {
+      if (n === 4) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
+      stream(res);
+      res.end(n < 9 ? ': ping\n\n' : formatSseEvent({ runId: 'r1' }, ev(1, 'succeeded')));
+    });
+    const got: number[] = [];
+    await followOverSse(
+      { baseUrl: srv.url, retryDelayMs: 10 },
+      { target: { runId: 'r1' }, onEvent: (e) => got.push(e.seq), until: () => true },
+    );
+    expect(got).to.deep.eq([1]);
+    expect(srv.seen).to.have.length(10);
+  });
+
   it('gives up after five connections in a row without a new event', async () => {
     srv = await sseServer((_req, res) => {
       stream(res);
