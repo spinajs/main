@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-xlsx",
-  "version": "2.0.553",
+  "version": "2.0.554",
   "description": "XLSX template renderer for @spinajs/templates (xlsx-renderer / exceljs).",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,11 +57,11 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.553",
-    "@spinajs/di": "2.0.553",
-    "@spinajs/exceptions": "2.0.553",
-    "@spinajs/log": "2.0.553",
-    "@spinajs/templates": "2.0.553",
+    "@spinajs/configuration": "2.0.554",
+    "@spinajs/di": "2.0.554",
+    "@spinajs/exceptions": "2.0.554",
+    "@spinajs/log": "2.0.554",
+    "@spinajs/templates": "2.0.554",
     "xlsx-renderer": "^2.4.4",
     "exceljs": "^4.4.0"
   },
