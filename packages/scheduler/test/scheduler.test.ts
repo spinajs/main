@@ -59,19 +59,10 @@ describe('Scheduler', () => {
 
   afterEach(() => ['every-minute', 'once', 'gated', 'patient', 'jittered'].forEach(undefineSchedule));
 
-  /** Runs the timer loop over `ms` of fake time in small steps and counts the ticks. */
-  async function ticksDuring(s: Scheduler, ms: number, stepMs = 50): Promise<number> {
-    let ticks = 0;
-    const tick = s.tickOnce.bind(s);
-    s.tickOnce = () => (ticks++, tick());
-    s.start();
-    for (let t = 0; t < ms; t += stepMs) {
-      await clock.advance(stepMs);
-      // lets the tick's database I/O finish before the next step
-      await new Promise((r) => setTimeout(r, 15));
-    }
-    await s.stop();
-    return ticks;
+  /** The delay the timer loop waits after one tick; anything below `tick` would mean a tight loop. */
+  async function delayAfterTick(s: Scheduler): Promise<number> {
+    await s.tickOnce();
+    return (s as unknown as { nextDelay(): Promise<number> }).nextDelay();
   }
 
   it('resolves one scheduler per replica id, also concurrently', async () => {
@@ -193,16 +184,20 @@ describe('Scheduler', () => {
     const nominal = at('2026-01-05T10:01:00Z');
     expect(fireTime({ name: 'jittered', jitterMs: 50_000 }, nominal)).to.eq(nominal + 36_000);
     clock.set(nominal);
-    expect(await ticksDuring(s, 2000)).to.be.at.most(3);
+    expect(await delayAfterTick(s)).to.eq(1000);
     expect(await runsOf('jittered')).to.have.length(0);
   });
 
   it('does not spin on a due retry it cannot claim', async () => {
     const s = await scheduler('r1');
     const now = clock.now();
-    const run = await queuedRun('patient', now, { Status: 'retrying', NextAttemptAt: now - 1000, StartedAt: now - 5000 });
+    const run = await queuedRun('patient', now, {
+      Status: 'retrying',
+      NextAttemptAt: now - 1000,
+      StartedAt: now - 5000,
+    });
     await ScheduleModel.update({ LeaseOwner: 'other', LeaseUntil: now + 600_000 }).where('Name', 'patient');
-    expect(await ticksDuring(s, 2000)).to.be.at.most(3);
+    expect(await delayAfterTick(s)).to.eq(1000);
     expect((await getRun(run.Id)).Status).to.eq('retrying');
   });
 

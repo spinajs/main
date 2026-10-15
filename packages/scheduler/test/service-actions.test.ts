@@ -20,7 +20,7 @@ import {
   undefineSchedule,
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
-import { deferred, getRun, journal, queuedRun, untilAborted } from './support/fixtures.js';
+import { deferred, driveUntil, getRun, journal, queuedRun, untilAborted } from './support/fixtures.js';
 
 chai.use(chaiAsPromised);
 const by: TriggeredBy = { kind: 'user', id: '1' };
@@ -61,7 +61,13 @@ class SvcActThrowsLater extends ScheduledTask {
     throw new Error('failed after the cancel');
   }
 }
-const NAMES = ['import', 'patient', 'flaky', 'local-flaky', 'gated'];
+/** Ignores its signal, so an abort leaves the body running past the grace period. */
+class SvcActStubborn extends ScheduledTask {
+  public async execute(): Promise<void> {
+    await gate.promise;
+  }
+}
+const NAMES = ['import', 'patient', 'flaky', 'local-flaky', 'gated', 'stubborn'];
 
 /** Runs `beforeNow` once, between cancel() reading the run and writing it. */
 class RacyService extends DefaultSchedulerService {
@@ -96,6 +102,7 @@ describe('SchedulerService: cancel and retry', () => {
       params: { type: 'object', properties: { n: { type: 'integer' } } },
     });
     defineSchedule(SvcActFlaky, 'local-flaky', { every: '1h', runOn: 'all' });
+    defineSchedule(SvcActStubborn, 'stubborn', { manual: true, timeout: '5s' });
     defineSchedule(SvcActThrowsLater, 'gated', { manual: true, retry: { attempts: 3, backoff: 'fixed', delay: '1s' } });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
     s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
@@ -365,6 +372,38 @@ describe('SchedulerService: cancel and retry', () => {
       await tick();
       expect(await getRun(looped.Id)).to.include({ Status: 'aborted', Reason: 'cancelled', Attempt: 1 });
       expect(s.isRunningLocally(looped.Id)).to.eq(false);
+    });
+
+    it('keeps the schedule lease when a cancelled body is still running past its grace period', async () => {
+      gate = deferred();
+      const { runId } = await service.runNow('stubborn', { triggeredBy: by });
+      await s.tickOnce();
+      await waitFor(async () => (await getRun(runId)).Status === 'running');
+      await RunModel.update({ CancelRequested: true }).where('Id', runId);
+      // timeout at 5 s, grace 2 s, the body never settles
+      await driveUntil(clock, s.idle());
+      expect(await getRun(runId)).to.include({ Status: 'aborted', Reason: 'cancelled' });
+      expect((await ScheduleModel.where('Name', 'stubborn').first()).LeaseOwner).to.eq('r1');
+      gate.resolve();
+    });
+
+    it('leaves a flagged row alone while its local handle is still winding down', async () => {
+      gate = deferred();
+      const { runId } = await service.runNow('stubborn', { triggeredBy: by });
+      await s.tickOnce();
+      await waitFor(async () => (await getRun(runId)).Status === 'running');
+      // another replica reaped it to retrying meanwhile, and a cancel flagged it
+      await RunModel.update({ Status: 'retrying', LeaseOwner: null, LeaseUntil: null, CancelRequested: true }).where(
+        'Id',
+        runId,
+      );
+      await s.tickOnce();
+      expect(s.isRunningLocally(runId)).to.eq(true);
+      expect((await getRun(runId)).Status).to.eq('retrying');
+      gate.resolve();
+      await s.idle();
+      await s.tickOnce();
+      expect(await getRun(runId)).to.include({ Status: 'aborted', Reason: 'cancelled' });
     });
 
     it('claimRun refuses a cancel-flagged row', async () => {
