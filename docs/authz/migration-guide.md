@@ -356,7 +356,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `@OrmPermission(M, 'x') class P extends OrmPermissionPolicy` | `@OrmScope(M, 'x') class P extends OrmScopePolicy` with `scope(query, principal, op)` |
 | `effectiveRoles(user, storage)`, `req.storage.ActiveRole` | `principal.ceiling?.roles`; `RbacService.rolesOf(principal, at)`. `req.storage.ActiveRole` and `req.storage.Session` are never set. |
 | `grant(user, role)`, `revoke`, CLI `rbac:user-grant` | `AuthzAdmin.assign(actor, ...)`, `revoke`; CLI `authz:assign`, `authz:revoke` (`authz-rbac`) |
-| `GET /grants`, `/user/grants`, `Grants` in login | `GET /user/access`, `POST /user/access/check`, and `Access` in the login, MFA, role switch, impersonation and whoami answers (users' `AccessResponseExtension`) |
+| `GET /grants`, `/user/grants`, `Grants` in login | `GET /user/access`, `POST /user/access/checks`, and `Access` in the login, MFA, role switch, impersonation and whoami answers (users' `AccessResponseExtension`) |
 | `DI.get('AccessControl')`, `import 'accesscontrol'` | removed; use `authz()` and `RbacService` |
 | `user.Role`, raw SQL on `users.Role`, `withRole` | `RbacService.rolesOf(principal)`, `AssignmentStore.holders(role, scope)`, or a join on `authz_assignment` |
 | `import { ... } from '@spinajs/rbac'` and the other `rbac*` packages | the new names of section 2 |
