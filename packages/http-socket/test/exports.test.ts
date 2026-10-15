@@ -131,7 +131,7 @@ describe('@spinajs/http-socket public surface', () => {
   });
 
   it('exposes the hub push API', () => {
-    for (const method of ['to', 'toConnection', 'join', 'leave', 'connectionsIn', 'disconnect', 'connection']) {
+    for (const method of ['to', 'toLocal', 'toConnection', 'join', 'leave', 'connectionsIn', 'disconnect', 'connection']) {
       expect(api.SocketHub.prototype, method).to.have.property(method);
     }
   });

@@ -61,6 +61,20 @@ describe('SocketHub', function () {
     await expect(missed).to.be.rejectedWith(/no hub.news event/);
   });
 
+  it('pushes to a room on this instance only with toLocal', async () => {
+    resultOf(await command<string[]>(a, 'hub.join', { room: 'r3' }));
+    const local = sinon.spy(t.server.Io!, 'local', ['get']);
+
+    const missed = nextEvent(b, 'hub.local', 300);
+    const received = nextEvent(a, 'hub.local');
+    hub.toLocal('r3').emit('hub.local', { n: 1 });
+
+    expect(await received).to.deep.equal({ n: 1 });
+    await expect(missed).to.be.rejectedWith(/no hub.local event/);
+    expect(local.get.called).to.equal(true);
+    expect(() => hub.toLocal([])).to.throw(InvalidArgument, /non-empty/);
+  });
+
   it('pushes to one connection by id', async () => {
     const missed = nextEvent(a, 'hub.private', 300);
     const received = nextEvent(b, 'hub.private');
