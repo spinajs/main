@@ -2,7 +2,7 @@ import { AuthorizationModel, AuthzConfigError, AuthzContributor } from '@spinajs
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 
-import { AssignmentStore, LinkStore, RoleStore, RuleStore } from '../contracts.js';
+import { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore } from '../contracts.js';
 import type { RbacExtension } from '../model/evaluate.js';
 import { RbacContributor } from '../model/contributor.js';
 import { RbacLinkResolver } from '../model/links/resolver.js';
@@ -80,11 +80,14 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
   ruleStoreParts(rules);
   const links = await store(LinkStore);
+  // Registered by authz-rbac's storage lane, possibly in a parent container.
+  const membership = container.hasRegistered(MembershipStore) ? ((await container.resolve(MembershipStore)) as MembershipStore) : undefined;
   const options: RbacModelOptions = {
     roles: (await store(RoleStore))!,
     assignments: (await store(AssignmentStore))!,
     ...(rules.length > 0 ? { rules: rules.length === 1 ? rules[0] : rules } : {}),
     ...(links ? { links } : {}),
+    ...(membership ? { membership } : {}),
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.clock ? { clock: opts.clock } : {}),
   };

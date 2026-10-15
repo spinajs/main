@@ -1,7 +1,7 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
-import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
+import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
@@ -23,6 +23,8 @@ export interface RbacModelOptions {
   /** At most one in-memory store (ConfigRuleStore) and one other (DbRuleStore), design §8.5. */
   readonly rules?: RuleStore | readonly RuleStore[];
   readonly links?: LinkStore;
+  /** The closure of subject sets (design §4.3); absent: sets are one level deep. */
+  readonly membership?: MembershipStore;
   /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. The model adds tokenRoleExtension last either way. */
   readonly extensions?: readonly RbacExtension[];
   /** Default: the host log under the name 'authz-rbac'. */
@@ -249,7 +251,7 @@ export class RbacModel extends AuthorizationModel {
     const path = at.id == null ? (resourcePath(at, NO_CONTEXT) as readonly ResourceRef[]) : [at, GLOBAL];
     const base: RbacInput = { request, now, path, subjects: subjects as readonly AssignmentSubject[], assignments: [...rows, ...configAssignments(loaded, subjects as readonly AssignmentSubject[])], roles: sources.roles, grants: sources.grants, ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}), ...(sources.onRefusedAssignment ? { onRefusedAssignment: sources.onRefusedAssignment } : {}) };
     // Subject sets read their rows through `load`: from the cache here, never the store.
-    const input = extendRbacInput(request, NO_CONTEXT, { ...sources, load: peek }, base);
+    const input = extendRbacInput(request, NO_CONTEXT, { ...sources, load: peek, setsOf: undefined }, base);
     if (input instanceof Promise) {
       input.catch(() => undefined);
       throw new AuthzConfigError("rbac: an extension's gather needs IO; covers of a principal cannot answer at once");
@@ -284,9 +286,22 @@ export class RbacModel extends AuthorizationModel {
       extensions: this.extensions,
       configAssignments: (subjects) => configAssignments(loaded, subjects),
       load: (subjects, c) => loaded.assignments.read(subjects, c),
+      ...(this.opts.membership ? { setsOf: (keys: readonly string[], ctx: EvaluationContext) => this.setsOf(keys, ctx) } : {}),
       onUnknownRole: (a) => this.unknownRole(a),
       onRefusedAssignment: (a, problem) => this.refusedAssignment(a, problem),
     };
+  }
+
+  /** One store read per request and member key list; the assignment cache is the cross-request cache. */
+  private setsOf(memberKeys: readonly string[], ctx: EvaluationContext): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> {
+    const key = `${SETS_MEMO}${ctx.now.getTime()}:${JSON.stringify([...memberKeys].sort())}`;
+    let read = ctx.cache.get(key) as Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> | undefined;
+    if (!read) {
+      read = this.opts.membership!.setsOf(memberKeys, ctx.now);
+      ctx.cache.set(key, read);
+      read.catch(() => ctx.cache.delete(key));
+    }
+    return read;
   }
 
   /**
@@ -506,6 +521,8 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> => typeof (v as { the
 
 /** The permission of the requests that only read which roles hold (steps 1–3 never read it). */
 const ROLES_PROBE: Permission = 'rbac:roles';
+
+const SETS_MEMO = '\u0000rbac:sets:';
 
 /** The context of a synchronous read: an extension's gather that touches it fails, never guesses. */
 const NO_CONTEXT = new Proxy({} as EvaluationContext, {

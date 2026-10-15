@@ -22,6 +22,7 @@ import type { NativeListInput } from './rules/native.js';
 import type { ActiveRule } from './rules/steps.js';
 import type { CompiledRule } from './rules/compile.js';
 import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
+import type { NestedSet } from './sets/extension.js';
 import type { SetMemberships } from './sets/resolver.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
@@ -104,6 +105,8 @@ export interface RbacInput {
   readonly implies?: ImpliesIndex;
   /** The sets the principal joined through its own assignments (SetsExtension), by subjectKey. */
   readonly memberships?: SetMemberships;
+  /** Sets the principal reaches only through other sets (MembershipStore), by subjectKey, with the membership's expiry. */
+  readonly nestedSets?: ReadonlyMap<string, NestedSet>;
   /** The rules that hold for this request (RulesExtension), their request-level parts decided. */
   readonly rules?: readonly ActiveRule[];
   /** Ids of rules that would apply differently per row of this type-level request: the rule steps fail closed. */
@@ -454,6 +457,8 @@ export interface RbacSources {
   readonly configAssignments?: (subjects: readonly AssignmentSubject[]) => readonly Assignment[];
   /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache). */
   readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext) => readonly Assignment[] | Promise<readonly Assignment[]>;
+  /** The sets the member keys belong to, transitively, with their membership expiry (MembershipStore.setsOf); absent: one level, from the principal's own rows. */
+  readonly setsOf?: (memberKeys: readonly string[], ctx: EvaluationContext) => Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;
   readonly onUnknownRole?: (assignment: Assignment) => void;
   readonly onRefusedAssignment?: RbacInput['onRefusedAssignment'];
 }
