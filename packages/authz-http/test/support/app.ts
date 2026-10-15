@@ -63,6 +63,11 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   cfg.set(['http', 'port'], 0);
   // The package defaults list the controller dirs of every installed package (users-http, authz-http-admin, …).
   cfg.set(['system', 'dirs', 'controllers'], []);
+  // Installed packages' defaults declare list permissions (configuration:read, team:read, group:read, …), and boot
+  // rule 12 refuses them on the kit's test-domain models: they route every permission and cannot plan lists.
+  for (const [name, def] of Object.entries(cfg.get<Record<string, unknown>>(['authz', 'permissions']) ?? {})) {
+    if (isRecord(def) && def.list === true) cfg.set(['authz', 'permissions', name, 'list'], false);
+  }
   cfg.set(['fs', 'providers'], [
     ...((cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__')),
     { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-authz-http-test-cache') },
