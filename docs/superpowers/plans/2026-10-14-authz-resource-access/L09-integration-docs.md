@@ -1702,8 +1702,8 @@ Expected: both succeed.
 
 - [ ] **Step 2: Removed names**
 
-Run (repo root): `grep -rE "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test`
-Expected: no output.
+Run (repo root): `grep -rE --exclude='*.md' "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test | grep -v '^packages/authz-convert/test/analyze\.test\.ts:'`
+Expected: no output. Markdown history and the negative assertion in `authz-convert/test/analyze.test.ts` are excluded (overview, definition of done).
 
 - [ ] **Step 3: Every package of the definition of done**
 
