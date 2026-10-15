@@ -233,7 +233,8 @@ function validateRbac(world: World, principalKeys: ReadonlySet<string>, problems
   };
   const subject = (s: PrincipalRef | { readonly set: { readonly role: string } }, where: string) => {
     if ('set' in s) role(s.set.role, `${where} subject set`);
-    else if (!principalKeys.has(principalKey(s))) problems.push(`${where}: unknown principal ${principalKey(s)}`);
+    // `{ type, id: '*' }` is the wildcard subject: every principal of that type.
+    else if (s.id !== '*' && !principalKeys.has(principalKey(s))) problems.push(`${where}: unknown principal ${principalKey(s)}`);
   };
 
   for (const n of duplicates((rbac.roles ?? []).map((r) => r.name))) problems.push(`role ${n} is defined twice`);
@@ -260,7 +261,7 @@ function validateRbac(world: World, principalKeys: ReadonlySet<string>, problems
   for (const l of rbac.links ?? []) role(l.role, `link ${l.id}`);
 }
 
-/** Scopes that data names (assignments, rules, links, policies, ceilings) must be nodes the world's adapters or scope resolvers know. */
+/** Scopes that data names (assignments, rules, links, policies, ceilings) must be nodes the world's adapters, scope resolvers or ORM lane models know. */
 function validateScopes(world: World, problems: string[]): void {
   const known = new Set([resourceKey(GLOBAL)]);
   for (const s of world.scopes ?? []) for (const n of s.nodes ?? []) for (const r of [n.ref, n.parent]) if (r) known.add(resourceKey(r));
@@ -269,6 +270,7 @@ function validateScopes(world: World, problems: string[]): void {
     for (const pair of a.parents ?? []) for (const r of pair) known.add(resourceKey(r));
     for (const [r] of a.attributes ?? []) known.add(resourceKey(r));
   }
+  for (const m of world.lane?.orm?.models ?? []) if (m.type) for (const row of m.rows ?? []) known.add(resourceKey({ type: m.type, id: row.id }));
   const scope = (r: ResourceRef | undefined, where: string) => {
     if (r && !known.has(resourceKey(r))) problems.push(`${where}: scope ${resourceKey(r)} is not a node of the world`);
   };

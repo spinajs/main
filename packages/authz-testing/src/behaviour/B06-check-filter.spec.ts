@@ -5,9 +5,11 @@ import type { FilterOp, ResourceFilter, Value, Vote } from '@spinajs/authz';
 
 import { row, vote } from '../arbitraries/index.js';
 import { FAKE_TUPLE_OP } from '../fakes/index.js';
+import { ACCESS_PERMISSIONS, ACCESS_ROLES } from '../arbitraries/access.js';
 import type { ScriptedVote } from '../fakes/index.js';
 import { userPrincipal } from '../principals.js';
 import { ALGORITHMS, assignment, cmp, combine, fixture, permit, ref, relation, role, staticModel } from './dsl.js';
+import { accessibleAgree } from './lane.js';
 import type { Case, World } from './types.js';
 
 const alice = userPrincipal('alice');
@@ -187,6 +189,50 @@ const rbacWorld: World = {
 
 let coreCases: readonly Case[] | undefined;
 
+// alice views org o1 and edits d5; bob is author everywhere but blocked under p3; carol edits p2; everyone views d4.
+const accessWorldFixed: World = {
+  now: new Date('2026-10-14T12:00:00.000Z'),
+  permissions: ACCESS_PERMISSIONS,
+  principals: { alice, bob, carol, dave: userPrincipal('dave') },
+  combine: combine('deny-overrides', 'rbac'),
+  rbac: {
+    roles: Object.values(ACCESS_ROLES),
+    assignments: [assignment('a1', alice, 'viewer', ref('org', 'o1')), assignment('a2', alice, 'editor', ref('doc', 'd5')), assignment('a3', bob, 'author'), assignment('a4', bob, 'blocked', ref('project', 'p3')), assignment('a5', carol, 'editor', ref('project', 'p2')), assignment('a6', { type: 'user', id: '*' }, 'viewer', ref('doc', 'd4')), assignment('a7', carol, 'editor', ref('doc', 'd1'), { expiresAt: new Date('2026-10-14T11:00:00.000Z') })],
+  },
+  lane: {
+    orm: {
+      models: [
+        { name: 'Org', type: 'org', columns: [], rows: [{ id: 'o1' }, { id: 'o2' }] },
+        {
+          name: 'Project',
+          type: 'project',
+          parents: [{ column: 'org_id', type: 'org' }],
+          columns: ['org_id'],
+          rows: [
+            { id: 'p1', org_id: 'o1' },
+            { id: 'p2', org_id: 'o1' },
+            { id: 'p3', org_id: 'o2' },
+          ],
+        },
+        {
+          name: 'Doc',
+          type: 'doc',
+          owner: 'owner',
+          parents: [{ column: 'project_id', type: 'project' }],
+          columns: ['project_id', 'owner'],
+          rows: [
+            { id: 'd1', project_id: 'p1', owner: 'alice' },
+            { id: 'd2', project_id: 'p1', owner: 'bob' },
+            { id: 'd3', project_id: 'p2', owner: 'carol' },
+            { id: 'd4', project_id: 'p3', owner: 'bob' },
+            { id: 'd5', project_id: 'p3', owner: 'alice' },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 export const B06 = fixture('B06', [
   {
     name: 'core',
@@ -214,6 +260,19 @@ export const B06 = fixture('B06', [
         ],
       },
       { name: 'scoped and relation grants: check ⇔ filter', steps: [{ agree: { as: ['alice', 'bob', 'carol'], permissions: ['file:read'], type: 'file' } }] },
+    ],
+  },
+  {
+    name: 'accessible',
+    facets: ['engine', 'rbac', 'orm'],
+    lanes: ['L9'],
+    note: 'Ancestor, direct, owner, wildcard, deny-role and expired grants over org > project > doc; arb.accessWorld() is the property form (design 2026-10-14 §6.2, §10.3).',
+    world: accessWorldFixed,
+    cases: [
+      {
+        name: '.accessible() ⇔ checkAll and .withAccess ⇔ checkAll, docs and projects',
+        steps: [accessibleAgree({ as: ['alice', 'bob', 'carol', 'dave'], permissions: ['doc:read', 'doc:update'], model: 'Doc', type: 'doc' }), accessibleAgree({ as: ['alice', 'bob', 'carol', 'dave'], permissions: ['project:read'], model: 'Project', type: 'project' })],
+      },
     ],
   },
   { name: 'rules', facets: ['engine', 'rbac', 'rules', 'list'], lanes: ['L1b'], note: 'Worlds with RBAC rules on the type come with the rule fixtures of B35, or from L1b by RFC.', cases: [] },

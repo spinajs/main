@@ -549,6 +549,56 @@ export const ormRows = (model: string, expect: RowsExpectation): DoStep => {
   };
 };
 
+export interface AccessibleAgreeRequest {
+  readonly as: readonly Who[];
+  /** Each must be list: true; also the `.withAccess` set. */
+  readonly permissions: readonly Permission[];
+  readonly model: string;
+  readonly type: ResourceType;
+}
+
+/**
+ * B06 over the ORM: for each principal and permission, `.accessible(permission)` returns exactly the rows `checkAll`
+ * definitely allows (allowed with a TRUE residual), and `.withAccess(permissions)` carries what `checkAll` answers.
+ * A list that throws AccessDenied agrees when `checkAll` allows no row.
+ */
+export const accessibleAgree = (req: AccessibleAgreeRequest): DoStep => ({
+  note: `accessible ⇔ checkAll on ${req.model} for ${req.as.map((w) => (typeof w === 'string' ? w : principalKey(w))).join(', ')}`,
+  do: async (ctx) => {
+    const authz = ctx.authz();
+    assert.ok(authz.checkAll && authz.runAs, 'accessibleAgree: the session authz needs checkAll and runAs');
+    const handle = laneHandle(ctx, 'orm');
+    const ids = (await handle.rows(req.model)).map((r) => String(r.id));
+    for (const who of req.as) {
+      const principal = ctx.principal(who);
+      const label = typeof who === 'string' ? who : principalKey(who);
+      const definite = new Map<Permission, Set<string>>();
+      for (const permission of req.permissions) {
+        const decisions = await authz.checkAll(
+          principal,
+          ids.map((id) => ({ permission, resource: { type: req.type, id } })),
+        );
+        definite.set(permission, new Set(ids.filter((_, i) => decisions[i].allowed && decisions[i].residual.op === 'true')));
+      }
+      for (const permission of req.permissions) {
+        const allowed = [...definite.get(permission)!].sort();
+        let res: OrmResult;
+        try {
+          res = await authz.runAs(principal, 'b06-accessible', () => handle.run({ op: 'select', model: req.model, accessible: permission, withAccess: req.permissions }));
+        } catch (e) {
+          if (!(e instanceof Error && e.name === 'AccessDenied')) throw e;
+          assert.deepEqual(allowed, [], `${label} ${permission}: .accessible() threw AccessDenied, checkAll allows ${allowed.join(', ')}`);
+          continue;
+        }
+        assert.deepEqual([...(res.ids ?? [])].sort(), allowed, `${label} ${permission}: .accessible() ids vs checkAll`);
+        for (const id of res.ids ?? []) {
+          for (const p of req.permissions) assert.equal(res.access?.[id]?.[p], definite.get(p)!.has(id), `${label} ${id} $access['${p}'] vs checkAll`);
+        }
+      }
+    }
+  },
+});
+
 /** A lane call that resolves, or throws as expected. */
 export const laneCall = (note: string, fn: (ctx: StepContext) => Promise<unknown>, expect: 'resolves' | LaneThrows): DoStep => ({ note, do: async (ctx) => void (await settle(() => fn(ctx), expect === 'resolves' ? undefined : expect, note)) });
 
