@@ -228,7 +228,9 @@ describe('stomp queue transport test', function () {
     expect(s.calledTwice).to.be.true;
   });
 
-  it('Should register on job multiple subscribers', async () => {
+  it('Should register on job multiple subscribers', async function () {
+    // 500 receipt-confirmed publishes; slow on a CPU-saturated Docker Desktop host
+    this.timeout(60000);
     const c1 = await q();
     const c2 = await q();
 
@@ -250,7 +252,7 @@ describe('stomp queue transport test', function () {
     await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
     // at-least-once: a publish whose receipt times out under load is re-sent, so count distinct messages
-    await waitFor(() => delivered(s1, s2).size === 500, 20000, '500 distinct jobs consumed');
+    await waitFor(() => delivered(s1, s2).size === 500, 45000, '500 distinct jobs consumed');
   });
 
   it('Should register on event multiple subscribers', async () => {
@@ -282,7 +284,8 @@ describe('stomp queue transport test', function () {
     expect(s2.calledOnce).to.be.true;
   });
 
-  it('Should route job with routing table', async () => {
+  it('Should route job with routing table', async function () {
+    this.timeout(60000);
     const c1 = await q();
 
     const message = {
@@ -300,7 +303,7 @@ describe('stomp queue transport test', function () {
 
     await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
-    await waitFor(() => delivered(s1).size === 500, 20000, '500 distinct routed jobs consumed');
+    await waitFor(() => delivered(s1).size === 500, 45000, '500 distinct routed jobs consumed');
   });
 
   it('Should route event with routing table', async () => {
