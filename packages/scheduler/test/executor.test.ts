@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
   FakeClock,
@@ -9,6 +10,7 @@ import {
   RunModel,
   ScheduledTask,
   ScheduleModel,
+  SchedulerSignals,
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
 import { deferred, driveUntil, getRun, journal, makeDef, queuedRun, seedSchedules, untilAborted } from './support/fixtures.js';
@@ -60,6 +62,8 @@ describe('RunExecutor', () => {
     leases = DI.resolve(LeaseStore, ['r1']);
     executor = DI.resolve(RunExecutor, [leases]);
   });
+
+  afterEach(() => sinon.restore());
 
   it('records a successful run', async () => {
     const { run, handle } = await startRun('ok', {}, Ok);
@@ -124,6 +128,13 @@ describe('RunExecutor', () => {
     await handle.done;
     expect(await getRun(run.Id)).to.include({ Status: 'failed', LeaseOwner: null });
     expect((await getRun(run.Id)).Error).to.include({ message: 'sync boom' });
+    expect(clock.pendingTimers).to.eq(0);
+  });
+
+  it('stops the heartbeat when the run-started signal throws', async () => {
+    sinon.stub(DI.resolve(SchedulerSignals), 'runStarted').rejects(new Error('signal boom'));
+    const { handle } = await startRun('signal-throw', { timeout: '5s' }, Ok);
+    await handle.done;
     expect(clock.pendingTimers).to.eq(0);
   });
 

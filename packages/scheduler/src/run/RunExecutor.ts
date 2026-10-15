@@ -117,11 +117,11 @@ export class RunExecutor {
     });
 
     heartbeat.start();
-    await this.Signals.runStarted(run, startedAt);
     const timeout = def.timeoutMs ? this.Timers.setTimeout(() => abort('timeout'), def.timeoutMs) : undefined;
 
     let outcome: ExecutionOutcome;
     try {
+      await this.Signals.runStarted(run, startedAt);
       // a synchronous throw from an overridden invoke() is a task failure like any other
       const work = new Promise<unknown>((resolve) => resolve(this.invoke(def, ctx)));
       outcome = await this.settle(work, ac.signal, cfg.shutdownGrace);
