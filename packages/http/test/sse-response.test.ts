@@ -153,6 +153,29 @@ describe('SseStream', () => {
 
     expect(stream.Closed).to.eq(true);
   });
+
+  it('drops the kept-alive connection of a stream closed by the server shutdown', () => {
+    const socket = { destroy: sinon.spy() };
+    (res as unknown as { socket: typeof socket }).socket = socket;
+    new SseStream(asRes(res), 0).open();
+
+    DI.RootContainer.emit('http.server.closing');
+    res.emit('finish');
+
+    expect(socket.destroy.calledOnce).to.eq(true);
+  });
+
+  it('keeps the connection of a stream closed by the handler', () => {
+    const socket = { destroy: sinon.spy() };
+    (res as unknown as { socket: typeof socket }).socket = socket;
+    const stream = new SseStream(asRes(res), 0);
+    stream.open();
+
+    stream.close();
+    res.emit('finish');
+
+    expect(socket.destroy.called).to.eq(false);
+  });
 });
 
 describe('SseResponse', () => {

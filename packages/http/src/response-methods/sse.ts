@@ -26,7 +26,8 @@ const SERVER_CLOSING_EVENT = 'http.server.closing';
 
 export function closeAllSseStreams(): void {
   for (const stream of [...OPEN_STREAMS]) {
-    stream.close();
+    // HttpServer.stop() already closed idle sockets; a kept-alive one would hold it for the keep-alive timeout
+    stream.close({ dropConnection: true });
   }
 }
 
@@ -104,7 +105,7 @@ export class SseStream {
     this._onClose.push(callback);
   }
 
-  public close(): void {
+  public close(options?: { dropConnection?: boolean }): void {
     if (this._closed) {
       return;
     }
@@ -122,7 +123,14 @@ export class SseStream {
     }
 
     if (!this.res.writableEnded) {
-      this.res.end();
+      if (options?.dropConnection) {
+        // the response detaches its socket on finish, and the compression middleware's end() drops callbacks
+        const socket = this.res.socket;
+        this.res.once('finish', () => socket?.destroy());
+        this.res.end();
+      } else {
+        this.res.end();
+      }
     }
   }
 
