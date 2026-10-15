@@ -27,12 +27,14 @@ export const TASK: OrmModelSpec = {
 
 export const ALL = ['t1', 't2', 't3'];
 
-/** One kit model m1; task:read, task:update and task:delete are list permissions. */
+const LIST_PERMISSIONS = ['task:read', 'task:update', 'task:delete'];
+
+/** One kit model m1; task:read, task:update and task:delete are list permissions, each planned as no rows unless `lists` scripts it (boot rule 12 refuses a list permission without a plan). */
 export const ormWorld = (votes: VoteTable, lists: Readonly<Record<Permission, ListPlanScript>> = {}, models: readonly OrmModelSpec[] = [TASK], extra: Partial<World> = {}): World => ({
-  permissions: [{ name: 'task:read', list: true }, { name: 'task:update', list: true }, { name: 'task:delete', list: true }, 'task:create'],
+  permissions: [...LIST_PERMISSIONS.map((name) => ({ name, list: true })), 'task:create'],
   principals: { alice, bob, admin },
   combine: combine('deny-overrides', 'm1'),
-  models: [staticModel('m1', { votes, lists })],
+  models: [staticModel('m1', { votes, lists: { ...Object.fromEntries(LIST_PERMISSIONS.map((p) => [p, noRows()])), ...lists } })],
   lane: { orm: { models } },
   ...extra,
 });
