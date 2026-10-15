@@ -1,5 +1,5 @@
 import { AuthorizationModel, AuthzContributor, AuthzEventSink, AuthzService, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
-import type { AuthzAdmin, AuthzEvent } from '@spinajs/authz';
+import type { AuthzAdmin, AuthzEvent, Principal } from '@spinajs/authz';
 import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { registerRbac } from '@spinajs/authz-rbac';
@@ -7,6 +7,8 @@ import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
 import teamsConfig from '../../src/config/teams.js';
+import { InvitationMailer, VerifiedEmailSource } from '../../src/index.js';
+import type { InvitationMail } from '../../src/index.js';
 import { teamsDb } from './db.js';
 import type { TeamsDb } from './db.js';
 
@@ -19,6 +21,24 @@ export class RecordingEventSink extends AuthzEventSink {
 
   async publish(events: readonly AuthzEvent[]): Promise<void> {
     this.events.push(...events);
+  }
+}
+
+/** What an app registers: teams ships no VerifiedEmailSource. */
+export class AttributesEmailSource extends VerifiedEmailSource {
+  async verifiedEmail(principal: Principal): Promise<string | undefined> {
+    const a = principal.attributes ?? {};
+    return a.emailVerified === true && typeof a.email === 'string' ? a.email : undefined;
+  }
+}
+
+export class RecordingInvitationMailer extends InvitationMailer {
+  readonly sent: InvitationMail[] = [];
+  fail = false;
+
+  async send(mail: InvitationMail): Promise<void> {
+    if (this.fail) throw new Error('mail transport down');
+    this.sent.push(mail);
   }
 }
 
@@ -60,6 +80,7 @@ export interface TeamsStack extends TeamsDb {
   readonly authz: AuthzService;
   readonly admin: AuthzAdmin;
   readonly events: RecordingEventSink;
+  readonly mailer: RecordingInvitationMailer;
   readonly config: TestConfiguration;
 }
 
@@ -76,6 +97,9 @@ async function boot(): Promise<TeamsStack> {
   const root = DI.RootContainer;
   const events = new RecordingEventSink();
   root.register(testHost.instance(events)).as(AuthzEventSink);
+  const mailer = new RecordingInvitationMailer();
+  root.register(testHost.instance(mailer)).as(InvitationMailer);
+  root.register(testHost.instance(new AttributesEmailSource())).as(VerifiedEmailSource);
   const attributes = new DbScopeAttributeStore({ container: root });
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
@@ -85,7 +109,7 @@ async function boot(): Promise<TeamsStack> {
   await registerRbac(root, config);
 
   const authz = (await DI.resolve(AuthzService)) as AuthzService;
-  return { ...db, authz, admin: authz.admin(), events, config };
+  return { ...db, authz, admin: authz.admin(), events, mailer, config };
 }
 
 /** The booted root domain over the shared test database; once per mocha process. */

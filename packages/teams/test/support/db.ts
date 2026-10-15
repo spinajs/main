@@ -11,7 +11,7 @@ import { Orm } from '@spinajs/orm';
 import type { OrmDriver, OrmMigration } from '@spinajs/orm';
 
 // Imported before the Orm resolves: the decorators register the models under '__models__'.
-import { Teams_2026_10_14_00_00_00 } from '../../src/index.js';
+import { Teams_2026_10_14_00_00_00, TeamsInvitations_2026_10_14_00_01_00 } from '../../src/index.js';
 import './project.js';
 
 export interface TeamsDb {
@@ -31,6 +31,7 @@ export const MIGRATIONS: (new () => OrmMigration)[] = [
   AuthzAudit_2026_10_01_00_00_00,
   AuthzResourceAncestor_2026_10_14_00_00_00,
   Teams_2026_10_14_00_00_00,
+  TeamsInvitations_2026_10_14_00_01_00,
 ];
 
 let opened: Promise<TeamsDb> | undefined;

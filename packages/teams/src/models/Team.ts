@@ -1,12 +1,8 @@
 import { AccessResource, Parent } from '@spinajs/authz-orm';
-import { Connection, CreatedAt, DatetimeValueConverter, Model, ModelBase, Primary, UpdatedAt, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
+import { Connection, CreatedAt, Model, ModelBase, Primary, UpdatedAt } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-// @DateTime() refuses a `DateTime | null` property: the union's design type is Object.
-const NullableDateTime = (): PropertyDecorator =>
-  extractDecoratorPropertyDescriptor((model, _target, key) => {
-    model.Converters.set(key, { Class: DatetimeValueConverter });
-  });
+import { NullableDateTime } from './converters.js';
 
 @Connection('default')
 @Model('teams')

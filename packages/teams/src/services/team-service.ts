@@ -11,6 +11,7 @@ import { DateTime } from 'luxon';
 import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
 import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
 import { asSystem, assertAllowed, domainContainer, execute, teamsDomain, teamsDriver } from '../host.js';
+import { deleteInvitations } from '../invitations/rows.js';
 import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
 import { principalTeams } from '../membership.js';
 import { Group } from '../models/Group.js';
@@ -272,8 +273,10 @@ export class DefaultTeamService extends TeamService {
 
   // ---- helpers ----
 
-  /** Rows that reference the team and are not authz data; Task 9 deletes the team's invitations here. */
-  protected async beforePurge(_team: Team): Promise<void> {}
+  /** Invitations reference the team; they go first. */
+  protected async beforePurge(team: Team): Promise<void> {
+    await deleteInvitations({ team_id: team.id });
+  }
 
   /** Children before parents, each through its model so authz-orm forgets the scope (teams design §7). */
   protected async purgeTree(team: Team, removed: { teams: string[]; groups: string[] }): Promise<void> {

@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 import { GROUP_MEMBER_ROLE, GroupService } from '../api.js';
 import type { CreateGroupInput, GroupView, MemberEntry, MoveGroupInput, Page, Paged, TeamSubject, UpdateGroupInput } from '../api.js';
 import { asSystem, assertAllowed, execute, teamsDriver } from '../host.js';
+import { deleteInvitations } from '../invitations/rows.js';
 import { groupLineage, groupParent, liveGroup, liveTeam } from '../lookup.js';
 import { Group } from '../models/Group.js';
 import { groupRef, teamRef } from '../refs.js';
@@ -161,8 +162,10 @@ export class DefaultGroupService extends GroupService {
     await execute(actor, [{ kind: 'set.removeMember', set, member: s }], reasonOf('remove-group-member', actor));
   }
 
-  /** Rows that reference the group and are not authz data; Task 9 deletes its invitations here. */
-  protected async beforeDelete(_group: Group): Promise<void> {}
+  /** Invitations into the group reference it; they go first. */
+  protected async beforeDelete(group: Group): Promise<void> {
+    await asSystem(() => deleteInvitations({ group_id: group.id }));
+  }
 
   protected async assertSlugFree(teamId: string, slugs: readonly string[]): Promise<void> {
     if (slugs.length === 0) return;
