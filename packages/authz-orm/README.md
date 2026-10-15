@@ -53,3 +53,24 @@ other zones compare and the hour repeated when daylight saving ends sorts right.
 it reads back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })`
 gives the instant.
 
+## Keeping `authz_resource_ancestor` right
+
+- Run the migration `AuthzResourceAncestor_2026_10_14_00_00_00` (connection `default`, like the RBAC
+  tables). The table must be in the database of the resource tables and of `authz_assignment`.
+- Writes through model builders keep it right: an insert writes the new rows' links; an update of a
+  `@Parent` column recomputes the row and its subtree; a delete removes the links, turns undeleted
+  children into roots, forgets the authz data at each deleted scope (assignments, links, rules, scope
+  attributes) and, after the commit, publishes `AuthzChange` and audits `resource-deleted` as SYSTEM.
+  `@Parent` updates and deletes run in a transaction (the caller's, or one the ORM opens).
+- Bulk moves: `reparent(Model, ids, newParentId, column?)`. The app checks the new parent first.
+- Raw SQL, another service or an import that writes `@Parent` columns: run
+  `authz:ancestors-rebuild [type]` afterwards. `authz:ancestors-verify [type]` reports differences
+  with exit code 1 (CI, health checks).
+
+## Runtime guard
+
+A select of many rows of an `@AccessResource` model must use `.accessible(permission)`,
+`.unscoped(reason)` or run as SYSTEM (`authz().runAs(SYSTEM, reason, fn)`). A load of one row by its
+primary key (`where(pk, v)`, `get(v)`, `findOrFail([v])`, `@FromModel`) is a single-object load that the
+route's `@Access` check covers, and is not flagged. With `APP_ENV=test` a select without one throws
+`AuthzConfigError`; with `APP_ENV=development` it warns once per call site; otherwise it is off.

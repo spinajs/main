@@ -14,3 +14,7 @@ export { OrmResourceAdapter } from './adapter.js';
 // Registers AncestorMiddleware as a QueryMiddleware.
 import './ancestors/middleware.js';
 export { AncestorMiddleware } from './ancestors/middleware.js';
+// Registers AccessGuardMiddleware as a QueryMiddleware.
+import './guard/middleware.js';
+export { AccessGuardMiddleware } from './guard/middleware.js';
+export { guardMode } from './guard/env.js';
