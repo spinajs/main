@@ -204,7 +204,13 @@ describe('Commands', function () {
     it('Should record a declaration per @Task method', () => {
       const [decl] = getTaskDeclarations('TestTaskNoOptions');
 
-      expect(decl).to.include({ name: 'TestTaskNoOptions', description: 'Task declared without options', target: TestTaskNoOptions, isStatic: false, propertyKey: 'execute' });
+      expect(decl).to.include({
+        name: 'TestTaskNoOptions',
+        description: 'Task declared without options',
+        target: TestTaskNoOptions,
+        isStatic: false,
+        propertyKey: 'execute',
+      });
       expect(decl.options).to.deep.equal(DEFAULT_TASK_OPTIONS);
       expect(decl.method).to.not.equal(TestTaskNoOptions.prototype.execute);
       expect(getTaskDeclarations('NoSuchTask')).to.deep.equal([]);
