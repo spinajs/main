@@ -23,7 +23,7 @@ const authzHttp = {
       /** Never registered in production (H19, B41). */
       explainRoute: { enabled: false, permission: 'authz:explain' },
       links: { query: 'link', header: 'X-Authz-Link', cookie: null as string | null },
-      /** The domain GET /user/access and POST /user/access/check answer for. */
+      /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
       access: { domain: 'root' },
     },
   },

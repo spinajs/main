@@ -30,7 +30,7 @@ export interface AuthzHttpConfig {
   readonly services: readonly ServiceEntry[];
   readonly explainRoute: { readonly enabled: boolean; readonly permission: string };
   readonly links: LinksConfig;
-  /** The domain GET /user/access and POST /user/access/check answer for. */
+  /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
   readonly access: { readonly domain: string };
   /** The domain whose AuthzAdmin the authz-http-admin routes use. */
   readonly admin: { readonly domain: string };

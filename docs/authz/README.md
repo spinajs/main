@@ -506,9 +506,10 @@ export class Campaigns extends BaseController {
   `reject` mode. `@UnfilteredInput(reason)` opts a route out. See `packages/authz-http/README.md`.
 - Principal sources run in order: `ServicePrincipalSource` (40), `AuthnPrincipalSource` (50, the
   principal `authn-http` left in `req.storage.AuthnPrincipal`), `LinkPrincipalSource` (110).
-- `GET /user/access` returns the access summary. `POST /user/access/check` checks up to 100
-  permissions. `GET /authz/explain` exists only when `authz.http.explainRoute.enabled` is true and
-  never in production (H19, B41).
+- `GET /user/access` returns the access summary. `POST /user/access/checks` answers up to 100 client
+  checks, `GET /user/access/events` streams `authz.changed`, and every response carries
+  `X-Access-Epoch` (see `packages/authz-http/README.md`). `GET /authz/explain` exists only when
+  `authz.http.explainRoute.enabled` is true and never in production (H19, B41).
 
 ```ts
 authz: {
