@@ -8,7 +8,7 @@ import type { FixturePart, OrmModelSpec, StepContext, World } from '@spinajs/aut
 import type { SocketResult } from './socket-harness.js';
 import { socketHarness } from './socket-harness.js';
 
-const { combine, extension, permit, relation, staticModel } = fixtureDsl;
+const { combine, extension, ownedRows, permit, relation, staticModel } = fixtureDsl;
 const { as, laneCall, laneHandle } = laneSteps;
 
 // Own cases beside the kit's: the explicit system path, a connection with a user principal, a
@@ -26,21 +26,22 @@ const TASK: OrmModelSpec = {
   ],
 };
 const SELECT = { op: 'select', model: 'Task' } as const;
+const ACCESSIBLE = { op: 'select', model: 'Task', accessible: 'task:read' } as const;
 const AUDIT = { audit: { denials: true, runAs: true, unscoped: true } } as const;
 const NOT_CALLED = { calls: { model: 'm1', count: 0 } } as const;
 const UNATTENDED_DENIED = { throws: 'AccessDenied', reason: 'unattended' } as const;
 
 const world: World = {
-  permissions: [],
+  permissions: [{ name: 'task:read', list: true }],
   principals: { alice: userPrincipal('alice'), bob: userPrincipal('bob') },
   combine: combine('deny-overrides', 'm1'),
-  models: [staticModel('m1', { votes: { 'task:read': permit(relation('owner')) } })],
+  models: [staticModel('m1', { votes: { 'task:read': permit(relation('owner')) }, lists: { 'task:read': ownedRows() } })],
   config: AUDIT,
   lane: {
     orm: { models: [TASK] },
     socket: {
       handlers: [
-        { event: 'tasks', orm: SELECT },
+        { event: 'tasks', orm: ACCESSIBLE },
         { event: 'tasks.system', orm: SELECT },
       ],
     },
