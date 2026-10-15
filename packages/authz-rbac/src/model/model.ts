@@ -1,12 +1,14 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListSupport, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
 
+import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
-import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
+import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, rbacState, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
-import { rbacListSupport } from './list/support.js';
-import { ruleStoreParts } from './rules/extension.js';
+import { DEFAULT_MAX_PLAN_SUBJECTS, rbacListPlan } from './list/plan.js';
+import { rbacListSupport, ruleCanMatch } from './list/support.js';
+import { isDbRulesMarker, ruleStoreParts } from './rules/extension.js';
 import { unlessRowRules } from './rules/steps.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
 import { compileGrants } from './grants.js';
@@ -42,6 +44,7 @@ interface Loaded {
   readonly serviceRoles: ReadonlyMap<string, readonly string[]>;
   readonly assignments: AssignmentCache;
   readonly rolesCheckMs: number;
+  readonly maxPlanSubjects: number;
 }
 
 const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
@@ -61,6 +64,8 @@ export class RbacModel extends AuthorizationModel {
   private grants?: GrantIndex;
   private readonly warnedRoles = new Set<string>();
   private readonly warnedAssignments = new Set<string>();
+  private readonly warnedListRules = new Set<string>();
+  private storedRulesAt?: { readonly version: string; readonly rules: readonly RuleDef[] };
   /*
    * Role reload (§6.1.2 "compile on RoleStore version change"): every stale mark bumps roleMarks; the
    * roles are fresh while rolesFreshAt has caught up. A reload records the mark it started at, so a
@@ -104,7 +109,10 @@ export class RbacModel extends AuthorizationModel {
     for (const ext of this.extensions) for (const filter of ext.nativeFilters?.() ?? []) ctx.registerNativeFilter(filter);
     const { rolesCheckMs, ...cache } = cacheConfig(ctx);
     const assignments = new AssignmentCache(this.opts.assignments, { ...cache, clock: this.clock(), model: this.name });
-    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs };
+    const maxPlanSubjects = ctx.config<number>('maxPlanSubjects', DEFAULT_MAX_PLAN_SUBJECTS);
+    // An unvalidated configuration still gets here.
+    if (!Number.isInteger(maxPlanSubjects) || maxPlanSubjects < 1) throw new AuthzConfigError('authz.rbac.maxPlanSubjects must be a positive integer');
+    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs, maxPlanSubjects };
     this.grants = undefined;
     this.roleMarks = 0;
     this.rolesFreshAt = 0;
@@ -148,6 +156,53 @@ export class RbacModel extends AuthorizationModel {
     const { ladders, implies } = rbacTables(this.extensions, graph, grants);
     const { config } = ruleStoreParts(this.opts.rules);
     return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type);
+  }
+
+  /** Design §6.2: the gathered input of the type-level request `{ type }`, through `cap`, as a list plan (rbacListPlan). */
+  async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    await this.freshRoles();
+    const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}) };
+    await this.refuseListRules(req.permission.name, req.type, ctx.now);
+    const read = await readRbacInput(request, ctx, this.sources());
+    // Every stored rule was checked above (lane decision 12); the DB store's marker is not a rule.
+    const input = { ...read, rowDependentRules: (read.rowDependentRules ?? []).filter((id) => !isDbRulesMarker(id)) };
+    return rbacListPlan(rbacState(input, 'cap'), { maxSubjects: this.state().maxPlanSubjects });
+  }
+
+  /**
+   * Lane decision 12: a live rule, config or stored, that can match `permission` on `type` narrows checks a
+   * plan cannot follow, so the list fails closed. Rules stored before the permission became `list: true`
+   * are found here; RbacRuleListGuard refuses new ones.
+   * @throws Error naming the rule (L2 makes it deny-all model_error)
+   */
+  private async refuseListRules(permission: Permission, type: ResourceType, now: Date): Promise<void> {
+    const { config, db } = ruleStoreParts(this.opts.rules);
+    const rules = [...(config?.all() ?? []), ...(db ? await this.storedRules(db) : [])];
+    const live = (r: RuleDef) => r.expiresAt == null || r.expiresAt.getTime() > now.getTime();
+    const blocking = rules.find((r) => live(r) && ruleCanMatch(r, permission, type));
+    if (!blocking) return;
+    const text = `rbac: rule '${blocking.id}' (${blocking.kind}, source: ${blocking.source}) can apply to ${permission} on ${JSON.stringify(type)}, so lists of it are refused; delete or narrow the rule`;
+    if (!this.warnedListRules.has(blocking.id)) {
+      this.warnedListRules.add(blocking.id);
+      this.log.warn(text);
+    }
+    throw new Error(text);
+  }
+
+  /** The DB rule store whole, read again only when its version moves. */
+  private async storedRules(db: RuleStore): Promise<readonly RuleDef[]> {
+    if (!(db instanceof AdminRuleStore)) throw new Error(`rbac: rule store '${db.name}' cannot list its rules, so no list can be planned (a stored rule could narrow it)`);
+    const version = await db.version();
+    if (this.storedRulesAt?.version === version) return this.storedRulesAt.rules;
+    const rules: RuleDef[] = [];
+    for (let offset = 0; ; ) {
+      const { items, total } = await db.find({}, { limit: STORED_RULES_PAGE, offset });
+      rules.push(...items);
+      offset += items.length;
+      if (items.length === 0 || offset >= total) break;
+    }
+    this.storedRulesAt = { version, rules };
+    return rules;
   }
 
   /**
@@ -533,6 +588,8 @@ const isThenable = (v: unknown): v is PromiseLike<unknown> => typeof (v as { the
 const ROLES_PROBE: Permission = 'rbac:roles';
 
 const SETS_MEMO = '\u0000rbac:sets:';
+
+const STORED_RULES_PAGE = 500;
 
 /** The context of a synchronous read: an extension's gather that touches it fails, never guesses. */
 const NO_CONTEXT = new Proxy({} as EvaluationContext, {

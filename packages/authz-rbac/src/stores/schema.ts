@@ -3,6 +3,7 @@ import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
 import { DEFAULT_MAX_SET_DEPTH } from '../membership/closure.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
+import { DEFAULT_MAX_PLAN_SUBJECTS } from '../model/list/plan.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 /** The shortest authz.rbac.links.secret, the HMAC key of share link tokens. */
@@ -155,6 +156,8 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     defaultRoles: roleList,
     anonymousRoles: { ...roleList, default: [] },
     serviceRoles: { type: 'object', additionalProperties: roleList, default: {} },
+    // Above this many subject keys a list term reads authz_subject_membership in the query (MSSQL's 2100 parameters).
+    maxPlanSubjects: { type: 'integer', minimum: 1, default: DEFAULT_MAX_PLAN_SUBJECTS },
     stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList, membership: stringList } },
     cache: {
       type: 'object',

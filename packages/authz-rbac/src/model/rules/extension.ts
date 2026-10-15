@@ -227,7 +227,7 @@ export class RulesExtension implements RbacExtension {
     const selects = (def: RuleDef, rule: CompiledRule) => principalSelects(rule, request.principal, request.actor) && (def.kind !== 'threshold' || rule.permissions!.has(request.permission));
     if (typeLevel) {
       // A rule off the path reaches some rows only. Rules of a store that is not in memory cannot all be seen from [type, GLOBAL].
-      if (this.db) rowDependent.push(`* (${this.db.name})`);
+      if (this.db) rowDependent.push(dbRulesMarker(this.db.name));
       if (this.config) for (const def of this.config.all()) if (!onPath.has(resourceKey(def.scope)) && live(def) && selects(def, this.rule(def, input.roles, input.ladders))) rowDependent.push(def.id);
     }
     const pending: Maybe<ActiveRule | undefined>[] = [];
@@ -273,6 +273,10 @@ interface BoundSet {
 const MAX_BOUND_PRINCIPALS = 256;
 
 const DB_RULES_KEY = 'rbac:db-rules';
+
+/** The row-dependent entry `activate` adds for a rule store it cannot read whole from a type-level path. */
+export const dbRulesMarker = (store: string): string => `* (${store})`;
+export const isDbRulesMarker = (id: string): boolean => id.startsWith('* (') && id.endsWith(')');
 
 // RbacModel.heldNow passes a context that throws on every access.
 function requestCache(ctx: EvaluationContext): Map<string, unknown> | undefined {
