@@ -27,7 +27,7 @@ class CliChildConf extends FrameworkConfiguration {
       },
       db: { DefaultConnection: 'sqlite', Connections: [sqlite('sqlite'), sqlite('queue')] },
       system: { dirs: { schedules: [dir('../fixtures/cli-schedules')] } },
-      scheduler: { retention: { enabled: false } },
+      scheduler: { retention: { enabled: process.env.CLI_CHILD_RETENTION === '1' } },
     };
   }
 }

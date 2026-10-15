@@ -9,6 +9,8 @@ import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../
 import { buildDefinitions } from './definitions.js';
 import { loadTaskMethodLookup } from '../tasks/task-methods.js';
 import { blackHoleConnections, type QueueRoutingConfig } from '../emit/routing.js';
+// the built-in retention schedule, also in processes that never load the index (CLI)
+import '../retention/SchedulerRetentionTask.js';
 
 @Singleton()
 @Injectable()
