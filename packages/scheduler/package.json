@@ -68,10 +68,20 @@
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
+  "peerDependencies": {
+    "@spinajs/tasks": "2.0.553"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/tasks": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/orm-mysql": "2.0.553",
     "@spinajs/orm-postgres": "2.0.553",
     "@spinajs/orm-sqlite": "2.0.553",
+    "@spinajs/tasks": "2.0.553",
+    "@spinajs/threading": "2.0.553",
     "@types/node": "^22.14.1",
     "@types/sinonjs__fake-timers": "^15.0.1"
   }

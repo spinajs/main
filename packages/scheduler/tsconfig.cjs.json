@@ -17,6 +17,8 @@
     { "path": "../cli/tsconfig.cjs.json" },
     { "path": "../reflection/tsconfig.cjs.json" },
     { "path": "../telemetry-common/tsconfig.cjs.json" },
-    { "path": "../validation/tsconfig.cjs.json" }
+    { "path": "../validation/tsconfig.cjs.json" },
+    { "path": "../tasks/tsconfig.cjs.json" },
+    { "path": "../threading/tsconfig.cjs.json" }
   ]
 }

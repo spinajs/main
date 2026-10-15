@@ -22,6 +22,8 @@
     { "path": "../cli/tsconfig.json" },
     { "path": "../reflection/tsconfig.json" },
     { "path": "../telemetry-common/tsconfig.json" },
-    { "path": "../validation/tsconfig.json" }
+    { "path": "../validation/tsconfig.json" },
+    { "path": "../tasks/tsconfig.json" },
+    { "path": "../threading/tsconfig.json" }
   ]
 }

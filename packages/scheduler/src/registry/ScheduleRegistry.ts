@@ -7,6 +7,7 @@ import { ScheduleNotFound } from '../contract.js';
 import { getBuiltinDeclarations, getScheduleDeclarations } from '../decorators.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { buildDefinitions } from './definitions.js';
+import { loadTaskMethodLookup } from '../tasks/task-methods.js';
 
 @Singleton()
 @Injectable()
@@ -30,10 +31,16 @@ export class ScheduleRegistry extends AsyncService {
     this.config = resolveSchedulerConfig(this.RawConfig);
     const validator = await DI.resolve(DataValidator);
 
+    const declarations = [...getScheduleDeclarations(), ...getBuiltinDeclarations(this.config)];
+    const classNames = new Set(declarations.map((d) => d.target.name));
+    // importing @spinajs/tasks registers its __tasks migration, so only when config names a @Task
+    const needsTaskMethods = this.config.schedules.some((s) => s.task !== undefined && !classNames.has(s.task));
+
     const defs = buildDefinitions({
-      declarations: [...getScheduleDeclarations(), ...getBuiltinDeclarations(this.config)],
+      declarations,
       config: this.config.schedules,
       tickMs: this.config.tick,
+      findTaskMethods: needsTaskMethods ? await loadTaskMethodLookup() : undefined,
       validateParamsSchema: (schema) => {
         const [ok, errors] = validator.validateSchema(schema);
         return ok ? null : (errors ?? []).map((e) => e.message ?? e.keyword).join('; ');

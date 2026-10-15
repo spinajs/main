@@ -5,6 +5,7 @@ import { parseSpec } from '../time/spec.js';
 import { ScheduleValidationError } from '../errors.js';
 import { ScheduledTask } from '../ScheduledTask.js';
 import type { ScheduleDeclaration } from '../decorators.js';
+import type { TaskMethodLookup } from '../tasks/task-methods.js';
 import type {
   ConfigScheduleEntry,
   MisfirePolicy,
@@ -17,6 +18,8 @@ export interface BuildDefinitionsInput {
   declarations: ScheduleDeclaration[];
   config: ConfigScheduleEntry[];
   tickMs: number;
+  /** Adapters for `@Task` methods with this task name; consulted only when no `@Schedule` class has the name. */
+  findTaskMethods?: TaskMethodLookup;
   validateParamsSchema: (schema: object) => string | null;
 }
 
@@ -131,12 +134,20 @@ export function buildDefinitions(input: BuildDefinitionsInput): ScheduleDefiniti
     let baseOptions = base?.options ?? {};
     if (task) {
       const t = byClass.get(task);
-      if (!t) {
-        problems.push(`schedule '${name}': unknown task '${task}' (no @Schedule class or @Task with this name)`);
+      const methods = t ? [] : input.findTaskMethods?.(task) ?? [];
+      if (t) {
+        target = t.target;
+        if (!base) baseOptions = t.options;
+      } else if (methods.length === 1) {
+        target = methods[0];
+      } else {
+        problems.push(
+          methods.length > 1
+            ? `schedule '${name}': task '${task}' is declared by more than one @Task method`
+            : `schedule '${name}': unknown task '${task}' (no @Schedule class or @Task with this name)`,
+        );
         continue;
       }
-      target = t.target;
-      if (!base) baseOptions = t.options;
     }
     if (!target) {
       problems.push(`schedule '${name}': no @Schedule class with this name and no task given`);

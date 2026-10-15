@@ -16,6 +16,7 @@ import { safeJson, toStructuredError } from '../tracking/structured.js';
 import { Heartbeat } from './Heartbeat.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
+import { withRunContext } from './current.js';
 import { RunEventWriter } from './RunEventWriter.js';
 import { RunFinalizer } from './RunFinalizer.js';
 import { loadResumeMap } from './resume.js';
@@ -189,7 +190,7 @@ export class RunExecutor {
 
   protected async invoke(def: ScheduleDefinition, ctx: RunContext): Promise<unknown> {
     const task = await Promise.resolve(DI.resolve(def.task));
-    return task.execute(ctx);
+    return withRunContext(ctx, () => Promise.resolve(task.execute(ctx)));
   }
 
   protected async settle(work: Promise<unknown>, signal: AbortSignal, graceMs: number): Promise<ExecutionOutcome> {

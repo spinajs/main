@@ -45,3 +45,5 @@ export * from './run/resume.js';
 export * from './policy/misfire.js';
 export * from './policy/retry.js';
 export * from './Scheduler.js';
+export * from './run/current.js';
+export * from './tasks/task-methods.js';
