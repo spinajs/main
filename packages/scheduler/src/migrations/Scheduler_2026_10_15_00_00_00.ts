@@ -76,12 +76,13 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.int('Seq').notNull();
       t.string('Name', 128).notNull();
       t.string('Status', 16).notNull();
-      t.int('Weight').notNull();
+      // DECIMAL, not INT: weights and done / total may be fractional, and totals (bytes) exceed INT
+      t.decimal('Weight', 16, 4).notNull();
       t.bigint('StartedAt').notNull();
       t.bigint('FinishedAt');
       t.int('Progress').notNull();
-      t.int('Done');
-      t.int('Total');
+      t.decimal('Done', 24, 4);
+      t.decimal('Total', 24, 4);
       t.text('Message');
       t.json('Result');
       // false when the step's return value was not kept (persistResult: false, not JSON, too large)

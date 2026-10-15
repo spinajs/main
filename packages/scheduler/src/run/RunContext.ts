@@ -64,11 +64,32 @@ export interface RunLogger {
   error(message: string, data?: unknown): void;
 }
 
+/** Width of the step name columns (step row, the run's `CurrentStep`, the journal's `Step`). */
+const MAX_STEP_NAME = 128;
+/** `__scheduler_run_step.Weight` is DECIMAL(16,4). */
+const MAX_WEIGHT = 1e12;
+
 function checkWeight(value: number, what: string): number {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new InvalidArgument(`${what} must be a finite number >= 0, got ${value}`);
+  if (!Number.isFinite(value) || value < 0 || value >= MAX_WEIGHT) {
+    throw new InvalidArgument(`${what} must be a finite number >= 0 and below 1e12, got ${value}`);
   }
   return value;
+}
+
+function checkStepName(name: string): void {
+  const length = [...name].length;
+  if (length > MAX_STEP_NAME) {
+    throw new InvalidArgument(
+      `step name must be at most ${MAX_STEP_NAME} characters, got ${length}: '${name.slice(0, 40)}...'`,
+    );
+  }
+}
+
+/** `Done` / `Total` are DECIMAL(24,4); a JS number is exact up to 2^53 anyway. */
+function checkCount(value: number, what: string): void {
+  if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+    throw new InvalidArgument(`progress ${what} must be a finite number of at most 2^53 - 1, got ${value}`);
+  }
 }
 
 interface OpenStep {
@@ -160,6 +181,7 @@ export class RunContext {
     if (this.signal.aborted) throw new RunAbortedError(this.signal.reason as never);
     if (this.closed) throw new InvalidOperation(`run ${this.runId} has finished; step '${name}' was not started`);
 
+    checkStepName(name);
     const weight = checkWeight(opts.weight ?? 1, `weight of step '${name}'`);
     const occurrence = (this.occurrences.get(name) ?? 0) + 1;
     this.occurrences.set(name, occurrence);
@@ -220,6 +242,10 @@ export class RunContext {
 
   /** A number 0..100 or `{ done, total }`; applies to the open step, or to the whole run outside steps. */
   public progress(p: ProgressInput): void {
+    if (typeof p !== 'number') {
+      checkCount(p.done, 'done');
+      checkCount(p.total, 'total');
+    }
     const n = normalizeProgress(p);
     if (this.open) {
       this.open.fraction = n.fraction;

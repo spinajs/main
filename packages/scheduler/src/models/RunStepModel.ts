@@ -1,6 +1,6 @@
 import { Bool, Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { StepStatus, StructuredError } from '../contract.js';
-import { EpochMs } from './converters.js';
+import { Decimal, EpochMs } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler_run_step')
@@ -18,6 +18,7 @@ export class RunStepModel extends ModelBase {
 
   public Status: StepStatus;
 
+  @Decimal()
   public Weight: number;
 
   @EpochMs()
@@ -28,8 +29,10 @@ export class RunStepModel extends ModelBase {
 
   public Progress: number;
 
+  @Decimal()
   public Done: number | null;
 
+  @Decimal()
   public Total: number | null;
 
   public Message: string | null;

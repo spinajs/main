@@ -18,9 +18,19 @@ export class Int8Converter extends ValueConverter {
 @Injectable()
 export class EpochMsConverter extends Int8Converter {}
 
+/** Postgres and mysql2 return DECIMAL as a string. */
+@Injectable()
+export class DecimalConverter extends Int8Converter {}
+
 export function Int8() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
     model.Converters.set(propertyKey, { Class: Int8Converter });
+  });
+}
+
+export function Decimal() {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: unknown, propertyKey: string) => {
+    model.Converters.set(propertyKey, { Class: DecimalConverter });
   });
 }
 

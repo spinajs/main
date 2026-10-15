@@ -103,8 +103,12 @@ before the ORM boots; a `@Task` file first imported through
 `currentRunContext()` returns the same context from code that cannot take it as a
 parameter (a scheduled `@Task` method); it is `undefined` outside a run.
 
-Throw `NonRetryableError` to fail without automatic retries. Weights must be finite
-and `>= 0`; one step runs at a time (a nested or concurrent `step()` throws).
+Throw `NonRetryableError` to fail without automatic retries. One step runs at a
+time (a nested or concurrent `step()` throws). What the step row cannot store throws
+`InvalidArgument`: a step name over 128 characters, a weight that is not finite,
+negative or `>= 1e12`, and a `done` / `total` that is not finite or exceeds
+`Number.MAX_SAFE_INTEGER`. Weights, `done` and `total` may be fractional; they are
+stored with four decimal places.
 
 **Step names are a fixed set.** They label the `scheduler_step_duration_seconds`
 metric; a data-derived name such as `` `page-${i}` `` grows the series without bound.

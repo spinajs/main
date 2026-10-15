@@ -43,6 +43,14 @@ class Fails extends ScheduledTask {
   }
 }
 
+const LONG_STEP = 'n'.repeat(128);
+class OddSizes extends ScheduledTask {
+  public async execute(ctx: RunContext) {
+    await ctx.step(LONG_STEP, (s) => s.progress({ done: 2.5, total: 3_000_000_000 }), { weight: 0.5 });
+    await ctx.step('b', () => 1, { weight: 1.5 });
+  }
+}
+
 for (const target of REAL_DB_TARGETS) {
   (target.enabled ? describe : describe.skip)(`run context (${target.name})`, function () {
     this.timeout(60_000);
@@ -95,6 +103,17 @@ for (const target of REAL_DB_TARGETS) {
       const log = events.find((e) => e.type === 'log');
       expect(log).to.deep.include({ level: 'warn', message: 'slow row', step: 'process', data: { row: 8 } });
       expect(events.filter((e) => e.type === 'progress')).to.have.length(1);
+    });
+
+    it('stores fractional weights and large or fractional done / total as given', async () => {
+      const { row, handle } = await start('odd-sizes', OddSizes);
+      await handle.done;
+      expect((await getRun(row.Id)).Status).to.eq('succeeded');
+      const steps = await RunStepModel.where('RunId', row.Id).orderBy('Seq');
+      expect(steps.map((s) => [s.Name, s.Weight, s.Done, s.Total])).to.deep.eq([
+        [LONG_STEP, 0.5, 2.5, 3_000_000_000],
+        ['b', 1.5, null, null],
+      ]);
     });
 
     it('stores the failing step error as JSON', async () => {

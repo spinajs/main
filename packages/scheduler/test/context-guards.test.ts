@@ -183,6 +183,26 @@ describe('RunContext guards (hand-built context)', () => {
     expect(ctx.overallProgress).to.eq(0);
   });
 
+  it('rejects step input the step row cannot store', async () => {
+    const failure = (work: Promise<unknown>) =>
+      work.then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(await failure(ctx.step('x'.repeat(129), () => 1))).to.be.instanceOf(InvalidArgument);
+    expect(await failure(ctx.step('a', () => 1, { weight: 1e12 }))).to.be.instanceOf(InvalidArgument);
+    expect(() => ctx.expectSteps(1e12)).to.throw(InvalidArgument);
+    expect(await RunStepModel.where('RunId', runId)).to.have.length(0);
+
+    await ctx.step('y'.repeat(128), (s) => {
+      expect(() => s.progress({ done: NaN, total: 10 })).to.throw(InvalidArgument);
+      expect(() => s.progress({ done: 1, total: Infinity })).to.throw(InvalidArgument);
+      expect(() => s.progress({ done: 1, total: 2 ** 60 })).to.throw(InvalidArgument);
+      s.progress({ done: 2.5, total: 3_000_000_000 });
+    });
+    expect(await RunStepModel.where('RunId', runId)).to.have.length(1);
+  });
+
   it('clears done and total on the step row when progress switches to a plain number', async () => {
     const hold = deferred();
     const step = ctx.step('a', async (s) => {
