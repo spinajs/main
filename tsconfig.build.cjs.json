@@ -58,6 +58,7 @@
     { "path": "./packages/template-mjml/tsconfig.cjs.json" },
     { "path": "./packages/orm-api/tsconfig.cjs.json" },
     { "path": "./packages/tasks/tsconfig.cjs.json" },
+    { "path": "./packages/scheduler/tsconfig.cjs.json" },
     { "path": "./packages/threading/tsconfig.cjs.json" },
     { "path": "./packages/orm-threading/tsconfig.cjs.json" },
     { "path": "./packages/configuration-aws-secretmanager-protocol/tsconfig.cjs.json" },

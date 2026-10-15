@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "ts-node": { "transpileOnly": true },
+  "include": ["src/**/*", "test/**/*"],
+  "references": [
+    { "path": "../di/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../log-common/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+    { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../orm-mysql/tsconfig.json" },
+    { "path": "../orm-postgres/tsconfig.json" },
+    { "path": "../queue/tsconfig.json" },
+    { "path": "../cli/tsconfig.json" },
+    { "path": "../reflection/tsconfig.json" },
+    { "path": "../telemetry-common/tsconfig.json" },
+    { "path": "../validation/tsconfig.json" }
+  ]
+}
