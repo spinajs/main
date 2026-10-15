@@ -2,8 +2,8 @@ import { BasePath, Body, Get, HTTP_STATUS_CODE, Ok, Param, Policy, Post } from '
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 
 import { SchedulerControllerBase } from '../scheduler-controller.js';
-import { SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
-import { RunNowDto } from '../dto/requests.js';
+import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
+import { PauseDto, RetryFailedDto, RunNowDto } from '../dto/requests.js';
 
 /**
  * Scheduler schedules: definitions, health, manual runs, pause control and live events.
@@ -70,5 +70,57 @@ export class SchedulesController extends SchedulerControllerBase {
     });
 
     return result.run ? new Ok(result) : new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+  }
+
+  /**
+   * Retry all failed runs
+   * Queues one retry per failed or dead run of the schedule that finished at or after `since` and has no retry yet,
+   * oldest first, executed one at a time.
+   * @security cookieAuth
+   * @param name Schedule name
+   * @response 202 Retries queued; the body lists their run ids
+   * @response 400 Missing or invalid since
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 404 Schedule not found
+   */
+  @Post(':name/retry-failed')
+  @Permission(SCHEDULER_RUN)
+  public async retryFailed(@Param() name: string, @Body({ required: true }) body: RetryFailedDto) {
+    const result = await this.Scheduler.retryFailed(name, body.since, { triggeredBy: this.triggeredBy() });
+    return new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+  }
+
+  /**
+   * Pause a schedule
+   * Stops new scheduled runs. Manual runs still work unless `hard` is set.
+   * @security cookieAuth
+   * @param name Schedule name
+   * @returns {ScheduleInfo} The paused schedule
+   * @response 400 Invalid body
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — deleteAny on the scheduler resource required
+   * @response 404 Schedule not found
+   */
+  @Post(':name/pause')
+  @Permission(SCHEDULER_MANAGE)
+  public async pause(@Param() name: string, @Body() body: PauseDto) {
+    return new Ok(await this.Scheduler.pause(name, { hard: body?.hard ?? false, triggeredBy: this.triggeredBy() }));
+  }
+
+  /**
+   * Resume a schedule
+   * Clears a manual or failure-triggered pause and resets the consecutive-failure count.
+   * @security cookieAuth
+   * @param name Schedule name
+   * @returns {ScheduleInfo} The resumed schedule
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — deleteAny on the scheduler resource required
+   * @response 404 Schedule not found
+   */
+  @Post(':name/resume')
+  @Permission(SCHEDULER_MANAGE)
+  public async resume(@Param() name: string) {
+    return new Ok(await this.Scheduler.resume(name, { triggeredBy: this.triggeredBy() }));
   }
 }

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { httpStatusForError, InvalidRunParams, RunConflict, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
 
 import { asRole, bootHttp, JSON_HEADERS, req, stopHttp, TEST_USER_UUID } from './common.js';
-import { FakeSchedulerService, makeRun, makeSchedule, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
+import { FakeSchedulerService, makeRun, makeSchedule, OTHER_RUN_ID, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
 
 describe('scheduler-http: schedules', function () {
   this.timeout(25000);
@@ -161,6 +161,73 @@ describe('scheduler-http: schedules', function () {
 
       expect(res).to.have.status(403);
       expect(fake.callsTo('runNow')).to.be.empty;
+    });
+  });
+
+  describe('POST /scheduler/schedules/:name/retry-failed', () => {
+    const url = `scheduler/schedules/${SCHEDULE_NAME}/retry-failed`;
+
+    it('queues retries and answers 202 with their ids', async () => {
+      const res = await req().post(url).set(asRole('scheduler-operator')).send({ since: '2026-10-01T00:00:00.000Z' });
+
+      expect(res).to.have.status(202);
+      expect(res.body).to.deep.equal({ runIds: [OTHER_RUN_ID] });
+
+      const [name, since, ctx] = fake.callsTo('retryFailed')[0] as [string, string, any];
+      expect(name).to.eq(SCHEDULE_NAME);
+      expect(since).to.eq('2026-10-01T00:00:00.000Z');
+      expect(ctx.triggeredBy.id).to.eq(TEST_USER_UUID);
+    });
+
+    it('answers 400 without since or with an invalid one', async () => {
+      const missing = await req().post(url).set(asRole('scheduler-operator')).send({});
+      const invalid = await req().post(url).set(asRole('scheduler-operator')).send({ since: 'yesterday' });
+
+      expect(missing).to.have.status(400);
+      expect(invalid).to.have.status(400);
+      expect(fake.callsTo('retryFailed')).to.be.empty;
+    });
+
+    it('answers 403 to a reader', async () => {
+      const res = await req().post(url).set(asRole('scheduler-reader')).send({ since: '2026-10-01T00:00:00.000Z' });
+      expect(res).to.have.status(403);
+    });
+  });
+
+  describe('POST /scheduler/schedules/:name/pause and /resume', () => {
+    it('pauses, passes hard through and returns the schedule', async () => {
+      const res = await req().post(`scheduler/schedules/${SCHEDULE_NAME}/pause`).set(asRole('scheduler-admin')).send({ hard: true });
+
+      expect(res).to.have.status(200);
+      expect(res.body).to.containSubset({ name: SCHEDULE_NAME, paused: true, hardPaused: true });
+
+      const [name, options] = fake.callsTo('pause')[0] as [string, any];
+      expect(name).to.eq(SCHEDULE_NAME);
+      expect(options.hard).to.eq(true);
+      expect(options.triggeredBy.kind).to.eq('user');
+    });
+
+    it('defaults to a soft pause', async () => {
+      await req().post(`scheduler/schedules/${SCHEDULE_NAME}/pause`).set(asRole('scheduler-admin'));
+
+      expect((fake.callsTo('pause')[0][1] as any).hard).to.eq(false);
+    });
+
+    it('resumes and returns the schedule', async () => {
+      const res = await req().post(`scheduler/schedules/${SCHEDULE_NAME}/resume`).set(asRole('scheduler-admin'));
+
+      expect(res).to.have.status(200);
+      expect(res.body.paused).to.eq(false);
+      expect(fake.callsTo('resume')[0][0]).to.eq(SCHEDULE_NAME);
+    });
+
+    it('requires the manage tier: an operator gets 403', async () => {
+      const paused = await req().post(`scheduler/schedules/${SCHEDULE_NAME}/pause`).set(asRole('scheduler-operator'));
+      const resumed = await req().post(`scheduler/schedules/${SCHEDULE_NAME}/resume`).set(asRole('scheduler-operator'));
+
+      expect(paused).to.have.status(403);
+      expect(resumed).to.have.status(403);
+      expect(fake.calls).to.be.empty;
     });
   });
 });
