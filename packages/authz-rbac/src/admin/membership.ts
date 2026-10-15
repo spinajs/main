@@ -1,9 +1,10 @@
-import { adminContainer } from '@spinajs/authz';
+import { adminContainer, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzTx } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { computeClosures, readMaxSetDepth } from '../membership/closure.js';
+import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
 import type { MembershipEdge, MembershipRow } from '../membership/closure.js';
 import { subjectKeyOf } from '../stores/columns.js';
 import { assignmentStore, honoured, optionalStore, roleIndex, setRolesOf, subjectTag } from './common.js';
@@ -13,6 +14,12 @@ import { isLive, isSetSubject } from './rows.js';
 
 /** Above this many changed members a write tags `*`: a member's cached decisions carry only its own subject tag. */
 export const MEMBERSHIP_TAG_LIMIT = 1000;
+
+// Closure keys escape ids; a principal's tag (rooms, caches) carries its raw principalKey. Set keys stay escaped.
+const keyTag = (key: string): string => {
+  const p = parsePrincipalSubjectKey(key);
+  return `subject:${p ? principalKey(p) : key}`;
+};
 
 /** The membership edges of assignment rows: a row the model honours, for each subjectSet role its role holds. */
 export function membershipEdges(roles: RoleIndex, rows: readonly Assignment[]): MembershipEdge[] {
@@ -77,8 +84,8 @@ export async function refreshMemberships(ctx: AdminContext, tx: AuthzTx, touched
   }
   if (changed.length === 0) return [];
   // A set key tag matches no cached decision; AssignmentCache drops every set entry on any subject: tag.
-  const tags = [...sets, ...keys].map((k) => `subject:${k}`);
-  if (changed.length <= MEMBERSHIP_TAG_LIMIT) tags.push(...changed.map((k) => `subject:${k}`));
+  const tags = [...sets, ...keys].map(keyTag);
+  if (changed.length <= MEMBERSHIP_TAG_LIMIT) tags.push(...changed.map(keyTag));
   else tags.push('*');
   return [...new Set(tags)];
 }
@@ -97,5 +104,5 @@ export async function subjectTags(ctx: AdminContext, s: AssignmentSubject): Prom
   const members = await memberships.membersOf(setKey, ctx.now);
   const scope = s.set.scope;
   const own = [`subject:${setKey}`, ...(scope.id === undefined ? [] : [subjectTag({ type: scope.type, id: scope.id })])];
-  return members.length > MEMBERSHIP_TAG_LIMIT ? [...own, '*'] : [...own, ...members.map((k) => `subject:${k}`)];
+  return members.length > MEMBERSHIP_TAG_LIMIT ? [...own, '*'] : [...own, ...members.map(keyTag)];
 }

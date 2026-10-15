@@ -1,10 +1,10 @@
-import { ChangeAudience } from '@spinajs/authz';
+import { ChangeAudience, principalKey } from '@spinajs/authz';
 import type { AuthzChange, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
 import { MembershipStore } from '../contracts.js';
-import { parseSetKey } from '../model/sets/keys.js';
+import { parsePrincipalSubjectKey, parseSetKey } from '../model/sets/keys.js';
 
 type Answer = { readonly principals: readonly string[] | '*'; readonly objects?: readonly ResourceRef[] };
 
@@ -49,6 +49,10 @@ export class RbacChangeAudience extends ChangeAudience {
     const store = (await this.container.resolve(MembershipStore)) as MembershipStore;
     const members = await store.membersOf(setKey, at);
     if (members.some(isWildcardKey)) return '*';
-    return members.filter((k) => parseSetKey(k) === undefined);
+    // Members are escaped subjectKeyOf keys; rooms and SSE streams are keyed by the raw principalKey.
+    return members.flatMap((k) => {
+      const p = parsePrincipalSubjectKey(k);
+      return p ? [principalKey(p)] : [];
+    });
   }
 }
