@@ -377,6 +377,36 @@ describe('stomp queue transport - unit', function () {
       expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/dup')).to.have.length(1);
     });
 
+    it('dispatches a message to every consumer sharing the channel', async () => {
+      const c = await connected();
+      const first = sinon.stub().resolves();
+      const second = sinon.stub().resolves();
+      await c.subscribe('/queue/shared', first);
+      await c.subscribe('/queue/shared', second);
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/shared')!;
+      const msg = brokerMessage(jobMessage());
+      sub.callback(msg);
+      await tick();
+
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/shared')).to.have.length(1);
+      expect(first.calledOnce).to.be.true;
+      expect(second.calledOnce).to.be.true;
+      expect(msg.ack.calledOnce).to.be.true;
+    });
+
+    it('treats a failure in any consumer sharing the channel as a failed message', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/shared', sinon.stub().resolves());
+      await c.subscribe('/queue/shared', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/shared')!;
+      sub.callback(brokerMessage(jobMessage()));
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/dlq')).to.be.true;
+    });
+
     it('throws for a durable subscription without a subscription id', async () => {
       const c = await connected();
       await expect(c.subscribe('/topic/durable', sinon.stub().resolves(), undefined, true)).to.be.rejectedWith(InvalidArgument);

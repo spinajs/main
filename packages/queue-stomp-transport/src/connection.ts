@@ -88,7 +88,7 @@ const RETRY_COUNT_HEADER = 'x-retry-count';
  */
 interface ISubscriptionDescriptor {
   channel: string;
-  callback: (e: IQueueMessage) => Promise<void>;
+  callbacks: Array<(e: IQueueMessage) => Promise<void>>;
   subscriptionId?: string;
   durable?: boolean;
 
@@ -400,8 +400,11 @@ export class StompQueueClient extends QueueClient {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
     channels.forEach((c) => {
-      if (this.Subscriptions.has(c)) {
-        this.Log.warn(`Channel ${c} already subscribed !`);
+      const existing = this.Subscriptions.get(c);
+      if (existing) {
+        // QueueService filters by message Name inside each callback, so several message types can share one channel
+        existing.callbacks.push(callback);
+        this.Log.info(`Channel ${c} now has ${existing.callbacks.length} consumers on connection ${this.Options.name}`);
         return;
       }
 
@@ -409,7 +412,7 @@ export class StompQueueClient extends QueueClient {
         throw new InvalidArgument(`subscriptionId cannot be empty if using durable subscriptions`);
       }
 
-      const desc: ISubscriptionDescriptor = { channel: c, callback, subscriptionId, durable };
+      const desc: ISubscriptionDescriptor = { channel: c, callbacks: [callback], subscriptionId, durable };
       this.Subscriptions.set(c, desc);
 
       // if already connected subscribe now, otherwise it will be applied on next onConnect
@@ -455,8 +458,7 @@ export class StompQueueClient extends QueueClient {
           qMessage.CreatedAt = DateTime.fromISO(qMessage.CreatedAt as unknown as string);
         }
 
-        desc
-          .callback(qMessage)
+        this.dispatch(desc, qMessage)
           .then(() => {
             message.ack();
           })
@@ -468,6 +470,12 @@ export class StompQueueClient extends QueueClient {
     );
 
     this.Log.success(`Channel ${desc.channel}, durable: ${desc.durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+  }
+
+  protected async dispatch(desc: ISubscriptionDescriptor, message: IQueueMessage): Promise<void> {
+    for (const callback of desc.callbacks) {
+      await callback(message);
+    }
   }
 
   /**
