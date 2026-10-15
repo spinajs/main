@@ -1,9 +1,12 @@
 import { _check_arg, _default, _non_empty, _trim } from '@spinajs/util';
 import { Mutex, MutexLockOptions, LockResult, MutexLock, processIdentity } from '@spinajs/threading';
 import { Config } from '@spinajs/configuration';
-import { __mutex__ } from './models/__mutex__.js';
+import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { IUpdateResult, Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
-import { IUpdateResult } from '@spinajs/orm';
+import { __mutex__ } from './models/__mutex__.js';
+import { dbNowMs } from './db-clock.js';
 
 export * from './migrations/Mutex_2024_12_03_11_41_00.js';
 export * from './migrations/Mutex_2026_10_15_00_00_00.js';
@@ -11,6 +14,13 @@ export * from './migrations/Mutex_2026_10_15_00_00_01.js';
 export * from './models/__mutex__.js';
 export * from './db-clock.js';
 
+/**
+ * Database-backed mutex.
+ *
+ * The same tenant may acquire again; this is not counted, and one release frees the lock.
+ * The default tenant is one per process, so replicas exclude each other, but concurrent
+ * callers inside one process do not unless they pass distinct tenants.
+ */
 export class OrmMutex extends Mutex {
   /**
    * Fixed default tenant. Empty = identity of the current process. Setting one value on
@@ -29,14 +39,23 @@ export class OrmMutex extends Mutex {
   })
   protected MutexWaitInterval: number;
 
+  /**
+   * Lock lifetime in ms when `ttl` is not passed. 0 = never expires.
+   */
+  @Config('threading.mutex.ttl', {
+    defaultValue: 0,
+  })
+  protected DefaultTtl: number;
+
   public async acquire(options: MutexLockOptions): Promise<LockResult> {
     const name = this.nameOf(options.Name);
     const tenant = this.tenantOf(options);
+    const ttl = this.ttlOf(options);
 
-    let granted = await this.tryLock(name, tenant);
+    let granted = await this.tryLock(name, tenant, ttl);
     if (!granted && !(await this.get(name))) {
       await this.createIfMissing(name, tenant);
-      granted = await this.tryLock(name, tenant);
+      granted = await this.tryLock(name, tenant, ttl);
     }
 
     return {
@@ -45,23 +64,43 @@ export class OrmMutex extends Mutex {
     };
   }
 
+  public async renew(options: MutexLockOptions): Promise<boolean> {
+    const name = this.nameOf(options.Name);
+    const tenant = this.tenantOf(options);
+    const ttl = this.ttlOf(options);
+    const now = await this.now();
+
+    const result: IUpdateResult = await (__mutex__ as any)
+      .update({
+        LockedUntil: ttl > 0 ? now + ttl : null,
+      })
+      .where({
+        Name: name,
+        Tenant: tenant,
+        Locked: true,
+      });
+
+    return result.RowsAffected === 1;
+  }
+
   public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
-    const _name = this.nameOf(options.Name);
-    const _tenant = this.tenantOf(options);
+    const name = this.nameOf(options.Name);
+    const tenant = this.tenantOf(options);
     let result: IUpdateResult = null as any;
 
     if (deleteOnClose) {
-      result = await (__mutex__ as any).destroy(_name).where({
-        Tenant: _tenant,
+      result = await (__mutex__ as any).destroy(name).where({
+        Tenant: tenant,
       });
     } else {
       result = await (__mutex__ as any)
         .update({
           Locked: false,
+          LockedUntil: null,
         })
         .where({
-          Name: _name,
-          Tenant: _tenant,
+          Name: name,
+          Tenant: tenant,
         });
     }
 
@@ -69,12 +108,12 @@ export class OrmMutex extends Mutex {
   }
 
   public async create(options: MutexLockOptions): Promise<MutexLock> {
-    const _name = this.nameOf(options.Name);
-    const _tenant = this.tenantOf(options);
+    const name = this.nameOf(options.Name);
+    const tenant = this.tenantOf(options);
 
-    const mutex = await (__mutex__ as any).getOrCreate(_name, {
-      Name: _name,
-      Tenant: _tenant,
+    const mutex = await (__mutex__ as any).getOrCreate(name, {
+      Name: name,
+      Tenant: tenant,
     });
 
     return {
@@ -83,21 +122,24 @@ export class OrmMutex extends Mutex {
   }
 
   public async delete(options: MutexLockOptions): Promise<boolean> {
-    const _name = this.nameOf(options.Name);
-    const _tenant = this.tenantOf(options);
+    const name = this.nameOf(options.Name);
+    const tenant = this.tenantOf(options);
 
-    /**
-     * Delete mutex can only tenant
-     * */
-    const result = await (__mutex__ as any).destroy(_name).where({
-      Tenant: _tenant,
+    const result = await (__mutex__ as any).destroy(name).where({
+      Tenant: tenant,
     });
     return result.RowsAffected === 1;
   }
 
   public async get(name: string): Promise<MutexLock | null> {
-    const _name = this.nameOf(name);
-    return (__mutex__ as any).get(_name);
+    const row = await (__mutex__ as any).get(this.nameOf(name));
+
+    // pg returns BIGINT as a string
+    if (row && row.LockedUntil !== null && row.LockedUntil !== undefined) {
+      row.LockedUntil = Number(row.LockedUntil);
+    }
+
+    return row;
   }
 
   public async wait(name: string, timeout?: number): Promise<boolean> {
@@ -106,8 +148,7 @@ export class OrmMutex extends Mutex {
     return new Promise((resolve, reject) => {
       const checkInterval = setInterval(async () => {
         try {
-          const mutex = await this.get(name);
-          if (!mutex!.Locked) {
+          if (await this.isFree(name)) {
             clearInterval(checkInterval);
             resolve(true);
           } else {
@@ -127,16 +168,20 @@ export class OrmMutex extends Mutex {
 
   /**
    * One conditional UPDATE: atomic per row on every driver, so whoever changes the row owns the lock.
+   * NULL LockedUntil never compares as expired.
    */
-  protected async tryLock(name: string, tenant: string): Promise<boolean> {
+  protected async tryLock(name: string, tenant: string, ttl: number): Promise<boolean> {
+    const now = await this.now();
+
     const result: IUpdateResult = await (__mutex__ as any)
       .update({
         Locked: true,
         Tenant: tenant,
+        LockedUntil: ttl > 0 ? now + ttl : null,
       })
       .where('Name', name)
       .where(function (this: any) {
-        this.where('Locked', false).orWhere('Tenant', tenant);
+        this.where('Locked', false).orWhere('Tenant', tenant).orWhere('LockedUntil', '<', now);
       });
 
     return result.RowsAffected === 1;
@@ -153,11 +198,38 @@ export class OrmMutex extends Mutex {
     }
   }
 
+  protected async isFree(name: string): Promise<boolean> {
+    const mutex = await this.get(name);
+    if (!mutex || !mutex.Locked) {
+      return true;
+    }
+
+    return mutex.LockedUntil !== null && mutex.LockedUntil !== undefined && mutex.LockedUntil < (await this.now());
+  }
+
+  /**
+   * Database clock, so replicas with skewed clocks agree on expiry.
+   */
+  protected now(): Promise<number> {
+    const connection = (__mutex__ as any).getModelDescriptor().Connection;
+    return dbNowMs(DI.get(Orm)!.Connections.get(connection)!);
+  }
+
   protected nameOf(name: string): string {
     return _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
   }
 
   protected tenantOf(options: MutexLockOptions): string {
     return _check_arg(_trim(), _default(() => this.ConfiguredTenant || processIdentity()))(options.Tenant, '');
+  }
+
+  protected ttlOf(options: MutexLockOptions): number {
+    const ttl = options.ttl ?? this.DefaultTtl;
+
+    if (!Number.isFinite(ttl) || ttl < 0) {
+      throw new InvalidArgument(`mutex ttl must be a non-negative number of ms, got ${ttl}`);
+    }
+
+    return ttl;
   }
 }

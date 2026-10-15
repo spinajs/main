@@ -8,10 +8,11 @@ import { expect } from 'chai';
 import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { join, normalize, resolve } from 'path';
-import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait, processIdentity } from '@spinajs/threading';
+import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait, mutex_renew, processIdentity } from '@spinajs/threading';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import { DateTime } from 'luxon';
+import * as sinon from 'sinon';
 
 chai.use(chaiAsPromised);
 
@@ -343,6 +344,105 @@ describe('orm-threading', function () {
 
       const m = await __mutex__.get('test');
       expect(m.Locked).to.be.false;
+    });
+  });
+  describe('lock expiry', () => {
+    const T0 = 1_000_000;
+    let now: sinon.SinonStub;
+
+    beforeEach(() => {
+      now = sinon.stub(DI.resolve(Mutex) as any, 'now').resolves(T0);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('Should store LockedUntil = now + ttl', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 5000);
+    });
+
+    it('Should use threading.mutex.ttl when ttl is not given', async () => {
+      DI.get(Configuration)!.set('threading.mutex.ttl', 2000);
+
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 2000);
+    });
+
+    it('Should never expire with ttl 0', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 0 });
+      now.resolves(T0 + 10 * 365 * 24 * 3600 * 1000);
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.be.null;
+      expect(r.Locked).to.be.false;
+    });
+
+    it('Should not let another tenant take a lock that has not expired', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 4999);
+
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+    });
+
+    it('Should let another tenant take an expired lock', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 5001);
+
+      const r = await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+
+      expect(r.Locked).to.be.true;
+      expect(r.Mutex.Tenant).to.eq('test-2');
+      expect(r.Mutex.LockedUntil).to.eq(T0 + 5001 + 5000);
+    });
+
+    it('Should extend the lock on renew', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 4000);
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.true;
+      expect((await mutex_get('test'))!.LockedUntil).to.eq(T0 + 9000);
+
+      now.resolves(T0 + 6000);
+      expect((await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 })).Locked).to.be.false;
+    });
+
+    it('Should not renew a lock another tenant took over', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 6000);
+      await mutex_acquire({ Name: 'test', Tenant: 'test-2', ttl: 5000 });
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+    });
+
+    it('Should not renew a released lock', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      expect(await mutex_renew({ Name: 'test', Tenant: 'test-1', ttl: 5000 })).to.be.false;
+    });
+
+    it('Should clear LockedUntil on release', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+
+      await mutex_release({ Name: 'test', Tenant: 'test-1' });
+
+      expect((await mutex_get('test'))!.LockedUntil).to.be.null;
+    });
+
+    it('Should reject a negative ttl', async () => {
+      await expect(mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: -1 })).to.be.rejected;
+    });
+
+    it('Should treat an expired lock as released in wait()', async () => {
+      await mutex_acquire({ Name: 'test', Tenant: 'test-1', ttl: 5000 });
+      now.resolves(T0 + 6000);
+
+      expect(await mutex_wait('test', 2000)).to.be.true;
     });
   });
 });
