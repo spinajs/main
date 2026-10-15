@@ -11,7 +11,7 @@ export interface SubjectColumns {
   readonly subject_role: string;
 }
 
-export interface ScopeColumns {
+export interface ScopeRefColumns {
   readonly scope_type: string;
   readonly scope_id: string;
 }
@@ -35,7 +35,7 @@ export function subjectFromColumns(type: string, id: string, role: string | null
 }
 
 /** GLOBAL is `('$global', '')`; a type-level ref keeps `''` as its id. */
-export function scopeToColumns(scope: ResourceRef): ScopeColumns {
+export function scopeToColumns(scope: ResourceRef): ScopeRefColumns {
   if (scope.type === GLOBAL.type) return { scope_type: GLOBAL.type, scope_id: '' };
   return { scope_type: scope.type, scope_id: scope.id ?? '' };
 }

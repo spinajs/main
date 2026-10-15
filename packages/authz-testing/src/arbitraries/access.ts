@@ -68,7 +68,8 @@ export function accessWorld(opts: AccessWorldOptions = {}): fc.Arbitrary<AccessW
       scope: fc.constantFrom(...scopes),
       expires: fc.constantFrom<'never' | 'past' | 'later'>('never', 'never', 'past', 'later'),
     });
-    return fc.array(grant, { maxLength: 8 }).map((grants): AccessWorld => {
+    // Unique like authz_assignment_uq, so a DB assignment store can hold every world.
+    return fc.uniqueArray(grant, { maxLength: 8, selector: (g) => `${g.subject}|${g.role}|${g.scope.type}:${g.scope.id ?? ''}` }).map((grants): AccessWorld => {
       const assignments: Assignment[] = grants.map((g, i) => ({
         id: `a${i + 1}`,
         subject: { type: 'user', id: g.subject },

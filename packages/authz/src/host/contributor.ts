@@ -7,6 +7,7 @@ export interface AuthzContribution {
   readonly relationRefs?: readonly RelationRefDecl[];
   readonly scopeRefs?: readonly ScopeRefDecl[];
   readonly joinTypes?: readonly ResourceType[];
+  readonly listTypes?: readonly ResourceType[];
   readonly scopeAttributeSchemas?: readonly ScopeAttributeSchema[];
 }
 

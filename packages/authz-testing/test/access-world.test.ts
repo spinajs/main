@@ -19,6 +19,8 @@ describe('arb.accessWorld', () => {
           expect(users).to.include(r.owner);
         }
         for (const a of world.rbac!.assignments ?? []) expect(Object.keys(ACCESS_ROLES)).to.include(a.role);
+        const keys = (world.rbac!.assignments ?? []).map((a) => JSON.stringify([a.subject, a.role, a.scope]));
+        expect(new Set(keys).size, 'assignments unique by subject, role and scope (authz_assignment_uq)').to.equal(keys.length);
         expect(world.permissions).to.deep.equal(ACCESS_PERMISSIONS);
       }),
       { numRuns: 50 },

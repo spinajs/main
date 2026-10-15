@@ -55,7 +55,7 @@ describe('UserIdentityStore + UserPasswordStore conformance (sqlite)', function 
   runIdentityStoreConformance(subject);
 });
 
-const PG = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres' };
+const PG = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
 
 async function pgAdmin(sql: string): Promise<void> {
   const driver = await DI.child().resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'c1-pg-admin', Driver: 'orm-driver-postgres', ...PG, Database: 'postgres', Pool: { Max: 1, AcquireTimeout: 15000 } }]);

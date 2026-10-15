@@ -47,10 +47,12 @@ describe('authz-orm resource connection check', function () {
     expect(() => checkResourceConnections(orm, config({ 'authz.rbac.connection': 'nope' }))).to.throw(AuthzConfigError, /no ORM connection named "nope"/);
   });
 
-  it('is a contributor the domain boot runs', async () => {
+  it('is a contributor the domain boot runs, giving the @AccessResource types as listTypes', async () => {
     expect(DI.getRegisteredTypes(AuthzContributor)).to.include(AuthzOrmContributor);
     await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } });
-    expect(await new AuthzOrmContributor().contribute('root')).to.deep.equal({});
+    const out = await new AuthzOrmContributor().contribute('root');
+    expect(Object.keys(out)).to.deep.equal(['listTypes']);
+    expect(out.listTypes).to.include('task');
     await (await testHost.domains()).service('root');
     await testHost.resetRoot();
   });

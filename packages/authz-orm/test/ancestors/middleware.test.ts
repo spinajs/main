@@ -84,7 +84,7 @@ describe('AncestorMiddleware', function () {
         driver = db.driver(dialect);
         await createAncestorTable(db, dialect);
         Project = (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
-        Task = (await db.define({ name: 'Task', columns: { id: 'INTEGER', project_id: 'TEXT', title: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        Task = (await db.define({ name: 'Task', columns: { id: dialect === 'postgres' ? 'SERIAL' : 'INTEGER', project_id: 'TEXT', title: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
         bus.subscribe((change) => published.push({ change, inTx: driver.CurrentTransaction !== undefined }));
         await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o2' }]);
       });

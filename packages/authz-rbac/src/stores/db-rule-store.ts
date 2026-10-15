@@ -7,7 +7,7 @@ import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
-import type { ScopeColumns } from './columns.js';
+import type { ScopeRefColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
 import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
@@ -283,8 +283,8 @@ function subjectKey(list: string, s: { subject_type: string; subject_id: string;
   return JSON.stringify([list, s.subject_type, s.subject_id, s.subject_role]);
 }
 
-function uniqueScopes(refs: readonly ResourceRef[]): ScopeColumns[] {
-  const seen = new Map<string, ScopeColumns>();
+function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
+  const seen = new Map<string, ScopeRefColumns>();
   for (const r of refs) {
     const c = scopeToColumns(r);
     seen.set(JSON.stringify([c.scope_type, c.scope_id]), c);
@@ -293,7 +293,7 @@ function uniqueScopes(refs: readonly ResourceRef[]): ScopeColumns[] {
 }
 
 /** `(scope_type = ? AND scope_id IN (…)) OR …`, one group per type; row-value `IN` is not portable. */
-function whereScopes(query: IWhereBuilder<unknown>, scopes: readonly ScopeColumns[]): void {
+function whereScopes(query: IWhereBuilder<unknown>, scopes: readonly ScopeRefColumns[]): void {
   const byType = new Map<string, string[]>();
   for (const s of scopes) byType.set(s.scope_type, [...(byType.get(s.scope_type) ?? []), s.scope_id]);
 

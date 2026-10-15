@@ -123,6 +123,16 @@ describe('validateBoot rule 12: list permissions', () => {
     expect(validateBoot(input({ registry: registry([{ name: 'doc:write', types: ['doc'] }]), models: [new PlainModel('abac')] })).warnings).to.deep.equal([]);
   });
 
+  it('refuses a list permission on a type outside the given listTypes, never on $global', () => {
+    const reg = registry([{ name: 'doc:read', types: ['doc', 'folder', '$global'], list: true }]);
+    expect(lines({ registry: reg, models: [new ListingModel('rbac')], listTypes: ['doc'] })).to.deep.equal(['[6.5/12] domain "app", type "folder", permission "doc:read": no list-scoped resource serves this type (an ORM type needs an @AccessResource model)']);
+    expect(validateBoot(input({ registry: reg, models: [new ListingModel('rbac')], listTypes: ['doc', 'folder'] })).warnings).to.deep.equal([]);
+  });
+
+  it('does not check list types when none are given', () => {
+    expect(validateBoot(input({ models: [new ListingModel('rbac')] })).warnings).to.deep.equal([]);
+  });
+
   it('sorts rule 12 after the other rules', () => {
     const out = lines({ models: [new PlainModel('abac')], combine: { default: { algorithm: 'deny-overrides', models: ['ghost', 'abac'] } } });
     expect(out[0]).to.match(/^\[6\.5\/1\] /);
