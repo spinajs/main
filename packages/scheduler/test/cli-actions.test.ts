@@ -135,7 +135,9 @@ describe('CLI action commands', () => {
 
     out.lines.length = 0;
     await RunModel.update({ Status: 'failed', FinishedAt: clock.now() }).where('Id', retried);
-    await (await cmd(SchedulerRetryCommand)).execute(undefined, {
+    await (
+      await cmd(SchedulerRetryCommand)
+    ).execute(undefined, {
       schedule: 'sum',
       failedSince: '2026-01-05T00:00:00Z',
       json: true,

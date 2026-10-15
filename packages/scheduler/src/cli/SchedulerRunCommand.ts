@@ -3,11 +3,11 @@ import { DI } from '@spinajs/di';
 import {
   isTerminalStatus,
   RunConflict,
-  RunEvent,
   SCHEDULER_EXIT_OK,
   SCHEDULER_EXIT_RUN_FAILED,
   SchedulerService,
 } from '../contract.js';
+import { follow } from '../cli-support/follow.js';
 import { formatEvent } from '../cli-support/format.js';
 import { collect, parseParams } from '../cli-support/params.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
@@ -91,31 +91,17 @@ export class SchedulerRunCommand extends SchedulerCommand {
         })
       : undefined;
 
+    // a local run is executed by this process, so its events are in-process even when an HTTP endpoint is configured
+    const config = local ? { ...this.config(), cli: {} } : this.config();
     try {
-      await new Promise<void>((resolve, reject) => {
-        let finished = false;
-        let off: (() => void) | undefined;
-        const done = () => {
-          if (finished) return;
-          finished = true;
-          off?.();
-          resolve();
-        };
-        stop.signal.addEventListener('abort', done, { once: true });
-        const onEvent = (e: RunEvent) => {
-          if (finished) return;
+      await follow(service, config, {
+        target: { runId },
+        signal: stop.signal,
+        onEvent: (e) => {
           if (printEvents) this.print(asJson ? JSON.stringify(e) : formatEvent(e));
-          // a local process never mirrors queue jobs, so stop at 'emitted'
-          if (e.type === 'status' && (isTerminalStatus(e.status) || (local && e.status === 'emitted'))) done();
-        };
-        service
-          .subscribe({ runId }, onEvent)
-          .then((u) => {
-            off = u;
-            if (finished) u();
-            return u;
-          })
-          .catch(reject);
+        },
+        // a local process never mirrors queue jobs, so it stops at 'emitted'
+        until: (e) => e.type === 'status' && (isTerminalStatus(e.status) || (local && e.status === 'emitted')),
       });
     } finally {
       stop.abort();

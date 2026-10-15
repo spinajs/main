@@ -1,4 +1,6 @@
 import { Argument, Command, Option } from '@spinajs/cli';
+import { isTerminalEvent } from '../contract.js';
+import { follow } from '../cli-support/follow.js';
 import { duration, formatEvent, table, when } from '../cli-support/format.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 
@@ -54,8 +56,12 @@ export class SchedulerRunShowCommand extends SchedulerCommand {
     });
   }
 
-  // Task 40 implements following.
-  protected followRun(_id: string, _asJson: boolean): Promise<void> {
-    return Promise.resolve();
+  protected async followRun(id: string, asJson: boolean): Promise<void> {
+    if (!asJson) this.print('--- following ---');
+    await follow(await this.service(), this.config(), {
+      target: { runId: id },
+      onEvent: (e) => this.print(asJson ? JSON.stringify(e) : formatEvent(e)),
+      until: isTerminalEvent,
+    });
   }
 }
