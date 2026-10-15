@@ -226,7 +226,7 @@ describe('Scheduler', () => {
     await s.tickOnce();
     await waitFor(() => s.isRunningLocally(run.Id));
 
-    const orm = DI.get(Orm);
+    const orm = DI.get(Orm)!;
     const disconnect = orm.dispose.bind(orm);
     let atDisconnect: { run?: RunModel; leaseOwner?: string | null } = {};
     orm.dispose = async () => {
