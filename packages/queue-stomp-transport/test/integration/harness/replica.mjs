@@ -55,11 +55,31 @@ class ReplicaJob extends QueueJob {
 }
 Job()(ReplicaJob);
 
+function isWebSocketFailure(err) {
+  return [err?.message, err?.inner?.message, err?.cause?.message].some((m) => typeof m === 'string' && m.includes('websocket error'));
+}
+
+// same reasoning as retryConnect() in support/env.ts: only a dropped connect is retried, never a STOMP refusal
+async function boot() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      DI.clearCache();
+      DI.register(ReplicaConf).as(Configuration);
+      await DI.resolve(Configuration);
+      await DI.resolve(Orm);
+      return await DI.resolve(QueueService);
+    } catch (err) {
+      if (attempt >= 3 || !isWebSocketFailure(err)) {
+        throw err;
+      }
+      await DI.get(Orm)?.dispose().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 try {
-  DI.register(ReplicaConf).as(Configuration);
-  await DI.resolve(Configuration);
-  await DI.resolve(Orm);
-  const queue = await DI.resolve(QueueService);
+  const queue = await boot();
 
   await queue.consume(ReplicaJob, async (job) => {
     await send({ type: 'succeeded', jobId: job.JobId });

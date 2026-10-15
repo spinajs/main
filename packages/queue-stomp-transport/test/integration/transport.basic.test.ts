@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { StompQueueClient } from '../../src/connection.js';
-import { requireBroker, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL, waitFor } from './support/env.js';
+import { requireBroker, retryConnect, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL, waitFor } from './support/env.js';
 import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
@@ -66,7 +66,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 const qList: StompQueueClient[] = [];
 
 async function q(extra: Record<string, unknown> = {}) {
-  const q = await DI.resolve(StompQueueClient, [
+  const q = await retryConnect(() => DI.resolve(StompQueueClient, [
     {
       host: STOMP_URL,
       login: STOMP_LOGIN,
@@ -77,7 +77,7 @@ async function q(extra: Record<string, unknown> = {}) {
       defaultTopicChannel: TestEventChannelName,
       ...extra,
     },
-  ]);
+  ]));
 
   qList.push(q);
 

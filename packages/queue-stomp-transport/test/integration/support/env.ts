@@ -55,6 +55,28 @@ export async function requireBroker(ctx: Mocha.Context): Promise<void> {
   ctx.skip();
 }
 
+function isWebSocketFailure(err: unknown): boolean {
+  const e = err as { message?: string; inner?: { message?: string }; cause?: { message?: string } } | undefined;
+  return [e?.message, e?.inner?.message, e?.cause?.message].some((m) => typeof m === 'string' && m.includes('websocket error'));
+}
+
+/**
+ * Docker Desktop's port proxy on a CPU-saturated Windows host now and then drops a connect ( ETIMEDOUT ) while the
+ * broker is fine. Only such websocket-level failures are retried; a STOMP refusal ( credentials, client-id ) is not.
+ */
+export async function retryConnect<T>(connect: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await connect();
+    } catch (err) {
+      if (attempt >= attempts || !isWebSocketFailure(err)) {
+        throw err;
+      }
+      await sleep(1000);
+    }
+  }
+}
+
 export function removeTempDir(dir: string): void {
   try {
     rmSync(dir, { recursive: true, force: true });

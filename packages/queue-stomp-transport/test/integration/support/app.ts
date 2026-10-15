@@ -8,7 +8,7 @@ import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { useConfig } from './client.js';
-import { STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL } from './env.js';
+import { retryConnect, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL } from './env.js';
 
 export interface IAppOptions {
   dbFile: string;
@@ -58,9 +58,18 @@ export function appConfig(o: IAppOptions): Record<string, unknown> {
 }
 
 export async function startApp(o: IAppOptions): Promise<QueueService> {
-  await useConfig(appConfig(o));
-  await DI.resolve(Orm);
-  return DI.resolve(QueueService);
+  return retryConnect(async () => {
+    try {
+      await useConfig(appConfig(o));
+      await DI.resolve(Orm);
+      return await DI.resolve(QueueService);
+    } catch (err) {
+      await DI.get(Orm)
+        ?.dispose()
+        .catch(() => undefined);
+      throw err;
+    }
+  });
 }
 
 export async function stopApp(): Promise<void> {

@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { StompQueueClient } from '../../../src/connection.js';
-import { STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL } from './env.js';
+import { retryConnect, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL } from './env.js';
 
 export class ItConf extends FrameworkConfiguration {
   public static Current: Record<string, unknown> = {};
@@ -29,7 +29,7 @@ const open: StompQueueClient[] = [];
 let counter = 0;
 
 export async function client(extra: Record<string, unknown> = {}): Promise<StompQueueClient> {
-  const c = await DI.resolve(StompQueueClient, [{ host: STOMP_URL, login: STOMP_LOGIN, password: STOMP_PASSWORD, name: `it-${Date.now()}-${++counter}`, ...extra }]);
+  const c = await retryConnect(() => DI.resolve(StompQueueClient, [{ host: STOMP_URL, login: STOMP_LOGIN, password: STOMP_PASSWORD, name: `it-${Date.now()}-${++counter}`, ...extra }]));
   open.push(c);
   return c;
 }
