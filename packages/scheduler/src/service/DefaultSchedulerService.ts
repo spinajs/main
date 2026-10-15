@@ -10,10 +10,12 @@ import {
   ErrorGroupInfo,
   ErrorGroupStatus,
   InvalidRunParams,
+  InvalidRunState,
   isTerminalStatus,
   Page,
   PauseOptions,
   PruneResult,
+  RETRYABLE_RUN_STATUSES,
   RetryOptions,
   RunConflict,
   RunDetail,
@@ -46,6 +48,7 @@ import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
 import { toRunEvent } from '../run/events.js';
 import { RunEventHub } from '../run/RunEventHub.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
+import { RunFinalizer } from '../run/RunFinalizer.js';
 import { activeSchedulers } from '../Scheduler.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
 import { Clock, DbClock, TimerHandle } from '../time/clock.js';
@@ -64,6 +67,9 @@ const DEFAULT_PAGE = 50;
 const MAX_PAGE = 500;
 const RECENT_RUNS = 20;
 const DETAIL_LOGS = 200;
+const CANCEL_ROUNDS = 3;
+/** Ids per `IN (...)` list. */
+const ID_BATCH = 500;
 
 export interface NewManualRun {
   trigger: RunTrigger;
@@ -110,6 +116,9 @@ export class DefaultSchedulerService extends SchedulerService {
 
   @Autoinject(RunEventWriter)
   protected Events: RunEventWriter;
+
+  @Autoinject(RunFinalizer)
+  protected Finalizer: RunFinalizer;
 
   @Autoinject(DataValidator)
   protected Validator: DataValidator;
@@ -229,16 +238,82 @@ export class DefaultSchedulerService extends SchedulerService {
     return { runId: run.Id, run: await this.waitForEnd(run.Id, timeoutMs) };
   }
 
-  // Replaced in Tasks 36-37.
-  public cancel(_runId: string, _ctx: ActionContext): Promise<RunInfo> {
-    throw new MethodNotImplemented('cancel');
+  /**
+   * A `queued` or `retrying` run ends `aborted` / `cancelled` at once. A `running` run is flagged, and
+   * its holder aborts it on its next heartbeat (at once when it runs in this process).
+   */
+  public async cancel(runId: string, ctx: ActionContext): Promise<RunInfo> {
+    // every write is conditional on the state just read; a run that moved on meanwhile is looked at again
+    for (let round = 0; round < CANCEL_ROUNDS; round++) {
+      const run = await this.loadRun(runId);
+      const now = await this.now();
+      if (run.Status === 'queued' || run.Status === 'retrying') {
+        if (!(await this.abortWaitingRun(run, now))) continue;
+      } else if (run.Status === 'running') {
+        const r = await RunModel.update({ CancelRequested: true }).where('Id', runId).where('Status', 'running');
+        if (r.RowsAffected !== 1) continue;
+        for (const s of activeSchedulers()) s.abortLocal(runId, 'cancelled');
+      } else {
+        throw new InvalidRunState(
+          `run ${runId} is ${run.Status}; only queued, retrying or running runs can be cancelled`,
+          run.Status,
+        );
+      }
+      this.audit('cancel', ctx.triggeredBy, { runId, schedule: run.Schedule, status: run.Status });
+      return this.info(await this.loadRun(runId), now);
+    }
+    const current = await this.loadRun(runId);
+    throw new InvalidRunState(`run ${runId} kept changing state (now ${current.Status}); try again`, current.Status);
   }
-  public retry(_runId: string, _options: RetryOptions): Promise<RunNowResult> {
-    throw new MethodNotImplemented('retry');
+
+  /**
+   * A new linked run (`trigger: retry`, attempt `parent + 1`). `fromStep` implies resume; `resume`
+   * defaults to the schedule's `resumable`. A resumed retry skips the parent's completed steps and
+   * starts from its last checkpoint.
+   */
+  public async retry(runId: string, o: RetryOptions): Promise<RunNowResult> {
+    const plan = await this.planRetry(await this.loadRun(runId), o);
+    const run = await this.createQueuedRun(plan.def, { ...plan.run, now: await this.now() });
+    this.auditRetry(run, o);
+    this.wakeLocal();
+    return { runId: run.Id };
   }
-  public retryFailed(_name: string, _since: Date | string, _ctx: ActionContext): Promise<{ runIds: string[] }> {
-    throw new MethodNotImplemented('retryFailed');
+
+  /** One retry per `failed` / `dead` run finished at or after `since` that has none yet, oldest first. */
+  public async retryFailed(name: string, since: Date | string, ctx: ActionContext): Promise<{ runIds: string[] }> {
+    this.Registry.get(name);
+    const sinceMs = toMs(since);
+    await this.assertManualRunsAllowed(name);
+    const failed = await RunModel.query()
+      .where('Schedule', name)
+      .whereIn('Status', ['failed', 'dead'])
+      .where('FinishedAt', '>=', sinceMs)
+      .orderBy('FinishedAt');
+    if (!failed.length) return { runIds: [] };
+
+    const retried = new Set<string>();
+    for (let i = 0; i < failed.length; i += ID_BATCH) {
+      const ids = failed.slice(i, i + ID_BATCH).map((f) => f.Id);
+      for (const child of await RunModel.query().whereIn('ParentRunId', ids)) retried.add(child.ParentRunId!);
+    }
+
+    const o: RetryOptions = { triggeredBy: ctx.triggeredBy };
+    // every retry is validated before the first one is created
+    const plans = [];
+    for (const f of failed) if (!retried.has(f.Id)) plans.push(await this.planRetry(f, o));
+
+    const now = await this.now();
+    const runIds: string[] = [];
+    for (const [i, plan] of plans.entries()) {
+      // queued runs are claimed by CreatedAt; equal values would leave the order to the database
+      const run = await this.createQueuedRun(plan.def, { ...plan.run, now, createdAt: now + i });
+      this.auditRetry(run, o);
+      runIds.push(run.Id);
+    }
+    if (runIds.length) this.wakeLocal();
+    return { runIds };
   }
+
   public pause(_name: string, _options: PauseOptions): Promise<ScheduleInfo> {
     throw new MethodNotImplemented('pause');
   }
@@ -250,6 +325,86 @@ export class DefaultSchedulerService extends SchedulerService {
   }
   public prune(_ctx: ActionContext): Promise<PruneResult> {
     throw new MethodNotImplemented('prune');
+  }
+
+  /** `false` when the run was claimed or changed after `run` was read. */
+  protected async abortWaitingRun(run: RunModel, now: number): Promise<boolean> {
+    const r = await RunModel.update({
+      Status: 'aborted',
+      Reason: 'cancelled',
+      CancelRequested: true,
+      FinishedAt: now,
+      UpdatedAt: now,
+      NextAttemptAt: null,
+    })
+      .where('Id', run.Id)
+      .where('Status', run.Status)
+      .where('Attempt', run.Attempt);
+    if (r.RowsAffected !== 1) return false;
+
+    // the finalizer decides error grouping and health from Reason
+    Object.assign(run, {
+      Status: 'aborted',
+      Reason: 'cancelled',
+      CancelRequested: true,
+      FinishedAt: now,
+      NextAttemptAt: null,
+    });
+    await this.Events.write(run, run.Attempt, { type: 'status', status: 'aborted', reason: 'cancelled' });
+    await this.Finalizer.finalized({
+      run,
+      def: this.Registry.find(run.Schedule),
+      status: 'aborted',
+      error: null,
+      now,
+      countsAsFailure: false,
+    });
+    return true;
+  }
+
+  protected async planRetry(
+    parent: RunModel,
+    o: RetryOptions,
+  ): Promise<{ def: ScheduleDefinition; run: Omit<NewManualRun, 'now'> }> {
+    if (!RETRYABLE_RUN_STATUSES.includes(parent.Status)) {
+      throw new InvalidRunState(
+        `run ${parent.Id} is ${parent.Status}; only failed, dead or aborted runs can be retried`,
+        parent.Status,
+      );
+    }
+    const def = this.Registry.get(parent.Schedule);
+    const params = this.validateParams(def, o.params ?? parent.Params);
+    if (o.fromStep !== undefined && !(await RunStepModel.where('RunId', parent.Id).where('Name', o.fromStep).first())) {
+      throw new InvalidRunParams(`run ${parent.Id} has no step '${o.fromStep}'`, [
+        { path: '/fromStep', message: 'unknown step' },
+      ]);
+    }
+    await this.assertManualRunsAllowed(def.name);
+
+    const resume = o.fromStep !== undefined || (o.resume ?? def.resumable);
+    return {
+      def,
+      run: {
+        trigger: 'retry',
+        triggeredBy: o.triggeredBy,
+        params,
+        forced: def.runOn === 'all',
+        parentRunId: parent.Id,
+        attempt: parent.Attempt + 1,
+        resumeFrom: resume ? { runId: parent.Id, ...(o.fromStep !== undefined ? { fromStep: o.fromStep } : {}) } : null,
+        checkpoint: resume ? parent.Checkpoint ?? null : null,
+      },
+    };
+  }
+
+  protected auditRetry(run: RunModel, o: RetryOptions): void {
+    this.audit('retry', o.triggeredBy, {
+      schedule: run.Schedule,
+      runId: run.Id,
+      parentRunId: run.ParentRunId,
+      fromStep: o.fromStep ?? null,
+      resume: !!run.ResumeFrom,
+    });
   }
 
   protected async assertManualRunsAllowed(name: string): Promise<void> {
