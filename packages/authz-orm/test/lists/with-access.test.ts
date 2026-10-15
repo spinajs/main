@@ -95,6 +95,18 @@ describe('.withAccess()', function () {
         expect(Object.keys(rows[0]).some((k) => k.startsWith('__authz_access_'))).to.equal(false);
       });
 
+      it('a clone of an executed builder answers its own rows', async () => {
+        type C = Q & { clone(): C; where(column: string, value: unknown): C };
+        const byId = (rows: (ModelBase & Record<string, unknown>)[]) => Object.fromEntries(rows.map((r) => [r.id, r.$access]));
+        const expected = { t1: { 'task:update': true, 'task:delete': false }, t2: { 'task:update': false, 'task:delete': false } };
+        const q = Task.query().accessible('task:read').withAccess(['task:update', 'task:delete']) as unknown as C;
+        expect(byId(await as(() => q))).to.deep.equal(expected);
+        expect(byId(await as(() => q.clone().where('id', 't2')))).to.deep.equal({ t2: expected.t2 });
+        const [a, b] = await as(() => Promise.all([q.clone(), q.clone()]));
+        expect(byId(a)).to.deep.equal(expected);
+        expect(byId(b)).to.deep.equal(expected);
+      });
+
       it('serialises $access with the row', async () => {
         const [row] = (await as(() => Task.query().accessible('task:read').withAccess(['task:update']))).filter((r) => r.id === 't1');
         const json = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
