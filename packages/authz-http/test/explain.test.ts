@@ -55,6 +55,19 @@ describe('explain route (H19, B41)', function () {
     expect(res.body.trace).to.be.an('object');
   });
 
+  it('format=tree answers { label, allowed, children } built from the trace, and another format is a 400', async () => {
+    running = await boot({ 'authz.http.explainRoute': { enabled: true, permission: 'authz:explain' }, 'configuration.isProduction': false });
+
+    const res = await running.app.request().get(`${EXPLAIN}&format=tree`).set('x-user', 'bob');
+
+    expect(res.status).to.eq(200);
+    expect(res.body.label).to.match(/^file:f1#file:read = deny \(.+\)$/);
+    expect(res.body.allowed).to.eq(false);
+    expect(res.body.children.map((c: { label: string }) => c.label)).to.include.members(['m1: abstain']);
+    expect(res.body.children.at(-1).label).to.match(/^deny-overrides over \[m1\] in exp$/);
+    expect((await running.app.request().get(`${EXPLAIN}&format=xml`).set('x-user', 'bob')).status).to.eq(400);
+  });
+
   it('refuses a caller without the explain permission (403) and an anonymous one (401)', async () => {
     running = await boot({ 'authz.http.explainRoute': { enabled: true, permission: 'authz:explain' }, 'configuration.isProduction': false });
 

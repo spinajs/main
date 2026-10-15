@@ -7,6 +7,7 @@ import { Config } from '@spinajs/configuration';
 
 import { domainService } from '../domains.js';
 import { forbidden, unauthenticated } from '../access/policy.js';
+import { explainTree } from './tree.js';
 import '../storage.js';
 
 function splitKey(key: unknown, what: string): { type: string; id?: string } {
@@ -45,7 +46,7 @@ export class ExplainPolicy extends BasePolicy {
 }
 
 /**
- * `GET /authz/explain?principal=<type>:<id>&permission=&resource=<type>[:<id>]`: the decision with
+ * `GET /authz/explain?principal=<type>:<id>&permission=&resource=<type>[:<id>]&format=decision|tree`: the decision with
  * its trace (design §11.4). Mounted only by ExplainControllerSource: when
  * `authz.http.explainRoute.enabled` and never in production (H19, B41).
  */
@@ -56,7 +57,8 @@ export class ExplainController extends BaseController {
 
   @Get('explain')
   @Policy(ExplainPolicy)
-  public async explain(@Req() _req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string) {
+  public async explain(@Req() _req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string, @Query() format?: string) {
+    if (format !== undefined && format !== '' && format !== 'decision' && format !== 'tree') throw new InvalidArgument("format must be 'decision' or 'tree'", 'format');
     const target = splitKey(principal, 'principal');
     if (target.id === undefined) throw new InvalidArgument('principal must be <type>:<id>', 'principal');
     if (!isPermission(permission)) throw new InvalidArgument('permission must be a permission name', 'permission');
@@ -64,6 +66,7 @@ export class ExplainController extends BaseController {
 
     const subject: Principal = Object.freeze({ type: target.type, id: target.id, authenticated: target.type !== 'anonymous' && target.type !== 'unattended', source: 'explain', attributes: Object.freeze({}) });
     const authz = await domainService(this.AccessDomain);
-    return new Ok(await authz.explain({ principal: subject, permission, resource: ref }));
+    const decision = await authz.explain({ principal: subject, permission, resource: ref });
+    return new Ok(format === 'tree' ? explainTree(decision) : decision);
   }
 }
