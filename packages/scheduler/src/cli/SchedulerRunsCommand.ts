@@ -1,6 +1,7 @@
 import { Argument, Command, Option } from '@spinajs/cli';
 import { duration, table, when } from '../cli-support/format.js';
-import { oneOf, parseLimit, RUN_STATUSES } from '../cli-support/params.js';
+import { oneOf, parseLimit } from '../cli-support/params.js';
+import { RUN_STATUSES } from '../service/statuses.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 
 @Command('scheduler:runs', 'Lists runs, newest first')

@@ -8,7 +8,7 @@ import {
   SubscribeTarget,
 } from '../contract.js';
 import type { SchedulerConfig } from '../interfaces.js';
-import { SseParser } from './sse.js';
+import { SseMessage, SseParser } from './sse.js';
 
 export interface FollowOptions {
   target: SubscribeTarget;
@@ -23,11 +23,19 @@ export interface FollowOptions {
 export interface FollowHttpOptions {
   baseUrl: string;
   headers?: Record<string, string>;
+  /** How long a refused connection or a 502/503/504 answer is retried before giving up; default 60 s. */
+  maxDownMs?: number;
+  /** First retry delay after such a failure, doubled per failure up to 10 s; default 1 s. */
+  retryDelayMs?: number;
 }
 
-/** Connections in a row that may end without delivering an event before following gives up. */
-const MAX_CONNECTIONS = 5;
-const RECONNECT_DELAY_MS = 1000;
+/** Clean closes in a row without any event before following gives up. */
+const MAX_EMPTY_CONNECTIONS = 5;
+const MAX_DOWN_MS = 60_000;
+const RETRY_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 10_000;
+/** Answers of a proxy whose backend is briefly gone, e.g. during a rolling deploy. */
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
 // without the JSON fallback scheduler-http answers 406 instead of the real 401/403/404
 const ACCEPT = 'text/event-stream, application/json;q=0.5';
 
@@ -37,26 +45,33 @@ export function follow(service: SchedulerService, config: SchedulerConfig, o: Fo
   return followInProcess(service, o);
 }
 
+/** An exception from `onEvent` or `until` ends the follow with that error, as on the SSE path. */
 export function followInProcess(service: SchedulerService, o: FollowOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (o.signal?.aborted) return resolve();
     let finished = false;
     let off: (() => void) | undefined;
-    const done = () => {
+    const finish = (err?: unknown) => {
       if (finished) return;
       finished = true;
-      o.signal?.removeEventListener('abort', done);
+      o.signal?.removeEventListener('abort', onAbort);
       off?.();
-      resolve();
+      if (err === undefined) resolve();
+      else reject(err);
     };
-    o.signal?.addEventListener('abort', done, { once: true });
+    const onAbort = () => finish();
+    o.signal?.addEventListener('abort', onAbort, { once: true });
     service
       .subscribe(
         o.target,
         (e) => {
           if (finished) return;
-          o.onEvent(e);
-          if (o.until(e)) done();
+          try {
+            o.onEvent(e);
+            if (o.until(e)) finish();
+          } catch (err) {
+            finish(err ?? new Error('follow callback failed'));
+          }
         },
         { after: o.after },
       )
@@ -65,17 +80,15 @@ export function followInProcess(service: SchedulerService, o: FollowOptions): Pr
         if (finished) u();
         return u;
       })
-      .catch((err) => {
-        finished = true;
-        reject(err);
-      });
+      .catch((err) => finish(err ?? new Error('subscribe failed')));
   });
 }
 
 /**
  * Follows `GET {baseUrl}/scheduler/runs/:id/events` (or `/scheduler/schedules/:name/events`) and
  * reconnects with `Last-Event-ID` when the stream closes before `until`. Synthetic progress events
- * (R16) repeat the current position: they are delivered, and never change the resume point.
+ * (R16) repeat the current position: they are delivered and show the stream is alive, but never
+ * change the resume point.
  */
 export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): Promise<void> {
   const path =
@@ -83,55 +96,88 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
       ? `scheduler/runs/${encodeURIComponent(o.target.runId)}/events`
       : `scheduler/schedules/${encodeURIComponent(o.target.schedule)}/events`;
   const url = new URL(path, http.baseUrl.endsWith('/') ? http.baseUrl : `${http.baseUrl}/`).toString();
+  const maxDownMs = http.maxDownMs ?? MAX_DOWN_MS;
+  const retryDelayMs = http.retryDelayMs ?? RETRY_DELAY_MS;
   let last = o.after;
-  let lastError: unknown;
+  let empty = 0;
+  let failures = 0;
+  let downSince: number | undefined;
 
-  for (let idle = 0; idle < MAX_CONNECTIONS; ) {
-    if (o.signal?.aborted) return;
+  while (!o.signal?.aborted) {
     const headers = {
       Accept: ACCEPT,
       ...(http.headers ?? {}),
       ...(last !== undefined ? { 'Last-Event-ID': String(last) } : {}),
     };
-    let delivered = false;
+    let delivered = false as boolean;
+    let failure: unknown;
+
+    /** True once following is over. */
+    const handle = (m: SseMessage): boolean => {
+      if (!m.data) {
+        last = parseSseEventId(m.id) ?? last;
+        return false;
+      }
+      const e = final(() => JSON.parse(m.data) as RunEvent);
+      delivered = true;
+      if (!(e.type === 'progress' && e.synthetic)) last = parseSseEventId(m.id) ?? last;
+      return final(() => {
+        o.onEvent(e);
+        return o.until(e);
+      });
+    };
+
     try {
       const res = await fetch(url, { headers, signal: o.signal });
+      if (GATEWAY_STATUSES.has(res.status)) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new Error(`GET ${url} answered HTTP ${res.status}`);
+      }
       if (!res.ok || !res.body) throw new FinalError(await streamError(res, url, o.target));
+      const type = res.headers.get('content-type') ?? '';
+      if (!type.toLowerCase().startsWith('text/event-stream')) {
+        await res.body.cancel().catch(() => undefined);
+        throw new FinalError(
+          new Error(
+            `GET ${url} answered '${type || 'no content type'}' instead of an event stream (text/event-stream)`,
+          ),
+        );
+      }
       const parser = new SseParser();
       const decoder = new TextDecoder();
+      // leaving a loop over the body cancels it, which closes the connection
       for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-        for (const m of parser.push(decoder.decode(chunk, { stream: true }))) {
-          if (!m.data) {
-            last = parseSseEventId(m.id) ?? last;
-            continue;
-          }
-          const e = final(() => JSON.parse(m.data) as RunEvent);
-          if (!(e.type === 'progress' && e.synthetic)) {
-            last = parseSseEventId(m.id) ?? last;
-            delivered = true;
-          }
-          const stop = final(() => {
-            o.onEvent(e);
-            return o.until(e);
-          });
-          // leaving the loop cancels the body, which closes the connection
-          if (stop) return;
-        }
+        for (const m of parser.push(decoder.decode(chunk, { stream: true }))) if (handle(m)) return;
       }
-      lastError = undefined;
+      for (const m of parser.end(decoder.decode())) if (handle(m)) return;
     } catch (err) {
       if (o.signal?.aborted) return;
       if (err instanceof FinalError) throw err.error;
-      lastError = err;
+      failure = err ?? new Error('event stream failed');
     }
-    idle = delivered ? 0 : idle + 1;
-    if (lastError !== undefined && idle < MAX_CONNECTIONS) await delay(RECONNECT_DELAY_MS * idle, o.signal);
+
+    if (delivered) {
+      empty = 0;
+      failures = 0;
+      downSince = undefined;
+    }
+    if (failure === undefined) {
+      if (!delivered && ++empty >= MAX_EMPTY_CONNECTIONS) {
+        throw new Error(`event stream ${url} closed ${MAX_EMPTY_CONNECTIONS} times in a row without an event`);
+      }
+      continue;
+    }
+    failures++;
+    downSince ??= Date.now();
+    if (Date.now() - downSince >= maxDownMs) {
+      const reason = failure instanceof Error ? failure.message : String(failure);
+      throw new Error(`event stream ${url} unreachable for ${Math.round(maxDownMs / 1000)} s: ${reason}`);
+    }
+    await delay(Math.min(retryDelayMs * 2 ** (failures - 1), MAX_RETRY_DELAY_MS), o.signal);
   }
-  const reason = lastError instanceof Error ? `: ${lastError.message}` : '';
-  throw new Error(`event stream ${url} closed ${MAX_CONNECTIONS} times without a new event${reason}`);
 }
 
-/** Only a dropped or refused connection is retried; an HTTP error answer, a bad event or a callback error is not. */
+/** Not retried: an HTTP error answer, a non-SSE answer, a bad event, an exception from a callback. */
 class FinalError extends Error {
   constructor(public readonly error: unknown) {
     super(error instanceof Error ? error.message : String(error));
@@ -147,8 +193,9 @@ function final<T>(fn: () => T): T {
 }
 
 async function streamError(res: Response, url: string, target: SubscribeTarget): Promise<Error> {
-  if (res.status === 404)
+  if (res.status === 404) {
     return 'runId' in target ? new RunNotFound(target.runId) : new ScheduleNotFound(target.schedule);
+  }
   const body = (await res.text().catch(() => '')).trim().slice(0, 500);
   const message = `GET ${url} failed: HTTP ${res.status}${body ? ` ${body}` : ''}`;
   return res.status === 400 ? new InvalidRunParams(message, []) : new Error(message);

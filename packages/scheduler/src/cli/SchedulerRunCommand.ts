@@ -48,12 +48,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
 
       if (o.local) {
         const scheduler = await this.localScheduler();
-        if (!(await scheduler.runLocally(runId))) {
-          throw new RunConflict(
-            `run ${runId} is queued but could not be claimed in this process; another run holds the schedule lease`,
-            runId,
-          );
-        }
+        if (!(await scheduler.runLocally(runId))) await this.assertTakenElsewhere(runId);
       }
 
       if (!o.wait && !o.follow && !o.local) {
@@ -65,9 +60,32 @@ export class SchedulerRunCommand extends SchedulerCommand {
       await this.waitForRun(service, runId, !!o.local, !!o.json, !!o.follow);
       const run = await service.getRun(runId);
       process.exitCode = run.status === 'succeeded' ? SCHEDULER_EXIT_OK : SCHEDULER_EXIT_RUN_FAILED;
-      if (o.json) this.json({ runId, run });
+      // with --follow --json every line, the result included, is one JSON document (NDJSON)
+      if (o.json && o.follow) this.print(JSON.stringify({ runId, run }));
+      else if (o.json) this.json({ runId, run });
       else this.print(`run ${runId} ${run.status}${run.error ? `: ${run.error.message}` : ''}`);
     });
+  }
+
+  /**
+   * A refused first claim is fine when another replica already took the run: it is followed like a
+   * retry another replica claims. A run still queued is blocked, and the blocking run is named.
+   */
+  protected async assertTakenElsewhere(runId: string): Promise<void> {
+    const run = await RunModel.where('Id', runId).first();
+    if (!run || run.Status !== 'queued') return;
+    const blocking = await RunModel.where('Schedule', run.Schedule)
+      .where('Status', 'running')
+      .where('Id', '<>', runId)
+      .orderByDescending('StartedAt')
+      .first();
+    const holder = blocking
+      ? `run ${blocking.Id} holds schedule ${run.Schedule}`
+      : `another replica holds schedule ${run.Schedule}`;
+    throw new RunConflict(
+      `run ${runId} could not be claimed in this process: ${holder}; it stays queued for a server replica`,
+      blocking?.Id ?? null,
+    );
   }
 
   /** The loop is never started here, so only the runs this command claims execute in the CLI process. */
@@ -122,7 +140,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
     while (!signal.aborted) {
       await scheduler.idle();
       const run = await RunModel.where('Id', runId).first();
-      if (!run || isTerminalStatus(run.Status) || signal.aborted) return;
+      if (!run || isTerminalStatus(run.Status) || signal.aborted) break;
       if (run.Status !== 'retrying') {
         await timers.sleep(tick, signal);
         continue;
@@ -131,5 +149,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
       if (wait <= 0 && (await scheduler.runLocally(runId))) continue;
       await timers.sleep(wait > 0 ? wait : tick, signal);
     }
+    // an attempt claimed just before an abort must finish before the CLI process exits
+    await scheduler.idle();
   }
 }

@@ -1,18 +1,4 @@
-import { ErrorGroupStatus, InvalidRunParams, RunStatus } from '../contract.js';
-
-export const RUN_STATUSES: readonly RunStatus[] = [
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'retrying',
-  'dead',
-  'aborted',
-  'emitted',
-  'skipped',
-  'misfired',
-];
-export const ERROR_GROUP_STATUSES: readonly ErrorGroupStatus[] = ['open', 'resolved', 'ignored'];
+import { InvalidRunParams } from '../contract.js';
 
 /** Commander accumulator for repeatable options. */
 export function collect(value: string, previous: string[] = []): string[] {

@@ -1,6 +1,7 @@
 import { Argument, Command, Option } from '@spinajs/cli';
 import { table, when } from '../cli-support/format.js';
-import { ERROR_GROUP_STATUSES, oneOf } from '../cli-support/params.js';
+import { oneOf } from '../cli-support/params.js';
+import { ERROR_GROUP_STATUSES } from '../service/statuses.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 
 @Command('scheduler:errors', 'Lists grouped errors')

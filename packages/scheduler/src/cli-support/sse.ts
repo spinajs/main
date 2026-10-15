@@ -15,9 +15,9 @@ export class SseParser {
     let idx: number;
     while ((idx = this.buffer.search(/\r\n|\r|\n/)) >= 0) {
       // a trailing '\r' may be the first half of a '\r\n' split across chunks
-      if (this.buffer[idx] === '\r' && idx === this.buffer.length - 1) break;
+      if (idx === this.buffer.length - 1 && this.buffer.endsWith('\r')) break;
       const line = this.buffer.slice(0, idx);
-      const width = this.buffer[idx] === '\r' && this.buffer[idx + 1] === '\n' ? 2 : 1;
+      const width = this.buffer.startsWith('\r\n', idx) ? 2 : 1;
       this.buffer = this.buffer.slice(idx + width);
 
       if (line === '') {
@@ -37,6 +37,15 @@ export class SseParser {
       else if (field === 'id') this.current.id = value;
       else if (field === 'event') this.current.event = value;
     }
+    return out;
+  }
+
+  /** Call when the stream ends: a final CR line end was held back waiting for a possible LF. */
+  public end(text = ''): SseMessage[] {
+    const out = this.push(text);
+    if (this.buffer.endsWith('\r')) out.push(...this.push('\n'));
+    this.buffer = '';
+    this.current = { data: [] };
     return out;
   }
 }

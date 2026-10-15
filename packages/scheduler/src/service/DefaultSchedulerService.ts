@@ -58,6 +58,7 @@ import { DefinitionSync } from '../store/DefinitionSync.js';
 import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock, TimerHandle } from '../time/clock.js';
 import { fireTime } from '../time/occurrences.js';
+import { ERROR_GROUP_STATUSES } from './statuses.js';
 import { nextOccurrence } from '../time/spec.js';
 import {
   toArray,
@@ -77,7 +78,6 @@ const DETAIL_LOGS = 200;
 const CANCEL_ROUNDS = 3;
 /** Ids per `IN (...)` list. */
 const ID_BATCH = 500;
-const ERROR_GROUP_STATUSES: readonly ErrorGroupStatus[] = ['open', 'resolved', 'ignored'];
 
 export interface NewManualRun {
   trigger: RunTrigger;
