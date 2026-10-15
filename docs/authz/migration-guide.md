@@ -1388,13 +1388,10 @@ The config, permissions, owners, signed URLs and the `fs` domain are in `package
 ### K1, K1b and A4: canvas conformance, ABAC scope leaves
 
 No change for a 2.x app. Canvas runs RBAC and ABAC with the config of design §8.5 and writes every fact
-through `AuthzAdmin`. A4 adds `authz.abac.scopeResiduals` (default `false`). Off, an ABAC
-comparison of `scope.<type>.*` on a list cannot be decided: a deny policy denies the list
-(`needs_subject`, B19), and a permit makes the vote indeterminate, which denies the list under
-`deny-overrides` (B39). On, the comparison becomes a SQL leaf and the list is filtered row by row
-([the authz README](./README.md#the-abac-model)). Canvas turns it on. In either mode, a policy that
-folds while it still holds a `scope.*` read that no leaf covers now needs the subject, so such a list
-is narrower than before.
+through `AuthzAdmin`. The A4 switch `authz.abac.scopeResiduals` and its residual op
+`native:condition.scope` were removed with the query-rewriting list path: an ABAC comparison of
+`scope.<type>.*` is decided per object by checks, and a permission whose policies read it is not
+list-filterable.
 
 ### E2 and E3: engine fixes
 
