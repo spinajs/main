@@ -9,7 +9,7 @@ import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
 import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
-import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
+import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, PurgeReport, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
 import { asSystem, assertAllowed, domainContainer, execute, teamsDomain, teamsDriver } from '../host.js';
 import { deleteInvitations } from '../invitations/rows.js';
 import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
@@ -242,18 +242,25 @@ export class DefaultTeamService extends TeamService {
     return this.purge(team);
   }
 
-  async purgeDue(now: Date = new Date()): Promise<readonly string[]> {
+  async purgeDue(now: Date = new Date()): Promise<PurgeReport> {
     const cutoff = now.getTime() - this.GraceDays * 86_400_000;
     const deleted = await asSystem(async () => (await Team.query().whereNotNull('deleted_at')) as Team[]);
     const due = deleted.filter((t) => (dateOf(t.deleted_at)?.getTime() ?? Infinity) <= cutoff);
     const dueIds = new Set(due.map((t) => t.id));
-    const out: string[] = [];
+    const purged: string[] = [];
+    const failed: string[] = [];
     for (const t of due) {
       // Purged with its parent, which recurses into it.
       if (t.parent_id && dueIds.has(t.parent_id)) continue;
-      out.push(...(await this.purge(t)));
+      // One team that cannot be purged must not block every later one on every run.
+      try {
+        purged.push(...(await this.purge(t)));
+      } catch (e) {
+        failed.push(t.id);
+        this.Log.error(e instanceof Error ? e : new Error(String(e)), `purge of team ${t.id} failed`);
+      }
     }
-    return Object.freeze(out);
+    return Object.freeze({ purged: Object.freeze(purged), failed: Object.freeze(failed) });
   }
 
   protected async purge(team: Team): Promise<readonly string[]> {

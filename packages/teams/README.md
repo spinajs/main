@@ -63,7 +63,9 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
 - `deleteTeam` is a soft delete: the team disappears from every service, its writes freeze, `restoreTeam` brings it
   back (needs `team:delete`); `purgeTeam(actor, id)` purges it at once. `purgeDue(now)` (call it from a scheduler) hard-deletes teams deleted more than
   `teams.deletion.graceDays` (default 30) ago, with their sub-teams, groups and invitations; authz-orm forgets their
-  scopes; each purge publishes `TeamPurged` (`{ team, slug, teams, groups }`) to every `AuthzEventSink`.
+  scopes; each purge publishes `TeamPurged` (`{ team, slug, teams, groups }`) to every `AuthzEventSink`. It returns
+  `{ purged, failed }`: a team whose purge throws is logged (`teams` logger) and listed in `failed`, the run goes on
+  with the other teams, and the next run retries it.
 
 ## Invitations
 
