@@ -159,6 +159,98 @@ describe('run event journal', () => {
     expect(got.map((e) => e.seq)).to.deep.eq([1, 2, 3, 4, 5]);
   });
 
+  it('caps message and progress rows per run as well', async () => {
+    const dropped: Array<RunEvent | null> = [];
+    for (let i = 0; i < 5; i++) {
+      dropped.push(await writer.write(A, 1, { type: 'message', message: `m${i}`, level: 'info', step: null }));
+      dropped.push(await writer.write(A, 1, { type: 'progress', progress: i * 10, step: null, stepProgress: null }));
+    }
+    expect(dropped.filter((e) => e === null)).to.have.length(4);
+    expect(await RunLogModel.count((b) => b.where('RunId', 'run-a').where('Kind', 'message'))).to.eq(3);
+    expect(await RunLogModel.count((b) => b.where('RunId', 'run-a').where('Kind', 'progress'))).to.eq(3);
+  });
+
+  it('a failed write does not use up the cap', async () => {
+    await remote(A, 1);
+    // the writer's cached seq collides three times with rows another replica wrote
+    const original = writer['nextSeq'].bind(writer);
+    let calls = 0;
+    writer['nextSeq'] = async (...args: Parameters<typeof original>) => (++calls <= 3 ? 1 : original(...args));
+    await expect(writer.write(A, 1, { type: 'log', level: 'info', message: 'lost', step: null })).to.be.rejected;
+    writer['nextSeq'] = original;
+    for (let i = 0; i < 3; i++) {
+      expect(await writer.write(A, 1, { type: 'log', level: 'info', message: `l${i}`, step: null })).to.not.eq(null);
+    }
+  });
+
+  it('a run stream never skips a seq another replica wrote between two local events', async () => {
+    const got: RunEvent[] = [];
+    const off = await hub.subscribe({ runId: 'run-a' }, (e) => got.push(e));
+    await writer.write(A, 1, { type: 'status', status: 'running', reason: null });
+    await waitFor(() => got.length === 1);
+    // the reaper on another replica
+    await appendJournalRow({
+      RunId: 'run-a',
+      Schedule: 's',
+      Seq: 2,
+      Attempt: 1,
+      Ts: clock.now(),
+      Kind: 'status',
+      Data: { type: 'status', status: 'retrying', reason: 'lease-expired' },
+    });
+    // the stalled owner writes again: its cached seq collides, it re-reads and publishes seq 3
+    await writer.write(A, 1, { type: 'log', level: 'info', message: 'late', step: null });
+    await waitFor(() => got.length === 3);
+    off();
+    expect(got.map((e) => e.seq)).to.deep.eq([1, 2, 3]);
+  });
+
+  it('unsubscribing removes the listener and the poll timer', async () => {
+    const emitter = hub['emitter'];
+    const timers = clock.pendingTimers;
+    const offRun = await hub.subscribe({ runId: 'run-a' }, () => undefined);
+    const offSchedule = await hub.subscribe({ schedule: 's' }, () => undefined);
+    expect(emitter.listenerCount('run:run-a') + emitter.listenerCount('schedule:s')).to.eq(2);
+    expect(clock.pendingTimers).to.eq(timers + 2);
+    offRun();
+    offSchedule();
+    expect(emitter.listenerCount('run:run-a') + emitter.listenerCount('schedule:s')).to.eq(0);
+    expect(clock.pendingTimers).to.eq(timers);
+  });
+
+  it('a failed first replay rejects, delivers nothing and leaves no listener or timer', async () => {
+    const timers = clock.pendingTimers;
+    const got: RunEvent[] = [];
+    hub.fetchAfter = async () => {
+      // published while the replay is in flight: must not reach a subscription that fails
+      hub.publish({
+        type: 'status',
+        status: 'running',
+        reason: null,
+        id: 1,
+        seq: 1,
+        runId: 'run-a',
+        schedule: 's',
+        attempt: 1,
+        ts: '2026-01-05T10:00:00.000Z',
+      });
+      throw new Error('db down');
+    };
+    await expect(hub.subscribe({ runId: 'run-a' }, (e) => got.push(e))).to.be.rejectedWith('db down');
+    expect(got).to.have.length(0);
+    expect(hub['emitter'].listenerCount('run:run-a')).to.eq(0);
+    expect(clock.pendingTimers).to.eq(timers);
+  });
+
+  it('drops a run from its cache once a terminal status is written', async () => {
+    await writer.write(A, 1, { type: 'log', level: 'info', message: 'x', step: null });
+    await writer.write(A, 1, { type: 'status', status: 'retrying', reason: null });
+    expect(writer['cache'].has('run-a')).to.eq(true);
+    await writer.write(A, 2, { type: 'status', status: 'succeeded', reason: null });
+    expect(writer['cache'].has('run-a')).to.eq(false);
+    expect((await writer.write(A, 2, { type: 'log', level: 'info', message: 'after', step: null }))!.seq).to.eq(4);
+  });
+
   it('continues the sequence from the database after forget()', async () => {
     await writer.write(A, 1, { type: 'status', status: 'running', reason: null });
     writer.forget('run-a');
