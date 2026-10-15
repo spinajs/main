@@ -33,6 +33,8 @@ export interface RunContextInit {
   onStepFinished?: (step: string, status: StepStatus, durationMs: number) => Promise<void>;
   /** Writes the checkpoint to the run row while this replica still owns the run; `false` when it does not. */
   saveCheckpoint: (json: string) => Promise<boolean>;
+  /** Called when a write proves another replica owns the run; the executor aborts the run with `lease-lost`. */
+  onLeaseLost?: () => void;
 }
 
 export interface StepOptions {
@@ -257,7 +259,11 @@ export class RunContext {
   public async checkpoint(data: unknown): Promise<void> {
     const json = safeJson(data);
     if (json === null) throw new InvalidArgument('checkpoint data must be JSON-serializable');
-    if (!(await this.init.saveCheckpoint(json))) throw new RunAbortedError('lease-lost');
+    if (!(await this.init.saveCheckpoint(json))) {
+      // abort before the task sees the error, so its step-end and later lines are not journaled
+      this.init.onLeaseLost?.();
+      throw new RunAbortedError('lease-lost');
+    }
     this.checkpointValue = JSON.parse(json) as unknown;
   }
 

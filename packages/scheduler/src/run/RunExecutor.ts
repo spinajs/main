@@ -92,7 +92,7 @@ export class RunExecutor {
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
     await this.Signals.runStarted(run, startedAt);
 
-    const ctx = await this.createContext(run, def, ac.signal, cfg);
+    const ctx = await this.createContext(run, def, ac.signal, cfg, () => abort('lease-lost'));
     const scheduleLease = run.Forced ? null : run.Schedule;
     const renewEveryMs = Math.floor(cfg.leaseTtl / 3);
     const heartbeat = new Heartbeat({
@@ -142,6 +142,7 @@ export class RunExecutor {
     def: ScheduleDefinition,
     signal: AbortSignal,
     cfg: SchedulerConfig,
+    onLeaseLost?: () => void,
   ): Promise<RunContext> {
     return new RunContext({
       run,
@@ -156,6 +157,7 @@ export class RunExecutor {
       // fenced like every other write of the owner: a reaped or re-claimed run refuses it
       saveCheckpoint: (json) =>
         this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: json, UpdatedAt: this.Clock.now() }),
+      onLeaseLost,
     });
   }
 

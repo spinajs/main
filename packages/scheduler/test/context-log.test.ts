@@ -1,7 +1,15 @@
 import { expect } from 'chai';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { DI } from '@spinajs/di';
-import { LeaseStore, RunAbortedError, RunContext, RunExecutor, RunModel, ScheduledTask } from '../src/index.js';
+import {
+  LeaseStore,
+  RunAbortedError,
+  RunContext,
+  RunExecutor,
+  RunModel,
+  RunStepModel,
+  ScheduledTask,
+} from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 import { getRun, journal, makeDef, queuedRun, seedSchedules } from './support/fixtures.js';
 
@@ -33,12 +41,17 @@ class Checkpoints extends ScheduledTask {
 }
 class LosesLease extends ScheduledTask {
   public async execute(ctx: RunContext) {
-    await RunModel.update({ LeaseOwner: 'r2' }).where('Id', ctx.runId);
-    try {
-      await ctx.checkpoint({ cursor: 1 });
-    } catch (err) {
-      lostCheckpoint = err;
-    }
+    await ctx.step('save', async (s) => {
+      await RunModel.update({ LeaseOwner: 'r2' }).where('Id', ctx.runId);
+      try {
+        await ctx.checkpoint({ cursor: 1 });
+      } catch (err) {
+        lostCheckpoint = err;
+      }
+      s.message('after the refusal');
+      ctx.log.info('after the refusal');
+      throw lostCheckpoint;
+    });
   }
 }
 
@@ -86,6 +99,14 @@ describe('RunContext log, checkpoint, result', () => {
     const row = await run('loses-lease', LosesLease, { Checkpoint: { cursor: 0 } });
     expect(lostCheckpoint).to.be.instanceOf(RunAbortedError);
     expect(lostCheckpoint).to.include({ reason: 'lease-lost' });
-    expect((await getRun(row.Id)).Checkpoint).to.deep.eq({ cursor: 0 });
+    const after = await getRun(row.Id);
+    expect(after.Checkpoint).to.deep.eq({ cursor: 0 });
+    // the refusal aborts the run like a lost heartbeat: nothing is journaled behind the new owner
+    expect((await journal(row.Id)).map((e) => (e.type === 'status' ? e.status : e.type))).to.deep.eq([
+      'running',
+      'step-start',
+    ]);
+    expect(after).to.include({ Status: 'running', LeaseOwner: 'r2' });
+    expect((await RunStepModel.where('RunId', row.Id).first()).Status).to.eq('aborted');
   });
 });
