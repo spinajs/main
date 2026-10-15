@@ -7,8 +7,8 @@ import { bootTestEnv } from './support/env.js';
 describe('database time', () => {
   it('has a query per supported driver', () => {
     expect(dbNowSql('orm-driver-sqlite')).to.contain('julianday');
-    expect(dbNowSql('orm-driver-mysql')).to.contain('UNIX_TIMESTAMP(NOW(3))');
-    expect(dbNowSql('orm-driver-mysql-ssh')).to.contain('UNIX_TIMESTAMP');
+    expect(dbNowSql('orm-driver-mysql')).to.contain('UTC_TIMESTAMP(3)').and.not.contain('NOW(');
+    expect(dbNowSql('orm-driver-mysql-ssh')).to.contain('UTC_TIMESTAMP');
     expect(dbNowSql('orm-driver-postgres')).to.contain('clock_timestamp()');
     expect(() => dbNowSql('orm-driver-mssql')).to.throw(/no database time query/);
   });

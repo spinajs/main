@@ -6,7 +6,10 @@ import { DbTimeSource } from './clock.js';
 export function dbNowSql(driverName: string): string {
   const d = driverName.toLowerCase();
   if (d.includes('sqlite')) return "SELECT CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER) AS ms";
-  if (d.includes('mysql')) return 'SELECT CAST(ROUND(UNIX_TIMESTAMP(NOW(3)) * 1000) AS SIGNED) AS ms';
+  // UTC_TIMESTAMP, not UNIX_TIMESTAMP(NOW()): mapping a session-local time back to epoch is off by
+  // an hour inside a repeated DST hour of the session time zone
+  if (d.includes('mysql'))
+    return "SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000 AS ms";
   // clock_timestamp(), not now(): now() is frozen at the start of the transaction
   if (d.includes('postgres')) return 'SELECT CAST(ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT) AS ms';
   throw new InvalidOperation(`scheduler: no database time query for driver '${driverName}'`);
