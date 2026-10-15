@@ -18,3 +18,5 @@ export { AncestorMiddleware } from './ancestors/middleware.js';
 import './guard/middleware.js';
 export { AccessGuardMiddleware } from './guard/middleware.js';
 export { guardMode } from './guard/env.js';
+// Registers AuthzOrmContributor: the domain boot checks the resource connection.
+export { AuthzOrmContributor, checkResourceConnections, storesConnection } from './contributor.js';
