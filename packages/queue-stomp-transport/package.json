@@ -25,7 +25,9 @@
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json test/*.test.ts",
+    "pretest:integration": "npm run compile",
+    "test:integration": "ts-mocha -p tsconfig.json --exit --timeout 180000 test/integration/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -34,7 +36,8 @@
     "version": "npm run format && git add -A src"
   },
   "files": [
-    "lib/**/*"
+    "lib/**/*",
+    "ACTIVEMQ.md"
   ],
   "repository": {
     "type": "git",
@@ -51,6 +54,8 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/orm": "2.0.553",
+    "@spinajs/orm-sqlite": "2.0.553",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18",
     "@types/ws": "^8.18.1"

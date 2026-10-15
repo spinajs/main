@@ -4,6 +4,10 @@ import { StompQueueClient } from './connection.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 
+export function defaultClientId(options: IQueueConnectionOptions, appName: string, env: string): string {
+  return options.clientId ?? `${appName}-${env}-${options.name}`;
+}
+
 /**
  * Create factory func that sets client-id to connection by app name.
  * We cannot have two connection with same ID, so by default we take app-name
@@ -24,7 +28,7 @@ DI.register(async (container, options: IQueueConnectionOptions) => {
 
   const c = new StompQueueClient({
     ...options,
-    clientId: `${appName}-${env}-${options.name}`,
+    clientId: defaultClientId(options, appName, env),
   });
   await c.resolve();
 
