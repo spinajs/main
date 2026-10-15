@@ -42,6 +42,7 @@ export * from './events/ScheduleRetrying.js';
 export * from './events/ScheduleDead.js';
 export * from './events/ScheduleErrorRegressed.js';
 export * from './events/SchedulePausedByFailures.js';
+export * from './metrics.js';
 export * from './signals.js';
 export * from './run/RunFinalizer.js';
 export * from './run/Heartbeat.js';

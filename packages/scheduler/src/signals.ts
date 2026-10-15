@@ -1,5 +1,6 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
+import type { MetricMap } from '@spinajs/telemetry-common';
 import type { RunStatus, StepStatus, StructuredError } from './contract.js';
 import { ScheduleDead } from './events/ScheduleDead.js';
 import { ScheduleErrorRegressed } from './events/ScheduleErrorRegressed.js';
@@ -8,6 +9,7 @@ import { ScheduleRetrying } from './events/ScheduleRetrying.js';
 import { ScheduleRunFailed } from './events/ScheduleRunFailed.js';
 import { ScheduleRunStarted } from './events/ScheduleRunStarted.js';
 import { ScheduleRunSucceeded } from './events/ScheduleRunSucceeded.js';
+import { schedulerCounter, schedulerGauge, schedulerHistogram, schedulerMetrics } from './metrics.js';
 import type { RunModel } from './models/RunModel.js';
 
 export interface FinishedRunInfo {
@@ -32,15 +34,22 @@ function attemptsOf(run: RunModel, error: StructuredError | null): number {
   return run.JobId && typeof queueAttempt === 'number' ? queueAttempt : run.Attempt;
 }
 
-/** Run lifecycle notifications: log lines and `@spinajs/queue` events. */
+/** Run lifecycle notifications: log lines, `@spinajs/queue` events and metrics. */
 @Singleton()
 @Injectable()
 export class SchedulerSignals {
   @Logger('SCHEDULER')
   protected Log: Log;
 
-  public async runStarted(run: RunModel, _now: number): Promise<void> {
+  public async runStarted(run: RunModel, now: number): Promise<void> {
     this.Log.info(`run ${run.Id} of ${run.Schedule} started (attempt ${run.Attempt}, trigger ${run.Trigger})`);
+    // a retry starts after its backoff by design, which is not lag
+    const scheduledAt = run.ScheduledAt;
+    if (run.Attempt === 1 && scheduledAt) {
+      this.measure((m) =>
+        schedulerGauge(m, 'lag_seconds').set({ name: run.Schedule }, Math.max(0, (now - scheduledAt) / 1000)),
+      );
+    }
     await this.send(() =>
       ScheduleRunStarted.emit({
         Schedule: run.Schedule,
@@ -58,6 +67,12 @@ export class SchedulerSignals {
     }`;
     if (info.error) this.Log.warn(`${text}: ${info.error.name}: ${info.error.message}`);
     else this.Log.info(text);
+    this.measure((m) => {
+      schedulerCounter(m, 'runs_total').inc({ name: run.Schedule, status: info.status, trigger: run.Trigger });
+      if (info.durationMs !== null) {
+        schedulerHistogram(m, 'run_duration_seconds').observe({ name: run.Schedule }, info.durationMs / 1000);
+      }
+    });
 
     if (info.status === 'succeeded') {
       await this.send(() =>
@@ -97,6 +112,7 @@ export class SchedulerSignals {
         error ? ` (${error.message})` : ''
       }; retrying at ${new Date(nextAttemptAt).toISOString()}`,
     );
+    this.measure((m) => schedulerCounter(m, 'retries_total').inc({ name: run.Schedule }));
     await this.send(() =>
       ScheduleRetrying.emit({
         Schedule: run.Schedule,
@@ -110,6 +126,9 @@ export class SchedulerSignals {
 
   public stepFinished(run: RunModel, step: string, status: StepStatus, durationMs: number): Promise<void> {
     this.Log.trace(`run ${run.Id} step '${step}' ${status} in ${durationMs} ms`);
+    this.measure((m) =>
+      schedulerHistogram(m, 'step_duration_seconds').observe({ name: run.Schedule, step }, durationMs / 1000),
+    );
     return Promise.resolve();
   }
 
@@ -122,6 +141,7 @@ export class SchedulerSignals {
 
   public healthChanged(schedule: string, consecutiveFailures: number): Promise<void> {
     this.Log.trace(`schedule ${schedule}: ${consecutiveFailures} consecutive failure(s)`);
+    this.measure((m) => schedulerGauge(m, 'consecutive_failures').set({ name: schedule }, consecutiveFailures));
     return Promise.resolve();
   }
 
@@ -130,6 +150,16 @@ export class SchedulerSignals {
     await this.send(() =>
       SchedulePausedByFailures.emit({ Schedule: schedule, ConsecutiveFailures: consecutiveFailures }),
     );
+  }
+
+  protected measure(record: (m: MetricMap) => void): void {
+    const m = schedulerMetrics();
+    if (!m) return;
+    try {
+      record(m);
+    } catch (err) {
+      this.Log.warn(err as Error, 'scheduler metric not recorded');
+    }
   }
 
   /** Best effort: a broker outage must not change a run's outcome. */
