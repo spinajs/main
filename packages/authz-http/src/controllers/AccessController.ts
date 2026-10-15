@@ -3,10 +3,12 @@ import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
+import { DI } from '@spinajs/di';
 
 import { domainService } from '../domains.js';
 import { HasPrincipal } from '../access/principal-policies.js';
 import { MAX_ACCESS_CHECKS, answerClientChecks } from '../client-access/checks.js';
+import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
 import '../storage.js';
 
 /** The caller's own access (design §10, §11.4), in the domain `authz.http.access.domain` (default root). */
@@ -37,5 +39,13 @@ export class AccessController extends BaseController {
     }
     const authz = await domainService(this.AccessDomain);
     return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, log: this.Log }));
+  }
+
+  /** `authz.changed` server-sent events for the caller (design §10.4). */
+  @Get('events')
+  @Policy(HasPrincipal)
+  public async events(@Req() req: Request) {
+    const transport = (await DI.resolve(SseAccessPushTransport)) as SseAccessPushTransport;
+    return new AccessEventStream(transport, req.storage.Principal!);
   }
 }
