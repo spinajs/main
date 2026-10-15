@@ -143,6 +143,9 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
           ),
         );
       }
+      // a reachable stream ends the run of failures, whatever it delivers
+      failures = 0;
+      downSince = undefined;
       const parser = new SseParser();
       const decoder = new TextDecoder();
       // leaving a loop over the body cancels it, which closes the connection
@@ -167,6 +170,7 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
       }
       continue;
     }
+    empty = 0;
     failures++;
     downSince ??= Date.now();
     if (Date.now() - downSince >= maxDownMs) {

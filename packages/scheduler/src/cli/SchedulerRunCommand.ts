@@ -41,6 +41,7 @@ interface RunCommandOptions {
 @Option('--json', false, 'print JSON')
 export class SchedulerRunCommand extends SchedulerCommand {
   public async execute(name: string, o: RunCommandOptions): Promise<void> {
+    this.jsonLines = !!(o.json && o.follow);
     await this.guard(!!o.json, async () => {
       const service = await this.service();
       const params = parseParams(o.params, o.param ?? []);
@@ -60,9 +61,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
       await this.waitForRun(service, runId, !!o.local, !!o.json, !!o.follow);
       const run = await service.getRun(runId);
       process.exitCode = run.status === 'succeeded' ? SCHEDULER_EXIT_OK : SCHEDULER_EXIT_RUN_FAILED;
-      // with --follow --json every line, the result included, is one JSON document (NDJSON)
-      if (o.json && o.follow) this.print(JSON.stringify({ runId, run }));
-      else if (o.json) this.json({ runId, run });
+      if (o.json) this.json({ runId, run });
       else this.print(`run ${runId} ${run.status}${run.error ? `: ${run.error.message}` : ''}`);
     });
   }
@@ -90,7 +89,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
 
   /** The loop is never started here, so only the runs this command claims execute in the CLI process. */
   protected localScheduler(): Promise<Scheduler> {
-    return DI.resolve(Scheduler, [{ autoStart: false }]);
+    return DI.resolve(Scheduler, [{ autoStart: false, syncOwner: false }]);
   }
 
   protected async waitForRun(

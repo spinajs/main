@@ -27,6 +27,11 @@ import { toStructuredError } from './tracking/structured.js';
 export interface SchedulerInstanceOptions {
   replicaId?: string;
   autoStart?: boolean;
+  /**
+   * False when this instance only executes runs it is handed (`scheduler:run --local`): its definition
+   * sync then never orphans or rewrites schedule rows (see `DefinitionSyncOptions.owner`). Default true.
+   */
+  syncOwner?: boolean;
 }
 
 interface NewRun {
@@ -109,7 +114,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     this.Leases = DI.resolve(LeaseStore, [this.ReplicaId]);
     this.Executor = DI.resolve(RunExecutor, [this.Leases]);
     const now = await this.Clock.sync();
-    await this.Sync.sync(this.Registry.all(), now);
+    await this.Sync.sync(this.Registry.all(), now, { owner: this.Options.syncOwner !== false });
     INSTANCES.add(this);
     await super.resolve();
     if (this.config.enabled && this.Options.autoStart !== false) this.start();

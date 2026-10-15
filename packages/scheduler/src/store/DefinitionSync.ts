@@ -16,8 +16,8 @@ export function initialNextRun(def: ScheduleDefinition, now: number): number | n
 export interface DefinitionSyncOptions {
   /**
    * True (default) for the scheduler loop: it rewrites changed definitions and marks rows it does not
-   * know orphaned. False for a process that does not run schedules (CLI, API-only replica): its
-   * definitions may be older or incomplete, so it only inserts missing rows and un-orphans rows it knows.
+   * know orphaned (and un-orphans the ones it knows). False for a process that does not run schedules
+   * (CLI, API-only replica): its definitions may be older or incomplete, so it only inserts missing rows.
    */
   owner?: boolean;
 }
@@ -61,15 +61,8 @@ export class DefinitionSync {
 
       if (existing.DefinitionHash === hash && !existing.Orphaned) continue;
 
-      if (!owner) {
-        // the definition and NextRunAt stay as the loop wrote them; the loop rewrites them at its next boot
-        if (existing.Orphaned) {
-          await ScheduleModel.update({ Orphaned: false, UpdatedAt: now })
-            .where('Name', def.name)
-            .where('Orphaned', true);
-        }
-        continue;
-      }
+      // definition, NextRunAt and Orphaned stay as the loop wrote them
+      if (!owner) continue;
 
       // Conditional on the old hash, so of several replicas booting together only one rewrites the row.
       // NextRunAt is written only on a timing change: the value read above may have been claimed and advanced since.

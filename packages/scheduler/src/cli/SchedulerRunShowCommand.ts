@@ -10,6 +10,7 @@ import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 @Option('--json', false, 'print JSON')
 export class SchedulerRunShowCommand extends SchedulerCommand {
   public async execute(id: string, options: { follow?: boolean; json?: boolean }): Promise<void> {
+    this.jsonLines = !!(options.json && options.follow);
     await this.guard(!!options.json, async () => {
       const service = await this.service();
       const r = await service.getRun(id);

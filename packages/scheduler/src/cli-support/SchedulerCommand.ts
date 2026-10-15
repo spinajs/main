@@ -39,8 +39,11 @@ export abstract class SchedulerCommand extends CliCommand {
     console.log(line);
   }
 
+  /** Set while a command streams events as JSON lines, so every document it prints is one line (NDJSON). */
+  protected jsonLines = false;
+
   protected json(value: unknown): void {
-    console.log(JSON.stringify(value, null, 2));
+    console.log(this.jsonLines ? JSON.stringify(value) : JSON.stringify(value, null, 2));
   }
 
   /** Recorded as `system:cli` with the OS user as the name. */
