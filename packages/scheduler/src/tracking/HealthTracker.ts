@@ -3,7 +3,11 @@ import type { ScheduleHealth } from '../contract.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
 import { counterSql } from './sql.js';
 
-export function healthOf(row: { Paused: boolean; PausedReason: string | null; ConsecutiveFailures: number }): ScheduleHealth {
+export function healthOf(row: {
+  Paused: boolean;
+  PausedReason: string | null;
+  ConsecutiveFailures: number;
+}): ScheduleHealth {
   if (row.Paused && row.PausedReason === 'failures') return 'paused-by-failures';
   return row.ConsecutiveFailures > 0 ? 'failing' : 'ok';
 }
@@ -26,11 +30,16 @@ export class HealthTracker {
     await ScheduleModel.update({ ConsecutiveFailures: 0, LastSuccessAt: now, UpdatedAt: now }).where('Name', schedule);
   }
 
-  public async recordFailure(schedule: string, pauseAfterFailures: number | undefined, now: number): Promise<FailureRecord> {
+  public async recordFailure(
+    schedule: string,
+    pauseAfterFailures: number | undefined,
+    now: number,
+  ): Promise<FailureRecord> {
     const sql = await counterSql();
     const q = sql.quote;
+    const count = q('ConsecutiveFailures');
     const counted = await sql.update(
-      `UPDATE ${q('__scheduler')} SET ${q('ConsecutiveFailures')} = ${q('ConsecutiveFailures')} + 1, ${q('UpdatedAt')} = ? WHERE ${q('Name')} = ?`,
+      `UPDATE ${q('__scheduler')} SET ${count} = ${count} + 1, ${q('UpdatedAt')} = ? WHERE ${q('Name')} = ?`,
       [now, schedule],
     );
     if (counted === 0) return { consecutive: 0, paused: false };

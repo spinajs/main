@@ -75,9 +75,7 @@ describe('error tracking', () => {
   it('reports a concurrent regression exactly once', async () => {
     const { fingerprint } = await tracker.record('import', 'r1', err('boom'), T);
     await ErrorGroupModel.update({ Status: 'resolved' }).where('Fingerprint', fingerprint);
-    const results = await Promise.all(
-      [2, 3, 4, 5].map((i) => tracker.record('import', `r${i}`, err('boom'), T + i)),
-    );
+    const results = await Promise.all([2, 3, 4, 5].map((i) => tracker.record('import', `r${i}`, err('boom'), T + i)));
     expect(results.filter((r) => r.regressed)).to.have.length(1);
     expect(await ErrorGroupModel.where('Fingerprint', fingerprint).first()).to.include({ Status: 'open', Count: 5 });
   });
@@ -128,7 +126,13 @@ describe('error tracking', () => {
     await ErrorGroupModel.update({ Status: 'resolved' }).where('Fingerprint', fingerprint);
     const regressed = sinon.spy(SchedulerSignals.prototype, 'errorRegressed');
     const run = { Id: 'r1', Schedule: 'import', Attempt: 1, StartedAt: T, Trigger: 'schedule' } as RunModel;
-    await DI.resolve(RunFinalizer).finalized({ run, status: 'failed', error: err('boom'), now: T + 1, countsAsFailure: true });
+    await DI.resolve(RunFinalizer).finalized({
+      run,
+      status: 'failed',
+      error: err('boom'),
+      now: T + 1,
+      countsAsFailure: true,
+    });
     expect(regressed.calledOnceWith(run, fingerprint)).to.eq(true);
   });
 
@@ -136,7 +140,13 @@ describe('error tracking', () => {
     sinon.stub(ErrorTracker.prototype, 'record').rejects(new Error('db down'));
     const finished = sinon.spy(SchedulerSignals.prototype, 'runFinished');
     const run = { Id: 'r1', Schedule: 'import', Attempt: 1, StartedAt: T, Trigger: 'schedule' } as RunModel;
-    await DI.resolve(RunFinalizer).finalized({ run, status: 'failed', error: err('boom'), now: T + 1, countsAsFailure: true });
+    await DI.resolve(RunFinalizer).finalized({
+      run,
+      status: 'failed',
+      error: err('boom'),
+      now: T + 1,
+      countsAsFailure: true,
+    });
     expect(finished.calledOnce).to.eq(true);
   });
 });

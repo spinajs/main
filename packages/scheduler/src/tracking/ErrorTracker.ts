@@ -32,7 +32,8 @@ export class ErrorTracker {
     const sampleStack = error.stack ?? null;
     const sql = await counterSql();
     const q = sql.quote;
-    const set = `${q('Count')} = ${q('Count')} + 1, ${q('LastSeen')} = ?, ${q('LastRunId')} = ?, ${q('SampleMessage')} = ?, ${q('SampleStack')} = ?`;
+    const latest = ['LastSeen', 'LastRunId', 'SampleMessage', 'SampleStack'].map((c) => `${q(c)} = ?`);
+    const set = [`${q('Count')} = ${q('Count')} + 1`, ...latest].join(', ');
     const group = `${q('Schedule')} = ? AND ${q('Fingerprint')} = ?`;
     const values = [now, runId, sampleMessage, sampleStack];
     const table = q('__scheduler_error');
@@ -47,13 +48,10 @@ export class ErrorTracker {
       ]);
       if (bumped > 0) return { fingerprint, regressed: false };
 
-      const reopened = await sql.update(`UPDATE ${table} SET ${set}, ${q('Status')} = ? WHERE ${group} AND ${q('Status')} = ?`, [
-        ...values,
-        'open',
-        schedule,
-        fingerprint,
-        'resolved',
-      ]);
+      const reopened = await sql.update(
+        `UPDATE ${table} SET ${set}, ${q('Status')} = ? WHERE ${group} AND ${q('Status')} = ?`,
+        [...values, 'open', schedule, fingerprint, 'resolved'],
+      );
       if (reopened > 0) return { fingerprint, regressed: true };
 
       try {

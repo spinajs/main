@@ -8,9 +8,9 @@ interface RawSqlDriver {
 }
 
 export interface CounterSql {
-  quote(identifier: string): string;
+  quote: (identifier: string) => string;
   /** Runs an UPDATE and returns the number of matched rows (see LeaseStore on MySQL found rows). */
-  update(stmt: string, params: unknown[]): Promise<number>;
+  update: (stmt: string, params: unknown[]) => Promise<number>;
 }
 
 /**
