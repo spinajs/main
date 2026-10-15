@@ -32,6 +32,7 @@ export * from './run/RunEventHub.js';
 export * from './run/RunEventWriter.js';
 export * from './tracking/structured.js';
 export * from './tracking/fingerprint.js';
+export * from './tracking/ErrorTracker.js';
 export * from './run/outcome.js';
 export * from './signals.js';
 export * from './run/RunFinalizer.js';

@@ -43,4 +43,9 @@ export class SchedulerSignals {
     this.Log.trace(`run ${run.Id} step '${step}' ${status} in ${durationMs} ms`);
     return Promise.resolve();
   }
+
+  public errorRegressed(run: RunModel, fingerprint: string, error: StructuredError): Promise<void> {
+    this.Log.warn(`error group ${fingerprint} of ${run.Schedule} regressed in run ${run.Id}: ${error.message}`);
+    return Promise.resolve();
+  }
 }
