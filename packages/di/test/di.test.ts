@@ -1284,6 +1284,70 @@ describe('Dependency injection', () => {
     expect(b == c).to.be.false;
   });
 
+  it('Should cache every per-check instance, not only the first', () => {
+    @PerInstanceCheck()
+    class A implements IInstanceCheck {
+      constructor(public Name: string) {}
+      __checkInstance__(creationOptions: any): boolean {
+        return this.Name === creationOptions[0];
+      }
+    }
+
+    const foo = DI.resolve(A, ['foo']);
+    const bar = DI.resolve(A, ['bar']);
+
+    expect(DI.resolve(A, ['bar'])).to.eq(bar);
+    expect(DI.resolve(A, ['foo'])).to.eq(foo);
+  });
+
+  it('Should resolve async per-check instances concurrently by their options', async () => {
+    let created = 0;
+
+    @PerInstanceCheck()
+    class A extends AsyncService implements IInstanceCheck {
+      constructor(public Name: string) {
+        super();
+        created++;
+      }
+      public async resolve() {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      __checkInstance__(creationOptions: any): boolean {
+        return this.Name === creationOptions[0];
+      }
+    }
+
+    const [r1, r2, r1again, r3] = await Promise.all([DI.resolve(A, ['r1']), DI.resolve(A, ['r2']), DI.resolve(A, ['r1']), DI.resolve(A, ['r3'])]);
+
+    expect([r1.Name, r2.Name, r3.Name]).to.deep.eq(['r1', 'r2', 'r3']);
+    expect(r1again).to.eq(r1);
+    expect(created).to.eq(3);
+    expect(await DI.resolve(A, ['r2'])).to.eq(r2);
+  });
+
+  it('Should dispose every per-check instance', async () => {
+    const disposed: string[] = [];
+
+    @PerInstanceCheck()
+    class A extends AsyncService implements IInstanceCheck {
+      constructor(public Name: string) {
+        super();
+      }
+      public async dispose() {
+        disposed.push(this.Name);
+      }
+      __checkInstance__(creationOptions: any): boolean {
+        return this.Name === creationOptions[0];
+      }
+    }
+
+    await DI.resolve(A, ['a']);
+    await DI.resolve(A, ['b']);
+    await DI.dispose();
+
+    expect(disposed.sort()).to.deep.eq(['a', 'b']);
+  });
+
   it('Sould emit on registering value', () => {
     const baseMock = mock();
 
