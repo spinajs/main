@@ -1,7 +1,8 @@
 import { createHash } from 'crypto';
 
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-const QUOTED = /(["'`])(?:\\.|(?!\1).)*\1/g;
+// not right after a word character, so the apostrophe in "can't" does not open a quote
+const QUOTED = /(?<!\w)(["'`])(?:\\.|(?!\1).)*\1/g;
 const PATH = /(?:[a-zA-Z]:)?(?:[\\/][\w.@-]+){2,}/g;
 const HEX = /\b0x[0-9a-f]+\b/gi;
 const NUMBER = /\d+(?:\.\d+)?/g;

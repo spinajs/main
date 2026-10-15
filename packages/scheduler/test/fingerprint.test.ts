@@ -44,6 +44,12 @@ describe('fingerprints', () => {
     ).to.not.eq(a);
   });
 
+  it('does not open a quoted string at an apostrophe inside a word', () => {
+    expect(normalizeMessage("Can't resolve 'alpha'")).to.eq("Can't resolve <str>");
+    expect(normalizeMessage("Can't resolve 'alpha'")).to.eq(normalizeMessage("Can't resolve 'beta'"));
+    expect(normalizeMessage('user\'s key "a" missing')).to.eq("user's key <str> missing");
+  });
+
   it('keeps unrelated messages and frames apart', () => {
     expect(normalizeMessage('connection refused')).to.not.eq(normalizeMessage('connection reset'));
     const at = (fn: string) => `Error: x\n    at ${fn} (/app/lib/Job.js:3:9)`;
