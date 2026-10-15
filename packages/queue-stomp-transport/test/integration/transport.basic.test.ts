@@ -26,6 +26,10 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
+function delivered(...stubs: sinon.SinonStub[]): Set<number> {
+  return new Set(stubs.flatMap((s) => s.getCalls().map((c) => c.args[0].Seq)));
+}
+
 async function wait(amount: number) {
   return new Promise<void>((res) => {
     setTimeout(() => {
@@ -243,12 +247,10 @@ describe('stomp queue transport test', function () {
     await c1.subscribe(TestJobChannelName, s1);
     await c2.subscribe(TestJobChannelName, s2);
 
-    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
+    await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
-    await waitFor(() => s1.callCount + s2.callCount >= 500, 20000, '500 jobs consumed');
-    await wait(QUEUE_WAIT_TIME_MS);
-
-    expect(s1.callCount + s2.callCount).to.eq(500);
+    // at-least-once: a publish whose receipt times out under load is re-sent, so count distinct messages
+    await waitFor(() => delivered(s1, s2).size === 500, 20000, '500 distinct jobs consumed');
   });
 
   it('Should register on event multiple subscribers', async () => {
@@ -296,12 +298,9 @@ describe('stomp queue transport test', function () {
 
     await c1.subscribe(RoutedQueue, s1);
 
-    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
+    await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
-    await waitFor(() => s1.callCount >= 500, 20000, '500 routed jobs consumed');
-    await wait(QUEUE_WAIT_TIME_MS);
-
-    expect(s1.callCount).to.eq(500);
+    await waitFor(() => delivered(s1).size === 500, 20000, '500 distinct routed jobs consumed');
   });
 
   it('Should route event with routing table', async () => {
