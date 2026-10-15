@@ -6,7 +6,7 @@ import { Log, Logger } from '@spinajs/log';
 import { DI } from '@spinajs/di';
 
 import { domainService } from '../domains.js';
-import { HasPrincipal } from '../access/principal-policies.js';
+import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
 import { MAX_ACCESS_CHECKS, answerClientChecks } from '../client-access/checks.js';
 import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
 import '../storage.js';
@@ -41,9 +41,9 @@ export class AccessController extends BaseController {
     return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, log: this.Log }));
   }
 
-  /** `authz.changed` server-sent events for the caller (design §10.4). */
+  /** `authz.changed` server-sent events for the caller (design §10.4); authenticated only, as the socket transport. */
   @Get('events')
-  @Policy(HasPrincipal)
+  @Policy(IsAuthenticated)
   public async events(@Req() req: Request) {
     const transport = (await DI.resolve(SseAccessPushTransport)) as SseAccessPushTransport;
     return new AccessEventStream(transport, req.storage.Principal!);

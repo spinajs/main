@@ -59,6 +59,17 @@ Server-sent events for the caller: `event: authz.changed` with `data: { "objects
 `authz.bus.service: 'QueueChangeBus'` (`@spinajs/authz-queue`) so every node sees every change; with the
 in-process bus only clients connected to the node that made the change are told.
 
+Only an authenticated principal may open a stream (401 otherwise, anonymous included), as only
+authenticated socket connections join their principal's rooms. Each principal holds at most
+`authz.http.events.maxStreamsPerPrincipal` streams (default 5); a new one past that closes the oldest.
+A stream opened by a session ends with the session: `SseSessionEndSink`, an `AuthnEventSink`, ends the
+streams of the principal and session handle of a successful `logout`, `session.revoke`,
+`session.expire`, `impersonation.end` or `impersonation.expire` event. A revoke that names no session
+(revoke all, revoke the others) re-checks the principal's streams against `SessionIssuer.list` and ends
+those whose handle is no longer listed. Session ends are seen only on the node that handled them; a
+stream on another node, or of a session that expires without an event, lasts until the client
+reconnects, and the reconnect then gets 401.
+
 ### Explain tree
 
 `GET /authz/explain?…&format=tree` (never in production) answers `{ label, allowed, children }`: the

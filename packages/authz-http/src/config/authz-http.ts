@@ -25,6 +25,8 @@ const authzHttp = {
       links: { query: 'link', header: 'X-Authz-Link', cookie: null as string | null },
       /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
       access: { domain: 'root' },
+      /** GET /user/access/events: the oldest stream of a principal is closed past this many. */
+      events: { maxStreamsPerPrincipal: 5 },
     },
   },
 };
