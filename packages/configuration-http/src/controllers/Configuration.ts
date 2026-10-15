@@ -1,9 +1,12 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Query, ServerError } from '@spinajs/http';
-import { Access } from '@spinajs/authz-http';
+import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Param, Patch, Query, ServerError } from '@spinajs/http';
+import { Access, CurrentPrincipal } from '@spinajs/authz-http';
+import { SYSTEM, authz } from '@spinajs/authz';
+import type { Permission, Principal } from '@spinajs/authz';
+import { ResourceNotFound } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
-import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
+import '@spinajs/authz-orm';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
@@ -56,7 +59,8 @@ export class ConfigurationController extends BaseController {
   @Get('/')
   @Access('configuration:read', { fields: 'filter' })
   public async list(@Query() group?: string) {
-    const entries = await (group ? DbConfig.where('Group', group) : DbConfig.all());
+    const query = group ? DbConfig.where('Group', group) : DbConfig.query();
+    const entries = await query.accessible('configuration:read');
     return new Ok(entries.map((e) => present(e)));
   }
 
@@ -72,7 +76,8 @@ export class ConfigurationController extends BaseController {
    */
   @Get(':slug')
   @Access('configuration:read', { fields: 'filter' })
-  public async get(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
+  public async get(@CurrentPrincipal() caller: Principal, @Param() slug: string) {
+    const entry = await this.entryFor(caller, slug, ['configuration:read']);
     return new Ok(present(entry));
   }
 
@@ -93,10 +98,9 @@ export class ConfigurationController extends BaseController {
    */
   @Patch(':slug')
   @Access('configuration:update', { fields: 'filter' })
-  public async update(
-    @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
-    @Body() data: UpdateConfigDto,
-  ) {
+  public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
+    // The response carries the entry, so updating it needs read too.
+    const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
     try {
       const valueError = validateEntryValue(this.Validator, entry, 'Value', data.Value);
       if (valueError) {
@@ -143,5 +147,17 @@ export class ConfigurationController extends BaseController {
   private schemaCompileError(err: SchemaCompileError): ServerError {
     this.Log.error(err.message);
     return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
+  }
+
+  /** The entry by slug, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
+  private async entryFor(caller: Principal, slug: string, permissions: readonly Permission[]): Promise<DbConfig> {
+    const service = authz();
+    const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).first());
+    if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
+    const ref = { type: 'configuration', id: String(entry.Id) };
+    for (const permission of permissions) {
+      if (!(await service.can(caller, permission, ref, entry))) throw new ResourceNotFound(`configuration entry ${slug} not found`);
+    }
+    return entry;
   }
 }
