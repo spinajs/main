@@ -4,7 +4,16 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { Orm, QueryContext } from '@spinajs/orm';
 import { JobModel } from '@spinajs/queue';
-import { Clock, FakeClock, NonRetryableError, resolveSchedulerConfig, RunAbortedError, SCHEDULER_DEFAULTS, ScheduleValidationError } from '../src/index.js';
+import {
+  Clock,
+  DbClock,
+  FakeClock,
+  NonRetryableError,
+  resolveSchedulerConfig,
+  RunAbortedError,
+  SCHEDULER_DEFAULTS,
+  ScheduleValidationError,
+} from '../src/index.js';
 import { bootTestEnv, disposeTestEnv } from './support/env.js';
 
 chai.use(chaiAsPromised);
@@ -26,7 +35,9 @@ describe('scheduler config', () => {
   it('error classes carry their data', () => {
     expect(new RunAbortedError('timeout').reason).to.eq('timeout');
     expect(new NonRetryableError('x')).to.be.instanceOf(Error);
-    expect(new ScheduleValidationError(['a', 'b']).message).to.contain(' - a').and.contain(' - b');
+    expect(new ScheduleValidationError(['a', 'b']).message)
+      .to.contain(' - a')
+      .and.contain(' - b');
   });
 
   it('boots the test environment with a FakeClock and sqlite', async () => {
@@ -44,6 +55,18 @@ describe('scheduler config', () => {
 
     await bootTestEnv();
     await expect(raw('sqlite').executeOnDb('SELECT * FROM leftover', [], QueryContext.Select)).to.be.rejected;
+  });
+
+  it('resolves DbClock against the FakeClock of the latest boot', async () => {
+    await bootTestEnv({ now: '2026-01-05T10:00:00Z' });
+    await DI.resolve(DbClock).sync();
+
+    const { clock } = await bootTestEnv({ now: '2026-03-01T08:00:00Z' });
+    clock.dbSkewMs = 5000;
+    const db = DI.resolve(DbClock);
+    expect(await db.sync()).to.eq(Date.parse('2026-03-01T08:00:05Z'));
+    await clock.advance(1000);
+    expect(db.now()).to.eq(Date.parse('2026-03-01T08:00:06Z'));
   });
 
   after(() => disposeTestEnv());
