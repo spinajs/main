@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { StompQueueClient } from '../src/connection.js';
+import { StompQueueClient } from '../../src/connection.js';
+import { requireBroker, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL, waitFor } from './support/env.js';
 import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
@@ -15,6 +16,11 @@ chai.use(chaiAsPromised);
 const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 const QUEUE_WAIT_TIME_MS = 1000;
+// fixed destination names would collect leftovers from earlier, aborted runs on the same broker
+const RunId = DateTime.now().toMillis();
+const DurableTopic = `/topic/durable-${RunId}`;
+const RoutedTopic = `/topic/routed-${RunId}`;
+const RoutedQueue = `/queue/routed-${RunId}`;
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
@@ -33,9 +39,9 @@ export class ConnectionConf extends FrameworkConfiguration {
     return {
       queue: {
         routing: {
-          TestEventDurable: '/topic/durable',
-          TestEventRouted: '/topic/routed',
-          TestJobRouted: '/queue/routed',
+          TestEventDurable: DurableTopic,
+          TestEventRouted: RoutedTopic,
+          TestJobRouted: RoutedQueue,
         },
       },
       logger: {
@@ -58,8 +64,10 @@ const qList: StompQueueClient[] = [];
 async function q(extra: Record<string, unknown> = {}) {
   const q = await DI.resolve(StompQueueClient, [
     {
-      host: 'ws://localhost:61614/ws',
-      name: `test-id-${DateTime.now().toMillis()}`,
+      host: STOMP_URL,
+      login: STOMP_LOGIN,
+      password: STOMP_PASSWORD,
+      name: `test-id-${DateTime.now().toMillis()}-${Math.round(Math.random() * 1e6)}`,
       debug: true,
       defaultQueueChannel: TestJobChannelName,
       defaultTopicChannel: TestEventChannelName,
@@ -89,8 +97,8 @@ describe('stomp queue transport test', function () {
     qList.length = 0;
   });
 
-  after(() => {
-    process.exit(0);
+  before(async function () {
+    await requireBroker(this);
   });
 
   it('Should connect to queue server', async () => {
@@ -107,6 +115,12 @@ describe('stomp queue transport test', function () {
     ]);
 
     await expect(p).to.be.rejected;
+  });
+
+  it('Should reject bad credentials', async () => {
+    const p = DI.resolve(StompQueueClient, [{ host: STOMP_URL, login: STOMP_LOGIN, password: 'wrong', name: `bad-creds-${Date.now()}` }]);
+
+    await expect(p).to.be.rejectedWith(/Cannot connect/);
   });
 
   it('Should emit job', async () => {
@@ -189,13 +203,13 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    await c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.subscribe(DurableTopic, s, 'test-durable', true);
     await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledOnce).to.be.true;
-    c.unsubscribe('/topic/durable');
+    c.unsubscribe(DurableTopic);
 
     await c.emit(message);
 
@@ -203,7 +217,7 @@ describe('stomp queue transport test', function () {
 
     expect(s.calledOnce).to.be.true;
 
-    await c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.subscribe(DurableTopic, s, 'test-durable', true);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -231,7 +245,8 @@ describe('stomp queue transport test', function () {
 
     await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
 
-    await wait(QUEUE_WAIT_TIME_MS * 2);
+    await waitFor(() => s1.callCount + s2.callCount >= 500, 20000, '500 jobs consumed');
+    await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s1.callCount + s2.callCount).to.eq(500);
   });
@@ -279,11 +294,12 @@ describe('stomp queue transport test', function () {
 
     const s1 = sinon.stub().returns(Promise.resolve());
 
-    await c1.subscribe('/queue/routed', s1);
+    await c1.subscribe(RoutedQueue, s1);
 
     await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
 
-    await wait(QUEUE_WAIT_TIME_MS * 2);
+    await waitFor(() => s1.callCount >= 500, 20000, '500 routed jobs consumed');
+    await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s1.callCount).to.eq(500);
   });
@@ -302,7 +318,7 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    await c.subscribe('/topic/routed', s);
+    await c.subscribe(RoutedTopic, s);
     await Promise.all([c.emit(message), c.emit(message), c.emit(message)]);
 
     await wait(QUEUE_WAIT_TIME_MS);
