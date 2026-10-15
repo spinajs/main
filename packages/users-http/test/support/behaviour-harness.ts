@@ -67,6 +67,9 @@ export function usersHttpHarness(controllers: readonly Class<BaseController>[]):
         const config: Record<string, unknown> = { 'authz.combine': structuredClone(world.combine) };
         for (const [key, value] of Object.entries(world.config ?? {})) if (value !== undefined) config[`authz.${key}`] = structuredClone(value);
         if (world.config?.cache === undefined) config['authz.cache.maxEntries'] = 0;
+        // configuration-http's defaults make configuration:read a list permission, and boot rule 12 refuses it on the
+        // world's kit models in root: they route every permission and cannot plan lists.
+        config['authz.permissions.configuration:read.list'] = false;
 
         const app = await startUsersHttpApp({ controllers, config, permissions: permissionsOf(world) });
 

@@ -63,6 +63,9 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   cfg.set(['http', 'port'], 0);
   // The package defaults list the controller dirs of every installed package (users-http, authz-http-admin, …).
   cfg.set(['system', 'dirs', 'controllers'], []);
+  // configuration-http's defaults make configuration:read a list permission, and boot rule 12 refuses it on the
+  // kit's test-domain models: they route every permission and cannot plan lists.
+  if (cfg.get(['authz', 'permissions', 'configuration:read']) !== undefined) cfg.set(['authz', 'permissions', 'configuration:read', 'list'], false);
   cfg.set(['fs', 'providers'], [
     ...((cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__')),
     { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-queue-http-progress-test-cache') },
