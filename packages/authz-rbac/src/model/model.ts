@@ -166,7 +166,7 @@ export class RbacModel extends AuthorizationModel {
     const read = await readRbacInput(request, ctx, this.sources());
     // Every stored rule was checked above (lane decision 12); the DB store's marker is not a rule.
     const input = { ...read, rowDependentRules: (read.rowDependentRules ?? []).filter((id) => !isDbRulesMarker(id)) };
-    return rbacListPlan(rbacState(input, 'cap'), { maxSubjects: this.state().maxPlanSubjects });
+    return rbacListPlan(rbacState(input, 'cap'), { maxSubjects: this.state().maxPlanSubjects, membership: this.opts.membership !== undefined });
   }
 
   /**
