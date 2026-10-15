@@ -80,6 +80,10 @@ describe('lists through the engine', function () {
       beforeEach(async () => {
         await createAncestorTable(db, dialect);
         Task = (await db.define({ name: 'Task', columns: { flag: 'TEXT', owner: 'TEXT' }, rows: [{ id: 't1', flag: 'green', owner: 'bob' }, { id: 't2', flag: 'blue', owner: 'alice' }, { id: 't3', flag: 'red', owner: 'alice' }, { id: 't4', flag: 'blue', owner: 'bob' }], decorate: (c, p) => { AccessResource('task')(c); Owner()(p, 'owner'); } }, dialect)) as M;
+        // Domain boot refuses @AccessResource models off the stores connection, so the stores follow the dialect.
+        const cfg = testHost.config();
+        cfg.set(['authz', 'rbac', 'connection'], dialect);
+        undo.push(() => cfg.unset(['authz', 'rbac', 'connection']));
         await bootLists();
       });
 
