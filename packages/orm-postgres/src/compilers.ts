@@ -193,7 +193,7 @@ export class PostgresInsertQueryCompiler extends SqlInsertQueryCompiler {
  *   it back.
  * - UNSIGNED, CHARACTER SET and inline COMMENT have no postgres spelling and are dropped;
  *   COLLATE is kept ( postgres collations are identifiers, so it is quoted ).
- * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMP,
+ * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMPTZ(3),
  *   DOUBLE → DOUBLE PRECISION, BLOB → BYTEA, JSON → JSONB ).
  * - BOOLEAN takes no integer default: a numeric default on a boolean column ( MySQL's
  *   0/1 ) renders as FALSE/TRUE.
@@ -299,7 +299,8 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
         return 'TIME';
       case 'dateTime':
       case 'timestamp':
-        return 'TIMESTAMP';
+        // instants: the driver converts to UTC; precision 3 because JS dates carry milliseconds
+        return 'TIMESTAMPTZ(3)';
       case 'json':
         return 'JSONB';
       default:

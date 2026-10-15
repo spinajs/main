@@ -67,6 +67,7 @@
     "@spinajs/di": "2.0.553",
     "@spinajs/orm": "2.0.553",
     "@spinajs/orm-sql": "2.0.553",
+    "luxon": "^3.6.1",
     "pg": "^8.13.1"
   }
 }

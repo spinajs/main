@@ -145,13 +145,15 @@ describe('postgres SQL compilation', function () {
     it('maps MySQL type names to their postgres equivalents', () => {
       const stmt = createTable((table) => {
         table.dateTime('CreatedAt');
+        table.timestamp('Seen');
         table.double('Ratio');
         table.json('Payload');
         table.binary('Blob', 255);
         table.tinyint('Small');
       });
 
-      expect(stmt).to.contain('"CreatedAt" TIMESTAMP');
+      expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3)');
+      expect(stmt).to.contain('"Seen" TIMESTAMPTZ(3)');
       expect(stmt).to.contain('"Ratio" DOUBLE PRECISION');
       expect(stmt).to.contain('"Payload" JSONB');
       expect(stmt).to.contain('"Blob" BYTEA');
