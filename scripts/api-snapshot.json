@@ -9,6 +9,7 @@
     "authz-http": ["src/api.ts"],
     "authz-queue": ["src/api.ts"],
     "authz-fs": ["src/api.ts"],
+    "teams": ["src/api.ts"],
     "authz-testing": ["src/rebac.ts"],
     "authn": ["src/contracts/index.ts"],
     "authn-session": ["src/contracts.ts"],

@@ -79,6 +79,7 @@
     { "path": "./packages/authz-queue/tsconfig.cjs.json" },
     { "path": "./packages/authz-fs/tsconfig.cjs.json" },
     { "path": "./packages/authz-convert/tsconfig.cjs.json" },
+    { "path": "./packages/teams/tsconfig.cjs.json" },
     { "path": "./packages/authn/tsconfig.cjs.json" },
     { "path": "./packages/authn-testing/tsconfig.cjs.json" },
     { "path": "./packages/authn-orm/tsconfig.cjs.json" },
