@@ -3,12 +3,14 @@ import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 // Times are BIGINT epoch milliseconds (UTC): DATETIME round-trips are zone- and
 // precision-dependent across the three drivers, and lease checks need exact equality.
+// JSON payloads are LONGTEXT (TEXT on Postgres / SQLite), read through `@JsonText()`: JSON columns
+// come back already parsed on Postgres / MySQL, which loses the difference between "123" and 123.
 @Migration('default')
 export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('__scheduler', (t) => {
       t.string('Name', 128).primaryKey().notNull();
-      t.json('Definition').notNull();
+      t.longtext('Definition').notNull();
       t.string('DefinitionHash', 64).notNull();
       t.bigint('NextRunAt');
       t.bigint('LastFiredAt');
@@ -30,9 +32,9 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.string('Id', 36).primaryKey().notNull();
       t.string('Schedule', 128).notNull();
       t.string('Trigger', 16).notNull();
-      t.json('TriggeredBy');
+      t.longtext('TriggeredBy');
       t.string('ParentRunId', 36);
-      t.json('Params');
+      t.longtext('Params');
       t.string('Status', 16).notNull();
       t.string('Reason', 64);
       t.int('Attempt').notNull();
@@ -46,15 +48,15 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.int('Progress').notNull();
       t.string('CurrentStep', 128);
       t.text('Message');
-      t.json('Checkpoint');
-      t.json('Result');
-      t.json('Error');
+      t.longtext('Checkpoint');
+      t.longtext('Result');
+      t.longtext('Error');
       t.string('JobId', 36);
       t.string('LeaseOwner', 128);
       t.bigint('LeaseUntil');
       t.boolean('CancelRequested').notNull();
       t.boolean('Forced').notNull();
-      t.json('ResumeFrom');
+      t.longtext('ResumeFrom');
       // A numeric default compiles to DEFAULT 0 on MySQL/SQLite and DEFAULT FALSE on Postgres.
       t.boolean('ProgressCapped').notNull().default().value(0);
     });
@@ -66,7 +68,7 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.bigint('StartedAt').notNull();
       t.bigint('FinishedAt');
       t.string('Status', 16).notNull();
-      t.json('Error');
+      t.longtext('Error');
     });
 
     await connection.schema().createTable('__scheduler_run_step', (t) => {
@@ -84,10 +86,10 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.decimal('Done', 24, 4);
       t.decimal('Total', 24, 4);
       t.text('Message');
-      t.json('Result');
+      t.longtext('Result');
       // false when the step's return value was not kept (persistResult: false, not JSON, too large)
       t.boolean('ResultStored').notNull().default().value(0);
-      t.json('Error');
+      t.longtext('Error');
     });
 
     await connection.schema().createTable('__scheduler_run_log', (t) => {
@@ -101,7 +103,7 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.string('Level', 8);
       t.string('Step', 128);
       t.text('Message');
-      t.json('Data');
+      t.longtext('Data');
       t.bigint('Pos').notNull();
     });
 

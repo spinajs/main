@@ -36,7 +36,7 @@ import {
   TriggeredBy,
   Unsubscribe,
 } from '../contract.js';
-import { defined } from '../models/converters.js';
+import { defined, jsonColumn } from '../models/converters.js';
 import { ErrorGroupModel } from '../models/ErrorGroupModel.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunLogModel } from '../models/RunLogModel.js';
@@ -574,7 +574,7 @@ export class DefaultSchedulerService extends SchedulerService {
       CancelRequested: false,
       Forced: o.forced,
       ResumeFrom: o.resumeFrom ?? null,
-      Checkpoint: o.checkpoint ?? null,
+      Checkpoint: jsonColumn(o.checkpoint),
     });
     await this.Events.write(run, attempt, { type: 'status', status: 'queued', reason: o.trigger });
     return run;

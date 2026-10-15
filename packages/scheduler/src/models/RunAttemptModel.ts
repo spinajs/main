@@ -1,6 +1,6 @@
-import { Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { RunStatus, StructuredError } from '../contract.js';
-import { EpochMs } from './converters.js';
+import { EpochMs, JsonText } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler_run_attempt')
@@ -20,6 +20,6 @@ export class RunAttemptModel extends ModelBase {
 
   public Status: RunStatus;
 
-  @Json()
+  @JsonText()
   public Error: StructuredError | null;
 }

@@ -377,7 +377,7 @@ export class RunContext {
         StartedAt: now,
         FinishedAt: now,
         Progress: 100,
-        Result: value ?? null,
+        Result: jsonColumn(value),
         ResultStored: true,
       }),
     );

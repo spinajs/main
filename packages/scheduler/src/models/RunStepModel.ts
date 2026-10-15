@@ -1,6 +1,6 @@
-import { Bool, Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Bool, Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { StepStatus, StructuredError } from '../contract.js';
-import { Decimal, EpochMs } from './converters.js';
+import { Decimal, EpochMs, JsonText } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler_run_step')
@@ -37,13 +37,13 @@ export class RunStepModel extends ModelBase {
 
   public Message: string | null;
 
-  @Json()
+  @JsonText()
   public Result: unknown;
 
   /** `Result` holds the step's return value; a resumed run re-runs steps without one. */
   @Bool()
   public ResultStored: boolean;
 
-  @Json()
+  @JsonText()
   public Error: StructuredError | null;
 }

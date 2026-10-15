@@ -1,6 +1,6 @@
-import { Bool, Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Bool, Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { RunStatus, RunTrigger, StructuredError, TriggeredBy } from '../contract.js';
-import { EpochMs } from './converters.js';
+import { EpochMs, JsonText } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler_run')
@@ -12,12 +12,12 @@ export class RunModel extends ModelBase {
 
   public Trigger: RunTrigger;
 
-  @Json()
+  @JsonText()
   public TriggeredBy: TriggeredBy | null;
 
   public ParentRunId: string | null;
 
-  @Json()
+  @JsonText()
   public Params: Record<string, unknown> | null;
 
   public Status: RunStatus;
@@ -52,13 +52,13 @@ export class RunModel extends ModelBase {
 
   public Message: string | null;
 
-  @Json()
+  @JsonText()
   public Checkpoint: unknown;
 
-  @Json()
+  @JsonText()
   public Result: unknown;
 
-  @Json()
+  @JsonText()
   public Error: StructuredError | null;
 
   public JobId: string | null;
@@ -75,7 +75,7 @@ export class RunModel extends ModelBase {
   @Bool()
   public Forced: boolean;
 
-  @Json()
+  @JsonText()
   public ResumeFrom: { runId: string; fromStep?: string } | null;
 
   /** Set once the journal dropped a progress row of this run (runLogLimit). */
