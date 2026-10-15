@@ -21,6 +21,11 @@ export interface MutexLock {
   Locked: boolean;
 
   /**
+   * Epoch ms after which another tenant may take the lock. null or missing = never expires.
+   */
+  LockedUntil?: number | null;
+
+  /**
    * Creation time
    */
   Created_at: DateTime;
@@ -38,9 +43,16 @@ export interface MutexLockOptions {
   Name: string;
 
   /**
-   * Who is locking. If not set - name of current process is set
+   * Lock holder. Defaults to config `threading.mutex.tenant`, or to the identity of the
+   * current process (see `processIdentity()`) when that is empty.
    */
   Tenant?: string;
+
+  /**
+   * Lock lifetime in ms, counted from acquire or the last renew. 0 = never expires.
+   * Defaults to config `threading.mutex.ttl`.
+   */
+  ttl?: number;
 }
 
 /**
@@ -65,6 +77,12 @@ export abstract class Mutex {
    * @param options
    */
   public abstract acquire(options: MutexLockOptions): Promise<LockResult>;
+
+  /**
+   * Extends a lock held by `options.Tenant` to now + ttl. Never takes a lock.
+   * @returns false when the lock is not held by this tenant any more
+   */
+  public abstract renew(options: MutexLockOptions): Promise<boolean>;
 
   /**
    *
@@ -159,4 +177,11 @@ export function mutex_acquire(options: MutexLockOptions): Promise<LockResult> {
  */
 export function mutex_release(options : MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
   return DI.resolve(Mutex).release(options, deleteOnClose);
+}
+
+/**
+ * Extends a held lock. See {@link Mutex.renew}
+ */
+export function mutex_renew(options: MutexLockOptions): Promise<boolean> {
+  return DI.resolve(Mutex).renew(options);
 }
