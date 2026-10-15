@@ -391,6 +391,21 @@ describe('followOverSse', () => {
     ).to.be.rejectedWith(/closed 5 times/);
     expect(srv.seen).to.have.length(5);
   });
+
+  it('gives up on a stream that connects and then always fails before an event', async () => {
+    srv = await sseServer((_req, res) => {
+      stream(res);
+      res.write(': ping\n\n');
+      setTimeout(() => res.destroy(), 10);
+    });
+    await expect(
+      followOverSse(
+        { baseUrl: srv.url, retryDelayMs: 10 },
+        { target: { runId: 'r1' }, onEvent: () => undefined, until: () => true },
+      ),
+    ).to.be.rejectedWith(/closed 5 times/);
+    expect(srv.seen).to.have.length(5);
+  });
 });
 
 describe('followInProcess', () => {

@@ -29,7 +29,7 @@ export interface FollowHttpOptions {
   retryDelayMs?: number;
 }
 
-/** Clean closes in a row without any event before following gives up. */
+/** Reachable streams in a row that end (closed or failed) without any event before following gives up. */
 const MAX_EMPTY_CONNECTIONS = 5;
 const MAX_DOWN_MS = 60_000;
 const RETRY_DELAY_MS = 1000;
@@ -110,6 +110,7 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
       ...(last !== undefined ? { 'Last-Event-ID': String(last) } : {}),
     };
     let delivered = false as boolean;
+    let reachable = false as boolean;
     let failure: unknown;
 
     /** True once following is over. */
@@ -144,6 +145,7 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
         );
       }
       // a reachable stream ends the run of failures, whatever it delivers
+      reachable = true;
       failures = 0;
       downSince = undefined;
       const parser = new SseParser();
@@ -164,13 +166,15 @@ export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): 
       failures = 0;
       downSince = undefined;
     }
-    if (failure === undefined) {
-      if (!delivered && ++empty >= MAX_EMPTY_CONNECTIONS) {
+    // a stream that is reachable but fails before any event would otherwise reset both budgets forever
+    if (!delivered && (failure === undefined || reachable)) {
+      if (++empty >= MAX_EMPTY_CONNECTIONS) {
         throw new Error(`event stream ${url} closed ${MAX_EMPTY_CONNECTIONS} times in a row without an event`);
       }
-      continue;
+    } else if (failure !== undefined) {
+      empty = 0;
     }
-    empty = 0;
+    if (failure === undefined) continue;
     failures++;
     downSince ??= Date.now();
     if (Date.now() - downSince >= maxDownMs) {
