@@ -10,12 +10,13 @@ import { RunAttemptModel } from './models/RunAttemptModel.js';
 import { RunModel } from './models/RunModel.js';
 import { ScheduleModel } from './models/ScheduleModel.js';
 import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
+import { decideAfterFailure } from './policy/retry.js';
 import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
 import { RunFinalizer } from './run/RunFinalizer.js';
 import { DefinitionSync } from './store/DefinitionSync.js';
-import { LeaseStore, OccurrenceInput } from './store/LeaseStore.js';
+import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
 import { defaultReplicaId } from './store/replica.js';
 import { Clock, DbClock, TimerHandle } from './time/clock.js';
 import { fireTime } from './time/occurrences.js';
@@ -433,11 +434,21 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   protected expiryDecision(
-    _run: RunModel,
-    _def: ScheduleDefinition | undefined,
-    _now: number,
-  ): { status: RunStatus; reason: string; nextAttemptAt: number | null } {
-    return { status: 'aborted', reason: 'lease-expired', nextAttemptAt: null };
+    run: RunModel,
+    def: ScheduleDefinition | undefined,
+    now: number,
+  ): RunExpiry & { countsAsFailure: boolean } {
+    const f = decideAfterFailure({
+      retry: def?.retry,
+      emit: !!def?.emit,
+      attempt: run.Attempt,
+      error: new RunAbortedError('lease-expired'),
+      abortReason: 'lease-expired',
+    });
+    if (f.status === 'retrying') {
+      return { status: 'retrying', reason: 'lease-expired', nextAttemptAt: now + f.delayMs, countsAsFailure: false };
+    }
+    return { status: f.status, reason: 'lease-expired', nextAttemptAt: null, countsAsFailure: f.countsAsFailure };
   }
 
   protected async reapExpired(now: number): Promise<void> {
@@ -466,7 +477,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
         status: next.status,
         error,
         now,
-        countsAsFailure: next.status !== 'retrying',
+        countsAsFailure: next.countsAsFailure,
         nextAttemptAt: next.nextAttemptAt,
       });
     }

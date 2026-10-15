@@ -8,6 +8,7 @@ import { defined, jsonColumn } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
+import { decideAfterFailure } from '../policy/retry.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock } from '../time/clock.js';
@@ -208,7 +209,7 @@ export class RunExecutor {
 
   protected decide(
     run: RunModel,
-    _def: ScheduleDefinition,
+    def: ScheduleDefinition,
     outcome: ExecutionOutcome,
     now: number,
     step: string | null,
@@ -223,26 +224,30 @@ export class RunExecutor {
         nextAttemptAt: null,
       };
     }
+
+    const abortReason = outcome.kind === 'aborted' ? outcome.reason : undefined;
     const raw = outcome.kind === 'error' ? outcome.error : new RunAbortedError(outcome.reason);
-    const error = toStructuredError(raw, { attempt: run.Attempt, occurredAt: now, step });
-    if (outcome.kind === 'aborted') {
-      const cancelled = outcome.reason === 'cancelled';
+    const error = abortReason === 'cancelled' ? null : toStructuredError(raw, { attempt: run.Attempt, occurredAt: now, step });
+    // a task still running may still need the schedule lease to keep others out
+    const keepScheduleLease = outcome.kind === 'aborted' && !outcome.settled;
+    const f = decideAfterFailure({ retry: def.retry, emit: !!def.emit, attempt: run.Attempt, error: raw, abortReason });
+
+    if (f.status === 'retrying') {
       return {
-        status: 'aborted',
-        reason: outcome.reason,
-        error: cancelled ? null : error,
-        countsAsFailure: !cancelled,
-        // a task still running may still need the schedule lease to keep others out
-        keepScheduleLease: !outcome.settled,
-        nextAttemptAt: null,
+        status: 'retrying',
+        reason: abortReason ?? null,
+        error,
+        countsAsFailure: false,
+        keepScheduleLease,
+        nextAttemptAt: now + f.delayMs,
       };
     }
     return {
-      status: 'failed',
-      reason: null,
+      status: f.status,
+      reason: abortReason ?? null,
       error,
-      countsAsFailure: true,
-      keepScheduleLease: false,
+      countsAsFailure: f.countsAsFailure,
+      keepScheduleLease,
       nextAttemptAt: null,
     };
   }
