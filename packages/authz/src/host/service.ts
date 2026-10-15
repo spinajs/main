@@ -459,6 +459,7 @@ export class DefaultAuthzService extends AuthzService {
     const scopeRefs: ScopeRefDecl[] = contributed('scopeRefs');
     const joinTypes: ResourceType[] = contributed('joinTypes');
     const schemas: ScopeAttributeSchema[] = contributed('scopeAttributeSchemas');
+    const listTypes: ResourceType[] | undefined = contributions.some((c) => c.listTypes !== undefined) ? contributed('listTypes') : undefined;
 
     const relations = [...new Set([...chainRelations, ...modelRelations])];
     const nativeFilters = [...new Set([...chainFilters, ...modelFilters])];
@@ -477,6 +478,7 @@ export class DefaultAuthzService extends AuthzService {
       relationRefs,
       scopeRefs,
       joinTypes,
+      ...(listTypes ? { listTypes } : {}),
     });
     for (const w of warnings) this.log.warn(w);
 

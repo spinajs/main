@@ -80,8 +80,7 @@ for (const kind of E2E_DIALECTS) {
         );
       });
 
-      // Design §7 requires this refusal, but no lane implemented it: validateBoot's rule 12 asks only the routed models.
-      it.skip('refuses a list permission on a type with no @AccessResource model', async () => {
+      it('refuses a list permission on a type with no @AccessResource model', async () => {
         await refused({ ...stackWorld(), permissions: [...PERMISSIONS, { name: 'note:read', list: true }] }, 'no-model', 'note:read');
       });
     });

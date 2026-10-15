@@ -39,6 +39,8 @@ export interface BootInput {
   readonly relationRefs?: readonly RelationRefDecl[];
   readonly scopeRefs?: readonly ScopeRefDecl[];
   readonly joinTypes?: readonly ResourceType[];
+  /** Types a list query can scope (authz-orm: the `@AccessResource` types). When given, rule 12 refuses a list permission on any other type. */
+  readonly listTypes?: readonly ResourceType[];
 }
 
 type Rule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 10 | 12 | 'models' | 'combine' | 'routes';
@@ -159,7 +161,8 @@ export function validateBoot(input: BootInput): { readonly warnings: readonly st
     );
     const joinTypes = new Set<unknown>(listOf(input.joinTypes));
     guard(4, () => checkRoutes(routes, caps, adaptersByType, natives, joinTypes, add));
-    guard(12, () => checkListPermissions(routes, registry, add));
+    const listTypes = input.listTypes === undefined ? undefined : new Set<unknown>(listOf(input.listTypes));
+    guard(12, () => checkListPermissions(routes, registry, listTypes, add));
   }
 
   guard(7, () => checkPermissions(registry, listOf(input.permissionRefs), add));
@@ -313,10 +316,11 @@ function checkRoutes(table: RouteTable, caps: ReadonlyMap<AuthorizationModel, Mo
 }
 
 /** Rule 12: every model routed for a `list: true` permission on one of its types plans it, under deny-overrides (the only algorithm plans combine with). */
-function checkListPermissions(table: RouteTable, registry: PermissionRegistry, add: Add): void {
+function checkListPermissions(table: RouteTable, registry: PermissionRegistry, listTypes: ReadonlySet<unknown> | undefined, add: Add): void {
   for (const def of registry.all()) {
     if (def.list !== true) continue;
     for (const type of new Set(listOf(def.types))) {
+      if (listTypes && type !== GLOBAL_TYPE && !listTypes.has(type)) add({ rule: 12, type, permission: def.name, text: 'no list-scoped resource serves this type (an ORM type needs an @AccessResource model)' });
       const plan = table.get(def.name, type);
       if (!plan) continue;
       if (plan.algorithm !== 'deny-overrides') add({ rule: 12, type, permission: def.name, text: `list permissions combine with deny-overrides only, got ${q(plan.algorithm)}` });

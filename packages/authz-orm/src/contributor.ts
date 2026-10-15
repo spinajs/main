@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
-import { entryOf, nameOf, registeredClasses } from './registry.js';
+import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
 
 interface ConfigSource {
   get<T>(path: string[]): T;
@@ -37,12 +37,13 @@ export function checkResourceConnections(orm: Orm, config?: ConfigSource): void 
   if (wrong.length > 0) throw new AuthzConfigError(`authz-orm: @AccessResource models with @Parent must use the authz stores' connection ${JSON.stringify(name)} (${key}), where authz_resource_ancestor and authz_assignment live: ${wrong.join(', ')}`);
 }
 
-/** Runs the check at every domain boot; contributes nothing to the boot rules. */
+/** Runs the check at every domain boot and gives rule 12 the `@AccessResource` types, so a list permission on any other type is refused. */
 @Singleton()
 @Injectable(AuthzContributor)
 export class AuthzOrmContributor extends AuthzContributor {
   contribute(_domain: string): AuthzContribution {
-    if (DI.RootContainer.isResolved(Orm)) checkResourceConnections(DI.get(Orm) as Orm);
-    return {};
+    if (!DI.RootContainer.isResolved(Orm)) return {};
+    checkResourceConnections(DI.get(Orm) as Orm);
+    return { listTypes: registeredTypes() };
   }
 }
