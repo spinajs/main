@@ -83,3 +83,45 @@ export class SetRoleBody {
     Object.assign(this, data);
   }
 }
+
+@Schema(object(['slug', 'name'], { slug: { ...slugSchema(), description: 'unique among the groups of the team' }, name: nameSchema(), description: descriptionSchema(), parentId: { ...nullableIdSchema(), description: 'an outer group of the same team' } }, { title: 'CreateGroupBody' }))
+export class CreateGroupBody {
+  public slug: string;
+  public name: string;
+  public description?: string | null;
+  public parentId?: string | null;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema(object([], { slug: slugSchema(), name: nameSchema(), description: descriptionSchema() }, { title: 'UpdateGroupBody', minProperties: 1 }))
+export class UpdateGroupBody {
+  public slug?: string;
+  public name?: string;
+  public description?: string | null;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema(object(['parentId'], { teamId: { ...idSchema(), description: "the team to move the group to; default the group's team" }, parentId: { ...nullableIdSchema(), description: 'the new outer group (same team); null for none' } }, { title: 'MoveGroupBody' }))
+export class MoveGroupBody {
+  public teamId?: string;
+  public parentId: string | null;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}
+
+@Schema(object(['subject'], { subject: subjectSchema() }, { title: 'AddGroupMemberBody' }))
+export class AddGroupMemberBody {
+  public subject: string;
+
+  constructor(data: Record<string, unknown>) {
+    Object.assign(this, data);
+  }
+}

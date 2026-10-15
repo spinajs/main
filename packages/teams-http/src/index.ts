@@ -7,3 +7,5 @@ export * from './http/refs.js';
 export * from './schemas/bodies.js';
 export * from './controllers/TeamsController.js';
 export * from './controllers/TeamMembersController.js';
+export * from './controllers/TeamGroupsController.js';
+export * from './controllers/GroupsController.js';

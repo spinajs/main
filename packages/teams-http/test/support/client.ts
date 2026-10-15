@@ -79,3 +79,10 @@ export async function ownedTeam(): Promise<{ readonly owner: string; readonly te
   const owner = await platformUser();
   return { owner, team: await createTeam(owner) };
 }
+
+/** POST /teams/:team/groups as `owner`; the answer's group. */
+export async function createGroup(owner: string, teamId: string, body: Record<string, unknown> = {}): Promise<any> {
+  const res = await as(owner).post(`/teams/${teamId}/groups`, { slug: uniq('group'), name: 'Group', ...body });
+  if (res.status !== 200) throw new Error(`createGroup: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body;
+}
