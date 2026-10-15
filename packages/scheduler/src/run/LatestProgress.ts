@@ -38,6 +38,11 @@ export class ProgressSeen {
     this.runProgress.set(key, e.progress);
   }
 
+  /** The run's final status was delivered. */
+  public hasEnded(runId: string): boolean {
+    return this.ended.has(runId);
+  }
+
   /** The step's values differ from the last `progress` delivered for it. */
   public differs(e: RunEvent): boolean {
     if (e.type !== 'progress' || this.ended.has(e.runId)) return false;
@@ -91,9 +96,10 @@ export class LatestProgress {
         ts: iso(run.UpdatedAt ?? run.StartedAt ?? run.CreatedAt) as string,
         synthetic: true as const,
       };
-      // step names may repeat: the last row per name wins
+      // step names may repeat: the last row per name wins and takes its place in the order
       const latest = new Map<string, RunStepModel>();
       for (const s of await RunStepModel.where('RunId', run.Id).where('Attempt', run.Attempt).orderBy('Seq')) {
+        latest.delete(s.Name);
         latest.set(s.Name, s);
       }
       const reported = [...latest.values()].filter((s) => s.Progress > 0 || hasDetail(s));

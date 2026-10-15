@@ -158,8 +158,18 @@ export class RunExecutor {
     });
   }
 
-  /** Step weight of the schedule's last succeeded run: the best guess for this run's total (R10). */
+  /** Only a best guess: a failed lookup must not stop a run that is already journaled `running`. */
   protected async plannedWeight(schedule: string): Promise<number> {
+    try {
+      return await this.lastSucceededWeight(schedule);
+    } catch (err) {
+      this.Log.warn(err as Error, `could not read the planned step weight of ${schedule}; using the steps seen`);
+      return 0;
+    }
+  }
+
+  /** Step weight of the schedule's last succeeded run: the best guess for this run's total (R10). */
+  protected async lastSucceededWeight(schedule: string): Promise<number> {
     const last = await RunModel.where('Schedule', schedule)
       .where('Status', 'succeeded')
       .orderByDescending('FinishedAt')

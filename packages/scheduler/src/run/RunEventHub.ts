@@ -69,6 +69,8 @@ export class RunEventHub {
     const latest = async () => {
       for (const e of await this.Latest.synthesize(target, seen, cursor)) {
         if (closed) return;
+        // a final status delivered directly while the rows were read wins over them
+        if (seen.hasEnded(e.runId)) continue;
         // a local event may have moved the cursor while the rows were read
         if (byRun) e.seq = cursor;
         else e.id = cursor;

@@ -58,6 +58,13 @@ export interface RunLogger {
   error(message: string, data?: unknown): void;
 }
 
+function checkWeight(value: number, what: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new InvalidArgument(`${what} must be a finite number >= 0, got ${value}`);
+  }
+  return value;
+}
+
 interface OpenStep {
   name: string;
   seq: number;
@@ -111,6 +118,8 @@ export class RunContext {
   /** Errors thrown out of a step: the run error still names the step after it closed. */
   protected stepErrors = new WeakMap<object, string>();
   protected abortedStep: string | null = null;
+  /** A step whose row is being created; `open` is set only once the row exists. */
+  protected starting: string | null = null;
   protected checkpointValue: unknown;
 
   constructor(protected readonly init: RunContextInit) {
@@ -133,33 +142,45 @@ export class RunContext {
 
   /** Total weight of the steps this run goes through (R10); overrides the previous run's. */
   public expectSteps(totalWeight: number): void {
-    this.plannedWeight = Math.max(0, totalWeight);
+    this.plannedWeight = checkWeight(totalWeight, 'expectSteps(totalWeight)');
     this.touch();
   }
 
   public async step<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
-    if (this.open) {
-      throw new InvalidOperation(`step '${name}' started inside step '${this.open.name}'; steps run one after another`);
+    const outer = this.open?.name ?? this.starting;
+    if (outer !== null) {
+      throw new InvalidOperation(`step '${name}' started inside step '${outer}'; steps run one after another`);
     }
     if (this.signal.aborted) throw new RunAbortedError(this.signal.reason as never);
     if (this.closed) throw new InvalidOperation(`run ${this.runId} has finished; step '${name}' was not started`);
 
-    const weight = opts.weight ?? 1;
+    const weight = checkWeight(opts.weight ?? 1, `weight of step '${name}'`);
     const occurrence = (this.occurrences.get(name) ?? 0) + 1;
     this.occurrences.set(name, occurrence);
     const seq = ++this.stepSeq;
     const startedAt = this.init.clock.now();
 
-    const row = await RunStepModel.create({
-      RunId: this.runId,
-      Attempt: this.attempt,
-      Seq: seq,
-      Name: name,
-      Status: 'running',
-      Weight: weight,
-      StartedAt: startedAt,
-      Progress: 0,
-    });
+    this.starting = name;
+    let row: RunStepModel;
+    try {
+      row = await RunStepModel.create({
+        RunId: this.runId,
+        Attempt: this.attempt,
+        Seq: seq,
+        Name: name,
+        Status: 'running',
+        Weight: weight,
+        StartedAt: startedAt,
+        Progress: 0,
+      });
+    } finally {
+      this.starting = null;
+    }
+    if (this.closed) {
+      // the run ended while the row was being created: nothing may be journaled any more
+      await RunStepModel.update({ Status: 'aborted', FinishedAt: this.init.clock.now() }).where('Id', row.Id);
+      throw new InvalidOperation(`run ${this.runId} has finished; step '${name}' was not started`);
+    }
     const s: OpenStep = { name, seq, rowId: row.Id, weight, startedAt, fraction: 0, message: null, closed: false };
     this.open = s;
     this.currentStepName = name;
@@ -262,15 +283,16 @@ export class RunContext {
   public markFlushed(): void {
     const changed = this.snapshotVersion !== this.flushedVersion;
     this.flushedVersion = this.snapshotVersion;
-    if (this.closed || !changed) return;
+    if (this.muted || !changed) return;
     const open = this.open;
     if (open && !open.closed) {
       void this.enqueue(() =>
         RunStepModel.update(
           defined({
             Progress: Math.round(open.fraction * 100),
-            Done: open.done,
-            Total: open.total,
+            // null, not undefined: a plain number after { done, total } must clear them
+            Done: open.done ?? null,
+            Total: open.total ?? null,
             Message: open.message,
           }),
         ).where('Id', open.rowId),
@@ -347,9 +369,16 @@ export class RunContext {
     return next;
   }
 
-  /** A task still running after its grace period must not write past the run's final status. */
+  /**
+   * Nothing is journaled once the context is closed (a task still running after its grace period)
+   * or the lease is lost: the replica that took the run over journals its final status itself.
+   */
+  protected get muted(): boolean {
+    return this.closed || (this.signal.aborted && this.signal.reason === 'lease-lost');
+  }
+
   protected emit(payload: RunEventPayload): Promise<void> {
-    if (this.closed) return Promise.resolve();
+    if (this.muted) return Promise.resolve();
     return this.enqueue(() => this.init.events.write(this.init.run, this.attempt, payload));
   }
 
@@ -375,8 +404,8 @@ export class RunContext {
           Status: status,
           FinishedAt: now,
           Progress: status === 'succeeded' ? 100 : Math.round(s.fraction * 100),
-          Done: s.done,
-          Total: s.total,
+          Done: s.done ?? null,
+          Total: s.total ?? null,
           Message: s.message,
           Result: result,
           Error: jsonColumn(error) as never,

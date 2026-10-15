@@ -3,6 +3,7 @@ import { DI } from '@spinajs/di';
 import {
   appendJournalRow,
   FakeClock,
+  LatestProgress,
   RunEvent,
   RunEventHub,
   RunEventWriter,
@@ -280,5 +281,67 @@ describe('ProgressSeen', () => {
     seen.note({ ...progress({}), type: 'status', status: 'succeeded', reason: null } as RunEvent);
     expect(seen.differs(progress({ stepProgress: 50 }))).to.eq(false);
     expect(seen.runProgressDiffers(progress({ progress: 50 }))).to.eq(false);
+  });
+});
+
+describe('latest progress ordering and final status', () => {
+  let clock: FakeClock;
+  let writer: RunEventWriter;
+  let hub: RunEventHub;
+  let run: RunModel;
+
+  const step = (seq: number, name: string, progress: number, status: 'running' | 'succeeded' = 'succeeded') =>
+    RunStepModel.create({
+      RunId: run.Id,
+      Attempt: 1,
+      Seq: seq,
+      Name: name,
+      Status: status,
+      Weight: 1,
+      StartedAt: clock.now(),
+      Progress: progress,
+    });
+
+  beforeEach(async () => {
+    ({ clock } = await bootTestEnv({ scheduler: { runLogLimit: 2, events: { pollInterval: 1000 } } }));
+    writer = DI.resolve(RunEventWriter);
+    hub = DI.resolve(RunEventHub);
+    run = await queuedRun('import', clock.now(), { Status: 'running', StartedAt: clock.now(), ProgressCapped: true });
+    await writer.write(run, 1, { type: 'status', status: 'running', reason: null });
+  });
+
+  it('orders a repeated step name by its latest row', async () => {
+    await step(1, 'fetch', 100);
+    await step(2, 'save', 100);
+    await step(3, 'fetch', 40, 'running');
+    const got: RunEvent[] = [];
+    const off = await hub.subscribe({ runId: run.Id }, (e) => got.push(e));
+    off();
+    expect(progressOf(got).map((e) => [e.step, e.stepProgress])).to.deep.eq([
+      ['save', 100],
+      ['fetch', 40],
+    ]);
+  });
+
+  it('never delivers a synthetic event after the final status of its run', async () => {
+    await step(1, 'fetch', 40, 'running');
+    const got: RunEvent[] = [];
+    const off = await hub.subscribe({ runId: run.Id }, (e) => got.push(e));
+    expect(got.map((e) => e.type)).to.deep.eq(['status', 'progress']);
+
+    await RunStepModel.update({ Progress: 60 }).where('RunId', run.Id);
+    const latest = DI.resolve(LatestProgress);
+    const synthesize = latest.synthesize.bind(latest) as LatestProgress['synthesize'];
+    // the final status is written and delivered directly while a poll round reads the rows
+    latest.synthesize = async (target, seen, cursor) => {
+      const events = await synthesize(target, seen, cursor);
+      await writer.write(run, 1, { type: 'status', status: 'succeeded', reason: null });
+      return events;
+    };
+    await clock.advance(1000);
+    await waitFor(() => got.length === 3);
+    await settle();
+    off();
+    expect(got.map((e) => (e.type === 'status' ? e.status : e.type))).to.deep.eq(['running', 'progress', 'succeeded']);
   });
 });
