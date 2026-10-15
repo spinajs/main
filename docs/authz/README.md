@@ -452,19 +452,15 @@ Rules that matter:
 - `actorTypes` matches the acting principal (`req.actor`, else the principal). Under `inherit`
   delegation the models see the delegate as the principal and the agent as the actor.
 
-Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`),
-`authz.abac.connection` (default `default`) and `authz.abac.scopeResiduals` (default `false`). Policy
-writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
-([Wiring the models](#wiring-the-models)).
+Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`) and
+`authz.abac.connection` (default `default`). Policy writes go through `AuthzAdmin` (`policy.put`,
+`policy.delete`). The app registers the model itself ([Wiring the models](#wiring-the-models)).
 
-**`scopeResiduals`.** Off, a policy that compares `scope.<type>.*` on a list (a request without an id)
-cannot decide it: a deny then denies the whole list with `needs_subject` (B19), and a permit makes the
-ABAC vote indeterminate, which also denies the list under `deny-overrides` (B39). On, the comparison
-becomes a residual leaf (`native:condition.scope`) that authz-rbac compiles to SQL, so the list is
-filtered row by row. A list through authz-orm with the switch on needs `@spinajs/authz-rbac` loaded.
-The host should also register an `RbacScopeAttributeSource` with the engine's own scope attribute
-schemas; without one, an attribute that only a schema default holds refuses the row. Canvas turns it on; see `packages/authz-orm/README.md`
-("ABAC scope leaves").
+**Lists.** A permission declared `list: true` is list-filterable for ABAC when every policy that can
+match it reads only `principal.*`, `actor.*`, `env.*` and `scope.$global.*`, and has no scope other
+than `$global`. Such policies are decided once per list, before the query: a matching deny denies the
+whole list, a matching permit lists every row. Boot rule 12 refuses a `list: true` permission that a
+row-dependent policy can match, and `policy.put` refuses such a policy (`not_list_filterable`).
 
 ## Adapters
 

@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, SCOPE_CONDITION_FILTER, SCOPE_CONDITION_OP, TRUE, and, isScopeLeaf, not, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
-import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
+import { notListFilterable, rowDependence } from './list.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
-import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_SCOPE_RESIDUALS, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
+import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -24,18 +25,11 @@ export interface AbacModelOptions {
   readonly functions?: readonly ConditionFunction[];
   /** After a failed reload, the first retry waits this long (default 1000 ms), doubling up to 60 s. */
   readonly retryMs?: number;
-  /**
-   * Default `authz.<name>.scopeResiduals` (false). On a request without id, a comparison of
-   * `scope.<type>.*` becomes residual leaves (`SCOPE_CONDITION_OP`) instead of B19's needs_subject
-   * deny or B39's indeterminate vote (RFC K1b-1).
-   */
-  readonly scopeResiduals?: boolean;
 }
 
 const MAX_RETRY_MS = 60_000;
 
 const RESIDUALS = Object.freeze(['true', 'false', 'and', 'or', 'not', 'cmp', 'under'] as const);
-const SCOPE_RESIDUALS = Object.freeze([...RESIDUALS, SCOPE_CONDITION_OP] as const);
 
 interface Entry {
   readonly p: LoadedPolicy;
@@ -70,12 +64,10 @@ export class AbacModel extends AuthorizationModel {
   private retryDelay: number;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
-  private scopeResiduals: boolean | undefined;
 
   constructor(options: AbacModelOptions = {}) {
     super();
     this.name = options.name ?? 'abac';
-    this.scopeResiduals = options.scopeResiduals;
     this.functions = options.functions;
     this.parser = new DefaultConditionCompiler(options.functions ?? BUILTIN_CONDITION_FUNCTIONS);
     this.stores = options.stores;
@@ -90,17 +82,10 @@ export class AbacModel extends AuthorizationModel {
    */
   get capabilities(): ModelCapabilities {
     const sync = this.registry !== undefined && (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore) && this.loaded.every((p) => !p.when && !p.policy.scope) ? 'always' : 'never';
-    return { effects: ['permit', 'deny'], residuals: this.scopeResiduals === true ? SCOPE_RESIDUALS : RESIDUALS, sync, fields: true, needsSubject: true };
+    return { effects: ['permit', 'deny'], residuals: RESIDUALS, sync, fields: true, needsSubject: true };
   }
 
   async init(ctx: ModelInitContext): Promise<void> {
-    if (this.scopeResiduals === undefined) {
-      const on = ctx.config<unknown>('scopeResiduals', ABAC_DEFAULT_SCOPE_RESIDUALS);
-      // A runtime Configuration.set skips the schema.
-      if (typeof on !== 'boolean') throw new AuthzConfigError(`authz.${this.name}.scopeResiduals must be a boolean`);
-      this.scopeResiduals = on;
-    }
-    if (this.scopeResiduals) ctx.registerNativeFilter(SCOPE_CONDITION_FILTER);
     this.registry = ctx.permissions;
     if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions());
     this.stores ??= storesFromConfig(this.name, ctx);
@@ -117,6 +102,62 @@ export class AbacModel extends AuthorizationModel {
   applies(permission: PermissionDef, type: ResourceType): boolean {
     if (this.due()) return true;
     return this.index().candidates(permission.name, type).length > 0;
+  }
+
+  /** Design §7 for this model: every policy that can match the permission on the type is decided without the row. */
+  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
+    for (const p of this.index().candidates(permission.name, type)) {
+      const why = rowDependence(p);
+      if (why !== undefined) return Object.freeze({ reason: notListFilterable(p, why, permission.name, type) });
+    }
+    return true;
+  }
+
+  /**
+   * The list permission and type a policy about to be stored would make non-filterable (policy.put's
+   * ListSupportGuard), or undefined. Loads it as `validate` does, so a malformed policy throws the same way.
+   */
+  listProblem(policy: Omit<Policy, 'source'>, source = 'db'): string | undefined {
+    if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
+    const p = loadPolicy({ ...policy, source }, 0, { source }, (c, where) => this.parser.parse(c, where));
+    const why = rowDependence(p);
+    if (why === undefined) return undefined;
+    const index = new PolicyIndex([p], this.registry);
+    for (const name of [...index.permissions()].sort()) {
+      const def = this.registry.get(name);
+      if (!def?.list) continue;
+      const type = def.types.find((t) => index.candidates(name, t).length > 0);
+      if (type !== undefined) return notListFilterable(p, why, name, type);
+    }
+    return undefined;
+  }
+
+  /**
+   * Design §6.2 for ABAC: every candidate policy is decided now for the principal, actor and env of
+   * the request (overview decision 8), so the plan is deny-all, all or abstain and never holds terms.
+   */
+  async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    await this.upTo(this.generation);
+    const permission = req.permission.name;
+    const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission, resource: { type: req.type }, env: req.env ?? { now: ctx.now } };
+    const held: LoadedPolicy[] = [];
+    for (const p of this.index().candidates(permission, req.type)) {
+      if (!targets(p, request, ctx.now)) continue;
+      const why = rowDependence(p);
+      if (why !== undefined) throw new Error(notListFilterable(p, why, permission, req.type));
+      if (!p.when) {
+        held.push(p);
+        continue;
+      }
+      const c = await this.compile(p, request, ctx);
+      if (c.filter.op === 'true') held.push(p);
+      else if (c.filter.op !== 'false') throw new Error(`${p.where}: its condition is not decided before the query (${JSON.stringify(c.filter)})`);
+    }
+    const denies = held.filter((p) => p.policy.effect === 'deny').map((p) => reasonOf({ p, when: TRUE, needsSubject: false }));
+    if (denies.length > 0) return Object.freeze({ kind: 'deny-all', reason: Object.freeze(denies.sort(compareDenyReasons)[0]) });
+    if (!held.some((p) => p.policy.effect === 'permit')) return Object.freeze({ kind: 'abstain' });
+    const expiries = held.flatMap((p) => (p.expiresAt ? [p.expiresAt.getTime()] : []));
+    return Object.freeze({ kind: 'all', ...(expiries.length > 0 ? { validUntil: new Date(Math.min(...expiries)) } : {}) });
   }
 
   /**
@@ -182,10 +223,8 @@ export class AbacModel extends AuthorizationModel {
       if (list === null) throw new Error(`the ancestors of ${req.resource.type}:${req.resource.id} are unknown`);
       ancestors = list;
     }
-    const leaves = this.scopeResiduals === true && req.resource.type !== GLOBAL.type && (req.resource.id === undefined || req.resource.id === null);
     let cacheable = true;
     const entries: Entry[] = [];
-    const guards: Entry[] = [];
     for (const p of live) {
       const scope = scopeFilter(p.policy.scope, ancestors);
       if (scope === FALSE) continue;
@@ -193,10 +232,8 @@ export class AbacModel extends AuthorizationModel {
         entries.push({ p, when: scope, needsSubject: false });
         continue;
       }
-      const c = await this.compile(p, req, ctx, leaves);
+      const c = await this.compile(p, req, ctx);
       if (!c.cacheable) cacheable = false;
-      // Whatever the filter folds to: the check of a row reads every scope ref before anything folds.
-      if (c.fault && c.fault.op !== 'false') guards.push({ p, when: and(scope, c.fault), needsSubject: false });
       // A scope.* ref a request without id cannot read, even where the filter folded: the check of a
       // row still reads it and faults where it is missing, so no fold may list that row.
       const unread = c.unresolvedScope;
@@ -213,32 +250,25 @@ export class AbacModel extends AuthorizationModel {
       }
       // A permit whose condition needs the row it was not given permits nothing (B19).
     }
-    return this.vote(entries, cacheable, guards);
+    return this.vote(entries, cacheable);
   }
 
-  private compile(p: LoadedPolicy, req: DecisionRequest, ctx: EvaluationContext, scopeLeaves = false): Promise<CompiledCondition> {
+  private compile(p: LoadedPolicy, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
     const compiler = ctx.conditions as Partial<DefaultConditionCompiler>;
-    if (typeof compiler.compileParsed === 'function') return scopeLeaves ? compiler.compileParsed(p.when!, req, ctx, { scopeLeaves }) : compiler.compileParsed(p.when!, req, ctx);
+    if (typeof compiler.compileParsed === 'function') return compiler.compileParsed(p.when!, req, ctx);
     return ctx.conditions.compile(p.policy.when!, req, ctx) as Promise<CompiledCondition>;
   }
 
-  /**
-   * `guards`: per policy, the rows where its check would throw on a scope read. There the whole
-   * vote is indeterminate in a check, which `normalizeVote` makes permit FALSE and deny TRUE; the
-   * guards give each row exactly that under every combining algorithm.
-   */
-  private vote(entries: readonly Entry[], cacheable: boolean, guards: readonly Entry[] = []): Vote {
+  private vote(entries: readonly Entry[], cacheable: boolean): Vote {
     const live = entries.filter((e) => e.when !== FALSE);
     const permits = live.filter((e) => e.p.policy.effect === 'permit');
     const denies = live.filter((e) => e.p.policy.effect === 'deny');
-    const faults = guards.filter((e) => e.when !== FALSE);
     const expiries = live.flatMap((e) => (e.p.expiresAt ? [e.p.expiresAt.getTime()] : []));
     const fields = fieldsOf(permits, denies);
-    const permitWhen = permits.length === 0 ? FALSE : or(...permits.map((e) => e.when));
-    const blocking = [...faults.map((e) => ({ when: e.when, reason: faultReason(e) })), ...denies.map((e) => ({ when: e.when, reason: reasonOf(e) }))];
+    const blocking = denies.map((e) => ({ when: e.when, reason: reasonOf(e) }));
     return {
       model: this.name,
-      permitWhen: faults.length === 0 ? permitWhen : and(not(or(...faults.map((e) => e.when))), permitWhen),
+      permitWhen: permits.length === 0 ? FALSE : or(...permits.map((e) => e.when)),
       denyWhen: blocking.length === 0 ? FALSE : or(...blocking.map((e) => e.when)),
       ...(blocking.length > 0 ? { denies: blocking } : {}),
       ...(fields ? { fields } : {}),
@@ -319,24 +349,6 @@ export class AbacModel extends AuthorizationModel {
       }
     }
     return conditional;
-  }
-
-  /**
-   * B19: a policy whose condition reads `scope.<type>.*` (other than `$global`) or calls a function on
-   * `resource.*` needs the row on a list request; such a policy on a list-scoped type (an adapter
-   * that compiles filters) cannot be pushed into the query. One line per policy and type, for the
-   * host to log at boot. With `scopeResiduals` on, a comparison the compiler turns into residual
-   * leaves does not need the row.
-   */
-  listWarnings(listScopedTypes: Iterable<ResourceType>): readonly string[] {
-    const listed = [...new Set(listScopedTypes)];
-    const out: string[] = [];
-    for (const p of this.loaded) {
-      if (!p.when || !needsRow(p.when, this.scopeResiduals === true)) continue;
-      const types = p.resourceTypes ? listed.filter((t) => p.resourceTypes!.has(t)) : listed;
-      for (const type of types) out.push(`${p.where} on list-scoped type ${JSON.stringify(type)}: its condition needs the row, so a list request ${p.policy.effect === 'deny' ? 'denies needs_subject' : 'gets nothing from it'}`);
-    }
-    return out;
   }
 
   /**
@@ -451,20 +463,6 @@ export class AbacModel extends AuthorizationModel {
   }
 }
 
-function needsRow(c: ParsedCondition, scopeLeaves: boolean): boolean {
-  switch (c.kind) {
-    case 'all':
-    case 'any':
-      return c.items.some((item) => needsRow(item, scopeLeaves));
-    case 'not':
-      return needsRow(c.item, scopeLeaves);
-    case 'fn':
-      return c.facts.roots.includes('resource') || c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
-    case 'cmp':
-      return !(scopeLeaves && isScopeLeaf(c)) && c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
-  }
-}
-
 /**
  * Whether a condition may answer otherwise in another session of the same principal: it reads
  * `actor.*`, `env.*`, `principal.*` beyond id, type and attributes (authn facts and the like), or
@@ -491,10 +489,6 @@ function sessionPath(p: ConditionPath): boolean {
   const [head] = p.path;
   if (head === 'attributes') return false;
   return !(p.path.length === 1 && (head === 'id' || head === 'type'));
-}
-
-function faultReason(e: Entry): DenyReason {
-  return { code: 'model_error', policy: e.p.policy.id, sortKey: e.p.policy.id };
 }
 
 function reasonOf(e: Entry): DenyReason {
