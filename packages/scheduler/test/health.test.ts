@@ -3,10 +3,12 @@ import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
   defineSchedule,
+  ErrorGroupModel,
   FakeClock,
   HealthTracker,
   healthOf,
   RunFinalizer,
+  RunContext,
   RunModel,
   Scheduler,
   SchedulerSignals,
@@ -14,8 +16,8 @@ import {
   ScheduleModel,
   undefineSchedule,
 } from '../src/index.js';
-import { bootTestEnv } from './support/env.js';
-import { queuedRun } from './support/fixtures.js';
+import { bootTestEnv, waitFor } from './support/env.js';
+import { driveUntil, getRun, queuedRun, untilAborted } from './support/fixtures.js';
 
 let fail = true;
 class HealthToggleTask extends ScheduledTask {
@@ -120,5 +122,72 @@ describe('health and auto-pause', () => {
     const finished = sinon.spy(SchedulerSignals.prototype, 'runFinished');
     await finalizer.finalized({ run, status: 'failed', error: null, now: clock.now(), countsAsFailure: true });
     expect(finished.calledOnce).to.eq(true);
+  });
+});
+
+class HealthHangTask extends ScheduledTask {
+  public execute(ctx: RunContext) {
+    return untilAborted(ctx.signal);
+  }
+}
+
+describe('health and error groups of aborted runs', () => {
+  let clock: FakeClock;
+  let s: Scheduler;
+  const NAMES = ['hang', 'hang-timeout'];
+  const groups = () => ErrorGroupModel.query().whereIn('Schedule', NAMES);
+
+  beforeEach(async () => {
+    defineSchedule(HealthHangTask, 'hang', { manual: true, pauseAfterFailures: 1 });
+    defineSchedule(HealthHangTask, 'hang-timeout', { manual: true, timeout: '5s', pauseAfterFailures: 2 });
+    ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
+    s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    // neutral endings must neither count nor reset an existing streak
+    await ScheduleModel.update({ ConsecutiveFailures: 1 }).where('Name', 'hang');
+  });
+  afterEach(() => NAMES.forEach(undefineSchedule));
+
+  it('a shutdown with no retry left is neither counted nor grouped', async () => {
+    const run = await queuedRun('hang', clock.now());
+    await s.tickOnce();
+    await s.stop();
+    expect(await getRun(run.Id)).to.include({ Status: 'aborted', Reason: 'shutdown' });
+    expect(await row('hang')).to.include({ ConsecutiveFailures: 1, Paused: false });
+    expect(await groups()).to.have.length(0);
+  });
+
+  it('a cancelled run is neither counted nor grouped', async () => {
+    const run = await queuedRun('hang', clock.now());
+    await s.tickOnce();
+    await waitFor(async () => (await getRun(run.Id)).Status === 'running');
+    await RunModel.update({ CancelRequested: true }).where('Id', run.Id);
+    await driveUntil(clock, s.idle());
+    expect(await getRun(run.Id)).to.include({ Status: 'aborted', Reason: 'cancelled' });
+    expect(await row('hang')).to.include({ ConsecutiveFailures: 1, Paused: false });
+    expect(await groups()).to.have.length(0);
+  });
+
+  it('an expired lease is grouped but not counted', async () => {
+    const ghost = await queuedRun('hang', clock.now(), {
+      Status: 'running',
+      LeaseOwner: 'dead-replica',
+      LeaseUntil: clock.now() - 1,
+      StartedAt: clock.now() - 120_000,
+    });
+    await s.tickOnce();
+    await s.idle();
+    expect(await getRun(ghost.Id)).to.include({ Status: 'aborted', Reason: 'lease-expired' });
+    expect(await row('hang')).to.include({ ConsecutiveFailures: 1, Paused: false });
+    const [g] = await groups();
+    expect(g).to.include({ Name: 'RunAbortedError', Count: 1, LastRunId: ghost.Id });
+  });
+
+  it('a timeout is counted and grouped', async () => {
+    const run = await queuedRun('hang-timeout', clock.now());
+    await s.tickOnce();
+    await driveUntil(clock, s.idle());
+    expect(await getRun(run.Id)).to.include({ Status: 'aborted', Reason: 'timeout' });
+    expect(await row('hang-timeout')).to.include({ ConsecutiveFailures: 1, Paused: false });
+    expect((await groups()).map((g) => g.SampleMessage)).to.deep.eq(['Run aborted: timeout']);
   });
 });

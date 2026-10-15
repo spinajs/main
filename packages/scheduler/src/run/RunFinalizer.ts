@@ -37,9 +37,10 @@ export class RunFinalizer {
   public async finalized(input: FinalizeInput): Promise<void> {
     const { run, status, now } = input;
 
-    // every failed attempt counts in its error group, also one that will be retried
+    // Every failed attempt counts in its error group, also one that will be retried. A shutdown is
+    // routine (every deploy) and a cancel is a user's choice, so neither is grouped.
     const error = input.error;
-    if (error) {
+    if (error && run.Reason !== 'shutdown' && run.Reason !== 'cancelled') {
       await this.bestEffort(`record the error of run ${run.Id}`, async () => {
         const recorded = await this.Errors.record(run.Schedule, run.Id, error, now);
         if (recorded.regressed) await this.Signals.errorRegressed(run, recorded.fingerprint, error);

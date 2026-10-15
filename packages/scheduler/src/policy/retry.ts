@@ -54,13 +54,16 @@ const INFRASTRUCTURE_ABORTS: ReadonlySet<AbortReason> = new Set(['shutdown', 'le
 export function decideAfterFailure(input: FailureInput, random?: () => number): FailureDecision {
   if (input.abortReason === 'cancelled') return { status: 'aborted', countsAsFailure: false };
   const terminal = input.abortReason ? 'aborted' : 'failed';
+  // Health (design §9) counts runs that end failed or dead. Of the aborts only a timeout is the task's
+  // own failure; a shutdown or a lost/expired lease says nothing about the schedule. `dead` always counts.
+  const countsAsFailure = input.abortReason === undefined || input.abortReason === 'timeout';
   // emit mode: the queue owns retries
-  if (!input.retry || input.emit) return { status: terminal, countsAsFailure: true };
+  if (!input.retry || input.emit) return { status: terminal, countsAsFailure };
   const retryable =
     input.abortReason !== undefined && INFRASTRUCTURE_ABORTS.has(input.abortReason)
       ? true
       : isRetryable(input.retry, input.error);
-  if (!retryable) return { status: terminal, countsAsFailure: true };
+  if (!retryable) return { status: terminal, countsAsFailure };
   // R11: `attempts` counts the first try
   if (input.attempt < (input.maxAttempts ?? input.retry.attempts)) {
     return { status: 'retrying', delayMs: computeBackoff(input.retry, input.attempt, random), countsAsFailure: false };

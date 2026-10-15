@@ -86,6 +86,24 @@ describe('retry policy', () => {
     ).to.deep.eq({ status: 'aborted', countsAsFailure: true });
   });
 
+  it('counts only a timeout among final aborts as a failure of the schedule', () => {
+    for (const reason of ['shutdown', 'lease-expired', 'lease-lost'] as const) {
+      const abort = { emit: false, attempt: 1, error: new RunAbortedError(reason), abortReason: reason };
+      expect(decideAfterFailure(abort), reason).to.deep.eq({ status: 'aborted', countsAsFailure: false });
+      expect(decideAfterFailure({ ...abort, emit: true }), `${reason} emit`).to.deep.eq({
+        status: 'aborted',
+        countsAsFailure: false,
+      });
+    }
+    const timeout = { emit: false, attempt: 1, error: new RunAbortedError('timeout'), abortReason: 'timeout' as const };
+    expect(decideAfterFailure(timeout)).to.deep.eq({ status: 'aborted', countsAsFailure: true });
+    // a timeout that retryOn refuses to retry is final too
+    expect(decideAfterFailure({ ...timeout, retry: { ...fixed, retryOn: () => false } })).to.deep.eq({
+      status: 'aborted',
+      countsAsFailure: true,
+    });
+  });
+
   it('retries a shutdown or an expired lease even when retryOn rejects the abort', () => {
     const onlyHttp: NormalizedRetry = { ...fixed, retryOn: (e) => (e as Error).name === 'HttpError' };
     for (const reason of ['shutdown', 'lease-expired'] as const) {

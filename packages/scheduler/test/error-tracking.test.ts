@@ -121,6 +121,29 @@ describe('error tracking', () => {
     expect(regressed.called).to.eq(false);
   });
 
+  it('does not group a shutdown abort, also not one that will be retried', async () => {
+    const finalizer = DI.resolve(RunFinalizer);
+    const run = {
+      Id: 'r1',
+      Schedule: 'import',
+      Attempt: 1,
+      StartedAt: T,
+      Trigger: 'schedule',
+      Reason: 'shutdown',
+    } as RunModel;
+    const aborted = { ...err('Run aborted: shutdown'), name: 'RunAbortedError' };
+    await finalizer.finalized({
+      run,
+      status: 'retrying',
+      error: aborted,
+      now: T,
+      countsAsFailure: false,
+      nextAttemptAt: T + 1,
+    });
+    await finalizer.finalized({ run, status: 'aborted', error: aborted, now: T + 1, countsAsFailure: false });
+    expect(await ErrorGroupModel.all()).to.have.length(0);
+  });
+
   it('signals a regression from the finalizer', async () => {
     const { fingerprint } = await tracker.record('import', 'r0', err('boom'), T);
     await ErrorGroupModel.update({ Status: 'resolved' }).where('Fingerprint', fingerprint);
