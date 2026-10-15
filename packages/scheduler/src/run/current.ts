@@ -11,3 +11,12 @@ export function currentRunContext(): RunContext | undefined {
 export function withRunContext<T>(ctx: RunContext, fn: () => Promise<T>): Promise<T> {
   return storage.run(ctx, fn);
 }
+
+/**
+ * Runs `fn` with no run context, so what it creates (timers, pools, emitters) does not keep a run's context alive.
+ *
+ * @internal
+ */
+export function outsideRunContext<T>(fn: () => T): T {
+  return storage.exit(fn);
+}

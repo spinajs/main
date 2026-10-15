@@ -1,9 +1,12 @@
 import { Constructor, DI } from '@spinajs/di';
 import { ScheduledTask } from '../ScheduledTask.js';
+import { outsideRunContext } from '../run/current.js';
 
 /**
  * The parts of `@spinajs/tasks`' `TaskDeclaration` / `runTask` the scheduler uses. Declared here so the
  * scheduler's typings do not need `@spinajs/tasks`, which is an optional peer.
+ *
+ * @internal
  */
 export interface TaskMethodDeclaration {
   name: string;
@@ -11,12 +14,14 @@ export interface TaskMethodDeclaration {
   target: object;
   isStatic: boolean;
 }
+/** @internal */
 export type RunTaskFn<D extends TaskMethodDeclaration = TaskMethodDeclaration> = (
   decl: D,
   thisArg: unknown,
   args: unknown[],
   opts: { lock: boolean; rethrow: boolean },
 ) => Promise<unknown>;
+/** @internal */
 export interface TaskMethodsModule {
   getTaskDeclarations(name?: string): TaskMethodDeclaration[];
   runTask(
@@ -45,7 +50,7 @@ export function taskMethodSchedule<D extends TaskMethodDeclaration>(
       public async execute(): Promise<unknown> {
         const self: unknown = decl.isStatic
           ? decl.target
-          : await Promise.resolve(DI.resolve(decl.target as Constructor<unknown>));
+          : await Promise.resolve(outsideRunContext(() => DI.resolve(decl.target as Constructor<unknown>)));
         return runTask(decl, self, [], { lock: false, rethrow: true });
       }
     };
@@ -66,7 +71,11 @@ function isNotInstalled(err: unknown): boolean {
   );
 }
 
-/** `@spinajs/tasks` is optional: without it no config entry can name a `@Task` method. */
+/**
+ * `@spinajs/tasks` is optional: without it no config entry can name a `@Task` method.
+ *
+ * @param importTasks - `@internal` test seam; defaults to importing `@spinajs/tasks`
+ */
 export async function loadTaskMethodLookup(
   importTasks: () => Promise<TaskMethodsModule> = () => import('@spinajs/tasks'),
 ): Promise<TaskMethodLookup> {

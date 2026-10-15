@@ -34,7 +34,7 @@ export class ScheduleRegistry extends AsyncService {
     const declarations = [...getScheduleDeclarations(), ...getBuiltinDeclarations(this.config)];
     const classNames = new Set(declarations.map((d) => d.target.name));
     // importing @spinajs/tasks registers its __tasks migration, so only when config names a @Task
-    const needsTaskMethods = this.config.schedules.some((s) => s.task !== undefined && !classNames.has(s.task));
+    const needsTaskMethods = this.config.schedules.some((s) => !!s.task && !classNames.has(s.task));
 
     const defs = buildDefinitions({
       declarations,
