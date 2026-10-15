@@ -1,7 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { ScheduleModel } from '../models/ScheduleModel.js';
-import { jsonColumn } from '../models/converters.js';
+import { defined, jsonColumn } from '../models/converters.js';
 import { definitionHash, serializeDefinition, timingKey } from '../registry/definitions.js';
 import { nextOccurrence } from '../time/spec.js';
 import type { ScheduleDefinition } from '../interfaces.js';
@@ -43,8 +43,8 @@ export class DefinitionSync {
             UpdatedAt: now,
           });
         } catch (err) {
-          // another replica inserted it first
-          this.Log.trace(`schedule ${def.name} already inserted: ${(err as Error).message}`);
+          if (!(await ScheduleModel.where('Name', def.name).first())) throw err;
+          this.Log.trace(`schedule ${def.name} already inserted by another replica: ${(err as Error).message}`);
         }
         continue;
       }
@@ -52,14 +52,17 @@ export class DefinitionSync {
       if (existing.DefinitionHash === hash && !existing.Orphaned) continue;
 
       // Conditional on the old hash, so of several replicas booting together only one rewrites the row.
+      // NextRunAt is written only on a timing change: the value read above may have been claimed and advanced since.
       const timingChanged = timingKey(existing.Definition ?? {}) !== timingKey(serialized);
-      await ScheduleModel.update({
-        Definition: jsonColumn(serialized) as never,
-        DefinitionHash: hash,
-        Orphaned: false,
-        NextRunAt: timingChanged ? initialNextRun(def, now) : existing.NextRunAt,
-        UpdatedAt: now,
-      })
+      await ScheduleModel.update(
+        defined({
+          Definition: jsonColumn(serialized) as never,
+          DefinitionHash: hash,
+          Orphaned: false,
+          NextRunAt: timingChanged ? initialNextRun(def, now) : undefined,
+          UpdatedAt: now,
+        }),
+      )
         .where('Name', def.name)
         .where('DefinitionHash', existing.DefinitionHash);
     }

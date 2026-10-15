@@ -1,4 +1,7 @@
 import { expect } from 'chai';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
   buildDefinitions,
@@ -9,6 +12,8 @@ import {
   ScheduleModel,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
+
+chai.use(chaiAsPromised);
 
 class T1 extends ScheduledTask {}
 const NOW = Date.parse('2026-01-05T10:02:00Z');
@@ -57,6 +62,52 @@ describe('DefinitionSync', () => {
     expect(second.NextRunAt).to.eq(first.NextRunAt);
     await sync.sync(defs(['a', { every: '1h', retry: { attempts: 2 } }]), NOW + 60_000);
     expect((await row('a')).NextRunAt).to.eq(Date.parse('2026-01-05T11:00:00Z'));
+  });
+
+  it('does not write back a NextRunAt another replica advanced meanwhile', async () => {
+    await sync.sync(defs(['a', { every: '5m' }]), NOW);
+    // the rows this sync reads still say 10:05; the claim advances the row before the rewrite lands
+    const stale = await ScheduleModel.all();
+    const advanced = Date.parse('2026-01-05T10:10:00Z');
+    await ScheduleModel.update({ NextRunAt: advanced }).where('Name', 'a');
+    const all = sinon.stub(ScheduleModel, 'all').resolves(stale as never);
+    try {
+      await sync.sync(defs(['a', { every: '5m', retry: { attempts: 2 } }]), NOW + 60_000);
+    } finally {
+      all.restore();
+    }
+    expect((await row('a')).NextRunAt).to.eq(advanced);
+  });
+
+  it('clears NextRunAt when a timing change disables the schedule', async () => {
+    await sync.sync(defs(['a', { every: '5m' }]), NOW);
+    await sync.sync(defs(['a', { every: '5m', enabled: false }]), NOW);
+    expect((await row('a')).NextRunAt).to.eq(null);
+  });
+
+  it('rewrites a row only while it still has the hash read at the start of the sync', async () => {
+    await sync.sync(defs(['a', { every: '5m' }]), NOW);
+    const stale = await ScheduleModel.all();
+    await ScheduleModel.update({ DefinitionHash: 'written-by-another-replica' }).where('Name', 'a');
+    const all = sinon.stub(ScheduleModel, 'all').resolves(stale as never);
+    try {
+      await sync.sync(defs(['a', { every: '1h' }]), NOW + 60_000);
+    } finally {
+      all.restore();
+    }
+    const after = await row('a');
+    expect(after.DefinitionHash).to.eq('written-by-another-replica');
+    expect(after.NextRunAt).to.eq(Date.parse('2026-01-05T10:05:00Z'));
+    expect((after.Definition as { spec: { expression: string } }).spec.expression).to.eq('5m');
+  });
+
+  it('fails when an insert fails and no other replica inserted the row', async () => {
+    const create = sinon.stub(ScheduleModel, 'create').rejects(new Error('disk full'));
+    try {
+      await expect(sync.sync(defs(['a', { every: '5m' }]), NOW)).to.be.rejectedWith('disk full');
+    } finally {
+      create.restore();
+    }
   });
 
   it('does nothing when nothing changed', async () => {
