@@ -1,6 +1,6 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, PermissionRegistry, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PermissionDef, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
-import type { Class } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
 import { RbacModel } from '../model/model.js';
@@ -53,8 +53,11 @@ export function roleIndex(ctx: AdminContext): Promise<RoleIndex> {
 }
 
 async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
-  const container = adminContainer(ctx);
-  const where = `Authz domain ${q(ctx.domain)}`;
+  return loadRoleIndex(adminContainer(ctx), `Authz domain ${q(ctx.domain)}`);
+}
+
+/** The role definitions of every RoleStore `container` registers; a role or ladder defined twice is refused. */
+export async function loadRoleIndex(container: IContainer, where: string): Promise<RoleIndex> {
   if (!container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${where}: no RoleStore is registered; the RBAC write handlers of AuthzAdmin read role definitions from it`);
   const roles = new Map<string, RoleDef>();
   const ladders = new Map<string, LadderDef>();
