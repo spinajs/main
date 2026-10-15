@@ -259,6 +259,20 @@ describe('queue core - dedup & persistence', function () {
     expect(remaining).to.have.lengthOf(1);
     expect(remaining[0].Status).to.eq('created');
   });
+
+  it('waits for every connection to finish disposing', async () => {
+    const queue = await q();
+    const connection = queue.get('memory');
+    let closed = false;
+    sinon.stub(connection, 'dispose').callsFake(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      closed = true;
+    });
+
+    await queue.dispose();
+
+    expect(closed, 'dispose() returned before the connection closed').to.be.true;
+  });
 });
 
 describe('queue core - routing maxRetries', function () {

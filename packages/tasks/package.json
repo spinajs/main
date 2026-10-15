@@ -50,6 +50,7 @@
     "@spinajs/threading": "2.0.553"
   },
   "devDependencies": {
+    "@spinajs/orm-threading": "2.0.553",
     "@types/node": "^18.11.18"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

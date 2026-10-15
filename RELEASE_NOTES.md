@@ -1,3 +1,60 @@
+# Release notes — `OrmMutex` correctness and `@Task` fixes
+
+> Branch `fix/orm-mutex-and-task`.
+
+## BREAKING CHANGES
+
+### `@spinajs/orm-threading` — default tenant is per process, not `app.name`
+
+`OrmMutex` used `app.name` as the default tenant, so every replica of an app was the same
+holder and *all* of them acquired the lock. The default is now `${hostname}:${pid}:${random}`.
+
+- Code that acquires on one replica and releases on another without an explicit `Tenant` no
+  longer releases the lock. Pass the same explicit `Tenant` on both sides.
+- Before, a restarted process re-acquired a lock its crashed predecessor held (same tenant).
+  Now the new process is a different holder: pass `ttl` (and `renew()` while you work) so a
+  crashed holder's lock expires.
+- To restore the old behaviour, set `threading.mutex.tenant` to one value on every replica.
+  That also restores the old bug: replicas do not exclude each other.
+
+### `@spinajs/threading` — `Mutex.renew()` is a new abstract method
+
+Custom `Mutex` subclasses must implement `renew(options): Promise<boolean>`. The new fields
+`MutexLock.LockedUntil` and `MutexLockOptions.ttl` are optional.
+
+### `@spinajs/orm-threading` — `acquire()` result when not granted
+
+`LockResult.Mutex` is now the current row (with the holder's `Tenant`) instead of `null`.
+
+## Migrations
+
+- `Mutex_2026_10_15_00_00_00` adds `__mutex__.LockedUntil BIGINT NULL` (epoch ms).
+- `Mutex_2026_10_15_00_00_01` **releases every lock held at upgrade time**. `@Task` never
+  released its mutex before (see below), so `task-*` rows stayed locked under `app.name` and
+  would otherwise block those tasks forever.
+- During a rolling deploy, old and new replicas do not exclude each other. Old replicas never
+  did. Deploy at a quiet time if a task must not run twice.
+
+## Fixes
+
+- `OrmMutex.acquire()` is one conditional `UPDATE`. Before, it was check-then-update and could
+  grant the lock to several callers at once.
+- Locks can expire: `ttl` option, `threading.mutex.ttl` config (default `0` = never), `renew()`,
+  and `mutex_renew()`. Expiry uses the database clock on SQLite, MySQL and Postgres.
+- `wait()` treats an expired or missing mutex as released.
+- `@Task` released `task-${name}` (an undefined variable) instead of `task-${_name}`, so the
+  task mutex was never released. Fixed.
+- `@Task(name, description)` without options threw on `opts!.taskStacking`. Options now default
+  to `{ taskStacking: false, lockTtl: 60000 }`.
+- `@Task` excludes overlapping runs inside one process, and its lock expires after `lockTtl`
+  unless renewed. It is renewed every `lockTtl / 3` while the task runs.
+
+## Upgrade order for local consumers
+
+Compile in this order: `threading` → `orm-threading` → `tasks` (`npm run compile` in each, plus
+`npm run compile:cjs` for CommonJS consumers), or run the root `npm run build`. Apps linked with
+`npm run link` / `link-all.ps1` pick up `lib/` directly; restart them so the migrations run.
+
 # Release notes — ORM unified dirty tracking
 
 > Branch `feat/orm-unified-dirty-tracking`. Design:

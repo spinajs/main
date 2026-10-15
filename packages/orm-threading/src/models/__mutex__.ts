@@ -11,6 +11,11 @@ export class __mutex__ extends ModelBase<__mutex__> {
 
   public Locked: boolean;
 
+  /**
+   * Epoch ms, null = never expires
+   */
+  public LockedUntil: number | null;
+
   @CreatedAt()
   public Created_at: DateTime;
 

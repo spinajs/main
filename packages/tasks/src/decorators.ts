@@ -1,4 +1,4 @@
-import { mutex_acquire, mutex_release } from '@spinajs/threading';
+import { mutex_acquire, mutex_release, mutex_renew } from '@spinajs/threading';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
@@ -10,27 +10,88 @@ import { TaskFailed } from './events/TaskFailed.js';
 
 export const TASK_COMMAND = 'task:command';
 
-interface TaskOptions {
-  // allow for multiple task running in same time22
-  // eg. long running task that overlaps beginning of another same task
-  // by default is set to false.
+export interface TaskOptions {
+  /**
+   * Allow several runs of the same task at once, e.g. a long run that overlaps the next start.
+   */
   taskStacking: boolean;
+
+  /**
+   * Lifetime of the task mutex in ms, renewed every lockTtl / 3 while the task runs, so a
+   * crashed process frees the task after at most lockTtl. 0 = never expires.
+   */
+  lockTtl: number;
+}
+
+export const DEFAULT_TASK_OPTIONS: TaskOptions = {
+  taskStacking: false,
+  lockTtl: 60000,
+};
+
+type Unlock = () => Promise<void>;
+
+// The mutex is re-entrant per tenant and the default tenant is per process,
+// so overlapping runs inside one process are excluded here, not by the mutex.
+const runningInProcess = new Set<string>();
+
+async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlock | null> {
+  if (opts.taskStacking) {
+    return async () => {};
+  }
+
+  if (runningInProcess.has(name)) {
+    log.warn(`Task ${name} is already running in this process`);
+    return null;
+  }
+
+  runningInProcess.add(name);
+  const mutexName = `task-${name}`;
+
+  try {
+    const lock = await mutex_acquire({ Name: mutexName, ttl: opts.lockTtl });
+    if (!lock.Locked) {
+      runningInProcess.delete(name);
+      log.warn(`Cannot acquire mutex for task ${name}, already locked !`);
+      return null;
+    }
+  } catch (err) {
+    runningInProcess.delete(name);
+    throw err;
+  }
+
+  const heartbeat =
+    opts.lockTtl > 0
+      ? setInterval(() => {
+          mutex_renew({ Name: mutexName, ttl: opts.lockTtl })
+            .then((renewed) => {
+              if (!renewed) {
+                log.warn(`Task ${name} lost its mutex, another process may run it now`);
+              }
+            })
+            .catch((err) => log.error(err, `Cannot renew mutex for task ${name}`));
+        }, Math.max(1, Math.floor(opts.lockTtl / 3)))
+      : undefined;
+
+  return async () => {
+    clearInterval(heartbeat);
+    runningInProcess.delete(name);
+    await mutex_release({ Name: mutexName });
+  };
 }
 
 /**
- * Cli command, wrapper for lib commander. For more docs on command options & args check
- * https://github.com/tj/commander.js
+ * Marks a method as a task: records runs in `__tasks` / `__task_history`, emits
+ * TaskSuccess / TaskFailed and, unless `taskStacking` is set, lets only one run
+ * happen at a time across all processes sharing the database.
  *
- * It allows to use all features that spinajs provides eg. DI, logging, intl support etc.
- * inside command functions without hassle.
- *
- * @param nameAndArgs - name of command with optional args defined
- * @param description  - short description
- * @param opts - additional options, see https://github.com/tj/commander.js
+ * @param taskName - unique task name
+ * @param description - short description
+ * @param opts - see {@link TaskOptions}, defaults to {@link DEFAULT_TASK_OPTIONS}
  */
-export function Task(taskName: string, description: string, opts?: TaskOptions) {
+export function Task(taskName: string, description: string, opts?: Partial<TaskOptions>) {
   const _name = _check_arg(_trim(), _non_empty())(taskName, 'Task name is empty');
   const _description = _check_arg(_trim(), _non_empty())(description, 'Task description is empty');
+  const _opts: TaskOptions = { ...DEFAULT_TASK_OPTIONS, ...opts };
 
   return function (_target: any, _propertyKey: string | symbol, descriptor: PropertyDescriptor) {
     const oldFunction: Function = descriptor.value;
@@ -46,20 +107,19 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           State: 'stopped',
         });
 
-        if (!opts!.taskStacking) {
-          const lock = await mutex_acquire({
-            Name: `task-${_name}`,
-          });
-
-          if (!lock.Locked) {
-            log.warn(`Cannot acquire mutex for task ${_name}, already locked !`);
-            return;
-          }
+        const unlock = await lockTask(_name, _opts, log);
+        if (!unlock) {
+          return;
         }
 
-        task.State = 'running';
-        task.LastRunAt = DateTime.now();
-        await task.update();
+        try {
+          task.State = 'running';
+          task.LastRunAt = DateTime.now();
+          await task.update();
+        } catch (err) {
+          await unlock();
+          throw err;
+        }
 
         let taskResult = null;
         const start = DateTime.now();
@@ -83,9 +143,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           });
         } finally {
           try {
-            await mutex_release({
-              Name: `task-${name}`,
-            });
+            await unlock();
 
             await task.update({
               State: 'stopped',
