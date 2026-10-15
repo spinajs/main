@@ -1,10 +1,12 @@
-import { BasePath, Body, Get, HTTP_STATUS_CODE, Ok, Param, Policy, Post, Query } from '@spinajs/http';
+import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Policy, Post, Query, SseResponse } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { parseSseEventId } from '@spinajs/scheduler';
 import type { RunStatus, RunTrigger } from '@spinajs/scheduler';
 
 import { compact, SchedulerControllerBase } from '../scheduler-controller.js';
 import { SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
+import { DEFAULT_PAGE_SIZE, LAST_EVENT_ID_SCHEMA, MAX_PAGE_SIZE, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
+import { streamRunEvents } from '../sse/run-events.js';
 
 /**
  * Scheduler runs: history, details, live events, cancel and retry.
@@ -104,5 +106,33 @@ export class RunsController extends SchedulerControllerBase {
     });
 
     return new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+  }
+
+  /**
+   * Live run events
+   * Server-Sent Events stream of the run: `status`, `step-start`, `step-end`, `progress`, `message`, `log`
+   * and `error`. Every event carries `id: <seq>`. Without `Last-Event-ID` the stream starts with the run's
+   * history; with it, only the missed events are replayed. A `: ping` comment is sent every
+   * `scheduler.http.sse.heartbeat` ms ( 15 s by default ). The stream ends after the terminal `status`
+   * ( `succeeded`, `failed`, `dead`, `aborted`, `skipped`, `misfired` ); it stays open through `retrying`
+   * and `emitted`, so one stream follows every automatic retry of the run.
+   * Error statuses are only rendered when the client also accepts JSON
+   * ( `Accept: text/event-stream, application/json;q=0.5` ), otherwise they answer 406.
+   * @security cookieAuth
+   * @param id Run id
+   * @param lastEventId Seq of the last event the client received
+   * @returns {SseResponse} Run event stream
+   * @response 400 Malformed run id or Last-Event-ID
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 404 Run not found
+   */
+  @Get(':id/events')
+  @Permission(SCHEDULER_READ)
+  public async events(@Param(RUN_ID_SCHEMA) id: string, @Header('last-event-id', LAST_EVENT_ID_SCHEMA) lastEventId?: string) {
+    const run = await this.Scheduler.getRun(id);
+    const after = parseSseEventId(lastEventId) ?? 0;
+
+    return new SseResponse((stream) => streamRunEvents(stream, this.Scheduler, run, after), { HeartbeatMs: this.HeartbeatMs });
   }
 }

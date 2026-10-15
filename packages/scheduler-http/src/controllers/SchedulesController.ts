@@ -1,9 +1,11 @@
-import { BasePath, Body, Get, HTTP_STATUS_CODE, Ok, Param, Policy, Post } from '@spinajs/http';
+import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Policy, Post, SseResponse } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { parseSseEventId } from '@spinajs/scheduler';
 
 import { SchedulerControllerBase } from '../scheduler-controller.js';
 import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
-import { PauseDto, RetryFailedDto, RunNowDto } from '../dto/requests.js';
+import { LAST_EVENT_ID_SCHEMA, PauseDto, RetryFailedDto, RunNowDto } from '../dto/requests.js';
+import { streamScheduleEvents } from '../sse/run-events.js';
 
 /**
  * Scheduler schedules: definitions, health, manual runs, pause control and live events.
@@ -122,5 +124,27 @@ export class SchedulesController extends SchedulerControllerBase {
   @Permission(SCHEDULER_MANAGE)
   public async resume(@Param() name: string) {
     return new Ok(await this.Scheduler.resume(name, { triggeredBy: this.triggeredBy() }));
+  }
+
+  /**
+   * Live events of a schedule
+   * Server-Sent Events stream of every run of the schedule; event ids are the global event ids. Without
+   * `Last-Event-ID` only new events are sent; with it, the events of all runs of the schedule after that
+   * id are replayed first. The stream stays open until the client disconnects.
+   * @security cookieAuth
+   * @param name Schedule name
+   * @param lastEventId Global id of the last event the client received
+   * @returns {SseResponse} Schedule event stream
+   * @response 400 Malformed Last-Event-ID
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 404 Schedule not found
+   */
+  @Get(':name/events')
+  @Permission(SCHEDULER_READ)
+  public async events(@Param() name: string, @Header('last-event-id', LAST_EVENT_ID_SCHEMA) lastEventId?: string) {
+    await this.Scheduler.getSchedule(name);
+
+    return new SseResponse((stream) => streamScheduleEvents(stream, this.Scheduler, name, parseSseEventId(lastEventId)), { HeartbeatMs: this.HeartbeatMs });
   }
 }
