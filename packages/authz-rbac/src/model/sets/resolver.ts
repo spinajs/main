@@ -1,5 +1,5 @@
-import { engineLog, principalKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { engineLog } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import { SubjectResolver } from '../../contracts.js';
 import { expiryTime, subjectKey } from '../assignments.js';
@@ -13,6 +13,9 @@ export interface GroupPrincipalConfig {
 }
 
 export const DEFAULT_GROUP_PRINCIPAL: GroupPrincipalConfig = Object.freeze({ role: 'group.member', scopeType: 'group' });
+
+/** The id of a wildcard subject: `{ type: 'user', id: '*' }` stands for every principal of type `user`. */
+export const WILDCARD_ID = '*';
 
 export type SetSubject = Extract<AssignmentSubject, { set: unknown }>;
 
@@ -35,10 +38,10 @@ export interface SetResolver extends SubjectResolver {
 export const isSetResolver = (r: SubjectResolver | undefined): r is SetResolver => typeof (r as Partial<SetResolver> | undefined)?.memberships === 'function';
 
 /**
- * The model's default SubjectResolver (design §6.1.3): the principal, its companions, and for a
- * `group` principal its member set (`authz.rbac.groupPrincipal`). The sets the principal holds
- * through its assignments need those assignments, so the model's SetsExtension adds them after the
- * first read, through `memberships`.
+ * The model's default SubjectResolver (design §6.1.3, §4.2): the principal, its companions, for a
+ * group principal its member set, and the wildcard of each of their types. The sets the principal
+ * holds through its assignments need those assignments, so the model's SetsExtension adds them after
+ * the first read, through `memberships`.
  */
 export class RbacSubjectResolver extends SubjectResolver implements SetResolver {
   private readonly group: GroupPrincipalConfig | null;
@@ -50,14 +53,14 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
 
   subjects(p: Principal): readonly AssignmentSubject[] {
     const out = new Map<string, AssignmentSubject>();
-    for (const who of [p, ...(p.companions ?? [])]) {
-      const ref: PrincipalRef = { type: who.type, id: who.id };
-      out.set(principalKey(ref), ref);
-      if (this.group && who.type === 'group') {
-        const set: SetSubject = { set: { role: this.group.role, scope: { type: this.group.scopeType, id: who.id } } };
-        out.set(subjectKey(set), set);
-      }
+    const add = (s: AssignmentSubject) => out.set(subjectKey(s), s);
+    const everyone = [p, ...(p.companions ?? [])];
+    for (const who of everyone) {
+      // `{ type, id: '*' }` is the wildcard subject: a principal named '*' is reached through it alone.
+      if (who.id !== WILDCARD_ID) add({ type: who.type, id: who.id });
+      if (this.group && who.type === 'group') add({ set: { role: this.group.role, scope: { type: this.group.scopeType, id: who.id } } });
     }
+    for (const who of everyone) add({ type: who.type, id: WILDCARD_ID });
     return [...out.values()];
   }
 

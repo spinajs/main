@@ -11,7 +11,7 @@ import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './ev
 import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
-import { RbacSubjectResolver, groupPrincipalConfig } from './sets/resolver.js';
+import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/resolver.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
@@ -480,7 +480,8 @@ function configAssignments(loaded: Loaded, subjects: readonly AssignmentSubject[
     for (const role of roles) out.push({ id: `${source}:${role}`, subject, role, scope: GLOBAL, source });
   };
   for (const s of subjects) {
-    if ('set' in s) continue;
+    // Config roles belong to the principal itself; its wildcard would add them twice.
+    if ('set' in s || s.id === WILDCARD_ID) continue;
     if (s.type === 'anonymous') add(s, loaded.anonymousRoles, 'config:anonymousRoles');
     const service = loaded.serviceRoles.get(principalKey(s));
     if (service) add(s, service, 'config:serviceRoles');

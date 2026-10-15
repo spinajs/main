@@ -284,6 +284,7 @@ export function readRef(v: unknown, field: string): ResourceRef {
 export function readScope(v: unknown, field: string): ResourceRef {
   const ref = readRef(v, field);
   if (ref.type !== GLOBAL.type && ref.id === undefined) throw invalid(field, `${field} must be GLOBAL or name one resource (a type and an id)`);
+  if (ref.id === '*') throw invalid(field, `${field} must name one resource; '*' is a wildcard of principal subjects only`);
   return ref.type === GLOBAL.type ? { type: GLOBAL.type } : ref;
 }
 
@@ -296,6 +297,7 @@ export function readNode(v: unknown, field: string): ResourceRef {
 
 export function readPrincipal(v: unknown, field: string): PrincipalRef {
   if (!isObject(v) || typeof v.type !== 'string' || v.type === '' || typeof v.id !== 'string' || v.id === '') throw invalid(field, `${field} must be a principal ref { type, id }`);
+  if (v.type === '*') throw invalid(field, `${field} must name a principal type; '*:*' is refused, a wildcard is { type, id: '*' }`);
   return copyPrincipalRef(v as unknown as PrincipalRef);
 }
 

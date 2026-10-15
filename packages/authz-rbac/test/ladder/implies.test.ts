@@ -192,10 +192,10 @@ describe('authz-rbac implied roles (B32)', () => {
     it('native:rbac.assignment names the stored role, and fails closed where it would admit the scope itself', async () => {
       const native = (rows: readonly Assignment[]) => model(rows, { extensions: (o) => [...createRbacExtensions({ ...o }), rbacAssignmentExtension(o)] });
       const admin = await native([assignment('a1', 'org.admin', O1)]);
-      expect((await vote(admin, 'project:settings', { type: 'project' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['org.admin'] } });
+      expect((await vote(admin, 'project:settings', { type: 'project' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: '*' }, { type: 'user', id: 'alice' }], roles: ['org.admin'] } });
       // org.lead may be assigned at org scopes only, so on file rows "below the scope" is exact.
       const lead = await native([assignment('a1', 'org.lead', O1)]);
-      expect((await vote(lead, 'file:edit', { type: 'file' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['org.lead'] } });
+      expect((await vote(lead, 'file:edit', { type: 'file' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: '*' }, { type: 'user', id: 'alice' }], roles: ['org.lead'] } });
       let thrown: unknown;
       try {
         await vote(lead, 'file:edit', { type: 'org' });

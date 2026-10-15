@@ -65,14 +65,14 @@ describe('authz-rbac subject sets (B33)', () => {
   describe('RbacSubjectResolver', () => {
     it('gives the principal and its companions, each once', () => {
       const svc = servicePrincipal('svc', { companions: [alice, alice] });
-      expect(new RbacSubjectResolver().subjects(svc)).to.deep.equal([to(svc), to(alice)]);
+      expect(new RbacSubjectResolver().subjects(svc)).to.deep.equal([to(svc), to(alice), { type: 'service', id: '*' }, { type: 'user', id: '*' }]);
     });
 
     it('a group principal speaks for its member set (authz.rbac.groupPrincipal); null turns it off', () => {
       const g1 = groupPrincipal('g1');
-      expect(new RbacSubjectResolver().subjects(g1)).to.deep.equal([to(g1), setOf('group.member', G1)]);
-      expect(new RbacSubjectResolver({ groupPrincipal: { role: 'team', scopeType: 'team' } }).subjects(g1)).to.deep.equal([to(g1), setOf('team', { type: 'team', id: 'g1' })]);
-      expect(new RbacSubjectResolver({ groupPrincipal: null }).subjects(g1)).to.deep.equal([to(g1)]);
+      expect(new RbacSubjectResolver().subjects(g1)).to.deep.equal([to(g1), setOf('group.member', G1), { type: 'group', id: '*' }]);
+      expect(new RbacSubjectResolver({ groupPrincipal: { role: 'team', scopeType: 'team' } }).subjects(g1)).to.deep.equal([to(g1), setOf('team', { type: 'team', id: 'g1' }), { type: 'group', id: '*' }]);
+      expect(new RbacSubjectResolver({ groupPrincipal: null }).subjects(g1)).to.deep.equal([to(g1), { type: 'group', id: '*' }]);
     });
 
     it('groupPrincipalConfig reads the config: absent or partial keeps the defaults, null turns it off', () => {
@@ -186,7 +186,7 @@ describe('authz-rbac subject sets (B33)', () => {
       const { m, store } = await model(rows);
       const c = ctx();
       await m.preload(alice, c);
-      expect(store.reads).to.deep.equal([['user:alice'], [subjectKey(setOf('org.member', O1))]]);
+      expect(store.reads).to.deep.equal([['user:alice', 'user:*'], [subjectKey(setOf('org.member', O1))]]);
       expect((await vote(m, 'file:read', f1, alice, c)).permitWhen).to.deep.equal(TRUE);
       const list = m.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file' } }, c);
       expect(list).to.not.be.instanceOf(Promise);
@@ -219,7 +219,7 @@ describe('authz-rbac subject sets (B33)', () => {
     it('native:rbac.assignment names the usable sets among the subjects', async () => {
       const { m } = await model(rows, { native: true });
       const args = (principal: Principal) => vote(m, 'file:read', { type: 'file' }, principal).then((v) => v.permitWhen);
-      expect(await args(alice)).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [setOf('org.member', O1), to(alice)], roles: ['viewer'] } });
+      expect(await args(alice)).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [setOf('org.member', O1), { type: 'user', id: '*' }, to(alice)], roles: ['viewer'] } });
       expect(await args(withCeiling(alice, { roles: ['viewer'] }))).to.deep.equal(FALSE);
     });
   });

@@ -152,7 +152,7 @@ const LOCAL = [
           name: 'scoped assignments as native:rbac.assignment: check ⇔ filter',
           world: nativeWorld,
           steps: [
-            { filter: { as: 'alice', permission: 'file:read', type: 'file' }, expect: { equals: { op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['viewer'] } } } },
+            { filter: { as: 'alice', permission: 'file:read', type: 'file' }, expect: { equals: { op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: '*' }, { type: 'user', id: 'alice' }], roles: ['viewer'] } } } },
             {
               note: 'session.list evaluates native:rbac.assignment with the model filter',
               do: async (ctx) => {

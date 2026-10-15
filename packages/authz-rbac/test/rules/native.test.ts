@@ -111,7 +111,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
         principal: { id: 'alice', type: 'user' },
         route: { grant: 0, ladder: 'project', role: 'editor', roles: ['editor', 'maintainer', 'org.admin', 'support', 'team.lead'] },
         rules: [{ id: 'c', kind: 'cap', ladder: 'project', maxRole: 'viewer', scope: { id: 'o1', type: 'org' } }],
-        subjects: [{ id: 'alice', type: 'user' }],
+        subjects: [{ id: '*', type: 'user' }, { id: 'alice', type: 'user' }],
         v: 2,
       });
       expect(JSON.stringify(args)).to.equal(JSON.stringify(parseRbacListArgs(RBAC_ASSIGNMENT_OP, JSON.parse(JSON.stringify(args)))));
@@ -123,7 +123,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
 
     it('v1 stays as it was where nothing depends on rules', async () => {
       const b = await build([assignment('a1', 'viewer', P1)], []);
-      expect((await vote(b, 'file:read', FILE)).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['viewer'] } });
+      expect((await vote(b, 'file:read', FILE)).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: '*' }, { type: 'user', id: 'alice' }], roles: ['viewer'] } });
     });
 
     it('binds the request: selectors decided, principal and env values constant, mixed leaves made literal; an env read is uncacheable', async () => {
