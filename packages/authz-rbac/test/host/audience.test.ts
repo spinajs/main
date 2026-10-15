@@ -40,6 +40,11 @@ describe('authz-rbac RbacChangeAudience (design §10.4)', () => {
     expect(await audience.audience(change('subject:team:t1#member'))).to.deep.equal({ principals: ['user:alice', 'user:bob'] });
   });
 
+  it('re-keys escaped set members to the raw principal keys rooms use', async () => {
+    const escaped = new RbacChangeAudience(container(new Members({ 'team:t1#member': ['user:a%23b', 'user:50%25', 'user:x%2Ay', 'team:t2#member'] })));
+    expect(await escaped.audience(change('subject:team:t1#member'))).to.deep.equal({ principals: ['user:50%', 'user:a#b', 'user:x*y'] });
+  });
+
   it('wildcards, roles, rules, policies and scopes go to everyone', async () => {
     for (const tag of ['subject:user:*', 'subject:team:all#member', 'role:viewer', 'rule:r1', 'policy:p1', 'scope:project:p1', 'model:rbac']) {
       expect(await audience.audience(change('subject:user:alice', tag)), tag).to.deep.equal({ principals: '*' });

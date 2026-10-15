@@ -118,6 +118,14 @@ describe('subject set closure maintenance (design §4.3)', function () {
     expect([...d.bus.published.at(-1)!.tags].sort()).to.deep.equal([`subject:${key('g3')}`, 'subject:user:dave']);
   });
 
+  it('tags a member whose id holds escaped characters by its raw principal key', async () => {
+    const odd: PrincipalRef = { type: 'user', id: 'a#b%c' };
+    await run(join(odd, 'g3'));
+    expect([...d.bus.published.at(-1)!.tags].sort()).to.deep.equal([`subject:${key('g3')}`, 'subject:user:a#b%c']);
+    await run({ kind: 'assignment.grant', subject: set('g3'), role: 'editor', scope: { type: 'project', id: 'p1' } });
+    expect([...d.bus.published.at(-1)!.tags].sort()).to.deep.equal(['subject:group:g3', `subject:${key('g3')}`, 'subject:user:a#b%c']);
+  });
+
   it('a nesting tags the sets that changed and the members below, not every decision', async () => {
     await run(join(DAVE, 'g3'));
     await run(nest('g3', 'g2'));

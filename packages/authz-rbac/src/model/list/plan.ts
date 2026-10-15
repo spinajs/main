@@ -34,7 +34,7 @@ const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.t
  * `denied` the deny rows. Lane L8 decisions 6-9.
  * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); L2 makes it deny-all model_error
  */
-export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number }): ModelListPlan {
+export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number; readonly membership: boolean }): ModelListPlan {
   const { input, permission } = s;
   const type = input.request.resource.type;
   if ((input.rules?.length ?? 0) > 0 || (input.rowDependentRules?.length ?? 0) > 0) throw new Error(`rbac: rules apply to ${permission} on ${JSON.stringify(type)}, so it is not list-filterable`);
@@ -104,9 +104,9 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number 
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
   const denyRoles = unique(denying.map((l) => l.role)).sort(byCodePoint);
-  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true, opts.maxSubjects), roles: denyRoles.map((role) => ({ role })), global: true }))];
+  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true, opts), roles: denyRoles.map((role) => ({ role })), global: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
-  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts.maxSubjects, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(byCodePoint).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
+  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(byCodePoint).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
 }
 
@@ -137,7 +137,8 @@ function intersect(a: readonly string[] | undefined, b: readonly string[] | unde
  * membership sub-query (decision 2 of the overview). Permits leave out sets no usable membership reaches and,
  * under a ceiling, nested sets; denies keep every live set.
  */
-function holders(s: RbacState, deny: boolean, max: number, bound?: (until: Date | undefined) => void): Holders {
+function holders(s: RbacState, deny: boolean, opts: { readonly maxSubjects: number; readonly membership: boolean }, bound?: (until: Date | undefined) => void): Holders {
+  const max = opts.maxSubjects;
   const { subjects = [], memberships, nestedSets } = s.input;
   const base: AssignmentSubject[] = [];
   const sets: AssignmentSubject[] = [];
@@ -168,5 +169,7 @@ function holders(s: RbacState, deny: boolean, max: number, bound?: (until: Date 
   }
   if (!deny && s.ceilingRoles !== undefined) throw new Error(`rbac: ${explicit.length} subjects exceed authz.rbac.maxPlanSubjects (${max}) under a ceiling`);
   if (baseKeys.length > max) throw new Error(`rbac: ${baseKeys.length} subjects exceed authz.rbac.maxPlanSubjects (${max})`);
+  // Without a MembershipStore nothing maintains authz_subject_membership; stale rows there would widen the list.
+  if (!opts.membership) throw new Error(`rbac: ${explicit.length} subjects exceed authz.rbac.maxPlanSubjects (${max}) and the model has no MembershipStore to read sets from`);
   return { subjects: baseKeys, membership: true, memberKeys: baseKeys };
 }

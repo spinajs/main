@@ -137,8 +137,27 @@ describe('authz-rbac listPlan (design §6.2)', () => {
   it('sets are explicit subjects until maxPlanSubjects, then the term reads the membership table', async () => {
     const rows = [row('m', 'org.member', O1), row('s', 'viewer', P1, {}, { set: { role: 'org.member', scope: O1 } })];
     expect(await plan(rows)).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { subjects: ['org:o1#org.member', ...ALICE] })], deny: [] });
-    expect(await plan(rows, { config: { maxPlanSubjects: 2 } })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { membership: true, memberKeys: ALICE })], deny: [] });
+    expect(await plan(rows, { config: { maxPlanSubjects: 2 }, membership: new Closure({}) })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { membership: true, memberKeys: ALICE })], deny: [] });
     const nested = [row('n', 'viewer', P1, {}, { set: { role: 'org.member', scope: { type: 'org', id: 'o2' } } })];
     expect(await plan(nested, { membership: new Closure({ 'user:alice': ['org:o2#org.member'] }) })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { subjects: ['org:o2#org.member', ...ALICE] })], deny: [] });
+  });
+
+  it('past maxPlanSubjects without a MembershipStore it throws: nothing maintains the membership table', async () => {
+    const rows = [row('m', 'org.member', O1), row('s', 'viewer', P1, {}, { set: { role: 'org.member', scope: O1 } }), row('b', 'blocked', P2, {}, { set: { role: 'org.member', scope: O1 } })];
+    let caught: unknown;
+    try {
+      await plan(rows, { config: { maxPlanSubjects: 2 } });
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as Error).message).to.contain('no MembershipStore');
+    const denyOnly = [row('m', 'org.member', O1), row('v', 'viewer'), row('b', 'blocked', P2, {}, { set: { role: 'org.member', scope: O1 } })];
+    caught = undefined;
+    try {
+      await plan(denyOnly, { config: { maxPlanSubjects: 2 } });
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as Error).message).to.contain('no MembershipStore');
   });
 });
