@@ -13,7 +13,7 @@ const PAGE = 500;
 /**
  * Live run events, replayed from the journal and then delivered as they happen.
  *
- * A schedule stream's cursor is the global journal position `Pos` (R15) and is fed only from the
+ * A schedule stream's cursor is the global journal position `Pos` and is fed only from the
  * journal: delivering a local event directly could move the cursor past a lower position another
  * replica committed just before, which this process has not read yet. Local events only wake a fetch.
  *
@@ -65,7 +65,7 @@ export class RunEventHub {
       listener(e);
     };
 
-    // Synthetic progress repeats the cursor instead of advancing it (R16).
+    // Synthetic progress repeats the cursor instead of advancing it, so a resume never skips a stored event.
     const latest = async () => {
       for (const e of await this.Latest.synthesize(target, seen, cursor)) {
         if (closed) return;

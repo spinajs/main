@@ -68,7 +68,7 @@ export class ProgressSeen {
 
 /**
  * Rebuilds the latest progress of running runs whose journal stopped storing `progress` rows
- * (per-run cap, R16) from the step and run rows the heartbeat keeps current.
+ * (per-run `runLogLimit` cap) from the step and run rows the heartbeat keeps current.
  */
 @Singleton()
 @Injectable()

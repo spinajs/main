@@ -20,7 +20,7 @@ export interface FailureRecord {
 }
 
 /**
- * `ConsecutiveFailures` / `LastSuccessAt` on `__scheduler` (design §9). Several replicas finish runs
+ * `ConsecutiveFailures` / `LastSuccessAt` on `__scheduler`. Several replicas finish runs
  * of one schedule at once, so the counter is incremented in place and the pause is a conditional update.
  */
 @Singleton()

@@ -32,7 +32,7 @@ async function readPosition(driver: RawSqlDriver, sql: string): Promise<number> 
 }
 
 /**
- * Inserts one journal row at the next global position (R15). On Postgres/MySQL the counter row
+ * Inserts one journal row at the next global position. On Postgres/MySQL the counter row
  * stays locked until commit, so positions become visible in commit order on every replica.
  * SQLite has one shared handle per process, where a transaction would also capture statements of
  * other async paths, so appends are serialized in memory instead (SQLite is not a multi-replica target).

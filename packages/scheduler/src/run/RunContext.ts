@@ -28,7 +28,7 @@ export interface RunContextInit {
   clock: DbClock;
   log: Log;
   config: SchedulerConfig;
-  /** Expected total step weight (R10); 0 when unknown. */
+  /** Expected total step weight; 0 when unknown. */
   plannedWeight?: number;
   onStepFinished?: (step: string, status: StepStatus, durationMs: number) => Promise<void>;
   /** Writes the checkpoint to the run row while this replica still owns the run; `false` when it does not. */
@@ -167,7 +167,7 @@ export class RunContext {
     this.log = this.createLogger();
   }
 
-  /** Total weight of the steps this run goes through (R10); overrides the previous run's. */
+  /** Total weight of the steps this run goes through; overrides the previous run's. */
   public expectSteps(totalWeight: number): void {
     this.plannedWeight = checkWeight(totalWeight, 'expectSteps(totalWeight)');
     this.touch();

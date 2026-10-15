@@ -47,7 +47,7 @@ export function runJobKey(run: Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'S
   return `${run.Schedule}:run:${run.Id}`;
 }
 
-/** The run's message while it waits for its job; it carries the readable key (R6). */
+/** The run's message while it waits for its job; it carries the readable key the job id is derived from. */
 export function emitMessage(
   jobName: string,
   run: Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'ScheduledAt'>,
@@ -82,7 +82,7 @@ export interface MirroredEnd {
 }
 
 /**
- * Mirrors the `queue_jobs` row of every `emitted` run onto the run (R7: the queue has no status hook).
+ * Mirrors the `queue_jobs` row of every `emitted` run onto the run (polled: the queue has no status hook).
  * Every write is conditional on the run still being `emitted`, so replicas polling at the same time
  * finalize a run once, and a cancel and the mirror cannot both end it.
  */

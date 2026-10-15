@@ -17,7 +17,7 @@ export interface RecordedError {
 }
 
 /**
- * Error groups (`__scheduler_error`, design §9). Replicas record into the same rows at once, so a
+ * Error groups (`__scheduler_error`). Replicas record into the same rows at once, so a
  * group is bumped with in-place increments whose WHERE decides the outcome, never read-modify-write.
  */
 @Singleton()

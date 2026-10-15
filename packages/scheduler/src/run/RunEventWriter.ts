@@ -72,7 +72,7 @@ export class RunEventWriter {
     const c = this.cached(run.Id);
     const capped = CAPPED.has(payload.type);
     if (capped && (await this.storedCount(c, run.Id, payload.type)) >= this.Limit) {
-      // subscribers rebuild the latest progress from the step and run rows from now on (R16)
+      // subscribers rebuild the latest progress from the step and run rows from now on
       if (payload.type === 'progress' && !c.progressCapped) {
         await RunModel.update({ ProgressCapped: true }).where('Id', run.Id);
         c.progressCapped = true;

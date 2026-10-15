@@ -47,14 +47,14 @@ export type FailureDecision =
 
 /**
  * A replica going away is not the task's failure, so `retryOn` (written against task errors) does not
- * get to turn a shutdown or an expired lease into a final status (design §6).
+ * get to turn a shutdown or an expired lease into a final status.
  */
 const INFRASTRUCTURE_ABORTS: ReadonlySet<AbortReason> = new Set(['shutdown', 'lease-expired']);
 
 export function decideAfterFailure(input: FailureInput, random?: () => number): FailureDecision {
   if (input.abortReason === 'cancelled') return { status: 'aborted', countsAsFailure: false };
   const terminal = input.abortReason ? 'aborted' : 'failed';
-  // Health (design §9) counts runs that end failed or dead. Of the aborts only a timeout is the task's
+  // Health counts runs that end failed or dead. Of the aborts only a timeout is the task's
   // own failure; a shutdown or a lost/expired lease says nothing about the schedule. `dead` always counts.
   const countsAsFailure = input.abortReason === undefined || input.abortReason === 'timeout';
   // emit mode: the queue owns retries
@@ -64,7 +64,7 @@ export function decideAfterFailure(input: FailureInput, random?: () => number): 
       ? true
       : isRetryable(input.retry, input.error);
   if (!retryable) return { status: terminal, countsAsFailure };
-  // R11: `attempts` counts the first try
+  // `attempts` counts the first try, like the queue's MaxAttempts
   if (input.attempt < (input.maxAttempts ?? input.retry.attempts)) {
     return { status: 'retrying', delayMs: computeBackoff(input.retry, input.attempt, random), countsAsFailure: false };
   }

@@ -87,7 +87,7 @@ export function followInProcess(service: SchedulerService, o: FollowOptions): Pr
 /**
  * Follows `GET {baseUrl}/scheduler/runs/:id/events` (or `/scheduler/schedules/:name/events`) and
  * reconnects with `Last-Event-ID` when the stream closes before `until`. Synthetic progress events
- * (R16) repeat the current position: they are delivered and show the stream is alive, but never
+ * repeat the current position: they are delivered and show the stream is alive, but never
  * change the resume point.
  */
 export async function followOverSse(http: FollowHttpOptions, o: FollowOptions): Promise<void> {

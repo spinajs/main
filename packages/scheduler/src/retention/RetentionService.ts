@@ -17,7 +17,7 @@ export interface PurgeResult {
 }
 
 /**
- * The capped journal kinds (R3). `status`, `step-*` and `error` rows stay as long as their run, so a
+ * The journal kinds capped by `runLogLimit`. `status`, `step-*` and `error` rows stay as long as their run, so a
  * run that is still listed can still be replayed to its final status.
  */
 const PURGED_LOG_KINDS = ['log', 'message', 'progress'];

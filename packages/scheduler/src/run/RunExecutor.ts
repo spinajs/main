@@ -263,7 +263,7 @@ export class RunExecutor {
     cfg: SchedulerConfig,
     onLeaseLost?: () => void,
   ): Promise<RunContext> {
-    // design §5/§8: only a resumable or resumed run continues from the previous attempt's checkpoint
+    // only a resumable or resumed run continues from the previous attempt's checkpoint
     const discardCheckpoint = run.Attempt > 1 && !def.resumable && !run.ResumeFrom;
     return new RunContext({
       run,
@@ -294,7 +294,7 @@ export class RunExecutor {
     }
   }
 
-  /** Step weight of the schedule's last succeeded run: the best guess for this run's total (R10). */
+  /** Step weight of the schedule's last succeeded run: the best guess for this run's total. */
   protected async lastSucceededWeight(schedule: string): Promise<number> {
     const last = await RunModel.where('Schedule', schedule)
       .where('Status', 'succeeded')

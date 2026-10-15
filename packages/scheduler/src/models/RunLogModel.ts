@@ -30,7 +30,7 @@ export class RunLogModel extends ModelBase {
   @Json()
   public Data: RunEventPayload;
 
-  /** Global position, commit-ordered across replicas (R15); written only by appendJournalRow(). */
+  /** Global position, commit-ordered across replicas; written only by appendJournalRow(). */
   @Int8()
   public Pos: number;
 }

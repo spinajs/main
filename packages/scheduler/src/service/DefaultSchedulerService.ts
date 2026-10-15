@@ -211,7 +211,7 @@ export class DefaultSchedulerService extends SchedulerService {
     };
   }
 
-  /** Synthetic `progress` events (R16) are passed through as the hub delivers them. */
+  /** Synthetic `progress` events are passed through as the hub delivers them. */
   public async subscribe(
     target: SubscribeTarget,
     listener: RunEventListener,
@@ -550,7 +550,7 @@ export class DefaultSchedulerService extends SchedulerService {
   }
 
   /**
-   * `MaxAttempts` is the run's total attempt budget (R11). A manual retry starts at `parent + 1` and
+   * `MaxAttempts` is the run's total attempt budget, the first attempt included. A manual retry starts at `parent + 1` and
    * still gets the schedule's whole automatic budget on top, also when the parent ran out of it (`dead`).
    */
   protected async createQueuedRun(def: ScheduleDefinition, o: NewManualRun): Promise<RunModel> {

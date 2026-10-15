@@ -163,7 +163,7 @@ describe('SchedulerService: read side', () => {
     await expect(service.subscribe({ schedule: 'ghost' }, () => undefined)).to.be.rejectedWith(ScheduleNotFound);
   });
 
-  it('passes synthetic progress through, repeating the last seen seq (R16)', async () => {
+  it('passes synthetic progress through, repeating the last seen seq', async () => {
     const writer = DI.resolve(RunEventWriter);
     const run = await queuedRun('svc-ok', clock.now(), { Status: 'running', StartedAt: clock.now() });
     await writer.write(run, 1, { type: 'status', status: 'running', reason: null });

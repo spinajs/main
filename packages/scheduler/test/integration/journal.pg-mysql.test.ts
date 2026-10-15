@@ -26,7 +26,7 @@ for (const target of REAL_DB_TARGETS) {
       await bootRealDb(target);
     });
 
-    it('a later position waits for the earlier one to commit (R15)', async () => {
+    it('a later position waits for the earlier one to commit', async () => {
       const held = await heldOpen(() => appendJournalRow(row('r1', 1)));
       expect(held.result.Pos).to.eq(1);
 

@@ -7,7 +7,7 @@ import { PurgeResult, RetentionService } from './RetentionService.js';
 
 export const SCHEDULER_RETENTION_SCHEDULE = 'scheduler-retention';
 
-/** The built-in nightly purge (design §10); `scheduler.retention` sets its cron and windows. */
+/** The built-in nightly purge; `scheduler.retention` sets its cron and windows. */
 export class SchedulerRetentionTask extends ScheduledTask {
   @Autoinject(RetentionService)
   protected Retention: RetentionService;

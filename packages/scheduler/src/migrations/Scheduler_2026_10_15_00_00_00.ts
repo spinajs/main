@@ -105,7 +105,7 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
       t.bigint('Pos').notNull();
     });
 
-    // One row; appendJournalRow() bumps it in the insert's transaction (R15).
+    // One row; appendJournalRow() bumps it in the insert's transaction, so positions follow commit order.
     await connection.schema().createTable('__scheduler_journal_pos', (t) => {
       t.int('Id').primaryKey().notNull();
       t.bigint('LastPos').notNull();

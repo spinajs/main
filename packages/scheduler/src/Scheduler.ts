@@ -280,7 +280,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       if (due === null || due === undefined || now < fireTime(def, due)) continue;
       // local schedules never catch up: the next one is the first after now
       this.localNext.set(def.name, nextOccurrence(def.spec, Math.max(due, now)));
-      // a paused occurrence is dropped, like a paused leader schedule's (S9 resume re-anchors on now)
+      // a paused occurrence is dropped, like a paused leader schedule's (resume re-anchors on now)
       if (halted.has(def.name)) continue;
 
       if ([...this.active.values()].some((h) => h.schedule === def.name)) {

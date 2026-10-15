@@ -68,7 +68,7 @@ for (const target of REAL_DB_TARGETS) {
     beforeEach(async () => {
       gate = deferred();
       reachedGate = false;
-      // runLogLimit 1: the second progress row is dropped, so the run gets capped (R16)
+      // runLogLimit 1: the second progress row is dropped, so the run gets capped
       await bootRealDb(target, { runLogLimit: 1 });
       clock = DI.resolve(Clock) as FakeClock;
       leases = DI.resolve(LeaseStore, ['r1']);
