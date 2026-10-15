@@ -11,6 +11,7 @@ import { ScheduleRunStarted } from './events/ScheduleRunStarted.js';
 import { ScheduleRunSucceeded } from './events/ScheduleRunSucceeded.js';
 import { schedulerCounter, schedulerGauge, schedulerHistogram, schedulerMetrics } from './metrics.js';
 import type { RunModel } from './models/RunModel.js';
+import { iso } from './run/events.js';
 
 export interface FinishedRunInfo {
   status: RunStatus;
@@ -19,8 +20,6 @@ export interface FinishedRunInfo {
   /** The finalizer's health decision; `ScheduleRunFailed` follows it. */
   countsAsFailure: boolean;
 }
-
-const iso = (ms: number | null | undefined): string | null => (ms ? new Date(ms).toISOString() : null);
 
 /** An emit-mode run has one scheduler attempt; the queue's own attempt count is in the error data. */
 function attemptsOf(run: RunModel, error: StructuredError | null): number {
