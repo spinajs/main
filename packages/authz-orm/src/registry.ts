@@ -1,65 +1,64 @@
-import { AuthzConfigError, GLOBAL, isPermission } from '@spinajs/authz';
-import type { Permission, ResourceType } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
+import type { ResourceType } from '@spinajs/authz';
+import { extractModelDescriptor } from '@spinajs/orm';
 
 // Every module of the package reaches the registry, so a second copy fails before it registers anything.
 import './once.js';
 
-export type QueryKind = 'read' | 'create' | 'update' | 'delete';
-
-export const QUERY_KINDS: readonly QueryKind[] = Object.freeze(['read', 'create', 'update', 'delete'] as const);
-
-export interface AccessResourceOptions {
-  readonly relationScope?: 'where' | 'join';
-  readonly permissions?: { readonly read?: Permission; readonly create?: Permission; readonly update?: Permission; readonly delete?: Permission };
-  readonly attributes?: readonly string[];
-}
-
-export interface ScopeColumnEntry {
-  /** The model property holding the value. */
-  readonly property: string;
-  /** The DB column. */
-  readonly column: string;
-  readonly scopeType: ResourceType;
-}
-
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type ModelClass = Function;
+
+export interface ParentEntry {
+  readonly property: string;
+  readonly column: string;
+  readonly type: ResourceType;
+  readonly nullable: boolean;
+}
 
 export interface ResourceEntry {
   /** The registered class; for a subclass looked up through the chain, its nearest registered ancestor. */
   readonly registered: ModelClass;
   readonly type: ResourceType;
-  readonly relationScope: 'where' | 'join';
-  readonly permissions: Readonly<Record<QueryKind, Permission>>;
-  readonly attributes: readonly string[];
-  /** The `@Owner()` property. */
-  readonly owner?: string;
-  /** Declaration order, nearest ancestor first. */
-  readonly scopeColumns: readonly ScopeColumnEntry[];
+  readonly parents: readonly ParentEntry[];
+  /** Without `typeColumn` the owner is a `user` principal; with it, the row's type column names the principal type. */
+  readonly owner?: { readonly property: string; readonly column: string; readonly typeColumn?: string };
+  readonly self?: { readonly column: string };
+  readonly idColumn: string;
+}
+
+export interface OwnerColumns {
+  readonly column: string;
+  readonly typeColumn?: string;
+}
+
+export interface RegistrationOptions {
+  readonly parents?: readonly { readonly column: string; readonly type: ResourceType }[];
+  readonly owner?: string | OwnerColumns;
+  readonly self?: string;
 }
 
 interface Registration {
   readonly type: ResourceType;
-  readonly relationScope: 'where' | 'join';
-  readonly permissions: Readonly<Record<QueryKind, Permission>>;
-  readonly attributes: readonly string[];
-  /** Canonical form of the options, to tell an idempotent re-registration from a conflicting one. */
+  readonly parents: readonly ParentEntry[];
+  readonly owner?: OwnerColumns;
+  readonly self?: string;
+  /** Canonical form, to tell an idempotent re-registration from a conflicting one. */
   readonly key: string;
 }
 
 interface PropertyMetadata {
-  owner?: string;
-  readonly scopeColumns: ScopeColumnEntry[];
+  owner?: OwnerColumns;
+  self?: string;
+  readonly parents: ParentEntry[];
 }
+
+const sameOwner = (a: OwnerColumns, b: OwnerColumns): boolean => a.column === b.column && a.typeColumn === b.typeColumn;
+const showOwner = (o: OwnerColumns): string => (o.typeColumn === undefined ? `'${o.column}'` : `'${o.column}' (type column '${o.typeColumn}')`);
 
 // Insertion order is registration order (lookups by type rely on it).
 const registrations = new Map<ModelClass, Registration>();
-// Property decorators run before the class decorator, and on classes that registerAccessResource may never see.
+// Property decorators run before the class decorator, and on classes registerAccessResource may never see.
 const properties = new WeakMap<ModelClass, PropertyMetadata>();
-// Decorators write these once, at class definition, so the test seams never drop them.
-const scopes = new WeakMap<ModelClass, Map<string, ModelClass>>();
-// scopes is not iterable; the boot check walks this.
-const scoped = new Set<ModelClass>();
 // entryOf runs for every query builder; any registry write clears it.
 let entries = new WeakMap<ModelClass, ResourceEntry | null>();
 let version = 0;
@@ -75,33 +74,43 @@ function chain(model: ModelClass): ModelClass[] {
   return out;
 }
 
-function normalize(model: ModelClass, type: unknown, opts: unknown): Registration {
-  const where = `${nameOf(model)}: @AccessResource`;
+export function checkType(type: unknown, where: string): ResourceType {
   if (typeof type !== 'string' || type.length === 0) throw new AuthzConfigError(`${where}: the type must be a non-empty string`);
   if (type === GLOBAL.type) throw new AuthzConfigError(`${where}: '${GLOBAL.type}' is not a resource type`);
-  if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`${where}('${type}'): options must be an object`);
-  const o = (opts ?? {}) as AccessResourceOptions;
+  return type;
+}
 
-  const relationScope = o.relationScope ?? 'where';
-  if (relationScope !== 'where' && relationScope !== 'join') throw new AuthzConfigError(`${where}('${type}'): relationScope must be 'where' or 'join'`);
+function checkColumn(column: unknown, where: string): string {
+  if (typeof column !== 'string' || column.length === 0) throw new AuthzConfigError(`${where}: a column must be a non-empty string`);
+  return column;
+}
 
-  if (o.permissions !== undefined && (o.permissions === null || typeof o.permissions !== 'object')) throw new AuthzConfigError(`${where}('${type}'): permissions must be an object`);
-  const permissions = {} as Record<QueryKind, Permission>;
-  for (const kind of QUERY_KINDS) {
-    const name = o.permissions?.[kind] ?? `${type}:${kind}`;
-    if (!isPermission(name)) throw new AuthzConfigError(`${where}('${type}'): ${JSON.stringify(name)} is not a valid ${kind} permission name`);
-    permissions[kind] = name;
-  }
-  for (const k of Object.keys(o.permissions ?? {})) {
-    if (!(QUERY_KINDS as readonly string[]).includes(k)) throw new AuthzConfigError(`${where}('${type}'): unknown permission key '${k}'`);
-  }
+export function ownerColumns(owner: unknown, where: string): OwnerColumns {
+  if (typeof owner === 'string') return { column: checkColumn(owner, where) };
+  if (owner === null || typeof owner !== 'object') throw new AuthzConfigError(`${where}: the owner must be a column name or { column, typeColumn? }`);
+  const o = owner as Record<string, unknown>;
+  const column = checkColumn(o.column, where);
+  if (o.typeColumn === undefined) return { column };
+  const typeColumn = checkColumn(o.typeColumn, `${where} typeColumn`);
+  if (typeColumn === column) throw new AuthzConfigError(`${where}: typeColumn must differ from the owner column`);
+  return { column, typeColumn };
+}
 
-  const attributes = o.attributes ?? [];
-  if (!Array.isArray(attributes) || attributes.some((a) => typeof a !== 'string' || a.length === 0)) throw new AuthzConfigError(`${where}('${type}'): attributes must be a list of column names`);
-
-  const frozen = Object.freeze([...attributes]);
-  const key = JSON.stringify([type, relationScope, QUERY_KINDS.map((k) => permissions[k]), frozen]);
-  return { type, relationScope, permissions: Object.freeze(permissions), attributes: frozen, key };
+function normalize(model: ModelClass, type: unknown, opts: unknown): Registration {
+  const where = `${nameOf(model)}: @AccessResource`;
+  const t = checkType(type, where);
+  if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`${where}('${t}'): options must be an object`);
+  const o = (opts ?? {}) as RegistrationOptions;
+  for (const k of Object.keys(o)) if (!['parents', 'owner', 'self'].includes(k)) throw new AuthzConfigError(`${where}('${t}'): unknown option '${k}'`);
+  if (o.parents !== undefined && !Array.isArray(o.parents)) throw new AuthzConfigError(`${where}('${t}'): parents must be a list of { column, type }`);
+  const parents = (o.parents ?? []).map((p) => {
+    const column = checkColumn(p?.column, `${where}('${t}') parents`);
+    return Object.freeze({ property: column, column, type: checkType(p?.type, `${where}('${t}') parent ${column}`), nullable: false });
+  });
+  const owner = o.owner === undefined ? undefined : ownerColumns(o.owner, `${where}('${t}') owner`);
+  const self = o.self === undefined ? undefined : checkColumn(o.self, `${where}('${t}') self`);
+  const key = JSON.stringify([t, parents.map((p) => [p.column, p.type]), owner ? [owner.column, owner.typeColumn ?? null] : null, self ?? null]);
+  return { type: t, parents, ...(owner !== undefined ? { owner } : {}), ...(self !== undefined ? { self } : {}), key };
 }
 
 export function register(model: ModelClass, type: unknown, opts?: unknown): void {
@@ -112,6 +121,13 @@ export function register(model: ModelClass, type: unknown, opts?: unknown): void
     if (prev.key === next.key) return;
     throw new AuthzConfigError(`${nameOf(model)} is already registered as resource '${prev.type}' with other options`);
   }
+  // Only an owner on another column fails here; entryOf compares the type columns too.
+  const decorated = chain(model)
+    .map((c) => properties.get(c)?.owner)
+    .find((o) => o !== undefined);
+  if (next.owner !== undefined && decorated !== undefined && decorated.column !== next.owner.column) {
+    throw new AuthzConfigError(`${nameOf(model)}: the owner is @Owner() ${showOwner(decorated)} and registered as ${showOwner(next.owner)}`);
+  }
   registrations.set(model, next);
   entries = new WeakMap();
   version++;
@@ -119,31 +135,36 @@ export function register(model: ModelClass, type: unknown, opts?: unknown): void
 
 function metadataOf(model: ModelClass): PropertyMetadata {
   let m = properties.get(model);
-  if (m === undefined) properties.set(model, (m = { scopeColumns: [] }));
+  if (m === undefined) properties.set(model, (m = { parents: [] }));
   return m;
 }
 
-export function setOwner(model: ModelClass, property: string): void {
+export function setOwner(model: ModelClass, owner: OwnerColumns): void {
   const m = metadataOf(model);
-  if (m.owner !== undefined && m.owner !== property) throw new AuthzConfigError(`${nameOf(model)}: @Owner() is on '${m.owner}' already; a model has one owner property`);
-  m.owner = property;
+  if (m.owner !== undefined && !sameOwner(m.owner, owner)) throw new AuthzConfigError(`${nameOf(model)}: @Owner() is on ${showOwner(m.owner)} already; a model has one owner property`);
+  m.owner = owner;
   entries = new WeakMap();
 }
 
-export function addScopeColumn(model: ModelClass, entry: ScopeColumnEntry): void {
+export function setSelf(model: ModelClass, property: string): void {
   const m = metadataOf(model);
-  if (m.scopeColumns.some((s) => s.property === entry.property)) throw new AuthzConfigError(`${nameOf(model)}.${entry.property}: one @ScopeColumn per property`);
-  m.scopeColumns.push(Object.freeze({ ...entry }));
+  if (m.self !== undefined && m.self !== property) throw new AuthzConfigError(`${nameOf(model)}: @Self() is on '${m.self}' already; a model has one self property`);
+  m.self = property;
   entries = new WeakMap();
 }
 
-export function addScopePolicy(model: ModelClass, relation: string, policy: ModelClass): void {
-  let byRelation = scopes.get(model);
-  if (byRelation === undefined) scopes.set(model, (byRelation = new Map()));
-  const prev = byRelation.get(relation);
-  if (prev !== undefined && prev !== policy) throw new AuthzConfigError(`@OrmScope(${nameOf(model)}, '${relation}'): ${nameOf(prev)} is already the policy of that relation; ${nameOf(policy)} cannot be another`);
-  byRelation.set(relation, policy);
-  scoped.add(model);
+export function addParent(model: ModelClass, parent: ParentEntry): void {
+  const m = metadataOf(model);
+  if (m.parents.some((p) => p.property === parent.property)) throw new AuthzConfigError(`${nameOf(model)}.${parent.property}: one @Parent per property`);
+  m.parents.push(Object.freeze({ ...parent }));
+  entries = new WeakMap();
+}
+
+function pkOf(model: ModelClass): string {
+  const pk = extractModelDescriptor(model as never)?.PrimaryKey as unknown;
+  const name = Array.isArray(pk) ? pk[0] : pk;
+  if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(model)} has no primary key`);
+  return name;
 }
 
 /** The entry of `model` or of its nearest registered ancestor; property metadata merges over the whole chain of `model`. */
@@ -161,22 +182,41 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   const registered = classes.find((c) => registrations.has(c));
   if (registered === undefined) return undefined;
   const r = registrations.get(registered)!;
+  const where = `${nameOf(model)} (resource '${r.type}')`;
 
-  let owner: string | undefined;
-  const scopeColumns: ScopeColumnEntry[] = [];
-  // Base first, so a subclass's own columns follow the inherited ones and its @Owner wins.
+  let owner: OwnerColumns | undefined;
+  let self: string | undefined;
+  const parents: ParentEntry[] = [];
+  // Base first, so a subclass's own declarations follow the inherited ones and its @Owner wins.
   for (const c of [...classes].reverse()) {
     const m = properties.get(c);
     if (m === undefined) continue;
     if (m.owner !== undefined) owner = m.owner;
-    for (const s of m.scopeColumns) {
-      const i = scopeColumns.findIndex((x) => x.property === s.property);
-      if (i === -1) scopeColumns.push(s);
-      else scopeColumns[i] = s;
+    if (m.self !== undefined) self = m.self;
+    for (const p of m.parents) {
+      const i = parents.findIndex((x) => x.property === p.property);
+      if (i === -1) parents.push(p);
+      else parents[i] = p;
     }
   }
+  for (const p of r.parents) {
+    const same = parents.find((x) => x.column === p.column);
+    if (same && same.type !== p.type) throw new AuthzConfigError(`${where}: parent column ${p.column} is @Parent('${same.type}') and registered as '${p.type}'`);
+    if (!same) parents.push(p);
+  }
+  if (r.owner !== undefined && owner !== undefined && !sameOwner(r.owner, owner)) throw new AuthzConfigError(`${where}: the owner is @Owner() ${showOwner(owner)} and registered as ${showOwner(r.owner)}`);
+  if (r.self !== undefined && self !== undefined && r.self !== self) throw new AuthzConfigError(`${where}: self is @Self() '${self}' and registered as '${r.self}'`);
+  owner ??= r.owner;
+  self ??= r.self;
 
-  return Object.freeze({ registered, type: r.type, relationScope: r.relationScope, permissions: r.permissions, attributes: r.attributes, ...(owner !== undefined ? { owner } : {}), scopeColumns: Object.freeze(scopeColumns) });
+  return Object.freeze({
+    registered,
+    type: r.type,
+    parents: Object.freeze(parents),
+    ...(owner !== undefined ? { owner: Object.freeze({ property: owner.column, column: owner.column, ...(owner.typeColumn !== undefined ? { typeColumn: owner.typeColumn } : {}) }) } : {}),
+    ...(self !== undefined ? { self: Object.freeze({ column: self }) } : {}),
+    idColumn: pkOf(model),
+  });
 }
 
 export function isRegistered(model: unknown): boolean {
@@ -197,46 +237,24 @@ export function registeredClasses(): ModelClass[] {
   return [...registrations.keys()];
 }
 
-/** The `@OrmScope` policy class for `relation` on `model` or its nearest ancestor that has one. */
-export function scopePolicyOf(model: unknown, relation: string): ModelClass | undefined {
-  if (typeof model !== 'function') return undefined;
-  for (const c of chain(model)) {
-    const p = scopes.get(c)?.get(relation);
-    if (p !== undefined) return p;
-  }
-  return undefined;
-}
-
-/** Relations with an `@OrmScope` policy on `model`'s chain. */
-export function scopeRelationsOf(model: unknown): string[] {
-  if (typeof model !== 'function') return [];
-  const out = new Set<string>();
-  for (const c of chain(model)) for (const r of scopes.get(c)?.keys() ?? []) out.add(r);
-  return [...out];
-}
-
-export interface UncheckedScope {
-  readonly model: ModelClass;
-  readonly relation: string;
-  readonly policy: ModelClass;
-}
-
-/** `@OrmScope` declarations no query can reach: neither the model, an ancestor nor a subclass of it is registered. */
-export function uncheckedScopes(): UncheckedScope[] {
-  const out: UncheckedScope[] = [];
-  const registered = [...registrations.keys()];
-  for (const model of scoped) {
-    if (entryOf(model) !== undefined || registered.some((c) => chain(c).includes(model))) continue;
-    for (const [relation, policy] of scopes.get(model) ?? []) out.push({ model, relation, policy });
+/** The parent types of `type`'s classes, transitively, nearest first; `type` itself only when it is its own ancestor type. */
+export function typesAbove(type: ResourceType): ResourceType[] {
+  const out: ResourceType[] = [];
+  const queue: ResourceType[] = [type];
+  while (queue.length > 0) {
+    const t = queue.shift()!;
+    for (const c of classesOf(t)) {
+      for (const p of entryOf(c)?.parents ?? []) {
+        if (out.includes(p.type) || p.type === type) continue;
+        out.push(p.type);
+        queue.push(p.type);
+      }
+    }
   }
   return out;
 }
 
-export function permissionFor(model: unknown, kind: QueryKind): Permission | undefined {
-  return entryOf(model)?.permissions[kind];
-}
-
-/** Test seam: forget a class's registration. Its decorated properties and scope policies stay, so it can register again. */
+/** Test seam: forget a class's registration. Its decorated properties stay, so it can register again. */
 export function unregisterResource(model: ModelClass): void {
   registrations.delete(model);
   entries = new WeakMap();
