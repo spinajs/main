@@ -61,6 +61,6 @@ jspm_packages/
 tsconfig.tsbuildinfo
 
 # doc
-docs
+api-docs
 
 lib
