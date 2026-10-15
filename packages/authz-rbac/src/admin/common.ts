@@ -1,6 +1,6 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, PermissionRegistry, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PermissionDef, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
-import type { Class } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
 import { RbacModel } from '../model/model.js';
@@ -53,8 +53,11 @@ export function roleIndex(ctx: AdminContext): Promise<RoleIndex> {
 }
 
 async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
-  const container = adminContainer(ctx);
-  const where = `Authz domain ${q(ctx.domain)}`;
+  return loadRoleIndex(adminContainer(ctx), `Authz domain ${q(ctx.domain)}`);
+}
+
+/** The role definitions of every RoleStore `container` registers; a role or ladder defined twice is refused. */
+export async function loadRoleIndex(container: IContainer, where: string): Promise<RoleIndex> {
   if (!container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${where}: no RoleStore is registered; the RBAC write handlers of AuthzAdmin read role definitions from it`);
   const roles = new Map<string, RoleDef>();
   const ladders = new Map<string, LadderDef>();
@@ -262,6 +265,13 @@ export function surelyGrantsPermission(roles: RoleIndex, role: string, permissio
   });
 }
 
+export const isDenyRoleDef = (roles: RoleIndex, role: string): boolean => roles.roles.get(role)?.deny === true;
+
+/** A deny role whose grants, or those of the deny roles it extends, name `permission` (names or globs; a deny follows no `implies`). */
+export function deniesPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
+  return isDenyRoleDef(roles, role) && roleClosure(roles, role).defs.some((d) => d.deny === true && d.grants.some((g) => matchesAny(g.permission, [permission])));
+}
+
 // ---- command fields ----
 
 /** A command field of the wrong shape; the codes list of the contract has none for it. */
@@ -281,6 +291,7 @@ export function readRef(v: unknown, field: string): ResourceRef {
 export function readScope(v: unknown, field: string): ResourceRef {
   const ref = readRef(v, field);
   if (ref.type !== GLOBAL.type && ref.id === undefined) throw invalid(field, `${field} must be GLOBAL or name one resource (a type and an id)`);
+  if (ref.id === '*') throw invalid(field, `${field} must name one resource; '*' is a wildcard of principal subjects only`);
   return ref.type === GLOBAL.type ? { type: GLOBAL.type } : ref;
 }
 
@@ -293,6 +304,7 @@ export function readNode(v: unknown, field: string): ResourceRef {
 
 export function readPrincipal(v: unknown, field: string): PrincipalRef {
   if (!isObject(v) || typeof v.type !== 'string' || v.type === '' || typeof v.id !== 'string' || v.id === '') throw invalid(field, `${field} must be a principal ref { type, id }`);
+  if (v.type === '*') throw invalid(field, `${field} must name a principal type; '*:*' is refused, a wildcard is { type, id: '*' }`);
   return copyPrincipalRef(v as unknown as PrincipalRef);
 }
 

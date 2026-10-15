@@ -16,5 +16,8 @@ Items deliberately left out of a design, with the reason. Pick one up by writing
 ## Resource access (from `2026-10-14-authz-resource-access-design.md`)
 
 - **Client fs ids** from a UI file manager (URI-encoded paths in ids); waits for a client that needs it.
+- **`authz:export-model`** (design §10.5): a CLI command writing the registered permissions as
+  `export type AccessModel = { [type]: action union }` for ckit's `AccessRegister`. Designed and promised in the ckit
+  hand-off, not implemented; until then clients declare the model by hand.
 - **RBAC change pushes with exact objects** (an ancestor index port for authz-rbac); today an RBAC change makes clients
   refetch everything.

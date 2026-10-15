@@ -1,30 +1,17 @@
-import { AuthzConfigError, CORE_FILTER_OPS, GLOBAL, ResourceAdapter, parsePermission, requestScope, resourceKey } from '@spinajs/authz';
-import type { FilterOp, PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
-import { DI, Injectable, Singleton } from '@spinajs/di';
-import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
+import { AuthzConfigError, GLOBAL, ResourceAdapter, parsePermission, requestScope } from '@spinajs/authz';
+import type { PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
+import { Injectable, Singleton } from '@spinajs/di';
+import { ModelBase } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 
-import { OrmNativeCompiler } from './api.js';
-import { columnOf, dialectOf, idMode, idText, normalize } from './columns.js';
+import { readAncestors } from './ancestors/read.js';
+import { driverOf, idText, refKey } from './ids.js';
 import { classesOf, entryOf, registeredTypes } from './registry.js';
 import { ormRelations } from './relations.js';
-import { findRow, pkOf } from './rows.js';
-import type { Row } from './rows.js';
-
-export { findRow } from './rows.js';
+import { findRows } from './rows.js';
 
 const MEMO = 'authz-orm:';
-
-/** The registered `OrmNativeCompiler`s by op; two for one op is a configuration error. */
-export function nativeCompilers(): ReadonlyMap<string, OrmNativeCompiler> {
-  const list = (DI.resolve(Array.ofType(OrmNativeCompiler)) as unknown as OrmNativeCompiler[] | undefined) ?? [];
-  const out = new Map<string, OrmNativeCompiler>();
-  for (const c of list) {
-    const prev = out.get(c.op);
-    if (prev !== undefined && prev !== c) throw new AuthzConfigError(`authz-orm: two OrmNativeCompilers for ${c.op} (${prev.constructor.name}, ${c.constructor.name})`);
-    out.set(c.op, c);
-  }
-  return out;
-}
+const KINDS = ['read', 'create', 'update', 'delete'] as const;
 
 /** Memoised per request store (none outside a store); a rejection is not kept. */
 function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
@@ -45,30 +32,20 @@ function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
   return p;
 }
 
-function parseJson(value: string): { ok: true; value: unknown } | { ok: false } {
-  try {
-    return { ok: true, value: JSON.parse(value) };
-  } catch {
-    return { ok: false };
-  }
-}
+const typeLevel = (ref: ResourceRef): readonly ResourceRef[] => Object.freeze([Object.freeze({ type: ref.type }), GLOBAL]);
 
 @Singleton()
 @Injectable(ResourceAdapter)
 export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
   readonly kind = 'orm';
 
-  // Live views of the registry: tests and apps register models after the adapter exists. The base
-  // class declares both as properties, so getters go on the instance.
+  // A live view of the registry: tests and apps register models after the adapter exists. The base
+  // class declares it as a property, so the getter goes on the instance.
   declare readonly types: readonly ResourceType[];
-  declare readonly compiles: readonly FilterOp[];
 
   constructor() {
     super();
-    Object.defineProperties(this, {
-      types: { get: () => registeredTypes(), enumerable: true },
-      compiles: { get: () => [...CORE_FILTER_OPS, ...nativeCompilers().keys()] as FilterOp[], enumerable: true },
-    });
+    Object.defineProperty(this, 'types', { get: () => registeredTypes(), enumerable: true });
   }
 
   accepts(target: unknown): target is ModelBase {
@@ -78,59 +55,53 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
   refOf(target: ModelBase): ResourceRef {
     const entry = entryOf(target.constructor);
     if (!entry) throw new AuthzConfigError(`authz-orm: ${target?.constructor?.name} is not an @AccessResource model`);
-    const value = (target as Row)[pkOf(target.constructor)];
-    if (value === undefined || value === null) throw new AuthzConfigError(`authz-orm: a ${entry.type} row without a primary key value has no ref`);
-    return { type: entry.type, id: String(value) };
+    const id = idText((target as unknown as Record<string, unknown>)[entry.idColumn]);
+    if (id === undefined) throw new AuthzConfigError(`authz-orm: a ${entry.type} row without a primary key value has no ref`);
+    return { type: entry.type, id };
   }
 
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
-    if (ref.id === undefined || ref.id === null) return Promise.resolve([{ type: ref.type }, GLOBAL]);
-    return memo(`${MEMO}ancestors:${resourceKey(ref)}`, async () => {
-      const row = await findRow(ref);
-      if (!row) return null;
-      const entry = entryOf(row.constructor)!;
-      const dialect = dialectOf(extractModelDescriptor(row.constructor as never));
-      const out: ResourceRef[] = [{ type: ref.type, id: String(ref.id) }];
-      for (const s of entry.scopeColumns) {
-        const column = columnOf(row.constructor, s.column);
-        // The ORM hydrates by column name. A column it does not know, or a value that is no id of the
-        // column's mode, is no ancestor; the SQL `under` tests the same (conventions §5).
-        const id = column ? idText(idMode(column, dialect), row[s.column]) : undefined;
-        if (id !== undefined) out.push({ type: s.scopeType, id });
+    if (ref.id === undefined || ref.id === null) return Promise.resolve(typeLevel(ref));
+    return memo(`${MEMO}ancestors:${refKey(ref)}`, async () => (await this.ancestorsMany([ref])).get(refKey(ref)) ?? null);
+  }
+
+  async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
+    const out = new Map<string, readonly ResourceRef[] | null>();
+    const nodes: ResourceRef[] = [];
+    for (const r of refs) {
+      if (r.id === undefined || r.id === null) out.set(refKey(r), typeLevel(r));
+      else nodes.push({ type: r.type, id: String(r.id) });
+    }
+    const found = await findRows(nodes);
+    const byDriver = new Map<OrmDriver, ResourceRef[]>();
+    for (const n of nodes) {
+      const f = found.get(refKey(n));
+      if (!f) continue;
+      const d = driverOf(f.model);
+      byDriver.set(d, [...(byDriver.get(d) ?? []), n]);
+    }
+    const rows = new Map<string, readonly { ancestor_type: string; ancestor_id: string }[]>();
+    for (const [driver, list] of byDriver) for (const [k, v] of await readAncestors(driver, list)) rows.set(k, v);
+    for (const n of nodes) {
+      const key = refKey(n);
+      if (!found.has(key)) {
+        out.set(key, null);
+        continue;
       }
-      out.push(GLOBAL);
-      return Object.freeze(out.map((r) => Object.freeze(r)));
-    });
+      const chain = [{ type: n.type, id: n.id }, ...(rows.get(key) ?? []).map((a) => ({ type: a.ancestor_type, id: a.ancestor_id })), GLOBAL];
+      out.set(key, Object.freeze(chain.map((r) => Object.freeze(r))));
+    }
+    return out;
   }
 
   load(ref: ResourceRef): Promise<unknown | null> {
-    return findRow(ref);
+    if (ref.id === undefined || ref.id === null) return Promise.resolve(null);
+    return memo(`${MEMO}row:${refKey(ref)}`, async () => (await findRows([ref])).get(refKey(ref))?.row ?? null);
   }
 
-  attribute(subject: unknown, field: string): unknown {
-    if (!(subject instanceof ModelBase)) return undefined;
-    const column = columnOf(subject.constructor, field);
-    if (!column) return undefined;
-    return normalize(column.kind, (subject as Row)[field]);
-  }
-
-  async scopeAttributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null> {
-    const row = await findRow(ref);
-    if (!row) return null;
-    const entry = entryOf(row.constructor)!;
-    const out: Record<string, unknown> = {};
-    for (const name of entry.attributes) {
-      const column = columnOf(row.constructor, name);
-      if (!column) continue;
-      let value: unknown = row[name];
-      if (value === undefined) continue;
-      if (typeof value === 'string' && /json/i.test(String(column.descriptor.NativeType ?? column.descriptor.Type ?? ''))) {
-        const parsed = parseJson(value);
-        if (!parsed.ok) continue;
-        value = parsed.value;
-      }
-      out[name] = value;
-    }
+  async loadMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>> {
+    const out = new Map<string, unknown>();
+    for (const [key, f] of await findRows(refs)) out.set(key, f.row);
     return out;
   }
 
@@ -139,15 +110,15 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
   }
 
   permissions(): readonly Omit<PermissionDef, 'source'>[] {
-    // One def per name; a name several types use (custom permissions) lists them all.
+    // One def per name; a name several types use lists them all.
     const out = new Map<string, { name: string; resource: string; action: string; types: ResourceType[] }>();
     for (const type of registeredTypes()) {
-      for (const cls of classesOf(type)) {
-        for (const name of Object.values(entryOf(cls)!.permissions)) {
-          const def = out.get(name);
-          if (def === undefined) out.set(name, { name, ...parsePermission(name), types: [type] });
-          else if (!def.types.includes(type)) def.types.push(type);
-        }
+      if (classesOf(type).length === 0) continue;
+      for (const kind of KINDS) {
+        const name = `${type}:${kind}`;
+        const def = out.get(name);
+        if (def === undefined) out.set(name, { name, ...parsePermission(name), types: [type] });
+        else if (!def.types.includes(type)) def.types.push(type);
       }
     }
     return [...out.values()];

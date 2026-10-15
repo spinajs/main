@@ -140,11 +140,11 @@ function ownership(merged: Plain, opts: AnalyzeOptions, f: Findings): void {
       } else if (rel === 'owner') {
         const files = opts.src?.resources.get(resource);
         if (!opts.src) {
-          f.warn('owner-relation', `:own grants on ${resource} became relation 'owner'. Each model of type '${resource}' needs @Owner() (was @ResourceOwner()) or an @OrmScope(Model, 'owner') policy (was a default-scope @OrmPermission policy); route checks need a RelationResolver. Run with --src to check the models.`, resource);
+          f.warn('owner-relation', `:own grants on ${resource} became relation 'owner'. Each model of type '${resource}' needs @Owner() (was @ResourceOwner()) on the column that holds the owner's id; route checks need a RelationResolver. Run with --src to check the models.`, resource);
         } else if (!files || files.length === 0) {
           f.warn('owner-relation', `:own grants on ${resource} became relation 'owner', but no @OrmResource('${resource}') model was found; a RelationResolver for 'owner' on type '${resource}' must exist in 3.0.`, resource);
         } else if (!files.some((file) => opts.src!.ownerFiles.has(file))) {
-          f.warn('owner-relation', `:own grants on ${resource} became relation 'owner', but its model (${files.join(', ')}) has no @ResourceOwner(): port its default-scope @OrmPermission policy to @OrmScope(Model, 'owner'), or add @Owner().`, resource);
+          f.warn('owner-relation', `:own grants on ${resource} became relation 'owner', but its model (${files.join(', ')}) has no @ResourceOwner(): add @Owner() on the column that holds the owner's id. A default-scope @OrmPermission policy has no 3.0 form.`, resource);
         } else {
           f.info('owner-relation', `:own grants on ${resource} became relation 'owner'; its model has @ResourceOwner(), which becomes @Owner().`, resource);
         }
@@ -153,7 +153,7 @@ function ownership(merged: Plain, opts: AnalyzeOptions, f: Findings): void {
         f.add(
           missing ? 'warning' : 'info',
           'scope-relation',
-          `'scope:${rel}' on ${resource} became relation '${rel}': port @OrmPermission(Model, '${rel}') policies to @OrmScope(Model, '${rel}') (OrmScopePolicy).${missing ? ` No @OrmPermission(…, '${rel}') policy was found under --src.` : ''}`,
+          `'scope:${rel}' on ${resource} became relation '${rel}', which 3.0 has no query form for: assign a role on each ${resource} row to the subjects @OrmPermission(Model, '${rel}') selected (a user, or a subject set such as team:<id>#member), and register a RelationResolver for '${rel}' on '${resource}' until then.${missing ? ` No @OrmPermission(…, '${rel}') policy was found under --src.` : ''}`,
           resource,
         );
       }

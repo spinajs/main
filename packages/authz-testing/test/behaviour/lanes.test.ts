@@ -18,7 +18,7 @@ const { combine } = fixtureDsl;
 
 const merged = mergeFixtures(BEHAVIOUR_FIXTURES);
 const OWN_RULES = ['B10', 'B20', 'B21', 'B23', 'B24', 'B25', 'B28', 'B30', 'B41'] as const;
-const FILLED = ['B02.http', 'B05.orm', 'B07.token', 'B09.orm', 'B09.http', 'B09.queue', 'B09.configuration', 'B09.socket', 'B09.email', 'B17.http', 'B17.users', 'B22.orm', 'B27.store', 'B27.queue', 'B29.fs', 'B37.token', 'B39.orm'];
+const FILLED = ['B02.http', 'B07.token', 'B09.orm', 'B09.http', 'B09.queue', 'B09.configuration', 'B09.socket', 'B09.email', 'B17.http', 'B17.users', 'B27.store', 'B27.queue', 'B29.fs', 'B37.token'];
 const lanePart = (selector: string) => {
   const [id, name] = selector.split('.');
   return merged.get(id as never)?.parts.find((p) => p.name === name);
@@ -181,8 +181,8 @@ describe('lane fixtures', () => {
       const { harness, calls } = stubHarness();
       await runParts(['B20.orm'], harness);
       const first = calls.find((c) => c.what === 'orm')!;
-      assert.deepEqual(first, { what: 'orm', as: 'user:alice', args: { op: 'select', model: 'Task' } });
-      assert.ok(calls.some((c) => matches(c.args, { op: 'update', model: 'Task', where: { id: 't2' } })));
+      assert.deepEqual(first, { what: 'orm', as: 'user:alice', args: { op: 'select', model: 'Task', accessible: 'task:read' } });
+      assert.ok(calls.some((c) => matches(c.args, { op: 'update', model: 'Task', accessible: 'task:update' })));
       assert.ok(calls.some((c) => (c.args as OrmQuery).op === 'insert' && (c.args as { values: { id: string } }).values.id === 't9'));
     });
 
@@ -254,36 +254,26 @@ describe('lane fixtures', () => {
       assert.ok(matches({ d: { e: [{ f: 1, g: 2 }] } }, { d: { e: [{ g: 2 }] } }));
     });
 
-    it('orm: runs the query, compares ids, count and WHERE, and the thrown reason', async () => {
+    it('orm: runs the query, compares ids, count, access and the thrown reason', async () => {
       const seen: OrmQuery[] = [];
-      const res = { ids: ['b', 'a'], count: 2, sql: ['select * from t where x = 1'] };
+      const access = { a: { 'task:update': true }, b: { 'task:update': false } };
+      const res = { ids: ['b', 'a'], count: 2, sql: ['select 1'], access };
       const c = ctx({ orm: { run: async (q) => (seen.push(q), res), rows: async () => [{ id: 't1', title: 'a', owner: 'alice' }] } });
-      await run(orm({ op: 'select', model: 'Task' }, { ids: ['a', 'b'], count: 2, where: true }), c);
-      assert.deepEqual(seen, [{ op: 'select', model: 'Task' }]);
-      await fails(orm({ op: 'select', model: 'Task' }, { where: false }), c, /WHERE/);
-      await fails(orm({ op: 'select', model: 'Task' }, { ids: ['a'] }), c, /ids/);
-      await fails(orm({ op: 'select', model: 'Task' }, { throws: 'AccessDenied' }), c, /expected a throw of AccessDenied/);
+      const q = { op: 'select', model: 'Task', accessible: 'task:read', withAccess: ['task:update'] } as const;
+      await run(orm(q, { ids: ['a', 'b'], count: 2, access }), c);
+      assert.deepEqual(seen, [q]);
+      await fails(orm(q, { access: { a: { 'task:update': true } } }), c, /access/);
+      await fails(orm(q, { ids: ['a'] }), c, /ids/);
+      await fails(orm(q, { throws: 'AccessDenied' }), c, /expected a throw of AccessDenied/);
       await run(ormRows('Task', { ids: ['t1'], rows: [{ id: 't1', owner: 'alice' }] }), c);
       await fails(ormRows('Task', { rows: [{ id: 't1', owner: 'bob' }] }), c, /row t1/);
 
       const denied = new AccessDenied({ allowed: false, permission: 'task:read', resource: { type: 'task' }, principal: UNATTENDED, residual: FALSE, fields: { read: [], write: [] }, roles: {}, domain: 'root', reason: { code: 'unattended' } });
       const d = ctx({ orm: { run: async () => Promise.reject(denied), rows: async () => [] } });
-      await run(orm({ op: 'select', model: 'Task' }, { throws: 'AccessDenied', reason: 'unattended' }), d);
-      await run(orm({ op: 'select', model: 'Task' }, { throws: 'Forbidden' }), d);
-      await fails(orm({ op: 'select', model: 'Task' }, { throws: 'AccessDenied', reason: 'no_access' }), d, /decision.reason.code/);
-      await assert.rejects(run(orm({ op: 'select', model: 'Task' }, {}), d), /Access denied/);
-    });
-
-    it('orm: compares populated exactly, null included (RFC L4-1)', async () => {
-      const seen: OrmQuery[] = [];
-      const res = { ids: ['n1', 'n2'], sql: ['select * from note left join task on note.task_id = task.id and task.owner = ?'], populated: { n1: null, n2: 't2' } };
-      const c = ctx({ orm: { run: async (q) => (seen.push(q), res), rows: async () => [] } });
-      const q = { op: 'select', model: 'Note', populate: 'task' } as const;
-      await run(orm(q, { ids: ['n1', 'n2'], populated: { n1: null, n2: 't2' }, where: false }), c);
-      assert.deepEqual(seen, [q]);
-      await fails(orm(q, { populated: { n2: 't2' } }), c, /populate task: populated/);
-      await fails(orm(q, { populated: { n1: 't1', n2: 't2' } }), c, /populated/);
-      await fails(orm(q, { populated: {} }), ctx({ orm: { run: async () => ({ ids: [], sql: [] }), rows: async () => [] } }), /populated/);
+      await run(orm(q, { throws: 'AccessDenied', reason: 'unattended' }), d);
+      await run(orm(q, { throws: 'Forbidden' }), d);
+      await fails(orm(q, { throws: 'AccessDenied', reason: 'no_access' }), d, /decision.reason.code/);
+      await assert.rejects(run(orm(q, {}), d), /Access denied/);
     });
 
     it('fs: calls the method with its args, and reads raw', async () => {
@@ -430,7 +420,7 @@ describe('lane fixtures', () => {
         this.timeout(120_000);
         const found = diagnostics(
           IMPORTS +
-            `const lane: LaneWorld = { orm: { models: [{ name: 'Org', columns: ['policies'], json: ['policies'] } satisfies OrmModelSpec] } };
+            `const lane: LaneWorld = { orm: { models: [{ name: 'Org', type: 'org', columns: ['parent_id'], parents: [{ column: 'parent_id', type: 'org', nullable: true }] } satisfies OrmModelSpec] } };
 export const world: World = { permissions: [], combine: { default: { algorithm: 'deny-overrides', models: [] } }, lane };
 export const keys: (keyof LaneHandles)[] = ['http', 'orm', 'fs', 'queue', 'token', 'authn', 'store', 'configuration', 'socket', 'email', 'impersonationGuard'];
 export const handle: HttpHandle | undefined = ({} as Partial<LaneHandles>).http;

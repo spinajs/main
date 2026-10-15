@@ -60,7 +60,7 @@ describe('authz-rbac model: preload and the assignment cache', () => {
     const { model, store } = await setup();
     const c = ctx();
     await model.preload(alice, c);
-    expect(store.reads).to.deep.equal([['user:alice']]);
+    expect(store.reads).to.deep.equal([['user:alice', 'user:*']]);
     expect(syncVote(model.evaluate(list(), c)).permitWhen).to.deep.equal(TRUE);
     expect(syncVote(model.evaluate(list(), ctx())).permitWhen).to.deep.equal(TRUE);
     expect(store.reads).to.have.length(1);
@@ -97,7 +97,7 @@ describe('authz-rbac model: preload and the assignment cache', () => {
   it('preload reads the principal and its companions in one store read; a later request of the companion reads nothing', async () => {
     const { model, store } = await setup({ assignments: [assignment('b1', bot, 'viewer')] });
     await model.preload(withCompanions(alice, [bot]), ctx());
-    expect(store.reads).to.deep.equal([['user:alice', 'user:bot']]);
+    expect(store.reads).to.deep.equal([['user:alice', 'user:bot', 'user:*']]);
     expect(syncVote(model.evaluate(list(withCompanions(alice, [bot])), ctx())).permitWhen).to.deep.equal(TRUE);
     expect(syncVote(model.evaluate(list(bot), ctx())).permitWhen).to.deep.equal(TRUE);
     expect(syncVote(model.evaluate(list(alice), ctx())).permitWhen).to.deep.equal(FALSE);

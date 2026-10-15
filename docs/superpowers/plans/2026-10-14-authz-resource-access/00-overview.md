@@ -49,7 +49,7 @@
 18. **ORM gains `driver.afterCommit(cb)`** (L1): a callback on the current transaction, run after the outermost commit, dropped on rollback; outside a transaction it runs at once. L3 publishes `AuthzChange` with it instead of patching `OrmDriver.prototype.transaction`.
 19. **ORM raw select columns keep their bindings** (L1 bug fix in orm-sql `SqlColumnRawStatement`), so `.withAccess()` binds values instead of inlining them; no orm-sql dependency in authz-orm.
 20. **Delete clean-up with the memory admin backend** runs after the ORM commit inside `AuthzAdminBackend.transaction()` (best effort, logged on failure); with `DbAuthzAdminBackend` it runs in the ORM statement's transaction. DB stores bump `authz_version` themselves; the memory backend bumps through its transaction.
-21. **authz-orm checks at domain boot** that every `@AccessResource` model with `@Parent` lives on the authz stores' connection (`AuthzConfigError`), since boot rule 12 cannot see model connections.
+21. **authz-orm checks at domain boot** that every `@AccessResource` model lives on the authz stores' connection (`AuthzConfigError`), since boot rule 12 cannot see model connections: every list joins `authz_assignment` and every delete forgets scopes through the same driver.
 22. **`SqlRowContext.ancestorTable` arrives quoted**; compilers use it as is. `reparent(model, ids, newParentId)` is an authz-orm export (frozen in its `api.ts`), not an `authz()` method.
 23. **Combination for list permissions:** a `list: true` permission must be routed with `deny-overrides` in every domain; boot rule 12 refuses `permit-overrides` and `first-applicable` for it (the plan combination is defined for deny-overrides only).
 
@@ -295,5 +295,5 @@ L0 → L1 → L7 → L12 → L2 → L3 → L4 → L6 → L8 → L10 → L11 → 
 
 - `npm run build` at the root succeeds; `node scripts/api-snapshot.mjs --check` passes.
 - `npm test` passes in: orm, authz, authz-rbac, authz-abac, authz-orm, authz-http, http-socket, authz-queue, authz-fs, authz-testing, users, configuration-http, queue-http-progress, eslint-plugin-authz.
-- No file in the repo imports `@spinajs/authz-orm/native`, `OrmScope`, `OrmScopePolicy`, `OrmNativeCompiler`, `ScopeColumn` or `RbacOrmCompiler` (`grep -rE "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test` returns nothing).
+- No file in the repo imports `@spinajs/authz-orm/native`, `OrmScope`, `OrmScopePolicy`, `OrmNativeCompiler`, `ScopeColumn` or `RbacOrmCompiler` (`grep -rE --exclude='*.md' "OrmScope|OrmNativeCompiler|ScopeColumn|RbacOrmCompiler|authz-orm/native" packages/*/src packages/*/test | grep -v '^packages/authz-convert/test/analyze\.test\.ts:'` returns nothing). Markdown files (history such as `users/test/LEDGER.md`) and `authz-convert/test/analyze.test.ts`, whose negative assertion names `@OrmScope`, are excluded on purpose.
 - L9's end-to-end suite passes on SQLite and PostgreSQL.

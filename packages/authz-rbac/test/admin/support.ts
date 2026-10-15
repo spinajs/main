@@ -1,8 +1,8 @@
 import type { IContainer } from '@spinajs/di';
 import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
-import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, PermissionRegistryImpl, TRUE, resourceKey } from '@spinajs/authz';
-import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
+import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, PermissionRegistry, PermissionRegistryImpl, TRUE, resourceKey } from '@spinajs/authz';
+import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
 
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
 import type { Assignment, LadderDef, MemoryLinkStoreOptions, RoleDef } from '../../src/index.js';
@@ -122,6 +122,8 @@ export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): P
   const sink = new RecordingSink();
   const clock = new ManualClock(START);
   c.register(instance(opts.model ?? grantsModel())).as(AuthorizationModel);
+  // grantsModel exposes no permissions(), and RbacRuleListGuard needs a registry on every rule.put.
+  if (!opts.model) c.register(instance(permissionRegistry(opts.permissions))).as(PermissionRegistry);
   c.register(instance(bus)).as(ChangeBus);
   c.register(instance(audit)).as(DecisionAudit);
   c.register(instance(clock)).as(AuthzClock);

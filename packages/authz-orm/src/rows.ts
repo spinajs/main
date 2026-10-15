@@ -1,35 +1,48 @@
-import { AuthzConfigError, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
+import { ModelBase } from '@spinajs/orm';
 
-import { columnOf, dialectOf, idMode, idText, idValue } from './columns.js';
-import { classesOf } from './registry.js';
+import { ID_CHUNK, chunks } from './ancestors/table.js';
+import { idLookup, idText, refKey } from './ids.js';
+import { classesOf, entryOf } from './registry.js';
 import type { ModelClass } from './registry.js';
 
-export type Row = ModelBase & Record<string, unknown>;
-
-export function pkOf(model: ModelClass): string {
-  const pk = extractModelDescriptor(model as never)?.PrimaryKey;
-  const name = Array.isArray(pk) ? pk[0] : pk;
-  if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: model ${model.name} has no primary key`);
-  return name;
+export interface FoundRow {
+  readonly model: ModelClass;
+  readonly row: ModelBase;
 }
 
-/** The row of `ref` among the classes of its type (registration order), loaded unscoped; null when none has it. */
-export async function findRow(ref: ResourceRef): Promise<Row | null> {
-  if (ref.id === undefined || ref.id === null) return null;
-  const id = String(ref.id);
-  for (const cls of classesOf(ref.type)) {
-    const pk = pkOf(cls);
-    const column = columnOf(cls, pk);
-    if (!column) continue;
-    const mode = idMode(column, dialectOf(extractModelDescriptor(cls as never)));
-    const value = idValue(mode, id, column);
-    if (value === undefined) continue;
-    const model = cls as unknown as typeof ModelBase;
-    const query = () => model.where(pk, value).first() as Promise<unknown>;
-    const row = await runWithPrincipal(SYSTEM, query);
-    if (row instanceof ModelBase && idText(mode, (row as Row)[pk]) === id) return row as Row;
+type Queryable = typeof ModelBase & { query(): { whereIn(column: string, values: unknown[]): Promise<ModelBase[]> } };
+
+/**
+ * Rows of `refs` by resourceKey, loaded as SYSTEM: per type, the classes of the type in registration
+ * order, one query per class and id chunk; the first class that has an id wins.
+ */
+export async function findRows(refs: readonly ResourceRef[]): Promise<Map<string, FoundRow>> {
+  const out = new Map<string, FoundRow>();
+  const byType = new Map<string, Set<string>>();
+  for (const r of refs) {
+    if (r.id === undefined || r.id === null) continue;
+    const ids = byType.get(r.type) ?? new Set<string>();
+    ids.add(String(r.id));
+    byType.set(r.type, ids);
   }
-  return null;
+  await runWithPrincipal(SYSTEM, async () => {
+    for (const [type, ids] of byType) {
+      for (const cls of classesOf(type)) {
+        const entry = entryOf(cls)!;
+        const wanted = [...ids].filter((id) => !out.has(refKey({ type, id })));
+        const values = wanted.map((id) => idLookup(cls, entry.idColumn, id)).filter((v) => v !== undefined);
+        for (const part of chunks(values, ID_CHUNK)) {
+          if (part.length === 0) continue;
+          const rows = await (cls as Queryable).query().whereIn(entry.idColumn, part);
+          for (const row of rows) {
+            const id = idText((row as unknown as Record<string, unknown>)[entry.idColumn]);
+            if (id !== undefined && ids.has(id) && !out.has(refKey({ type, id }))) out.set(refKey({ type, id }), { model: cls, row });
+          }
+        }
+      }
+    }
+  });
+  return out;
 }

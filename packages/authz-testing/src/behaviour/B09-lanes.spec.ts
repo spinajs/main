@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { SYSTEM, UNATTENDED } from '@spinajs/authz';
 
 import { userPrincipal } from '../principals.js';
-import { combine, extension, permit, ref, relation, staticModel } from './dsl.js';
+import { allRows, combine, extension, ownedRows, permit, ref, relation, staticModel } from './dsl.js';
 import { as, emitted, handled, http, laneCall, laneHandle, orm } from './lane.js';
 import type { OrmQuery } from './lane.js';
-import { TASK, ormWorld } from './B20-orm-scoping.spec.js';
+import { TASK, ormWorld } from './B20-orm-access.spec.js';
 import { fsGrants, fsWorld } from './B28-fs-guard.spec.js';
 import type { StepContext } from './harness.js';
 import type { FixturePart, World } from './types.js';
@@ -14,6 +14,8 @@ import type { FixturePart, World } from './types.js';
 const f1 = ref('file', 'f1');
 const ALL = ['t1', 't2', 't3'];
 const SELECT: OrmQuery = { op: 'select', model: 'Task' };
+const ACCESSIBLE: OrmQuery = { op: 'select', model: 'Task', accessible: 'task:read' };
+const NOT_PLANNED = { calls: { model: 'm1', method: 'listPlan', count: 0 } } as const;
 const NOT_CALLED = { calls: { model: 'm1', count: 0 } } as const;
 const UNATTENDED_DENIED = { throws: 'AccessDenied', reason: 'unattended' } as const;
 // The audit steps rely on these keys; only the sample config of design §8.1 turns them on.
@@ -22,27 +24,22 @@ const AUDIT = { audit: { denials: true, runAs: true, unscoped: true } } as const
 const ormPart: FixturePart = {
   name: 'orm',
   facets: ['engine', 'host', 'audit', 'orm'],
-  lanes: ['L4'],
-  world: ormWorld({ 'task:read': permit(relation('owner')) }, [TASK], { config: AUDIT }),
+  lanes: ['L5'],
+  world: ormWorld({ 'task:read': permit(relation('owner')) }, { 'task:read': ownedRows() }, [TASK], { config: AUDIT }),
   cases: [
-    { name: 'a query on an @AccessResource model without a principal throws AccessDenied (unattended)', steps: [orm(SELECT, UNATTENDED_DENIED), NOT_CALLED] },
+    { name: '.accessible() without a principal throws AccessDenied (unattended) and asks no model', steps: [orm(ACCESSIBLE, UNATTENDED_DENIED), NOT_CALLED, NOT_PLANNED] },
     {
-      name: 'under runAs(SYSTEM, reason) the query runs unscoped, consults no model and the bypass is audited',
-      steps: [{ runAs: { as: SYSTEM, reason: 'cli' }, steps: [orm(SELECT, { ids: ALL, where: false })] }, NOT_CALLED, { audit: { kind: 'runAs', reason: 'cli' } }],
+      name: 'under runAs(SYSTEM, reason) a select reads every row, consults no model and the bypass is audited',
+      steps: [{ runAs: { as: SYSTEM, reason: 'cli' }, steps: [orm(SELECT, { ids: ALL })] }, NOT_CALLED, NOT_PLANNED, { audit: { kind: 'runAs', reason: 'cli' } }],
     },
   ],
 };
 
 const httpWorld: World = {
-  ...ormWorld({ 'task:read': permit(relation('owner')) }, [TASK], { config: AUDIT }),
+  ...ormWorld({ 'task:read': permit(relation('owner')) }, { 'task:read': ownedRows() }, [TASK], { config: AUDIT }),
   lane: {
     orm: { models: [TASK] },
-    http: {
-      routes: [
-        { method: 'GET', path: '/reports', access: { permission: 'task:read' }, unscoped: 'report', handler: { orm: SELECT } },
-        { method: 'GET', path: '/tasks', access: { permission: 'task:read' }, handler: { orm: SELECT } },
-      ],
-    },
+    http: { routes: [{ method: 'GET', path: '/tasks', access: { permission: 'task:read' }, handler: { orm: ACCESSIBLE } }] },
   },
 };
 
@@ -51,10 +48,7 @@ const httpPart: FixturePart = {
   facets: ['engine', 'audit', 'http', 'orm'],
   lanes: ['L5'],
   world: httpWorld,
-  cases: [
-    { name: "@Unscoped(reason): the route's ORM queries are not scoped, and the bypass is audited with its reason", steps: [http({ method: 'GET', path: '/reports', as: 'alice' }, { status: 200, body: { ids: ALL } }), { audit: { kind: 'unscoped', reason: 'report' } }] },
-    { name: 'without @Unscoped the same query is scoped', steps: [http({ method: 'GET', path: '/tasks', as: 'alice' }, { status: 200, body: { ids: ['t1', 't3'] }, none: [{ at: 'ids', match: 't2' }] })] },
-  ],
+  cases: [{ name: "a route's .accessible() list runs as the request principal", steps: [http({ method: 'GET', path: '/tasks', as: 'alice' }, { status: 200, body: { ids: ['t1', 't3'] }, none: [{ at: 'ids', match: 't2' }] })] }],
 };
 
 const queueWorld: World = {
@@ -123,8 +117,8 @@ const socketPart: FixturePart = {
   name: 'socket',
   facets: ['engine', 'orm', 'socket'],
   lanes: ['C9'],
-  world: { ...ormWorld({ 'task:read': permit() }), lane: { orm: { models: [TASK] }, socket: { handlers: [{ event: 'tasks', orm: SELECT }] } } },
-  cases: [{ name: 'a socket handler without a principal source fails closed on a scoped model', steps: [laneCall('emit tasks', (ctx) => laneHandle(ctx, 'socket').emit('tasks'), UNATTENDED_DENIED), NOT_CALLED] }],
+  world: { ...ormWorld({ 'task:read': permit() }, { 'task:read': allRows() }), lane: { orm: { models: [TASK] }, socket: { handlers: [{ event: 'tasks', orm: ACCESSIBLE }] } } },
+  cases: [{ name: 'a socket handler without a principal source fails closed on .accessible()', steps: [laneCall('emit tasks', (ctx) => laneHandle(ctx, 'socket').emit('tasks'), UNATTENDED_DENIED), NOT_CALLED] }],
 };
 
 const send = (path: string) => (ctx: StepContext) => laneHandle(ctx, 'email').send({ to: 'x@example.com', attachments: [{ fs: 'uploads', path }] });

@@ -6,3 +6,4 @@ export * from './sink.js';
 export * from './scope-attributes/index.js';
 export * from './forget.js';
 export * from './permit.js';
+export * from './list-guard.js';

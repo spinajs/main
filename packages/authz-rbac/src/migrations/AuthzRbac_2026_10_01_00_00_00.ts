@@ -1,8 +1,8 @@
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 /**
- * The authz-rbac tables of design §9.1: assignments, scoped rules with their SQL form, rule
- * subject lists, share links and the per-domain version counter.
+ * The authz-rbac tables of design §9.1: assignments, the closure of subject sets, scoped check-only
+ * rules with their subject lists, share links and the per-domain version counter.
  */
 @Migration('default')
 export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
@@ -12,6 +12,8 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
       table.string('subject_type', 32).notNull();
       table.string('subject_id', 64).notNull();
       table.string('subject_role', 128).notNull().default().value('');
+      // One portable key column: a row-value IN over (type, id, role) does not work on MSSQL or older SQLite.
+      table.string('subject_key', 200).notNull();
       table.string('role', 128).notNull();
       table.string('scope_type', 64).notNull().default().value('$global');
       table.string('scope_id', 64).notNull().default().value('');
@@ -25,6 +27,16 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
     await connection.index().unique().table('authz_assignment').name('authz_assignment_uq').columns(['subject_type', 'subject_id', 'subject_role', 'role', 'scope_type', 'scope_id']);
     await connection.index().table('authz_assignment').name('authz_assignment_scope').columns(['scope_type', 'scope_id', 'role']);
     await connection.index().table('authz_assignment').name('authz_assignment_expires').columns(['expires_at']);
+    await connection.index().table('authz_assignment').name('authz_assignment_subject').columns(['subject_key', 'role']);
+
+    await connection.schema().createTable('authz_subject_membership', (table) => {
+      table.string('member_key', 200).notNull().primaryKey();
+      table.string('set_key', 200).notNull().primaryKey();
+      table.int('depth').notNull();
+      table.dateTime('expires_at');
+    });
+
+    await connection.index().table('authz_subject_membership').name('authz_subject_membership_set').columns(['set_key']);
 
     await connection.schema().createTable('authz_rule', (table) => {
       table.string('id', 160).notNull().primaryKey();
@@ -32,37 +44,6 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
       table.string('scope_type', 64).notNull().default().value('$global');
       table.string('scope_id', 64).notNull().default().value('');
       table.text('definition').notNull();
-      table.string('ladder', 64);
-      table.int('max_rank');
-      table.string('max_ref', 160);
-      table.boolean('drops').notNull().default().value(0);
-      table.boolean('strip_tags').notNull().default().value(0);
-      table.int('min_rank');
-      table.string('min_ref', 160);
-      table.string('at_type', 64);
-      table.string('permissions', 1024);
-      table.string('resource_types', 255);
-      table.string('subject_types', 255);
-      table.string('scope_types', 255);
-      // Not in the §9.1 DDL: subjects.principalTypes and subjects.rank of D24 need their own columns.
-      table.string('principal_types', 255);
-      table.string('rank_ladder', 64);
-      table.string('rank_at', 64);
-      table.int('rank_min');
-      table.int('rank_max');
-      table.string('resource_field', 64);
-      table.string('resource_like', 512);
-      // A glob ending in one '*' must not cross '/': LIKE resource_like AND NOT LIKE resource_not_like.
-      table.string('resource_not_like', 512);
-      // The same two patterns as case-sensitive GLOBs: SQLite's LIKE ignores case.
-      table.string('resource_glob', 512);
-      table.string('resource_not_glob', 512);
-      table.string('when_path', 160);
-      table.string('when_op', 8);
-      table.string('when_value', 255);
-      table.string('reason_code', 64);
-      table.int('priority');
-      table.string('sort_key', 255);
       table.dateTime('expires_at');
       table.string('created_by', 100);
       table.dateTime('created_at').notNull();
@@ -99,7 +80,7 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
   }
 
   public async down(connection: OrmDriver): Promise<void> {
-    for (const table of ['authz_version', 'authz_link', 'authz_rule_subject', 'authz_rule', 'authz_assignment']) {
+    for (const table of ['authz_version', 'authz_link', 'authz_rule_subject', 'authz_rule', 'authz_subject_membership', 'authz_assignment']) {
       await connection.schema().dropTable(table);
     }
   }

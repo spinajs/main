@@ -4,3 +4,6 @@ export * from './commands/assign.js';
 export * from './commands/revoke.js';
 export * from './commands/explain.js';
 export * from './commands/check-config.js';
+export * from './membership.js';
+export * from './commands/membership-verify.js';
+export * from './commands/membership-rebuild.js';

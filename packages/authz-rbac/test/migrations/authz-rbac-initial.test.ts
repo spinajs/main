@@ -11,11 +11,11 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const MIGRATION = 'AuthzRbac_2026_10_01_00_00_00';
-const TABLES = ['authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_link', 'authz_version'];
+const TABLES = ['authz_assignment', 'authz_subject_membership', 'authz_rule', 'authz_rule_subject', 'authz_link', 'authz_version'];
 
 type ColumnKind = 'string' | 'text' | 'int' | 'bigint' | 'boolean' | 'datetime';
 
-/** [name, kind, varchar length, nullable] in design §9.1 order, with authz_rule's selector columns that §9.1 lacks. */
+/** [name, kind, varchar length, nullable] in design §9.1 order. */
 type ColumnSpec = [string, ColumnKind, number | null, boolean];
 
 const SCHEMA: Record<string, ColumnSpec[]> = {
@@ -24,6 +24,7 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['subject_type', 'string', 32, false],
     ['subject_id', 'string', 64, false],
     ['subject_role', 'string', 128, false],
+    ['subject_key', 'string', 200, false],
     ['role', 'string', 128, false],
     ['scope_type', 'string', 64, false],
     ['scope_id', 'string', 64, false],
@@ -33,40 +34,18 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['source', 'string', 32, false],
     ['created_at', 'datetime', null, false],
   ],
+  authz_subject_membership: [
+    ['member_key', 'string', 200, false],
+    ['set_key', 'string', 200, false],
+    ['depth', 'int', null, false],
+    ['expires_at', 'datetime', null, true],
+  ],
   authz_rule: [
     ['id', 'string', 160, false],
     ['kind', 'string', 16, false],
     ['scope_type', 'string', 64, false],
     ['scope_id', 'string', 64, false],
     ['definition', 'text', null, false],
-    ['ladder', 'string', 64, true],
-    ['max_rank', 'int', null, true],
-    ['max_ref', 'string', 160, true],
-    ['drops', 'boolean', null, false],
-    ['strip_tags', 'boolean', null, false],
-    ['min_rank', 'int', null, true],
-    ['min_ref', 'string', 160, true],
-    ['at_type', 'string', 64, true],
-    ['permissions', 'string', 1024, true],
-    ['resource_types', 'string', 255, true],
-    ['subject_types', 'string', 255, true],
-    ['scope_types', 'string', 255, true],
-    ['principal_types', 'string', 255, true],
-    ['rank_ladder', 'string', 64, true],
-    ['rank_at', 'string', 64, true],
-    ['rank_min', 'int', null, true],
-    ['rank_max', 'int', null, true],
-    ['resource_field', 'string', 64, true],
-    ['resource_like', 'string', 512, true],
-    ['resource_not_like', 'string', 512, true],
-    ['resource_glob', 'string', 512, true],
-    ['resource_not_glob', 'string', 512, true],
-    ['when_path', 'string', 160, true],
-    ['when_op', 'string', 8, true],
-    ['when_value', 'string', 255, true],
-    ['reason_code', 'string', 64, true],
-    ['priority', 'int', null, true],
-    ['sort_key', 'string', 255, true],
     ['expires_at', 'datetime', null, true],
     ['created_by', 'string', 100, true],
     ['created_at', 'datetime', null, false],
@@ -97,6 +76,7 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
 
 const PRIMARY_KEYS: Record<string, string[]> = {
   authz_assignment: ['id'],
+  authz_subject_membership: ['member_key', 'set_key'],
   authz_rule: ['id'],
   authz_rule_subject: ['rule_id', 'list', 'subject_type', 'subject_id', 'subject_role'],
   authz_link: ['id'],
@@ -156,7 +136,10 @@ function insert(driver: OrmDriver, table: string, values: Record<string, unknown
   return driver.insert().into(table).values(values);
 }
 
-const assignment = (over: Record<string, unknown> = {}) => ({ id: 'a1', subject_type: 'user', subject_id: 'u1', role: 'editor', created_at: NOW, ...over });
+const assignment = (over: Record<string, unknown> = {}) => {
+  const r = { id: 'a1', subject_type: 'user', subject_id: 'u1', subject_role: '', role: 'editor', created_at: NOW, ...over };
+  return { subject_key: r.subject_role ? `${r.subject_type}:${r.subject_id}#${r.subject_role}` : `${r.subject_type}:${r.subject_id}`, ...r };
+};
 
 for (const kind of DB_KINDS) {
   describe(`${MIGRATION} (${kind})`, function () {
@@ -211,6 +194,8 @@ for (const kind of DB_KINDS) {
       expect(await find('authz_assignment', 'authz_assignment_uq')).to.deep.eq({ name: 'authz_assignment_uq', unique: true, columns: ['subject_type', 'subject_id', 'subject_role', 'role', 'scope_type', 'scope_id'] });
       expect(await find('authz_assignment', 'authz_assignment_scope')).to.deep.eq({ name: 'authz_assignment_scope', unique: false, columns: ['scope_type', 'scope_id', 'role'] });
       expect(await find('authz_assignment', 'authz_assignment_expires')).to.deep.eq({ name: 'authz_assignment_expires', unique: false, columns: ['expires_at'] });
+      expect(await find('authz_assignment', 'authz_assignment_subject')).to.deep.eq({ name: 'authz_assignment_subject', unique: false, columns: ['subject_key', 'role'] });
+      expect(await find('authz_subject_membership', 'authz_subject_membership_set')).to.deep.eq({ name: 'authz_subject_membership_set', unique: false, columns: ['set_key'] });
       expect(await find('authz_rule', 'authz_rule_scope')).to.deep.eq({ name: 'authz_rule_scope', unique: false, columns: ['scope_type', 'scope_id', 'kind'] });
       expect(await find('authz_link', 'authz_link_token')).to.deep.eq({ name: 'authz_link_token', unique: true, columns: ['token_hash'] });
     });
@@ -233,6 +218,11 @@ for (const kind of DB_KINDS) {
       await expect(insert(db.driver, 'authz_assignment', { id: 'nn-1', subject_type: 'user', subject_id: 'u1', created_at: NOW })).to.be.rejected;
     });
 
+    it('authz_assignment refuses a row without subject_key', async () => {
+      const { subject_key: _key, ...rest } = assignment({ id: 'nk-1' });
+      await expect(insert(db.driver, 'authz_assignment', rest)).to.be.rejected;
+    });
+
     it('authz_assignment_uq refuses a second identical grant and keeps subject sets apart', async () => {
       const grant = { subject_type: 'team', subject_id: 't1', role: 'viewer', scope_type: 'org', scope_id: 'o1' };
       await insert(db.driver, 'authz_assignment', assignment({ ...grant, id: 'uq-1' }));
@@ -245,30 +235,14 @@ for (const kind of DB_KINDS) {
       expect(rows.map((r: any) => r.id).sort()).to.deep.eq(['uq-1', 'uq-3']);
     });
 
-    it('authz_rule defaults drops and strip_tags to false and the scope to $global', async () => {
+    it('authz_rule defaults the scope to $global', async () => {
       await insert(db.driver, 'authz_rule', { id: 'r1', kind: 'restrict', definition: '{}', created_at: NOW });
 
       const r = await row(db.driver, 'authz_rule', { id: 'r1' });
-      expect(r.drops == true, 'drops').to.eq(false);
-      expect(r.strip_tags == true, 'strip_tags').to.eq(false);
-      expect([0, false]).to.include(r.drops);
-      expect([0, false]).to.include(r.strip_tags);
       expect(r.scope_type).to.eq('$global');
       expect(r.scope_id).to.eq('');
-      for (const name of ['ladder', 'max_rank', 'max_ref', 'min_rank', 'min_ref', 'at_type', 'permissions', 'resource_types', 'subject_types', 'scope_types', 'principal_types', 'rank_ladder', 'rank_at', 'rank_min', 'rank_max', 'resource_field', 'resource_like', 'resource_not_like', 'resource_glob', 'resource_not_glob', 'when_path', 'when_op', 'when_value', 'reason_code', 'priority', 'sort_key', 'expires_at', 'created_by']) {
-        expect(r[name], name).to.eq(null);
-      }
-    });
-
-    it('authz_rule stores the SQL form columns', async () => {
-      await insert(db.driver, 'authz_rule', { id: 'r2', kind: 'cap', definition: '{"kind":"cap"}', scope_type: 'org', scope_id: 'o1', ladder: 'project', max_rank: 2, drops: true, strip_tags: true, permissions: ',file:edit,', priority: 10, created_at: NOW });
-
-      const r = await row(db.driver, 'authz_rule', { id: 'r2' });
-      expect(Boolean(r.drops)).to.eq(true);
-      expect(Boolean(r.strip_tags)).to.eq(true);
-      expect(Number(r.max_rank)).to.eq(2);
-      expect(Number(r.priority)).to.eq(10);
-      expect(r.permissions).to.eq(',file:edit,');
+      expect(r.expires_at).to.eq(null);
+      expect(r.created_by).to.eq(null);
     });
 
     it('authz_rule_subject has a composite primary key and defaults subject_role to a principal', async () => {

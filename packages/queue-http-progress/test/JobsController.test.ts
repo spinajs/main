@@ -8,6 +8,7 @@ import { IJobStatusResponse } from '../src/models/JobEntry.js';
 import { DateTime } from 'luxon';
 import { JobModel } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
+import { SYSTEM } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR } from '@spinajs/authz-http';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
@@ -18,6 +19,7 @@ describe('JobsController', function () {
 
     let controller: JobsController;
     let canRead: sinon.SinonStub;
+    let runAs: sinon.SinonStub;
     const req = { storage: {} } as never;
 
     const mockJobRow = {
@@ -31,6 +33,8 @@ describe('JobsController', function () {
 
     beforeEach(() => {
         controller = new JobsController();
+        runAs = sinon.stub().callsFake((_principal: unknown, _reason: string, fn: () => Promise<unknown>) => fn());
+        sinon.stub(controller as any, 'authzOf').resolves({ runAs });
         canRead = sinon.stub(controller as any, 'canRead').resolves(true);
     });
 
@@ -60,6 +64,7 @@ describe('JobsController', function () {
             expect(response.status).to.equal('executing');
             expect(queryBuilder.where.calledWith('JobId', 'abc-123')).to.be.true;
             expect(canRead.calledWith(req, mockJobRow)).to.be.true;
+            expect(runAs.firstCall.args[0]).to.equal(SYSTEM);
         });
 
         it('should answer not found for an unknown job', async () => {

@@ -18,7 +18,7 @@ const world: World = {
   permissions: [],
   principals: { alice, bob, carol },
   combine: combine('deny-overrides', 'm1'),
-  models: [staticModel('m1', { votes: (req) => (req.permission !== 'job:read' ? {} : req.principal.id === 'carol' ? permit() : permit(relation('initiator'))) })],
+  models: [staticModel('m1', { votes: (req) => (req.permission !== 'job:read' ? {} : req.principal.id === 'carol' ? permit() : permit(relation('owner'))) })],
   lane: {
     queue: {
       records: [

@@ -4,7 +4,7 @@ import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModel
 import * as chai from 'chai';
 import 'mocha';
 
-import { DEFAULT_RBAC_EXTENSIONS, MemoryAssignmentStore, MemoryRoleStore, RBAC_RESIDUALS, RbacContributor, RbacModel, SubjectResolver, createRbacExtensions, isTokenRoleExtension } from '../../src/index.js';
+import { DEFAULT_RBAC_EXTENSIONS, MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, SubjectResolver, createRbacExtensions, isTokenRoleExtension } from '../../src/index.js';
 import type { AssignmentSubject, GrantIndex, RbacExtension, RoleDef, RoleGraph } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -68,7 +68,7 @@ describe('authz-rbac model: RbacModel', () => {
     const { model: m } = await model();
     expect(m.name).to.equal('rbac');
     expect(m.capabilities).to.deep.equal({ effects: ['permit', 'deny'], residuals: CORE_FILTER_OPS, sync: 'after-preload', fields: true, needsSubject: false, resourceTypes: '*' });
-    for (const op of m.capabilities.residuals) expect(RBAC_RESIDUALS).to.include(op);
+    for (const op of m.capabilities.residuals) expect(CORE_FILTER_OPS).to.include(op);
   });
 
   it('version() is the role store version read at init', async () => {

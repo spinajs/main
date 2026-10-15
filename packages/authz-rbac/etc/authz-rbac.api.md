@@ -7,7 +7,7 @@ Entries: `src/contracts.ts`.
 ## src/contracts.ts
 
 ```ts
-import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, FilterOp, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from "@spinajs/authz";
+import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from "@spinajs/authz";
 export type { AssignmentSubject, Assignment, SubjectSelector, RuleDef, LinkDef } from "@spinajs/authz";
 export interface GrantDef {
     readonly permission: string;
@@ -39,6 +39,7 @@ export interface RoleDef {
     readonly grants: readonly GrantDef[];
     readonly implies?: readonly ImpliedRole[];
     readonly subjectSet?: boolean;
+    readonly deny?: boolean;
     readonly assignable: boolean;
     readonly scopeTypes?: readonly ResourceType[];
     readonly description?: string;
@@ -81,18 +82,18 @@ export declare abstract class LinkStore {
 export declare abstract class SubjectResolver {
     abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
-export declare const RBAC_ASSIGNMENT_OP: "native:rbac.assignment";
-export declare const RBAC_THRESHOLD_OP: "native:rbac.threshold";
-export declare const RBAC_RESIDUALS: readonly FilterOp[];
-
-// values
-const RBAC_ASSIGNMENT_OP = "native:rbac.assignment" as const;
-const RBAC_THRESHOLD_OP = "native:rbac.threshold" as const;
-const RBAC_RESIDUALS = Object.freeze([
-    ...CORE_FILTER_OPS,
-    RBAC_ASSIGNMENT_OP,
-    RBAC_THRESHOLD_OP
-]);
+/** Port: the transitive closure of subject sets (design §4.3). */
+export declare abstract class MembershipStore {
+    /** Sets every given member key belongs to, live at `at`, each with its membership expiry (none = never). */
+    abstract setsOf(memberKeys: readonly string[], at: Date): Promise<readonly {
+        readonly setKey: string;
+        readonly expiresAt?: Date;
+    }[]>;
+    /** Member keys (principal keys and set keys) of a set, live at `at`. */
+    abstract membersOf(setKey: string, at: Date): Promise<readonly string[]>;
+}
+/** Subject key: `type:id` (principal) or `type:id#role` (set); wildcard `type:*`. In `id`, `%`, `#` and `*` are escaped as `%25`, `%23`, `%2A`, so keys never collide. Max 200 characters; longer keys are refused on write. */
+export type SubjectKey = string;
 ```
 
 ## Re-exported from other packages

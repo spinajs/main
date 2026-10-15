@@ -10,6 +10,16 @@ Test kit for SpinaJS authorization: fakes, conformance suites, behaviour fixture
 - Conformance suites for models and adapters.
 - Behaviour fixtures B01–B46 (design §17) and `runBehaviour`.
 
+## Client access conformance
+
+`runClientAccessConformance(name, harness)` checks a running app against the client access API
+(design 2026-10-14 §10): `POST /user/access/checks` with the request bodies of ckit's
+`createHttpChecker`, `$access` on a list route, `X-Access-Epoch` and `GET /user/access/events`. The
+harness starts the app holding `CLIENT_ACCESS_FIXTURE` (users `me` and `other`, docs 1-4, the roles and
+assignments listed there, `GET /docs` as `.accessible('doc:view').withAccess(['doc:edit', 'doc:view'])`)
+and returns `{ baseUrl, headers(id), assign(id, role, scope), stop() }`. The checks run in order; `push`
+changes data and runs last.
+
 ## Behaviour fixtures
 
 Every lane runs the B-rules it owns from its own package tests (plan §1 rule 4):
@@ -159,7 +169,7 @@ fails and names it.
 | `store` | — | `store`, `rbacStore` |
 | `list` | `list` | — |
 | `sql` | `list` | `sqlPages` |
-| `orm` | `load` (optional) | `orm` |
+| `orm` | `load` (optional) | `orm`: `.accessible()`, `.withAccess()`, the runtime guard |
 | `http` | — | `http`; also `linkSource` (L5) and `adminHttp` (C4) |
 | `fs` | — | `fs` |
 | `queue` | — | `queue` |
@@ -289,8 +299,6 @@ Binding readings of the design that the fixtures rely on. Fixture notes cite the
 - D-F5-7: the AdminGuard does not run `covers` on a revoke; the last-holder and self-lockout checks still
   apply. SYSTEM passes the permission check and the guard.
 - D-F5-8: `Decision.roles` (effective role per ladder) is filled for every outcome, denials included.
-- D-F5-9: B05.orm rule 6 has no fixture. `ModelCapabilities` lacks an "IO-free residual" field, so no
-  fixture refuses a `sync: 'never'` model at boot; the ORM lane raises an RFC if it needs one.
 - D-F5-10: facet `authn` covers authentication flows (login, MFA completion, role switch, whoami);
   `impersonation` covers the impersonation guard only.
 - D-F5-11: fixture export names are `Bxx` for a rule's own fixture and `BxxPart` in PascalCase for an

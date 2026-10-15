@@ -9,7 +9,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion } from '../../src/index.js';
+import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
@@ -42,7 +42,10 @@ class FixedClock extends AuthzClock {
 
 type Row = Record<string, unknown>;
 
-const row = (over: Row = {}): Row => ({ id: 'a1', subject_type: 'user', subject_id: 'alice', subject_role: '', role: 'editor', scope_type: 'project', scope_id: 'p1', tags: '', expires_at: null, granted_by: null, source: 'db', created_at: CREATED, ...over });
+const row = (over: Row = {}): Row => {
+  const r = { id: 'a1', subject_type: 'user', subject_id: 'alice', subject_role: '', role: 'editor', scope_type: 'project', scope_id: 'p1', tags: '', expires_at: null, granted_by: null, source: 'db', created_at: CREATED, ...over };
+  return { subject_key: subjectKeyOf(subjectFromColumns(String(r.subject_type), String(r.subject_id), String(r.subject_role))), ...r };
+};
 
 const byId = (items: readonly Assignment[]) => [...items].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -652,6 +655,51 @@ for (const kind of DB_KINDS) {
         await expect(store.forgetScope(P1, { driver: db.driver })).to.be.rejectedWith(/transaction/);
         await expect(store.revokeSubjects([alice], { driver: db.driver })).to.be.rejectedWith(/transaction/);
         expect(await rows()).to.have.length(7);
+      });
+    });
+
+    describe('subject_key', () => {
+      it('assign writes the key of a principal, a set and a wildcard', async () => {
+        await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1 }, root, tx));
+        await inTx((tx) => store.assign({ subject: o1Members, role: 'editor', scope: P1 }, root, tx));
+        await inTx((tx) => store.assign({ subject: { type: 'user', id: '*' }, role: 'viewer', scope: P1 }, root, tx));
+        const keys = ((await db.driver.select().from('authz_assignment').columns(['subject_key'])) as Row[]).map((r) => String(r.subject_key)).sort();
+        expect(keys).to.deep.eq(['org:o1#org.member', 'user:*', 'user:alice']);
+      });
+
+      it('a principal id holding # or * gets its own key, apart from the set and the wildcard', async () => {
+        const odd: PrincipalRef = { type: 'org', id: 'o1#org.member' };
+        const star: PrincipalRef = { type: 'user', id: '*x' };
+        await inTx((tx) => store.assign({ subject: odd, role: 'editor', scope: P1 }, root, tx));
+        await inTx((tx) => store.assign({ subject: o1Members, role: 'viewer', scope: P1 }, root, tx));
+        await inTx((tx) => store.assign({ subject: star, role: 'editor', scope: P1 }, root, tx));
+        expect((await store.forSubjects([o1Members], AT)).map((a) => a.role)).to.deep.eq(['viewer']);
+        expect((await store.forSubjects([odd], AT)).map((a) => a.role)).to.deep.eq(['editor']);
+        expect((await store.forSubjectKeys(['org:o1#org.member'], AT)).map((a) => a.role)).to.deep.eq(['viewer']);
+        expect((await store.forSubjectKeys(['org:o1%23org.member'], AT)).map((a) => a.role)).to.deep.eq(['editor']);
+        expect(await store.forSubjectKeys(['user:*'], AT)).to.deep.eq([]);
+        expect((await store.forSubjectKeys(['user:%2Ax'], AT)).map((a) => a.subject)).to.deep.eq([star]);
+      });
+
+      it('revokeSubjects finds rows its own transaction wrote', async () => {
+        const revoked = await inTx(async (tx) => {
+          await store.assign({ subject: alice, role: 'editor', scope: P1 }, root, tx);
+          return store.revokeSubjects([alice], tx);
+        });
+        expect(revoked.map((a) => a.subject)).to.deep.eq([alice]);
+        expect(await rows()).to.deep.eq([]);
+      });
+
+      it('forSubjectKeys skips expired rows', async () => {
+        await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: BEFORE }, root, tx));
+        expect(await store.forSubjectKeys(['user:alice'], AT)).to.deep.eq([]);
+      });
+
+      it('refuses a subject whose key is longer than 200 characters (invalid_command)', async () => {
+        const long = { set: { role: 'r'.repeat(128), scope: { type: 't'.repeat(64), id: 'i'.repeat(64) } } };
+        await expect(inTx((tx) => store.assign({ subject: long, role: 'editor', scope: P1 }, root, tx)))
+          .to.be.rejectedWith(AuthzAdminFailure)
+          .and.eventually.include({ code: 'invalid_command', field: 'subject' });
       });
     });
 

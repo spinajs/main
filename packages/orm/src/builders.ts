@@ -83,15 +83,10 @@ export class Builder<T = any> implements IBuilder<T> {
    */
   protected _executionPromise: Promise<T> | null = null;
 
-  /**
-   * The execution engine. Sends the compiled query to the driver, applies the
-   * result middlewares, hydrates models and awaits the post-hydration middlewares.
-   *
-   * Always *returns* its value — the caller's promise chain is what propagates it.
-   * Subclasses override this (not `execute()`) so that their extra work also lands
-   * inside the memo.
-   */
-  protected async _run(): Promise<T> {
+  /** Before hooks, the driver call and after hooks: the part `_run()` may put in a transaction. */
+  private async _executeWithQueryMiddlewares(): Promise<T> {
+    const query = this as unknown as QueryBuilder;
+
     // Fires for EVERY builder type, not just SELECT. This used to live on
     // `SelectQueryBuilder._run`, so an INSERT/UPDATE/DELETE never reached a
     // `beforeQueryExecution` hook at all — which silently disabled any middleware that
@@ -103,10 +98,29 @@ export class Builder<T = any> implements IBuilder<T> {
     // return a promise into the void, and the query would execute anyway. For a security
     // check that is the difference between enforcing and pretending to.
     for (const middleware of this._queryMiddlewares) {
-      await middleware.beforeQueryExecution(this as unknown as QueryBuilder);
+      await middleware.beforeQueryExecution(query);
     }
 
     const result = (await this._driver.execute(this)) as T;
+
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.afterQueryExecution?.(query, result);
+    }
+
+    return result;
+  }
+
+  /**
+   * The execution engine. Sends the compiled query to the driver, applies the
+   * result middlewares, hydrates models and awaits the post-hydration middlewares.
+   *
+   * Always *returns* its value — the caller's promise chain is what propagates it.
+   * Subclasses override this (not `execute()`) so that their extra work also lands
+   * inside the memo.
+   */
+  protected async _run(): Promise<T> {
+    const wrap = this._driver.CurrentTransaction === undefined && this._queryMiddlewares.some((m) => m.transactional?.(this as unknown as QueryBuilder) === true);
+    const result = wrap ? await this._driver.transaction(() => this._executeWithQueryMiddlewares()) : await this._executeWithQueryMiddlewares();
 
     // Snapshot the pipeline once, *after* the driver call: compiling the query is what
     // registers the relation middlewares (the driver calls `toDB()`), so this is the first

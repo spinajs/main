@@ -4,7 +4,7 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPri
 import * as chai from 'chai';
 import 'mocha';
 
-import { ImpliesExtension, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RbacModel, RbacService, compileImplies, compileRoles, createRbacExtensions, liveAssignments, rbacAssignmentExtension } from '../../src/index.js';
+import { ImpliesExtension, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, compileImplies, compileRoles, createRbacExtensions, liveAssignments } from '../../src/index.js';
 import type { GrantDef, LadderDef, RbacExtension, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -187,33 +187,6 @@ describe('authz-rbac implied roles (B32)', () => {
     it('a holder at S and an onlyBelow holder at S give the plain under(S) term', async () => {
       const m = await model([assignment('a1', 'org.admin', O1), assignment('a2', 'team.lead', O1)]);
       expect((await vote(m, 'file:edit', { type: 'org' })).permitWhen).to.deep.equal({ op: 'under', scopes: [O1] });
-    });
-
-    it('native:rbac.assignment names the stored role, and fails closed where it would admit the scope itself', async () => {
-      const native = (rows: readonly Assignment[]) => model(rows, { extensions: (o) => [...createRbacExtensions({ ...o }), rbacAssignmentExtension(o)] });
-      const admin = await native([assignment('a1', 'org.admin', O1)]);
-      expect((await vote(admin, 'project:settings', { type: 'project' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['org.admin'] } });
-      // org.lead may be assigned at org scopes only, so on file rows "below the scope" is exact.
-      const lead = await native([assignment('a1', 'org.lead', O1)]);
-      expect((await vote(lead, 'file:edit', { type: 'file' })).permitWhen).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [{ type: 'user', id: 'alice' }], roles: ['org.lead'] } });
-      let thrown: unknown;
-      try {
-        await vote(lead, 'file:edit', { type: 'org' });
-      } catch (e) {
-        thrown = e;
-      }
-      expect((thrown as Error).message).to.contain('below its scope only');
-      // team.lead has no scopeTypes, so it may sit at an org or a file: both lists fail closed.
-      const team = await native([assignment('a1', 'team.lead', O1)]);
-      for (const type of ['org', 'file']) {
-        let refused: unknown;
-        try {
-          await vote(team, 'file:edit', { type });
-        } catch (e) {
-          refused = e;
-        }
-        expect((refused as Error | undefined)?.message, type).to.contain('below its scope only');
-      }
     });
   });
 

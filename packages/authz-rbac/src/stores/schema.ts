@@ -1,7 +1,9 @@
 import { ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN } from '@spinajs/authz';
 
 import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from '../model/cache.js';
+import { DEFAULT_MAX_SET_DEPTH } from '../membership/closure.js';
 import { DEFAULT_GROUP_PRINCIPAL } from '../model/sets/resolver.js';
+import { DEFAULT_MAX_PLAN_SUBJECTS } from '../model/list/plan.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 /** The shortest authz.rbac.links.secret, the HMAC key of share link tokens. */
@@ -55,6 +57,7 @@ const role = closed({
     ),
   },
   subjectSet: { type: 'boolean' },
+  deny: { type: 'boolean' },
   assignable: { type: 'boolean' },
   scopeTypes: stringList,
   description: { type: 'string' },
@@ -153,7 +156,9 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     defaultRoles: roleList,
     anonymousRoles: { ...roleList, default: [] },
     serviceRoles: { type: 'object', additionalProperties: roleList, default: {} },
-    stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList } },
+    // Above this many subject keys a list term reads authz_subject_membership in the query (MSSQL's 2100 parameters).
+    maxPlanSubjects: { type: 'integer', minimum: 1, default: DEFAULT_MAX_PLAN_SUBJECTS },
+    stores: { type: 'object', properties: { roles: stringList, assignments: stringList, rules: stringList, links: stringList, membership: stringList } },
     cache: {
       type: 'object',
       default: {},
@@ -170,7 +175,23 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: LINK_SECRET_MIN_LENGTH } } },
     connection: name,
+    // Levels a membership walk may climb (design §4.3); a deeper nesting is refused when written (set_too_deep).
+    maxSetDepth: { type: 'integer', minimum: 1, maximum: 64, default: DEFAULT_MAX_SET_DEPTH },
   },
 };
 
 registerConfigurationSchemaAtImport(AUTHZ_RBAC_CONFIGURATION_SCHEMA);
+
+// DefaultAdminGuard lives here, so this package validates the guard key only it reads. The core schema leaves
+// authz.admin.guard open, and authz-rbac's default config (src/config/admin.ts) always sets that section.
+export const AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA = {
+  $id: 'spinajs/authz-rbac-guard.configuration.schema.json',
+  $configurationModule: 'authz.admin.guard',
+  description: 'DefaultAdminGuard rules of authz-rbac (authz.admin.guard.keepHolders)',
+  type: 'object',
+  properties: {
+    keepHolders: { type: 'array', items: closed({ role: roleName, scopeType: name }, ['role', 'scopeType']) },
+  },
+};
+
+registerConfigurationSchemaAtImport(AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA);

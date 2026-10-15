@@ -6,7 +6,8 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, isSetSubject, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
+import { subjectKeyOf } from '../../stores/columns.js';
 
 export interface MemoryAdminAssignmentStoreOptions {
   readonly name?: string;
@@ -60,6 +61,11 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
     return [...this.rows.values()].filter((a) => keys.has(subjectKey(a.subject)) && isLive(a.expiresAt, at)).map(copy);
   }
 
+  async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
+    const wanted = new Set(keys);
+    return [...this.rows.values()].filter((a) => wanted.has(subjectKeyOf(a.subject)) && isLive(a.expiresAt, at)).map(copy);
+  }
+
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
     return [...this.rows.values()].filter((a) => a.role === role && sameRef(a.scope, scope) && isLive(a.expiresAt, at)).map((a) => deepFreeze(copySubject(a.subject)));
   }
@@ -101,7 +107,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
 
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]> {
     const undo = memoryTx(tx);
-    const gone = [...this.rows.values()].filter((a) => sameRef(a.scope, scope));
+    const gone = [...this.rows.values()].filter((a) => sameRef(a.scope, scope) || (isSetSubject(a.subject) && sameRef(a.subject.set.scope, scope)));
     for (const a of gone) this.write(undo, a.id, undefined);
     return gone.map(copy);
   }

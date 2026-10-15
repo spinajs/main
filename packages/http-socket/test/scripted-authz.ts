@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AuthzDomains, AuthzService, FALSE, ResourceAdapter, TRUE } from '@spinajs/authz';
-import type { AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { AccessPlan, AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 
 function unused(member: string): never {
   throw new Error(`${member} is not used by socket tests`);
@@ -53,6 +53,14 @@ export class ScriptedSocketAuthz extends AuthzService {
 
   public checkMany(): Promise<ReadonlyMap<Permission, Decision>> {
     return unused('ScriptedSocketAuthz.checkMany');
+  }
+
+  public checkAll(): Promise<readonly Decision[]> {
+    return unused('ScriptedSocketAuthz.checkAll');
+  }
+
+  public accessPlan(): Promise<AccessPlan> {
+    return unused('ScriptedSocketAuthz.accessPlan');
   }
 
   public filter(): Promise<ResourceFilter> {

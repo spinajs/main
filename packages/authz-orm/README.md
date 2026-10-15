@@ -1,114 +1,207 @@
-# `@spinajs/authz-orm`
+# @spinajs/authz-orm
 
-ORM adapter for SpinaJS authorization.
+The ORM adapter of SpinaJS authorization. It declares which models are access resources, keeps their
+ancestors in a closure table, filters lists with one helper, adds per-row access to list responses, and
+holds the decision audit and scope attribute stores.
 
-## Setup
+It never rewrites a query. Single objects are checked before access; lists ask for filtering
+explicitly.
 
-- `import '@spinajs/authz-orm'` registers `OrmResourceAdapter` (a `ResourceAdapter` for every
-  `@AccessResource` type), `AuthzQueryMiddleware` (order 100) and the contributor that feeds
-  `joinTypes` to the boot checks.
-- Mark models with `@AccessResource(type, opts)`, `@Owner()`, `@ScopeColumn(column, scopeType)`;
-  scope relations with `@OrmScope(model, relation)` on an `OrmScopePolicy`; models a package does
-  not own with `registerAccessResource`. Register them before the authz domain boots (at import,
-  or in a `Bootstrapper`; a model module imported lazily after boot is late): a type registered
-  later makes every check, list, summary and covers on it throw `AuthzConfigError` until the
-  domain boots again.
-- `ownsBy(type, relation, fn)` is an in-memory relation with no SQL form, for `@AccessResource` types
-  only: `fn` gets the row of the checked ref, loaded through the adapter when the subject is not
-  that row.
-- `authz.orm.domain` (default `root`) names the domain whose `AuthzService` scopes queries.
-- `authz.orm.allowJit` (default `false`): on Postgres, authz-orm refuses a connection with
-  `jit = on` (Postgres's default; rule lists then take seconds) at domain boot or at its first
-  scoped query. Turn jit off for the app's role or database (`ALTER ROLE … SET jit = off`), or
-  start the process with `PGOPTIONS='-c jit=off'`.
-- Queries run as the ALS principal. `authz().runAs(SYSTEM, reason, fn)` and a route's
-  `@Unscoped(reason)` run unscoped (audited); without a principal (UNATTENDED) a query on a scoped
-  model throws `AccessDenied`.
+## Install
 
-## `@OrmScope` policies
+```ts
+import '@spinajs/authz-orm';   // registers the adapter, the write middleware and the list compilers
+```
 
-A policy's `scope(query, principal, op)` is SQL that runs in two places: a check (the default
-`holds`, an `EXISTS` of the row by primary key, always with op `read`) and a list (the residual
-compiled into the query, with the query's op). Both run it as `SYSTEM`, so:
+Migrations: `AuthzResourceAncestor_2026_10_14_00_00_00` (`authz_resource_ancestor`),
+`AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzAudit_2026_10_01_00_00_00`
+(`authz_audit`). The ancestor table lives on the connection of the authz stores
+(`authz.rbac.connection`, else `authz.admin.connection`, else the default), which must be the database
+of the resource tables: the list filter joins them with `authz_assignment` (and, for `@Parent`,
+`authz_resource_ancestor`), and a delete forgets the row's scopes through the same driver. The domain boot
+refuses every `@AccessResource` model on another connection (`AuthzConfigError` naming each model and its
+connection), with or without `@Parent`.
 
-- read the principal from the `principal` argument only; `currentPrincipal()` is `SYSTEM` there;
-- sub-queries the policy builds on other models are not scoped by authz;
-- keep it synchronous and the same for every op, or implement `holds` to match what the op-specific
-  scope does;
-- a policy cannot be an `AsyncService`: residuals compile synchronously.
-- `scope` and `OrmNativeCompiler.compile` must add their conditions before they return; one that
-  returns a promise is refused with `AuthzConfigError`.
-- a policy that scopes by a column an update can write must implement `authorizeUpdate`: the update
-  check reads the policy's relation from the stored row, not from the written values.
+## Declaring resources
 
-## What the query middleware does not see
+```ts
+import { AccessResource, Owner, Parent, Self, registerAccessResource } from '@spinajs/authz-orm';
 
-The middleware scopes queries built with the orm. It does not see, and cannot scope:
+@AccessResource('task')
+export class Task extends ModelBase {
+  @Parent('project') public project_id: number;
+  @Parent('sprint')  public sprint_id: number;    // a second parent: both chains are ancestors
+  @Owner()           public owner_id: string;     // relation 'owner'
+}
 
-- SQL the app writes itself: `RawQuery` in `where`, `select` or `join`, `driver.executeOnDb`, and
-  views over a scoped table (`CREATE VIEW v AS SELECT * FROM task` reads every row). A raw where
-  fragment with unbalanced parentheses can also close the group the middleware puts the caller's
-  where in.
-- DDL: `DROP TABLE`, `ALTER TABLE` and other schema builders on a scoped table are not gated.
-- Values a later middleware or the caller changes after authz's `beforeQueryExecution` ran (order
-  100): insert and update payloads are checked as they are at that point.
+@AccessResource('folder')
+export class Folder extends ModelBase {
+  @Parent('folder', { nullable: true }) public parent_id: number;   // self-reference: any depth
+  @Parent('project')                    public project_id: number;
+}
 
-Queries that reach a scoped table without its model's scope (no model, a join, truncate, a deep
-clone) fail closed. Tables are matched by name, case-insensitively and across connections, so a
-table of the same name on another connection is refused too. An update that writes a column the
-residual reads loads the rows it reaches (as `SYSTEM`) to check them.
+// a model your package does not own
+registerAccessResource(DbConfig, 'configuration');
+// the initiator can be any principal type: the owner holds when type and id both match
+registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
+```
 
-An insert or update of a scoped model compiles once, after its execution checks ran. Calling `toDB()`
-on one before `await` (to log or explain it), or after it ran, or passing it to `driver.execute()` is
-refused with `Forbidden`, whether its values changed or not. A truncate or deep clone of a scoped
-table likewise compiles once, after the gate passed it in `beforeQueryExecution`.
+- `@Parent(type)` names the parent's resource type; the column holds the parent's id. Int and uuid
+  keys share one table (ids are stored as text).
+- `@Owner()` is read from the row whenever it is needed; it is never copied, so it cannot go stale.
+  Without options it matches `user` principals only; `@Owner({ typeColumn: 'owner_type' })` compares
+  the principal's type with that column too, for rows owned by any principal type.
+- `@Self()` marks the column that equals the principal id (`self`, for `user` principals);
+  `@spinajs/users` uses its own resolver for `user`.
+- Each `@AccessResource` type gets the permissions `<type>:read`, `<type>:create`, `<type>:update` and
+  `<type>:delete`.
+- Register every model before the authz domain boots (at import or in a `Bootstrapper`).
 
-## Relations, sub-queries and clones
+## Single objects
 
-- A populated relation (belongsTo, hasMany, many-to-many) and the `populate()` of a relation object
-  read only the target rows the target's residual allows. For a many-to-many the residual filters the
-  junction query; a junction model that is an `@AccessResource` adds its own residual on the junction
-  rows.
-- A relation or sub-query whose type the principal may not read makes the whole query fail with
-  `AccessDenied`. A residual that needs IO (a model with `sync: 'never'`) resolves for every relation
-  and sub-query before the query that compiles them runs; one compiled but never run stays FALSE.
-- `clone()` (and the counts and pages built from a clone) keeps every residual on the table it was
-  compiled for, also those a populated relation merged into the query, and the caller's `orWhere`
-  connectors (the orm's clone turns them into AND).
-- A builder runs only for the principal it was built for: the same object, or one with equal data
-  (id, attributes, authn facts, ceiling, delegation and the rest). Run by any other principal (the
-  same user with other attributes or without MFA included) it fails with `Forbidden`; SYSTEM may run
-  it. Data is compared only in plain objects and arrays whose own properties are all enumerable,
-  string-keyed values; a principal with a hidden, symbol-keyed or getter field anywhere is the same
-  only as the very same object.
-- `whereExist` and `whereNotExists` on a many-to-many relation with a scoped target test the target
-  rows the residual allows. Inside a nested `where(fn)` they are refused with `Forbidden`: the orm
-  builds that sub-query on the junction table alone.
-- The static `Model.populate(relation, id)` of a hasMany builds a target query, which is scoped;
-  for a belongsTo or many-to-many it joins the target table directly and is refused for a scoped
-  target: populate through a query or the relation object instead.
+```ts
+const task = await authz().runAs(SYSTEM, 'load task', () => Task.where('id', id).first());
+await authz().assert(me, 'task:update', task);
+```
 
-Load authz-orm once per process: a second copy (another install, or its ESM and CJS builds together)
-throws `AuthzConfigError` when it loads.
+Routes keep `@Access('task:update', { resource: fromModel(Task, 'task') })`. The adapter answers
+`ancestors(ref)` with one indexed read, `load(ref)` by primary key as `SYSTEM`, and `owner` from the
+`@Owner` column. `checkAll` (and `POST /user/access/checks`) loads a page of rows with one query per
+type (`loadMany`, `ancestorsMany`).
 
-## Databases
+A **create** is checked against the parent; a **move** (writing a `@Parent` column) needs a check of
+the new parent. The ORM checks neither.
 
-Residuals compile for SQLite and PostgreSQL. Both must store text as UTF-8 (SQLite's default
-encoding, a PostgreSQL database created with `ENCODING 'UTF8'`): string order and the one-character
-`_` of `like` follow code points only then.
+## Lists
 
-The B06 property tests (`test/b06.property.test.ts`) run `AUTHZ_ORM_B06_RUNS` times per dialect
-and model kind, 20 by default; the lane acceptance runs them with `AUTHZ_ORM_B06_RUNS=100` or more.
+```ts
+authz: { permissions: { 'task:read': { list: true } } }   // a child domain: authz.domains.<name>.permissions
 
-## Field filtering
+const tasks = await Task.where('status', 'open').accessible('task:read');
+await Task.update({ archived: true }).where('done', true).accessible('task:update');
+const teamTasks = await Task.query().within({ type: 'team', id: teamId }).accessible('task:read');
+```
 
-`filterFields(decision, data, mode)` keeps the fields of `data` that `decision.fields[mode]` allows
-(field globs, `filterObject` semantics). Values come back JSON-shaped: `toJSON` runs first, so a
-model gives the record its `toJSON()` returns (a `@Hidden` column is never there). An array is a
-list of records: each element is filtered on its own, and paths do not name array indexes.
-`removed` lists the dropped paths sorted, a subtree dropped whole as one path, an array's path for
-the scalar elements dropped from it. A denied decision keeps nothing: `{}` for a record, `[]` for an
-array.
+Permission names are compared exactly: `@AccessResource('task')` registers `task:read`, never
+`Task:read`.
+
+- `.accessible(permission)` asks `authz().accessPlan(principal, permission, type)` and adds one
+  `EXISTS` filter: a grant on the row, a grant on any ancestor, the owner column, minus deny roles,
+  inside the principal's ceiling. It works on SQLite, PostgreSQL, MySQL and MSSQL, with no recursion.
+  `{ env }` as the second argument passes request facts to ABAC.
+- A plan with no permit at all throws `AccessDenied` (a 403, never an empty list). A permission
+  without `list: true` throws `AuthzConfigError`.
+- **Boot rule 12** refuses a `list: true` permission when anything that can grant it on the type needs
+  the row: an RBAC grant with a relation other than `owner` or `self` or limited to ids by `on`, an
+  RBAC `cap`, `restrict` or `threshold` rule, an ABAC policy that is scoped or reads `resource.*` or
+  `scope.*` (other than `$global`), a type with no `@AccessResource` model, or a route other than
+  `deny-overrides`. `AuthzAdmin` refuses the same at write time (`not_list_filterable`).
+- The caller's where stays one group: `(where) AND (plan) AND (within…)`.
+- `.within(ref | refs)` keeps rows that are one of the refs or lie below one in the resource tree (any
+  scope type: a team, a project, a folder; `{ type }` alone means any resource of that type, `$global`
+  keeps every row). The refs of one call are OR-ed, chained calls are AND-ed, `[]` keeps nothing. It
+  narrows a list and authorizes nothing: a select still needs `.accessible()`, `.unscoped(reason)` or
+  SYSTEM. It works on select, update and delete builders.
+- `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
+  (`authz.audit.unscoped`).
+
+### Plan terms and `PlanTermSql`
+
+An access plan is a list of opaque terms (`{ op, args }`) from each model's `listPlan`. The adapter
+renders each term with the `PlanTermSql` registered for its `op` and combines them as
+`(permit OR …) AND NOT (deny OR …)`. A term with no compiler fails the query with `AuthzConfigError`.
+
+| op | Registered by | Renders |
+|---|---|---|
+| `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
+| `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
+| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor` |
+
+A model that adds list support registers a compiler for each op its `listPlan` returns:
+
+```ts
+import { PlanTermSql } from '@spinajs/authz';
+import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+
+@Singleton()
+@Injectable(PlanTermSql)
+export class TenantSql extends PlanTermSql {
+  readonly op = 'myapp.tenant';   // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
+  toSql(args: unknown, row: SqlRowContext): SqlFragment {
+    return { sql: `${row.rowColumn('tenant_id')} = ?`, bindings: [(args as { tenant: string }).tenant] };
+  }
+}
+```
+
+`SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
+`ancestorTable`, the `owner`/`self` relation columns, `now` and the `dialect` (`sqlite`, `postgres`,
+`mysql`, `mssql`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
+
+## Per-row access
+
+```ts
+const rows = await Task.query().accessible('task:read').withAccess(['task:update', 'task:delete']);
+// rows[i].$access = { 'task:update': true, 'task:delete': false }
+```
+
+Each permission is one boolean column built from the same filter, so a page with its access is one
+query. Each permission must be `list: true`. `$access` is serialized with the row; rename it with
+`authz.orm.accessField`. A client may seed its cache from it: it equals what
+`POST /user/access/checks` answers.
+
+## The runtime guard
+
+A multi-row select on an `@AccessResource` model must call `.accessible()`, `.unscoped(reason)`, or run
+in `runAs(SYSTEM, reason)`. A select on exactly one primary-key value (`@FromModel`, `findOrFail(id)`)
+is a single-object load: the route's `@Access` or your `assert` covers it, and the guard leaves it alone.
+
+| env | without one of them |
+|---|---|
+| `test` | `AuthzConfigError`, so CI fails |
+| `development` | a warning once per call site |
+| production, any other, unset | nothing |
+
+The guard only reads the builder. A `populate()` of an `@AccessResource` type needs the helper like any
+other select. Add `@spinajs/eslint-plugin-authz` (`@spinajs/authz/require-accessible`) to catch the
+same at edit time.
+
+## Nested data
+
+`populate()`, relations, joins and sub-queries are not filtered. Authorize the aggregate root: the
+comments of a task you may read are part of it. A child type that is its own resource is loaded with
+the helper; the populate callback runs with the relation query as `this`:
+
+```ts
+Project.where('id', id).populate('tasks', function () { this.accessible('task:read'); });
+```
+
+## Keeping the ancestor table right
+
+| Write through the ORM | What happens |
+|---|---|
+| insert of a model with `@Parent` | its rows: the parent's rows one level deeper, plus the parent |
+| update of a `@Parent` column | the subtree's links above the row are replaced by the new chain |
+| delete | its rows and its descendants' links above it go; the scope is forgotten |
+
+A `@Parent` update or a delete and its table writes run in one transaction: the caller's, or one the
+middleware opens. Where neither is possible the write is refused with `AuthzConfigError`.
+
+**Deleting** a resource also deletes the assignments (the RBAC write handlers recompute the team
+memberships they fed),
+links, rules, policies and scope attributes at its scope and bumps `authz_version`: with
+`DbAuthzAdminBackend` in the same transaction, with any other admin backend after the commit (best
+effort, logged on failure). After the commit it publishes the change and writes one audit entry as
+`SYSTEM` (`resource-deleted`). An id reused later inherits nothing.
+
+Bulk moves: `reparent(Model, ids, newParentId, column?)` writes the `@Parent` column (the model's only
+one unless `column` names it) in one transaction and resolves with the rows changed. Writes outside
+the ORM (raw SQL, imports) are not tracked: run the CLI afterwards.
+
+| Command | Does |
+|---|---|
+| `authz:ancestors-verify [type]` | recomputes from the `@Parent` columns, prints missing, extra and wrong-depth rows, exit code 1 on any |
+| `authz:ancestors-rebuild [type]` | rewrites the table from the `@Parent` columns, one transaction per type |
 
 ## Database audit
 
@@ -121,123 +214,32 @@ widths. A failed write is logged (`authz-audit`) and the record dropped; it neve
    and the migration `AuthzAudit_2026_10_01_00_00_00`, both on the connection named `authz-audit`.
 2. Map that name: `db.Aliases: { 'authz-audit': 'default' }`, or configure a connection of that
    name. Without one the migration is skipped with a warning and every record fails.
-3. Register and select it:
-   `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's container), with
-   `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
+3. Register and select it: `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's
+   container), with `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
 
-The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host
-takes the last one registered, so loading the module would silently replace the log audit.
+The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
+the last one registered, so loading the module would silently replace the log audit.
 
-`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in
-other zones compare and the hour repeated when daylight saving ends sorts right. Through the model
-it reads back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })`
-gives the instant.
+`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in other
+zones compare and the hour repeated when daylight saving ends sorts right. Through the model it reads
+back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })` gives the
+instant.
 
-## Native compilers
+## Scope attributes
 
-An `OrmNativeCompiler` writes its condition into the builder it is handed (one that adds none is
-refused with `AuthzConfigError`, never read as TRUE); the compiler wraps it in
-parentheses and under `NOT` as the residual needs. To test another table (a correlated `EXISTS`,
-as authz-rbac's `native:rbac.assignment` does), import the helpers from
-`@spinajs/authz-orm/native`:
+`DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
+(`scope.setAttributes`, `scope.replaceAttributes`).
 
-- `correlatedQuery(builder, tableOrModel)`: `SELECT 1 FROM <table>` under its own alias, for
-  `whereExist(...)` or `whereNotExists(...)` on the native builder, a where group in it, or another
-  sub-query (subs nest: `NOT EXISTS` of a restriction inside a membership `EXISTS`);
-- `correlate(holder, column, outerColumn)`: `<sub>.<column> = <filtered row>.<outerColumn>` in a
-  sub-query or in a where group of one. At the sub-query's top level its other conditions are ANDed
-  after the correlations, so an `orWhere` there cannot reach past them. In a group the correlation
-  is ANDed with that group's conditions, so `onPath` is one `EXISTS`: a group per path column,
-  joined with `orWhere(fn)`. A sub-query with no correlation at its top level refuses an `orWhere`
-  there (it would reach around the groups). At any depth, an `orWhere` that joins a group holding a
-  correlation with a condition holding none is refused when the query compiles: correlate every
-  operand of such an OR, or keep the OR inside the correlated group. An `EXISTS` or `NOT EXISTS`
-  over a correlated sub-query counts as holding a correlation; one written in an `sql` fragment
-  does not;
-- `whereSql(holder, fragment)` adds an `` sql`…` `` fragment, in which `outerColumn(builder, col)`
-  is the filtered row's column, `subColumn(sub, col)` a sub-query's own column and `identifier(name)`
-  a quoted name. It writes SQL the helpers above cannot build, such as `below` (a `CASE` over the
-  row's path columns) or `attr()` (`COALESCE((SELECT …), :default)` with the row's column in the
-  scalar sub-select). Other values in the template are bound: a string, number, boolean, `null` or
-  `Buffer` as one parameter; a `Date` in the form the orm writes datetimes (the connection's
-  datetime converter: local time text, so it compares with columns the orm wrote; an invalid `Date`,
-  or one the converter cannot write, is refused, as it would bind as NULL); a `bigint` as a number
-  when exact, else as its decimal text cast to an integer (`CAST(? AS INTEGER)` on SQLite, `bigint`
-  on PG), so it compares as an integer (on PG a text operand is an error and a double precision
-  operand compares as double; one outside the 64-bit integers is refused); an array as one parameter
-  per element (`IN (${roles})`; an empty array is refused, so test the empty list in the
-  compiler); anything else is refused. The fragment is parenthesised, and `sql` refuses literal text
-  that could leave those parentheses or shift the bindings: unbalanced brackets, `;`, `--`, `/*`,
-  `#`, `[`, `]`, `$`, `?`, SQLite named parameters (`:x`, `@x`, and `:::x`, `@::x`, since a SQLite
-  parameter name runs on over `::`; PG's `::type`, `@>` and `<@` are fine), an
-  unclosed quote, and a backslash, a `?` or a value inside a quoted literal, also where a nested
-  fragment meets the text around it. Its NULL handling (Kleene) is the compiler's job;
-- `whereSqlWithAliases(holder, fragment, aliases)`: as `whereSql`, for a fragment whose nested
-  SELECTs name their tables by `aliases`; when the query compiles, a filtered row that goes by one of
-  them (in any letter case) is refused, as the nested SELECT would shadow it;
-- `isNativeBuilder(builder)`: whether `builder` is the native builder, a where group in it or a
-  correlatedQuery sub-query of it (code that also builds SQL outside authz-orm picks `whereSql` by
-  it);
-- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first;
-- `scopePathOf(model)`: how the adapter reads a registered model's rows (null for any other model):
-  its type and table, its primary key and its `@ScopeColumn`s, each with the `IdMode` the adapter
-  reads ids by (`string`, `number`, `text`, or `none` for a column the orm does not know and for
-  every column of a model on a driver other than SQLite or Postgres), and its `@AccessResource`
-  attributes, and the keys of the models of its type registered before it (`before`: `findRow`
-  tries them first; null for one on another connection or without a readable table or key). For an
-  unregistered subclass it gives the registered class's key mode and scope columns, which `findRow`
-  and `ancestors` read, and key mode `none` when the subclass reads another table. With it a compiler
-  matches `ancestors`, `findRow` and `scopeAttributes`;
-- `accessResourceModels(type?)`: the registered model classes (of `type`), in registration order,
-  the order `findRow` tries them in;
-- `accessResourceTypeOf(model)`: the type a class is registered as (undefined for any other class).
+## Config
 
-Every name is resolved when the query compiles, so an alias given later (`populate()`,
-`setAlias()`), clones, counts of clones and subs nested in subs always name the filtered row; a
-correlation that cannot find that row throws `AuthzConfigError` rather than render FALSE (under
-`NOT EXISTS` FALSE would allow the row).
+| Key | Default | Meaning |
+|---|---|---|
+| `authz.orm.domain` | `'root'` | the domain whose service plans lists and whose stores a delete cleans up |
+| `authz.orm.accessField` | `'$access'` | the per-row access key of `.withAccess()` |
 
-authz does not scope these sub-queries: read the principal from the `principal` argument, and read
-only tables that are not `@AccessResource` models (L4b reads `authz_*` tables, and a scope type's
-model table only to test that the node row exists, as the adapter does as SYSTEM). A sub-query over a
-scoped model's table, or its name in an `sql` fragment, sees every row of it. Lazy statements (the
-orm's deferred `EXISTS`) are refused, because the orm moves them after the other conditions and
-would change the grouping.
+## From 3.0.0-rc.1
 
-A compiler for an op whose `NativeFilter` declares `principalInArgs` must not read its `principal`
-argument: an intersect agent's residual keeps its delegate's terms (RFC E2-2), so `principal` is the
-agent while the args name the delegate.
-
-On PostgreSQL 12 and later, a large native term (authz-rbac's rule terms: many correlated sub-plans,
-a high estimated cost, a few rows) passes the default `jit_above_cost`, and the server JIT-compiles
-every list query: measured 25-30 s per query, 13 s of it JIT, for 3.4 ms of work. Hosts turn JIT off
-for the connection authz lists through (`ALTER ROLE <role> SET jit = off`, or the same per
-database). Raising `jit_above_cost` is no fix: the plans' cost grows with the rows listed.
-
-authz-rbac's terms over stored rules (args v2 `dbRules`, `native:rbac.threshold` `{ db: true }`) are
-one `WITH … AS MATERIALIZED` each, which needs PostgreSQL 12 or SQLite 3.35 or later (an older server
-fails every such list with a syntax error). SQLite works the row-correlated WITH tables out again at
-each reference: about 0.45 s per filtered row with four stored rules, so on SQLite such lists suit
-small tables only until authz-rbac reads the rule tables by joins. On Postgres they log "Slow
-orm.query" warnings.
-
-On PostgreSQL authz-rbac mostly works these terms out once per class of rows (rows sharing their scope
-path and rule inputs) instead of once per row (lane S1); it keeps the per-row form for a config
-threshold reading `resource.*` and for a scope path with a column node that has no id mode. Each class
-term reads the whole model table once per statement, also the rows the caller's WHERE drops, so its
-cost grows with the table. A stored rule whose definition PostgreSQL cannot parse fails every list of
-that model. Times: `packages/authz-rbac/bench/RESULTS.md`.
-
-### ABAC scope leaves
-
-With `authz.<model>.scopeResiduals` on (`AbacModelOptions.scopeResiduals`), an ABAC model answers a
-list's comparisons of `scope.<type>.*` with residual leaves of the op `native:condition.scope`.
-authz-rbac compiles them (`ConditionScopeOrmCompiler`, registered when its orm module loads), so an
-ABAC list through authz-orm with the switch on needs authz-rbac loaded; without it boot rule 4
-refuses the route (the op is not in this adapter's `compiles`). The leaf reads scope attributes as
-authz-rbac's rule SQL does: layers and schema defaults from the host's `RbacScopeAttributeSource`
-(else no defaults and the layers authz-orm serves), with the same limits (a value SQL cannot
-compare, or a layer it cannot read, refuses the row). On Postgres it too needs `jit = off`.
-
-`@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
-it only together with L4b.
+`@ScopeColumn` is `@Parent`; `@OrmScope` relations become role assignments on the resource;
+`relationScope`, `authz.orm.allowJit` and the native compiler exports are gone; selects call
+`.accessible()`. Step by step:
+[the migration guide, section 12](../../docs/authz/migration-guide.md#12-from-query-scoping-2x-and-300-rc1).

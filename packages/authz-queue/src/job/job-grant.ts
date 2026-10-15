@@ -3,7 +3,7 @@ import { ConfigurationSource } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 
 /**
- * Every user holds job:read on the jobs they emitted (`initiator` is JobInitiatorScope). It is a source and not a
+ * Every user holds job:read on the jobs they emitted (the `owner` relation is the job's initiator). It is a source and not a
  * config file because every installed package's config dir is read whether or not the package is imported, and a
  * grant of a permission nothing registered fails the boot. Order 0 loads before the file sources.
  */
@@ -14,6 +14,6 @@ export class JobGrantSource extends ConfigurationSource {
   }
 
   public Load(): Promise<IConfigLike> {
-    return Promise.resolve({ authz: { rbac: { roles: { user: { grants: [{ permission: 'job:read', relation: 'initiator' }] } } } } } as unknown as IConfigLike);
+    return Promise.resolve({ authz: { rbac: { roles: { user: { grants: [{ permission: 'job:read', relation: 'owner' }] } } } } } as unknown as IConfigLike);
   }
 }

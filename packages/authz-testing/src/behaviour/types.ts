@@ -1,7 +1,7 @@
 import type { Assignment, CombiningAlgorithm, LinkDef, Permission, Policy, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
 
 import type { TestLadderDef, TestRoleDef } from '../arbitraries/rbac.js';
-import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ModelCall, StaticModelOptions } from '../fakes/index.js';
+import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ListStaticModelOptions, ModelCall } from '../fakes/index.js';
 import type { Tuple } from '../rebac.js';
 import type { AuditEntry } from '../recording.js';
 import type { FakePermissionInput } from '../registry.js';
@@ -41,7 +41,7 @@ export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
   store: 'assignments, rules, links and policies live in the DB-backed stores, with `authz_version` bumps (lane handles `store` and `rbacStore`; L2).',
   list: "`session.list` returns the ids of the world rows a type-level residual selects, computed by the lane's own query side (in memory or SQL).",
   sql: '`session.list` runs on a SQL database holding the world rows, and lane handle `sqlPages` reads one page of a list (L4, L4b, K1).',
-  orm: 'ORM queries on the @AccessResource models of `world.lane.orm` (lane handle `orm`; L4).',
+  orm: "ORM queries on the models of `world.lane.orm` (lane handle `orm`): `@AccessResource(type)`, `@Owner()` and `@Parent` as each spec says, rows inserted through the ORM as SYSTEM in model order, so `authz_resource_ancestor` is right. Queries run in the current ALS. The app env is `test`: a multi-row select on an `@AccessResource` model without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM)` throws `AuthzConfigError` (design 2026-10-14 §8).",
   http: 'HTTP requests against the app built from `world.lane.http` (lane handle `http`; L5, C2–C7). Parts of L5 also use lane handle `linkSource`, parts of C4 `adminHttp`.',
   fs: 'the filesystems of `world.lane.fs` behind authz-fs, with `authz.fs.*` from `world.config.fs` (lane handle `fs`; L7).',
   queue: 'queue emit and handle with initiators over the jobs of `world.lane.queue` (lane handle `queue`; L6, C8).',
@@ -72,7 +72,7 @@ export interface CombineConfig {
 /** A kit fake as data; `instantiateWorld` builds it. */
 export type KitModelSpec = StaticModelSpec | FakeRbacSpec | FakeTupleSpec;
 
-export interface StaticModelSpec extends StaticModelOptions {
+export interface StaticModelSpec extends ListStaticModelOptions {
   readonly kind: 'static';
   readonly name: string;
 }

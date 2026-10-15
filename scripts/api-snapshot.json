@@ -9,11 +9,12 @@
     "authz-http": ["src/api.ts"],
     "authz-queue": ["src/api.ts"],
     "authz-fs": ["src/api.ts"],
+    "teams": ["src/api.ts"],
     "authz-testing": ["src/rebac.ts"],
     "authn": ["src/contracts/index.ts"],
     "authn-session": ["src/contracts.ts"],
     "authn-oidc": ["src/contracts.ts"],
     "authn-http": ["src/api.ts"]
   },
-  "augmentationAllowlist": []
+  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts"]
 }

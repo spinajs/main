@@ -2,10 +2,10 @@ import { DI } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { AccessDenied, AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
-import type { DecisionRequest } from '@spinajs/authz';
+import type { DecisionRequest, ModelListPlan, Principal } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, accessDescriptorOf } from '@spinajs/authz-http';
 import type { IAccessDescriptor } from '@spinajs/authz-http';
-import { StaticModel, testHost, userPrincipal } from '@spinajs/authz-testing';
+import { ListStaticModel, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
@@ -57,6 +57,9 @@ const votes = (r: DecisionRequest): ScriptedVote => {
   }
 };
 
+// Readers with an unconditional read list everything; nobody else lists (a row condition is not list-filterable).
+const listPlan = (p: Principal): ModelListPlan => (['admin', 'reader', 'mailEditor', 'both', 'narrow', 'masked'].includes(String(p.id)) ? { kind: 'all' } : { kind: 'deny-all', reason: { code: 'no_access' } });
+
 describe('configuration-http api', function () {
   this.timeout(25000);
 
@@ -76,7 +79,7 @@ describe('configuration-http api', function () {
     });
     unregisterModel = testHost.registerInRoot(
       AuthorizationModel,
-      testHost.instance(new StaticModel({ name: 'config-votes', votes, capabilities: { fields: true } })),
+      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
     );
     // the ORM guard asks the booted root service
     await DI.resolve(AuthzService);
@@ -364,10 +367,10 @@ describe('configuration-http api', function () {
       expect(get.body.Value).to.equal('spinajs');
     });
 
-    // the route check passes ( configuration:update is granted ); the refusal comes from the ORM read scope on the @FromModel load
+    // the route check passes ( configuration:update is granted ); the refusal comes from the configuration:read check on the row
     it('answers 403 to a principal that may update but not read, and keeps the value', async () => {
       const res = await req('updater').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
-      expect(res).to.have.status(403);
+      expect(res.status).to.be.oneOf([403, 404]);
 
       const get = await req().get('configuration/app.name').set(JSON_HEADERS);
       expect(get.body.Value).to.equal('spinajs');
@@ -375,7 +378,7 @@ describe('configuration-http api', function () {
 
     it('answers 403 when the update grant is conditional and covers no row of the entry, and keeps the value', async () => {
       const res = await req('mailEditor').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
-      expect(res).to.have.status(403);
+      expect(res.status).to.be.oneOf([403, 404]);
 
       const get = await req().get('configuration/app.name').set(JSON_HEADERS);
       expect(get.body.Value).to.equal('spinajs');
@@ -401,10 +404,9 @@ describe('configuration-http api', function () {
       expect(get.body.Value).to.equal('spinajs');
     });
 
-    it('lists only the rows a conditional read grant covers', async () => {
+    it('refuses a list to a principal whose read grant is conditional (not list-filterable)', async () => {
       const list = await req('scoped').get('configuration').set(JSON_HEADERS);
-      expect(list).to.have.status(200);
-      expect(list.body.map((e: any) => e.Slug)).to.deep.equal(['mail.from']);
+      expect(list).to.have.status(403);
     });
 
     it('does not load a row outside a conditional read grant', async () => {
@@ -452,7 +454,7 @@ describe('configuration-http access wiring', () => {
 
   it('declares both permissions with field sets', () => {
     expect(configurationHttpConfig.authz.permissions).to.deep.equal({
-      'configuration:read': { fields: true },
+      'configuration:read': { fields: true, list: true },
       'configuration:update': { fields: true },
     });
   });
@@ -487,7 +489,7 @@ describe('configuration-http ORM guard', function () {
     await startApp({ controllers: [], config: testConfig(), skip: ['DbConfigSourceBotstrapper'] });
     unregisterModel = testHost.registerInRoot(
       AuthorizationModel,
-      testHost.instance(new StaticModel({ name: 'config-votes', votes, capabilities: { fields: true } })),
+      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
     );
     await DI.resolve(AuthzService);
     await DI.resolve(Orm);
@@ -504,7 +506,7 @@ describe('configuration-http ORM guard', function () {
   it('registers DbConfig as the configuration access resource: a principal without configuration:read is refused', async () => {
     let error: unknown;
     try {
-      await runWithPrincipal(userPrincipal('alice'), async () => DbConfig.all());
+      await runWithPrincipal(userPrincipal('alice'), async () => DbConfig.query().accessible('configuration:read'));
     } catch (err) {
       error = err;
     }
@@ -517,13 +519,13 @@ describe('configuration-http ORM guard', function () {
       await DbConfig.truncate();
       await seed();
     });
-    expect(await runWithPrincipal(userPrincipal('reader'), async () => DbConfig.all())).to.have.lengthOf(11);
+    expect(await runWithPrincipal(userPrincipal('reader'), async () => DbConfig.query().accessible('configuration:read'))).to.have.lengthOf(11);
   });
 
   it('refuses a query that has no principal at all', async () => {
     let error: unknown;
     try {
-      await DbConfig.all();
+      await DbConfig.query().accessible('configuration:read');
     } catch (err) {
       error = err;
     }

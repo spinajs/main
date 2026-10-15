@@ -62,17 +62,27 @@ export class SocketHub {
 
   /** Rooms must be non-empty: socket.io treats an empty room set as every socket. */
   public to(room: string | string[]): ISocketEmitter {
-    this.server();
-
-    const rooms = Array.isArray(room) ? room : [room];
-    if (rooms.length === 0 || rooms.some((r) => typeof r !== 'string' || r.length === 0)) {
-      throw new InvalidArgument('Push target must be a non-empty room name or a non-empty list of them');
-    }
+    const rooms = this.rooms(room);
 
     return {
       emit: <P>(name: string, payload: P) => {
         assertPushName(name);
-        this.push(rooms, name, payload);
+        this.push(rooms, name, payload, false);
+      },
+    };
+  }
+
+  /**
+   * As `to()`, but only to this instance's connections even with an adapter: for a push every instance
+   * makes itself, such as one routed from a cluster-wide ChangeBus, which `to()` would deliver once per instance.
+   */
+  public toLocal(room: string | string[]): ISocketEmitter {
+    const rooms = this.rooms(room);
+
+    return {
+      emit: <P>(name: string, payload: P) => {
+        assertPushName(name);
+        this.push(rooms, name, payload, true);
       },
     };
   }
@@ -113,12 +123,24 @@ export class SocketHub {
     io.in(connectionId).disconnectSockets(false);
   }
 
-  protected push<P>(rooms: string[], name: string, payload: P): void {
+  protected push<P>(rooms: string[], name: string, payload: P, local: boolean): void {
     const frame: EventFrame<P> = { name, payload };
-    const target = this.server().to(rooms);
+    const io = this.server();
+    const target = local ? io.local.to(rooms) : io.to(rooms);
     const closing = this.Guard.ClosingIds;
 
     (closing.size > 0 ? target.except([...closing]) : target).emit(WIRE_EVENTS.event, frame);
+  }
+
+  protected rooms(room: string | string[]): string[] {
+    this.server();
+
+    const rooms = Array.isArray(room) ? room : [room];
+    if (rooms.length === 0 || rooms.some((r) => typeof r !== 'string' || r.length === 0)) {
+      throw new InvalidArgument('Push target must be a non-empty room name or a non-empty list of them');
+    }
+
+    return rooms;
   }
 
   protected server(): Server {

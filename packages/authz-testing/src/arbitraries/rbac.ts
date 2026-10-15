@@ -32,6 +32,8 @@ export interface TestRoleDef {
   readonly grants: readonly TestGrantDef[];
   readonly implies?: readonly TestImpliedRole[];
   readonly subjectSet?: boolean;
+  /** A deny role (design 2026-10-14 §4.2). */
+  readonly deny?: boolean;
   readonly assignable: boolean;
   readonly scopeTypes?: readonly ResourceType[];
   readonly description?: string;

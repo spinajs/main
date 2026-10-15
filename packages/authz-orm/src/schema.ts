@@ -7,10 +7,10 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   description: 'ORM authorization configuration (authz.orm.*)',
   type: 'object',
   properties: {
-    // The authz domain whose service scopes the ORM queries.
+    // The authz domain whose service plans lists and whose stores a delete cleans up.
     domain: { type: 'string', minLength: 1, default: 'root' },
-    // true lets authz-orm use Postgres connections with jit on, whose rule lists take seconds.
-    allowJit: { type: 'boolean', default: false },
+    // The model property that carries `.withAccess()` answers (design §10.3).
+    accessField: { type: 'string', minLength: 1, default: '$access' },
   },
 };
 

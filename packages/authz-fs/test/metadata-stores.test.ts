@@ -154,7 +154,7 @@ type DbKind = 'sqlite' | 'postgres' | 'mysql';
 /** Runs plain SQL; executeOnDb lives on the SQL drivers, not on OrmDriver. */
 const rawSql = (driver: OrmDriver, sql: string): Promise<unknown> => (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> }).executeOnDb(sql, [], QueryContext.Schema);
 
-const PG = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres' };
+const PG = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
 const MYSQL = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306), User: 'root', Password: 'root' };
 
 /** A throwaway database on the orm packages' test containers, dropped afterwards. */

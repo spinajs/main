@@ -26,6 +26,7 @@ import { registerAuthzHost, seedRoles } from './authz-host.js';
 // Registers the password strategy a suite lists in `authn.strategies` (REAUTH_STRATEGIES) for fresh auth with a password.
 import './reauth-strategy.js';
 import { WORLD_KEYS } from './owned-cache.js';
+import { dropUnknownRoleRefs, unlistShippedPermissions } from './shipped-config.js';
 
 chai.use(chaiHttp);
 
@@ -55,6 +56,8 @@ export interface UsersHttpAppOptions {
   readonly config?: Readonly<Record<string, unknown>>;
   /** Added to `authz.permissions` by name; a name may hold dots, which a `config` path cannot. */
   readonly permissions?: Readonly<Record<string, unknown>>;
+  /** Turns off `list` on every shipped list permission, for kit models that cannot plan lists; `permissions` may set it again. */
+  readonly unlistShipped?: boolean;
 }
 
 let options: UsersHttpAppOptions | undefined;
@@ -71,6 +74,8 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
     const opts = options ?? { controllers: [] };
     const shipped = (this.get<RoleDefs>(['authz', 'rbac', 'roles']) ?? {}) as RoleDefs;
     if (opts.roles) this.set(['authz', 'rbac', 'roles'], opts.roles(shipped));
+    dropUnknownRoleRefs(this);
+    if (opts.unlistShipped) unlistShippedPermissions(this);
 
     this.set(['system', 'dirs', 'controllers'], []);
     this.set(['http', 'port'], 0);

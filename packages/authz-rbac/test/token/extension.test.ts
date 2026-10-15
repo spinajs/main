@@ -5,7 +5,7 @@ import type { BehaviourHarness, HarnessSession, HostSetup, World } from '@spinaj
 import * as chai from 'chai';
 import 'mocha';
 
-import { MemoryAssignmentStore, MemoryRoleStore, OwnRolesTokenRolePolicy, RBAC_ASSIGNMENT_OP, RbacModel, RbacService, TokenRolePolicy, TokenRoleRules, isTokenRoleExtension, rbacAssignmentExtension, tokenRoleExtension } from '../../src/index.js';
+import { MemoryAssignmentStore, MemoryRoleStore, OwnRolesTokenRolePolicy, RbacModel, RbacService, TokenRolePolicy, TokenRoleRules, isTokenRoleExtension, tokenRoleExtension } from '../../src/index.js';
 import type { RbacExtension, RbacModelOptions, RoleDef } from '../../src/index.js';
 import { rbacHarness } from '../model/harness.js';
 
@@ -35,7 +35,7 @@ const world: World = {
       types: ['file'],
       rows: { file: [{ id: 'f1' }, { id: 'f2' }] },
       parents: [[f1, P1] as const, [f2, P2] as const],
-      compiles: [...CORE_FILTER_OPS, RBAC_ASSIGNMENT_OP],
+      compiles: [...CORE_FILTER_OPS],
     },
   ],
   scopes: [{ nodes: [{ ref: P1 }, { ref: P2 }] }],
@@ -119,13 +119,6 @@ const children = (f: ResourceFilter): readonly ResourceFilter[] => {
   const node = f as Node;
   return [...(Array.isArray(node.args) ? (node.args as ResourceFilter[]) : []), ...(node.term ? [node.term] : [])];
 };
-
-/** The roles of every native:rbac.assignment term in `f`. */
-function nativeRoles(f: ResourceFilter): string[][] {
-  const node = f as Node;
-  if (node.op === RBAC_ASSIGNMENT_OP) return [[...(node.args as { roles: readonly string[] }).roles]];
-  return children(f).flatMap(nativeRoles);
-}
 
 /** The scopes of every `under` term in `f`. */
 function underScopes(f: ResourceFilter): unknown[] {
@@ -337,32 +330,6 @@ describe('authz-rbac token: role rules on token principals', function () {
       expect(await allowed(authz, token(['commenter']), 'file:comment')).to.equal(false);
       const roles = (await new RbacService(model).rolesOf(token(['viewer', 'admin', 'reader']), GLOBAL, { ceiling: false })).map((h) => h.role);
       expect(roles).to.deep.equal(['viewer']);
-    });
-  });
-
-  describe('an app that passes its own extensions (rbacAssignmentExtension)', () => {
-    const l = useLane({ extensions: (_host, o) => [rbacAssignmentExtension(o)] });
-
-    it('still narrows token principals, in checks and in native:rbac.assignment args', async () => {
-      const { authz, model, session } = await l.open();
-      expect(model.extensions).to.have.length(2);
-      expect(isTokenRoleExtension(model.extensions[1])).to.equal(true);
-      expect(await allowed(authz, alice, 'report:export')).to.equal(true);
-      expect(await allowed(authz, token(['editor', 'route.export']), 'report:export')).to.equal(false);
-      expect(nativeRoles(await authz.filter(alice, 'file:delete', 'file'))).to.deep.equal([['deleter'], ['route.delete']]);
-      expect(nativeRoles(await authz.filter(token(), 'file:delete', 'file'))).to.deep.equal([['deleter']]);
-      expect(await session.list!(token(), 'file:delete', 'file')).to.deep.equal(['f2']);
-    });
-  });
-
-  describe('a refusing policy with rbacAssignmentExtension', () => {
-    const l = useLane({ policy: RefusingTokenRolePolicy, extensions: (_host, o) => [rbacAssignmentExtension(o)] });
-
-    it('leaves no native:rbac.assignment term for refused or excluded roles', async () => {
-      const { authz, session } = await l.open();
-      expect(await authz.filter(token(), 'file:delete', 'file')).to.deep.equal({ op: 'false' });
-      expect(await session.list!(token(), 'file:delete', 'file')).to.deep.equal([]);
-      expect(nativeRoles(await authz.filter(alice, 'file:delete', 'file'))).to.deep.equal([['deleter'], ['route.delete']]);
     });
   });
 

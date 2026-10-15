@@ -11,6 +11,10 @@ export abstract class ResourceAdapter<T = unknown> {
   abstract ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
   scopeAttributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>; // values for 'scope.<type>.*' refs
   load?(ref: ResourceRef): Promise<unknown | null>; // subject loader for definite answers
+  /** Rows by resourceKey; missing keys mean unknown resources. */
+  loadMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>>;
+  /** Ancestors by resourceKey, each `[self, parent, ..., GLOBAL]`; null = unknown resource. */
+  ancestorsMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>>;
   attribute?(subject: unknown, field: string): unknown; // in-memory 'cmp' reads; default subject[field]
   relations?(): readonly RelationResolver[];
   permissions?(): readonly Omit<PermissionDef, 'source'>[];

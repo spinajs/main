@@ -1,24 +1,14 @@
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { OrmScope, OrmScopePolicy, registerAccessResource } from '@spinajs/authz-orm';
+import { registerAccessResource } from '@spinajs/authz-orm';
 import { SYSTEM } from '@spinajs/authz';
-import type { Principal } from '@spinajs/authz';
 import { JobModel, QueueTrackingHook } from '@spinajs/queue';
-import type { IWhereBuilder } from '@spinajs/orm';
-import type { ModelBase } from '@spinajs/orm';
 
 import { authzFor } from '../hook/service.js';
 import './job-grant.js';
 
-/** The rows a principal emitted: relation `initiator` of the `job` type. */
-@OrmScope(JobModel, 'initiator')
-export class JobInitiatorScope extends OrmScopePolicy<JobModel> {
-  scope(query: IWhereBuilder<ModelBase>, principal: Principal): void {
-    query.where('InitiatorType', principal.type).where('InitiatorId', principal.id);
-  }
-}
-
-registerAccessResource(JobModel, 'job');
+// The initiator may be any principal type, so the owner relation compares the type column too.
+registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
 
 /** The queue's own job-row queries run as SYSTEM: the job's principal may not touch the table. */
 @Injectable(QueueTrackingHook)

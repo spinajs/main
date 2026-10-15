@@ -464,6 +464,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * Calling it again while a transaction is already in scope on this async path does **not**
    * open a second, independent transaction: it takes a savepoint, so a failing nested block
    * rolls back only its own work.
+   * Callbacks queued with {@link afterCommit} run after the outermost commit, before this resolves.
    *
    * @param cb - the transaction body
    * @param options - optional isolation level, validated against {@link SupportedIsolationLevels}
@@ -478,6 +479,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     // already inside a transaction — nest with a savepoint rather than opening a second one
     if (active) {
       const name = `sp_${++active.depth}`;
+      // Savepoints of one transaction run one after another, so everything queued past this
+      // mark was queued inside this savepoint.
+      const queued = active.afterCommit?.length ?? 0;
 
       await this._savepoint(active, name);
 
@@ -486,6 +490,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
         await this._releaseSavepoint(active, name);
         return result;
       } catch (err) {
+        active.afterCommit?.splice(queued);
         await this._rollbackToSavepoint(active, name);
         throw err;
       }
@@ -494,16 +499,47 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     const ctx = await this._begin(options);
     ctx.depth = 0;
 
+    let result: R;
     try {
-      const result = await this.TransactionStorage.run(ctx, () => cb(this));
+      result = await this.TransactionStorage.run(ctx, () => cb(this));
       await this._commit(ctx);
-      return result;
     } catch (err) {
       // swallow a rollback failure so it cannot mask whatever actually went wrong
       await this._rollback(ctx).catch(() => undefined);
       throw err;
     } finally {
       await this._dispose(ctx);
+    }
+
+    await this._runAfterCommit(ctx.afterCommit ?? []);
+    return result;
+  }
+
+  /**
+   * Runs `cb` after the outermost transaction in scope commits, or at once when none is open.
+   * Queued callbacks run in registration order once the connection is released, before
+   * `transaction()` resolves. A rollback drops what was queued inside the part it rolls back:
+   * everything for the outermost transaction, everything since the savepoint began for a
+   * savepoint. A callback that throws is logged and never rethrown.
+   */
+  public async afterCommit(cb: () => void | Promise<void>): Promise<void> {
+    const active = this.TransactionStorage.getStore();
+
+    if (!active) {
+      await this._runAfterCommit([cb]);
+      return;
+    }
+
+    (active.afterCommit ??= []).push(cb);
+  }
+
+  private async _runAfterCommit(callbacks: readonly (() => void | Promise<void>)[]): Promise<void> {
+    for (const cb of callbacks) {
+      try {
+        await cb();
+      } catch (err) {
+        this.Log?.error(`afterCommit callback on connection ${this.Options.Name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 }

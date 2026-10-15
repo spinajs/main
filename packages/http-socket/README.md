@@ -216,12 +216,22 @@ public async *snapshot(@Payload() req: { docId: string; fromChunk?: number }, @S
 `SocketHub` is injectable:
 
 - `to(room | rooms).emit(name, payload)`: every connection in the rooms
+- `toLocal(room | rooms).emit(name, payload)`: the same, on this instance only, even with an adapter
 - `toConnection(id).emit(name, payload)`
 - `join(connectionId, room)`, `leave(connectionId, room)`, `connectionsIn(room)`
 - `disconnect(connectionId, reason)`: sends `sys.disconnect { reason }`, then closes
 - `connection(id)`, `Connections`: connections on this instance
 
 Rooms are a server decision; clients ask through ordinary commands. Push names must be valid names (`[\w.:-]`, at most 128 characters), and the `sys.` prefix is reserved. Give server events a dotted prefix (`docs.committed`): the client's lifecycle names (`state`, `auth_required`, `incompatible`, `refused`, `failed`) shadow server events of the same name.
+
+### Access change push
+
+Every connection whose principal a source authenticated joins `principal:<principalKey>` (and the room of
+each of its companions) when it connects; `principalRoom(principalKey(p))` names it. `SocketAccessPushTransport`
+is an authz `AccessPushTransport`: the root domain's `AccessChangeRouter` hands it each change, and it emits
+`authz.changed` with `{ objects?: [{ type, id }] }` to the affected principals' rooms, or to every connection
+when a change concerns everyone. `objects` is present only when exact; without it a client refetches
+everything. A source that renews a connection's principal must keep its identity: the rooms are joined once.
 
 ## Authentication and access
 
@@ -335,6 +345,11 @@ The 3.0 authn-http policies `Authenticated`, `NotLoggedPolicy`, `NoTokenAuthPoli
 ## Several instances
 
 Set `http.socket.adapter` to a socket.io adapter (for example Redis) so rooms and pushes reach every instance, and use sticky sessions with the polling transport. Ordering queues, open streams and the closing filter of the principal guard are per instance.
+
+Access change pushes are per node, on purpose: each node's `AccessChangeRouter` pushes to its own
+connections, so an adapter does not deliver them twice. With several nodes, set
+`authz.bus.service: 'QueueChangeBus'` (`@spinajs/authz-queue`) so every node sees every change; with the
+in-process bus only clients connected to the node that made the change are told.
 
 ## More
 

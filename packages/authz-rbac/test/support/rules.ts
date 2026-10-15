@@ -1,7 +1,7 @@
-/** Rule shapes for the SQL-form and DbRuleStore tests: the kit's B44 rule sets and design §8.5. */
+/** Rule shapes for the DbRuleStore tests: the kit's rule sets of B06.rules and design §8.5. */
 import { GLOBAL } from '@spinajs/authz';
 import type { ResourceRef, RuleDef } from '@spinajs/authz';
-import { BEHAVIOUR_FIXTURES } from '@spinajs/authz-testing';
+import { BEHAVIOUR_FIXTURES, mergeFixtures } from '@spinajs/authz-testing';
 
 import type { LadderDef } from '../../src/index.js';
 
@@ -24,15 +24,15 @@ export const CANVAS_LADDERS: LadderDef[] = [
 ];
 
 /**
- * The B44 config cases (the kit's `RULE_SETS`) with their world's ladders, each rule as `asDbRule`
- * writes it: GLOBAL moves to o1. Read from `BEHAVIOUR_FIXTURES`, since the kit root does not export
- * `rule-worlds`.
+ * The B06.rules cases (the kit's `RULE_SETS` without conditions) with their world's ladders, each rule
+ * as `asDbRule` writes it: GLOBAL moves to o1. Read from `BEHAVIOUR_FIXTURES`, since the kit root does
+ * not export `rule-worlds`.
  */
 export function kitRuleSets(): { name: string; rules: Rule[]; ladders: LadderDef[] }[] {
-  const config = BEHAVIOUR_FIXTURES.filter((f) => f.id === 'B44')
-    .flatMap((f) => f.parts)
-    .find((p) => p.name === 'config')!;
-  return config.cases.map((c) => ({
+  const part = mergeFixtures(BEHAVIOUR_FIXTURES)
+    .get('B06')!
+    .parts.find((p) => p.name === 'rules')!;
+  return part.cases.map((c) => ({
     name: c.name,
     rules: (c.world!.rbac!.rules ?? []).map(({ source: _source, ...r }) => (r.scope.type === GLOBAL.type ? { ...r, scope: O1 } : r)),
     ladders: (c.world!.rbac!.ladders ?? []) as LadderDef[],

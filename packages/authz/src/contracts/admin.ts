@@ -45,7 +45,8 @@ export interface AuthzAdminError {
   readonly field?: string;
 }
 // codes: unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable,
-//        invalid_attributes, not_found, forbidden, escalation, last_holder, self_lockout, protected_role, conflict
+//        invalid_attributes, not_found, forbidden, escalation, last_holder, self_lockout, protected_role, conflict,
+//        not_list_filterable, set_cycle, set_too_deep
 
 /** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
 export class AuthzAdminFailure extends Error {

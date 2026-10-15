@@ -10,7 +10,7 @@ import type { KitWorld } from './world.js';
  * its Authorizer; a host harness hands the AuthzService itself. The optional methods are needed only
  * by the steps that call them; a missing one fails that step with a clear message.
  */
-export type BehaviourAuthz = Pick<AuthzService, 'check' | 'checkMany' | 'explain'> & Partial<Pick<AuthzService, 'can' | 'assert' | 'filter' | 'filterNow' | 'summary' | 'covers' | 'preload' | 'invalidate' | 'models' | 'current' | 'runAs'>>;
+export type BehaviourAuthz = Pick<AuthzService, 'check' | 'checkMany' | 'explain'> & Partial<Pick<AuthzService, 'can' | 'assert' | 'filter' | 'filterNow' | 'summary' | 'covers' | 'preload' | 'invalidate' | 'models' | 'current' | 'runAs' | 'checkAll' | 'accessPlan'>>;
 
 /** clock facet. A ManualClock fits. */
 export interface BehaviourClock {

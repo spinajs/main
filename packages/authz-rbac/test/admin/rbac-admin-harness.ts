@@ -4,7 +4,7 @@ import type { BehaviourHarness, Facet, HostSetup } from '@spinajs/authz-testing'
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 
-import { ConfigRuleStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService, createRbacExtensions, rbacAssignmentExtension } from '../../src/index.js';
+import { ConfigRuleStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService, createRbacExtensions } from '../../src/index.js';
 import type { RbacModelOptions } from '../../src/index.js';
 import { registerAdminSide, worldRoles } from './admin-harness.js';
 import type { AdminSideStores } from './admin-harness.js';
@@ -52,7 +52,7 @@ export function rbacAdminHarness(opts: RbacAdminHarnessOptions = {}): BehaviourH
       const configRules = new ConfigRuleStore(host.world.rbac?.rules ?? []);
       // The kit clock moves the assignment cache TTL with the case's `advance` steps.
       const options: RbacModelOptions = { roles, assignments: side.assignments, links: side.links, rules: [configRules, side.rules], clock: host.kit.clock };
-      const model = new RbacModel({ ...options, extensions: [...createRbacExtensions(options), rbacAssignmentExtension(options, { rules: true })] });
+      const model = new RbacModel({ ...options, extensions: createRbacExtensions(options) });
       host.container.register(instance(model)).as(AuthorizationModel);
       host.container.register(instance(new RbacContributor(model))).as(AuthzContributor);
       STORES.set(host.container, { ...side, roles, configRules, model });

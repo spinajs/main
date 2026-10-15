@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import { AuthzDomains, AuthzService, FALSE, TRUE, resourceKey } from '@spinajs/authz';
-import type { AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { AccessPlan, AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketAccess, fromPayload } from '../src/access.js';
@@ -69,6 +69,14 @@ export class AccTestAuthz extends AuthzService {
 
   public checkMany(): Promise<ReadonlyMap<Permission, Decision>> {
     return unused('checkMany');
+  }
+
+  public checkAll(): Promise<readonly Decision[]> {
+    return unused('checkAll');
+  }
+
+  public accessPlan(): Promise<AccessPlan> {
+    return unused('accessPlan');
   }
 
   public filter(): Promise<ResourceFilter> {

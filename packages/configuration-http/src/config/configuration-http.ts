@@ -26,7 +26,7 @@ const configurationHttp = {
   authz: {
     // Config values can hold secrets: both permissions carry field sets, so a grant can hide `Value`.
     permissions: {
-      'configuration:read': { fields: true },
+      'configuration:read': { fields: true, list: true },
       'configuration:update': { fields: true },
     },
     rbac: {

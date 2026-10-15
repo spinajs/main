@@ -88,5 +88,5 @@ export const B22 = fixture('B22', [
       { name: 'a check without preload is not gated', steps: [{ check: { as: 'alice', permission: 'file:read' }, expect: { allowed: true, residual: 'TRUE' } }, { ...NOW_FILTER, expect: 'undefined' }] },
     ],
   },
-  { name: 'orm', facets: ['orm'], lanes: ['L4'], note: 'Synchronous query scoping (afterQueryCreation) with filterNow; L4 proposes the cases.', cases: [] },
+  { name: 'orm', facets: ['orm'], lanes: ['L5'], note: 'Query scoping went with query rewriting (design 2026-10-14 §9); no ORM path calls filterNow.', cases: [] },
 ]);

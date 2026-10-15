@@ -5,6 +5,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { actorRef, assignmentStore, checkGrantable, event, invalid, isLinkSubject, plannedRemovals, quote, readFutureExpiry, readId, readOptionalTags, readPrincipal, readScope, readSubject, readTags, refuseLinkSubject, roleIndex, subjectTag } from './common.js';
 import type { RoleIndex } from './common.js';
+import { memberSubjects, refreshMemberships, subjectTags } from './membership.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;
 type Applied = { id?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] } & AppliedRow;
@@ -82,6 +83,12 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
   async apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<Applied> {
     const store = await assignmentStore(ctx);
     const actor = actorRef(ctx);
+    // Tags are read before the refresh: they name the members as the batch found them.
+    const done = async (applied: Applied, rows: readonly Pick<Assignment, 'subject' | 'role'>[]): Promise<Applied> => {
+      const membership = await refreshMemberships(ctx, tx, await memberSubjects(ctx, rows));
+      return { ...applied, tags: [...new Set([...applied.tags, ...membership])] };
+    };
+    const tagsOf = async (rows: readonly Pick<Assignment, 'subject'>[]) => [...new Set((await Promise.all(rows.map((a) => subjectTags(ctx, a.subject)))).flat())];
     switch (c.kind) {
       case 'assignment.grant': {
         const g = await this.grantOf(c, ctx);
@@ -93,18 +100,20 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
         }
         const row = await store.assign({ subject: g.subject, role: g.role, scope: g.scope, tags: g.tags, expiresAt: g.expiresAt }, actor, tx);
         events.push(assigned(ctx, row));
-        return { id: row.id, affected: revoke.length + 1, tags: [subjectTag(row.subject)], events, row };
+        return done({ id: row.id, affected: revoke.length + 1, tags: await tagsOf([row]), events, row }, [row, ...revoke]);
       }
       case 'assignment.revoke': {
         const row = await this.row(c, ctx);
+        const tags = await tagsOf([row]);
         await store.revoke(row.id, actor, tx);
-        return { id: row.id, affected: 1, tags: [subjectTag(row.subject)], events: [revoked(ctx, row)] };
+        return done({ id: row.id, affected: 1, tags, events: [revoked(ctx, row)] }, [row]);
       }
       case 'assignment.revokeWhere': {
         this.whereOf(c);
         const items = (await plannedRemovals(c, ctx)).revoke;
+        const tags = await tagsOf(items);
         for (const a of items) await store.revoke(a.id, actor, tx);
-        return { affected: items.length, tags: [...new Set(items.map((a) => subjectTag(a.subject)))], events: items.map((a) => revoked(ctx, a)) };
+        return done({ affected: items.length, tags, events: items.map((a) => revoked(ctx, a)) }, items);
       }
       case 'assignment.setTags':
       case 'assignment.addTags':
@@ -114,17 +123,17 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
         const old = row.tags ?? [];
         const tags = c.kind === 'assignment.setTags' ? given : c.kind === 'assignment.addTags' ? [...old, ...given] : old.filter((t) => !given.includes(t));
         const next = await store.update(row.id, { tags }, actor, tx);
-        return { id: next.id, affected: 1, tags: [subjectTag(next.subject)], events: [changed(ctx, next)] };
+        return { id: next.id, affected: 1, tags: await tagsOf([next]), events: [changed(ctx, next)] };
       }
       case 'assignment.setExpiry': {
         const row = await this.row(c, ctx);
         const next = await store.update(row.id, { expiresAt: readFutureExpiry(c.expiresAt, ctx) ?? null }, actor, tx);
-        return { id: next.id, affected: 1, tags: [subjectTag(next.subject)], events: [changed(ctx, next)] };
+        return done({ id: next.id, affected: 1, tags: await tagsOf([next]), events: [changed(ctx, next)] }, [next]);
       }
       case 'set.addMember': {
         const m = await this.memberOf(c, ctx);
         const row = await store.assign({ subject: m.member, role: m.role, scope: m.scope, tags: [], expiresAt: m.expiresAt }, actor, tx);
-        return { id: row.id, affected: 1, tags: [subjectTag(row.subject)], events: [assigned(ctx, row)] };
+        return done({ id: row.id, affected: 1, tags: [subjectTag(row.subject)], events: [assigned(ctx, row)] }, [row]);
       }
       case 'set.removeMember': {
         const set = setOf(c);
@@ -133,7 +142,7 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
         const items = (await plannedRemovals(c, ctx)).revoke;
         if (items.length === 0) throw new AuthzAdminFailure('not_found', `${quote(member)} is not a member of ${quote(set.role)} at the set scope`, 'member');
         for (const a of items) await store.revoke(a.id, actor, tx);
-        return { id: items[0].id, affected: items.length, tags: [subjectTag(member)], events: items.map((a) => revoked(ctx, a)) };
+        return done({ id: items[0].id, affected: items.length, tags: [subjectTag(member)], events: items.map((a) => revoked(ctx, a)) }, items);
       }
       default:
         throw new AuthzAdminFailure('not_found', `RbacAssignmentHandler does not handle ${quote((c as AuthzCommand).kind)}`);

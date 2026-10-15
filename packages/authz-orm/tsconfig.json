@@ -12,6 +12,9 @@
       "path": "../authz/tsconfig.json"
     },
     {
+      "path": "../cli/tsconfig.json"
+    },
+    {
       "path": "../configuration/tsconfig.json"
     },
     {

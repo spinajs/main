@@ -1497,6 +1497,27 @@ describe('Select query builder', () => {
     expect(result).to.equal('SELECT LENGTH(`name`) as `len`,`bar` as `b` FROM `users`');
   });
 
+  it('select raw keeps its bindings, ahead of the where bindings', () => {
+    const result = sqb()
+      .select(RawQuery.create('CASE WHEN `owner` = ? THEN 1 ELSE 0 END AS `a`', ['u1']))
+      .select(RawQuery.create('CASE WHEN `team` IN (?, ?) THEN 1 ELSE 0 END AS `b`', ['t1', 't2']))
+      .select('bar')
+      .from('users')
+      .where('email', 'spine@spine.pl')
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT CASE WHEN `owner` = ? THEN 1 ELSE 0 END AS `a`,CASE WHEN `team` IN (?, ?) THEN 1 ELSE 0 END AS `b`,`bar` FROM `users` WHERE `email` = ?');
+    expect(result.bindings).to.deep.equal(['u1', 't1', 't2', 'spine@spine.pl']);
+  });
+
+  it('a sub-query keeps the bindings of its raw select columns', () => {
+    const sub = sqb().select(RawQuery.create('? AS `x`', ['marker'])).from('comments').where('email', 'spine@spine.pl');
+    const result = sqb().select('*').from('users').whereExist(sub as ISelectQueryBuilder<ModelBase<unknown>>).toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT ? AS `x` FROM `comments` WHERE `email` = ? )');
+    expect(result.bindings).to.deep.equal(['marker', 'spine@spine.pl']);
+  });
+
   it('select function with * column', () => {
     // @ts-ignore - Test uses legacy approach to test SQL generation
     const result = sqb().from('users').count('*').toDB().expression;

@@ -37,6 +37,7 @@ function plain(value: unknown): unknown {
 
 export interface TestApp {
   readonly server: HttpServer;
+  readonly port: number;
   request(): ChaiHttp.Agent;
 }
 
@@ -63,6 +64,11 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   cfg.set(['http', 'port'], 0);
   // The package defaults list the controller dirs of every installed package (users-http, authz-http-admin, …).
   cfg.set(['system', 'dirs', 'controllers'], []);
+  // Installed packages' defaults declare list permissions (configuration:read, team:read, group:read, …), and boot
+  // rule 12 refuses them on the kit's test-domain models: they route every permission and cannot plan lists.
+  for (const [name, def] of Object.entries(cfg.get<Record<string, unknown>>(['authz', 'permissions']) ?? {})) {
+    if (isRecord(def) && def.list === true) cfg.set(['authz', 'permissions', name, 'list'], false);
+  }
   cfg.set(['fs', 'providers'], [
     ...((cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__')),
     { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-authz-http-test-cache') },
@@ -83,7 +89,7 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   const port = (server.Server.address() as AddressInfo).port;
   // Also what http registered itself (the sources), so no controller outlives this app.
   app = { server, controllers: [...new Set(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)) as Class<BaseController>[], port };
-  return { server, request: () => chai.request(`http://127.0.0.1:${port}`) };
+  return { server, port, request: () => chai.request(`http://127.0.0.1:${port}`) };
 }
 
 /** Stops the server and removes what `startApp` added; never `DI.clearCache()`. */

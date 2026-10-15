@@ -4,6 +4,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 import type { LinkDef } from '../contracts.js';
 import { actorRef, assignmentStore, checkGrantable, event, linkGrants, linkStore, linkTags, plannedRemovals, quote, readAttributes, readFutureExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
+import { refreshMemberships } from './membership.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;
 type Applied = { id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] } & AppliedRow;
@@ -44,7 +45,8 @@ export class RbacLinkHandler extends AuthzWriteHandler {
       case 'link.create': {
         const l = await this.createOf(c, ctx);
         const { link, token } = await links.create({ scope: l.scope, expiresAt: l.expiresAt, attributes: l.attributes, createdBy: actor }, { role: l.role, tags: l.tags }, actor, tx);
-        return { id: link.id, token, affected: 1, tags: linkTags(link.id), events: [event(ctx, 'LinkCreated', { id: link.id, scope: link.scope, role: l.role, expiresAt: link.expiresAt ?? null })], row: link };
+        const membership = await refreshMemberships(ctx, tx, [{ type: 'link', id: link.id }]);
+        return { id: link.id, token, affected: 1, tags: [...linkTags(link.id), ...membership], events: [event(ctx, 'LinkCreated', { id: link.id, scope: link.scope, role: l.role, expiresAt: link.expiresAt ?? null })], row: link };
       }
       case 'link.update': {
         const link = await this.link(c, ctx);
@@ -53,12 +55,14 @@ export class RbacLinkHandler extends AuthzWriteHandler {
         let next = link;
         if (u.expiresAt !== undefined || u.attributes !== undefined) next = await links.update(link.id, { expiresAt: u.expiresAt, attributes: u.attributes }, actor, tx);
         const grant = await this.regrant(c, link, u, ctx, tx);
-        return { id: link.id, affected: 1, tags: linkTags(link.id), events: [event(ctx, 'LinkUpdated', { id: link.id, scope: next.scope, role: grant.role, tags: grant.tags, expiresAt: next.expiresAt ?? null })] };
+        const membership = await refreshMemberships(ctx, tx, [{ type: 'link', id: link.id }]);
+        return { id: link.id, affected: 1, tags: [...linkTags(link.id), ...membership], events: [event(ctx, 'LinkUpdated', { id: link.id, scope: next.scope, role: grant.role, tags: grant.tags, expiresAt: next.expiresAt ?? null })] };
       }
       case 'link.revoke': {
         const link = await this.link(c, ctx);
         await links.revoke(link.id, actor, tx);
-        return { id: link.id, affected: 1, tags: linkTags(link.id), events: [event(ctx, 'LinkRevoked', { id: link.id, scope: link.scope })] };
+        const membership = await refreshMemberships(ctx, tx, [{ type: 'link', id: link.id }]);
+        return { id: link.id, affected: 1, tags: [...linkTags(link.id), ...membership], events: [event(ctx, 'LinkRevoked', { id: link.id, scope: link.scope })] };
       }
       default:
         throw new AuthzAdminFailure('not_found', `RbacLinkHandler does not handle ${quote((c as AuthzCommand).kind)}`);

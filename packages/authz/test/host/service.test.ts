@@ -585,6 +585,17 @@ describe('DefaultAuthzService', function () {
   });
 
   describe('domain config', () => {
+    it('passes list from the permissions config to the registry', async () => {
+      setConfig('authz.permissions', { 'doc:read': { list: true }, 'doc:write': {} });
+      // Boot rule 12 refuses a list permission routed to a model that cannot plan it.
+      const m = Object.assign(silent('lister'), { listSupport: () => true as const, listPlan: () => Promise.reject(new Error('listPlan must not run at boot')) });
+      registerInRoot(AuthorizationModel, instance(m));
+      await rootService();
+      const registry = (m.calls[0].args[0] as ModelInitContext).permissions;
+      expect(registry.get('doc:read')?.list).to.equal(true);
+      expect(registry.get('doc:write')).to.not.have.property('list');
+    });
+
     it('engine, cache and permissions of a child reach its Authorizer', async () => {
       setConfig(['authz', 'domains', 'slow'], { engine: { modelTimeoutMs: 20 } });
       setConfig(['authz', 'domains', 'nol2'], { cache: { ttlSeconds: 0 }, permissions: { 'job:run': {} } });
@@ -912,7 +923,7 @@ describe('DefaultAuthzService', function () {
       setConfig('authz.bus.service', 'NamedBus');
       try {
         await rootService();
-        expect(DI.RootContainer.get(NamedBus)!.subscribers.size).to.equal(1);
+        expect(DI.RootContainer.get(NamedBus)!.subscribers.size, 'the root service and its AccessChangeRouter').to.equal(2);
         expect(DI.RootContainer.Cache.has(OtherBus)).to.equal(false);
       } finally {
         await resetRoot();

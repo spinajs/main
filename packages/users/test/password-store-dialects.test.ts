@@ -26,7 +26,7 @@ interface Server {
 
 // The docker fixtures of the orm-* packages' own tests.
 const SERVERS: Record<string, Server> = {
-  postgres: { type: PostgresOrmDriver, registered: 'orm-driver-postgres', connection: { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres' }, adminDatabase: 'postgres' },
+  postgres: { type: PostgresOrmDriver, registered: 'orm-driver-postgres', connection: { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' }, adminDatabase: 'postgres' },
   mysql: { type: MySqlOrmDriver, registered: 'orm-driver-mysql', connection: { Host: '127.0.0.1', Port: 13306, User: 'root', Password: 'root' } },
   mssql: { type: MsSqlOrmDriver, registered: 'orm-driver-mssql', connection: { Host: '127.0.0.1', User: 'sa', Password: 'yourStrong(!)Password', Options: { TrustServerCertificate: true } }, adminDatabase: 'master' },
 };

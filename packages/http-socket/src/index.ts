@@ -23,5 +23,6 @@ export { SocketAccess, SocketAccessPolicy, fromPayload, socketAccessOf } from '.
 export type { ISocketAccess, ISocketAccessOptions, SocketResourceExtractor } from './access.js';
 export { SocketAccessContributor } from './access-contributor.js';
 export { SocketPrincipalGuard } from './principal-guard.js';
+export { AccessPushSocket, SocketAccessPushTransport, principalRoom } from './access-push.js';
 export * from './metrics.js';
 export * from './schema.js';

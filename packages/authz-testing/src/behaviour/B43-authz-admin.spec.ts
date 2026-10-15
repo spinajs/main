@@ -107,8 +107,8 @@ const rule = (r: Partial<Omit<RuleDef, 'source'>>): AuthzCommand => ({ kind: 'ru
 const ruleCases: Case[] = [
   { name: 'a rule naming an unknown ladder is refused (unknown_ladder)', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ ladder: 'ghost', at: 'project' })], { failsAt: 0, code: 'unknown_ladder' })] },
   { name: 'a rule naming an unknown role is refused (unknown_role)', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ ladder: 'project', at: 'project', minRole: 'ghost' })], { failsAt: 0, code: 'unknown_role' })] },
-  { name: 'a DB rule outside SQL form is refused (rule_not_compilable)', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ resource: { attr: 'resource.name', glob: 'a*b*' } })], { failsAt: 0, code: 'rule_not_compilable' })] },
-  { name: 'a rule in SQL form is accepted', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ resource: { attr: 'resource.name', wildcard: 'release/*' } })], 'ok')] },
+  { name: 'a DB rule is stored whatever its resource pattern (rules are check-only)', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ resource: { attr: 'resource.name', glob: 'a*b*' } })], 'ok')] },
+  { name: 'a rule with a resource wildcard is accepted', world: ruleWorld(), steps: [exec(SYSTEM, [rule({ resource: { attr: 'resource.name', wildcard: 'release/*' } })], 'ok')] },
 ];
 
 const policyWorld = (): World => ({
@@ -164,7 +164,7 @@ export const B43 = fixture('B43', [
     note: 'Assignment and link commands on the memory stores or on SQLite (L9 runs both). root holds every authz:*.manage permission at GLOBAL (the command cases use root, not SYSTEM, so the HTTP part can send the same actor); bob holds manager (authz:*.manage, file:read) and dora granter (grants:manage, file:read) at p1. "Data changes only through AuthzAdmin" (no public store writes) and the authz_version bump are not observable from a harness; the bump shows as the published change.',
     cases: [...commandCases('admin'), ...afterCommitCases],
   },
-  { name: 'rules', facets: ['admin', 'rbac', 'ladders', 'rules'], lanes: ['L9', 'L2'], note: 'rule.put validation: ladders, roles and the SQL form of DB rules (D24, L2 toSqlForm). A threshold names `ladder` only with `at` (design §5.8), so each refused rule has exactly one fault.', cases: ruleCases },
+  { name: 'rules', facets: ['admin', 'rbac', 'ladders', 'rules'], lanes: ['L9', 'L2'], note: 'rule.put validation: ladders and roles. DB rules are check-only, so any rule the handler accepts is stored. A threshold names `ladder` only with `at` (design §5.8), so each refused rule has exactly one fault.', cases: ruleCases },
   { name: 'policies', facets: ['engine', 'admin', 'abac', 'conditions'], lanes: ['L9', 'L3'], note: 'policy.put validation. No AuthzAdminError code is specified for a condition that does not parse, so that case asserts the failure only.', cases: policyCases },
   { name: 'attributes', facets: ['admin', 'scopeAttributes'], lanes: ['L9'], note: 'scope.setAttributes against the ScopeAttributeSchema of the scope type.', cases: attributeCases },
   { name: 'events', facets: ['admin', 'rbac'], lanes: ['L9'], note: 'Lane handle adminEvents (a recording AuthzEventSink). Event names and payloads are B27.events.', cases: eventCases },

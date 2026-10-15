@@ -1,10 +1,10 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 
-import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
 import { ceilingRoles, withinCeiling } from './ceiling.js';
+import { applyDenyRoles, isDenyRole } from './deny.js';
 import { underTerm } from './rows.js';
 import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
@@ -16,17 +16,16 @@ import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
 import { rulesExtension } from './rules/extension.js';
 import { applyCaps, applyRestrict, applyThresholds } from './rules/steps.js';
-import { nativeListVote } from './rules/native.js';
-import type { NativeListInput } from './rules/native.js';
 import type { ActiveRule } from './rules/steps.js';
 import type { CompiledRule } from './rules/compile.js';
-import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
+import { applyMemberships, setsExtension } from './sets/extension.js';
+import type { NestedSet } from './sets/extension.js';
 import type { SetMemberships } from './sets/resolver.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
 import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
-import { rbacAssignmentArgs, scopeMatcher } from './native.js';
+import { scopeMatcher } from './scope.js';
 import { assignmentProblem } from './roles.js';
 import { sameFilter } from './same-filter.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
@@ -48,19 +47,13 @@ import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.
  *   denyWhen only: the engine reads each entry's reason where its `when` holds.
  * - On a type-level request `collect` puts live assignments off the path `[type, GLOBAL]` in
  *   `state.scoped`; `residual` turns each grant they reach into a row filter (`under` their
- *   scopes, or `native:rbac.assignment`) ANDed with the grant's own residual. A request on
- *   `$global` is not type-level (isTypeLevel): its path is `[GLOBAL]` and it has no rows. Scoped grants never become
+ *   scopes) ANDed with the grant's own residual. A request on `$global` is not type-level
+ *   (isTypeLevel): its path is `[GLOBAL]` and it has no rows. Scoped grants never become
  *   `candidates`, so steps 5–8 do not see them. Steps that drop or clamp assignments (restrict,
- *   cap, implies) must treat `state.scoped` as they treat `state.live`. A scoped grant with
- *   `requiresTag`, `grantedAt` or a threshold rule depends on which holder applies to each row, so
- *   it must carry that part in the term (args v2, or one term per holder with its own check),
- *   never be emitted bare: a bare term would list rows the check refuses.
+ *   cap, implies) must treat `state.scoped` as they treat `state.live`.
  * - `state.fields` set by a step before `residual` is a cap: `residual` intersects the grants'
  *   fields with it, and keeps it as it is when no contributing grant carries fields.
- * - With a list extension (`listsRules`, rbacAssignmentExtension with `rules: true`), a type-level
- *   request whose rows depend on rules (or on a part the v1 term cannot carry: NativeNeedsV2) is
- *   answered by `nativeListVote` after `collect`: args v2 and `native:rbac.threshold` terms
- *   (rules/args.ts), which the list evaluator decides per row by running these steps on the row.
+ * - Lists do not use type-level votes: RbacModel.listPlan builds its terms from the state after `cap`.
  */
 
 export const RBAC_STEP_NAMES = Object.freeze(['collect', 'restrict', 'cap', 'aggregate', 'grant', 'tag', 'provenance', 'threshold', 'residual'] as const);
@@ -72,7 +65,7 @@ export type RbacStep = (state: RbacState) => void;
 export type RbacSteps = Readonly<Record<RbacStepName, RbacStep>> & {
   /** The step 5 reason when `grant` leaves no candidate; the runner calls it right after `grant`. */
   readonly noGrantReason: (state: RbacState) => DenyReason;
-  /** How a vote's fields combine the grants' (default voteFieldGlobs); the list terms (args v2) follow it too. */
+  /** How a vote's fields combine the grants' (default voteFieldGlobs). */
   readonly fieldGlobs?: FieldRule;
 };
 
@@ -86,11 +79,6 @@ export interface RbacInput {
   readonly path: readonly ResourceRef[];
   /** The principal's subjects the assignments were read for; default: the principal and its companions. */
   readonly subjects?: readonly AssignmentSubject[];
-  /**
-   * How a type-level vote lists rows that only scoped assignments reach: `under` over their scopes
-   * (default, core ops), or `native` (`native:rbac.assignment`, set by rbacAssignmentExtension).
-   */
-  readonly scopedResidual?: 'under' | 'native';
   /** Assignments of the principal's subjects, config roles included; `collect` keeps the live ones. */
   readonly assignments: readonly Assignment[];
   /** The config roles among `assignments` (anonymousRoles, serviceRoles): in no store. */
@@ -103,14 +91,14 @@ export interface RbacInput {
   readonly implies?: ImpliesIndex;
   /** The sets the principal joined through its own assignments (SetsExtension), by subjectKey. */
   readonly memberships?: SetMemberships;
+  /** Sets the principal reaches only through other sets (MembershipStore), by subjectKey, with the membership's expiry. */
+  readonly nestedSets?: ReadonlyMap<string, NestedSet>;
   /** The rules that hold for this request (RulesExtension), their request-level parts decided. */
   readonly rules?: readonly ActiveRule[];
   /** Ids of rules that would apply differently per row of this type-level request: the rule steps fail closed. */
   readonly rowDependentRules?: readonly string[];
   /** False when a rule condition gave an uncacheable answer. */
   readonly rulesCacheable?: boolean;
-  /** Type-level requests with a list extension: the rules part of the list terms (RulesExtension). */
-  readonly native?: NativeListInput;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -157,6 +145,8 @@ export interface RbacState {
   live: LiveAssignment[];
   /** collect, type-level requests only (`$global` is not one): live assignments off the path, which permit the rows below their scopes. */
   scoped: LiveAssignment[];
+  /** collect: assignments of deny roles, on the path and (type-level) below it; ceilings and rules never drop them (design §4.2). */
+  denied: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
   /** aggregate: the union of live tags, for introspection; step 6 reads the carriers in `live` (and `scoped`) itself. */
@@ -184,9 +174,11 @@ const collect: RbacStep = (s) => {
   const typeLevel = isTypeLevel(s.input.request.resource);
   for (const a of assignments) {
     const here = onPath(a.scope);
+    const denies = isDenyRole(roles, a.role);
     // Off the path only a scope with an id can reach rows of a type-level request (state.scoped).
     // An assignment the ceiling drops cannot change the vote, so its row is never parsed.
-    if ((!here && (!typeLevel || a.scope.id == null)) || !withinCeiling(s, a.role)) continue;
+    // Ceilings narrow permits only: a deny always counts.
+    if ((!here && (!typeLevel || a.scope.id == null)) || !(denies || withinCeiling(s, a.role))) continue;
     const expires = expiryTime(a);
     // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
     if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
@@ -196,7 +188,7 @@ const collect: RbacStep = (s) => {
     // A row stored before its role was narrowed would reach the scopes scopeTypes exists to keep it from.
     else if (problem) onRefusedAssignment?.(a, problem);
     if (problem) continue;
-    (here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
+    (denies ? s.denied : here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
 
@@ -242,7 +234,6 @@ function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
   const conditional: ConditionalGroup[] = [];
   for (const c of s.candidates) {
     if (!c.failed) {
-      if (c.rows) nativeCannotCarry(s);
       const permits = and(grantResidual(c.grant, at), c.rows ?? TRUE);
       s.permit.push(permits);
       if (permits.op === 'true') unconditional.push(c.grant.fieldGlobs);
@@ -252,7 +243,6 @@ function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
   }
   for (const [g, holders] of scopedGrants(s)) {
     const checks = grantChecks(s, g);
-    if (checks.some((c) => c.rows.op !== 'true' && c.rows.op !== 'false')) nativeCannotCarry(s);
     const permits = and(scopedRows(s, holders), grantResidual(g, at), ...checks.map((c) => c.rows));
     s.permit.push(permits);
     if (permits.op !== 'false') addToGroup(conditional, permits, g.fieldGlobs);
@@ -284,11 +274,6 @@ function groupFields(group: ConditionalGroup): FieldGlobs | undefined {
 
 const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
 
-// The v1 native term has no part for tags or provenance; a bare one would list rows the check refuses.
-function nativeCannotCarry(s: RbacState): void {
-  if (s.input.scopedResidual === 'native') throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: ${RBAC_ASSIGNMENT_OP} v1 cannot carry the tag or provenance part of '${s.permission}' on a type-level request; use rbacAssignmentExtension with rules: true for this type`);
-}
-
 /** The grants of the permission that scoped assignments reach, with those assignments. */
 function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
   const out = new Map<CompiledGrant, LiveAssignment[]>();
@@ -302,31 +287,9 @@ function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
   return out;
 }
 
-/**
- * The rows below the holders' scopes, canonical: sorted by key, without duplicates. An implied role
- * with at: 'descendants' (`onlyBelow`) leaves its scope itself out, which only a row of the scope's
- * own type can be.
- */
+/** The rows below the holders' scopes (underTerm). */
 function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceFilter {
-  const type = s.input.request.resource.type;
-  if (s.input.scopedResidual === 'native') {
-    // The term holds on every assignment of the stored role on the row's path, the row itself included.
-    const strict = holders.find((h) => h.onlyBelow && mayBeAssignedAt(s.input.roles, h.assignment.role, type));
-    if (strict) throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: role '${strict.role}' is implied by '${strict.assignment.role}' below its scope only, which ${RBAC_ASSIGNMENT_OP} cannot express on type '${type}'`);
-    return {
-      op: RBAC_ASSIGNMENT_OP,
-      args: rbacAssignmentArgs(
-        usableSubjects(s) ?? defaultSubjects(s.input.request.principal),
-        holders.map((h) => h.assignment.role),
-      ),
-    };
-  }
-  return underTerm(holders, type);
-}
-
-function mayBeAssignedAt(roles: RoleGraph, role: string, type: ResourceType): boolean {
-  const types = roles.get(role)?.scopeTypes;
-  return types === undefined || types.includes(type);
+  return underTerm(holders, s.input.request.resource.type);
 }
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({
@@ -335,6 +298,7 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
     applyMemberships(s);
     addImplied(s);
     rankAssignments(s);
+    applyDenyRoles(s);
   },
   restrict: applyRestrict,
   cap: applyCaps,
@@ -347,7 +311,7 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
   noGrantReason: (s: RbacState): DenyReason => roleTooLow(s) ?? { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access },
 });
 
-/** `steps` whose votes take their fields by `fieldGlobs`, in the residual step and in the list terms. */
+/** `steps` whose votes take their fields by `fieldGlobs`. */
 export function withFieldRule(steps: RbacSteps, fieldGlobs: FieldRule): RbacSteps {
   return Object.freeze({ ...steps, fieldGlobs, residual: (s: RbacState) => residualWith(s, fieldGlobs) });
 }
@@ -357,16 +321,6 @@ export const RBAC_SUMMARY_STEPS: RbacSteps = withFieldRule(RBAC_STEPS, summaryFi
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
-  if (input.native && isTypeLevel(input.request.resource)) {
-    // Rules make every row's answer depend on its path: the list terms carry them (args v2).
-    if (input.native.rules.length > 0 || input.native.dbRules) return nativeVote(input, steps);
-    try {
-      return toVote(rbacState(input, 'residual', steps));
-    } catch (e) {
-      if (e instanceof NativeNeedsV2) return nativeVote(input, steps);
-      throw e;
-    }
-  }
   return toVote(rbacState(input, 'residual', steps));
 }
 
@@ -381,31 +335,20 @@ export function rbacState(input: RbacInput, through: RbacStepName = 'residual', 
   return state;
 }
 
-function nativeVote(input: RbacInput, steps: RbacSteps): Vote {
-  const state = newState(input, true);
-  steps.collect(state);
-  const fields = steps.fieldGlobs ?? voteFieldGlobs;
-  nativeListVote(state, (g) => grantResidual(g, { resource: input.request.resource, path: input.path, principal: input.request.principal }), input.subjects ?? defaultSubjects(input.request.principal), fields);
-  return toVote(state);
-}
-
-/** A type-level vote the v1 term cannot carry; with a list extension the runner builds args v2 instead. */
-export class NativeNeedsV2 extends Error {}
-
 /**
  * Steps 1–3 (collect, restrict, cap) over the input: the assignments that hold at the request's
  * resource (`live`) and, on a type-level request, those below it (`scoped`). `ceiling: false` skips
  * the principal's `ceiling.roles`, for callers that need the assigned roles (a role switch).
  */
-export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boolean } = {}, steps: RbacSteps = RBAC_STEPS): { readonly live: readonly LiveAssignment[]; readonly scoped: readonly LiveAssignment[] } {
+export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boolean } = {}, steps: RbacSteps = RBAC_STEPS): { readonly live: readonly LiveAssignment[]; readonly scoped: readonly LiveAssignment[]; readonly denied: readonly LiveAssignment[] } {
   const state = newState(input, opts.ceiling !== false);
   for (const name of ['collect', 'restrict', 'cap'] as const) steps[name](state);
-  return { live: state.live, scoped: state.scoped };
+  return { live: state.live, scoped: state.scoped, denied: state.denied };
 }
 
 function newState(input: RbacInput, ceiling: boolean): RbacState {
   const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
-  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: input.native?.cacheable !== false, rankAt: new Map(), ruleSubjects: new Map() };
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], denied: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true, rankAt: new Map(), ruleSubjects: new Map() };
 }
 
 // OR is order-free, but the residual enters the cross-request decision cache key and SQL statement
@@ -448,6 +391,8 @@ export interface RbacSources {
   readonly configAssignments?: (subjects: readonly AssignmentSubject[]) => readonly Assignment[];
   /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache). */
   readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext) => readonly Assignment[] | Promise<readonly Assignment[]>;
+  /** The sets the member keys belong to, transitively, with their membership expiry (MembershipStore.setsOf); absent: one level, from the principal's own rows. */
+  readonly setsOf?: (memberKeys: readonly string[], ctx: EvaluationContext) => Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;
   readonly onUnknownRole?: (assignment: Assignment) => void;
   readonly onRefusedAssignment?: RbacInput['onRefusedAssignment'];
 }
@@ -586,8 +531,6 @@ export interface RbacExtension {
   nativeFilters?(): readonly NativeFilter[];
   /** OR-ed into the model's capabilities. */
   readonly capabilities?: Partial<Pick<ModelCapabilities, 'needsSubject'>>;
-  /** Type-level votes carry the rules in native list terms (rbacAssignmentExtension with rules: true). */
-  readonly listsRules?: (type: ResourceType) => boolean;
 }
 
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;

@@ -252,14 +252,11 @@ export class SqlGroupByCompiler implements IGroupByCompiler {
 @NewInstance()
 export class SqlColumnsCompiler implements IColumnsCompiler {
   public columns(builder: IColumnsBuilder) {
+    const built = builder.getColumns().map((c) => c.build());
+
     return {
-      bindings: [] as any[],
-      expression: builder
-        .getColumns()
-        .map((c) => {
-          return c.build().Statements[0];
-        })
-        .join(','),
+      bindings: built.flatMap((b) => b.Bindings ?? []),
+      expression: built.map((b) => b.Statements[0]).join(','),
     };
   }
 }
@@ -386,9 +383,10 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     const having = this.having(this._builder as IWhereBuilder<unknown>);
     const group = this.group(this._builder as IGroupByBuilder);
 
-    const expression = columns + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + (having.expression ? ` HAVING ${having.expression}` : '') + sort.expression + limit.expression;
+    const expression = columns.expression + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + (having.expression ? ` HAVING ${having.expression}` : '') + sort.expression + limit.expression;
 
     const bindings = [];
+    bindings.push(...(columns.bindings ?? []));
     bindings.push(...(join.bindings ?? []));
     bindings.push(...(where.bindings ?? []));
     bindings.push(...(group.bindings ?? []));
@@ -412,7 +410,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     return compiler.compile();
   }
 
-  protected select() {
+  protected select(): ICompilerOutput {
     let _stmt = 'SELECT ';
 
     if (this._builder.IsDistinct) {
@@ -420,10 +418,11 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     }
 
     if (this._builder.getColumns().length === 0) {
-      return _stmt + '*';
+      return { expression: _stmt + '*', bindings: [] };
     }
 
-    return _stmt + this.columns(this._builder).expression;
+    const columns = this.columns(this._builder);
+    return { expression: _stmt + columns.expression, bindings: columns.bindings };
   }
 
   protected from() {
