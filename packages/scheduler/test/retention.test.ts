@@ -6,6 +6,7 @@ import {
   RunAttemptModel,
   RunLogModel,
   RunModel,
+  RunStepModel,
   Scheduler,
   ScheduleRegistry,
   SchedulerRetentionTask,
@@ -64,6 +65,16 @@ describe('scheduler-retention builtin', () => {
       FinishedAt: now - 40 * DAY,
     });
     await RunAttemptModel.create({ RunId: old.Id, Attempt: 1, StartedAt: now - 40 * DAY, Status: 'succeeded' });
+    await RunStepModel.create({
+      RunId: old.Id,
+      Attempt: 1,
+      Seq: 1,
+      Name: 'old-step',
+      Status: 'succeeded',
+      Weight: 1,
+      StartedAt: now - 40 * DAY,
+      Progress: 100,
+    });
     await journalRow(old.Id, 1, 'status', now - 40 * DAY);
     const kept = await queuedRun('scheduler-retention', now - 10 * DAY, {
       Status: 'failed',
@@ -90,6 +101,8 @@ describe('scheduler-retention builtin', () => {
     expect(run).to.include({ Status: 'succeeded', Trigger: 'schedule' });
     expect(run.Result).to.deep.eq({ runs: 1, logs: 2, errors: 1 });
     expect(await RunAttemptModel.where('RunId', old.Id)).to.have.length(0);
+    expect(await RunStepModel.where('RunId', old.Id)).to.have.length(0);
+    expect((await RunStepModel.where('RunId', run.Id)).map((st) => st.Name)).to.deep.eq(['purge']);
     expect((await RunLogModel.where('RunId', kept.Id).orderBy('Seq')).map((r) => r.Seq)).to.deep.eq([1, 4]);
     expect((await ErrorGroupModel.all()).map((g) => g.Fingerprint).sort()).to.deep.eq(['new-resolved', 'old-open']);
   });
