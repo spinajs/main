@@ -249,7 +249,12 @@ export class RunExecutor {
     try {
       const first = await Promise.race([guarded, expired, aborted]);
       if (first !== 'aborted') return first;
-      const late = await Promise.race([guarded, expired, this.Timers.sleep(graceMs, timers.signal).then(() => null)]);
+      // after an abort the deadline only cuts the grace short: the run still ends with the abort's reason
+      const late = await Promise.race([
+        guarded,
+        expired.then(() => null),
+        this.Timers.sleep(graceMs, timers.signal).then(() => null),
+      ]);
       // the scheduler holds nothing the pending emit needs, so the schedule lease is released
       return late ?? { kind: 'aborted', reason: signal.reason as AbortReason, settled: true };
     } finally {

@@ -17,6 +17,7 @@ import {
   ScheduledTask,
   ScheduleRegistry,
   SchedulerService,
+  SchedulerSignals,
   ScheduleModel,
   TriggeredBy,
   undefineSchedule,
@@ -165,6 +166,30 @@ describe('emit mode', () => {
       JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')),
       LeaseOwner: null,
     });
+  });
+
+  it('ends a shutdown during a hanging emit as aborted even when the emit deadline falls in the grace', async () => {
+    ({ clock } = await bootTestEnv({
+      now: '2026-01-05T10:00:30Z',
+      extra: queueConfig(),
+      scheduler: { shutdownGrace: 30_000 },
+    }));
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    const finished = sinon.spy(DI.resolve(SchedulerSignals), 'runFinished');
+    InMemoryQueueClient.hang = true;
+    clock.set('2026-01-05T10:01:00Z');
+    await s.tickOnce();
+    const [run] = await RunModel.where('Schedule', 'daily-digest');
+    await waitFor(async () => (await RunModel.where('Id', run.Id).first()).JobId !== null);
+
+    // the emit deadline (half of the 60 s lease) comes 20 s into the 30 s grace
+    await clock.advance(10_000);
+    await driveUntil(clock, s.stop(), 1000);
+    expect(await RunModel.where('Id', run.Id).first()).to.include({ Status: 'aborted', Reason: 'shutdown' });
+    expect((await ScheduleModel.where('Name', 'daily-digest').first()).ConsecutiveFailures).to.eq(0);
+    expect(finished.getCalls().map((c) => [c.args[1].status, c.args[1].countsAsFailure])).to.deep.eq([
+      ['aborted', false],
+    ]);
   });
 
   it('gives manual runs and every retry of one retry-failed call their own job', async () => {
