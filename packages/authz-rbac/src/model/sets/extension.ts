@@ -93,17 +93,4 @@ export function usableVia<T extends { readonly role: string; readonly expiresAt?
   return via.filter((m) => (ignoreCeiling || withinCeiling(s, m.role)) && (m.expiresAt === undefined || m.expiresAt.getTime() > now));
 }
 
-/** The subjects a list term may name: those of the input, without a set none of whose memberships holds now, nor a nested set under a ceiling. */
-export function usableSubjects(s: RbacState): readonly AssignmentSubject[] | undefined {
-  const { subjects, memberships, nestedSets } = s.input;
-  if (!subjects || (!memberships && !nestedSets)) return subjects;
-  return subjects.filter((subject) => {
-    if (!('set' in subject)) return true;
-    const key = subjectKey(subject);
-    const entry = memberships?.get(key);
-    if (entry) return usableVia(s, entry.via).length > 0;
-    return !nestedSets?.has(key) || s.ceilingRoles === undefined;
-  });
-}
-
 const isThenable = <T>(v: Maybe<T>): v is PromiseLike<T> => typeof (v as { then?: unknown } | null)?.then === 'function';

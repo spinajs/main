@@ -2,7 +2,7 @@ export * from './roles.js';
 export * from './grants.js';
 export * from './patterns.js';
 export * from './fields.js';
-export * from './native.js';
+export * from './scope.js';
 export * from './assignments.js';
 export * from './cache.js';
 export * from './ceiling.js';

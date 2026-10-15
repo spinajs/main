@@ -4,7 +4,7 @@ import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInit
 import * as chai from 'chai';
 import 'mocha';
 
-import { LadderExtension, MemoryAssignmentStore, MemoryRoleStore, PROVENANCE_RANK_PRIORITY, RBAC_STEPS, RbacModel, compileGrants, compileLadders, compileRoles, createRbacExtensions, rankAt, rbacAssignmentExtension, runRbacPipeline } from '../../src/index.js';
+import { LadderExtension, MemoryAssignmentStore, MemoryRoleStore, PROVENANCE_RANK_PRIORITY, RBAC_STEPS, RbacModel, compileGrants, compileLadders, compileRoles, rankAt, runRbacPipeline } from '../../src/index.js';
 import type { GrantDef, LadderDef, RbacInput, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -66,9 +66,9 @@ const RANK_LOW = (roleName: string, needed: string, ladder = 'project') => ({ co
 const scopes = new FakeScopeResolver({ types: TYPES, nodes: [{ ref: O1 }, { ref: P1, parent: O1 }, { ref: P2, parent: O1 }, { ref: f1, parent: P1 }, { ref: f2, parent: P2 }] });
 const ctx = () => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] });
 
-async function model(rows: readonly Assignment[], native = false) {
+async function model(rows: readonly Assignment[]) {
   const base = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore(rows) };
-  const m = new RbacModel({ ...base, ...(native ? { extensions: [...createRbacExtensions(base), rbacAssignmentExtension(base)] } : {}), log: { warn: () => undefined } });
+  const m = new RbacModel({ ...base, log: { warn: () => undefined } });
   await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
   m.grantIndex();
   return m;
@@ -215,27 +215,6 @@ describe('authz-rbac tags and provenance (B34)', () => {
           expect(listed, `${permission} ${ref.id}`).to.equal(checked);
         }
       }
-    });
-
-    it('the native list term cannot carry these parts yet: it fails closed', async () => {
-      const m = await model([assignment('a1', 'viewer', P2), assignment('a2', 'org.member', P1, { tags: ['inspect'] })], true);
-      let thrown: unknown;
-      try {
-        await vote(m, 'inspect:view', FILE);
-      } catch (e) {
-        thrown = e;
-      }
-      expect((thrown as Error | undefined)?.message).to.contain('cannot carry the tag or provenance part');
-      expect((await vote(m, 'file:read', FILE)).permitWhen.op).to.equal('native:rbac.assignment');
-      // A live candidate whose tag only scoped carriers hold fails closed the same way.
-      const live = await model([assignment('a1', 'viewer'), assignment('a2', 'org.member', P1, { tags: ['inspect'] })], true);
-      let refused: unknown;
-      try {
-        await vote(live, 'inspect:view', FILE);
-      } catch (e) {
-        refused = e;
-      }
-      expect((refused as Error | undefined)?.message).to.contain('cannot carry the tag or provenance part');
     });
   });
 

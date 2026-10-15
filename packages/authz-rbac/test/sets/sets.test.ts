@@ -4,7 +4,7 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, groupPr
 import * as chai from 'chai';
 import 'mocha';
 
-import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RbacModel, RbacService, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, rbacAssignmentExtension, subjectKey } from '../../src/index.js';
+import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, subjectKey } from '../../src/index.js';
 import type { GrantDef, LadderDef, RoleDef, SubjectResolver } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -47,10 +47,10 @@ class CountingStore extends MemoryAssignmentStore {
 const scopes = new FakeScopeResolver({ types: ['org', 'project', 'file', 'group'], nodes: [{ ref: O1 }, { ref: O2 }, { ref: P1, parent: O1 }, { ref: f1, parent: P1 }, { ref: G1 }, { ref: G2 }] });
 const ctx = (): EvaluationContext => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] });
 
-async function model(rows: readonly Assignment[], opts: { subjects?: SubjectResolver; config?: Record<string, unknown>; native?: boolean } = {}) {
+async function model(rows: readonly Assignment[], opts: { subjects?: SubjectResolver; config?: Record<string, unknown> } = {}) {
   const store = new CountingStore(rows);
   const base = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, ...(opts.subjects ? { subjects: opts.subjects } : {}) };
-  const m = new RbacModel({ ...base, ...(opts.native ? { extensions: [...createRbacExtensions(base), rbacAssignmentExtension(base)] } : {}), log: { warn: () => undefined } });
+  const m = new RbacModel({ ...base, log: { warn: () => undefined } });
   await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), config: opts.config ?? {} }));
   m.grantIndex();
   return { m, store };
@@ -214,13 +214,6 @@ describe('authz-rbac subject sets (B33)', () => {
       m.invalidate(['subject:user:alice']);
       await m.preload(alice, ctx());
       expect(store.reads).to.have.length(4);
-    });
-
-    it('native:rbac.assignment names the usable sets among the subjects', async () => {
-      const { m } = await model(rows, { native: true });
-      const args = (principal: Principal) => vote(m, 'file:read', { type: 'file' }, principal).then((v) => v.permitWhen);
-      expect(await args(alice)).to.deep.equal({ op: RBAC_ASSIGNMENT_OP, args: { v: 1, subjects: [setOf('org.member', O1), { type: 'user', id: '*' }, to(alice)], roles: ['viewer'] } });
-      expect(await args(withCeiling(alice, { roles: ['viewer'] }))).to.deep.equal(FALSE);
     });
   });
 });

@@ -7,7 +7,7 @@ Entries: `src/contracts.ts`.
 ## src/contracts.ts
 
 ```ts
-import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, FilterOp, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from "@spinajs/authz";
+import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from "@spinajs/authz";
 export type { AssignmentSubject, Assignment, SubjectSelector, RuleDef, LinkDef } from "@spinajs/authz";
 export interface GrantDef {
     readonly permission: string;
@@ -94,18 +94,6 @@ export declare abstract class MembershipStore {
 }
 /** Subject key: `type:id` (principal) or `type:id#role` (set); wildcard `type:*`. In `id`, `%`, `#` and `*` are escaped as `%25`, `%23`, `%2A`, so keys never collide. Max 200 characters; longer keys are refused on write. */
 export type SubjectKey = string;
-export declare const RBAC_ASSIGNMENT_OP: "native:rbac.assignment";
-export declare const RBAC_THRESHOLD_OP: "native:rbac.threshold";
-export declare const RBAC_RESIDUALS: readonly FilterOp[];
-
-// values
-const RBAC_ASSIGNMENT_OP = "native:rbac.assignment" as const;
-const RBAC_THRESHOLD_OP = "native:rbac.threshold" as const;
-const RBAC_RESIDUALS = Object.freeze([
-    ...CORE_FILTER_OPS,
-    RBAC_ASSIGNMENT_OP,
-    RBAC_THRESHOLD_OP
-]);
 ```
 
 ## Re-exported from other packages

@@ -1,14 +1,9 @@
 import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, resourceKey } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, DenyReason, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 
 import type { RuleStore } from '../../contracts.js';
-import { rbacTables } from '../evaluate.js';
 import type { RbacExtension, RbacExtensionFactory, RbacInput, RbacSources } from '../evaluate.js';
-import type { BoundRule } from './args.js';
-import { bindRule } from './bind.js';
-import type { Binding } from './bind.js';
-import { RULES_EXTENSION_KIND } from './native.js';
 import type { GrantIndex } from '../grants.js';
 import { compileLadders } from '../ladder/ladders.js';
 import type { LadderIndex } from '../ladder/ladders.js';
@@ -16,7 +11,7 @@ import { isTypeLevel } from '../patterns.js';
 import type { RoleGraph } from '../roles.js';
 import { compileRule, ruleRefs } from './compile.js';
 import type { CompiledRule } from './compile.js';
-import { nodeOfType, principalSelects, thresholdReason } from './steps.js';
+import { nodeOfType, principalSelects } from './steps.js';
 import type { ActiveRule } from './steps.js';
 
 type Maybe<T> = T | Promise<T>;
@@ -47,20 +42,15 @@ export function ruleStoreParts(rules: RuleStore | readonly RuleStore[] | undefin
 /**
  * RBAC rules (design §5.8, §6.1.2 steps 2, 3, 8) from the model's rule stores: the in-memory part
  * (`config`) and the other part (`db`), both on every check. In-memory rules are checked when the
- * grants compile (rule 9), give boot refs (rules 7 and 10) and are bound into list terms; DB rules
- * are read per path, and per row in lists (`dbRules`). Every rule's request-level parts (`when`,
- * `subjects` but rank, `resource`, refs) are decided while gathering, so the steps stay synchronous.
+ * grants compile (rule 9) and give boot refs (rules 7 and 10); DB rules are read per path. Every
+ * rule's request-level parts (`when`, `subjects` but rank, `resource`, refs) are decided while
+ * gathering, so the steps stay synchronous.
  */
 export class RulesExtension implements RbacExtension {
-  readonly kind = RULES_EXTENSION_KIND;
   private parser = new DefaultConditionCompiler(BUILTIN_CONDITION_FUNCTIONS);
   private registry?: PermissionRegistry;
   private readonly compiled = new WeakMap<RoleGraph, WeakMap<RuleDef, CompiledRule>>();
   private readonly boot = new WeakMap<RoleGraph, readonly CompiledRule[]>();
-  private readonly bindings = new WeakMap<RoleGraph, Map<string, BoundSet>>();
-  private readonly listings = new WeakMap<RoleGraph, Listing>();
-  private compiledWith?: { readonly graph: RoleGraph; readonly grants: GrantIndex };
-  private extensions?: readonly RbacExtension[];
 
   readonly config?: SyncRuleStore;
   readonly db?: RuleStore;
@@ -79,19 +69,6 @@ export class RulesExtension implements RbacExtension {
   compile(graph: RoleGraph, grants: GrantIndex, registry: PermissionRegistry): void {
     this.registry = registry;
     this.bootRules(graph, grants);
-    this.compiledWith = { graph, grants };
-  }
-
-  /**
-   * The role graph the grants were last compiled with and its tables (rbacTables over the model's
-   * extensions, seen in a gather); the list evaluator judges rows with them.
-   */
-  get listing(): Listing | undefined {
-    const at = this.compiledWith;
-    if (!at || !this.extensions) return undefined;
-    let listing = this.listings.get(at.graph);
-    if (!listing) this.listings.set(at.graph, (listing = { roles: at.graph, grants: at.grants, ...rbacTables(this.extensions, at.graph, at.grants) }));
-    return listing;
   }
 
   contribute(graph: RoleGraph, grants: GrantIndex): AuthzContribution {
@@ -99,20 +76,11 @@ export class RulesExtension implements RbacExtension {
     return { permissionRefs: refs.flatMap((r) => r.permissionRefs), scopeRefs: refs.flatMap((r) => r.scopeRefs) };
   }
 
-  gather(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>> {
+  gather(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, _sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>> {
     const { config, db } = this;
-    if (sources.extensions) this.extensions = sources.extensions;
-    const listers = (sources.extensions ?? []).filter((e) => e.listsRules !== undefined);
-    if (isTypeLevel(request.resource) && listers.some((e) => e.listsRules!(request.resource.type))) return this.listInput(request, ctx, input);
     if (!config && !db) return {};
-    const activate = () => {
-      const own = config ? config.rulesOn(input.path, input.now) : [];
-      return db ? this.dbRulesOn(input.path, input.now, ctx).then((stored) => this.activate([...own, ...stored], request, ctx, input)) : this.activate(own, request, ctx, input);
-    };
-    // Any request with a context binds the config rules for this principal, so a list after preload needs no async step (B22).
-    // Best effort: whatever the binding meets, the check's own answer is the one above.
-    const warm = listers.length > 0 && config && usable(ctx) ? this.boundSet(request, ctx, input) : undefined;
-    return warm instanceof Promise ? warm.then(activate, activate) : activate();
+    const own = config ? config.rulesOn(input.path, input.now) : [];
+    return db ? this.dbRulesOn(input.path, input.now, ctx).then((stored) => this.activate([...own, ...stored], request, ctx, input)) : this.activate(own, request, ctx, input);
   }
 
   /**
@@ -135,56 +103,6 @@ export class RulesExtension implements RbacExtension {
       reads?.set(key, read);
     }
     return read;
-  }
-
-  /** The rules part of a list vote: the config rules bound to the request, and the DB rules read per row. */
-  private listInput(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput): Maybe<Partial<RbacInput>> {
-    const dbRules = this.db !== undefined;
-    const empty = { rules: [], rowDependentRules: [] };
-    if (!this.config) return { ...empty, native: { rules: [], reasons: new Map(), expires: [], dbRules, cacheable: true } };
-    const done = (set: BoundSet): Partial<RbacInput> => {
-      const type = request.resource.type;
-      const now = input.now.getTime();
-      const rules: BoundRule[] = [];
-      const reasons = new Map<string, DenyReason>();
-      const expires: number[] = [];
-      for (const { compiled, binding } of set.entries) {
-        const def = compiled.def;
-        if (!binding.rule || (def.resourceTypes && !def.resourceTypes.includes(type)) || (def.expiresAt != null && def.expiresAt.getTime() <= now)) continue;
-        if (def.kind === 'threshold' && !compiled.permissions!.has(request.permission)) continue;
-        rules.push(binding.rule);
-        if (def.kind === 'threshold') reasons.set(def.id, thresholdReason(compiled));
-        if (def.expiresAt != null) expires.push(def.expiresAt.getTime());
-      }
-      return { ...empty, native: { rules, reasons, expires, dbRules, cacheable: !set.unsafe } };
-    };
-    const set = this.boundSet(request, ctx, input);
-    return set instanceof Promise ? set.then(done) : done(set);
-  }
-
-  /**
-   * Every config rule bound to this request's principal and actor. Kept per principal (least recently
-   * used first out) unless some binding holds for this request only.
-   */
-  private boundSet(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput): Maybe<BoundSet> {
-    let memo = this.bindings.get(input.roles);
-    if (!memo) this.bindings.set(input.roles, (memo = new Map()));
-    const key = JSON.stringify([request.principal, request.actor ?? null]);
-    const hit = memo.get(key);
-    if (hit) {
-      memo.delete(key);
-      memo.set(key, hit);
-      return hit;
-    }
-    const compiled = this.config!.all().map((def) => this.rule(def, input.roles, input.ladders));
-    return Promise.all(compiled.map((c) => bindRule(c, request, ctx).then((binding) => ({ compiled: c, binding })))).then((entries) => {
-      const set: BoundSet = { entries, unsafe: entries.some((e) => e.binding.unsafe) };
-      if (!entries.some((e) => e.binding.perRequest)) {
-        if (memo!.size >= MAX_BOUND_PRINCIPALS) memo!.delete(memo!.keys().next().value!);
-        memo!.set(key, set);
-      }
-      return set;
-    });
   }
 
   private bootRules(graph: RoleGraph, grants: GrantIndex): readonly CompiledRule[] {
@@ -263,15 +181,6 @@ export class RulesExtension implements RbacExtension {
 
 export const rulesExtension: RbacExtensionFactory = (opts) => new RulesExtension(opts.rules);
 
-type Listing = Pick<RbacInput, 'roles' | 'grants' | 'ladders' | 'implies'>;
-
-interface BoundSet {
-  readonly entries: readonly { readonly compiled: CompiledRule; readonly binding: Binding }[];
-  readonly unsafe: boolean;
-}
-
-const MAX_BOUND_PRINCIPALS = 256;
-
 const DB_RULES_KEY = 'rbac:db-rules';
 
 /** The row-dependent entry `activate` adds for a rule store it cannot read whole from a type-level path. */
@@ -284,15 +193,6 @@ function requestCache(ctx: EvaluationContext): Map<string, unknown> | undefined 
     return ctx.cache;
   } catch {
     return undefined;
-  }
-}
-
-// A synchronous read (RbacModel.heldNow) has nothing to bind with.
-function usable(ctx: EvaluationContext): boolean {
-  try {
-    return ctx.conditions !== undefined;
-  } catch {
-    return false;
   }
 }
 

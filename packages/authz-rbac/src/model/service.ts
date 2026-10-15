@@ -9,7 +9,7 @@ import type { CompiledGrant } from './grants.js';
 import { effectiveRole } from './ladder/steps.js';
 import { UNRESOLVED_LINK_ID, linkPrincipalOf } from './links/principal.js';
 import type { RbacModel } from './model.js';
-import { scopeMatcher } from './native.js';
+import { scopeMatcher } from './scope.js';
 
 export interface RbacServiceOptions {
   /** Ancestors of a resource for rolesOf without a context; production wires the host's scope resolution. */

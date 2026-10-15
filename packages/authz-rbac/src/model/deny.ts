@@ -2,7 +2,7 @@ import { DEFAULT_DENY_PRIORITY, TRUE } from '@spinajs/authz';
 import type { DenyReason } from '@spinajs/authz';
 
 import type { RbacStep } from './evaluate.js';
-import { scopeMatcher } from './native.js';
+import { scopeMatcher } from './scope.js';
 import type { RoleGraph } from './roles.js';
 import { underTerm } from './rows.js';
 

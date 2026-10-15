@@ -4,7 +4,7 @@ import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, w
 import * as chai from 'chai';
 import 'mocha';
 
-import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, rbacAssignmentExtension, readRbacInput, runRbacPipeline, voteFieldGlobs, withFieldRule } from '../../src/index.js';
+import { MAX_UNDER_SCOPES, MemoryAssignmentStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, readRbacInput, runRbacPipeline, voteFieldGlobs, withFieldRule } from '../../src/index.js';
 import type { FieldRule, RbacExtension, RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -787,32 +787,6 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         expect((await evaluate([at({ type: 'project' })], P1)).vote.permitWhen).to.deep.equal(TRUE);
       });
 
-      it('with rbacAssignmentExtension the term is native:rbac.assignment with canonical args', async () => {
-        const bot = { type: 'service', id: 'bot' };
-        const principal = withCompanions(alice, [bot]);
-        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
-        const v = (await evaluate([at(P1), assignment('a2', 'editor', { scope: P2, subject: bot }), at(P2, 'a3')], FILES, undefined, { principal, extensions: [rbacAssignmentExtension(opts)] })).vote;
-        expect(v.permitWhen).to.deep.equal({
-          op: 'native:rbac.assignment',
-          args: {
-            v: 1,
-            subjects: [
-              { type: 'service', id: 'bot' },
-              { type: 'user', id: 'alice' },
-            ],
-            roles: ['editor', 'viewer'],
-          },
-        });
-      });
-
-      it('rbacAssignmentExtension with types emits the native term for those types only', async () => {
-        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
-        const forFiles = (await evaluate([at(P1)], FILES, undefined, { extensions: [rbacAssignmentExtension(opts, { types: ['file'] })] })).vote;
-        expect(forFiles.permitWhen.op).to.equal('native:rbac.assignment');
-        const forProjects = (await evaluate([at(P1)], FILES, undefined, { extensions: [rbacAssignmentExtension(opts, { types: ['project'] })] })).vote;
-        expect(forProjects.permitWhen).to.deep.equal({ op: 'under', scopes: [P1] });
-      });
-
       it('a list of scopes past MAX_UNDER_SCOPES throws (fail closed)', async () => {
         const many = Array.from({ length: MAX_UNDER_SCOPES + 1 }, (_, i) => assignment(`a${i}`, 'viewer', { scope: { type: 'project', id: `p${i}` } }));
         await rejects(evaluate(many, FILES), /MAX_UNDER_SCOPES|exceed/);
@@ -827,11 +801,6 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         expect(v.vote.permitWhen).to.deep.equal(FALSE);
         expect(v.vote.reason).to.deep.equal(NO_ACCESS);
         expect(v.input.path).to.deep.equal([GLOBAL]);
-      });
-
-      it('no native term on $global either', async () => {
-        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
-        expect((await evaluate([at(O1)], ON_GLOBAL, undefined, { extensions: [rbacAssignmentExtension(opts)] })).vote.permitWhen).to.deep.equal(FALSE);
       });
 
       it('a GLOBAL assignment permits $global; a relation grant held at GLOBAL stays conditional', async () => {

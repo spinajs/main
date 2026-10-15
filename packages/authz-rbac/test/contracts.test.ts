@@ -282,19 +282,11 @@ describe('authz-rbac pinned shapes', () => {
 });
 
 describe('authz-rbac native ops', () => {
-  type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-  const yes = <_T extends true>(): void => {};
-
-  it('op names are literal types', () => {
-    expect(root.RBAC_ASSIGNMENT_OP).to.equal('native:rbac.assignment');
-    expect(root.RBAC_THRESHOLD_OP).to.equal('native:rbac.threshold');
-    yes<Equal<typeof root.RBAC_ASSIGNMENT_OP, 'native:rbac.assignment'>>();
-    yes<Equal<typeof root.RBAC_THRESHOLD_OP, 'native:rbac.threshold'>>();
-  });
-
-  it('RBAC_RESIDUALS is the frozen §6.1.4 list', () => {
-    expect(root.RBAC_RESIDUALS).to.deep.equal(['true', 'false', 'and', 'or', 'not', 'relation', 'under', 'cmp', 'native:rbac.assignment', 'native:rbac.threshold']);
-    expect(Object.isFrozen(root.RBAC_RESIDUALS)).to.equal(true);
-    yes<Equal<typeof root.RBAC_RESIDUALS, readonly core.FilterOp[]>>();
+  it('the native list ops are gone (RFC RA8-1)', () => {
+    const exported = root as Record<string, unknown>;
+    expect(exported.RBAC_ASSIGNMENT_OP).to.equal(undefined);
+    expect(exported.RBAC_THRESHOLD_OP).to.equal(undefined);
+    expect(exported.RBAC_RESIDUALS).to.equal(undefined);
+    expect(exported.rbacAssignmentExtension).to.equal(undefined);
   });
 });
