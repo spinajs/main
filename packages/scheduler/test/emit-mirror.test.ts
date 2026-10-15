@@ -269,7 +269,7 @@ describe('emit mode status mirroring', () => {
     expect(row).to.include({ Status: 'failed', Reason: 'emit-timeout', Message: `queue job not found (${KEY})` });
     expect(row.Error).to.include({
       name: 'QueueJobFailedError',
-      message: `queue job ${run.JobId} not found after 86400 s`,
+      message: `queue job ${String(run.JobId)} not found after 86400 s`,
     });
     expect(await statuses(run.Id)).to.deep.eq(['running:', 'emitted:', 'failed:emit-timeout']);
     expect((await ScheduleModel.where('Name', 'mirror').first()).ConsecutiveFailures).to.eq(1);
@@ -330,7 +330,7 @@ describe('emit mode status mirroring', () => {
 
   it('does not let runs whose job never shows up hide newer ones', async () => {
     await emitOnce({ consume: false });
-    await RunModel.truncate();
+    await (RunModel.truncate() as unknown as Promise<unknown>);
     const mirror = DI.resolve(EmitMirror) as EmitMirror & { batchSize: number };
     mirror.batchSize = 2;
     const t = clock.now();

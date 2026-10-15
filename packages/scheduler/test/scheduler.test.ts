@@ -27,8 +27,8 @@ const at = (iso: string) => Date.parse(iso);
 
 let gate = deferred();
 class Quick extends ScheduledTask {
-  public async execute() {
-    return 'done';
+  public execute() {
+    return Promise.resolve('done');
   }
 }
 class Gated extends ScheduledTask {
@@ -259,7 +259,7 @@ describe('Scheduler', () => {
     await waitFor(() => s.isRunningLocally(run.Id));
 
     const orm = DI.get(Orm)!;
-    const disconnect = orm.dispose.bind(orm);
+    const disconnect: () => Promise<void> = orm.dispose.bind(orm);
     let atDisconnect: { run?: RunModel; leaseOwner?: string | null } = {};
     orm.dispose = async () => {
       atDisconnect = {
