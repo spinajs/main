@@ -7,10 +7,11 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, ConfigurationSource, FrameworkConfiguration, JsFileSource, registerConfigurationSchema } from '@spinajs/configuration';
-import { fixtureDsl, userPrincipal, violationPaths } from '@spinajs/authz-testing';
+import { fixtureDsl, servicePrincipal, userPrincipal, violationPaths } from '@spinajs/authz-testing';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA } from '@spinajs/authz-rbac';
 import type { HarnessSession, SetupContext, World } from '@spinajs/authz-testing';
-import { AccessDenied, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM } from '@spinajs/authz';
+import type { AuthzService, Principal } from '@spinajs/authz';
 import { JobModel } from '@spinajs/queue';
 
 import { queueHarness } from './support/queue-harness.js';
@@ -18,12 +19,13 @@ import { queueHarness } from './support/queue-harness.js';
 const { combine, permit, relation, staticModel } = fixtureDsl;
 const alice = userPrincipal('alice');
 const bob = userPrincipal('bob');
+const svcAlice = servicePrincipal('alice');
 
 const world: World = {
   permissions: [],
-  principals: { alice, bob },
+  principals: { alice, bob, svcAlice },
   combine: combine('deny-overrides', 'm1'),
-  models: [staticModel('m1', { votes: (req) => (req.permission === 'job:read' ? permit(relation('initiator')) : {}) })],
+  models: [staticModel('m1', { votes: (req) => (req.permission === 'job:read' ? permit(relation('owner')) : {}) })],
   lane: { queue: { jobs: [{ name: 'plain' }, { name: 'progress' }] } },
 };
 
@@ -38,38 +40,46 @@ describe('JobModel as an access resource', () => {
   });
   afterEach(() => session.dispose());
 
-  const emitAs = async (who: typeof alice, job: string) => {
-    const authz = session.authz as unknown as import('@spinajs/authz').AuthzService;
-    const message = await authz.runAs(who, 'test', () => session.lane!.queue!.emit(job));
+  const service = () => session.authz as unknown as AuthzService;
+
+  const emitAs = async (who: Principal, job: string) => {
+    const message = await service().runAs(who, 'test', () => session.lane!.queue!.emit(job));
     await session.lane!.queue!.handle(message);
     return message as unknown as { JobId: string };
   };
 
-  it('the consumer tracks an unattended job although the table is scoped', async () => {
+  const rowOf = (jobId: string) => service().runAs(SYSTEM, 'test', () => JobModel.where({ JobId: jobId }).first());
+
+  it('the consumer tracks an unattended job', async () => {
     const m = await emitAs(alice, 'plain');
-    const authz = session.authz as unknown as import('@spinajs/authz').AuthzService;
-    const row = await authz.runAs(SYSTEM, 'test', () => JobModel.where({ JobId: m.JobId }).first());
+    const row = await rowOf(m.JobId);
     expect(row?.Status).to.equal('success');
     expect(row?.InitiatorId).to.equal('alice');
   });
 
-  it('a query without a principal on JobModel is refused', async () => {
-    const authz = session.authz as unknown as import('@spinajs/authz').AuthzService;
-    await authz.runAs(UNATTENDED, 'test', async () => {
+  it('a select on JobModel without .accessible() or runAs is refused by the guard', async () => {
+    await service().runAs(alice, 'test', async () => {
       await JobModel.all().then(
-        () => expect.fail('should be denied'),
-        (e) => expect(e).to.be.instanceOf(AccessDenied),
+        () => expect.fail('should be refused'),
+        (e) => expect(e).to.be.instanceOf(AuthzConfigError),
       );
     });
   });
 
-  it('a user reads the jobs they emitted and no others', async () => {
-    const a = await emitAs(alice, 'plain');
-    const b = await emitAs(bob, 'plain');
-    const authz = session.authz as unknown as import('@spinajs/authz').AuthzService;
-    const ids = await authz.runAs(alice, 'test', async () => (await JobModel.all()).map((r) => r.JobId));
-    expect(ids).to.deep.equal([a.JobId]);
-    expect(ids).to.not.include(b.JobId);
+  it('the initiator owns the job; another user and a principal of another type with the same id do not', async () => {
+    const m = await emitAs(alice, 'plain');
+    const row = (await rowOf(m.JobId))!;
+    const ref = { type: 'job', id: String(row.Id) };
+    expect(await service().can(alice, 'job:read', ref, row)).to.equal(true);
+    expect(await service().can(bob, 'job:read', ref, row)).to.equal(false);
+    expect(await service().can(svcAlice, 'job:read', ref, row)).to.equal(false);
+    expect(await service().can(alice, 'job:read', ref)).to.equal(true);
+
+    const s = await emitAs(svcAlice, 'plain');
+    const svcRow = (await rowOf(s.JobId))!;
+    const svcRef = { type: 'job', id: String(svcRow.Id) };
+    expect(await service().can(svcAlice, 'job:read', svcRef, svcRow)).to.equal(true);
+    expect(await service().can(alice, 'job:read', svcRef, svcRow)).to.equal(false);
   });
 });
 
@@ -83,11 +93,11 @@ describe('job:read grant', () => {
     const { JobGrantSource } = await import('../src/job/job-grant.js');
     expect(DI.RootContainer.getRegisteredTypes(ConfigurationSource)).to.include(JobGrantSource);
     const cfg = await new JobGrantSource().Load();
-    expect(cfg).to.deep.equal({ authz: { rbac: { roles: { user: { grants: [{ permission: 'job:read', relation: 'initiator' }] } } } } });
+    expect(cfg).to.deep.equal({ authz: { rbac: { roles: { user: { grants: [{ permission: 'job:read', relation: 'owner' }] } } } } });
   });
 
   describe('merged into the application configuration', () => {
-    const grant = { permission: 'job:read', relation: 'initiator' };
+    const grant = { permission: 'job:read', relation: 'owner' };
 
     async function bootWith(app: Record<string, unknown>) {
       const { JobGrantSource } = await import('../src/job/job-grant.js');
