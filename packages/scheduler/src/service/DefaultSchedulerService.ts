@@ -139,7 +139,7 @@ export class DefaultSchedulerService extends SchedulerService {
 
   /** A process that never starts the loop (CLI, API-only replica) still sees every schedule. */
   public async resolve(): Promise<void> {
-    await this.Sync.sync(this.Registry.all(), await this.Clock.sync());
+    await this.Sync.sync(this.Registry.all(), await this.Clock.sync(), { owner: false });
     await super.resolve();
   }
 

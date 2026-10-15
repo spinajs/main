@@ -10,6 +10,8 @@ import {
   ScheduleDeclaration,
   ScheduleDefinition,
   ScheduleModel,
+  Scheduler,
+  SchedulerService,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 
@@ -122,6 +124,54 @@ describe('DefinitionSync', () => {
     expect((await row('b')).Orphaned).to.eq(true);
     await sync.sync(defs(['a', { every: '5m' }], ['b', { every: '5m' }]), NOW);
     expect((await row('b')).Orphaned).to.eq(false);
+  });
+
+  describe('without ownership (CLI, API-only replica)', () => {
+    it('never marks a row it does not know orphaned', async () => {
+      await sync.sync(defs(['a', { every: '5m' }], ['b', { every: '5m' }]), NOW);
+      await sync.sync(defs(['a', { every: '5m' }]), NOW + 1000, { owner: false });
+      expect((await row('b')).Orphaned).to.eq(false);
+      await sync.sync(defs(['a', { every: '5m' }]), NOW + 2000);
+      expect((await row('b')).Orphaned).to.eq(true);
+    });
+
+    it('inserts a missing row', async () => {
+      await sync.sync(defs(['a', { every: '5m' }]), NOW, { owner: false });
+      expect(await row('a')).to.include({ NextRunAt: Date.parse('2026-01-05T10:05:00Z'), Orphaned: false });
+    });
+
+    it('leaves the stored definition and NextRunAt alone', async () => {
+      await sync.sync(defs(['a', { every: '5m' }]), NOW);
+      const before = await row('a');
+      await sync.sync(defs(['a', { every: '1h' }]), NOW + 60_000, { owner: false });
+      const after = await row('a');
+      expect(after.DefinitionHash).to.eq(before.DefinitionHash);
+      expect(after.NextRunAt).to.eq(before.NextRunAt);
+      expect(after.UpdatedAt).to.eq(before.UpdatedAt);
+    });
+
+    it('clears Orphaned on a row it knows, without rewriting it', async () => {
+      await sync.sync(defs(['a', { every: '5m' }], ['b', { every: '5m' }]), NOW);
+      await sync.sync(defs(['a', { every: '5m' }]), NOW);
+      const orphaned = await row('b');
+      expect(orphaned.Orphaned).to.eq(true);
+      await sync.sync(defs(['b', { every: '10m' }]), NOW + 60_000, { owner: false });
+      const known = await row('b');
+      expect(known).to.include({
+        Orphaned: false,
+        DefinitionHash: orphaned.DefinitionHash,
+        NextRunAt: orphaned.NextRunAt,
+      });
+      expect((await row('a')).Orphaned).to.eq(false);
+    });
+
+    it('is how the service syncs: only the scheduler loop orphans a row', async () => {
+      await sync.sync(defs(['ghost', { every: '5m' }]), NOW);
+      await DI.resolve(SchedulerService);
+      expect((await row('ghost')).Orphaned).to.eq(false);
+      await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+      expect((await row('ghost')).Orphaned).to.eq(true);
+    });
   });
 
   it('tolerates two replicas booting at the same time', async () => {

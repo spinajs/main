@@ -13,13 +13,23 @@ export function initialNextRun(def: ScheduleDefinition, now: number): number | n
   return nextOccurrence(def.spec, now);
 }
 
+export interface DefinitionSyncOptions {
+  /**
+   * True (default) for the scheduler loop: it rewrites changed definitions and marks rows it does not
+   * know orphaned. False for a process that does not run schedules (CLI, API-only replica): its
+   * definitions may be older or incomplete, so it only inserts missing rows and un-orphans rows it knows.
+   */
+  owner?: boolean;
+}
+
 @Singleton()
 @Injectable()
 export class DefinitionSync {
   @Logger('SCHEDULER')
   protected Log: Log;
 
-  public async sync(defs: ScheduleDefinition[], now: number): Promise<void> {
+  public async sync(defs: ScheduleDefinition[], now: number, options: DefinitionSyncOptions = {}): Promise<void> {
+    const owner = options.owner ?? true;
     const rows = await ScheduleModel.all();
     const byName = new Map(rows.map((r) => [r.Name, r]));
 
@@ -51,6 +61,16 @@ export class DefinitionSync {
 
       if (existing.DefinitionHash === hash && !existing.Orphaned) continue;
 
+      if (!owner) {
+        // the definition and NextRunAt stay as the loop wrote them; the loop rewrites them at its next boot
+        if (existing.Orphaned) {
+          await ScheduleModel.update({ Orphaned: false, UpdatedAt: now })
+            .where('Name', def.name)
+            .where('Orphaned', true);
+        }
+        continue;
+      }
+
       // Conditional on the old hash, so of several replicas booting together only one rewrites the row.
       // NextRunAt is written only on a timing change: the value read above may have been claimed and advanced since.
       const timingChanged = timingKey(existing.Definition ?? {}) !== timingKey(serialized);
@@ -67,6 +87,7 @@ export class DefinitionSync {
         .where('DefinitionHash', existing.DefinitionHash);
     }
 
+    if (!owner) return;
     const known = new Set(defs.map((d) => d.name));
     for (const r of rows) {
       if (!known.has(r.Name) && !r.Orphaned) {
