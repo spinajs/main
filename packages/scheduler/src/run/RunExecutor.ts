@@ -1,7 +1,9 @@
 import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log-common';
+import type { QueueJob } from '@spinajs/queue';
 import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
+import { runJobId, runJobKey, ScheduledJobPayload } from '../emit/emit.js';
 import { RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
@@ -73,9 +75,8 @@ export class RunExecutor {
     const abort = (reason: AbortReason) => {
       if (!ac.signal.aborted) ac.abort(reason);
     };
-    const done = this.execute(run, def, ac, abort).catch((err) =>
-      this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`),
-    );
+    const work = def.emit ? this.dispatchEmit(run, def, def.emit) : this.execute(run, def, ac, abort);
+    const done = work.catch((err) => this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`));
     return { runId: run.Id, schedule: run.Schedule, done, abort };
   }
 
@@ -134,6 +135,65 @@ export class RunExecutor {
     try {
       await ctx.close(outcome);
       await this.complete(run, def, ctx, outcome);
+    } finally {
+      this.Events.forget(run.Id);
+    }
+  }
+
+  /**
+   * Emit mode: the run hands its work to a queue job and ends `emitted`; `EmitMirror` records the job's
+   * outcome later. The queue owns retries, so a failed emit fails the run (`decide` sees `emit`).
+   */
+  protected async dispatchEmit(
+    run: RunModel,
+    def: ScheduleDefinition,
+    job: NonNullable<ScheduleDefinition['emit']>,
+  ): Promise<void> {
+    const startedAt = this.Clock.now();
+    const jobId = runJobId(run);
+
+    try {
+      await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
+      await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
+      await this.Signals.runStarted(run, startedAt);
+
+      const payload: ScheduledJobPayload & { JobId: string } = {
+        JobId: jobId,
+        SchedulerRunId: run.Id,
+        Schedule: def.name,
+        ScheduledAt: new Date(run.ScheduledAt ?? startedAt).toISOString(),
+        Params: run.Params ?? {},
+      };
+      try {
+        await (job as unknown as typeof QueueJob).emit(payload);
+      } catch (error) {
+        const cfg = resolveSchedulerConfig(this.RawConfig);
+        const ctx = await this.createContext(run, def, new AbortController().signal, cfg);
+        await this.complete(run, def, ctx, { kind: 'error', error });
+        return;
+      }
+
+      const now = this.Clock.now();
+      const message = `emitted ${job.name} ${runJobKey(run)}`;
+      const finished = await this.Leases.finishRun(run.Id, run.Attempt, {
+        Status: 'emitted',
+        Reason: null,
+        JobId: jobId,
+        Message: message,
+        UpdatedAt: now,
+        LeaseOwner: null,
+        LeaseUntil: null,
+      });
+      if (!finished) {
+        this.Log.warn(`run ${run.Id} emitted job ${jobId} but could not record it: the lease is gone`);
+        return;
+      }
+      await RunAttemptModel.update({ FinishedAt: now, Status: 'emitted' })
+        .where('RunId', run.Id)
+        .where('Attempt', run.Attempt);
+      Object.assign(run, { Status: 'emitted', Reason: null, JobId: jobId, Message: message });
+      await this.Events.write(run, run.Attempt, { type: 'status', status: 'emitted', reason: null });
+      if (!run.Forced) await this.Leases.releaseScheduleLease(run.Schedule, now);
     } finally {
       this.Events.forget(run.Id);
     }

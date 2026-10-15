@@ -5,12 +5,12 @@ import type { NormalizedRetry, ScheduleDefinition } from '../interfaces.js';
 /**
  * The retry policy the scheduler applies itself. `runOn: 'all'` runs are local work: a retry would be a
  * claimable row any replica could pick up, so they get none (the next local occurrence is the retry).
- * Emit mode leaves retries to the queue, which `decideAfterFailure` handles through `emit`.
+ * Emit mode leaves retries to the queue.
  */
 export function automaticRetry(
-  def: Pick<ScheduleDefinition, 'retry' | 'runOn'> | undefined,
+  def: Pick<ScheduleDefinition, 'retry' | 'runOn' | 'emit'> | undefined,
 ): NormalizedRetry | undefined {
-  return def?.runOn === 'all' ? undefined : def?.retry;
+  return def?.runOn === 'all' || def?.emit ? undefined : def?.retry;
 }
 
 export function computeBackoff(retry: NormalizedRetry, attempt: number, random: () => number = Math.random): number {

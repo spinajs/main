@@ -68,3 +68,4 @@ export * from './cli/SchedulerErrorsResolveCommand.js';
 export * from './cli/SchedulerPruneCommand.js';
 export * from './cli-support/sse.js';
 export * from './cli-support/follow.js';
+export * from './emit/emit.js';

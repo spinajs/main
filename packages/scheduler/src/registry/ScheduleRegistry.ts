@@ -54,6 +54,9 @@ export class ScheduleRegistry extends AsyncService {
           `schedule ${d.name}: retry is ignored for runOn 'all'; a failed local run waits for the next occurrence`,
         );
       }
+      if (d.emit && d.retry) {
+        this.Log.warn(`schedule ${d.name}: retry is ignored in emit mode; the queue retries the job`);
+      }
     }
     await super.resolve();
   }
