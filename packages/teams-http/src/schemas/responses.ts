@@ -96,5 +96,5 @@ export const TeamsOk = obj(['ok'], { ok: { type: 'boolean', enum: [true] } }, 'D
 export const TeamsError = obj(
   ['error'],
   { error: obj(['code', 'message'], { code: text, message: text, field: { ...text, description: 'the input the error is about' } }, 'The refusal') },
-  "A refused request. Codes: 400 invalid_request and the AuthzAdmin validation codes (unknown_role, wrong_scope_type, not_assignable, set_cycle, set_too_deep, …); 403 forbidden, escalation, last_holder, self_lockout, protected_role, invitation_email_mismatch, invitation_not_a_user; 404 not_found, invitation_unknown; 409 conflict, invitation_expired, invitation_revoked, invitation_used_up. A refusal of the route check itself answers authz-http's `{ error: 'forbidden', permission, resource, reason }`.",
+  "A refused request. Codes: 400 invalid_request and the AuthzAdmin validation codes (unknown_role, wrong_scope_type, not_assignable, set_cycle, set_too_deep, …); 403 forbidden, escalation, last_holder, self_lockout, protected_role, invitation_email_mismatch, invitation_not_a_user, invitation_inviter_lost_authority; 404 not_found, invitation_unknown; 409 conflict, invitation_expired, invitation_revoked, invitation_used_up. A refusal of the route check itself answers authz-http's `{ error: 'forbidden', permission, resource, reason }`.",
 );

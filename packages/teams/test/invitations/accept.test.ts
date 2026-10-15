@@ -119,4 +119,43 @@ describe('InvitationService.accept', function () {
     await invitations.accept(fay, fresh);
     expect(await stack.authz.can(fay, 'team:read', teamRef(team.id))).to.equal(true);
   });
+
+  it('re-checks the inviter at accept: an inviter demoted or removed since no longer grants', async () => {
+    const { owner, team } = await ownedTeam();
+    const demoted = person('demoted');
+    const removed = person('removed');
+    await teams.addTeamMember(owner, team.id, refOf(demoted), 'team.admin');
+    await teams.addTeamMember(owner, team.id, refOf(removed), 'team.admin');
+    const fromDemoted = await invitations.create(demoted, { teamId: team.id, role: 'team.member' });
+    const fromRemoved = await invitations.create(removed, { teamId: team.id, role: 'team.member' });
+    await teams.setTeamRole(owner, team.id, refOf(demoted), 'team.member');
+    await teams.removeTeamMember(owner, team.id, refOf(removed));
+
+    const u = person('u');
+    expect(await refusal(invitations.accept(u, fromDemoted.token))).to.equal('inviter_lost_authority');
+    expect(await refusal(invitations.accept(u, fromRemoved.token))).to.equal('inviter_lost_authority');
+    expect(await stack.authz.can(u, 'team:read', teamRef(team.id))).to.equal(false);
+    expect((await invitations.list(owner, team.id)).items.map((i) => i.uses)).to.deep.equal([0, 0]);
+  });
+
+  it('re-checks that the inviter still covers the role', async () => {
+    const { owner, team } = await ownedTeam();
+    const { token } = await invitations.create(owner, { teamId: team.id, role: 'team.owner' });
+    const next = person('next');
+    await teams.addTeamMember(owner, team.id, refOf(next));
+    // The old owner stays team.admin: still allowed to invite, no longer to grant team.owner.
+    await teams.transferOwnership(owner, team.id, refOf(next));
+    expect(await stack.authz.can(owner, 'team:invitations.manage', teamRef(team.id))).to.equal(true);
+    expect(await refusal(invitations.accept(person('u'), token))).to.equal('inviter_lost_authority');
+  });
+
+  it('accepts while the inviter keeps the authority', async () => {
+    const { owner, team } = await ownedTeam();
+    const admin = person('admin');
+    await teams.addTeamMember(owner, team.id, refOf(admin), 'team.admin');
+    const { token } = await invitations.create(admin, { teamId: team.id, role: 'team.admin' });
+    const u = person('u');
+    await invitations.accept(u, token);
+    expect(await stack.authz.can(u, 'team:invitations.manage', teamRef(team.id))).to.equal(true);
+  });
 });

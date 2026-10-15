@@ -23,7 +23,7 @@ describe('teams-http helpers', () => {
     it('answers the invitation codes', () => {
       expect(teamsErrorStatus('invitation_unknown')).to.eq(404);
       for (const code of ['invitation_expired', 'invitation_revoked', 'invitation_used_up']) expect(teamsErrorStatus(code), code).to.eq(409);
-      for (const code of ['invitation_email_mismatch', 'invitation_not_a_user']) expect(teamsErrorStatus(code), code).to.eq(403);
+      for (const code of ['invitation_email_mismatch', 'invitation_not_a_user', 'invitation_inviter_lost_authority']) expect(teamsErrorStatus(code), code).to.eq(403);
       expect(teamsErrorStatus('no_such_code')).to.eq(400);
     });
   });
@@ -34,6 +34,7 @@ describe('teams-http helpers', () => {
       expect(teamsFailureAnswer(new InvitationRefused('used_up'))).to.deep.eq({ status: 409, error: { code: 'invitation_used_up', message: 'invitation refused: used_up' } });
       expect(teamsFailureAnswer(new InvitationRefused('unknown'))?.status).to.eq(404);
       expect(teamsFailureAnswer(new InvitationRefused('email_mismatch'))?.status).to.eq(403);
+      expect(teamsFailureAnswer(new InvitationRefused('inviter_lost_authority'))?.status).to.eq(403);
     });
 
     it('answers the @spinajs/exceptions errors the services throw', () => {

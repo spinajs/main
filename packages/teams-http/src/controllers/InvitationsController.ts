@@ -25,7 +25,7 @@ export class InvitationsController extends BaseController {
    * @response 200 {TeamsInvitationAccepted} The team, group and role the caller joined with
    * @response 400 Bad request: the body does not match AcceptInvitationBody
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {TeamsError} invitation_email_mismatch (the caller's verified email is another, or none) or invitation_not_a_user
+   * @response 403 {TeamsError} invitation_email_mismatch (the caller's verified email is another, or none), invitation_not_a_user, or invitation_inviter_lost_authority (the inviter no longer may invite or grant the role)
    * @response 404 {TeamsError} invitation_unknown: no invitation has this token (or a resend replaced it)
    * @response 409 {TeamsError} invitation_expired, invitation_revoked or invitation_used_up
    */

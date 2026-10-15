@@ -20,7 +20,8 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
    ladder `team`, `group.member`, `group.manager`), the permissions, the archived-team policy, the
    `authz.admin.permissions` mapping and `authz.admin.guard.keepHolders: [{ role: 'team.owner', scopeType: 'team' }]`.
    The ladder applies to every type below a team: grants you add to the team roles (e.g. `project:read` to
-   `team.member`) reach your team-owned resources.
+   `team.member`) reach your team-owned resources. Such a permission must also declare type `team` (see
+   [App permissions on team roles](#app-permissions-on-team-roles)).
 2. Run the migrations `Teams_2026_10_14_00_00_00` and `TeamsInvitations_2026_10_14_00_01_00` on the connection
    `default`, next to the authz-rbac, authz-orm and authz-abac tables (one connection: authz-orm checks it at boot).
 3. Use `DbAssignmentStore` (the membership closure needs it) and `DbAuthzAdminBackend`.
@@ -32,6 +33,34 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
    `teams.invitations.subject`, `teams.invitations.connection` (else `email.defaultConnection`).
 7. Archiving needs `@spinajs/authz-abac`; without an ABAC model the policy is not evaluated and archived teams stay
    writable.
+
+## App permissions on team roles
+
+Every app permission that a team role (`team.member`, `team.admin`, `team.owner`) grants must list `team` in its
+`types`, next to the app's own type. The admin guard (`CheckRbacAdminFacts.covers`) checks each permission of a
+granted role at the grant scope, which for a team role is the team. A permission whose `types` leave out `team`
+counts as not held there, so every grant of that role by a user (adding a member, `setTeamRole`,
+`transferOwnership`, creating an invitation) fails with `escalation`, even for the team's owner, and the `escalation`
+message names the role, not the permission at fault. Only grants made as SYSTEM (the owner at team creation) skip the
+guard. The same applies to group roles at a `group` scope: their app permissions list `group`.
+
+```ts
+// The app's config, merged with the teams fragment (role grants concatenate).
+export default {
+  authz: {
+    permissions: {
+      'project:read': { types: ['project', 'team'] },
+      'project:update': { types: ['project', 'team'] },
+    },
+    rbac: {
+      roles: {
+        'team.member': { grants: ['project:read'] },
+        'team.admin': { grants: ['project:update'] },
+      },
+    },
+  },
+};
+```
 
 ## Services
 
@@ -63,7 +92,9 @@ Teams, groups and invitations on authz-v3. Nothing here is app specific: teams a
 - `deleteTeam` is a soft delete: the team disappears from every service, its writes freeze, `restoreTeam` brings it
   back (needs `team:delete`); `purgeTeam(actor, id)` purges it at once. `purgeDue(now)` (call it from a scheduler) hard-deletes teams deleted more than
   `teams.deletion.graceDays` (default 30) ago, with their sub-teams, groups and invitations; authz-orm forgets their
-  scopes; each purge publishes `TeamPurged` (`{ team, slug, teams, groups }`) to every `AuthzEventSink`.
+  scopes; each purge publishes `TeamPurged` (`{ team, slug, teams, groups }`) to every `AuthzEventSink`. It returns
+  `{ purged, failed }`: a team whose purge throws is logged (`teams` logger) and listed in `failed`, the run goes on
+  with the other teams, and the next run retries it.
 
 ## Invitations
 
@@ -72,7 +103,10 @@ run), so nobody invites into a role they could not grant. The token (32 random b
 and stored as `v1:` + HMAC-SHA256. Email invitations are mailed at once (never queued) through `InvitationMailer`
 and bound to the address; `accept` compares it with the app's `VerifiedEmailSource`. `resend` mails a new token.
 `accept` is idempotent per user, honours `maxUses`, expiry and revocation, and runs as SYSTEM with reason
-`invitation:<id>`. New users sign up through the app's own flow and then accept with the token they kept.
+`invitation:<id>`. Before it grants, `accept` judges the inviter (`created_by`) again as `create` did:
+`team:invitations.manage` at the team and the dry run, by the inviter's assignments at that moment. An inviter
+demoted or removed since then gets `InvitationRefused` `inviter_lost_authority`, and no use is counted. New users
+sign up through the app's own flow and then accept with the token they kept.
 
 ## Config (`teams.*`)
 

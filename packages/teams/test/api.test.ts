@@ -30,6 +30,6 @@ describe('teams api', () => {
     expect(e.code).to.equal('expired');
     expect(Object.keys(e)).to.include('code');
     expect(e.message).to.match(/expired/);
-    expect(teams.INVITATION_REFUSALS).to.deep.equal(['unknown', 'revoked', 'expired', 'used_up', 'email_mismatch', 'not_a_user']);
+    expect(teams.INVITATION_REFUSALS).to.deep.equal(['unknown', 'revoked', 'expired', 'used_up', 'email_mismatch', 'not_a_user', 'inviter_lost_authority']);
   });
 });

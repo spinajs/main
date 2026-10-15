@@ -71,13 +71,13 @@ describe('TeamService: delete, restore, purge', function () {
     await teams.deleteTeam(owner, c.id);
     await teams.deleteTeam(owner, p.id);
 
-    expect(await teams.purgeDue(new Date())).to.deep.equal([]);
+    expect(await teams.purgeDue(new Date())).to.deep.equal({ purged: [], failed: [] });
     expect(await failure(teams.purgeTeam(owner, randomUUID()))).to.be.instanceOf(ResourceNotFound);
     const live = await teams.createTeam(owner, { slug: slug('live'), name: 'Live' });
     expect(await failure(teams.purgeTeam(owner, live.id))).to.be.instanceOf(InvalidOperation);
     expect(await failure(teams.purgeTeam(person('stranger'), p.id))).to.be.instanceOf(AccessDenied);
 
-    const purged = await teams.purgeDue(new Date(Date.now() + 31 * DAY));
+    const { purged } = await teams.purgeDue(new Date(Date.now() + 31 * DAY));
     expect(purged).to.include.members([p.id, c.id]);
     expect(await stack.rows('teams', { id: p.id })).to.deep.equal([]);
     expect(await stack.rows('teams', { id: c.id })).to.deep.equal([]);
@@ -101,5 +101,34 @@ describe('TeamService: delete, restore, purge', function () {
     await teams.deleteTeam(owner, t.id);
     expect(await teams.purgeTeam(owner, t.id)).to.deep.equal([t.id]);
     expect(await stack.rows('teams', { id: t.id })).to.deep.equal([]);
+  });
+
+  it('purgeDue isolates a failing team: the others are purged, the failure is reported', async () => {
+    const owner = await teamCreator();
+    const [a, bad, c] = await Promise.all(['a', 'bad', 'c'].map((s) => teams.createTeam(owner, { slug: slug(s), name: s })));
+    for (const t of [a, bad, c]) await teams.deleteTeam(owner, t.id);
+    const service = teams as unknown as { beforePurge(t: { id: string }): Promise<void>; Log: { error(e: Error, message: string): void } };
+    const beforePurge = service.beforePurge;
+    const logError = service.Log.error;
+    const logged: string[] = [];
+    service.Log.error = (_e: Error, message: string) => void logged.push(message);
+    service.beforePurge = async function (this: unknown, t: { id: string }) {
+      if (t.id === bad.id) throw new Error('purge failed');
+      return beforePurge.call(this, t);
+    };
+    try {
+      const { purged, failed } = await teams.purgeDue(new Date(Date.now() + 31 * DAY));
+      expect(purged).to.include.members([a.id, c.id]);
+      expect(purged).to.not.include(bad.id);
+      expect(failed).to.deep.equal([bad.id]);
+      expect(logged.filter((m) => m.includes(bad.id))).to.have.length(1);
+    } finally {
+      service.beforePurge = beforePurge;
+      service.Log.error = logError;
+    }
+    expect(await stack.rows('teams', { id: a.id })).to.deep.equal([]);
+    expect(await stack.rows('teams', { id: c.id })).to.deep.equal([]);
+    expect(await stack.rows('teams', { id: bad.id })).to.have.length(1);
+    expect((await teams.purgeDue(new Date(Date.now() + 31 * DAY))).purged).to.include(bad.id);
   });
 });

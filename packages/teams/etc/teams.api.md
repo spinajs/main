@@ -95,6 +95,11 @@ export interface PrincipalTeams {
         readonly roles: readonly string[];
     })[];
 }
+export interface PurgeReport {
+    readonly purged: readonly string[];
+    /** The due teams whose purge failed; the next run retries them. */
+    readonly failed: readonly string[];
+}
 export declare abstract class TeamService {
     abstract createTeam(actor: Principal, input: CreateTeamInput): Promise<TeamView>;
     abstract getTeam(actor: Principal, id: string): Promise<TeamView>;
@@ -111,8 +116,11 @@ export declare abstract class TeamService {
     abstract restoreTeam(actor: Principal, id: string): Promise<TeamView>;
     /** Hard-deletes a soft-deleted team with its sub-teams, groups and invitations now; needs `team:delete`. */
     abstract purgeTeam(actor: Principal, id: string): Promise<readonly string[]>;
-    /** System operation: purges every team deleted at least `teams.deletion.graceDays` before `now`; returns the purged team ids. */
-    abstract purgeDue(now?: Date): Promise<readonly string[]>;
+    /**
+     * System operation: purges every team deleted at least `teams.deletion.graceDays` before `now`. A team whose purge
+     * throws is logged and listed in `failed` (its sub-teams with it); the others are still purged.
+     */
+    abstract purgeDue(now?: Date): Promise<PurgeReport>;
     abstract members(actor: Principal, teamId: string, page?: Page): Promise<Paged<MemberEntry>>;
     abstract addTeamMember(actor: Principal, teamId: string, subject: TeamSubject, role?: string): Promise<void>;
     abstract removeTeamMember(actor: Principal, teamId: string, subject: TeamSubject): Promise<void>;
@@ -208,7 +216,8 @@ export declare const INVITATION_REFUSALS: readonly [
     "expired",
     "used_up",
     "email_mismatch",
-    "not_a_user"
+    "not_a_user",
+    "inviter_lost_authority"
 ];
 export type InvitationRefusal = (typeof INVITATION_REFUSALS)[number];
 /** `code` is one of INVITATION_REFUSALS and is part of the contract; the message is not. */
@@ -231,6 +240,7 @@ const INVITATION_REFUSALS = Object.freeze([
     "expired",
     "used_up",
     "email_mismatch",
-    "not_a_user"
+    "not_a_user",
+    "inviter_lost_authority"
 ] as const);
 ```
