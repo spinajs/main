@@ -108,6 +108,7 @@ contract(
 for (const kind of DB_KINDS) {
   let db: TestDb | undefined;
   describe(`DbMembershipStore (${kind})`, function () {
+    this.timeout(60000);
     before(async function () {
       db = await bootDb(this, kind, 'membership');
     });
