@@ -320,6 +320,8 @@ export class PostgresOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     const pool = this.resolvedPoolOptions();
+    // withReconnect() calls connect() again on a live driver; the old pool's sockets died with the server
+    const previous = this.Pool;
 
     this.Pool = new pg.Pool({
       host: this.Options.Host,
@@ -345,22 +347,23 @@ export class PostgresOrmDriver extends SqlDriver {
     const schema = this.Options.Options?.Schema as string | undefined;
     const session = [`SET TIME ZONE 'UTC'`, ...(schema ? [`SET search_path TO ${pgEscapeIdentifier(schema)}`] : [])].join('; ');
     this.Pool.on('connect', (c) => {
+      // The pool listens for errors only while a client is idle. A checked-out client whose
+      // socket dies emits 'error' too, and unhandled that kills the process; the statement in
+      // flight already rejects with the same error.
+      c.on('error', () => undefined);
       c.query(session).catch((err: Error) => {
         this.Log?.warn(`session setup failed for ${this.Options.Name}: ${err.message}`);
       });
     });
 
-    try {
-      const client = await this.Pool.connect();
-      client.release();
+    void previous?.end().catch(() => undefined);
 
-      this.setState(ConnectionState.Connected);
-      return this;
-    } catch (err) {
-      await this.Pool.end().catch(() => undefined);
-      this.Pool = null as any;
-      throw err;
-    }
+    // On failure the new pool stays: a retry must find a pool to connect through, not null.
+    const client = await this.Pool.connect();
+    client.release();
+
+    this.setState(ConnectionState.Connected);
+    return this;
   }
 
   public async disconnect(): Promise<OrmDriver> {
