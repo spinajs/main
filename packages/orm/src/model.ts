@@ -14,6 +14,7 @@ import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
+import { quoterOf } from './quoting.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
@@ -1253,7 +1254,7 @@ export const MODEL_STATIC_MIXINS = {
         JoinQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
           // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
@@ -1285,7 +1286,7 @@ export const MODEL_STATIC_MIXINS = {
         junctionQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
           joinTableForeignKey: relationDescriptor.ForeignKey,

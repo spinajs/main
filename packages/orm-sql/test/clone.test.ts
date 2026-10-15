@@ -133,7 +133,7 @@ describe('Query builder clone() statement rebinding', () => {
 
     const cloned = query.clone();
 
-    expect(sql(query)).to.contain('WHERE owner_id = `RelationTable3`.`Id`');
+    expect(sql(query)).to.contain('WHERE `owner_id` = `RelationTable3`.`Id`');
     expect(sql(cloned)).to.equal(sql(query));
   });
 
@@ -145,7 +145,7 @@ describe('Query builder clone() statement rebinding', () => {
 
     const cloned = query.clone();
 
-    expect(sql(query)).to.contain('user_id = `users`.`Id`');
+    expect(sql(query)).to.contain('`user_id` = `users`.`Id`');
     expect(sql(cloned)).to.equal(sql(query));
   });
 
@@ -163,8 +163,8 @@ describe('Query builder clone() statement rebinding', () => {
     const cloned = query.clone();
     query.setAlias('$users$');
 
-    expect(sql(query)).to.contain('user_id = `$users$`.`Id`');
-    expect(sql(cloned)).to.contain('user_id = `users`.`Id`');
+    expect(sql(query)).to.contain('`user_id` = `$users$`.`Id`');
+    expect(sql(cloned)).to.contain('`user_id` = `users`.`Id`');
     expect(sql(cloned)).to.not.contain('$users$');
   });
 
@@ -202,6 +202,6 @@ describe('Query builder clone() statement rebinding', () => {
     const twice = sql(query);
 
     expect(twice).to.equal(once);
-    expect(once.match(/owner_id = /g)).to.have.length(1);
+    expect(once.match(/`owner_id` = /g)).to.have.length(1);
   });
 });
