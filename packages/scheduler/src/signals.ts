@@ -41,6 +41,14 @@ export class SchedulerSignals {
   protected Log: Log;
 
   protected pending = new Set<Promise<void>>();
+  /** Bounds the memory a long broker outage can hold when the transport buffers instead of failing. */
+  protected maxPending = 10_000;
+  protected dropped = 0;
+
+  /** Events not sent because `maxPending` sends were already in flight. */
+  public get droppedEvents(): number {
+    return this.dropped;
+  }
 
   public runStarted(run: RunModel, now: number): Promise<void> {
     this.Log.info(`run ${run.Id} of ${run.Schedule} started (attempt ${run.Attempt}, trigger ${run.Trigger})`);
@@ -182,6 +190,12 @@ export class SchedulerSignals {
 
   /** Best effort and never awaited by the run: a broker outage must not change a run's outcome. */
   protected send(emit: () => Promise<unknown>): void {
+    if (this.pending.size >= this.maxPending) {
+      if (this.dropped++ === 0) {
+        this.Log.warn(`${this.maxPending} scheduler events are waiting for the broker; dropping new events`);
+      }
+      return;
+    }
     const sending: Promise<void> = Promise.resolve()
       .then(emit)
       .then(

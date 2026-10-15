@@ -219,6 +219,24 @@ describe('scheduler events', () => {
   });
 });
 
+class TwoPendingSignals extends SchedulerSignals {
+  protected maxPending = 2;
+}
+
+describe('scheduler event backlog', () => {
+  afterEach(() => sinon.restore());
+
+  it('drops sends beyond the pending cap and counts them', async () => {
+    await bootTestEnv({ now: '2026-01-05T10:00:00Z' });
+    const emit = sinon.stub(DefaultQueueService.prototype, 'emit').callsFake(() => new Promise(() => undefined));
+    const signals = DI.resolve(TwoPendingSignals);
+    for (let i = 0; i < 5; i++) await signals.pausedByFailures('ev-backlog', i);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(emit.callCount).to.eq(2);
+    expect(signals.droppedEvents).to.eq(3);
+  });
+});
+
 describe('scheduler event routing', () => {
   afterEach(() => {
     sinon.restore();
