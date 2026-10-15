@@ -919,4 +919,41 @@ describe('stomp queue transport - unit', function () {
       await expect(emitP).to.be.rejectedWith(UnexpectedServerError);
     });
   });
+
+  describe('client-id', () => {
+    afterEach(() => {
+      delete process.env.QUEUE_INSTANCE_ID;
+    });
+
+    it('uses the connection name when nothing else is set', async () => {
+      const c = await connected({ name: 'jobs-a' });
+      expect(c.ClientId).to.eq('jobs-a');
+    });
+
+    it('appends options.clientIdSuffix and sends it in the CONNECT headers', async () => {
+      const c = await connected({ name: 'jobs-b', clientId: 'app-prod-jobs', options: { clientIdSuffix: 'replica-2' } });
+      expect(c.ClientId).to.eq('app-prod-jobs-replica-2');
+      expect(c.fake.config.connectHeaders['client-id']).to.eq('app-prod-jobs-replica-2');
+    });
+
+    it('falls back to QUEUE_INSTANCE_ID for the suffix', async () => {
+      process.env.QUEUE_INSTANCE_ID = 'worker-1';
+      const c = await connected({ name: 'jobs-c' });
+      expect(c.ClientId).to.eq('jobs-c-worker-1');
+    });
+
+    it('ignores an empty QUEUE_INSTANCE_ID', async () => {
+      process.env.QUEUE_INSTANCE_ID = '';
+      const c = await connected({ name: 'jobs-d' });
+      expect(c.ClientId).to.eq('jobs-d');
+    });
+
+    it('explains a duplicate client-id refusal', async () => {
+      const c = new TestableStompClient(options({ name: 'jobs-e' }));
+      const p = c.resolve();
+      c.fake.onStompError({ headers: { message: 'Broker: localhost - Client: jobs-e already connected from tcp://172.18.0.1:50000' }, body: '' });
+
+      await expect(p).to.be.rejectedWith(UnexpectedServerError, /QUEUE_INSTANCE_ID/);
+    });
+  });
 });

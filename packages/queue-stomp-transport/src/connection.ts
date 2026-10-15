@@ -133,7 +133,10 @@ export class StompQueueClient extends QueueClient {
   protected EmitPipeline: ResiliencePipeline<void> = this.buildEmitPipeline();
 
   public get ClientId() {
-    return this.Options.clientId ?? this.Options.name;
+    const base = this.Options.clientId ?? this.Options.name;
+    // ActiveMQ refuses a second connection with the same client-id, so replicas need a stable per-instance suffix
+    const suffix = this.Options.options?.clientIdSuffix || process.env.QUEUE_INSTANCE_ID;
+    return suffix ? `${base}-${suffix}` : base;
   }
 
   /**
@@ -324,13 +327,17 @@ export class StompQueueClient extends QueueClient {
       this.Client.onStompError = (frame) => {
         // Compliant brokers terminate the connection after an ERROR frame.
         // Bad login / passcode typically surfaces here.
-        this.Log.error('Broker reported error: ' + frame.headers['message']);
+        const brokerMessage = frame.headers['message'] ?? '';
+        this.Log.error('Broker reported error: ' + brokerMessage);
         this.Log.error('Additional details: ' + frame.body);
 
         if (!settled) {
           settled = true;
+          const hint = /already connected|InvalidClientID/i.test(brokerMessage)
+            ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )`
+            : '';
           this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}`, frame));
+          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}: ${brokerMessage}${hint}`, frame));
         }
       };
 
