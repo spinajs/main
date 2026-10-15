@@ -276,6 +276,7 @@ describe('RunContext (identity) and RunFinalizer', () => {
       clock: DI.resolve(DbClock),
       log: DI.resolve(Log, ['SCHEDULER']),
       config: resolveSchedulerConfig({}),
+      saveCheckpoint: () => Promise.resolve(true),
     });
     expect(ctx).to.include({ runId: 'r1', schedule: 'a', trigger: 'manual', attempt: 2 });
     expect(ctx.params).to.deep.eq({ file: 'x' });

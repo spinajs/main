@@ -152,6 +152,9 @@ export class RunExecutor {
       config: cfg,
       plannedWeight: await this.plannedWeight(def.name),
       onStepFinished: (step, status, ms) => this.Signals.stepFinished(run, step, status, ms),
+      // fenced like every other write of the owner: a reaped or re-claimed run refuses it
+      saveCheckpoint: (json) =>
+        this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: json, UpdatedAt: this.Clock.now() }),
     });
   }
 

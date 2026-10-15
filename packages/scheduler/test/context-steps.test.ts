@@ -210,6 +210,7 @@ describe('RunContext flush bookkeeping', () => {
       clock: DI.resolve(DbClock),
       log: DI.resolve(Log, ['SCHEDULER']),
       config: resolveSchedulerConfig({}),
+      saveCheckpoint: () => Promise.resolve(true),
     });
   });
 

@@ -1,5 +1,5 @@
-import { InvalidOperation } from '@spinajs/exceptions';
-import type { Log } from '@spinajs/log-common';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import type { Log, LogVariables } from '@spinajs/log-common';
 import type {
   RunEventPayload,
   RunLogLevel,
@@ -31,6 +31,8 @@ export interface RunContextInit {
   /** Expected total step weight (R10); 0 when unknown. */
   plannedWeight?: number;
   onStepFinished?: (step: string, status: StepStatus, durationMs: number) => Promise<void>;
+  /** Writes the checkpoint to the run row while this replica still owns the run; `false` when it does not. */
+  saveCheckpoint: (json: string) => Promise<boolean>;
 }
 
 export interface StepOptions {
@@ -45,6 +47,15 @@ export interface StepHandle {
   readonly signal: AbortSignal;
   progress(p: ProgressInput): void;
   message(text: string, level?: RunLogLevel): void;
+}
+
+/** Lines go to the app log; `info` and above are also journaled as `log` events (capped by `runLogLimit`). */
+export interface RunLogger {
+  trace(message: string, data?: unknown): void;
+  debug(message: string, data?: unknown): void;
+  info(message: string, data?: unknown): void;
+  warn(message: string, data?: unknown): void;
+  error(message: string, data?: unknown): void;
 }
 
 interface OpenStep {
@@ -75,6 +86,7 @@ export class RunContext {
   public readonly params: Record<string, unknown>;
   public readonly triggeredBy: TriggeredBy | null;
   public readonly signal: AbortSignal;
+  public readonly log: RunLogger;
 
   public currentStepName: string | null = null;
 
@@ -99,6 +111,7 @@ export class RunContext {
   /** Errors thrown out of a step: the run error still names the step after it closed. */
   protected stepErrors = new WeakMap<object, string>();
   protected abortedStep: string | null = null;
+  protected checkpointValue: unknown;
 
   constructor(protected readonly init: RunContextInit) {
     const r = init.run;
@@ -114,6 +127,8 @@ export class RunContext {
     this.plannedWeight = init.plannedWeight ?? 0;
     this.lastMessage = r.Message ?? null;
     this.lastEmittedProgress = r.Progress ?? 0;
+    this.checkpointValue = r.Checkpoint ?? null;
+    this.log = this.createLogger();
   }
 
   /** Total weight of the steps this run goes through (R10); overrides the previous run's. */
@@ -212,6 +227,19 @@ export class RunContext {
     return { set: this.hasResult, value: this.resultValue };
   }
 
+  /** The run row's checkpoint when the run started, then the last one saved. */
+  public get lastCheckpoint(): unknown {
+    return this.checkpointValue;
+  }
+
+  /** Persists JSON `data` on the run row; throws `RunAbortedError('lease-lost')` once another replica owns the run. */
+  public async checkpoint(data: unknown): Promise<void> {
+    const json = safeJson(data);
+    if (json === null) throw new InvalidArgument('checkpoint data must be JSON-serializable');
+    if (!(await this.init.saveCheckpoint(json))) throw new RunAbortedError('lease-lost');
+    this.checkpointValue = JSON.parse(json) as unknown;
+  }
+
   public get dirty(): boolean {
     return this.version !== this.flushedVersion;
   }
@@ -267,6 +295,33 @@ export class RunContext {
     if (s && !s.closed) await this.closeStep(s, 'aborted', null, undefined);
     this.closed = true;
     await this.queue;
+  }
+
+  protected createLogger(): RunLogger {
+    // LogVariables also types the per-line built-ins (level, message, ...), which the logger fills itself
+    const vars = { runId: this.runId, schedule: this.schedule, attempt: this.attempt } as unknown as LogVariables;
+    const base = this.init.log.child('SCHEDULER', vars);
+    const write = (level: RunLogLevel, message: string, data?: unknown) => {
+      const fields: Record<string, unknown> = { step: this.currentStepName };
+      if (data !== undefined) fields.data = data;
+      base[level](fields, message);
+      if (level === 'trace' || level === 'debug') return;
+      const json = data === undefined ? null : safeJson(data);
+      void this.emit({
+        type: 'log',
+        level,
+        message,
+        step: this.currentStepName,
+        ...(json !== null ? { data: JSON.parse(json) as unknown } : {}),
+      });
+    };
+    return {
+      trace: (m, d) => write('trace', m, d),
+      debug: (m, d) => write('debug', m, d),
+      info: (m, d) => write('info', m, d),
+      warn: (m, d) => write('warn', m, d),
+      error: (m, d) => write('error', m, d),
+    };
   }
 
   protected handle(name: string): StepHandle {
