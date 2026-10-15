@@ -1,6 +1,6 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter } from '@spinajs/orm';
-import { SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { SqlJoinStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
 import pg from 'pg';
 
 /**
@@ -38,5 +38,20 @@ export class PostgresLiteralQuoter extends SqlLiteralQuoter {
 
   protected quoteBoolean(value: boolean): string {
     return value ? 'TRUE' : 'FALSE';
+  }
+}
+
+/**
+ * A postgres connection is bound to one database, so a joined table is never qualified with it
+ * (see PostgresTableAliasCompiler), and unquoted key columns would be folded to lower case.
+ */
+@NewInstance()
+export class PostgresJoinStatement extends SqlJoinStatement {
+  protected tableReference(_database: string | undefined, table: string, alias: string): string {
+    return `${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}`;
+  }
+
+  protected keyColumn(column: string | undefined): string {
+    return this.Quoter.quote(`${column}`);
   }
 }

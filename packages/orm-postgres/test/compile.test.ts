@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -79,6 +80,19 @@ describe('postgres SQL compilation', function () {
 
       expect(result.expression).to.equal('SELECT * FROM "users" OFFSET ?');
       expect(result.bindings).to.deep.equal([20]);
+    });
+
+    it('joins without a database qualifier and quotes the join key columns', () => {
+      const result = sqb()
+        .select('*')
+        .from('orders')
+        .leftJoin({ joinTable: 'clients', joinTableAlias: '$c$', joinTableDriver: connection(), sourceTablePrimaryKey: 'client_id', joinTableForeignKey: 'Id' } as any)
+        .toDB();
+
+      const s = sql(result);
+      expect(s).to.contain('LEFT JOIN "clients" as "$c$" ON');
+      expect(s).to.contain('"$orders$"."client_id" = "$c$"."Id"');
+      expect(s).to.not.contain('"test".');
     });
   });
 

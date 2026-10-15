@@ -28,7 +28,7 @@ describe('postgres dialect', function () {
   });
 
   it('registers its own dialect classes', () => {
-    for (const abstraction of ['IdentifierQuoter', 'OnDuplicateQueryCompiler', 'InsertQueryCompiler', 'ColumnQueryCompiler', 'AlterColumnQueryCompiler', 'LimitQueryCompiler', 'CreateDatabaseCompiler', 'DropDatabaseCompiler', 'TableExistsCompiler', 'ServerResponseMapper', 'DefaultValueBuilder']) {
+    for (const abstraction of ['IdentifierQuoter', 'OnDuplicateQueryCompiler', 'InsertQueryCompiler', 'ColumnQueryCompiler', 'AlterColumnQueryCompiler', 'LimitQueryCompiler', 'CreateDatabaseCompiler', 'DropDatabaseCompiler', 'TableExistsCompiler', 'ServerResponseMapper', 'DefaultValueBuilder', 'JoinStatement']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must be registered by the postgres driver itself`).to.eq(true);
     }
   });

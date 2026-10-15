@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, IJoinStatementOptions, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -303,13 +303,24 @@ export class SqlJoinStatement extends JoinStatement {
   public Quoter: IdentifierQuoter;
 
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
+    const Self = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
     return _carryQuoter(
-      new SqlJoinStatement({
+      new Self({
         ...this._options,
         builder: (parent as SelectQueryBuilder) ?? this._options.builder,
       }),
       this,
     );
+  }
+
+  /** The FROM item of a joined table. MySQL may address sibling databases, so it qualifies. */
+  protected tableReference(database: string | undefined, table: string, alias: string): string {
+    return database ? `${this.Quoter.quote(database)}.${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}` : `${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}`;
+  }
+
+  /** A join key column; left unquoted here because the MySQL/SQLite suites pin that byte output. */
+  protected keyColumn(column: string | undefined): string {
+    return `${column}`;
   }
 
   public build(): IQueryStatementResult {
@@ -366,32 +377,15 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (sourceTableAlias) {
-      const sourceDb = sourceModelDriver.Options.Database;
-      if (sourceDb) {
-        sourceTable = `${this.Quoter.quote(sourceDb)}.${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
-      } else {
-        sourceTable = `${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
-      }
+      sourceTable = this.tableReference(sourceModelDriver.Options.Database, sourceTable, sourceTableAlias);
     }
 
     if (joinTableAlias) {
-      const joinDb = joinModelDriver.Options.Database;
-      if (joinDb) {
-        joinTable = `${this.Quoter.quote(joinDb)}.${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
-      } else {
-        joinTable = `${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
-      }
+      joinTable = this.tableReference(joinModelDriver.Options.Database, joinTable, joinTableAlias);
     }
 
-
-
-    // NOTE: only the table alias part of the ON keys is escaped here. The join
-    // key column names (sourceTablePrimaryKey / joinTableForeignKey) are left
-    // as-is on purpose: they come from validated relation descriptors and the
-    // existing suite asserts the unquoted form, so escaping them would change
-    // byte output for normal identifiers.
-    const primaryKey = sourceTableAlias ? `${this.Quoter.quote(sourceTableAlias)}.${this._options.sourceTablePrimaryKey}` : `${this.Quoter.quote(sourceTable)}.${this._options.sourceTablePrimaryKey}`;
-    const foreignKey = joinTableAlias ? `${this.Quoter.quote(joinTableAlias)}.${this._options.joinTableForeignKey}` : `${this.Quoter.quote(joinTable)}.${this._options.joinTableForeignKey}`;
+    const primaryKey = sourceTableAlias ? `${this.Quoter.quote(sourceTableAlias)}.${this.keyColumn(this._options.sourceTablePrimaryKey)}` : `${this.Quoter.quote(sourceTable)}.${this.keyColumn(this._options.sourceTablePrimaryKey)}`;
+    const foreignKey = joinTableAlias ? `${this.Quoter.quote(joinTableAlias)}.${this.keyColumn(this._options.joinTableForeignKey)}` : `${this.Quoter.quote(joinTable)}.${this.keyColumn(this._options.joinTableForeignKey)}`;
 
     // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
     // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer
