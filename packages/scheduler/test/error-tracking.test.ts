@@ -1,4 +1,5 @@
-import { expect } from 'chai';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import {
@@ -11,6 +12,9 @@ import {
   StructuredError,
 } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 
 const T = Date.parse('2026-01-05T10:00:00Z');
 const err = (message: string): StructuredError => ({

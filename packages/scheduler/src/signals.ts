@@ -48,4 +48,14 @@ export class SchedulerSignals {
     this.Log.warn(`error group ${fingerprint} of ${run.Schedule} regressed in run ${run.Id}: ${error.message}`);
     return Promise.resolve();
   }
+
+  public healthChanged(schedule: string, consecutiveFailures: number): Promise<void> {
+    this.Log.trace(`schedule ${schedule}: ${consecutiveFailures} consecutive failure(s)`);
+    return Promise.resolve();
+  }
+
+  public pausedByFailures(schedule: string, consecutiveFailures: number): Promise<void> {
+    this.Log.warn(`schedule ${schedule} paused after ${consecutiveFailures} consecutive failures`);
+    return Promise.resolve();
+  }
 }
