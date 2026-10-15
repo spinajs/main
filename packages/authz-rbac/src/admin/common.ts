@@ -265,6 +265,13 @@ export function surelyGrantsPermission(roles: RoleIndex, role: string, permissio
   });
 }
 
+export const isDenyRoleDef = (roles: RoleIndex, role: string): boolean => roles.roles.get(role)?.deny === true;
+
+/** A deny role whose grants, or those of the deny roles it extends, name `permission` (names or globs; a deny follows no `implies`). */
+export function deniesPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
+  return isDenyRoleDef(roles, role) && roleClosure(roles, role).defs.some((d) => d.deny === true && d.grants.some((g) => matchesAny(g.permission, [permission])));
+}
+
 // ---- command fields ----
 
 /** A command field of the wrong shape; the codes list of the contract has none for it. */
