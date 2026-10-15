@@ -1,22 +1,24 @@
 import { randomUUID } from 'node:crypto';
 
-import { GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { AuthzCommand, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { AuthzEventSink, GLOBAL, SYSTEM } from '@spinajs/authz';
+import type { AuthzCommand, AuthzEvent, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
-import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_TYPE, TeamService } from '../api.js';
+import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
 import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
-import { asSystem, assertAllowed, execute } from '../host.js';
-import { liveGroup, liveTeam, teamLineage } from '../lookup.js';
+import { asSystem, assertAllowed, domainContainer, execute, teamsDomain, teamsDriver } from '../host.js';
+import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
 import { principalTeams } from '../membership.js';
+import { Group } from '../models/Group.js';
 import { Team } from '../models/Team.js';
 import { teamRef } from '../refs.js';
 import { assertSubjectExists, readSubject, toAssignmentSubject } from '../subjects.js';
 import { readDescription, readId, readName, readPage, readRole, readScope, readSlug } from '../validate.js';
-import { toTeamView } from '../views.js';
+import { dateOf, toTeamView } from '../views.js';
 import { createdBy, isSystem, ownerOf, pageOf, reasonOf, undoOnFailure } from './common.js';
 import { archivedAttribute, linkSubTeam, unlink, unlinkSubTeam } from './links.js';
 import { holdsAt, listMembers, structuralLink } from './members.js';
@@ -29,6 +31,9 @@ export class DefaultTeamService extends TeamService {
 
   @Config('teams.deletion.graceDays', { defaultValue: 30 })
   protected GraceDays: number;
+
+  @Logger('teams')
+  protected Log: Log;
 
   async createTeam(actor: Principal, input: CreateTeamInput): Promise<TeamView> {
     const slug = readSlug(input?.slug);
@@ -197,23 +202,110 @@ export class DefaultTeamService extends TeamService {
 
   // ---- Task 8 ----
 
-  async deleteTeam(_actor: Principal, _id: string): Promise<void> {
-    throw new MethodNotImplemented('DefaultTeamService.deleteTeam: lane L14 Task 8');
+  async deleteTeam(actor: Principal, id: string): Promise<void> {
+    const team = await liveTeam(id, 'id');
+    await assertAllowed(actor, 'team:delete', teamRef(team.id));
+    if (await asSystem(() => Team.query().where('parent_id', team.id).whereNull('deleted_at').first())) {
+      throw new InvalidArgument('id: the team has live sub-teams; move or delete them first', 'id');
+    }
+    await asSystem(() => team.update({ deleted_at: DateTime.now() }));
+    // Frozen during the grace: the archived deny policy covers the team and its groups.
+    await undoOnFailure(
+      () => execute(SYSTEM, [archivedAttribute(team.id, true)], reasonOf('delete', actor)),
+      () => asSystem(() => team.update({ deleted_at: null })),
+    );
   }
 
-  async restoreTeam(_actor: Principal, _id: string): Promise<TeamView> {
-    throw new MethodNotImplemented('DefaultTeamService.restoreTeam: lane L14 Task 8');
+  async restoreTeam(actor: Principal, id: string): Promise<TeamView> {
+    const team = await anyTeam(id, 'id');
+    if (!team.deleted_at) return toTeamView(team);
+    if (team.parent_id) {
+      await liveTeam(team.parent_id, 'parentId').catch(() => {
+        throw new InvalidArgument('id: the parent team is deleted; restore it first', 'id');
+      });
+    }
+    await assertAllowed(actor, 'team:delete', teamRef(team.id));
+    const deletedAt = team.deleted_at;
+    await asSystem(() => team.update({ deleted_at: null }));
+    await undoOnFailure(
+      () => execute(SYSTEM, [archivedAttribute(team.id, team.archived_at !== null && team.archived_at !== undefined)], reasonOf('restore', actor)),
+      () => asSystem(() => team.update({ deleted_at: deletedAt })),
+    );
+    return toTeamView(await liveTeam(team.id));
   }
 
-  async purgeTeam(_actor: Principal, _id: string): Promise<readonly string[]> {
-    throw new MethodNotImplemented('DefaultTeamService.purgeTeam: lane L14 Task 8');
+  async purgeTeam(actor: Principal, id: string): Promise<readonly string[]> {
+    const team = await anyTeam(id, 'id');
+    if (!team.deleted_at) throw new InvalidOperation(`team ${team.id} is not deleted`);
+    await assertAllowed(actor, 'team:delete', teamRef(team.id));
+    return this.purge(team);
   }
 
-  async purgeDue(_now?: Date): Promise<readonly string[]> {
-    throw new MethodNotImplemented('DefaultTeamService.purgeDue: lane L14 Task 8');
+  async purgeDue(now: Date = new Date()): Promise<readonly string[]> {
+    const cutoff = now.getTime() - this.GraceDays * 86_400_000;
+    const deleted = await asSystem(async () => (await Team.query().whereNotNull('deleted_at')) as Team[]);
+    const due = deleted.filter((t) => (dateOf(t.deleted_at)?.getTime() ?? Infinity) <= cutoff);
+    const dueIds = new Set(due.map((t) => t.id));
+    const out: string[] = [];
+    for (const t of due) {
+      // Purged with its parent, which recurses into it.
+      if (t.parent_id && dueIds.has(t.parent_id)) continue;
+      out.push(...(await this.purge(t)));
+    }
+    return Object.freeze(out);
+  }
+
+  protected async purge(team: Team): Promise<readonly string[]> {
+    const removed = { teams: [] as string[], groups: [] as string[] };
+    const driver = await teamsDriver();
+    await asSystem(() => driver.transaction(() => this.purgeTree(team, removed)));
+    const teams = [team.id, ...removed.teams.filter((t) => t !== team.id)];
+    await this.publish({
+      type: TEAM_PURGED_EVENT,
+      domain: await teamsDomain(),
+      actor: { type: SYSTEM.type, id: SYSTEM.id },
+      at: new Date(),
+      data: Object.freeze({ team: team.id, slug: team.slug, teams, groups: removed.groups }),
+    });
+    return Object.freeze(teams);
   }
 
   // ---- helpers ----
+
+  /** Rows that reference the team and are not authz data; Task 9 deletes the team's invitations here. */
+  protected async beforePurge(_team: Team): Promise<void> {}
+
+  /** Children before parents, each through its model so authz-orm forgets the scope (teams design §7). */
+  protected async purgeTree(team: Team, removed: { teams: string[]; groups: string[] }): Promise<void> {
+    for (const child of (await Team.query().where('parent_id', team.id)) as Team[]) await this.purgeTree(child, removed);
+    await this.beforePurge(team);
+    const groups = (await Group.query().where('team_id', team.id)) as Group[];
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    const depth = (g: Group): number => {
+      let d = 0;
+      for (let p = g.parent_id; p && byId.has(p); p = byId.get(p)!.parent_id) d++;
+      return d;
+    };
+    for (const g of [...groups].sort((a, b) => depth(b) - depth(a))) {
+      await g.destroy();
+      removed.groups.push(g.id);
+    }
+    await team.destroy();
+    removed.teams.push(team.id);
+  }
+
+  /** After commit; a sink that fails is logged, the purge stays. */
+  protected async publish(event: AuthzEvent): Promise<void> {
+    const container = await domainContainer();
+    if (!container.hasRegistered(AuthzEventSink)) return;
+    for (const sink of (await container.resolve(Array.chainOf(AuthzEventSink))) as AuthzEventSink[]) {
+      try {
+        await sink.publish([event]);
+      } catch (e) {
+        this.Log.warn(`${event.type} of team ${String(event.data.team)} was not delivered to ${sink.constructor.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
 
   protected async memberSubject(teamId: string, subject: unknown): Promise<TeamSubject> {
     const s = readSubject(subject);
