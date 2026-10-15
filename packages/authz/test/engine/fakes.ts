@@ -1,5 +1,5 @@
 import { AuthorizationModel, CORE_FILTER_OPS, DecisionAudit, FALSE, GLOBAL, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, TRUE, resourceKey } from '../../src/index.js';
-import type { DecisionRequest, EvaluationContext, ModelCapabilities, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
+import type { DecisionRequest, EvaluationContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
 import { PermissionRegistryImpl } from '../../src/engine/registry.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
 import type { EngineLog } from '../../src/engine/authorizer.js';
@@ -62,6 +62,33 @@ export class StaticModel extends AuthorizationModel {
   }
 }
 
+export interface ListModelOptions extends StaticModelOptions {
+  /** Default true. */
+  readonly listSupport?: ListSupport | ((def: PermissionDef, type: ResourceType) => ListSupport);
+  /** Default abstain; a function's result is returned as is (a promise, a throw, a malformed value). */
+  readonly listPlan?: ModelListPlan | ((req: ListPlanRequest, ctx: EvaluationContext) => unknown);
+}
+
+/** A StaticModel that plans lists; StaticModel itself has no listSupport, so it cannot. */
+export class ListModel extends StaticModel {
+  readonly planCalls: { readonly req: ListPlanRequest; readonly ctx: EvaluationContext }[] = [];
+
+  constructor(name: string, private readonly list: ListModelOptions = {}) {
+    super(name, list);
+  }
+
+  listSupport(def: PermissionDef, type: ResourceType): ListSupport {
+    const support = this.list.listSupport ?? true;
+    return typeof support === 'function' ? support(def, type) : support;
+  }
+
+  listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    this.planCalls.push({ req, ctx });
+    const plan = this.list.listPlan ?? { kind: 'abstain' };
+    return Promise.resolve().then(() => (typeof plan === 'function' ? plan(req, ctx) : plan)) as Promise<ModelListPlan>;
+  }
+}
+
 export const permit = (when: ResourceFilter = TRUE, extra: Partial<Vote> = {}): Partial<Vote> => ({ permitWhen: when, ...extra });
 export const deny = (when: ResourceFilter = TRUE, extra: Partial<Vote> = {}): Partial<Vote> => ({ denyWhen: when, ...extra });
 
@@ -90,6 +117,7 @@ export class FakeAdapter extends ResourceAdapter<FakeRow> {
   readonly refOfCalls: FakeRow[] = [];
   readonly attributeCalls: ResourceRef[] = [];
   private readonly parents = new Map<string, ResourceRef | null>();
+  protected readonly rowsByKey = new Map<string, FakeRow>();
   attribute?: (subject: unknown, field: string) => unknown;
 
   constructor(readonly types: readonly ResourceType[], private readonly options: FakeAdapterOptions = {}) {
@@ -101,7 +129,9 @@ export class FakeAdapter extends ResourceAdapter<FakeRow> {
   }
 
   add(row: FakeRow): void {
-    this.parents.set(resourceKey({ type: row.$type, id: row.id }), row.$parent ?? null);
+    const key = resourceKey({ type: row.$type, id: row.id });
+    this.parents.set(key, row.$parent ?? null);
+    this.rowsByKey.set(key, row);
   }
 
   accepts(target: unknown): target is FakeRow {
@@ -116,6 +146,11 @@ export class FakeAdapter extends ResourceAdapter<FakeRow> {
 
   async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
     this.ancestorCalls.push(ref);
+    return this.chain(ref);
+  }
+
+  /** [self, parent, ..., GLOBAL] without recording a call; null for an unknown node. */
+  protected chain(ref: ResourceRef): ResourceRef[] | null {
     if (ref.id === undefined) return [ref, GLOBAL];
     const key = resourceKey(ref);
     if (!this.parents.has(key)) return null;
@@ -136,6 +171,48 @@ export class FakeAdapter extends ResourceAdapter<FakeRow> {
 
   relations(): readonly RelationResolver[] {
     return this.options.relations ?? [];
+  }
+}
+
+/** A FakeAdapter that loads its rows one at a time. */
+export class LoadingAdapter extends FakeAdapter {
+  readonly loadCalls: ResourceRef[] = [];
+
+  async load(ref: ResourceRef): Promise<unknown | null> {
+    this.loadCalls.push(ref);
+    return this.rowsByKey.get(resourceKey(ref)) ?? null;
+  }
+}
+
+export interface BatchAdapterOptions extends FakeAdapterOptions {
+  readonly failAncestorsMany?: boolean;
+  readonly failLoadMany?: boolean;
+}
+
+/** A LoadingAdapter with the batch methods. */
+export class BatchAdapter extends LoadingAdapter {
+  readonly ancestorsManyCalls: (readonly ResourceRef[])[] = [];
+  readonly loadManyCalls: (readonly ResourceRef[])[] = [];
+
+  constructor(types: readonly ResourceType[], private readonly batch: BatchAdapterOptions = {}) {
+    super(types, batch);
+  }
+
+  async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
+    this.ancestorsManyCalls.push(refs);
+    if (this.batch.failAncestorsMany) throw new Error('ancestor store down');
+    return new Map(refs.map((r) => [resourceKey(r), this.chain(r)]));
+  }
+
+  async loadMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>> {
+    this.loadManyCalls.push(refs);
+    if (this.batch.failLoadMany) throw new Error('row store down');
+    const out = new Map<string, unknown>();
+    for (const r of refs) {
+      const row = this.rowsByKey.get(resourceKey(r));
+      if (row) out.set(resourceKey(r), row);
+    }
+    return out;
   }
 }
 

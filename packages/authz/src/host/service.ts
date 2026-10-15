@@ -32,6 +32,7 @@ import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
 import { engineLog } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
+import { AccessChangeRouter } from './push.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
 import './bus.js';
 import './audit.js';
@@ -64,6 +65,8 @@ interface Booted {
   readonly admin: AuthzAdmin | undefined;
   readonly cache: DecisionCache | undefined;
   readonly unsubscribe: (() => void) | undefined;
+  /** Root only: the AccessChangeRouter subscription. */
+  readonly stopPush: (() => void) | undefined;
 }
 
 // Once per model instance in the process; dropped when the last domain using the model releases it.
@@ -192,12 +195,12 @@ export class DefaultAuthzService extends AuthzService {
     return this.state().authorizer.checkMany(principal, permissions, resource, requestScope());
   }
 
-  async checkAll(_principal: Principal, _requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
-    throw new AuthzConfigError('checkAll: not implemented until lane L2');
+  async checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]> {
+    return this.state().authorizer.checkAll(principal, requests, requestScope());
   }
 
-  async accessPlan(_principal: Principal, _permission: Permission, _type: ResourceType, _env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
-    throw new AuthzConfigError('accessPlan: not implemented until lane L2');
+  async accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>): Promise<AccessPlan> {
+    return this.state().authorizer.accessPlan(principal, permission, type, env, requestScope());
   }
 
   async filter(principal: Principal, permission: Permission, type: ResourceType): Promise<ResourceFilter> {
@@ -252,6 +255,11 @@ export class DefaultAuthzService extends AuthzService {
       s.unsubscribe?.();
     } catch (e) {
       this.log.error(`Authz domain ${q(s.name)}: unsubscribing from the change bus failed: ${describeError(e)}`);
+    }
+    try {
+      s.stopPush?.();
+    } catch (e) {
+      this.log.error(`Authz domain ${q(s.name)}: stopping the access push router failed: ${describeError(e)}`);
     }
     s.domains.detach(s.name, this);
     await this.release(s.used, []);
@@ -515,6 +523,8 @@ export class DefaultAuthzService extends AuthzService {
     if (this.disposed) throw new AuthzConfigError(`${where}: the service was disposed while it booted`);
     if (domains.describe(container)?.name !== name || !domains.attach(name, this)) throw new AuthzConfigError(`${where}: the domain was disposed while it booted`);
     if (cache) usedCaches.add(cache);
+    // Every domain's admin publishes to the bus root subscribes to, so one router at root pushes each change once.
+    const stopPush = parent === undefined && bus ? ((await container.resolve(AccessChangeRouter)) as AccessChangeRouter).start(bus, container) : undefined;
 
     return Object.freeze({
       name,
@@ -529,6 +539,7 @@ export class DefaultAuthzService extends AuthzService {
       admin,
       cache,
       unsubscribe: this.bootSubscription,
+      stopPush,
     });
   }
 
