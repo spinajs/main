@@ -9,6 +9,8 @@ export interface HeartbeatOptions {
   renewEveryMs: number;
   /** This long without a successful renewal means the lease is gone: another replica may reap the run. */
   leaseTtlMs: number;
+  /** When the lease was taken (database time); defaults to construction. The loss clock and renewal period count from it. */
+  leaseStartedAt?: number;
   needsFlush: () => boolean;
   /** Typically `LeaseStore.renewRun(run.Id, run.Attempt, scheduleLease, now, ctx.snapshot())`. */
   renew: () => Promise<{ ok: boolean; cancelRequested: boolean }>;
@@ -30,17 +32,22 @@ export class Heartbeat {
   protected lost = false;
 
   constructor(protected readonly o: HeartbeatOptions) {
-    this.lastRenew = this.lastOk = o.now();
+    this.lastRenew = this.lastOk = o.leaseStartedAt ?? o.now();
   }
 
   public start(): void {
     this.handle = this.o.timers.setInterval(() => this.tick(), this.o.intervalMs);
   }
 
+  /** Waits for a renewal in flight, but never past the moment the lease is lost (a hanging renewal must not block). */
   public async stop(): Promise<void> {
     this.stopped = true;
     if (this.handle !== undefined) this.o.timers.clearInterval(this.handle);
-    await this.inflight;
+    if (this.lost) return;
+    const ac = new AbortController();
+    const remaining = Math.max(0, this.lastOk + this.o.leaseTtlMs - this.o.now());
+    await Promise.race([this.inflight, this.o.timers.sleep(remaining, ac.signal)]);
+    ac.abort();
   }
 
   /** Renews now, after any beat in flight; rejects with this beat's own error only. */

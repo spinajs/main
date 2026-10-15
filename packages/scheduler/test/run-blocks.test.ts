@@ -6,6 +6,7 @@ import { Log } from '@spinajs/log-common';
 import {
   FakeClock,
   Heartbeat,
+  HeartbeatOptions,
   resolveSchedulerConfig,
   RunContext,
   RunEventWriter,
@@ -52,6 +53,7 @@ describe('Heartbeat', () => {
     clock: FakeClock,
     renew: () => Promise<{ ok: boolean; cancelRequested: boolean }>,
     dirty = () => false,
+    extra: Partial<HeartbeatOptions> = {},
   ) {
     const calls = { lost: 0, cancel: 0, errors: 0 };
     const hb = new Heartbeat({
@@ -65,6 +67,7 @@ describe('Heartbeat', () => {
       onLost: () => calls.lost++,
       onCancel: () => calls.cancel++,
       onError: () => calls.errors++,
+      ...extra,
     });
     return { hb, calls };
   }
@@ -130,6 +133,43 @@ describe('Heartbeat', () => {
     hb.start();
     await clock.advance(60_000);
     expect(calls.lost).to.eq(1);
+    await hb.stop();
+  });
+
+  it('stops waiting for a hanging renewal once the lease would have expired', async () => {
+    const clock = new FakeClock(T);
+    const { hb, calls } = make(clock, () => new Promise(() => undefined));
+    hb.start();
+    await clock.advance(20_000);
+    let stopped = false;
+    void hb.stop().then(() => (stopped = true));
+    await clock.advance(39_000);
+    expect(stopped).to.eq(false);
+    await clock.advance(1000);
+    expect(stopped).to.eq(true);
+    expect(calls.lost).to.eq(0);
+  });
+
+  it('counts the lease from leaseStartedAt, not from construction', async () => {
+    const clock = new FakeClock(T);
+    let renewals = 0;
+    const { hb, calls } = make(
+      clock,
+      async () => {
+        renewals++;
+        throw new Error('db unreachable');
+      },
+      () => false,
+      { leaseStartedAt: T - 50_000 },
+    );
+    hb.start();
+    await clock.advance(1000);
+    expect(renewals).to.eq(1);
+    await clock.advance(8000);
+    expect(calls.lost).to.eq(0);
+    await clock.advance(1000);
+    expect(calls.lost).to.eq(1);
+    await hb.stop();
   });
 
   it('calls onLost once and stops renewing after a renewal reports the lease gone', async () => {
