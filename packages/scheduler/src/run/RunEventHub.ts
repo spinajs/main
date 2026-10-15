@@ -103,7 +103,7 @@ export class RunEventHub {
     const timer = this.Clock.setInterval(() => {
       if (polling || closed) return;
       polling = true;
-      poll()
+      void poll()
         .catch(() => undefined)
         .finally(() => (polling = false));
     }, this.PollInterval);

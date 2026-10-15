@@ -13,6 +13,6 @@ export function toRunEvent(row: RunLogModel): RunEvent {
     runId: row.RunId,
     schedule: row.Schedule,
     attempt: row.Attempt,
-    ts: iso(row.Ts)!,
+    ts: new Date(row.Ts).toISOString(),
   } as RunEvent;
 }

@@ -46,7 +46,7 @@ export class RunEventWriter {
     this.tails.set(run.Id, next);
     void next
       .catch(() => undefined)
-      .then(() => {
+      .finally(() => {
         if (this.tails.get(run.Id) === next) this.tails.delete(run.Id);
       });
     return next;
