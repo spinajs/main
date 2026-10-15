@@ -81,6 +81,8 @@ export interface SchedulerConfig {
   /** Cap per run for each of the `log`, `message` and `progress` journal kinds. */
   runLogLimit: number;
   maxStepResultBytes: number;
+  /** How long an emitted run waits for its `queue_jobs` row before it fails; the schedule's `timeout` when longer. */
+  emitTimeout: Duration;
   retention: { enabled: boolean; schedule: string; runs: Duration; logs: Duration; errors: Duration };
   events: { pollInterval: number };
   cli: { http?: { baseUrl: string; headers?: Record<string, string> } };
@@ -95,6 +97,7 @@ export const SCHEDULER_DEFAULTS: SchedulerConfig = {
   progressFlush: 1000,
   runLogLimit: 1000,
   maxStepResultBytes: 65_536,
+  emitTimeout: '24h',
   retention: { enabled: true, schedule: '30 3 * * *', runs: '30d', logs: '7d', errors: '90d' },
   events: { pollInterval: 1000 },
   cli: {},

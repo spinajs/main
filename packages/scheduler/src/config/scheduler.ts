@@ -50,6 +50,7 @@ const scheduler = {
     progressFlush: 1000,
     runLogLimit: 1000,
     maxStepResultBytes: 65536,
+    emitTimeout: '24h',
     retention: { enabled: true, schedule: '30 3 * * *', runs: '30d', logs: '7d', errors: '90d' },
     events: { pollInterval: 1000 },
     cli: {},

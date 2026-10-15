@@ -258,7 +258,7 @@ export class DefaultSchedulerService extends SchedulerService {
     for (let round = 0; round < CANCEL_ROUNDS; round++) {
       const run = await this.loadRun(runId);
       const now = await this.now();
-      if (run.Status === 'queued' || run.Status === 'retrying') {
+      if (run.Status === 'queued' || run.Status === 'retrying' || run.Status === 'emitted') {
         if (!(await abortWaitingRun(run, now, this.cancelDeps(run)))) continue;
       } else if (run.Status === 'running') {
         const r = await RunModel.update({ CancelRequested: true }).where('Id', runId).where('Status', 'running');
@@ -267,7 +267,7 @@ export class DefaultSchedulerService extends SchedulerService {
         if (!local.length && run.LeaseUntil !== null && run.LeaseUntil < now) await this.endAbandonedRun(run, now);
       } else {
         throw new InvalidRunState(
-          `run ${runId} is ${run.Status}; only queued, retrying or running runs can be cancelled`,
+          `run ${runId} is ${run.Status}; only queued, retrying, running or emitted runs can be cancelled`,
           run.Status,
         );
       }

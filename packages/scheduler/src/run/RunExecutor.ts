@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log-common';
 import type { QueueJob } from '@spinajs/queue';
 import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
-import { runJobId, runJobKey, ScheduledJobPayload } from '../emit/emit.js';
+import { emitMessage, runJobId, ScheduledJobPayload } from '../emit/emit.js';
 import { RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
@@ -157,6 +157,14 @@ export class RunExecutor {
       await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
       await this.Signals.runStarted(run, startedAt);
 
+      // recorded before the emit, so a run that ends without `emitted` (a failed emit whose broker took
+      // the job anyway, a lost lease) still names the job that may run
+      if (!(await this.Leases.finishRun(run.Id, run.Attempt, { JobId: jobId, UpdatedAt: startedAt }))) {
+        this.Log.warn(`run ${run.Id} lost its lease before emitting its job`);
+        return;
+      }
+      run.JobId = jobId;
+
       const payload: ScheduledJobPayload & { JobId: string } = {
         JobId: jobId,
         SchedulerRunId: run.Id,
@@ -174,7 +182,7 @@ export class RunExecutor {
       }
 
       const now = this.Clock.now();
-      const message = `emitted ${job.name} ${runJobKey(run)}`;
+      const message = emitMessage(job.name, run);
       const finished = await this.Leases.finishRun(run.Id, run.Attempt, {
         Status: 'emitted',
         Reason: null,

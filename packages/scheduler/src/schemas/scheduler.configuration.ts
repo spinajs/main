@@ -13,6 +13,7 @@ export const SCHEDULER_CONFIGURATION_SCHEMA = {
     progressFlush: { type: 'integer', minimum: 100 },
     runLogLimit: { type: 'integer', minimum: 0 },
     maxStepResultBytes: { type: 'integer', minimum: 0 },
+    emitTimeout: duration,
     retention: {
       type: 'object',
       properties: {

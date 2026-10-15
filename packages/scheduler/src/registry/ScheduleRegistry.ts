@@ -8,6 +8,7 @@ import { getBuiltinDeclarations, getScheduleDeclarations } from '../decorators.j
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { buildDefinitions } from './definitions.js';
 import { loadTaskMethodLookup } from '../tasks/task-methods.js';
+import { blackHoleConnections, type QueueRoutingConfig } from '../emit/routing.js';
 
 @Singleton()
 @Injectable()
@@ -17,6 +18,9 @@ export class ScheduleRegistry extends AsyncService {
 
   @Config('scheduler', { defaultValue: {} })
   protected RawConfig: Partial<SchedulerConfig>;
+
+  @Config('queue', { defaultValue: {} })
+  protected QueueConfig: QueueRoutingConfig;
 
   // Listing the files imports them, which runs their @Schedule decorators.
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.schedules')
@@ -56,6 +60,13 @@ export class ScheduleRegistry extends AsyncService {
       }
       if (d.emit && d.retry) {
         this.Log.warn(`schedule ${d.name}: retry is ignored in emit mode; the queue retries the job`);
+      }
+      if (d.emit) {
+        for (const c of blackHoleConnections(d.emit.name, this.QueueConfig)) {
+          this.Log.warn(
+            `schedule ${d.name}: job ${d.emit.name} routes to queue connection '${c}' (BlackHoleQueueClient); its jobs are dropped and the runs fail after emitTimeout`,
+          );
+        }
       }
     }
     await super.resolve();
