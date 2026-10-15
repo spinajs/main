@@ -1,5 +1,5 @@
 import { AccessDenied, AuthzClock, FALSE, authz, currentPrincipal } from '@spinajs/authz';
-import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType, SqlFragment } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { QueryMiddleware, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
@@ -12,7 +12,7 @@ import type { ResourceEntry } from '../registry.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { rowContext } from './context.js';
 import { quoterOf } from './dialect.js';
-import { renderPlan } from './render.js';
+import { renderPlan, withinSql } from './render.js';
 import type { Rendered } from './render.js';
 
 type Where = IWhereBuilder<unknown>;
@@ -71,14 +71,18 @@ export class AccessListMiddleware extends QueryMiddleware {
     const domain = ormDomain();
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);
-    if (marks.accessible === undefined && marks.withAccess === undefined) return;
+    if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined) return;
     const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: await nowOf(domain) };
     const row = rowContext(query, entry, run.now);
+    const filters: SqlFragment[] = [];
     if (marks.accessible !== undefined) {
       const rendered = renderPlan(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row);
       if (rendered.kind === 'none') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, rendered.reason));
-      if (rendered.kind === 'sql') restrict(query, rendered);
+      if (rendered.kind === 'sql') filters.push(rendered);
     }
+    for (const refs of marks.within ?? []) filters.push(withinSql(refs, row));
+    // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().
+    if (filters.length > 0) restrict(query, { kind: 'sql', sql: filters.map((f) => `(${f.sql})`).join(' AND '), bindings: filters.flatMap((f) => [...f.bindings]) });
     if (marks.withAccess !== undefined && query instanceof SelectQueryBuilder) await this.withAccess(query, run, row);
   }
 

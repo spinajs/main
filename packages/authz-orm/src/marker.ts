@@ -1,4 +1,4 @@
-import type { Permission } from '@spinajs/authz';
+import type { Permission, ResourceRef } from '@spinajs/authz';
 
 const MARKS = Symbol.for('@spinajs/authz-orm:marks');
 
@@ -9,6 +9,8 @@ export interface AccessMarks {
   readonly env?: Readonly<Record<string, unknown>>;
   readonly unscoped?: string;
   readonly withAccess?: readonly Permission[];
+  /** `.within()` calls: the refs of one call are OR-ed, the calls are AND-ed. */
+  readonly within?: readonly (readonly ResourceRef[])[];
 }
 
 export function marksOf(builder: object): AccessMarks | undefined {

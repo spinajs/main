@@ -82,6 +82,7 @@ const tasks = await Task.where('status', 'open').accessible('Task:read');
 await Task.update({ archived: true }).where('project_id', 7).accessible('Task:update');
 const page = await Task.query().accessible('Task:read').withAccess(['Task:update', 'Task:delete']);
 // page[i].$access = { 'Task:update': true, 'Task:delete': false }
+const teamTasks = await Task.query().within({ type: 'team', id: teamId }).accessible('Task:read');
 ```
 
 - The permission must be declared `list: true` (`authz.permissions['Task:read'] = { list: true }`);
@@ -92,6 +93,10 @@ const page = await Task.query().accessible('Task:read').withAccess(['Task:update
 - The caller's where stays one group: `(where) AND (plan)`. Works on select, update and delete.
 - `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
   (`authz.audit.unscoped`).
+- `.within(ref | refs)` keeps rows that are one of the refs or lie below one in the resource tree
+  (any scope type: a team, a project, a folder). The refs of one call are OR-ed, chained calls are
+  AND-ed, `[]` keeps nothing. It narrows a list and authorizes nothing: a select still needs
+  `.accessible()`, `.unscoped()` or SYSTEM. Works on select, update and delete.
 - `.withAccess(permissions)` adds one boolean per permission, from the same SQL as `.accessible()`, in
   the same query; the key is `authz.orm.accessField` (default `$access`), sent by `toJSON()` and
   `dehydrate()`.
