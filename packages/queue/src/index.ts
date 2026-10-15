@@ -49,13 +49,15 @@ export class DefaultQueueService extends QueueService {
       }
     }
 
-    this.Connections.forEach(async (val) => {
-      try {
-        await val.dispose();
-      } catch (err) {
-        this.Log.error(err, `Cannot dispose queue connection ${val.constructor.name}`);
-      }
-    });
+    await Promise.all(
+      [...this.Connections.values()].map(async (val) => {
+        try {
+          await val.dispose();
+        } catch (err) {
+          this.Log.error(err, `Cannot dispose queue connection ${val.constructor.name}`);
+        }
+      }),
+    );
 
     this.Connections.clear();
   }
