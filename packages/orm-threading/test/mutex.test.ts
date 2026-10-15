@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { __mutex__, OrmMutex } from '../src/index';
+import { __mutex__, OrmMutex, dbNowMs, Mutex_2026_10_15_00_00_01 } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -239,5 +239,36 @@ describe('orm-threading', function () {
 
     const diff = DateTime.now().diff(start);
     expect(diff.milliseconds).to.be.gt(2500);
+  });
+  describe('schema and clock', () => {
+    it('Should add the LockedUntil column', async () => {
+      const orm = await DI.resolve(Orm);
+      const columns = await orm.Connections.get('sqlite')!.tableInfo('__mutex__');
+
+      expect(columns.map((c) => c.Name)).to.include('LockedUntil');
+    });
+
+    it('Should release locks held at upgrade time', async () => {
+      const orm = await DI.resolve(Orm);
+      await mutex_acquire({ Name: 'stale', Tenant: 'spina-js' });
+
+      await new Mutex_2026_10_15_00_00_01().up(orm.Connections.get('sqlite')!);
+
+      const m = await __mutex__.get('stale');
+      expect(m.Locked).to.eq(false);
+    });
+
+    it('Should read epoch ms from the sqlite clock', async () => {
+      const orm = await DI.resolve(Orm);
+      const now = await dbNowMs(orm.Connections.get('sqlite')!);
+
+      expect(Math.abs(now - Date.now())).to.be.lessThan(2000);
+    });
+
+    it('Should fall back to the app clock for an unknown driver', async () => {
+      const now = await dbNowMs({ Options: { Driver: 'orm-driver-unknown' } } as any);
+
+      expect(Math.abs(now - Date.now())).to.be.lessThan(50);
+    });
   });
 });
