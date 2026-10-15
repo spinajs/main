@@ -10,10 +10,18 @@ import {
   RunEventWriter,
   RunExecutor,
   RunStepModel,
+  Scheduler,
   ScheduledTask,
+  SchedulerService,
+  undefineSchedule,
 } from '../../src/index.js';
 import { waitFor } from '../support/env.js';
 import { deferred, getRun, journal, makeDef, queuedRun, seedSchedules } from '../support/fixtures.js';
+import {
+  defineJsonRoundTripSchedule,
+  expectJsonRoundTrip,
+  JSON_ROUND_TRIP_SCHEDULE,
+} from '../support/json-round-trip.js';
 import { bootRealDb, REAL_DB_TARGETS } from './real-db.js';
 
 const T = Date.parse('2026-01-05T10:00:00Z');
@@ -68,6 +76,7 @@ for (const target of REAL_DB_TARGETS) {
     beforeEach(async () => {
       gate = deferred();
       reachedGate = false;
+      defineJsonRoundTripSchedule();
       // runLogLimit 1: the second progress row is dropped, so the run gets capped
       await bootRealDb(target, { runLogLimit: 1 });
       clock = DI.resolve(Clock) as FakeClock;
@@ -114,6 +123,14 @@ for (const target of REAL_DB_TARGETS) {
         [LONG_STEP, 0.5, 2.5, 3_000_000_000],
         ['b', 1.5, null, null],
       ]);
+    });
+
+    afterEach(() => undefineSchedule(JSON_ROUND_TRIP_SCHEDULE));
+
+    it('round-trips run results, step results and checkpoints of every JSON shape', async () => {
+      clock.set('2026-01-05T10:00:30Z');
+      const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+      await expectJsonRoundTrip(await DI.resolve(SchedulerService), s, clock);
     });
 
     it('stores the failing step error as JSON', async () => {
