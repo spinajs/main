@@ -29,8 +29,9 @@ pieces belong in ckit and are not built on the spinajs side. spinajs CI runs
 - List responses built with `.withAccess([...])` carry `$access: { [permission]: boolean }` per row
   (the key is configurable server-side, `authz.orm.accessField`). Each entry equals what
   `/user/access/checks` answers for `(row, permission)`.
-- `authz:export-model [--out file.d.ts]` writes `export type AccessModel = { [type]: action union }`,
-  usable as ckit's `AccessRegister` model.
+- Planned, not built yet: `authz:export-model [--out file.d.ts]` is to write
+  `export type AccessModel = { [type]: action union }`, usable as ckit's `AccessRegister` model. Until it
+  ships, ckit declares the model by hand (tracked in `docs/plans/TODO.md`).
 - `format=tree` on the explain route (development only) answers `{ label, allowed, children }`, the
   shape of ckit's `ExplainNode`.
 

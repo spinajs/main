@@ -350,7 +350,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `@Permission(['updateOwn'], TwoFactorAuthEnabled)` | `@Access('user:update', { also: [MfaSatisfied] })`; `TwoFactorAuthEnabled` is gone |
 | `@SkipModelPermission()` | `@Unscoped('reason')` or `authz().runAs(SYSTEM, 'reason', fn)` |
 | `user.canReadAny('X').granted`, `checkUserPermission`, `probeGrant`, `checkRbacPermission` | `await authz().can(authz().current(), 'X:read')` |
-| `permission.filter(data)` | `filterFields(decision, data, 'read')` (`authz-orm`) |
+| `permission.filter(data)` | `@Access('X:read', { fields: 'filter' })` limits the response to `decision.fields.read` (`authz-http`); outside a route, `filterObject(decision.fields.read, data)` (`authz`) |
 | `PermissionService`, `ResourceRules<T>.owns()` | a `RelationResolver`, plus `authz().assert(...)` |
 | `@OrmResource`, `@ResourceOwner` | `@AccessResource`, `@Owner` (`authz-orm`); lists call `.accessible(permission)`, single objects are checked before access (section 12) |
 | `@OrmPermission(M, 'x') class P extends OrmPermissionPolicy` | no ORM form: assign a role on each resource row to the subjects the policy selected (section 12); a `RelationResolver` keeps single-object checks of relation `x` working meanwhile |
@@ -1639,6 +1639,7 @@ The `npm deprecate` pointers for the five 2.x package names (`@spinajs/rbac`, `r
 | `populate()`, junctions and clones scoped | not filtered: authorize the aggregate root |
 | rule SQL forms, `rule_not_compilable` | rules are check-only; `not_list_filterable` refuses what lists cannot honour |
 | `authz.abac.scopeResiduals`, `native:condition.scope` | removed |
+| `filterFields(decision, data, 'read')` (`authz-orm`) | `@Access(…, { fields: 'filter' })` (`authz-http`) or `filterObject(decision.fields.read, data)` (`authz`) |
 | `authz.orm.allowJit`, the PostgreSQL JIT check | removed |
 | `POST /user/access/check` | `POST /user/access/checks` (`{ checks }` → `{ results, reasons }`), `GET /user/access/events`, `X-Access-Epoch` |
 | job relation `initiator` | job relation `owner` (the initiator, `@Owner`-style with `typeColumn: 'InitiatorType'`) |

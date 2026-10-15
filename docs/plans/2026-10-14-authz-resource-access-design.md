@@ -1,6 +1,6 @@
 # Resource access without query rewriting: design
 
-Date: 2026-10-14. Status: built (plan: `docs/superpowers/plans/2026-10-14-authz-resource-access/`; deviations in its overview, "Decisions made while planning").
+Date: 2026-10-14. Status: built, except `authz:export-model` (§10.5), which is planned and tracked in `docs/plans/TODO.md` (plan: `docs/superpowers/plans/2026-10-14-authz-resource-access/`; deviations in its overview, "Decisions made while planning").
 
 Replaces the list-scoping half of `2026-10-01-authz-v3-design.md`: the `@spinajs/authz-orm` query
 middleware, the residual-to-SQL compilers and the RBAC rule SQL forms. The engine, the models, `@Access`,
@@ -497,6 +497,8 @@ domain-wide, and every client would drop its cache on any change anywhere.
 
 ### 10.5 Typed model export
 
+Planned, not built yet (see `docs/plans/TODO.md`).
+
 `authz:export-model [--out file.d.ts] [--domain root]` writes the registered permissions as a TypeScript
 type:
 
@@ -529,7 +531,7 @@ Checked against `coderush/ckit/docs/access-control.md`, 2026-10-14.
 | `initial` snapshot, `prefetch`, seeding from list data | `withAccess` (§10.3), plus ckit's seed API (below) |
 | `subscribe(changed?)`, invalidation | push (§10.4); `objects` only when exact, else everything |
 | Re-check after a user or role change | `X-Access-Epoch` (§10.4) |
-| A typed model (`AccessRegister`) | `authz:export-model` (§10.5) |
+| A typed model (`AccessRegister`) | `authz:export-model` (§10.5, planned) |
 | `explain` | `format=tree` (§10.6), development only |
 | Fail closed | §10.1 |
 | Anonymous pages | `HasPrincipal` (§10.2) |

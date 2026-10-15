@@ -62,8 +62,10 @@ an adapter or a scope resolver supplies.
   stands for any run of characters except `:`. `**` is invalid.
 - A permission you never registered is an error, not a "no" (B02).
 
-**Model.** A plug-in that votes. RBAC and ABAC ship in 3.0. Each vote carries two residual filters,
-`permitWhen` and `denyWhen`. The engine combines the votes.
+**Model.** A plug-in that votes. RBAC and ABAC ship in 3.0. On a check, each vote carries two
+residual filters, `permitWhen` and `denyWhen`, and the engine combines the votes. A model that serves
+lists also answers a list plan (`listPlan`): what a list query must match, decided before the query
+and without reading any row.
 
 **Combination.** `deny-overrides` by default: any deny beats any permit (B03). Per resource type you
 may choose `permit-overrides` or `first-applicable`. A model that throws or times out is
@@ -71,12 +73,19 @@ indeterminate and counts as a deny (B04).
 
 **Decision.** `allowed`, the `residual`, the readable and writable `fields`, the effective `roles`,
 the `reason` of a deny and an optional `trace`. `allowed: true` with a residual other than `TRUE`
-means "yes, for rows that match the residual".
+is conditional: "yes, if the row matches". A check given the row (`subject`, or `subject: 'load'` on
+`@Access`) evaluates the residual against it and answers `TRUE` or `FALSE`.
 
-**Residual filter.** A predicate over the rows of one type, such as `owner = me AND org_id IN (…)`.
-`TRUE` is "every row", `FALSE` is "none". One residual serves a check on one row and a list query:
-for every row, `check` and `filter` agree (B06). A list that has no permit at all is a 403, not an
-empty list (H16).
+**Residual filter.** A predicate over one resource, such as `owner = me`. `TRUE` is "allowed",
+`FALSE` is "denied". It settles single-object checks only: no residual is turned into SQL.
+
+**Check before access, plan for lists.** A single object is loaded by id and checked before the
+operation runs (`authz().assert(me, permission, row)`, or `@Access` with `fromModel`). No query is
+rewritten. A list asks for an access plan, `authz().accessPlan(me, permission, type)`, which an
+adapter renders as one fixed filter (the ORM's `.accessible(permission)`). The plan is `none` when
+nothing could grant the permission, and a list with no permit at all is a 403, not an empty list
+(H16). Only a permission declared `list: true` has a plan, and boot refuses one that something can
+grant only by reading the row (design §7), so a list and a check on each of its rows agree.
 
 **Deny reason.** A code with a priority. The decision reports the reason with the lowest
 `(priority, sortKey)` among all deny sources, whatever the order of models (B36). Core codes:
@@ -112,15 +121,16 @@ await authz().assert(me, 'Task:update', task);                      // throws Ac
 const d = await authz().check({ principal: me, permission: 'users:read' });
 d.allowed; d.fields.read; d.reason;
 
-// a list: the residual an adapter turns into a WHERE clause
-const filter = await authz().filter(me, 'Task:read', 'Task');
+// a list: the plan an adapter renders as one filter; the ORM's .accessible() reads it for you
+const plan = await authz().accessPlan(me, 'Task:read', 'Task');   // 'none' | 'filter' (permit, deny, within)
 
 // code that has no user acts as system, on purpose
 await authz().runAs(SYSTEM, 'nightly-cleanup', async () => { /* … */ });
 ```
 
-Other methods: `checkMany`, `filterNow` (sync, after `preload`), `explain` (adds a trace), `summary`,
-`covers(holder, target)` (the impersonation rule, B26) and `admin()`.
+Other methods: `checkMany`, `checkAll`, `filter` and `filterNow` (the type-level residual of a check;
+`filterNow` is sync, after `preload`), `explain` (adds a trace), `summary`, `covers(holder, target)`
+(the impersonation rule, B26) and `admin()`.
 
 **`covers` and `summary` (E1).** Both count what each model lists in its `summarize` answer, so a
 scoped, bare-type or pattern-limited grant counts too (RFC L1-3).
@@ -263,8 +273,8 @@ authz: {
 - **Wildcard subjects.** `{ type: 'user', id: '*' }` (stored as `user:*`) stands for every principal of
   type `user`; `anonymous:*` covers anonymous callers; `*:*` is refused. A wildcard may be a set member.
 - **Teams.** `authz_subject_membership` holds the transitive closure of subject sets, so nested teams
-  cost one indexed read. `AuthzAdmin` recomputes it in the batch's transaction for `set.addMember`,
-  `set.removeMember` and grants, revokes and expiry changes of `subjectSet` roles. A chain deeper than
+  cost one indexed read. The RBAC write handlers recompute it in the batch's transaction for
+  `set.addMember`, `set.removeMember` and grants, revokes and expiry changes of `subjectSet` roles. A chain deeper than
   `authz.rbac.maxSetDepth` (default 8) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
   membership lives while any path to the set lives.
 
@@ -482,8 +492,11 @@ deny that holds lists none. A policy can serve a list only when its condition re
 
 ## Adapters
 
-An adapter connects the engine to a kind of resource: it names the type of an object, supplies
-ancestors and relations, and applies a residual.
+An adapter connects the engine to a kind of resource: it names the type of an object, loads it and
+supplies its ancestors and relations, so a single object is checked before access. An adapter that
+serves lists filters them its own way: the ORM adapter renders the access plan as SQL, each plan
+term through the `PlanTermSql` compiler registered for its op (`.accessible()`); authz-fs checks the
+directory, and with `list: 'each'` each entry too.
 
 ### HTTP (`@spinajs/authz-http`)
 
@@ -565,16 +578,17 @@ export class Folder extends ModelBase {
 }
 ```
 
-- **Single objects are checked before access.** Load the row, then `authz().assert(me, 'Task:update',
-  row)`, or put `@Access('Task:update', { resource: fromModel(Task, 'task') })` on the route. No query
-  is rewritten. A create is checked against the parent: `assert(me, 'Task:create', { type: 'folder',
+- **Single objects are checked before access.** Load the row, then `authz().assert(me, 'task:update',
+  row)`, or put `@Access('task:update', { resource: fromModel(Task, 'task') })` on the route. No query
+  is rewritten. A create is checked against the parent: `assert(me, 'task:create', { type: 'folder',
   id })`. Moving a row (writing a `@Parent` column) needs a check of the new parent too.
-- **Lists use one helper.** `Task.where(...).accessible('Task:read')` adds one fixed `EXISTS` filter
+- **Lists use one helper.** `Task.where(...).accessible('task:read')` adds one fixed `EXISTS` filter
   over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor`. The permission
-  must be declared `list: true` (`authz.permissions['Task:read'] = { list: true }`); boot refuses one
-  that something can grant only by reading the row (boot rule 12). A principal that nothing could ever
-  grant it to gets `AccessDenied`, not an empty list (H16). The same helper works on update and delete
-  builders. `.withAccess(['Task:update', 'Task:delete'])` adds `$access` to every row (key:
+  must be declared `list: true`: `authz: { permissions: { 'task:read': { list: true } } }` in the root
+  domain, `authz.domains.<name>.permissions` in another. Boot refuses one that something can grant
+  only by reading the row (boot rule 12). A principal that nothing could ever grant it to gets
+  `AccessDenied`, not an empty list (H16). The same helper works on update and delete
+  builders. `.withAccess(['task:update', 'task:delete'])` adds `$access` to every row (key:
   `authz.orm.accessField`), equal to what `POST /user/access/checks` answers for that row.
 - **Every multi-row select on an `@AccessResource` model** calls `.accessible()`, `.unscoped(reason)`,
   or runs in `runAs(SYSTEM, reason)`. A select on exactly one primary-key value (`@FromModel`,
@@ -585,7 +599,7 @@ export class Folder extends ModelBase {
 - **Relations, `populate()`, joins and sub-queries are not filtered.** Authorize the aggregate root;
   load a child type that is its own resource with the helper, inside the populate callback, whose
   `this` is the relation's query:
-  `.populate('tasks', function () { this.accessible('Task:read'); })`.
+  `.populate('tasks', function () { this.accessible('task:read'); })`.
 - **The ancestor table** follows every ORM insert, `@Parent` update and delete, in the same
   transaction. A delete also forgets the scope: its assignments, links, rules, policies and scope
   attributes, then one audit entry as `SYSTEM` (`resource-deleted`). Writes outside the ORM need

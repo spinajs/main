@@ -73,11 +73,15 @@ the new parent. The ORM checks neither.
 ## Lists
 
 ```ts
-authz: { permissions: { 'task:read': { list: true } } }
+authz: { permissions: { 'task:read': { list: true } } }   // a child domain: authz.domains.<name>.permissions
 
 const tasks = await Task.where('status', 'open').accessible('task:read');
 await Task.update({ archived: true }).where('done', true).accessible('task:update');
+const teamTasks = await Task.query().within({ type: 'team', id: teamId }).accessible('task:read');
 ```
+
+Permission names are compared exactly: `@AccessResource('task')` registers `task:read`, never
+`Task:read`.
 
 - `.accessible(permission)` asks `authz().accessPlan(principal, permission, type)` and adds one
   `EXISTS` filter: a grant on the row, a grant on any ancestor, the owner column, minus deny roles,
@@ -90,6 +94,47 @@ await Task.update({ archived: true }).where('done', true).accessible('task:updat
   RBAC `cap`, `restrict` or `threshold` rule, an ABAC policy that is scoped or reads `resource.*` or
   `scope.*` (other than `$global`), a type with no `@AccessResource` model, or a route other than
   `deny-overrides`. `AuthzAdmin` refuses the same at write time (`not_list_filterable`).
+- The caller's where stays one group: `(where) AND (plan) AND (within…)`.
+- `.within(ref | refs)` keeps rows that are one of the refs or lie below one in the resource tree (any
+  scope type: a team, a project, a folder; `{ type }` alone means any resource of that type, `$global`
+  keeps every row). The refs of one call are OR-ed, chained calls are AND-ed, `[]` keeps nothing. It
+  narrows a list and authorizes nothing: a select still needs `.accessible()`, `.unscoped(reason)` or
+  SYSTEM. It works on select, update and delete builders.
+- `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
+  (`authz.audit.unscoped`).
+
+### Plan terms and `PlanTermSql`
+
+An access plan is a list of opaque terms (`{ op, args }`) from each model's `listPlan`. The adapter
+renders each term with the `PlanTermSql` registered for its `op` and combines them as
+`(permit OR …) AND NOT (deny OR …)`. A term with no compiler fails the query with `AuthzConfigError`.
+
+| op | Registered by | Renders |
+|---|---|---|
+| `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
+| `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
+| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor` |
+
+A model that adds list support registers a compiler for each op its `listPlan` returns:
+
+```ts
+import { PlanTermSql } from '@spinajs/authz';
+import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+
+@Singleton()
+@Injectable(PlanTermSql)
+export class TenantSql extends PlanTermSql {
+  readonly op = 'myapp.tenant';   // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
+  toSql(args: unknown, row: SqlRowContext): SqlFragment {
+    return { sql: `${row.rowColumn('tenant_id')} = ?`, bindings: [(args as { tenant: string }).tenant] };
+  }
+}
+```
+
+`SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
+`ancestorTable`, the `owner`/`self` relation columns, `now` and the `dialect` (`sqlite`, `postgres`,
+`mysql`, `mssql`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
 
 ## Per-row access
 
@@ -140,7 +185,8 @@ Project.where('id', id).populate('tasks', function () { this.accessible('task:re
 A `@Parent` update or a delete and its table writes run in one transaction: the caller's, or one the
 middleware opens. Where neither is possible the write is refused with `AuthzConfigError`.
 
-**Deleting** a resource also deletes the assignments (recomputing the team memberships they fed),
+**Deleting** a resource also deletes the assignments (the RBAC write handlers recompute the team
+memberships they fed),
 links, rules, policies and scope attributes at its scope and bumps `authz_version`: with
 `DbAuthzAdminBackend` in the same transaction, with any other admin backend after the commit (best
 effort, logged on failure). After the commit it publishes the change and writes one audit entry as
@@ -155,12 +201,32 @@ the ORM (raw SQL, imports) are not tracked: run the CLI afterwards.
 | `authz:ancestors-verify [type]` | recomputes from the `@Parent` columns, prints missing, extra and wrong-depth rows, exit code 1 on any |
 | `authz:ancestors-rebuild [type]` | rewrites the table from the `@Parent` columns, one transaction per type |
 
-## Audit and scope attributes
+## Database audit
 
-- `DbDecisionAudit` (`@spinajs/authz-orm/audit`) writes decision records to `authz_audit` on the
-  connection `authz-audit`. Importing it does not enable it: register it as the `DecisionAudit`.
-- `DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
-  (`scope.setAttributes`, `scope.replaceAttributes`).
+`DbDecisionAudit` (from `@spinajs/authz-orm/audit`) writes one `authz_audit` row per audit record:
+`id` (uuid), `at`, `kind`, `principal` (`type:id`), `permission`, `resource` (`resourceKey`),
+`reason`, `trace` (JSON; for an `admin` record the command). Longer values are cut to the column
+widths. A failed write is logged (`authz-audit`) and the record dropped; it never fails a check.
+
+1. Import `@spinajs/authz-orm/audit` before the ORM boots. It registers the `AuthzAuditEntry` model
+   and the migration `AuthzAudit_2026_10_01_00_00_00`, both on the connection named `authz-audit`.
+2. Map that name: `db.Aliases: { 'authz-audit': 'default' }`, or configure a connection of that
+   name. Without one the migration is skipped with a warning and every record fails.
+3. Register and select it: `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's
+   container), with `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
+
+The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
+the last one registered, so loading the module would silently replace the log audit.
+
+`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in other
+zones compare and the hour repeated when daylight saving ends sorts right. Through the model it reads
+back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })` gives the
+instant.
+
+## Scope attributes
+
+`DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
+(`scope.setAttributes`, `scope.replaceAttributes`).
 
 ## Config
 
