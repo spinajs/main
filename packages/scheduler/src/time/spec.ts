@@ -19,12 +19,16 @@ export interface SpecInput {
 }
 
 export function parseSpec(input: SpecInput, name: string): ScheduleSpec {
-  const given = (['cron', 'every', 'at', 'manual'] as const).filter((k) => input[k] !== undefined && input[k] !== false);
+  const given = (['cron', 'every', 'at', 'manual'] as const).filter(
+    (k) => input[k] !== undefined && input[k] !== false,
+  );
   if (given.length === 0) {
     throw new InvalidArgument(`schedule '${name}': set one of cron, every, at or manual`);
   }
   if (given.length > 1) {
-    throw new InvalidArgument(`schedule '${name}': only one of cron, every, at or manual may be set (got ${given.join(', ')})`);
+    throw new InvalidArgument(
+      `schedule '${name}': only one of cron, every, at or manual may be set (got ${given.join(', ')})`,
+    );
   }
 
   const timezone = input.timezone ?? 'UTC';
@@ -61,22 +65,28 @@ export function parseSpec(input: SpecInput, name: string): ScheduleSpec {
 }
 
 const MAX_DST_SHIFT_MS = 3 * 3_600_000;
+const DAY_MS = 86_400_000;
 
-/** Local wall-clock time of `t` in `zone`, carried as a UTC DateTime so no DST applies to it. */
-function toWall(t: number, zone: string): DateTime {
-  const d = DateTime.fromMillis(t, { zone });
-  return DateTime.fromObject({ year: d.year, month: d.month, day: d.day, hour: d.hour, minute: d.minute, second: d.second }, { zone: 'UTC' });
+/** Local wall-clock time of `t` in `zone` as epoch ms of the same fields in UTC, whole seconds. */
+function toWall(t: number, zone: IANAZone): number {
+  return Math.floor((t + zone.offset(t) * 60_000) / 1000) * 1000;
 }
 
-/** Luxon resolves a repeated wall time to its first instant and a skipped one forward by the DST shift. */
-function fromWall(wall: DateTime, zone: string): number {
-  return DateTime.fromObject({ year: wall.year, month: wall.month, day: wall.day, hour: wall.hour, minute: wall.minute, second: wall.second }, { zone }).toMillis();
+/**
+ * Instant of a local wall-clock time: a repeated one resolves to its first pass, a skipped one moves forward by
+ * the DST shift. Resolved here because luxon's `fromObject` picks the pass from the offset at `Settings.now()`.
+ */
+function fromWall(wall: number, zone: IANAZone): number {
+  const before = zone.offset(wall - DAY_MS);
+  const after = zone.offset(wall + DAY_MS);
+  const valid = [wall - before * 60_000, wall - after * 60_000].filter((t) => zone.offset(t) * 60_000 === wall - t);
+  return valid.length ? Math.min(...valid) : wall - Math.min(before, after) * 60_000;
 }
 
-const isRepeatedWallTime = (t: number, zone: string) => fromWall(toWall(t, zone), zone) !== t;
+const isRepeatedWallTime = (t: number, zone: IANAZone) => fromWall(toWall(t, zone), zone) !== t;
 
 /** First whole second at or after `t` that is not in the second pass of a repeated hour. */
-function endOfRepeatedHour(t: number, zone: string): number {
+function endOfRepeatedHour(t: number, zone: IANAZone): number {
   let lo = Math.floor(t / 1000) * 1000;
   if (!isRepeatedWallTime(lo, zone)) return lo;
   let hi = lo + MAX_DST_SHIFT_MS;
@@ -88,22 +98,36 @@ function endOfRepeatedHour(t: number, zone: string): number {
   return hi;
 }
 
+const CRON_CACHE_SIZE = 256;
+const cronCache = new Map<string, CronTime>();
+
+function wallCron(expression: string): CronTime {
+  let cron = cronCache.get(expression);
+  if (!cron) {
+    if (cronCache.size >= CRON_CACHE_SIZE) cronCache.delete(cronCache.keys().next().value as string);
+    cron = new CronTime(expression, 'UTC');
+    cronCache.set(expression, cron);
+  }
+  return cron;
+}
+
 /**
  * Cron fields are matched against local wall-clock time with a UTC `CronTime`, then mapped to an instant
  * here: cron 4's own DST handling returns past instants inside a repeated hour and non-matching times on
  * half-hour shifts. A repeated wall time fires once (first pass), a skipped one fires shifted forward.
+ * Known limit: only the first match inside a spring gap fires; later matches in the same gap are dropped
+ * (`20,40 2 * * *` on a 02:00-02:30 gap fires once, at 02:50).
  */
 function nextCron(spec: Extract<ScheduleSpec, { kind: 'cron' }>, afterMs: number): number | null {
-  const zone = spec.timezone;
-  const cron = new CronTime(spec.expression, 'UTC');
+  const zone = IANAZone.create(spec.timezone);
+  const cron = wallCron(spec.expression);
   let wall = toWall(afterMs, zone);
   for (let guard = 0; guard < 8; guard++) {
-    const next = cron.getNextDateFrom(wall, 'UTC');
+    const next = cron.getNextDateFrom(DateTime.fromMillis(wall, { zone: 'UTC' }), 'UTC').toMillis();
     const t = Math.floor(fromWall(next, zone) / 1000) * 1000;
     if (t > afterMs) return t;
     // `next` already fired in the first pass of a repeated hour.
-    const lastRepeated = toWall(endOfRepeatedHour(afterMs, zone) - 1000, zone);
-    wall = lastRepeated.toMillis() > next.toMillis() ? lastRepeated : next;
+    wall = Math.max(next, toWall(endOfRepeatedHour(afterMs, zone) - 1000, zone));
   }
   return null;
 }
