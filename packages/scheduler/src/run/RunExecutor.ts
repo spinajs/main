@@ -18,6 +18,7 @@ import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
 import { RunEventWriter } from './RunEventWriter.js';
 import { RunFinalizer } from './RunFinalizer.js';
+import { loadResumeMap } from './resume.js';
 
 export interface ExecutionHandle {
   runId: string;
@@ -158,6 +159,7 @@ export class RunExecutor {
       saveCheckpoint: (json) =>
         this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: json, UpdatedAt: this.Clock.now() }),
       onLeaseLost,
+      resume: await loadResumeMap(run, def),
     });
   }
 

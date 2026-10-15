@@ -35,6 +35,8 @@ export interface RunContextInit {
   saveCheckpoint: (json: string) => Promise<boolean>;
   /** Called when a write proves another replica owns the run; the executor aborts the run with `lease-lost`. */
   onLeaseLost?: () => void;
+  /** Results of steps completed by an earlier attempt, keyed `${name}#${occurrence}`. */
+  resume?: Map<string, unknown> | null;
 }
 
 export interface StepOptions {
@@ -161,6 +163,15 @@ export class RunContext {
     this.occurrences.set(name, occurrence);
     const seq = ++this.stepSeq;
     const startedAt = this.init.clock.now();
+    const key = `${name}#${occurrence}`;
+    if (this.init.resume?.has(key)) {
+      this.starting = name;
+      try {
+        return (await this.skipStep(name, seq, weight, startedAt, this.init.resume.get(key))) as T;
+      } finally {
+        this.starting = null;
+      }
+    }
 
     this.starting = name;
     let row: RunStepModel;
@@ -323,6 +334,30 @@ export class RunContext {
     if (s && !s.closed) await this.closeStep(s, 'aborted', null, undefined);
     this.closed = true;
     await this.queue;
+  }
+
+  /** A step an earlier attempt completed: recorded as `skipped` with the stored result, `fn` is not called. */
+  protected async skipStep(name: string, seq: number, weight: number, now: number, value: unknown): Promise<unknown> {
+    await this.enqueue(() =>
+      RunStepModel.create({
+        RunId: this.runId,
+        Attempt: this.attempt,
+        Seq: seq,
+        Name: name,
+        Status: 'skipped',
+        Weight: weight,
+        StartedAt: now,
+        FinishedAt: now,
+        Progress: 100,
+        Result: value ?? null,
+      }),
+    );
+    this.completedWeight += weight;
+    this.dropPendingProgress();
+    this.touch();
+    await this.emit({ type: 'step-start', step: name, stepSeq: seq });
+    await this.emit({ type: 'step-end', step: name, stepSeq: seq, status: 'skipped', durationMs: 0 });
+    return value;
   }
 
   protected createLogger(): RunLogger {
