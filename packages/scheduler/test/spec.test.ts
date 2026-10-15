@@ -98,7 +98,8 @@ for (const [label, now] of [
     });
 
     it('at: a local time without offset resolves like a cron wall time', () => {
-      const at = (value: string) => iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
+      const at = (value: string) =>
+        iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
       expect(at('2026-06-01T12:00:00')).to.eq('2026-06-01T10:00:00.000Z');
       expect(at('2026-01-05T12:00:00.750')).to.eq('2026-01-05T11:00:00.000Z');
       // repeated autumn hour: first pass (CEST)
@@ -108,7 +109,8 @@ for (const [label, now] of [
     });
 
     it('at: an explicit offset wins over the time zone', () => {
-      const at = (value: string) => iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
+      const at = (value: string) =>
+        iso((parseSpec({ at: value, timezone: 'Europe/Warsaw' }, 'a') as { at: number }).at);
       expect(at('2026-10-25T02:30:00+01:00')).to.eq('2026-10-25T01:30:00.000Z');
       expect(at('2026-10-25T02:30:00Z')).to.eq('2026-10-25T02:30:00.000Z');
     });

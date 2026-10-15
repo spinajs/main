@@ -124,16 +124,46 @@ export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {
     });
 
     await connection.index().table('__scheduler').name('__scheduler_due').columns(['Paused', 'NextRunAt']);
-    await connection.index().table('__scheduler_run').name('__scheduler_run_status').columns(['Status', 'NextAttemptAt']);
-    await connection.index().table('__scheduler_run').name('__scheduler_run_schedule').columns(['Schedule', 'CreatedAt']);
+    await connection
+      .index()
+      .table('__scheduler_run')
+      .name('__scheduler_run_status')
+      .columns(['Status', 'NextAttemptAt']);
+    await connection
+      .index()
+      .table('__scheduler_run')
+      .name('__scheduler_run_schedule')
+      .columns(['Schedule', 'CreatedAt']);
     await connection.index().table('__scheduler_run').name('__scheduler_run_finished').columns(['FinishedAt']);
-    await connection.index().table('__scheduler_run_attempt').name('__scheduler_run_attempt_run').columns(['RunId', 'Attempt']);
-    await connection.index().table('__scheduler_run_step').name('__scheduler_run_step_run').columns(['RunId', 'Attempt', 'Seq']);
-    await connection.index().unique().table('__scheduler_run_log').name('__scheduler_run_log_seq').columns(['RunId', 'Seq']);
+    await connection
+      .index()
+      .table('__scheduler_run_attempt')
+      .name('__scheduler_run_attempt_run')
+      .columns(['RunId', 'Attempt']);
+    await connection
+      .index()
+      .table('__scheduler_run_step')
+      .name('__scheduler_run_step_run')
+      .columns(['RunId', 'Attempt', 'Seq']);
+    await connection
+      .index()
+      .unique()
+      .table('__scheduler_run_log')
+      .name('__scheduler_run_log_seq')
+      .columns(['RunId', 'Seq']);
     await connection.index().unique().table('__scheduler_run_log').name('__scheduler_run_log_pos').columns(['Pos']);
-    await connection.index().table('__scheduler_run_log').name('__scheduler_run_log_schedule').columns(['Schedule', 'Pos']);
+    await connection
+      .index()
+      .table('__scheduler_run_log')
+      .name('__scheduler_run_log_schedule')
+      .columns(['Schedule', 'Pos']);
     await connection.index().table('__scheduler_run_log').name('__scheduler_run_log_ts').columns(['Ts']);
-    await connection.index().unique().table('__scheduler_error').name('__scheduler_error_fp').columns(['Schedule', 'Fingerprint']);
+    await connection
+      .index()
+      .unique()
+      .table('__scheduler_error')
+      .name('__scheduler_error_fp')
+      .columns(['Schedule', 'Fingerprint']);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function

@@ -3,7 +3,17 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
-import { defineSchedule, SCHEDULER_CONFIGURATION_SCHEMA, SCHEDULER_DEFAULTS, ScheduledTask, ScheduleNotFound, ScheduleRegistry, ScheduleValidationError, undefineSchedule } from '../src/index.js';
+import {
+  defineSchedule,
+  SCHEDULER_CONFIGURATION_SCHEMA,
+  SCHEDULER_DEFAULTS,
+  ScheduledTask,
+  ScheduleNotFound,
+  ScheduleRegistry,
+  ScheduleValidationError,
+  undefineSchedule,
+} from '../src/index.js';
+import shippedConfig from '../src/config/scheduler.js';
 import { bootTestEnv } from './support/env.js';
 
 chai.use(chaiAsPromised);
@@ -15,7 +25,14 @@ describe('ScheduleRegistry', () => {
   afterEach(() => undefineSchedule('nightly'));
 
   it('merges decorators and config schedules', async () => {
-    await bootTestEnv({ scheduler: { schedules: [{ name: 'nightly', cron: '0 3 * * *' }, { name: 'nightly-copy', task: 'Nightly', every: '1h' }] } });
+    await bootTestEnv({
+      scheduler: {
+        schedules: [
+          { name: 'nightly', cron: '0 3 * * *' },
+          { name: 'nightly-copy', task: 'Nightly', every: '1h' },
+        ],
+      },
+    });
     const registry = await DI.resolve(ScheduleRegistry);
     expect(registry.get('nightly').spec.expression).to.eq('0 3 * * *');
     expect(registry.get('nightly-copy').task).to.eq(Nightly);
@@ -38,5 +55,10 @@ describe('ScheduleRegistry', () => {
     expect(ok).to.eq(true);
     expect($id).to.be.a('string');
     expect($configurationModule).to.eq('scheduler');
+  });
+
+  it('ships the same values as SCHEDULER_DEFAULTS', () => {
+    expect(shippedConfig.scheduler).to.deep.eq(SCHEDULER_DEFAULTS);
+    expect(shippedConfig.system.dirs.schedules).to.deep.eq([]);
   });
 });

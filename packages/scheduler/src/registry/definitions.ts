@@ -5,7 +5,13 @@ import { parseSpec } from '../time/spec.js';
 import { ScheduleValidationError } from '../errors.js';
 import { ScheduledTask } from '../ScheduledTask.js';
 import type { ScheduleDeclaration } from '../decorators.js';
-import type { ConfigScheduleEntry, MisfirePolicy, NormalizedRetry, ScheduleDefinition, ScheduleOptions } from '../interfaces.js';
+import type {
+  ConfigScheduleEntry,
+  MisfirePolicy,
+  NormalizedRetry,
+  ScheduleDefinition,
+  ScheduleOptions,
+} from '../interfaces.js';
 
 export interface BuildDefinitionsInput {
   declarations: ScheduleDeclaration[];
@@ -38,9 +44,11 @@ function parseMisfire(value: string, name: string): MisfirePolicy {
 
 function normalizeRetry(o: ScheduleOptions['retry'], name: string): NormalizedRetry | undefined {
   if (!o) return undefined;
-  if (!Number.isInteger(o.attempts) || o.attempts < 1) throw new Error(`schedule '${name}': retry.attempts must be an integer >= 1`);
+  if (!Number.isInteger(o.attempts) || o.attempts < 1)
+    throw new Error(`schedule '${name}': retry.attempts must be an integer >= 1`);
   const backoff = o.backoff ?? 'fixed';
-  if (backoff !== 'fixed' && backoff !== 'exponential') throw new Error(`schedule '${name}': retry.backoff must be fixed or exponential`);
+  if (backoff !== 'fixed' && backoff !== 'exponential')
+    throw new Error(`schedule '${name}': retry.backoff must be fixed or exponential`);
   const delayMs = parseDuration(o.delay ?? '1m', `schedule '${name}' retry.delay`);
   const maxDelayMs = parseDuration(o.maxDelay ?? Math.max(delayMs, 3_600_000), `schedule '${name}' retry.maxDelay`);
   return { attempts: o.attempts, backoff, delayMs, maxDelayMs, retryOn: o.retryOn };
@@ -67,7 +75,10 @@ function normalize(name: string, c: Candidate, input: BuildDefinitionsInput): Sc
     spec,
     jitterMs: o.jitter !== undefined ? parseDuration(o.jitter, `schedule '${name}' jitter`) : 0,
     misfire: parseMisfire(o.misfire ?? 'run-once', name),
-    misfireThresholdMs: o.misfireThreshold !== undefined ? parseDuration(o.misfireThreshold, `schedule '${name}' misfireThreshold`) : Math.max(input.tickMs * 2, 5000),
+    misfireThresholdMs:
+      o.misfireThreshold !== undefined
+        ? parseDuration(o.misfireThreshold, `schedule '${name}' misfireThreshold`)
+        : Math.max(input.tickMs * 2, 5000),
     overlap,
     runOn,
     emit: o.emit,
@@ -162,7 +173,15 @@ export function serializeDefinition(def: ScheduleDefinition): Record<string, unk
     runOn: def.runOn,
     emit: def.emit?.name ?? null,
     paramsSchema: def.paramsSchema ?? null,
-    retry: def.retry ? { attempts: def.retry.attempts, backoff: def.retry.backoff, delayMs: def.retry.delayMs, maxDelayMs: def.retry.maxDelayMs, retryOn: !!def.retry.retryOn } : null,
+    retry: def.retry
+      ? {
+          attempts: def.retry.attempts,
+          backoff: def.retry.backoff,
+          delayMs: def.retry.delayMs,
+          maxDelayMs: def.retry.maxDelayMs,
+          retryOn: !!def.retry.retryOn,
+        }
+      : null,
     resumable: def.resumable,
     timeoutMs: def.timeoutMs ?? null,
     pauseAfterFailures: def.pauseAfterFailures ?? null,
@@ -173,7 +192,9 @@ export function serializeDefinition(def: ScheduleDefinition): Record<string, unk
 }
 
 export function definitionHash(def: ScheduleDefinition): string {
-  return createHash('sha256').update(stableStringify(serializeDefinition(def))).digest('hex');
+  return createHash('sha256')
+    .update(stableStringify(serializeDefinition(def)))
+    .digest('hex');
 }
 
 /** The part of a definition that decides when it fires; a change resets NextRunAt. */

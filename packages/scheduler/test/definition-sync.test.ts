@@ -1,12 +1,24 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { buildDefinitions, DefinitionSync, ScheduledTask, ScheduleDeclaration, ScheduleDefinition, ScheduleModel } from '../src/index.js';
+import {
+  buildDefinitions,
+  DefinitionSync,
+  ScheduledTask,
+  ScheduleDeclaration,
+  ScheduleDefinition,
+  ScheduleModel,
+} from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 
 class T1 extends ScheduledTask {}
 const NOW = Date.parse('2026-01-05T10:02:00Z');
 const defs = (...d: Array<[string, object]>): ScheduleDefinition[] =>
-  buildDefinitions({ declarations: d.map(([name, options]): ScheduleDeclaration => ({ name, options, target: T1 })), config: [], tickMs: 1000, validateParamsSchema: () => null });
+  buildDefinitions({
+    declarations: d.map(([name, options]): ScheduleDeclaration => ({ name, options, target: T1 })),
+    config: [],
+    tickMs: 1000,
+    validateParamsSchema: () => null,
+  });
 const row = (name: string) => ScheduleModel.where('Name', name).first();
 
 describe('DefinitionSync', () => {
@@ -18,7 +30,16 @@ describe('DefinitionSync', () => {
   });
 
   it('inserts rows with the first occurrence after now', async () => {
-    await sync.sync(defs(['every', { every: '5m' }], ['manual', { manual: true }], ['local', { every: '1m', runOn: 'all' }], ['once', { at: '2026-01-01T00:00:00Z' }], ['off', { every: '1m', enabled: false }]), NOW);
+    await sync.sync(
+      defs(
+        ['every', { every: '5m' }],
+        ['manual', { manual: true }],
+        ['local', { every: '1m', runOn: 'all' }],
+        ['once', { at: '2026-01-01T00:00:00Z' }],
+        ['off', { every: '1m', enabled: false }],
+      ),
+      NOW,
+    );
     expect((await row('every')).NextRunAt).to.eq(Date.parse('2026-01-05T10:05:00Z'));
     expect((await row('manual')).NextRunAt).to.eq(null);
     expect((await row('local')).NextRunAt).to.eq(null);

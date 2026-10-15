@@ -3,9 +3,34 @@ import { join, normalize, resolve } from 'path';
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'scheduler', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(
+      normalize(
+        join(
+          process.env.WORKSPACE_ROOT_PATH ?? process.cwd(),
+          'node_modules',
+          '@spinajs',
+          'scheduler',
+          'lib',
+          inCommonJs ? 'cjs' : 'mjs',
+          path,
+        ),
+      ),
+    ),
     // one up, for when the process runs from an app or build folder
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'scheduler', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(
+      normalize(
+        join(
+          process.env.WORKSPACE_ROOT_PATH ?? process.cwd(),
+          '../',
+          'node_modules',
+          '@spinajs',
+          'scheduler',
+          'lib',
+          inCommonJs ? 'cjs' : 'mjs',
+          path,
+        ),
+      ),
+    ),
   ];
 }
 

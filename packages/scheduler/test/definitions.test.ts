@@ -1,12 +1,27 @@
 import { expect } from 'chai';
-import { buildDefinitions, BuildDefinitionsInput, definitionHash, ScheduledTask, ScheduleDeclaration, ScheduleValidationError } from '../src/index.js';
+import {
+  buildDefinitions,
+  BuildDefinitionsInput,
+  definitionHash,
+  ScheduledTask,
+  ScheduleDeclaration,
+  ScheduleValidationError,
+} from '../src/index.js';
 
 class Reconciler extends ScheduledTask {}
 class ImportRates extends ScheduledTask {}
 class NotATask {}
 
-const decl = (name: string, options: object, target: unknown = Reconciler): ScheduleDeclaration => ({ name, options, target: target as never, source: 'decorator' });
-const input = (declarations: ScheduleDeclaration[], config: BuildDefinitionsInput['config'] = []): BuildDefinitionsInput => ({
+const decl = (name: string, options: object, target: unknown = Reconciler): ScheduleDeclaration => ({
+  name,
+  options,
+  target: target as never,
+  source: 'decorator',
+});
+const input = (
+  declarations: ScheduleDeclaration[],
+  config: BuildDefinitionsInput['config'] = [],
+): BuildDefinitionsInput => ({
   declarations,
   config,
   tickMs: 1000,
@@ -26,14 +41,39 @@ function problems(fn: () => unknown): string[] {
 describe('buildDefinitions', () => {
   it('applies defaults to a decorator declaration', () => {
     const [d] = buildDefinitions(input([decl('reconciler', { every: '5m' })]));
-    expect(d).to.include({ name: 'reconciler', jitterMs: 0, misfireThresholdMs: 5000, overlap: 'skip', runOn: 'leader', resumable: false, enabled: true, source: 'decorator', task: Reconciler });
+    expect(d).to.include({
+      name: 'reconciler',
+      jitterMs: 0,
+      misfireThresholdMs: 5000,
+      overlap: 'skip',
+      runOn: 'leader',
+      resumable: false,
+      enabled: true,
+      source: 'decorator',
+      task: Reconciler,
+    });
     expect(d.misfire).to.deep.eq({ kind: 'run-once' });
     expect(d.retry).to.eq(undefined);
   });
 
   it('normalizes retry, misfire, timeout and params', () => {
     const [d] = buildDefinitions(
-      input([decl('import-rates', { cron: '0 2 * * *', timezone: 'Europe/Warsaw', retry: { attempts: 3, backoff: 'exponential', delay: '1m', maxDelay: '30m' }, misfire: 'catch-up(3)', timeout: '10m', params: { type: 'object' }, resumable: true, pauseAfterFailures: 5 }, ImportRates)]),
+      input([
+        decl(
+          'import-rates',
+          {
+            cron: '0 2 * * *',
+            timezone: 'Europe/Warsaw',
+            retry: { attempts: 3, backoff: 'exponential', delay: '1m', maxDelay: '30m' },
+            misfire: 'catch-up(3)',
+            timeout: '10m',
+            params: { type: 'object' },
+            resumable: true,
+            pauseAfterFailures: 5,
+          },
+          ImportRates,
+        ),
+      ]),
     );
     expect(d.retry).to.deep.include({ attempts: 3, backoff: 'exponential', delayMs: 60_000, maxDelayMs: 1_800_000 });
     expect(d.misfire).to.deep.eq({ kind: 'catch-up', max: 3 });
@@ -43,14 +83,18 @@ describe('buildDefinitions', () => {
   });
 
   it('lets config override timing and keep the rest', () => {
-    const [d] = buildDefinitions(input([decl('reconciler', { every: '5m', jitter: '10s' })], [{ name: 'reconciler', cron: '0 * * * *' }]));
+    const [d] = buildDefinitions(
+      input([decl('reconciler', { every: '5m', jitter: '10s' })], [{ name: 'reconciler', cron: '0 * * * *' }]),
+    );
     expect(d.spec.kind).to.eq('cron');
     expect(d.jitterMs).to.eq(10_000);
     expect(d.source).to.eq('config');
   });
 
   it('creates a schedule from a task class named in config', () => {
-    const defs = buildDefinitions(input([decl('reconciler', { every: '5m' })], [{ name: 'reconciler-hourly', task: 'Reconciler', every: '1h' }]));
+    const defs = buildDefinitions(
+      input([decl('reconciler', { every: '5m' })], [{ name: 'reconciler-hourly', task: 'Reconciler', every: '1h' }]),
+    );
     expect(defs.map((d) => d.name)).to.deep.eq(['reconciler', 'reconciler-hourly']);
     expect(defs[1].task).to.eq(Reconciler);
   });
@@ -59,8 +103,19 @@ describe('buildDefinitions', () => {
     const p = problems(() =>
       buildDefinitions(
         input(
-          [decl('dup', { every: '1m' }), decl('dup', { every: '2m' }, ImportRates), decl('bad-cron', { cron: 'nope' }), decl('bad-tz', { every: '1m', timezone: 'Nowhere/X' }), decl('bad-params', { manual: true, params: { type: 'nonsense' } }), decl('bad-misfire', { every: '1m', misfire: 'catch-up(0)' as never }), decl('not-task', { every: '1m' }, NotATask)],
-          [{ name: 'ghost', every: '1m' }, { name: 'from-task', task: 'Missing', every: '1m' }],
+          [
+            decl('dup', { every: '1m' }),
+            decl('dup', { every: '2m' }, ImportRates),
+            decl('bad-cron', { cron: 'nope' }),
+            decl('bad-tz', { every: '1m', timezone: 'Nowhere/X' }),
+            decl('bad-params', { manual: true, params: { type: 'nonsense' } }),
+            decl('bad-misfire', { every: '1m', misfire: 'catch-up(0)' as never }),
+            decl('not-task', { every: '1m' }, NotATask),
+          ],
+          [
+            { name: 'ghost', every: '1m' },
+            { name: 'from-task', task: 'Missing', every: '1m' },
+          ],
         ),
       ),
     );

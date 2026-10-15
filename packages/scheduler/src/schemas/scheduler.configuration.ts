@@ -15,7 +15,13 @@ export const SCHEDULER_CONFIGURATION_SCHEMA = {
     maxStepResultBytes: { type: 'integer', minimum: 0 },
     retention: {
       type: 'object',
-      properties: { enabled: { type: 'boolean' }, schedule: { type: 'string' }, runs: duration, logs: duration, errors: duration },
+      properties: {
+        enabled: { type: 'boolean' },
+        schedule: { type: 'string' },
+        runs: duration,
+        logs: duration,
+        errors: duration,
+      },
     },
     events: { type: 'object', properties: { pollInterval: { type: 'integer', minimum: 100 } } },
     cli: {
@@ -23,7 +29,10 @@ export const SCHEDULER_CONFIGURATION_SCHEMA = {
       properties: {
         http: {
           type: 'object',
-          properties: { baseUrl: { type: 'string' }, headers: { type: 'object', additionalProperties: { type: 'string' } } },
+          properties: {
+            baseUrl: { type: 'string' },
+            headers: { type: 'object', additionalProperties: { type: 'string' } },
+          },
           required: ['baseUrl'],
         },
       },
@@ -50,7 +59,12 @@ export const SCHEDULER_CONFIGURATION_SCHEMA = {
           retry: {
             type: 'object',
             required: ['attempts'],
-            properties: { attempts: { type: 'integer', minimum: 1 }, backoff: { enum: ['fixed', 'exponential'] }, delay: duration, maxDelay: duration },
+            properties: {
+              attempts: { type: 'integer', minimum: 1 },
+              backoff: { enum: ['fixed', 'exponential'] },
+              delay: duration,
+              maxDelay: duration,
+            },
           },
           resumable: { type: 'boolean' },
           timeout: duration,

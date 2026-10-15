@@ -30,7 +30,18 @@ export class DefinitionSync {
 
       if (!existing) {
         try {
-          await ScheduleModel.create({ Name: def.name, Definition: serialized, DefinitionHash: hash, NextRunAt: initialNextRun(def, now), Paused: false, HardPaused: false, PausedReason: null, ConsecutiveFailures: 0, Orphaned: false, UpdatedAt: now });
+          await ScheduleModel.create({
+            Name: def.name,
+            Definition: serialized,
+            DefinitionHash: hash,
+            NextRunAt: initialNextRun(def, now),
+            Paused: false,
+            HardPaused: false,
+            PausedReason: null,
+            ConsecutiveFailures: 0,
+            Orphaned: false,
+            UpdatedAt: now,
+          });
         } catch (err) {
           // another replica inserted it first
           this.Log.trace(`schedule ${def.name} already inserted: ${(err as Error).message}`);
@@ -42,7 +53,13 @@ export class DefinitionSync {
 
       // Conditional on the old hash, so of several replicas booting together only one rewrites the row.
       const timingChanged = timingKey(existing.Definition ?? {}) !== timingKey(serialized);
-      await ScheduleModel.update({ Definition: jsonColumn(serialized) as never, DefinitionHash: hash, Orphaned: false, NextRunAt: timingChanged ? initialNextRun(def, now) : existing.NextRunAt, UpdatedAt: now })
+      await ScheduleModel.update({
+        Definition: jsonColumn(serialized) as never,
+        DefinitionHash: hash,
+        Orphaned: false,
+        NextRunAt: timingChanged ? initialNextRun(def, now) : existing.NextRunAt,
+        UpdatedAt: now,
+      })
         .where('Name', def.name)
         .where('DefinitionHash', existing.DefinitionHash);
     }
