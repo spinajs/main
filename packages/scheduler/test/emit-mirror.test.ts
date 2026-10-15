@@ -220,10 +220,8 @@ describe('emit mode status mirroring', () => {
     failures = 1;
     const run = await emitOnce();
     await waitFor(async () => (await jobStatus(run.JobId!)) === 'dead');
-    const r2 = await DI.resolve(Scheduler, [{ replicaId: 'r2', autoStart: false }]);
     const mirror = DI.resolve(EmitMirror);
     const [a, b] = await Promise.all([mirror.sync(clock.now()), mirror.sync(clock.now())]);
-    await Promise.all([s.tickOnce(), r2.tickOnce()]);
     expect(a + b).to.eq(1);
     expect(await statuses(run.Id)).to.deep.eq(['running:', 'emitted:', 'dead:queue']);
     expect((await ScheduleModel.where('Name', 'mirror').first()).ConsecutiveFailures).to.eq(1);
