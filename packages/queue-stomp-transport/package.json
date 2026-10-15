@@ -36,7 +36,8 @@
     "version": "npm run format && git add -A src"
   },
   "files": [
-    "lib/**/*"
+    "lib/**/*",
+    "ACTIVEMQ.md"
   ],
   "repository": {
     "type": "git",

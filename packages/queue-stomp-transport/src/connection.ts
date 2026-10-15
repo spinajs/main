@@ -333,9 +333,7 @@ export class StompQueueClient extends QueueClient {
 
         if (!settled) {
           settled = true;
-          const hint = /already connected|InvalidClientID/i.test(brokerMessage)
-            ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )`
-            : '';
+          const hint = /already connected|InvalidClientID/i.test(brokerMessage) ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )` : '';
           this.Client.deactivate();
           reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}: ${brokerMessage}${hint}`, frame));
         }
