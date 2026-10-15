@@ -81,45 +81,21 @@ export interface HttpWorld {
   readonly identities?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
-/** `@OrmScope(model, relation)` with an `OrmScopePolicy` built from data. */
-export interface OrmScopeSpec {
-  readonly relation: string;
-  /** `scope()`: rows whose `column` equals the principal's attribute `attribute`. */
-  readonly column: string;
-  readonly attribute: string;
-  /** `authorizeCreate`: 'stamp' sets `column` to the principal's attribute; 'check' throws Forbidden (403) for an insert whose value differs. */
-  readonly onCreate?: 'stamp' | 'check';
-  /** `authorizeUpdate`: throws Forbidden (403) for values that set `column` to anything but the principal's attribute. */
-  readonly guardUpdate?: boolean;
-}
-
-/** A many-to-many relation through a junction table. */
-export interface OrmJunctionSpec {
-  readonly name: string;
-  readonly target: string;
-  /** [this model's id, target id] pairs. */
-  readonly pairs: readonly (readonly [string, string])[];
-}
-
-/** An ORM model; with `type` it carries `@AccessResource(type, { relationScope, attributes })`. Primary key `id` (string). */
+/**
+ * An ORM model; with `type` it carries `@AccessResource(type)`. Primary key `id`, every column text.
+ * A harness inserts the rows through the ORM as SYSTEM, in `OrmWorld.models` order, so the closure table is right:
+ * a parent model comes before its children.
+ */
 export interface OrmModelSpec {
   readonly name: string;
   readonly type?: ResourceType;
-  readonly relationScope?: 'where' | 'join';
-  readonly attributes?: readonly string[];
   /** The `@Owner()` column. */
   readonly owner?: string;
-  /** `@ScopeColumn(column, type)`, nearest ancestor first. */
-  readonly scopeColumns?: readonly { readonly column: string; readonly type: ResourceType }[];
-  readonly scopes?: readonly OrmScopeSpec[];
+  /** `@Parent(type, { nullable })` columns. */
+  readonly parents?: readonly { readonly column: string; readonly type: ResourceType; readonly nullable?: boolean }[];
   /** Columns besides `id`. */
   readonly columns: readonly string[];
-  /** Columns of `columns` that hold JSON; their row values are JSON text. */
-  readonly json?: readonly string[];
   readonly rows?: readonly FakeRow[];
-  readonly junctions?: readonly OrmJunctionSpec[];
-  /** `@BelongsTo(target, column, 'id')` on the property `name` (RFC L4-1). */
-  readonly belongsTo?: readonly { readonly name: string; readonly target: string; readonly column: string }[];
 }
 
 export interface OrmWorld {
@@ -128,9 +104,13 @@ export interface OrmWorld {
 
 /**
  * `model` names a model of `World.lane.orm` or one a lane package registers (`DbConfig`, `JobModel`).
- * A select's `populate` names a `belongsTo` relation of the model, populated into the query (RFC L4-1).
+ * `accessible` adds `.accessible(permission)`; `withAccess` adds `.withAccess(permissions)` to a select.
  */
-export type OrmQuery = { readonly op: 'select'; readonly model: string; readonly where?: Readonly<Record<string, unknown>>; readonly clone?: boolean; readonly populate?: string } | { readonly op: 'related'; readonly model: string; readonly id: string; readonly relation: string } | { readonly op: 'insert'; readonly model: string; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'update'; readonly model: string; readonly where: Readonly<Record<string, unknown>>; readonly values: Readonly<Record<string, unknown>> } | { readonly op: 'delete'; readonly model: string; readonly where: Readonly<Record<string, unknown>> };
+export type OrmQuery =
+  | { readonly op: 'select'; readonly model: string; readonly where?: Readonly<Record<string, unknown>>; readonly accessible?: Permission; readonly withAccess?: readonly Permission[] }
+  | { readonly op: 'insert'; readonly model: string; readonly values: Readonly<Record<string, unknown>> }
+  | { readonly op: 'update'; readonly model: string; readonly where: Readonly<Record<string, unknown>>; readonly values: Readonly<Record<string, unknown>>; readonly accessible?: Permission }
+  | { readonly op: 'delete'; readonly model: string; readonly where: Readonly<Record<string, unknown>>; readonly accessible?: Permission };
 
 export interface FsProviderSpec {
   readonly name: string;
@@ -234,17 +214,17 @@ export interface HttpHandle {
 }
 
 export interface OrmResult {
-  /** Primary keys of the rows a select or related query returned. */
+  /** Primary keys of the rows a select returned. */
   readonly ids?: readonly string[];
-  /** Rows a select returned. */
+  /** Rows a select returned, or rows an update or delete reached. */
   readonly count?: number;
   /** Every SQL statement the query executed, in order. */
   readonly sql: readonly string[];
-  /** A select with `populate`: per row id it returned, the id of the populated target, null where the join found none. */
-  readonly populated?: Readonly<Record<string, string | null>>;
+  /** A select with `withAccess`: per row id, the `$access` map it carried. */
+  readonly access?: Readonly<Record<string, Readonly<Record<Permission, boolean>>>>;
 }
 
-/** orm facet: queries run in the current ALS (as `authz().current()`); `rows` reads a table raw, unscoped. */
+/** orm facet: queries run in the current ALS (as `authz().current()`); `rows` reads a table raw, without the guard. */
 export interface OrmHandle {
   run(q: OrmQuery): Promise<OrmResult>;
   rows(model: string): Promise<readonly Readonly<Record<string, unknown>>[]>;
@@ -523,16 +503,15 @@ export interface OrmExpectation {
   /** Exactly these ids, any order. */
   readonly ids?: readonly string[];
   readonly count?: number;
-  /** Some executed statement has (true) or none has (false) a WHERE clause. */
-  readonly where?: boolean;
-  /** Exactly `OrmResult.populated` (RFC L4-1). */
-  readonly populated?: Readonly<Record<string, string | null>>;
+  /** Exactly `OrmResult.access`. */
+  readonly access?: Readonly<Record<string, Readonly<Record<Permission, boolean>>>>;
 }
 
-const WHERE = /\bwhere\b/i;
-
 export const orm = (q: OrmQuery, expect: OrmExpectation | LaneThrows): DoStep => {
-  const note = `orm ${q.op} ${q.model}${'where' in q && q.where ? ` ${short(q.where)}` : ''}${'id' in q ? ` ${q.id}.${q.relation}` : ''}${'populate' in q && q.populate ? ` populate ${q.populate}` : ''}`;
+  const where = 'where' in q && q.where ? ` ${short(q.where)}` : '';
+  const accessible = 'accessible' in q && q.accessible ? ` accessible ${q.accessible}` : '';
+  const withAccess = 'withAccess' in q && q.withAccess ? ` withAccess ${q.withAccess.join(',')}` : '';
+  const note = `orm ${q.op} ${q.model}${where}${accessible}${withAccess}`;
   return {
     note,
     do: async (ctx) => {
@@ -541,13 +520,7 @@ export const orm = (q: OrmQuery, expect: OrmExpectation | LaneThrows): DoStep =>
       const e = expect as OrmExpectation;
       if (e.ids) assert.deepEqual([...(res.value.ids ?? [])].sort(), [...e.ids].sort(), `${note}: ids`);
       if (e.count !== undefined) assert.equal(res.value.count, e.count, `${note}: count`);
-      if (e.where !== undefined)
-        assert.equal(
-          res.value.sql.some((s) => WHERE.test(s)),
-          e.where,
-          `${note}: WHERE in ${short(res.value.sql)}`,
-        );
-      if (e.populated !== undefined) assert.deepEqual(res.value.populated, e.populated, `${note}: populated`);
+      if (e.access !== undefined) assert.deepEqual(res.value.access, e.access, `${note}: access`);
     },
   };
 };

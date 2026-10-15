@@ -186,7 +186,6 @@ const rbacWorld: World = {
 };
 
 let coreCases: readonly Case[] | undefined;
-let sqlCases: readonly Case[] | undefined;
 
 export const B06 = fixture('B06', [
   {
@@ -217,15 +216,5 @@ export const B06 = fixture('B06', [
       { name: 'scoped and relation grants: check ⇔ filter', steps: [{ agree: { as: ['alice', 'bob', 'carol'], permissions: ['file:read'], type: 'file' } }] },
     ],
   },
-  {
-    name: 'sql',
-    facets: ['engine', 'list', 'sql'],
-    lanes: ['L4'],
-    note: 'The agree worlds of B06.core with the rows in SQLite and Postgres (one value type per column); native:fake.tuple goes through a test compiler (plan L4 task 10).',
-    get cases() {
-      return (sqlCases ??= [{ name: 'a NULL cell is UNKNOWN in SQL too: check ⇔ filter', world: threeValued, steps: [{ agree: { as: ['alice'], permissions: ['file:read'], type: 'file' } }] }, ...agreeCases(['alice', 'bob', 'carol'])]);
-    },
-  },
   { name: 'rules', facets: ['engine', 'rbac', 'rules', 'list'], lanes: ['L1b'], note: 'Worlds with RBAC rules on the type come with the rule fixtures of B35, or from L1b by RFC.', cases: [] },
-  { name: 'rulesSql', facets: ['engine', 'rbac', 'rules', 'list', 'sql'], lanes: ['L4b', 'K1'], note: 'The rule worlds in SQL; with B44, or from L4b by RFC.', cases: [] },
 ]);

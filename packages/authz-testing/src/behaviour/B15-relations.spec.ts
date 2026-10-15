@@ -108,7 +108,7 @@ export const B15 = fixture('B15', [
     name: 'rbac',
     facets: ['engine', 'rbac'],
     lanes: ['L1'],
-    note: "Kit relation resolvers stand in for the lanes' own: the owner column (FakeAdapter), job initiator and self (world.relations). @Owner and @OrmScope (L4), self on users (C1), file metadata (L7) and job initiator (L6) are tested by their lanes with their resolvers.",
+    note: "Kit relation resolvers stand in for the lanes' own: the owner column (FakeAdapter), job initiator and self (world.relations). @Owner (authz-orm), self on users (C1), file metadata (L7) and the job owner (authz-queue) are tested by their lanes with their resolvers.",
     world,
     cases,
   },

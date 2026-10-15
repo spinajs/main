@@ -171,6 +171,6 @@ export const B39 = fixture('B39', [
       { name: 'a condition reading scope.org.* in a type-level request is indeterminate: deny model_error', steps: [{ check: { as: 'alice', permission: 'file:read' }, expect: { allowed: false, reason: { code: 'model_error', model: 'abac' } } }] },
     ],
   },
-  { name: 'orm', facets: ['orm'], lanes: ['L4'], note: 'Scope attributes from @AccessResource(type, { attributes }); L4 proposes the cases.', cases: [] },
+  { name: 'orm', facets: ['orm'], lanes: ['L5'], note: 'Scope attributes no longer come from @AccessResource columns: the scope resolver and authz_scope_attribute supply them (design 2026-10-14 §5).', cases: [] },
   { name: 'store', facets: ['admin', 'scopeAttributes', 'bus'], lanes: ['L9'], note: 'Stored attributes win over resolver values, and a change publishes scope:<t>:<id>: with the admin fixtures of B43.', cases: [] },
 ]);

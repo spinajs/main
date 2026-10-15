@@ -49,7 +49,7 @@ export const B09 = fixture('B09', [
       },
     ],
   },
-  later('orm', ['orm'], ['L4'], 'A query on an @AccessResource model without a principal throws; under runAs(SYSTEM) it runs unscoped. L4 proposes the cases with its fixture models.'),
+  later('orm', ['orm'], ['L5'], 'Filled by the orm part of B09-lanes.spec.ts: .accessible() without a principal throws; runAs(SYSTEM) bypasses the guard.'),
   later('http', ['http'], ['L5'], '@Unscoped(reason) routes run as SYSTEM and are audited (kind unscoped). L5 proposes the cases.'),
   later('queue', ['queue'], ['L6'], "@Job({ runAs: 'system' }) handlers run as SYSTEM, audited; the default is unattended. L6 proposes the cases."),
   later('configuration', ['configuration'], ['C6'], "configuration-db-source polling runs under runAs(SYSTEM, 'config-poll'). C6 proposes the case."),

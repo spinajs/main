@@ -106,8 +106,8 @@ export const B05 = fixture('B05', [
   {
     name: 'orm',
     facets: ['orm', 'boot'],
-    lanes: ['L4'],
-    note: "Rule 6 (relationScope 'join' with a sync: 'never' model whose residual is not IO-free) needs @AccessResource models; L4 proposes the case by RFC.",
+    lanes: ['L9'],
+    note: 'Rule 6 (relationScope) went with query rewriting (design 2026-10-14 §9). Boot rule 12 (list permissions) is covered by authz-orm/test/e2e (L9).',
     cases: [],
   },
 ]);
