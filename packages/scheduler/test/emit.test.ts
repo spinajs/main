@@ -1,9 +1,12 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Job, QueueJob } from '@spinajs/queue';
+import sinon from 'sinon';
 import {
+  blackHoleConnections,
   defineSchedule,
   emitJobId,
+  jobConnections,
   emitJobKey,
   FakeClock,
   RunAttemptModel,
@@ -12,6 +15,7 @@ import {
   runJobKey,
   Scheduler,
   ScheduledTask,
+  ScheduleRegistry,
   SchedulerService,
   ScheduleModel,
   TriggeredBy,
@@ -39,7 +43,10 @@ describe('emit mode', () => {
     defineSchedule(EmitDailyDigest, 'daily-digest', { every: '1m', emit: EmitSendDigestJob, retry: { attempts: 3 } });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:30Z', extra: queueConfig() }));
   });
-  afterEach(() => undefineSchedule('daily-digest'));
+  afterEach(() => {
+    sinon.restore();
+    undefineSchedule('daily-digest');
+  });
 
   async function tick(s: Scheduler) {
     await s.tickOnce();
@@ -104,7 +111,14 @@ describe('emit mode', () => {
     clock.set('2026-01-05T10:01:00Z');
     await tick(s);
     const [run] = await RunModel.where('Schedule', 'daily-digest');
-    expect(run).to.include({ Status: 'failed', Attempt: 1, NextAttemptAt: null, JobId: null, LeaseOwner: null });
+    // the job id is recorded before the emit: a broker that took the job despite the error can be traced
+    expect(run).to.include({
+      Status: 'failed',
+      Attempt: 1,
+      NextAttemptAt: null,
+      JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')),
+      LeaseOwner: null,
+    });
     expect(run.Error).to.include({ message: 'broker unavailable' });
     expect((await ScheduleModel.where('Name', 'daily-digest').first()).LeaseOwner).to.eq(null);
 
@@ -151,5 +165,43 @@ describe('emit mode', () => {
     const [run] = await RunModel.where('Schedule', 'daily-digest');
     expect(run).to.include({ Status: 'emitted', JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')) });
     expect(InMemoryQueueClient.Emitted).to.have.length(0);
+  });
+  it('resolves the connections a job routes to like the queue service does', () => {
+    const queue = {
+      default: 'main',
+      routing: { A: '/queue/a', B: { connection: 'void' }, C: [{ channel: '/c' }, { connection: 'void' }] },
+      connections: [
+        { name: 'main', service: 'StompQueueClient' },
+        { name: 'void', service: 'BlackHoleQueueClient' },
+      ],
+    };
+    expect(['A', 'B', 'C', 'D'].map((n) => jobConnections(n, queue))).to.deep.eq([
+      ['main'],
+      ['void'],
+      ['main', 'void'],
+      ['main'],
+    ]);
+    expect(['A', 'B', 'C'].map((n) => blackHoleConnections(n, queue))).to.deep.eq([[], ['void'], ['void']]);
+  });
+
+  it('warns at boot when the job of an emit schedule goes to the black hole', async () => {
+    const warnings = async () => {
+      const registry = DI.resolve(ScheduleRegistry) as unknown as ScheduleRegistry & {
+        Log: { warn: (m: string) => void };
+      };
+      const warn = sinon.spy(registry.Log, 'warn');
+      await registry.resolve();
+      const texts = warn.getCalls().map((c) => String(c.args[0]));
+      warn.restore();
+      return texts.filter((t) => t.includes('BlackHoleQueueClient'));
+    };
+    await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    expect(await warnings()).to.deep.eq([]);
+
+    await bootTestEnv({ now: '2026-01-05T10:00:30Z' });
+    await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    expect(await warnings()).to.deep.eq([
+      "schedule daily-digest: job EmitSendDigestJob routes to queue connection 'black-hole' (BlackHoleQueueClient); its jobs are dropped and the runs fail after emitTimeout",
+    ]);
   });
 });
