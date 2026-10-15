@@ -106,6 +106,13 @@ interface IPendingEmit {
   reject: (err: unknown) => void;
 }
 
+interface IReadyWaiter {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+}
+
+const DEFAULT_EMIT_RECONNECT_TIMEOUT_MS = 60000;
+
 @PerInstanceCheck()
 @Injectable(QueueClient)
 export class StompQueueClient extends QueueClient {
@@ -116,7 +123,7 @@ export class StompQueueClient extends QueueClient {
   protected PendingEmits: IPendingEmit[] = [];
 
   // resolvers waiting for the connection to come up ( see whenReady )
-  protected ReadyWaiters: Array<() => void> = [];
+  protected ReadyWaiters: IReadyWaiter[] = [];
 
   protected Disposing = false;
   protected PrefetchSize = DEFAULT_PREFETCH;
@@ -140,6 +147,10 @@ export class StompQueueClient extends QueueClient {
     return this.Options.receiptTimeout ?? this.Options.options?.receiptTimeout ?? DEFAULT_RECEIPT_TIMEOUT_MS;
   }
 
+  protected get EmitReconnectTimeout(): number {
+    return this.Options.options?.emitReconnectTimeout ?? DEFAULT_EMIT_RECONNECT_TIMEOUT_MS;
+  }
+
   /**
    * Resolves once the client is connected. If already connected resolves immediately,
    * otherwise waits for the next ( re )connect, optionally bounded by `timeoutMs`.
@@ -149,14 +160,26 @@ export class StompQueueClient extends QueueClient {
       return Promise.resolve();
     }
 
+    if (this.Disposing) {
+      return Promise.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} is disposing`));
+    }
+
     return new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
 
-      const waiter = () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        resolve();
+      const waiter: IReadyWaiter = {
+        resolve: () => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          resolve();
+        },
+        reject: (err) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          reject(err);
+        },
       };
 
       if (timeoutMs) {
@@ -345,6 +368,12 @@ export class StompQueueClient extends QueueClient {
     this.PendingEmits = [];
     for (const p of pending) {
       p.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before message could be sent`));
+    }
+
+    const waiters = this.ReadyWaiters;
+    this.ReadyWaiters = [];
+    for (const w of waiters) {
+      w.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed while waiting for the broker`));
     }
 
     if (!this.Client) {
@@ -658,7 +687,23 @@ export class StompQueueClient extends QueueClient {
 
     const body = JSON.stringify(message);
 
-    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWithReceipt(c, body, headers, `${message.Type} Name: ${message.Name}`)))).then(() => undefined);
+    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWhenConnected(c, body, headers, `${message.Type} Name: ${message.Name}`)))).then(() => undefined);
+  }
+
+  /**
+   * A retry that runs after the socket dropped would otherwise hit stompjs' torn-down handler and fail the
+   * emit in milliseconds, long before the broker is back.
+   */
+  protected publishWhenConnected(channel: string, body: string, headers: Stomp.StompHeaders, label: string): Promise<void> {
+    if (this.Disposing) {
+      return Promise.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} is disposing`));
+    }
+
+    if (this.Client?.connected) {
+      return this.publishWithReceipt(channel, body, headers, label);
+    }
+
+    return this.whenReady(this.EmitReconnectTimeout).then(() => this.publishWithReceipt(channel, body, headers, label));
   }
 
   /**
@@ -678,7 +723,12 @@ export class StompQueueClient extends QueueClient {
         resolve();
       });
 
-      this.Client.publish({ destination: channel, body, headers: { ...headers, receipt: receiptId } });
+      try {
+        this.Client.publish({ destination: channel, body, headers: { ...headers, receipt: receiptId } });
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+      }
     });
   }
 
@@ -712,7 +762,7 @@ export class StompQueueClient extends QueueClient {
     this.ReadyWaiters = [];
 
     for (const w of waiters) {
-      w();
+      w.resolve();
     }
   }
 }

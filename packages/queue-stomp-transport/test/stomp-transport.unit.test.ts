@@ -66,6 +66,9 @@ class FakeStompClient {
   }
 
   public publish(params: { destination: string; body: string; headers?: any }) {
+    if (!this.connected) {
+      throw new TypeError("Cannot read properties of undefined (reading 'publish')");
+    }
     this.published.push({ destination: params.destination, body: params.body, headers: params.headers ?? {} });
 
     const receipt = params.headers?.receipt;
@@ -495,6 +498,39 @@ describe('stomp queue transport - unit', function () {
 
       await expect(c.emit(qMessage())).to.be.rejectedWith(UnexpectedServerError, /receipt/i);
     });
+
+    it('re-sends an emit whose receipt was lost to a connection drop once reconnected', async () => {
+      const c = await connected({ retryDelay: 10, options: { receiptTimeout: 30, emitRetries: 2 } });
+      c.fake.autoReceipt = false;
+
+      const outcome = c.emit(qMessage()).then(
+        () => 'sent',
+        (err) => err,
+      );
+      await tick();
+      c.fake.simulateDrop();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      c.fake.autoReceipt = true;
+      c.fake.simulateConnect();
+
+      expect(await outcome).to.eq('sent');
+    });
+
+    it('rejects an emit waiting for a reconnect when the client is disposed', async () => {
+      const c = await connected({ retryDelay: 10, options: { receiptTimeout: 30, emitRetries: 1 } });
+      c.fake.autoReceipt = false;
+
+      const outcome = c.emit(qMessage()).then(
+        () => 'sent',
+        (err) => err,
+      );
+      await tick();
+      c.fake.simulateDrop();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await c.dispose();
+
+      expect(await outcome).to.be.instanceOf(UnexpectedServerError);
+    });
   });
 
   describe('message handling / ack', () => {
@@ -827,6 +863,18 @@ describe('stomp queue transport - unit', function () {
 
       // already connected -> resolves immediately
       await expect(c.whenReady()).to.be.fulfilled;
+    });
+
+    it('whenReady rejects when the client is disposed', async () => {
+      const c = new TestableStompClient(options());
+      const outcome = c.whenReady().then(
+        () => 'ready',
+        (err) => err,
+      );
+
+      await c.dispose();
+
+      expect(await outcome).to.be.instanceOf(UnexpectedServerError);
     });
   });
 
