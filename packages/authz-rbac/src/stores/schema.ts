@@ -56,6 +56,7 @@ const role = closed({
     ),
   },
   subjectSet: { type: 'boolean' },
+  deny: { type: 'boolean' },
   assignable: { type: 'boolean' },
   scopeTypes: stringList,
   description: { type: 'string' },

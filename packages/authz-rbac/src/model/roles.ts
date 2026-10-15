@@ -54,6 +54,7 @@ export function compileRoles(roles: readonly RoleDef[], ladders: readonly Ladder
 
   const edges = roleEdges(defs, heldLadders, opts);
   refuseCycles(defs, edges);
+  refuseDenyMixing(defs, edges);
 
   const compiled = new Map<string, CompiledRole>();
   for (const [name, def] of defs) {
@@ -142,6 +143,34 @@ function refuseCycles(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<str
   }
 }
 
+const DENY_GRANT_KEYS = ['relation', 'on', 'fields', 'requiresTag', 'grantedAt'] as const;
+
+/** Design §4.2: a deny role subtracts plain permissions, and no edge passes grants between deny and permit roles. */
+function refuseDenyMixing(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<string, readonly OutEdge[]>): void {
+  const isDeny = (name: string) => defs.get(name)?.deny === true;
+  for (const [name, def] of defs) {
+    const at = `Role '${name}' (source: ${def.source})`;
+    if (isDeny(name)) {
+      if (def.subjectSet === true) throw new AuthzConfigError(`${at} is a deny role; a deny role cannot be a subject set`);
+      if (def.ladder !== undefined) throw new AuthzConfigError(`${at} is a deny role; a deny role cannot be on a ladder`);
+      if (Array.isArray(def.implies) && def.implies.length > 0) throw new AuthzConfigError(`${at} is a deny role; a deny role cannot imply roles`);
+      for (const g of def.grants) {
+        if (typeof g !== 'object' || g === null) continue;
+        const key = DENY_GRANT_KEYS.find((k) => (g as unknown as Record<string, unknown>)[k] !== undefined);
+        if (key !== undefined) throw new AuthzConfigError(`${at}: deny grant '${g.permission}' has ${key}; a deny role takes plain permissions or globs only`);
+      }
+    }
+    for (const { to, via } of edges.get(name)!) {
+      if (isDeny(name) === isDeny(to)) continue;
+      const how = via === 'extends' ? 'extends' : `reaches (${via})`;
+      throw new AuthzConfigError(isDeny(name) ? `${at} is a deny role and ${how} permit role '${to}'; deny and permit roles do not mix` : `${at} ${how} deny role '${to}'; deny and permit roles do not mix`);
+    }
+    if (!isDeny(name) && Array.isArray(def.implies)) {
+      for (const e of def.implies) if (typeof e?.role === 'string' && isDeny(e.role)) throw new AuthzConfigError(`${at} implies deny role '${e.role}'; deny and permit roles do not mix`);
+    }
+  }
+}
+
 /** `hops[i]` is the kind of the edge from `nodes[i]` to `nodes[i + 1]`. */
 function describeCycle(nodes: readonly string[], hops: readonly string[]): string {
   const kinds = [...new Set(hops)];
@@ -175,6 +204,7 @@ function validateRole(def: unknown, index: number): asserts def is RoleDef {
   if (!Array.isArray(d.grants)) throw new AuthzConfigError(`${at}: grants must be an array`);
   if (d.assignable !== undefined && typeof d.assignable !== 'boolean') throw new AuthzConfigError(`${at}: assignable must be true or false`);
   if (d.scopeTypes !== undefined && !(isNameList(d.scopeTypes) && d.scopeTypes.length > 0)) throw new AuthzConfigError(`${at}: scopeTypes must be a non-empty array of resource types; leave it out to allow every scope type`);
+  if (d.deny !== undefined && typeof d.deny !== 'boolean') throw new AuthzConfigError(`${at}: deny must be true or false`);
 }
 
 const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
