@@ -181,3 +181,17 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
 };
 
 registerConfigurationSchemaAtImport(AUTHZ_RBAC_CONFIGURATION_SCHEMA);
+
+// DefaultAdminGuard lives here, so this package validates the guard key only it reads. The core schema leaves
+// authz.admin.guard open, and authz-rbac's default config (src/config/admin.ts) always sets that section.
+export const AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA = {
+  $id: 'spinajs/authz-rbac-guard.configuration.schema.json',
+  $configurationModule: 'authz.admin.guard',
+  description: 'DefaultAdminGuard rules of authz-rbac (authz.admin.guard.keepHolders)',
+  type: 'object',
+  properties: {
+    keepHolders: { type: 'array', items: closed({ role: roleName, scopeType: name }, ['role', 'scopeType']) },
+  },
+};
+
+registerConfigurationSchemaAtImport(AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA);

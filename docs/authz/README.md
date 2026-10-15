@@ -655,6 +655,10 @@ brackets):
 - an actor removing its own access to the privileged permission (`self_lockout`; it checks only
   `privilegedPermission`, not the actor's other access);
 - removing the last holder of the privileged permission at `$global` (`last_holder`);
+- removing the last holder of a role at a scope type listed in `keepHolders` (`last_holder`): a revoke,
+  a ladder demotion, or the last live member leaving a group or team set that holds the role. The guard
+  runs before each command, so a transfer grants the new holder first and revokes the old one after,
+  in one batch;
 - changing a system role: with `protectSystemRole`, a role with `assignable: false` is a system role,
   and only `SYSTEM` may change its rows (`protected_role`).
 
@@ -671,6 +675,7 @@ authz: {
       preventEscalation: true,
       preventSelfLockout: true,
       preventLastPrivilegedRemoval: true,
+      keepHolders: [{ role: 'team.owner', scopeType: 'team' }],   // default: none
     },
     permissions: { 'assignment.*': { project: 'grants:manage' } },   // by command kind, family or scope type
     maxBatch: 100,
