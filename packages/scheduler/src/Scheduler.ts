@@ -12,6 +12,7 @@ import { ScheduleModel } from './models/ScheduleModel.js';
 import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
 import { automaticRetry, decideAfterFailure } from './policy/retry.js';
 import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
+import { abortWaitingRun } from './run/cancel.js';
 import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
 import { RunEventWriter } from './run/RunEventWriter.js';
 import { RunFinalizer } from './run/RunFinalizer.js';
@@ -304,7 +305,12 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const run = await RunModel.where('Id', runId).first();
     if (!run || (run.Status !== 'queued' && run.Status !== 'retrying')) return false;
     const def = this.Registry.find(run.Schedule);
-    if (!def || !this.mayClaimLocally(run) || !(await this.Leases.claimRun(run, now))) return false;
+    if (!def) return false;
+    if (run.CancelRequested) {
+      await this.endCancelled(run, def, now);
+      return false;
+    }
+    if (!this.mayClaimLocally(run) || !(await this.Leases.claimRun(run, now))) return false;
     this.launch(run, def);
     return true;
   }
@@ -447,7 +453,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const due = await RunModel.query()
       .whereIn('Status', ['queued', 'retrying'])
       .where(function (this: IWhereBuilder<unknown>) {
-        this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now);
+        // a cancelled retry ends now, not when its backoff is over
+        this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now).orWhere('CancelRequested', true);
       })
       .orderBy('CreatedAt')
       .take(50);
@@ -456,6 +463,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     const tried = new Set<string>();
     for (const run of due) {
       if (this.stopping) return;
+      if (run.CancelRequested) {
+        await this.endCancelled(run, this.Registry.find(run.Schedule), now);
+        continue;
+      }
       if (!run.Forced) {
         if (tried.has(run.Schedule)) continue;
         tried.add(run.Schedule);
@@ -467,11 +478,22 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     }
   }
 
+  /**
+   * A run cancelled while `running` that became claimable again (the cancel reached neither its
+   * holder nor the decision that made it `retrying`) ends here instead of starting another attempt.
+   */
+  protected async endCancelled(run: RunModel, def: ScheduleDefinition | undefined, now: number): Promise<void> {
+    await abortWaitingRun(run, now, { events: this.Events, finalizer: this.Finalizer, def });
+  }
+
   protected expiryDecision(
     run: RunModel,
     def: ScheduleDefinition | undefined,
     now: number,
   ): RunExpiry & { countsAsFailure: boolean } {
+    // a cancel the dead holder never saw: the user's decision, not a failure of the schedule
+    if (run.CancelRequested)
+      return { status: 'aborted', reason: 'cancelled', nextAttemptAt: null, countsAsFailure: false };
     const f = decideAfterFailure({
       retry: automaticRetry(def),
       emit: !!def?.emit,
@@ -495,7 +517,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       const next = this.expiryDecision(run, def, now);
       if (!(await this.Leases.expireRun(run, now, next))) continue;
 
-      const error = toStructuredError(new RunAbortedError('lease-expired'), { attempt: run.Attempt, occurredAt: now });
+      const error =
+        next.reason === 'cancelled'
+          ? null
+          : toStructuredError(new RunAbortedError('lease-expired'), { attempt: run.Attempt, occurredAt: now });
       await RunAttemptModel.update({
         FinishedAt: now,
         Status: next.status === 'retrying' ? 'failed' : next.status,
@@ -503,7 +528,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       })
         .where('RunId', run.Id)
         .where('Attempt', run.Attempt);
-      await this.Events.write(run, run.Attempt, { type: 'error', error });
+      if (error) await this.Events.write(run, run.Attempt, { type: 'error', error });
       await this.Events.write(run, run.Attempt, { type: 'status', status: next.status, reason: next.reason });
       Object.assign(run, { Status: next.status, Reason: next.reason, NextAttemptAt: next.nextAttemptAt });
       await this.Finalizer.finalized({

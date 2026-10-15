@@ -151,6 +151,8 @@ export class LeaseStore {
       .where('Id', run.Id)
       .where('Status', run.Status)
       .where('Attempt', run.Attempt)
+      // a cancelled run is ended by the loop, never started again
+      .where('CancelRequested', false)
       .where(function (this: IWhereBuilder<unknown>) {
         this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now);
       });

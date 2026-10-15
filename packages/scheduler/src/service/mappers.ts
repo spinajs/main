@@ -20,12 +20,20 @@ import { healthOf } from '../tracking/HealthTracker.js';
 
 export const toArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
 
-export function toMs(v: string | Date): number {
+/** `field` names the request field in the error path (`/from`, `/since`). */
+export function toMs(v: string | Date, field: string): number {
   const ms = typeof v === 'string' ? Date.parse(v) : v instanceof Date ? v.getTime() : NaN;
   if (Number.isNaN(ms)) {
-    throw new InvalidRunParams(`invalid date '${String(v)}'`, [{ path: '', message: 'expected an ISO-8601 date' }]);
+    throw new InvalidRunParams(`invalid date '${String(v)}' for ${field}`, [
+      { path: `/${field}`, message: 'expected an ISO-8601 date' },
+    ]);
   }
   return ms;
+}
+
+/** For NOT NULL time columns. */
+export function isoRequired(ms: number): string {
+  return new Date(ms).toISOString();
 }
 
 /** The subset of an ajv `ErrorObject` the mapping reads. */
@@ -91,7 +99,7 @@ export function toRunInfo(r: RunModel, now: number, leaseTtl: number): RunInfo {
     maxAttempts: r.MaxAttempts,
     nextAttemptAt: iso(r.NextAttemptAt),
     scheduledAt: iso(r.ScheduledAt),
-    createdAt: iso(r.CreatedAt)!,
+    createdAt: isoRequired(r.CreatedAt),
     startedAt: iso(r.StartedAt),
     finishedAt: iso(r.FinishedAt),
     updatedAt: iso(r.UpdatedAt),
@@ -113,7 +121,7 @@ export function toStepInfo(s: RunStepModel): StepInfo {
     seq: s.Seq,
     name: s.Name,
     status: s.Status,
-    startedAt: iso(s.StartedAt)!,
+    startedAt: isoRequired(s.StartedAt),
     finishedAt: iso(s.FinishedAt),
     durationMs: s.FinishedAt ? s.FinishedAt - s.StartedAt : null,
     progress: s.Progress ?? 0,
@@ -128,7 +136,7 @@ export function toAttemptInfo(a: RunAttemptModel): AttemptInfo {
   return {
     attempt: a.Attempt,
     status: a.Status,
-    startedAt: iso(a.StartedAt)!,
+    startedAt: isoRequired(a.StartedAt),
     finishedAt: iso(a.FinishedAt),
     error: a.Error ?? null,
   };
@@ -142,8 +150,8 @@ export function toErrorGroupInfo(g: ErrorGroupModel): ErrorGroupInfo {
     sampleMessage: g.SampleMessage,
     sampleStack: g.SampleStack ?? null,
     count: Number(g.Count),
-    firstSeen: iso(g.FirstSeen)!,
-    lastSeen: iso(g.LastSeen)!,
+    firstSeen: isoRequired(g.FirstSeen),
+    lastSeen: isoRequired(g.LastSeen),
     lastRunId: g.LastRunId ?? null,
     status: g.Status,
   };

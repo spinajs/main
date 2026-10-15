@@ -268,6 +268,16 @@ export class RunExecutor {
     };
   }
 
+  /**
+   * A cancel the heartbeat has not delivered yet (the task failed first) still wins over the failure,
+   * so a cancelled run is never retried.
+   */
+  protected async withCancelFromRow(run: RunModel, outcome: ExecutionOutcome): Promise<ExecutionOutcome> {
+    if (outcome.kind === 'ok' || (outcome.kind === 'aborted' && outcome.reason === 'cancelled')) return outcome;
+    const row = await RunModel.where('Id', run.Id).first();
+    return row?.CancelRequested ? { kind: 'aborted', reason: 'cancelled', settled: true } : outcome;
+  }
+
   protected async complete(
     run: RunModel,
     def: ScheduleDefinition,
@@ -281,6 +291,7 @@ export class RunExecutor {
       return;
     }
 
+    outcome = await this.withCancelFromRow(run, outcome);
     const d = this.decide(run, def, outcome, now, ctx.stepOf(outcome));
     const explicit = ctx.explicitResult;
     const result = outcome.kind === 'ok' ? safeJson(explicit.set ? explicit.value : outcome.value) : undefined;

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Autoinject, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { DataValidator } from '@spinajs/validation';
@@ -50,10 +50,12 @@ import { RetentionService } from '../retention/RetentionService.js';
 import { toRunEvent } from '../run/events.js';
 import { RunEventHub } from '../run/RunEventHub.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
+import { abortWaitingRun, CancelDeps } from '../run/cancel.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
 import { activeSchedulers } from '../Scheduler.js';
 import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
+import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock, TimerHandle } from '../time/clock.js';
 import { fireTime } from '../time/occurrences.js';
 import { nextOccurrence } from '../time/spec.js';
@@ -174,8 +176,8 @@ export class DefaultSchedulerService extends SchedulerService {
     const now = await this.now();
     const limit = Math.min(Math.max(intOr(filter.limit, DEFAULT_PAGE), 1), MAX_PAGE);
     const offset = Math.max(intOr(filter.offset, 0), 0);
-    const from = filter.from !== undefined ? toMs(filter.from) : undefined;
-    const to = filter.to !== undefined ? toMs(filter.to) : undefined;
+    const from = filter.from !== undefined ? toMs(filter.from, 'from') : undefined;
+    const to = filter.to !== undefined ? toMs(filter.to, 'to') : undefined;
     const apply = <B extends IWhereBuilder<unknown>>(q: B): B => {
       if (filter.schedule) q.where('Schedule', filter.schedule);
       if (filter.status) q.whereIn('Status', toArray(filter.status));
@@ -252,7 +254,9 @@ export class DefaultSchedulerService extends SchedulerService {
 
   /**
    * A `queued` or `retrying` run ends `aborted` / `cancelled` at once. A `running` run is flagged, and
-   * its holder aborts it on its next heartbeat (at once when it runs in this process).
+   * its holder aborts it on its next heartbeat (at once when it runs in this process); a run whose
+   * holder is gone (lease expired) ends at once. Every later decision point (the executor's outcome,
+   * the reaper, the claim of a retry) turns a flagged run into `aborted` / `cancelled`.
    */
   public async cancel(runId: string, ctx: ActionContext): Promise<RunInfo> {
     // every write is conditional on the state just read; a run that moved on meanwhile is looked at again
@@ -260,11 +264,12 @@ export class DefaultSchedulerService extends SchedulerService {
       const run = await this.loadRun(runId);
       const now = await this.now();
       if (run.Status === 'queued' || run.Status === 'retrying') {
-        if (!(await this.abortWaitingRun(run, now))) continue;
+        if (!(await abortWaitingRun(run, now, this.cancelDeps(run)))) continue;
       } else if (run.Status === 'running') {
         const r = await RunModel.update({ CancelRequested: true }).where('Id', runId).where('Status', 'running');
         if (r.RowsAffected !== 1) continue;
-        for (const s of activeSchedulers()) s.abortLocal(runId, 'cancelled');
+        const local = activeSchedulers().filter((s) => s.abortLocal(runId, 'cancelled'));
+        if (!local.length && run.LeaseUntil !== null && run.LeaseUntil < now) await this.endAbandonedRun(run, now);
       } else {
         throw new InvalidRunState(
           `run ${runId} is ${run.Status}; only queued, retrying or running runs can be cancelled`,
@@ -291,10 +296,16 @@ export class DefaultSchedulerService extends SchedulerService {
     return { runId: run.Id };
   }
 
-  /** One retry per `failed` / `dead` run finished at or after `since` that has none yet, oldest first. */
+  /**
+   * One retry per `failed` / `dead` run finished at or after `since` that has none yet, oldest first.
+   * The retries are validated before the first one is created; a parent whose params no longer pass
+   * the schema fails the whole call with an error naming that run, so nothing is retried half-way.
+   * They run one at a time: on a `runOn: 'all'` schedule they are not `Forced`, so they take the
+   * schedule lease one after another instead of starting on several replicas at once.
+   */
   public async retryFailed(name: string, since: Date | string, ctx: ActionContext): Promise<{ runIds: string[] }> {
     this.Registry.get(name);
-    const sinceMs = toMs(since);
+    const sinceMs = toMs(since, 'since');
     await this.assertManualRunsAllowed(name);
     const failed = await RunModel.query()
       .where('Schedule', name)
@@ -306,19 +317,31 @@ export class DefaultSchedulerService extends SchedulerService {
     const retried = new Set<string>();
     for (let i = 0; i < failed.length; i += ID_BATCH) {
       const ids = failed.slice(i, i + ID_BATCH).map((f) => f.Id);
-      for (const child of await RunModel.query().whereIn('ParentRunId', ids)) retried.add(child.ParentRunId!);
+      for (const child of await RunModel.query().whereIn('ParentRunId', ids)) {
+        if (child.ParentRunId !== null) retried.add(child.ParentRunId);
+      }
     }
 
     const o: RetryOptions = { triggeredBy: ctx.triggeredBy };
-    // every retry is validated before the first one is created
     const plans = [];
-    for (const f of failed) if (!retried.has(f.Id)) plans.push(await this.planRetry(f, o));
+    for (const f of failed) {
+      if (retried.has(f.Id)) continue;
+      try {
+        plans.push(await this.planRetry(f, o));
+      } catch (err) {
+        if (!(err instanceof InvalidRunParams)) throw err;
+        throw new InvalidRunParams(
+          `cannot retry run ${f.Id}: ${err.message}; retry it on its own with params, or narrow 'since'`,
+          err.errors,
+        );
+      }
+    }
 
     const now = await this.now();
     const runIds: string[] = [];
     for (const [i, plan] of plans.entries()) {
       // queued runs are claimed by CreatedAt; equal values would leave the order to the database
-      const run = await this.createQueuedRun(plan.def, { ...plan.run, now, createdAt: now + i });
+      const run = await this.createQueuedRun(plan.def, { ...plan.run, forced: false, now, createdAt: now + i });
       this.auditRetry(run, o);
       runIds.push(run.Id);
     }
@@ -411,29 +434,25 @@ export class DefaultSchedulerService extends SchedulerService {
     return result;
   }
 
-  /** `false` when the run was claimed or changed after `run` was read. */
-  protected async abortWaitingRun(run: RunModel, now: number): Promise<boolean> {
-    const r = await RunModel.update({
-      Status: 'aborted',
-      Reason: 'cancelled',
-      CancelRequested: true,
-      FinishedAt: now,
-      UpdatedAt: now,
-      NextAttemptAt: null,
-    })
-      .where('Id', run.Id)
-      .where('Status', run.Status)
-      .where('Attempt', run.Attempt);
-    if (r.RowsAffected !== 1) return false;
+  protected cancelDeps(run: RunModel): CancelDeps {
+    return { events: this.Events, finalizer: this.Finalizer, def: this.Registry.find(run.Schedule) };
+  }
 
-    // the finalizer decides error grouping and health from Reason
-    Object.assign(run, {
-      Status: 'aborted',
-      Reason: 'cancelled',
-      CancelRequested: true,
-      FinishedAt: now,
-      NextAttemptAt: null,
+  /**
+   * Ends a flagged `running` run whose holder stopped renewing (e.g. a crashed `--local` CLI), so it
+   * does not depend on a loop's reaper. Conditional on the observed lease, like the reaper.
+   */
+  protected async endAbandonedRun(run: RunModel, now: number): Promise<void> {
+    const ended = await DI.resolve(LeaseStore).expireRun(run, now, {
+      status: 'aborted',
+      reason: 'cancelled',
+      nextAttemptAt: null,
     });
+    if (!ended) return;
+    await RunAttemptModel.update({ FinishedAt: now, Status: 'aborted' })
+      .where('RunId', run.Id)
+      .where('Attempt', run.Attempt);
+    Object.assign(run, { Status: 'aborted', Reason: 'cancelled', CancelRequested: true, FinishedAt: now });
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'aborted', reason: 'cancelled' });
     await this.Finalizer.finalized({
       run,
@@ -443,7 +462,6 @@ export class DefaultSchedulerService extends SchedulerService {
       now,
       countsAsFailure: false,
     });
-    return true;
   }
 
   protected async planRetry(
@@ -495,11 +513,19 @@ export class DefaultSchedulerService extends SchedulerService {
     if ((await this.loadScheduleRow(name)).HardPaused) throw new SchedulePaused(name);
   }
 
-  /** The run a manual run would overlap: a queued run first, else a running one whose lease is live. */
+  /**
+   * The run a manual run would overlap: a queued run, else one waiting for its automatic retry (it is
+   * still in progress), else a running one whose lease is live.
+   */
   protected async busyRunId(def: ScheduleDefinition, now: number): Promise<string | null> {
     const queued = await RunModel.where('Schedule', def.name).where('Status', 'queued').orderBy('CreatedAt').first();
     if (queued) return queued.Id;
     if (def.runOn === 'all') return null;
+    const retrying = await RunModel.where('Schedule', def.name)
+      .where('Status', 'retrying')
+      .orderBy('CreatedAt')
+      .first();
+    if (retrying) return retrying.Id;
     const running = await RunModel.where('Schedule', def.name)
       .where('Status', 'running')
       .where('LeaseUntil', '>', now)
