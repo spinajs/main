@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
-import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListSupport, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
+import { notListFilterable, rowDependence } from './list.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
 import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
@@ -101,6 +102,34 @@ export class AbacModel extends AuthorizationModel {
   applies(permission: PermissionDef, type: ResourceType): boolean {
     if (this.due()) return true;
     return this.index().candidates(permission.name, type).length > 0;
+  }
+
+  /** Design §7 for this model: every policy that can match the permission on the type is decided without the row. */
+  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
+    for (const p of this.index().candidates(permission.name, type)) {
+      const why = rowDependence(p);
+      if (why !== undefined) return Object.freeze({ reason: notListFilterable(p, why, permission.name, type) });
+    }
+    return true;
+  }
+
+  /**
+   * The list permission and type a policy about to be stored would make non-filterable (policy.put's
+   * ListSupportGuard), or undefined. Loads it as `validate` does, so a malformed policy throws the same way.
+   */
+  listProblem(policy: Omit<Policy, 'source'>, source = 'db'): string | undefined {
+    if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
+    const p = loadPolicy({ ...policy, source }, 0, { source }, (c, where) => this.parser.parse(c, where));
+    const why = rowDependence(p);
+    if (why === undefined) return undefined;
+    const index = new PolicyIndex([p], this.registry);
+    for (const name of [...index.permissions()].sort()) {
+      const def = this.registry.get(name);
+      if (!def?.list) continue;
+      const type = def.types.find((t) => index.candidates(name, t).length > 0);
+      if (type !== undefined) return notListFilterable(p, why, name, type);
+    }
+    return undefined;
   }
 
   /**
