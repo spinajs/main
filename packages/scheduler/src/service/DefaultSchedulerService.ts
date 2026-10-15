@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Autoinject, Injectable, Singleton } from '@spinajs/di';
-import { MethodNotImplemented } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { DataValidator } from '@spinajs/validation';
@@ -8,6 +7,7 @@ import {
   ActionContext,
   ErrorFilter,
   ErrorGroupInfo,
+  ErrorGroupNotFound,
   ErrorGroupStatus,
   InvalidRunParams,
   InvalidRunState,
@@ -36,6 +36,7 @@ import {
   TriggeredBy,
   Unsubscribe,
 } from '../contract.js';
+import { defined } from '../models/converters.js';
 import { ErrorGroupModel } from '../models/ErrorGroupModel.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunLogModel } from '../models/RunLogModel.js';
@@ -45,13 +46,17 @@ import { ScheduleModel } from '../models/ScheduleModel.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import { automaticRetry } from '../policy/retry.js';
 import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
+import { RetentionService } from '../retention/RetentionService.js';
 import { toRunEvent } from '../run/events.js';
 import { RunEventHub } from '../run/RunEventHub.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
 import { activeSchedulers } from '../Scheduler.js';
+import { SchedulerSignals } from '../signals.js';
 import { DefinitionSync } from '../store/DefinitionSync.js';
 import { Clock, DbClock, TimerHandle } from '../time/clock.js';
+import { fireTime } from '../time/occurrences.js';
+import { nextOccurrence } from '../time/spec.js';
 import {
   toArray,
   toAttemptInfo,
@@ -70,6 +75,7 @@ const DETAIL_LOGS = 200;
 const CANCEL_ROUNDS = 3;
 /** Ids per `IN (...)` list. */
 const ID_BATCH = 500;
+const ERROR_GROUP_STATUSES: readonly ErrorGroupStatus[] = ['open', 'resolved', 'ignored'];
 
 export interface NewManualRun {
   trigger: RunTrigger;
@@ -122,6 +128,12 @@ export class DefaultSchedulerService extends SchedulerService {
 
   @Autoinject(DataValidator)
   protected Validator: DataValidator;
+
+  @Autoinject(SchedulerSignals)
+  protected Signals: SchedulerSignals;
+
+  @Autoinject(RetentionService)
+  protected Retention: RetentionService;
 
   /** A process that never starts the loop (CLI, API-only replica) still sees every schedule. */
   public async resolve(): Promise<void> {
@@ -208,9 +220,9 @@ export class DefaultSchedulerService extends SchedulerService {
   }
 
   public async listErrors(filter: ErrorFilter = {}): Promise<ErrorGroupInfo[]> {
-    const q = ErrorGroupModel.query();
-    if (filter.schedule) q.where('Schedule', filter.schedule);
-    if (filter.status) q.whereIn('Status', toArray(filter.status));
+    let q = ErrorGroupModel.query();
+    if (filter.schedule) q = q.where('Schedule', filter.schedule);
+    if (filter.status) q = q.whereIn('Status', toArray(filter.status));
     return (await q.orderByDescending('LastSeen')).map(toErrorGroupInfo);
   }
 
@@ -314,17 +326,89 @@ export class DefaultSchedulerService extends SchedulerService {
     return { runIds };
   }
 
-  public pause(_name: string, _options: PauseOptions): Promise<ScheduleInfo> {
-    throw new MethodNotImplemented('pause');
+  /** Stops scheduled runs; manual runs and retries go on unless `hard`. Replaces a pause by failures. */
+  public async pause(name: string, o: PauseOptions): Promise<ScheduleInfo> {
+    await this.loadScheduleRow(name);
+    const now = await this.now();
+    await ScheduleModel.update({ Paused: true, PausedReason: 'manual', HardPaused: !!o.hard, UpdatedAt: now }).where(
+      'Name',
+      name,
+    );
+    this.audit('pause', o.triggeredBy, { schedule: name, hard: !!o.hard });
+    return this.scheduleInfo(name, now);
   }
-  public resume(_name: string, _ctx: ActionContext): Promise<ScheduleInfo> {
-    throw new MethodNotImplemented('resume');
+
+  /**
+   * Clears a manual pause or a pause by failures and resets the failure count. A `NextRunAt` whose fire
+   * time passed during the pause moves to the first occurrence after now, so a long pause fires
+   * nothing late; one still ahead is kept.
+   */
+  public async resume(name: string, ctx: ActionContext): Promise<ScheduleInfo> {
+    const row = await this.loadScheduleRow(name);
+    const now = await this.now();
+    const def = this.Registry.find(name);
+    const missed =
+      !!def && def.enabled && def.runOn === 'leader' && row.NextRunAt !== null && fireTime(def, row.NextRunAt) <= now;
+
+    // nothing claims or advances a paused schedule's occurrence, so NextRunAt read above is current
+    const resumed =
+      row.Paused &&
+      (
+        await ScheduleModel.update(
+          defined({
+            Paused: false,
+            PausedReason: null,
+            HardPaused: false,
+            ConsecutiveFailures: 0,
+            NextRunAt: missed ? nextOccurrence(def.spec, now) : undefined,
+            UpdatedAt: now,
+          }),
+        )
+          .where('Name', name)
+          .where('Paused', true)
+      ).RowsAffected === 1;
+    if (!resumed) {
+      await ScheduleModel.update({ HardPaused: false, ConsecutiveFailures: 0, UpdatedAt: now }).where('Name', name);
+    }
+
+    try {
+      await this.Signals.healthChanged(name, 0);
+    } catch (err) {
+      this.Log.warn(err as Error, `could not signal the health of ${name}`);
+    }
+    this.audit('resume', ctx.triggeredBy, { schedule: name });
+    return this.scheduleInfo(name, now);
   }
-  public setErrorStatus(_fingerprint: string, _status: ErrorGroupStatus, _ctx: ActionContext): Promise<ErrorGroupInfo> {
-    throw new MethodNotImplemented('setErrorStatus');
+
+  public async setErrorStatus(
+    fingerprint: string,
+    status: ErrorGroupStatus,
+    ctx: ActionContext,
+  ): Promise<ErrorGroupInfo> {
+    if (!ERROR_GROUP_STATUSES.includes(status)) {
+      throw new InvalidRunParams(`unknown error status '${String(status)}'`, [
+        { path: '/status', message: `must be one of ${ERROR_GROUP_STATUSES.join(', ')}` },
+      ]);
+    }
+    const group = await ErrorGroupModel.where('Fingerprint', fingerprint).first();
+    if (!group) throw new ErrorGroupNotFound(fingerprint);
+    await ErrorGroupModel.update({ Status: status }).where('Id', group.Id);
+    this.audit('error-status', ctx.triggeredBy, { fingerprint, status, schedule: group.Schedule });
+    return toErrorGroupInfo(await ErrorGroupModel.where('Id', group.Id).first());
   }
-  public prune(_ctx: ActionContext): Promise<PruneResult> {
-    throw new MethodNotImplemented('prune');
+
+  /** Deletes orphaned schedule rows, then everything past retention (`RetentionService.purge`). */
+  public async prune(ctx: ActionContext): Promise<PruneResult> {
+    const now = await this.now();
+    let orphanedSchedules = 0;
+    for (const o of await ScheduleModel.where('Orphaned', true)) {
+      // conditional: a replica that defines it again may have revived it meanwhile
+      const r = await ScheduleModel.destroy(o.Name).where('Orphaned', true);
+      orphanedSchedules += Number(r.RowsAffected);
+    }
+    const result = { orphanedSchedules, ...(await this.Retention.purge(now)) };
+    this.audit('prune', ctx.triggeredBy, { ...result });
+    return result;
   }
 
   /** `false` when the run was claimed or changed after `run` was read. */

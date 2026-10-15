@@ -49,3 +49,4 @@ export * from './run/current.js';
 export * from './tasks/task-methods.js';
 export * from './service/mappers.js';
 export * from './service/DefaultSchedulerService.js';
+export * from './retention/RetentionService.js';
