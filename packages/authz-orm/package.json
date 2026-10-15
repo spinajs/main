@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/authz-orm",
   "version": "3.0.0-alpha.0",
-  "description": "ORM adapter for SpinaJS authorization",
+  "description": "ORM resources, closure table and list helpers for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -10,10 +10,10 @@
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     },
-    "./native": {
-      "types": "./lib/mjs/native.d.ts",
-      "import": "./lib/mjs/native.js",
-      "require": "./lib/cjs/native.js"
+    "./scope-attributes": {
+      "types": "./lib/mjs/scope-attributes/index.d.ts",
+      "import": "./lib/mjs/scope-attributes/index.js",
+      "require": "./lib/cjs/scope-attributes/index.js"
     },
     "./audit": {
       "types": "./lib/mjs/audit/index.d.ts",
@@ -23,8 +23,8 @@
   },
   "typesVersions": {
     "*": {
-      "native": [
-        "lib/cjs/native.d.ts"
+      "scope-attributes": [
+        "lib/cjs/scope-attributes/index.d.ts"
       ],
       "audit": [
         "lib/cjs/audit/index.d.ts"
@@ -73,6 +73,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
