@@ -1,7 +1,7 @@
 import type { Assignment, CombiningAlgorithm, LinkDef, Permission, Policy, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
 
 import type { TestLadderDef, TestRoleDef } from '../arbitraries/rbac.js';
-import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ModelCall, StaticModelOptions } from '../fakes/index.js';
+import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ListStaticModelOptions, ModelCall } from '../fakes/index.js';
 import type { Tuple } from '../rebac.js';
 import type { AuditEntry } from '../recording.js';
 import type { FakePermissionInput } from '../registry.js';
@@ -72,7 +72,7 @@ export interface CombineConfig {
 /** A kit fake as data; `instantiateWorld` builds it. */
 export type KitModelSpec = StaticModelSpec | FakeRbacSpec | FakeTupleSpec;
 
-export interface StaticModelSpec extends StaticModelOptions {
+export interface StaticModelSpec extends ListStaticModelOptions {
   readonly kind: 'static';
   readonly name: string;
 }

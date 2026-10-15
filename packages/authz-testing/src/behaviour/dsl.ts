@@ -1,5 +1,5 @@
 import { GLOBAL, TRUE } from '@spinajs/authz';
-import type { Assignment, CombiningAlgorithm, DenyReason, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Value } from '@spinajs/authz';
+import type { Assignment, CombiningAlgorithm, DenyReason, ModelListPlan, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Value } from '@spinajs/authz';
 
 import type { TestGrantDef, TestRoleDef } from '../arbitraries/rbac.js';
 import type { ScriptedVote } from '../fakes/index.js';
@@ -20,6 +20,17 @@ export const combine = (algorithm: CombiningAlgorithm, ...models: string[]): Com
 export const staticModel = (name: string, opts: Omit<StaticModelSpec, 'kind' | 'name'> = {}): StaticModelSpec => ({ kind: 'static', name, ...opts });
 
 export const permit = (when: ResourceFilter = TRUE, extra: ScriptedVote = {}): ScriptedVote => ({ permitWhen: when, ...extra });
+
+/** A list plan without a filter. */
+export const allRows = (): ModelListPlan => ({ kind: 'all' });
+
+/** A list plan of the rows the principal owns (authz-orm compiles `relation.owner` from the model's `@Owner` column). */
+export const ownedRows =
+  () =>
+  (principal: Principal): ModelListPlan => ({ kind: 'terms', permit: [{ op: 'relation.owner', args: { principals: [{ type: principal.type, id: String(principal.id) }] } }], deny: [] });
+
+/** A list plan that can never permit. */
+export const noRows = (code = 'no_access'): ModelListPlan => ({ kind: 'deny-all', reason: { code } });
 
 /** A deny with one `denies` entry carrying `reason`, or a bare `denyWhen` without one. */
 export const deny = (reason?: DenyReason, when: ResourceFilter = TRUE, extra: ScriptedVote = {}): ScriptedVote => ({ denyWhen: when, ...(reason ? { denies: [{ when, reason }] } : {}), ...extra });

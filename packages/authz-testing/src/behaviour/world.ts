@@ -3,7 +3,7 @@ import type { FilterOp, NativeFilter, Principal, PrincipalRef, ResourceFilter, R
 
 import { fakeEvaluationContext } from '../context.js';
 import type { FakeEvaluationContext } from '../context.js';
-import { FakeAdapter, FakeRbacModel, FakeRelationResolver, FakeScopeResolver, FakeTupleModel, FakeTupleStore, StaticModel } from '../fakes/index.js';
+import { FakeAdapter, FakeRbacModel, FakeRelationResolver, FakeScopeResolver, FakeTupleModel, FakeTupleStore, ListStaticModel, StaticModel } from '../fakes/index.js';
 import type { FakeRow } from '../fakes/index.js';
 import { evaluateFilter } from '../filter-eval.js';
 import type { Tuple } from '../rebac.js';
@@ -59,7 +59,7 @@ export function instantiateWorld(world: World): KitWorld {
     switch (spec.kind) {
       case 'static': {
         const { kind: _kind, ...opts } = spec;
-        return new StaticModel(opts);
+        return opts.lists ? new ListStaticModel(opts) : new StaticModel(opts);
       }
       case 'fake-rbac': {
         const { kind: _kind, ...opts } = spec;
