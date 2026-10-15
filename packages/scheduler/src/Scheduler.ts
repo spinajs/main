@@ -51,6 +51,7 @@ interface NewRun {
 
 const INSTANCES = new Set<Scheduler>();
 const SIGNAL_DRAIN_MAX_MS = 5000;
+const CLAIM_PAGE_SIZE = 50;
 
 const missedCount = (plan: OccurrencePlan) => (plan.skippedCapped ? `more than ${plan.skipped}` : String(plan.skipped));
 
@@ -481,33 +482,42 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   protected async claimQueued(now: number): Promise<void> {
-    const due = await RunModel.query()
+    // oldest first, one claim attempt per schedule per tick keeps queued runs in order
+    const tried = new Set<string>();
+    // each page skips the schedules already paged, so one schedule's long queue cannot hide the others
+    const paged: string[] = [];
+    for (;;) {
+      const page = await this.dueRuns(now, paged);
+      for (const run of page) {
+        if (this.stopping) return;
+        // a handle still in its grace period ends the attempt itself first
+        if (run.CancelRequested && !this.active.has(run.Id)) {
+          await this.endCancelled(run, this.Registry.find(run.Schedule), now);
+          continue;
+        }
+        if (!run.Forced) {
+          if (tried.has(run.Schedule)) continue;
+          tried.add(run.Schedule);
+        }
+        if (!this.mayClaimLocally(run)) continue;
+        const def = this.Registry.find(run.Schedule);
+        if (!def) continue;
+        if (await this.Leases.claimRun(run, now)) this.launch(run, def);
+      }
+      if (page.length < CLAIM_PAGE_SIZE) return;
+      for (const run of page) if (!paged.includes(run.Schedule)) paged.push(run.Schedule);
+    }
+  }
+
+  protected dueRuns(now: number, skipSchedules: string[]): Promise<RunModel[]> {
+    const due = RunModel.query()
       .whereIn('Status', ['queued', 'retrying'])
       .where(function (this: IWhereBuilder<unknown>) {
         // a cancelled retry ends now, not when its backoff is over
         this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now).orWhere('CancelRequested', true);
-      })
-      .orderBy('CreatedAt')
-      .take(50);
-
-    // oldest first, one claim attempt per schedule per tick keeps queued runs in order
-    const tried = new Set<string>();
-    for (const run of due) {
-      if (this.stopping) return;
-      // a handle still in its grace period ends the attempt itself first
-      if (run.CancelRequested && !this.active.has(run.Id)) {
-        await this.endCancelled(run, this.Registry.find(run.Schedule), now);
-        continue;
-      }
-      if (!run.Forced) {
-        if (tried.has(run.Schedule)) continue;
-        tried.add(run.Schedule);
-      }
-      if (!this.mayClaimLocally(run)) continue;
-      const def = this.Registry.find(run.Schedule);
-      if (!def) continue;
-      if (await this.Leases.claimRun(run, now)) this.launch(run, def);
-    }
+      });
+    const query = skipSchedules.length ? due.whereNotIn('Schedule', skipSchedules) : due;
+    return query.orderBy('CreatedAt').take(CLAIM_PAGE_SIZE);
   }
 
   /**

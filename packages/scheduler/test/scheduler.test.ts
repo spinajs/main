@@ -156,6 +156,17 @@ describe('Scheduler', () => {
     await s.stop();
   });
 
+  it('claims a queued run of another schedule behind a long queue of one schedule', async () => {
+    const s = await scheduler('r1');
+    const now = clock.now();
+    for (let i = 0; i < 60; i++) await queuedRun('patient', now - 60_000 + i);
+    const other = await queuedRun('every-minute', now);
+    await s.tickOnce();
+    await waitFor(async () => (await getRun(other.Id)).Status === 'succeeded');
+    expect((await runsOf('patient')).filter((r) => r.Status === 'running')).to.have.length(1);
+    await s.stop();
+  });
+
   it('reaps a run whose holder died', async () => {
     const s = await scheduler('r1');
     const ghost = await queuedRun('patient', clock.now(), {

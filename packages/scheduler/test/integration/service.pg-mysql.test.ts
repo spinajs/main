@@ -22,6 +22,12 @@ const by: TriggeredBy = { kind: 'user', id: '1' };
 const DAY = 86_400_000;
 let failing = true;
 
+class SvcItQuick extends ScheduledTask {
+  public execute() {
+    return Promise.resolve({ ok: true });
+  }
+}
+
 class SvcItImport extends ScheduledTask {
   public async execute(ctx: RunContext) {
     await ctx.step('load', () => ctx.params);
@@ -51,13 +57,22 @@ for (const target of REAL_DB_TARGETS) {
         params: { type: 'object', properties: { n: { type: 'integer', default: 1 } } },
         pauseAfterFailures: 1,
       });
+      defineSchedule(SvcItQuick, 'it-quick', { manual: true });
       await bootRealDb(target, { retention: { enabled: false, runs: '30d', logs: '7d', errors: '90d' } });
       clock = DI.resolve(Clock) as FakeClock;
       clock.set('2026-01-05T10:00:30Z');
       s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
       service = await DI.resolve(SchedulerService);
     });
-    afterEach(() => undefineSchedule('it-import'));
+    afterEach(() => ['it-import', 'it-quick'].forEach(undefineSchedule));
+
+    it('claims a queued run of another schedule behind a long queue of one schedule', async () => {
+      const now = clock.now();
+      for (let i = 0; i < 55; i++) await queuedRun('it-import', now - 60_000 + i);
+      const other = await queuedRun('it-quick', now);
+      await tick();
+      expect(await getRun(other.Id)).to.include({ Status: 'succeeded' });
+    });
 
     it('runs, lists, retries with resume, pauses on failure and resumes', async () => {
       const { runId } = await service.runNow('it-import', { params: { n: '4' }, triggeredBy: by });
