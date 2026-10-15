@@ -6,7 +6,19 @@ import { bootTestEnv } from './support/env.js';
 const T = Date.parse('2026-01-05T10:00:00Z');
 
 async function run(id: string, extra: Partial<RunModel> = {}): Promise<RunModel> {
-  return RunModel.create({ Id: id, Schedule: 'a', Trigger: 'manual', Status: 'queued', Attempt: 1, MaxAttempts: 3, CreatedAt: T, Progress: 0, CancelRequested: false, Forced: false, ...extra });
+  return RunModel.create({
+    Id: id,
+    Schedule: 'a',
+    Trigger: 'manual',
+    Status: 'queued',
+    Attempt: 1,
+    MaxAttempts: 3,
+    CreatedAt: T,
+    Progress: 0,
+    CancelRequested: false,
+    Forced: false,
+    ...extra,
+  });
 }
 const get = (id: string) => RunModel.where('Id', id).first();
 
@@ -16,7 +28,17 @@ describe('LeaseStore: runs', () => {
 
   beforeEach(async () => {
     await bootTestEnv();
-    await ScheduleModel.create({ Name: 'a', Definition: {}, DefinitionHash: 'h', NextRunAt: null, Paused: false, HardPaused: false, ConsecutiveFailures: 0, Orphaned: false, UpdatedAt: T });
+    await ScheduleModel.create({
+      Name: 'a',
+      Definition: {},
+      DefinitionHash: 'h',
+      NextRunAt: null,
+      Paused: false,
+      HardPaused: false,
+      ConsecutiveFailures: 0,
+      Orphaned: false,
+      UpdatedAt: T,
+    });
     r1 = DI.resolve(LeaseStore, ['r1']);
     r2 = DI.resolve(LeaseStore, ['r2']);
   });
@@ -50,8 +72,16 @@ describe('LeaseStore: runs', () => {
 
   it('renews only while it owns the run and reports cancel requests', async () => {
     await r1.claimRun(await run('q1'), T);
-    expect(await r1.renewRun('q1', 'a', T + 20_000, { Progress: 40, CurrentStep: 'load', Message: 'loading' })).to.deep.eq({ ok: true, cancelRequested: false });
-    expect(await get('q1')).to.include({ Progress: 40, CurrentStep: 'load', Message: 'loading', LeaseUntil: T + 20_000 + r1.LeaseTtl, UpdatedAt: T + 20_000 });
+    expect(
+      await r1.renewRun('q1', 'a', T + 20_000, { Progress: 40, CurrentStep: 'load', Message: 'loading' }),
+    ).to.deep.eq({ ok: true, cancelRequested: false });
+    expect(await get('q1')).to.include({
+      Progress: 40,
+      CurrentStep: 'load',
+      Message: 'loading',
+      LeaseUntil: T + 20_000 + r1.LeaseTtl,
+      UpdatedAt: T + 20_000,
+    });
     await RunModel.update({ CancelRequested: true }).where('Id', 'q1');
     expect(await r1.renewRun('q1', 'a', T + 30_000)).to.deep.eq({ ok: true, cancelRequested: true });
     expect((await r2.renewRun('q1', null, T + 30_000)).ok).to.eq(false);
@@ -60,9 +90,22 @@ describe('LeaseStore: runs', () => {
   it('loses the run when another replica expires it', async () => {
     await r1.claimRun(await run('q1'), T);
     const stale = await get('q1');
-    expect(await r2.expireRun(stale, T + 1000, { status: 'aborted', reason: 'lease-expired', nextAttemptAt: null })).to.eq(false);
-    expect(await r2.expireRun(stale, T + r1.LeaseTtl + 1, { status: 'retrying', reason: 'lease-expired', nextAttemptAt: T + 120_000 })).to.eq(true);
-    expect(await get('q1')).to.include({ Status: 'retrying', Reason: 'lease-expired', LeaseOwner: null, NextAttemptAt: T + 120_000 });
+    expect(
+      await r2.expireRun(stale, T + 1000, { status: 'aborted', reason: 'lease-expired', nextAttemptAt: null }),
+    ).to.eq(false);
+    expect(
+      await r2.expireRun(stale, T + r1.LeaseTtl + 1, {
+        status: 'retrying',
+        reason: 'lease-expired',
+        nextAttemptAt: T + 120_000,
+      }),
+    ).to.eq(true);
+    expect(await get('q1')).to.include({
+      Status: 'retrying',
+      Reason: 'lease-expired',
+      LeaseOwner: null,
+      NextAttemptAt: T + 120_000,
+    });
     expect((await r1.renewRun('q1', null, T + r1.LeaseTtl + 2)).ok).to.eq(false);
     expect(await r1.finishRun('q1', { Status: 'succeeded' })).to.eq(false);
   });
@@ -70,7 +113,9 @@ describe('LeaseStore: runs', () => {
   it('finishes only its own run', async () => {
     await r1.claimRun(await run('q1'), T);
     expect(await r2.finishRun('q1', { Status: 'failed' })).to.eq(false);
-    expect(await r1.finishRun('q1', { Status: 'succeeded', LeaseOwner: null, LeaseUntil: null, FinishedAt: T + 5 })).to.eq(true);
+    expect(
+      await r1.finishRun('q1', { Status: 'succeeded', LeaseOwner: null, LeaseUntil: null, FinishedAt: T + 5 }),
+    ).to.eq(true);
     expect(await get('q1')).to.include({ Status: 'succeeded', LeaseOwner: null, FinishedAt: T + 5 });
   });
 });

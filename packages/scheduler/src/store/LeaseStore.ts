@@ -48,7 +48,13 @@ export class LeaseStore {
 
   /** Takes the schedule lease and advances NextRunAt in one statement, so a won occurrence is never fired twice. */
   public async tryClaimOccurrence(o: OccurrenceInput): Promise<boolean> {
-    const r = await ScheduleModel.update({ LeaseOwner: this.ReplicaId, LeaseUntil: o.now + this.LeaseTtl, LastFiredAt: o.now, NextRunAt: o.nextRunAt, UpdatedAt: o.now })
+    const r = await ScheduleModel.update({
+      LeaseOwner: this.ReplicaId,
+      LeaseUntil: o.now + this.LeaseTtl,
+      LastFiredAt: o.now,
+      NextRunAt: o.nextRunAt,
+      UpdatedAt: o.now,
+    })
       .where('Name', o.name)
       .where('Paused', false)
       .where('NextRunAt', o.expectedNextRunAt)
@@ -58,27 +64,43 @@ export class LeaseStore {
 
   /** Moves past an occurrence without the lease; the replica that wins decides skip / queue / misfire for it. */
   public async advanceOccurrence(o: OccurrenceInput): Promise<boolean> {
-    const r = await ScheduleModel.update({ NextRunAt: o.nextRunAt, UpdatedAt: o.now }).where('Name', o.name).where('Paused', false).where('NextRunAt', o.expectedNextRunAt);
+    const r = await ScheduleModel.update({ NextRunAt: o.nextRunAt, UpdatedAt: o.now })
+      .where('Name', o.name)
+      .where('Paused', false)
+      .where('NextRunAt', o.expectedNextRunAt);
     return r.RowsAffected === 1;
   }
 
   public async acquireScheduleLease(name: string, now: number): Promise<boolean> {
-    const r = await ScheduleModel.update({ LeaseOwner: this.ReplicaId, LeaseUntil: now + this.LeaseTtl, UpdatedAt: now }).where('Name', name).where(leaseFree(now));
+    const r = await ScheduleModel.update({
+      LeaseOwner: this.ReplicaId,
+      LeaseUntil: now + this.LeaseTtl,
+      UpdatedAt: now,
+    })
+      .where('Name', name)
+      .where(leaseFree(now));
     return r.RowsAffected === 1;
   }
 
   public async renewScheduleLease(name: string, now: number): Promise<boolean> {
-    const r = await ScheduleModel.update({ LeaseUntil: now + this.LeaseTtl }).where('Name', name).where('LeaseOwner', this.ReplicaId);
+    const r = await ScheduleModel.update({ LeaseUntil: now + this.LeaseTtl })
+      .where('Name', name)
+      .where('LeaseOwner', this.ReplicaId);
     return r.RowsAffected === 1;
   }
 
   public async releaseScheduleLease(name: string, now: number): Promise<boolean> {
-    const r = await ScheduleModel.update({ LeaseOwner: null, LeaseUntil: null, UpdatedAt: now }).where('Name', name).where('LeaseOwner', this.ReplicaId);
+    const r = await ScheduleModel.update({ LeaseOwner: null, LeaseUntil: null, UpdatedAt: now })
+      .where('Name', name)
+      .where('LeaseOwner', this.ReplicaId);
     return r.RowsAffected === 1;
   }
 
   public async recordLast(name: string, now: number, status: RunStatus, runId: string): Promise<void> {
-    await ScheduleModel.update({ LastFinishedAt: now, LastStatus: status, LastRunId: runId, UpdatedAt: now }).where('Name', name);
+    await ScheduleModel.update({ LastFinishedAt: now, LastStatus: status, LastRunId: runId, UpdatedAt: now }).where(
+      'Name',
+      name,
+    );
   }
 
   /**
@@ -116,13 +138,19 @@ export class LeaseStore {
   }
 
   /** Heartbeat of a running run (and its schedule lease); `ok: false` means this replica lost the run. */
-  public async renewRun(runId: string, scheduleLease: string | null, now: number, patch: RunProgressPatch = {}): Promise<{ ok: boolean; cancelRequested: boolean }> {
+  public async renewRun(
+    runId: string,
+    scheduleLease: string | null,
+    now: number,
+    patch: RunProgressPatch = {},
+  ): Promise<{ ok: boolean; cancelRequested: boolean }> {
     const r = await RunModel.update({ ...defined(patch), LeaseUntil: now + this.LeaseTtl, UpdatedAt: now })
       .where('Id', runId)
       .where('LeaseOwner', this.ReplicaId)
       .where('Status', 'running');
     if (r.RowsAffected !== 1) return { ok: false, cancelRequested: false };
-    if (scheduleLease && !(await this.renewScheduleLease(scheduleLease, now))) return { ok: false, cancelRequested: false };
+    if (scheduleLease && !(await this.renewScheduleLease(scheduleLease, now)))
+      return { ok: false, cancelRequested: false };
     const row = await RunModel.where('Id', runId).first();
     return { ok: true, cancelRequested: !!row?.CancelRequested };
   }
@@ -141,7 +169,15 @@ export class LeaseStore {
    */
   public async expireRun(run: RunModel, now: number, next: RunExpiry): Promise<boolean> {
     const final = next.status !== 'retrying';
-    const r = await RunModel.update({ Status: next.status, Reason: next.reason, LeaseOwner: null, LeaseUntil: null, NextAttemptAt: next.nextAttemptAt, FinishedAt: final ? now : null, UpdatedAt: now })
+    const r = await RunModel.update({
+      Status: next.status,
+      Reason: next.reason,
+      LeaseOwner: null,
+      LeaseUntil: null,
+      NextAttemptAt: next.nextAttemptAt,
+      FinishedAt: final ? now : null,
+      UpdatedAt: now,
+    })
       .where('Id', run.Id)
       .where('Status', 'running')
       .where('LeaseUntil', run.LeaseUntil)

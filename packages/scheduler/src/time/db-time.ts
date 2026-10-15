@@ -23,7 +23,11 @@ export class SqlDbTimeSource extends DbTimeSource {
     const driver = orm.Connections.get('default');
     if (!driver) throw new InvalidOperation('scheduler: ORM connection "default" not found');
     // executeOnDb lives on orm-sql's SqlDriver, not on the OrmDriver contract
-    const rows = (await (driver as unknown as RawSqlDriver).executeOnDb(dbNowSql(driver.Options.Driver), [], QueryContext.Select)) as Array<{ ms: number | string }>;
+    const rows = (await (driver as unknown as RawSqlDriver).executeOnDb(
+      dbNowSql(driver.Options.Driver),
+      [],
+      QueryContext.Select,
+    )) as Array<{ ms: number | string }>;
     return Number(rows[0].ms);
   }
 }

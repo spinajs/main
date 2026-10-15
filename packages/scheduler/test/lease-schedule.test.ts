@@ -14,7 +14,17 @@ describe('LeaseStore: schedule occurrences', () => {
 
   beforeEach(async () => {
     await bootTestEnv();
-    await ScheduleModel.create({ Name: 'a', Definition: {}, DefinitionHash: 'h', NextRunAt: T, Paused: false, HardPaused: false, ConsecutiveFailures: 0, Orphaned: false, UpdatedAt: T });
+    await ScheduleModel.create({
+      Name: 'a',
+      Definition: {},
+      DefinitionHash: 'h',
+      NextRunAt: T,
+      Paused: false,
+      HardPaused: false,
+      ConsecutiveFailures: 0,
+      Orphaned: false,
+      UpdatedAt: T,
+    });
     r1 = DI.resolve(LeaseStore, ['r1']);
     r2 = DI.resolve(LeaseStore, ['r2']);
     r3 = DI.resolve(LeaseStore, ['r3']);
@@ -42,13 +52,22 @@ describe('LeaseStore: schedule occurrences', () => {
 
   it('claims after the holder lease expired', async () => {
     await r1.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T, nextRunAt: T + MIN, now: T });
-    expect(await r2.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T + MIN, nextRunAt: T + 2 * MIN, now: T + r1.LeaseTtl + 1 })).to.eq(true);
+    expect(
+      await r2.tryClaimOccurrence({
+        name: 'a',
+        expectedNextRunAt: T + MIN,
+        nextRunAt: T + 2 * MIN,
+        now: T + r1.LeaseTtl + 1,
+      }),
+    ).to.eq(true);
     expect((await row()).LeaseOwner).to.eq('r2');
   });
 
   it('does not claim an occurrence that was already advanced, even with the lease expired', async () => {
     await r1.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T, nextRunAt: T + MIN, now: T });
-    expect(await r2.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T, nextRunAt: T + MIN, now: T + r1.LeaseTtl + 1 })).to.eq(false);
+    expect(
+      await r2.tryClaimOccurrence({ name: 'a', expectedNextRunAt: T, nextRunAt: T + MIN, now: T + r1.LeaseTtl + 1 }),
+    ).to.eq(false);
     expect((await row()).LeaseOwner).to.eq('r1');
   });
 
