@@ -15,5 +15,5 @@
     "authn-oidc": ["src/contracts.ts"],
     "authn-http": ["src/api.ts"]
   },
-  "augmentationAllowlist": []
+  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts"]
 }

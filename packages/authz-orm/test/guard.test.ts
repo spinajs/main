@@ -10,6 +10,7 @@ import type { ModelBase } from '@spinajs/orm';
 import { AccessGuardMiddleware } from '../src/guard/middleware.js';
 import { guardMode } from '../src/guard/env.js';
 import { ormLog } from '../src/host.js';
+import { AccessListMiddleware } from '../src/lists/middleware.js';
 import { AccessResource } from '../src/index.js';
 import { setMarks } from '../src/marker.js';
 import { TestDb } from './support/db.js';
@@ -83,6 +84,8 @@ describe('authz-orm runtime guard', function () {
     const q = Task.query();
     setMarks(q, { unscoped: 'export' });
     expect(await as(alice, async () => (await q).length)).to.equal(2);
+    // The guard alone is under test here: the list middleware would plan this builder against a booted authz host.
+    sinon.stub(AccessListMiddleware.prototype, 'beforeQueryExecution').resolves();
     const r = Task.query();
     setMarks(r, { accessible: 'task:read' });
     expect(await as(alice, async () => (await r).length)).to.equal(2);
