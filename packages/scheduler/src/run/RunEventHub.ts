@@ -5,6 +5,7 @@ import type { RunEvent, RunEventListener, SubscribeOptions, SubscribeTarget, Uns
 import { RunLogModel } from '../models/RunLogModel.js';
 import { Clock } from '../time/clock.js';
 import { toRunEvent } from './events.js';
+import { LatestProgress, ProgressSeen } from './LatestProgress.js';
 
 const keyOf = (t: SubscribeTarget) => ('runId' in t ? `run:${t.runId}` : `schedule:${t.schedule}`);
 const PAGE = 500;
@@ -25,6 +26,9 @@ const PAGE = 500;
 export class RunEventHub {
   @Autoinject(Clock)
   protected Clock: Clock;
+
+  @Autoinject(LatestProgress)
+  protected Latest: LatestProgress;
 
   @Config('scheduler.events.pollInterval', { defaultValue: 1000 })
   protected PollInterval: number;
@@ -52,11 +56,25 @@ export class RunEventHub {
     let ready = false;
     let wokenBeforeReady = false;
     const buffered: RunEvent[] = [];
+    const seen = new ProgressSeen();
 
     const deliver = (e: RunEvent) => {
       if (closed || cursorOf(e) <= cursor) return;
       cursor = cursorOf(e);
+      seen.note(e);
       listener(e);
+    };
+
+    // Synthetic progress repeats the cursor instead of advancing it (R16).
+    const latest = async () => {
+      for (const e of await this.Latest.synthesize(target, seen, cursor)) {
+        if (closed) return;
+        // a local event may have moved the cursor while the rows were read
+        if (byRun) e.seq = cursor;
+        else e.id = cursor;
+        seen.note(e);
+        listener(e);
+      }
     };
 
     // One fetch at a time; a wake-up during a fetch runs one more round after it.
@@ -76,6 +94,8 @@ export class RunEventHub {
               page = await this.fetchAfter(target, cursor, PAGE);
               for (const e of page) deliver(e);
             } while (page.length === PAGE && !closed);
+            // every replay and poll round ends with it; a wake-up meanwhile runs one more round
+            if (!again && !closed) await latest();
           } while (again && !closed);
         } finally {
           // same microtask as the last `again` check, so a wake-up cannot fall in between

@@ -27,6 +27,7 @@ export * from './store/replica.js';
 export * from './store/LeaseStore.js';
 export * from './run/events.js';
 export * from './run/journal.js';
+export * from './run/LatestProgress.js';
 export * from './run/RunEventHub.js';
 export * from './run/RunEventWriter.js';
 export * from './tracking/structured.js';

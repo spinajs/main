@@ -2,6 +2,7 @@ import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { isTerminalStatus, type RunEvent, type RunEventPayload } from '../contract.js';
 import { RunLogModel } from '../models/RunLogModel.js';
+import { RunModel } from '../models/RunModel.js';
 import { DbClock } from '../time/clock.js';
 import { appendJournalRow } from './journal.js';
 import { RunEventHub } from './RunEventHub.js';
@@ -13,6 +14,7 @@ const MAX_CACHED_RUNS = 10_000;
 interface RunCache {
   seq?: number;
   counts: Map<string, number>;
+  progressCapped?: boolean;
 }
 
 function columnsOf(p: RunEventPayload): { Level: string | null; Step: string | null; Message: string | null } {
@@ -69,7 +71,14 @@ export class RunEventWriter {
   ): Promise<RunEvent | null> {
     const c = this.cached(run.Id);
     const capped = CAPPED.has(payload.type);
-    if (capped && (await this.storedCount(c, run.Id, payload.type)) >= this.Limit) return null;
+    if (capped && (await this.storedCount(c, run.Id, payload.type)) >= this.Limit) {
+      // subscribers rebuild the latest progress from the step and run rows from now on (R16)
+      if (payload.type === 'progress' && !c.progressCapped) {
+        await RunModel.update({ ProgressCapped: true }).where('Id', run.Id);
+        c.progressCapped = true;
+      }
+      return null;
+    }
 
     let lastError: unknown;
     for (let i = 0; i < 3; i++) {
