@@ -134,7 +134,8 @@ export class RbacModel extends AuthorizationModel {
   }
 
   applies(permission: PermissionDef, _type: ResourceType): boolean {
-    return this.grantIndex().granted(permission.name);
+    const index = this.grantIndex();
+    return index.granted(permission.name) || index.denied(permission.name);
   }
 
   /**

@@ -1,5 +1,5 @@
 import { AuthzConfigError, GLOBAL, resourceKey, subtractFieldGlobs } from '@spinajs/authz';
-import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
+import type { EvaluationContext, Permission, Principal, ResourceRef } from '@spinajs/authz';
 
 import type { LinkStore } from '../contracts.js';
 
@@ -9,6 +9,7 @@ import type { CompiledGrant } from './grants.js';
 import { effectiveRole } from './ladder/steps.js';
 import { UNRESOLVED_LINK_ID, linkPrincipalOf } from './links/principal.js';
 import type { RbacModel } from './model.js';
+import { scopeMatcher } from './native.js';
 
 export interface RbacServiceOptions {
   /** Ancestors of a resource for rolesOf without a context; production wires the host's scope resolution. */
@@ -104,8 +105,14 @@ export class RbacService {
       const path = await resourcePath(at, ctx);
       if (!path.some((ref) => limit.resources!.has(resourceKey(ref)))) return wanted.length === 0;
     }
-    const names = (await this.rolesOf(principal, at, { ctx })).map((r) => r.effectiveRole);
-    return this.coversRoles(names, wanted, limit);
+    const input = await this.model.inputAt(principal, at, ctx);
+    const { live, denied } = liveAssignments(input);
+    const names = live.map((l) => effectiveRole(input.ladders, l));
+    const index = this.model.grantIndex();
+    const onPath = scopeMatcher(at.type, input.path);
+    // An actor may not hand out what a deny removes from it (design §4.2).
+    const removed = new Set(denied.filter((l) => onPath(l.scope)).flatMap((l) => index.deniedPermissions(l.role)));
+    return this.coversRoles(names, wanted, limit, removed);
   }
 
   private withImpliedEverywhere(held: readonly string[]): readonly string[] {
@@ -123,7 +130,7 @@ export class RbacService {
       : held;
   }
 
-  private coversRoles(held: readonly string[], wanted: readonly string[], limit?: CeilingLimit): boolean {
+  private coversRoles(held: readonly string[], wanted: readonly string[], limit?: CeilingLimit, denied?: ReadonlySet<Permission>): boolean {
     const graph = this.model.roleGraph();
     const index = this.model.grantIndex();
     if (wanted.some((r) => !graph.has(r))) return false;
@@ -135,6 +142,7 @@ export class RbacService {
     for (const role of handedOut) {
       for (const permission of index.permissions(role)) {
         if (limit && !limit.allows(permission)) return false;
+        if (denied?.has(permission)) return false;
         const types = ladders ? [...registry.require(permission).types, GLOBAL.type] : [];
         const typesCover = (h: CompiledGrant, w: CompiledGrant) => types.every((t) => !ladders!.appliesAt(w, t) || ladders!.appliesAt(h, t));
         for (const w of index.grants(role, permission)) {

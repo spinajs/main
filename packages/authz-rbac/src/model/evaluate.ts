@@ -5,6 +5,7 @@ import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
 import { ceilingRoles, withinCeiling } from './ceiling.js';
+import { applyDenyRoles, isDenyRole } from './deny.js';
 import { underTerm } from './rows.js';
 import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
@@ -157,6 +158,8 @@ export interface RbacState {
   live: LiveAssignment[];
   /** collect, type-level requests only (`$global` is not one): live assignments off the path, which permit the rows below their scopes. */
   scoped: LiveAssignment[];
+  /** collect: assignments of deny roles, on the path and (type-level) below it; ceilings and rules never drop them (design §4.2). */
+  denied: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
   /** aggregate: the union of live tags, for introspection; step 6 reads the carriers in `live` (and `scoped`) itself. */
@@ -184,9 +187,11 @@ const collect: RbacStep = (s) => {
   const typeLevel = isTypeLevel(s.input.request.resource);
   for (const a of assignments) {
     const here = onPath(a.scope);
+    const denies = isDenyRole(roles, a.role);
     // Off the path only a scope with an id can reach rows of a type-level request (state.scoped).
     // An assignment the ceiling drops cannot change the vote, so its row is never parsed.
-    if ((!here && (!typeLevel || a.scope.id == null)) || !withinCeiling(s, a.role)) continue;
+    // Ceilings narrow permits only: a deny always counts.
+    if ((!here && (!typeLevel || a.scope.id == null)) || !(denies || withinCeiling(s, a.role))) continue;
     const expires = expiryTime(a);
     // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
     if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
@@ -196,7 +201,7 @@ const collect: RbacStep = (s) => {
     // A row stored before its role was narrowed would reach the scopes scopeTypes exists to keep it from.
     else if (problem) onRefusedAssignment?.(a, problem);
     if (problem) continue;
-    (here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
+    (denies ? s.denied : here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
 
@@ -335,6 +340,7 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
     applyMemberships(s);
     addImplied(s);
     rankAssignments(s);
+    applyDenyRoles(s);
   },
   restrict: applyRestrict,
   cap: applyCaps,
@@ -397,15 +403,15 @@ export class NativeNeedsV2 extends Error {}
  * resource (`live`) and, on a type-level request, those below it (`scoped`). `ceiling: false` skips
  * the principal's `ceiling.roles`, for callers that need the assigned roles (a role switch).
  */
-export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boolean } = {}, steps: RbacSteps = RBAC_STEPS): { readonly live: readonly LiveAssignment[]; readonly scoped: readonly LiveAssignment[] } {
+export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boolean } = {}, steps: RbacSteps = RBAC_STEPS): { readonly live: readonly LiveAssignment[]; readonly scoped: readonly LiveAssignment[]; readonly denied: readonly LiveAssignment[] } {
   const state = newState(input, opts.ceiling !== false);
   for (const name of ['collect', 'restrict', 'cap'] as const) steps[name](state);
-  return { live: state.live, scoped: state.scoped };
+  return { live: state.live, scoped: state.scoped, denied: state.denied };
 }
 
 function newState(input: RbacInput, ceiling: boolean): RbacState {
   const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
-  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: input.native?.cacheable !== false, rankAt: new Map(), ruleSubjects: new Map() };
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], denied: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: input.native?.cacheable !== false, rankAt: new Map(), ruleSubjects: new Map() };
 }
 
 // OR is order-free, but the residual enters the cross-request decision cache key and SQL statement

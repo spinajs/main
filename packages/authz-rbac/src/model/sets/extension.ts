@@ -39,24 +39,26 @@ export const setsExtension: RbacExtensionFactory = () => new SetsExtension();
 export const applyMemberships: RbacStep = (s) => {
   const memberships = s.input.memberships;
   if (!memberships) return;
-  s.live = s.live.flatMap((l) => throughMembership(s, memberships, l));
-  s.scoped = s.scoped.flatMap((l) => throughMembership(s, memberships, l));
+  s.live = s.live.flatMap((l) => throughMembership(s, memberships, l, false));
+  s.scoped = s.scoped.flatMap((l) => throughMembership(s, memberships, l, false));
+  s.denied = s.denied.flatMap((l) => throughMembership(s, memberships, l, true));
 };
 
-function throughMembership(s: RbacState, memberships: SetMemberships, l: LiveAssignment): LiveAssignment[] {
+function throughMembership(s: RbacState, memberships: SetMemberships, l: LiveAssignment, deny: boolean): LiveAssignment[] {
   const subject = l.assignment.subject;
   const entry = 'set' in subject ? memberships.get(subjectKey(subject)) : undefined;
   if (!entry) return [l];
-  const usable = usableMemberships(s, entry.via);
+  const usable = usableVia(s, entry.via, deny);
   if (usable.length === 0) return [];
   if (usable.some((m) => m.expiresAt === undefined)) return [l];
   const end = Math.max(...usable.map((m) => m.expiresAt!.getTime()));
   return l.expiresAt && l.expiresAt.getTime() <= end ? [l] : [{ ...l, expiresAt: new Date(end) }];
 }
 
-function usableMemberships<T extends { readonly role: string; readonly expiresAt?: Date }>(s: RbacState, via: readonly T[]): T[] {
+/** The live memberships among `via`, those whose role passes the ceiling unless `ignoreCeiling` (a deny). */
+export function usableVia<T extends { readonly role: string; readonly expiresAt?: Date }>(s: RbacState, via: readonly T[], ignoreCeiling = false): T[] {
   const now = s.input.now.getTime();
-  return via.filter((m) => withinCeiling(s, m.role) && (m.expiresAt === undefined || m.expiresAt.getTime() > now));
+  return via.filter((m) => (ignoreCeiling || withinCeiling(s, m.role)) && (m.expiresAt === undefined || m.expiresAt.getTime() > now));
 }
 
 /** The subjects a native list term may name: those of the input, without a joined set none of whose memberships holds now. */
@@ -65,7 +67,7 @@ export function usableSubjects(s: RbacState): readonly AssignmentSubject[] | und
   if (!subjects || !memberships) return subjects;
   return subjects.filter((subject) => {
     const entry = 'set' in subject ? memberships.get(subjectKey(subject)) : undefined;
-    return !entry || usableMemberships(s, entry.via).length > 0;
+    return !entry || usableVia(s, entry.via).length > 0;
   });
 }
 

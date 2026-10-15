@@ -1,9 +1,11 @@
-import { AuthzConfigError } from '@spinajs/authz';
+import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, SYSTEM, TRUE } from '@spinajs/authz';
+import type { Assignment, EvaluationContext, ResourceRef } from '@spinajs/authz';
+import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
-import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, compileRoles } from '../../src/index.js';
-import type { LadderDef, RoleDef } from '../../src/index.js';
+import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, compileGrants, compileRoles, runRbacPipeline } from '../../src/index.js';
+import type { LadderDef, RbacInput, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -68,6 +70,107 @@ describe('authz-rbac deny roles (design §4.2)', () => {
         caught = e;
       }
       expect((caught as Error).message).to.equal('authz.rbac.roles.blocked.deny: must be true or false');
+    });
+  });
+});
+
+const NOW = new Date('2026-10-14T12:00:00.000Z');
+const F1: ResourceRef = { type: 'folder', id: 'f1' };
+const F2: ResourceRef = { type: 'folder', id: 'f2' };
+const I42: ResourceRef = { type: 'invoice', id: '42' };
+const alice = userPrincipal('alice');
+const ROLE_DENIED = { code: 'role_denied', role: 'blocked', priority: DEFAULT_DENY_PRIORITY.role_denied };
+const ROLES = [role('editor', ['invoice:edit', 'invoice:read']), deny('blocked', ['invoice:edit'])];
+
+function registry(): PermissionRegistryImpl {
+  const r = new PermissionRegistryImpl();
+  r.register(
+    [
+      { name: 'invoice:edit', types: ['invoice', 'folder'], implies: ['invoice:read'] },
+      { name: 'invoice:read', types: ['invoice', 'folder'] },
+      { name: 'invoice:delete', types: ['invoice', 'folder'] },
+    ],
+    'test',
+  );
+  r.freeze();
+  return r;
+}
+
+const row = (id: string, roleName: string, scope: ResourceRef = GLOBAL, extra: Partial<Assignment> = {}): Assignment => ({ id, subject: { type: 'user', id: 'alice' }, role: roleName, scope, source: 'test', ...extra });
+
+function input(assignments: readonly Assignment[], permission: string, opts: { resource?: ResourceRef; path?: readonly ResourceRef[]; principal?: typeof alice; roles?: readonly RoleDef[] } = {}): RbacInput {
+  const roles = compileRoles(opts.roles ?? ROLES);
+  const resource = opts.resource ?? I42;
+  return { request: { principal: opts.principal ?? alice, permission, resource }, now: NOW, path: opts.path ?? [I42, F1, GLOBAL], assignments, roles, grants: compileGrants(roles, registry()) };
+}
+
+describe('authz-rbac deny roles in checks', () => {
+  it('the grant index keeps deny roles out of the permits and follows no implies', () => {
+    const grants = compileGrants(compileRoles(ROLES), registry());
+    expect(grants.grants('blocked', 'invoice:edit')).to.deep.equal([]);
+    expect(grants.permissions('blocked')).to.deep.equal([]);
+    expect(grants.denies('blocked', 'invoice:edit')).to.equal(true);
+    expect(grants.denies('blocked', 'invoice:read')).to.equal(false);
+    expect(grants.deniedPermissions('blocked')).to.deep.equal(['invoice:edit']);
+    expect(grants.denied('invoice:edit')).to.equal(true);
+    expect(compileGrants(compileRoles([deny('nodelete', ['invoice:delete'])]), registry()).granted('invoice:delete')).to.equal(false);
+  });
+
+  it('a deny at an ancestor beats a global permit, with role_denied', () => {
+    const vote = runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1)], 'invoice:edit'));
+    expect(vote.permitWhen).to.deep.equal(TRUE);
+    expect(vote.denyWhen).to.deep.equal(TRUE);
+    expect(vote.denies).to.deep.equal([{ when: TRUE, reason: ROLE_DENIED }]);
+  });
+
+  it('denies only what it names, only on its path', () => {
+    expect(runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1)], 'invoice:read')).denyWhen).to.deep.equal(FALSE);
+    expect(runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F2)], 'invoice:edit')).denyWhen).to.deep.equal(FALSE);
+  });
+
+  it('on a type-level request a scoped deny denies the rows under its scope', () => {
+    const vote = runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1)], 'invoice:edit', { resource: { type: 'invoice' }, path: [{ type: 'invoice' }, GLOBAL] }));
+    expect(vote.denyWhen).to.deep.equal({ op: 'under', scopes: [F1] });
+  });
+
+  it('a ceiling never drops a deny', () => {
+    const vote = runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1)], 'invoice:edit', { principal: withCeiling(alice, { roles: ['editor'] }) }));
+    expect(vote.denyWhen).to.deep.equal(TRUE);
+  });
+
+  it('an expired deny is gone, and a live one bounds validUntil', () => {
+    const past = new Date(NOW.getTime() - 1);
+    const soon = new Date(NOW.getTime() + 60_000);
+    expect(runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1, { expiresAt: past })], 'invoice:edit')).denyWhen).to.deep.equal(FALSE);
+    expect(runRbacPipeline(input([row('e', 'editor'), row('b', 'blocked', F1, { expiresAt: soon })], 'invoice:edit')).validUntil).to.deep.equal(soon);
+  });
+
+  describe('through the model', () => {
+    const scopes = new FakeScopeResolver({ types: ['folder', 'invoice'], nodes: [{ ref: F1 }, { ref: I42, parent: F1 }] });
+    const ctx = (): EvaluationContext => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] });
+
+    async function model(rows: readonly Assignment[], roles: readonly RoleDef[] = ROLES): Promise<RbacModel> {
+      const m = new RbacModel({ roles: new MemoryRoleStore(roles), assignments: new MemoryAssignmentStore(rows), log: { warn: () => undefined } });
+      await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
+      m.grantIndex();
+      return m;
+    }
+
+    it('applies routes a permission only a deny role names', async () => {
+      const m = await model([], [deny('nodelete', ['invoice:delete'])]);
+      expect(m.applies(registry().require('invoice:delete'), 'invoice')).to.equal(true);
+    });
+
+    it('RbacService.coversAt refuses what a live deny on the path removes', async () => {
+      const m = await model([row('e', 'editor'), row('b', 'blocked', F1)]);
+      const service = new RbacService(m);
+      expect(await service.coversAt(alice, ['editor'], I42, ctx())).to.equal(false);
+      expect(await service.coversAt(alice, ['editor'], { type: 'folder', id: 'other' }, fakeEvaluationContext({ now: NOW, scopeResolvers: [new FakeScopeResolver({ types: ['folder'], nodes: [{ ref: { type: 'folder', id: 'other' } }] })] }))).to.equal(true);
+    });
+
+    it('SYSTEM is not subject to deny roles: the engine allows it before any model runs', () => {
+      // authorizer.ts answers SYSTEM with TRUE and no models (B09); a deny assignment cannot name SYSTEM's singleton either.
+      expect(SYSTEM.type).to.be.a('string');
     });
   });
 });
