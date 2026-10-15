@@ -261,8 +261,9 @@ describe('scheduler event routing', () => {
 
   it('still sends the events of runs that end while DI disposes the scheduler', async () => {
     const names: string[] = [];
-    sinon.stub(BlackHoleQueueClient.prototype, 'emit').callsFake(async (e: { Name: string }) => {
+    sinon.stub(BlackHoleQueueClient.prototype, 'emit').callsFake((e: { Name: string }) => {
       names.push(e.Name);
+      return Promise.resolve();
     });
     defineSchedule(EventsHangTask, 'ev-routed', { manual: true, retry: { attempts: 2, delay: '1s' } });
     const { clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' });
