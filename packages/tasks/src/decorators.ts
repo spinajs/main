@@ -1,4 +1,4 @@
-import { mutex_acquire, mutex_release } from '@spinajs/threading';
+import { mutex_acquire, mutex_release, mutex_renew } from '@spinajs/threading';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
@@ -15,10 +15,17 @@ export interface TaskOptions {
    * Allow several runs of the same task at once, e.g. a long run that overlaps the next start.
    */
   taskStacking: boolean;
+
+  /**
+   * Lifetime of the task mutex in ms, renewed every lockTtl / 3 while the task runs, so a
+   * crashed process frees the task after at most lockTtl. 0 = never expires.
+   */
+  lockTtl: number;
 }
 
 export const DEFAULT_TASK_OPTIONS: TaskOptions = {
   taskStacking: false,
+  lockTtl: 60000,
 };
 
 type Unlock = () => Promise<void>;
@@ -41,7 +48,7 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
   const mutexName = `task-${name}`;
 
   try {
-    const lock = await mutex_acquire({ Name: mutexName });
+    const lock = await mutex_acquire({ Name: mutexName, ttl: opts.lockTtl });
     if (!lock.Locked) {
       runningInProcess.delete(name);
       log.warn(`Cannot acquire mutex for task ${name}, already locked !`);
@@ -52,7 +59,21 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
     throw err;
   }
 
+  const heartbeat =
+    opts.lockTtl > 0
+      ? setInterval(() => {
+          mutex_renew({ Name: mutexName, ttl: opts.lockTtl })
+            .then((renewed) => {
+              if (!renewed) {
+                log.warn(`Task ${name} lost its mutex, another process may run it now`);
+              }
+            })
+            .catch((err) => log.error(err, `Cannot renew mutex for task ${name}`));
+        }, Math.max(1, Math.floor(opts.lockTtl / 3)))
+      : undefined;
+
   return async () => {
+    clearInterval(heartbeat);
     runningInProcess.delete(name);
     await mutex_release({ Name: mutexName });
   };

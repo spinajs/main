@@ -18,6 +18,7 @@ import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
 import { OrmMutex } from '@spinajs/orm-threading';
 import { TestTaskNoOptions } from './Tasks/TestTaskNoOptions.js';
 import { TestTaskFailing } from './Tasks/TestTaskFailing.js';
+import { TestTaskHeartbeat } from './Tasks/TestTaskHeartbeat.js';
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -171,6 +172,26 @@ describe('Commands', function () {
       await new TestTask().execute(1);
 
       expect(await __task_history.all()).to.have.length(0);
+    });
+
+    it('Should set the task lock ttl', async () => {
+      const run = new TestTaskHeartbeat().execute();
+      await sleep(300);
+
+      const m = await mutex_get('task-TestTaskHeartbeat');
+      expect(m!.LockedUntil).to.be.a('number');
+
+      await run;
+    });
+
+    it('Should keep the task lock while a long task runs', async () => {
+      const run = new TestTaskHeartbeat().execute();
+      await sleep(700);
+
+      const other = await mutex_acquire({ Name: 'task-TestTaskHeartbeat', Tenant: 'other-replica', ttl: 300 });
+
+      expect(other.Locked).to.be.false;
+      await run;
     });
   });
 });
