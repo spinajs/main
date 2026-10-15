@@ -23,7 +23,14 @@ let calls = 0;
 let failFirst = false;
 let seenParams: unknown;
 
+let constructedIn: unknown = 'never constructed';
+let staticThis: unknown;
+
 export class DigestJobs {
+  constructor() {
+    constructedIn = currentRunContext();
+  }
+
   @Task('send-digest', 'Sends the daily digest')
   public async sendDigest() {
     calls++;
@@ -31,6 +38,16 @@ export class DigestJobs {
     if (failFirst && calls === 1) throw new Error('smtp down');
     await currentRunContext()?.step('render', () => 1);
     return { sent: 3 };
+  }
+}
+
+export class ReportJobs {
+  @Task('send-report-static', 'Sends the report from a static method')
+  public static async sendReport() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    staticThis = this;
+    await currentRunContext()?.step('collect', () => 1);
+    return { rows: 2 };
   }
 }
 
@@ -77,6 +94,21 @@ describe('scheduling @Task methods', () => {
     expect(row.Result).to.deep.eq({ sent: 3 });
     expect((await RunStepModel.where('RunId', run.Id)).map((s) => s.Name)).to.deep.eq(['render']);
     expect((await journal(run.Id)).map((e) => e.type)).to.include.members(['status', 'step-start', 'step-end']);
+  });
+
+  it('resolves the @Task class outside the run context', async () => {
+    await runDigest();
+    expect(constructedIn).to.not.eq('never constructed');
+    expect(constructedIn).to.eq(undefined);
+  });
+
+  it('runs a static @Task method with its class as this', async () => {
+    const { run } = await runDigest({ entry: { task: 'send-report-static' } });
+    const row = await getRun(run.Id);
+    expect(row.Status).to.eq('succeeded');
+    expect(row.Result).to.deep.eq({ rows: 2 });
+    expect(staticThis).to.eq(ReportJobs);
+    expect((await RunStepModel.where('RunId', run.Id)).map((s) => s.Name)).to.deep.eq(['collect']);
   });
 
   it('gives the method the run params through currentRunContext() and nothing outside a run', async () => {
