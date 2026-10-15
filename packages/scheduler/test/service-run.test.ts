@@ -19,7 +19,7 @@ import {
   undefineSchedule,
 } from '../src/index.js';
 import { bootTestEnv, waitFor } from './support/env.js';
-import { deferred, driveUntil, getRun, journal } from './support/fixtures.js';
+import { deferred, driveUntil, getRun, journal, queuedRun } from './support/fixtures.js';
 
 chai.use(chaiAsPromised);
 
@@ -240,5 +240,51 @@ describe('SchedulerService.runNow', () => {
       gate.resolve();
       await s.idle();
     });
+
+    it('retries failed runs one at a time across replicas', async () => {
+      gate = deferred();
+      const r2 = await DI.resolve(Scheduler, [{ replicaId: 'r2', autoStart: false }]);
+      for (const at of ['2026-01-05T08:00:00Z', '2026-01-05T09:00:00Z']) {
+        await queuedRun('everywhere', clock.now(), { Status: 'failed', Forced: true, FinishedAt: Date.parse(at) });
+      }
+      const { runIds } = await service.retryFailed('everywhere', '2026-01-05T00:00:00Z', { triggeredBy: by });
+      expect((await Promise.all(runIds.map(getRun))).map((r) => r.Forced)).to.deep.eq([false, false]);
+
+      await s.tickOnce();
+      await r2.tickOnce();
+      expect((await Promise.all(runIds.map(getRun))).map((r) => r.Status)).to.deep.eq(['running', 'queued']);
+      gate.resolve();
+      await s.idle();
+      await r2.tickOnce();
+      await r2.idle();
+      expect((await Promise.all(runIds.map(getRun))).map((r) => r.Status)).to.deep.eq(['succeeded', 'succeeded']);
+    });
+  });
+
+  describe('a run waiting for its automatic retry', () => {
+    it('is in progress: a manual run conflicts with it unless forced', async () => {
+      const waiting = await queuedRun('retried', clock.now(), {
+        Status: 'retrying',
+        MaxAttempts: 3,
+        NextAttemptAt: clock.now() + 60_000,
+      });
+      const conflict = (await service.runNow('retried', { triggeredBy: by }).catch((e) => e)) as RunConflict;
+      expect(conflict).to.be.instanceOf(RunConflict);
+      expect(conflict.runId).to.eq(waiting.Id);
+      const forced = await service.runNow('retried', { force: true, triggeredBy: by });
+      expect(await getRun(forced.runId)).to.include({ Forced: true });
+
+      await queuedRun('queueing', clock.now(), { Status: 'retrying', NextAttemptAt: clock.now() + 60_000 });
+      const queued = await service.runNow('queueing', { force: true, triggeredBy: by });
+      expect(await getRun(queued.runId)).to.include({ Status: 'queued', Forced: false });
+    });
+  });
+
+  it('names the field of a bad date filter', async () => {
+    for (const field of ['from', 'to'] as const) {
+      const err = (await service.listRuns({ [field]: 'soon' }).catch((e) => e)) as InvalidRunParams;
+      expect(err).to.be.instanceOf(InvalidRunParams);
+      expect(err.errors).to.deep.eq([{ path: `/${field}`, message: 'expected an ISO-8601 date' }]);
+    }
   });
 });

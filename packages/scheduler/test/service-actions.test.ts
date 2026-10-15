@@ -10,6 +10,7 @@ import {
   InvalidRunParams,
   InvalidRunState,
   RunContext,
+  RunModel,
   Scheduler,
   SchedulePaused,
   SchedulerService,
@@ -18,8 +19,8 @@ import {
   TriggeredBy,
   undefineSchedule,
 } from '../src/index.js';
-import { bootTestEnv } from './support/env.js';
-import { getRun, journal, queuedRun, untilAborted } from './support/fixtures.js';
+import { bootTestEnv, waitFor } from './support/env.js';
+import { deferred, getRun, journal, queuedRun, untilAborted } from './support/fixtures.js';
 
 chai.use(chaiAsPromised);
 const by: TriggeredBy = { kind: 'user', id: '1' };
@@ -53,7 +54,14 @@ class SvcActFlaky extends ScheduledTask {
     return Promise.reject(new Error('flaky'));
   }
 }
-const NAMES = ['import', 'patient', 'flaky', 'local-flaky'];
+let gate = deferred();
+class SvcActThrowsLater extends ScheduledTask {
+  public async execute(): Promise<void> {
+    await gate.promise;
+    throw new Error('failed after the cancel');
+  }
+}
+const NAMES = ['import', 'patient', 'flaky', 'local-flaky', 'gated'];
 
 /** Runs `beforeNow` once, between cancel() reading the run and writing it. */
 class RacyService extends DefaultSchedulerService {
@@ -88,6 +96,7 @@ describe('SchedulerService: cancel and retry', () => {
       params: { type: 'object', properties: { n: { type: 'integer' } } },
     });
     defineSchedule(SvcActFlaky, 'local-flaky', { every: '1h', runOn: 'all' });
+    defineSchedule(SvcActThrowsLater, 'gated', { manual: true, retry: { attempts: 3, backoff: 'fixed', delay: '1s' } });
     ({ clock } = await bootTestEnv({ now: '2026-01-05T10:00:00Z' }));
     s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
     service = await DI.resolve(SchedulerService);
@@ -263,9 +272,104 @@ describe('SchedulerService: cancel and retry', () => {
       expect(
         (await service.retryFailed('import', new Date('2026-01-05T00:00:00Z'), { triggeredBy: by })).runIds,
       ).to.deep.eq([]);
-      await expect(service.retryFailed('import', 'yesterday', { triggeredBy: by })).to.be.rejectedWith(
-        InvalidRunParams,
-      );
+      const bad = (await service
+        .retryFailed('import', 'yesterday', { triggeredBy: by })
+        .catch((e) => e)) as InvalidRunParams;
+      expect(bad).to.be.instanceOf(InvalidRunParams);
+      expect(bad.errors).to.deep.eq([{ path: '/since', message: 'expected an ISO-8601 date' }]);
+    });
+
+    it('names the run whose params block a retry-failed batch and creates none', async () => {
+      await queuedRun('flaky', clock.now(), { Status: 'failed', Params: { n: 1 }, FinishedAt: clock.now() - 2000 });
+      const broken = await queuedRun('flaky', clock.now(), {
+        Status: 'failed',
+        Params: { n: 'not a number' },
+        FinishedAt: clock.now() - 1000,
+      });
+      const err = (await service
+        .retryFailed('flaky', new Date(clock.now() - 60_000), { triggeredBy: by })
+        .catch((e) => e)) as InvalidRunParams;
+      expect(err).to.be.instanceOf(InvalidRunParams);
+      expect(err.message).to.contain(broken.Id);
+      expect(err.errors).to.deep.eq([{ path: '/n', message: 'must be integer' }]);
+      expect(await RunModel.where('Trigger', 'retry')).to.have.length(0);
+    });
+  });
+
+  describe('cancel reaches every later decision', () => {
+    const DEAD_HOLDER = { Status: 'running' as const, LeaseOwner: 'gone', Attempt: 1, MaxAttempts: 2 };
+
+    it('a dead holder with a retry policy: the reaper ends the run cancelled, without a retry', async () => {
+      await ScheduleModel.update({ ConsecutiveFailures: 1 }).where('Name', 'flaky');
+      const run = await queuedRun('flaky', clock.now(), { ...DEAD_HOLDER, LeaseUntil: clock.now() + 60_000 });
+      expect(await service.cancel(run.Id, { triggeredBy: by })).to.include({
+        status: 'running',
+        cancelRequested: true,
+      });
+      clock.set(clock.now() + 61_000);
+      await tick();
+      expect(await getRun(run.Id)).to.include({
+        Status: 'aborted',
+        Reason: 'cancelled',
+        NextAttemptAt: null,
+        Attempt: 1,
+      });
+      expect((await journal(run.Id)).map((e) => e.type)).to.deep.eq(['status']);
+      expect(await ErrorGroupModel.all()).to.have.length(0);
+      expect((await ScheduleModel.where('Name', 'flaky').first()).ConsecutiveFailures).to.eq(1);
+    });
+
+    it('a dead holder without a retry policy: the reaper ends the run cancelled, not lease-expired', async () => {
+      const run = await queuedRun('import', clock.now(), {
+        ...DEAD_HOLDER,
+        MaxAttempts: 1,
+        LeaseUntil: clock.now() + 60_000,
+      });
+      await service.cancel(run.Id, { triggeredBy: by });
+      clock.set(clock.now() + 61_000);
+      await tick();
+      expect(await getRun(run.Id)).to.include({ Status: 'aborted', Reason: 'cancelled' });
+      expect(await ErrorGroupModel.all()).to.have.length(0);
+    });
+
+    it('a holder whose lease already expired: cancel ends the run itself', async () => {
+      const run = await queuedRun('flaky', clock.now(), { ...DEAD_HOLDER, LeaseUntil: clock.now() - 1 });
+      expect(await service.cancel(run.Id, { triggeredBy: by })).to.include({ status: 'aborted', reason: 'cancelled' });
+      expect((await journal(run.Id)).map((e) => e.type === 'status' && [e.status, e.reason])).to.deep.eq([
+        ['aborted', 'cancelled'],
+      ]);
+    });
+
+    it('a task that fails before its heartbeat saw the cancel ends cancelled, not retrying', async () => {
+      gate = deferred();
+      const { runId } = await service.runNow('gated', { triggeredBy: by });
+      await s.tickOnce();
+      await waitFor(async () => (await getRun(runId)).Status === 'running');
+      // a cancel from another process: only the row is flagged
+      await RunModel.update({ CancelRequested: true }).where('Id', runId);
+      gate.resolve();
+      await s.idle();
+      expect(await getRun(runId)).to.include({ Status: 'aborted', Reason: 'cancelled', NextAttemptAt: null });
+      expect(await ErrorGroupModel.all()).to.have.length(0);
+    });
+
+    it('a cancelled run that became claimable again is ended instead of claimed', async () => {
+      const looped = await queuedRun('flaky', clock.now(), {
+        Status: 'retrying',
+        CancelRequested: true,
+        NextAttemptAt: clock.now() + 60_000,
+      });
+      const local = await queuedRun('flaky', clock.now(), { Status: 'retrying', CancelRequested: true });
+      expect(await s.runLocally(local.Id)).to.eq(false);
+      expect(await getRun(local.Id)).to.include({ Status: 'aborted', Reason: 'cancelled' });
+      await tick();
+      expect(await getRun(looped.Id)).to.include({ Status: 'aborted', Reason: 'cancelled', Attempt: 1 });
+      expect(s.isRunningLocally(looped.Id)).to.eq(false);
+    });
+
+    it('claimRun refuses a cancel-flagged row', async () => {
+      const run = await queuedRun('flaky', clock.now(), { Status: 'retrying', CancelRequested: true });
+      expect(await s.Leases.claimRun(run, clock.now())).to.eq(false);
     });
   });
 });
