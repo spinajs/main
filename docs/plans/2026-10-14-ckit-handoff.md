@@ -25,7 +25,8 @@ pieces belong in ckit and are not built on the spinajs side. spinajs CI runs
   changes on login, role switch, MFA elevation and impersonation start and end.
 - `GET /user/access/events` (SSE): `event: authz.changed`, `data: { "objects"?: [{ "type", "id" }] }`.
   `objects` is present only when exact; absent means "anything may have changed". The http-socket
-  channel pushes the same event name and payload.
+  channel pushes the same event name and payload. The stream needs a signed-in principal (401 for
+  anonymous), is capped per principal (the oldest of more than 5 is closed) and ends on logout.
 - List responses built with `.withAccess([...])` carry `$access: { [permission]: boolean }` per row
   (the key is configurable server-side, `authz.orm.accessField`). Each entry equals what
   `/user/access/checks` answers for `(row, permission)`.

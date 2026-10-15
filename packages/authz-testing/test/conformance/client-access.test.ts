@@ -10,8 +10,13 @@ import type { ClientAccessApp } from '../../src/index.js';
 
 interface Grant { readonly user: string; readonly role: string; readonly scope: { readonly type: string; readonly id?: string } }
 
-/** An in-process app that answers as design 2026-10-14 §10.2-§10.4 says; `broken` honours the body's subject. */
-async function fakeApp(broken = false): Promise<ClientAccessApp> {
+/**
+ * An in-process app that answers as design 2026-10-14 §10.2-§10.4 says. `honours-subject` answers for the body's
+ * subject; `leaks-subject` does too but still reports subject_mismatch, so only its answers give it away.
+ */
+type Fault = 'honours-subject' | 'leaks-subject' | 'assign-fails';
+
+async function fakeApp(fault?: Fault): Promise<ClientAccessApp> {
   const grants: Grant[] = CLIENT_ACCESS_FIXTURE.assignments.map((a) => ({ user: a.subject.id, role: a.role, scope: a.scope }));
   const streams = new Map<string, ServerResponse[]>();
   const can = (user: string | undefined, permission: string, id: string): boolean => {
@@ -43,8 +48,15 @@ async function fakeApp(broken = false): Promise<ClientAccessApp> {
           reasons.push('invalid_request');
           continue;
         }
-        const asUser = broken && c.subject ? c.subject.id : user;
-        if (!broken && c.subject && (c.subject.type !== 'user' || c.subject.id !== user)) {
+        const honours = fault === 'honours-subject' || fault === 'leaks-subject';
+        const mismatch = !!c.subject && (c.subject.type !== 'user' || c.subject.id !== user);
+        const asUser = honours && c.subject ? c.subject.id : user;
+        if (fault === 'leaks-subject' && mismatch) {
+          results.push(can(asUser, `${c.object.type}:${c.permission}`, c.object.id));
+          reasons.push('subject_mismatch');
+          continue;
+        }
+        if (!honours && mismatch) {
           results.push(false);
           reasons.push('subject_mismatch');
           continue;
@@ -74,6 +86,7 @@ async function fakeApp(broken = false): Promise<ClientAccessApp> {
     baseUrl: `http://127.0.0.1:${port}`,
     headers: (id): Record<string, string> => (id ? { 'x-user': id } : {}),
     async assign(id, role, scope) {
+      if (fault === 'assign-fails') throw new Error('assign failed');
       grants.push({ user: id, role, scope });
       for (const s of streams.get(id) ?? []) s.write(`event: authz.changed\ndata: ${JSON.stringify({ objects: [scope] })}\n\n`);
     },
@@ -88,15 +101,36 @@ async function fakeApp(broken = false): Promise<ClientAccessApp> {
 runClientAccessConformance('client access conformance over a fake app', () => fakeApp());
 
 describe('client access conformance catches a broken app', () => {
-  it('fails the subject check when the app honours the body subject', async () => {
-    const app = await fakeApp(true);
+  const failure = async (fault: Fault, id: string): Promise<Error | undefined> => {
+    const app = await fakeApp(fault);
     try {
-      const subject = clientAccessConformanceChecks(() => app).find((c) => c.id === 'subject')!;
+      const c = clientAccessConformanceChecks(() => app, { timeoutMs: 500 }).find((x) => x.id === id)!;
       let failed: Error | undefined;
-      await subject.run().catch((e: Error) => (failed = e));
-      expect(failed?.message).to.match(/subject/);
+      await c.run().catch((e: Error) => (failed = e));
+      return failed;
     } finally {
       await app.stop();
+    }
+  };
+
+  it('fails the subject check when the app honours the body subject', async () => {
+    expect((await failure('honours-subject', 'subject'))?.message).to.match(/subject/);
+  });
+
+  it('fails the subject check on its answers when the app honours the body subject but reports subject_mismatch', async () => {
+    expect((await failure('leaks-subject', 'subject'))?.message).to.match(/subject: answers/);
+  });
+
+  it('fails the push check with the assign error and leaves no unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      expect((await failure('assign-fails', 'push'))?.message).to.equal('assign failed');
+      await new Promise((r) => setTimeout(r, 700));
+      expect(unhandled).to.deep.equal([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
     }
   });
 });

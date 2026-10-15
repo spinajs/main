@@ -527,7 +527,9 @@ export class Campaigns extends BaseController {
   is `false` and never fails the batch; a `subject` other than the caller is `false` with
   `subject_mismatch`; `context.field` and `fieldMode` narrow to one field, and nothing else of
   `context` is read. `GET /user/access/events` streams `authz.changed` (`{ objects? }`, absent means
-  "refetch everything") over SSE; `@spinajs/http-socket` pushes the same event. Every answer carries
+  "refetch everything") over SSE to authenticated principals only, at most
+  `authz.http.events.maxStreamsPerPrincipal` (5) streams each, and ends a session's streams on logout or
+  revoke; `@spinajs/http-socket` pushes the same event. Every answer carries
   `X-Access-Epoch`, which changes on login, role switch, MFA elevation and impersonation: a client
   that sees a new value drops its cached answers. `GET /authz/explain` exists only when
   `authz.http.explainRoute.enabled` is true and never in production (H19, B41); `format=tree`

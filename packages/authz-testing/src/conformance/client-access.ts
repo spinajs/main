@@ -134,10 +134,11 @@ export function clientAccessConformanceChecks(app: () => ClientAccessApp, opts: 
     },
     {
       id: 'subject',
-      title: "the subject is the session's principal: another subject is false with subject_mismatch; no subject is the caller",
+      title: "the subject is the session's principal: another subject is false with subject_mismatch; no subject or the caller's own is the caller",
       run: async () => {
-        const a = await checks(app(), { checks: [request('1', 'edit', { subject: { type: 'user', id: 'other' } }), { object: { type: 'doc', id: '1' }, permission: 'edit' }] });
-        same(booleans(a, 2, 'subject'), [false, true], 'subject: answers (an app that honours the body subject answers true first)');
+        // As 'other' about 'me', who can edit doc 1: an app that honours the body subject answers true first.
+        const a = await checks(app(), { checks: [request('1', 'edit'), { object: { type: 'doc', id: '1' }, permission: 'view' }, request('1', 'view', { subject: { type: 'user', id: 'other' } })] }, 'other');
+        same(booleans(a, 3, 'subject'), [false, true, true], 'subject: answers (true first means the app answered for the body subject)');
         check((a.reasons as unknown[])[0] === 'subject_mismatch', () => `subject: reason ${JSON.stringify((a.reasons as unknown[])[0])}`);
       },
     },
@@ -203,6 +204,8 @@ export function clientAccessConformanceChecks(app: () => ClientAccessApp, opts: 
         try {
           check(res.status === 200 && res.headers.get('content-type')?.startsWith('text/event-stream') === true, `push: events status ${res.status}, content-type ${res.headers.get('content-type')}`);
           const pending = nextEvent(res, 'authz.changed', timeoutMs);
+          // A failing assign aborts the stream below; pending's rejection is then not the failure to report.
+          pending.catch(() => undefined);
           await a.assign('me', 'doc.editor', { type: 'doc', id: '2' });
           const data = JSON.parse(await pending) as { objects?: { type: string; id: string }[] };
           if (data.objects)
