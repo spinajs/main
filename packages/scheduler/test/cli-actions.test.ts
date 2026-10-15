@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { fileURLToPath } from 'url';
 import { Cli } from '@spinajs/cli';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import {
   collect,
@@ -297,8 +298,12 @@ describe('CLI action commands', () => {
     expect(docs.slice(0, -1).every((d) => typeof d.type === 'string')).to.eq(true);
   });
 
-  describe('through the real @spinajs/cli argv parsing', () => {
+  describe('through the real @spinajs/cli argv parsing', function () {
+    this.timeout(60_000);
     const cli = async (...argv: string[]) => {
+      // shipped package configs add every compiled package's cli dir (this one's stale lib too); load
+      // only the sources, which also keeps the command scan fast
+      DI.get(Configuration)?.set('system.dirs.cli', [CLI_DIR]);
       DI.register(() => ['node', 'spinajs', ...argv]).as('__cli_argv_provider__');
       DI.uncache(Cli);
       await DI.resolve(Cli);
