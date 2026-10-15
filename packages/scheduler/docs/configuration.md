@@ -10,8 +10,8 @@ at boot.
 |---|---|---|
 | `enabled` | `true` | start the loop when `Scheduler` is resolved |
 | `tick` | `1000` | ms (min `100`); upper bound between due checks |
-| `leaseTtl` | `60000` | ms (min `3000`); renewed every `leaseTtl / 3` while a run is in progress; a run not renewed for this long is reaped and shown `stale` |
-| `shutdownGrace` | `30000` | ms to wait for aborted runs to stop; pending event sends then get at most `min(shutdownGrace, 5000)` ms more |
+| `leaseTtl` | `60000` | ms (min `3000`); renewed every `leaseTtl / 3` while a run is in progress; a run not renewed for this long is reaped and shown `stale`; an emit-mode run's emit must settle within half of it (README, "Emit mode") |
+| `shutdownGrace` | `30000` | ms to wait for aborted runs to stop (also for a pending emit of an emit-mode run); pending event sends then get at most `min(shutdownGrace, 5000)` ms more |
 | `progressFlush` | `1000` | ms (min `100`); minimum interval between progress writes per run |
 | `runLogLimit` | `1000` | per-run cap for each of the `log`, `message` and `progress` journal kinds; `status`, step and `error` rows are never dropped |
 | `maxStepResultBytes` | `65536` | larger step results are not stored (a resumed retry runs the step again) |

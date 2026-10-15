@@ -4,7 +4,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import type { QueueJob } from '@spinajs/queue';
 import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
 import { emitMessage, runJobId, ScheduledJobPayload } from '../emit/emit.js';
-import { RunAbortedError } from '../errors.js';
+import { QueueJobFailedError, RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
 import { defined, jsonColumn } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
@@ -75,7 +75,7 @@ export class RunExecutor {
     const abort = (reason: AbortReason) => {
       if (!ac.signal.aborted) ac.abort(reason);
     };
-    const work = def.emit ? this.dispatchEmit(run, def, def.emit) : this.execute(run, def, ac, abort);
+    const work = def.emit ? this.dispatchEmit(run, def, def.emit, ac.signal) : this.execute(run, def, ac, abort);
     const done = work.catch((err) => this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`));
     return { runId: run.Id, schedule: run.Schedule, done, abort };
   }
@@ -148,9 +148,14 @@ export class RunExecutor {
     run: RunModel,
     def: ScheduleDefinition,
     job: NonNullable<ScheduleDefinition['emit']>,
+    signal: AbortSignal,
   ): Promise<void> {
     const startedAt = this.Clock.now();
     const jobId = runJobId(run);
+    const cfg = resolveSchedulerConfig(this.RawConfig);
+    // nothing renews the lease during an emit, so it must end well before the claim's lease runs out
+    const leaseStartedAt = run.LeaseUntil !== null ? run.LeaseUntil - this.Leases.LeaseTtl : startedAt;
+    const emitDeadline = leaseStartedAt + Math.floor(this.Leases.LeaseTtl / 2);
 
     try {
       await RunAttemptModel.create({ RunId: run.Id, Attempt: run.Attempt, StartedAt: startedAt, Status: 'running' });
@@ -172,12 +177,16 @@ export class RunExecutor {
         ScheduledAt: new Date(run.ScheduledAt ?? startedAt).toISOString(),
         Params: run.Params ?? {},
       };
-      try {
-        await (job as unknown as typeof QueueJob).emit(payload);
-      } catch (error) {
-        const cfg = resolveSchedulerConfig(this.RawConfig);
+      const sent = await this.boundedEmit(
+        (job as unknown as typeof QueueJob).emit(payload),
+        signal,
+        Math.max(0, emitDeadline - this.Clock.now()),
+        cfg.shutdownGrace,
+        `job ${job.name} (${jobId})`,
+      );
+      if (sent.kind !== 'ok') {
         const ctx = await this.createContext(run, def, new AbortController().signal, cfg);
-        await this.complete(run, def, ctx, { kind: 'error', error });
+        await this.complete(run, def, ctx, sent);
         return;
       }
 
@@ -204,6 +213,45 @@ export class RunExecutor {
       if (!run.Forced) await this.Leases.releaseScheduleLease(run.Schedule, now);
     } finally {
       this.Events.forget(run.Id);
+    }
+  }
+
+  /**
+   * A transport may hold an emit for as long as its broker is down (STOMP resolves it only after a
+   * reconnect), and shutdown waits for every run. An emit still pending at `boundMs`, or `graceMs` after
+   * an abort, ends the run; the transport may still deliver the job later.
+   */
+  protected async boundedEmit(
+    send: Promise<unknown>,
+    signal: AbortSignal,
+    boundMs: number,
+    graceMs: number,
+    what: string,
+  ): Promise<ExecutionOutcome> {
+    const guarded = send.then(
+      (value): ExecutionOutcome => ({ kind: 'ok', value }),
+      (error): ExecutionOutcome => ({ kind: 'error', error }),
+    );
+    const timers = new AbortController();
+    const expired = this.Timers.sleep(boundMs, timers.signal).then((): ExecutionOutcome => {
+      const error = new QueueJobFailedError(
+        `${what} was not handed to the queue within ${Math.round(boundMs / 1000)} s; it may still be delivered later`,
+      );
+      return { kind: 'error', error };
+    });
+    const aborted = new Promise<'aborted'>((resolve) => {
+      if (signal.aborted) return resolve('aborted');
+      signal.addEventListener('abort', () => resolve('aborted'), { once: true });
+    });
+
+    try {
+      const first = await Promise.race([guarded, expired, aborted]);
+      if (first !== 'aborted') return first;
+      const late = await Promise.race([guarded, expired, this.Timers.sleep(graceMs, timers.signal).then(() => null)]);
+      // the scheduler holds nothing the pending emit needs, so the schedule lease is released
+      return late ?? { kind: 'aborted', reason: signal.reason as AbortReason, settled: true };
+    } finally {
+      timers.abort();
     }
   }
 

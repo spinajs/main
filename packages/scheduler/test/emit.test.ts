@@ -21,8 +21,8 @@ import {
   TriggeredBy,
   undefineSchedule,
 } from '../src/index.js';
-import { bootTestEnv } from './support/env.js';
-import { journal } from './support/fixtures.js';
+import { bootTestEnv, waitFor } from './support/env.js';
+import { driveUntil, journal } from './support/fixtures.js';
 import { InMemoryQueueClient, queueConfig } from './support/queue.js';
 
 @Job()
@@ -125,6 +125,46 @@ describe('emit mode', () => {
     clock.set('2026-01-05T10:01:30Z');
     await tick(s);
     expect(await RunModel.where('Schedule', 'daily-digest')).to.have.length(1);
+  });
+
+  it('fails the run when the emit does not settle within half a lease', async () => {
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    InMemoryQueueClient.hang = true;
+    clock.set('2026-01-05T10:01:00Z');
+    await s.tickOnce();
+    const [started] = await RunModel.where('Schedule', 'daily-digest');
+    await driveUntil(clock, s.idle(), 1000);
+
+    expect(s.isRunningLocally(started.Id)).to.eq(false);
+    const run = await RunModel.where('Id', started.Id).first();
+    expect(run).to.include({
+      Status: 'failed',
+      JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')),
+      LeaseOwner: null,
+    });
+    expect(run.Error.message).to.contain('may still be delivered');
+    expect(run.FinishedAt - at('2026-01-05T10:01:00Z')).to.be.within(30_000, 40_000);
+    expect((await ScheduleModel.where('Name', 'daily-digest').first()).LeaseOwner).to.eq(null);
+  });
+
+  it('lets stop() return while an emit hangs', async () => {
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    InMemoryQueueClient.hang = true;
+    clock.set('2026-01-05T10:01:00Z');
+    await s.tickOnce();
+    const [run] = await RunModel.where('Schedule', 'daily-digest');
+    await waitFor(async () => (await RunModel.where('Id', run.Id).first()).JobId !== null);
+
+    const stoppedAt = clock.now();
+    await driveUntil(clock, s.stop(), 250);
+    // shutdownGrace is 2000 ms in the test config
+    expect(clock.now() - stoppedAt).to.be.below(10_000);
+    expect(await RunModel.where('Id', run.Id).first()).to.include({
+      Status: 'aborted',
+      Reason: 'shutdown',
+      JobId: emitJobId('daily-digest', at('2026-01-05T10:01:00Z')),
+      LeaseOwner: null,
+    });
   });
 
   it('gives manual runs and every retry of one retry-failed call their own job', async () => {

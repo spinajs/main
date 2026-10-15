@@ -171,6 +171,7 @@ run's message). The run ends `emitted`, and every loop replica's tick mirrors th
 capped at 99 until success).
 
 - The queue owns retries: the schedule's `retry` is ignored (boot warning), `maxAttempts` is 1, and a failed emit fails the run. `emit` cannot be combined with `runOn: 'all'`.
+- The emit itself is bounded: an emit the transport has not settled within half of `leaseTtl` from the claim ends the run `failed` (a STOMP transport holds sends while the broker is down). On shutdown or cancel the emit gets at most `shutdownGrace`, then the run ends `aborted`. Either way `JobId` is already recorded on the run, and the transport may still deliver the job later; the run does not mirror it then.
 - `queue_jobs` must be readable from the scheduler process (the `queue` connection); otherwise mirroring is off, with one warning.
 - A run whose job row does not appear within `emitTimeout` (default `24h`, or the schedule's `timeout` when longer) ends `failed` / `emit-timeout`. Set it above the worst queue wait. A job routed to a `BlackHoleQueueClient` is dropped (boot warning) and its runs fail after `emitTimeout`; so does every emit when `queue_jobs` lives in a database the scheduler cannot read.
 - Mirrored failures are grouped and count toward health and auto-pause.

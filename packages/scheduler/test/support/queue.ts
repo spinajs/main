@@ -7,9 +7,12 @@ import { IQueueMessage, QueueClient, QueueMessage } from '@spinajs/queue';
 export class InMemoryQueueClient extends QueueClient {
   public static Emitted: IQueueMessage[] = [];
   public static failNext = false;
+  /** Every emit stays pending, like a STOMP connection holding sends while the broker is down. */
+  public static hang = false;
   public static Subscribers = new Map<string, (e: IQueueMessage) => Promise<void>>();
 
   public emit(event: IQueueMessage): Promise<void> {
+    if (InMemoryQueueClient.hang) return new Promise(() => undefined);
     if (InMemoryQueueClient.failNext) {
       InMemoryQueueClient.failNext = false;
       return Promise.reject(new Error('broker unavailable'));
@@ -36,6 +39,7 @@ export class InMemoryQueueClient extends QueueClient {
   public static reset(): void {
     InMemoryQueueClient.Emitted = [];
     InMemoryQueueClient.failNext = false;
+    InMemoryQueueClient.hang = false;
     InMemoryQueueClient.Subscribers.clear();
   }
 }
