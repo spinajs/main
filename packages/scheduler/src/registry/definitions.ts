@@ -21,6 +21,8 @@ export interface BuildDefinitionsInput {
 }
 
 const SPEC_KEYS = ['cron', 'every', 'at', 'manual'] as const;
+/** Width of the `Name` / `Schedule` columns. */
+const MAX_NAME_LENGTH = 128;
 
 interface Candidate {
   options: ScheduleOptions;
@@ -55,6 +57,9 @@ function normalizeRetry(o: ScheduleOptions['retry'], name: string): NormalizedRe
 }
 
 function normalize(name: string, c: Candidate, input: BuildDefinitionsInput): ScheduleDefinition {
+  if (name.length > MAX_NAME_LENGTH) {
+    throw new Error(`schedule '${name.slice(0, 40)}...': name is longer than ${MAX_NAME_LENGTH} characters`);
+  }
   const o = c.options;
   const spec = parseSpec(o, name);
   const overlap = o.overlap ?? 'skip';
@@ -150,15 +155,18 @@ export function buildDefinitions(input: BuildDefinitionsInput): ScheduleDefiniti
   }
 
   if (problems.length) throw new ScheduleValidationError(problems);
-  return defs.sort((a, b) => a.name.localeCompare(b.name));
+  return defs.sort((a, b) => compareCodeUnits(a.name, b.name));
 }
+
+// localeCompare depends on the host's ICU locale, which would make the hash differ between replicas.
+const compareCodeUnits = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([a], [b]) => compareCodeUnits(a, b));
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
 }
 

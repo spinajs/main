@@ -6,6 +6,7 @@ import {
   ScheduledTask,
   ScheduleDeclaration,
   ScheduleValidationError,
+  stableStringify,
 } from '../src/index.js';
 
 class Reconciler extends ScheduledTask {}
@@ -142,5 +143,17 @@ describe('buildDefinitions', () => {
     const c = buildDefinitions(input([decl('a', { every: '10m', retry: { attempts: 2 } })]))[0];
     expect(definitionHash(a)).to.eq(definitionHash(b));
     expect(definitionHash(a)).to.not.eq(definitionHash(c));
+  });
+
+  it('orders keys by code unit, not by locale, so the hash is the same on every host', () => {
+    expect(stableStringify({ b: 1, B: 2, a: 3, Ä: 4 })).to.eq('{"B":2,"a":3,"b":1,"Ä":4}');
+  });
+
+  it('rejects names longer than the 128-character column', () => {
+    const long = 'x'.repeat(129);
+    const p = problems(() => buildDefinitions(input([decl(long, { every: '1m' }), decl('dup', { cron: 'nope' })])));
+    expect(p.join('\n')).to.match(/longer than 128 characters/);
+    expect(p.join('\n')).to.match(/dup.*cron/);
+    expect(buildDefinitions(input([decl('y'.repeat(128), { every: '1m' })]))).to.have.length(1);
   });
 });
