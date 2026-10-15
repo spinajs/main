@@ -21,3 +21,4 @@ export * from './registry/definitions.js';
 export * from './registry/ScheduleRegistry.js';
 export * from './schemas/scheduler.configuration.js';
 export * from './bootstrap.js';
+export * from './store/DefinitionSync.js';
