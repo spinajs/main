@@ -5,6 +5,7 @@ import sinon from 'sinon';
 import { AccessDenied, AuthzConfigError, DecisionAudit, PlanTermSql, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
+import { HasMany, Relation } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { AccessResource } from '../../src/index.js';
@@ -20,7 +21,7 @@ const alice: Principal = { type: 'user', id: 'alice', authenticated: true, sourc
 const green: AccessPlan = { kind: 'filter', permit: [{ op: 'test.flag', args: { flag: 'green' } }], deny: [] };
 
 type Q = Promise<ModelBase[]> & { accessible(p: string, o?: object): Q; unscoped(r: string): Q; where(...a: unknown[]): Q; orWhere(...a: unknown[]): Q; clone(): Q };
-type M = typeof ModelBase & { query(): Q; where(...a: unknown[]): Q; update(v: object): Promise<{ RowsAffected: number }> & { accessible(p: string): Promise<{ RowsAffected: number }> }; destroy(pk?: unknown): Promise<unknown> & { accessible(p: string): Promise<unknown> } };
+type M = typeof ModelBase & { query(): Q; where(...a: unknown[]): Q; update(v: object): Promise<{ RowsAffected: number }> & { accessible(p: string, o?: object): Promise<{ RowsAffected: number }> }; destroy(pk?: unknown): Promise<unknown> & { accessible(p: string): Promise<unknown> } };
 
 const ids = (rows: ModelBase[]) => rows.map((r) => String((r as unknown as { id: unknown }).id)).sort();
 
@@ -66,7 +67,19 @@ describe('.accessible() and .unscoped()', function () {
 
       beforeEach(async () => {
         await createAncestorTable(db, dialect);
-        Task = (await db.define({ name: 'Task', columns: { flag: 'TEXT', title: 'TEXT' }, rows: [{ id: 't1', flag: 'green', title: 'a' }, { id: 't2', flag: 'red', title: 'b' }, { id: 't3', flag: 'green', title: 'c' }], decorate: (c) => AccessResource('task')(c) }, dialect)) as M;
+        Task = (await db.define(
+          {
+            name: 'Task',
+            columns: { flag: 'TEXT', title: 'TEXT' },
+            rows: [
+              { id: 't1', flag: 'green', title: 'a' },
+              { id: 't2', flag: 'red', title: 'b' },
+              { id: 't3', flag: 'green', title: 'c' },
+            ],
+            decorate: (c) => AccessResource('task')(c),
+          },
+          dialect,
+        )) as M;
         Plain = (await db.define({ name: 'Plain', columns: { title: 'TEXT' } }, dialect)) as M;
       });
 
@@ -93,7 +106,12 @@ describe('.accessible() and .unscoped()', function () {
 
       it('filters updates and deletes the same way', async () => {
         await as(() => Task.update({ title: 'x' }).accessible('task:update'));
-        expect((await db.rows(Task)).filter((r) => r.title === 'x').map((r) => r.id).sort()).to.deep.equal(['t1', 't3']);
+        expect(
+          (await db.rows(Task))
+            .filter((r) => r.title === 'x')
+            .map((r) => r.id)
+            .sort(),
+        ).to.deep.equal(['t1', 't3']);
         // The ORM refuses a destroy() without primary keys; t2 is listed so only the plan keeps it.
         await as(() => Task.destroy(['t1', 't2', 't3']).accessible('task:delete'));
         expect((await db.rows(Task)).map((r) => r.id)).to.deep.equal(['t2']);
@@ -113,6 +131,79 @@ describe('.accessible() and .unscoped()', function () {
         expect(ids(await as(() => Task.query().accessible('task:read')))).to.deep.equal(['t1', 't2', 't3']);
       });
 
+      it("onNone: 'empty' turns a none plan into no rows; a filter plan still filters", async () => {
+        plan.resolves({ kind: 'none', reason: { code: 'no_access' } });
+        expect(await as(() => Task.query().accessible('task:read', { onNone: 'empty' }))).to.deep.equal([]);
+        expect(await as(() => Task.where('title', 'a').orWhere('title', 'b').accessible('task:read', { onNone: 'empty' }))).to.deep.equal([]);
+        await as(() => Task.update({ title: 'x' }).accessible('task:update', { onNone: 'empty' }));
+        expect((await db.rows(Task)).filter((r) => r.title === 'x')).to.deep.equal([]);
+        plan.resolves(green);
+        expect(ids(await as(() => Task.query().accessible('task:read', { onNone: 'empty' })))).to.deep.equal(['t1', 't3']);
+      });
+
+      it("a populated child list with onNone: 'empty' loads the parent without children when the child plan is none", async () => {
+        const Offer = (await db.define(
+          {
+            name: 'Offer',
+            columns: { campaign_id: 'TEXT', flag: 'TEXT' },
+            rows: [
+              { id: 'o1', campaign_id: 'c1', flag: 'green' },
+              { id: 'o2', campaign_id: 'c1', flag: 'red' },
+            ],
+            decorate: (c) => AccessResource('offer')(c),
+          },
+          dialect,
+        )) as M;
+        const Campaign = (await db.define(
+          {
+            name: 'Campaign',
+            columns: { title: 'TEXT' },
+            rows: [{ id: 'c1', title: 'spring' }],
+            decorate: (c, proto) => {
+              AccessResource('campaign')(c);
+              // What emitDecoratorMetadata records for a `Relation<…>` property; HasMany picks the list class from it.
+              Reflect.defineMetadata('design:type', Relation, proto, 'offers');
+              HasMany(Offer, { foreignKey: 'campaign_id', primaryKey: 'id' })(proto, 'offers');
+            },
+          },
+          dialect,
+        )) as M;
+        const offers = (perm: string, onNone?: 'deny' | 'empty') => async () => {
+          const rows = await as(() =>
+            Campaign.query()
+              .accessible('campaign:read')
+              .populate('offers', function () {
+                this.accessible(perm, onNone ? { onNone } : undefined);
+              }),
+          );
+          return rows.map((c) => [...(c as unknown as { offers: Iterable<ModelBase> }).offers].map((o) => String((o as unknown as { id: unknown }).id)).sort());
+        };
+        plan.callsFake(async (_p: Principal, permission: string) => (permission === 'offer:read' ? { kind: 'none', reason: { code: 'no_access' } } : { kind: 'filter', permit: 'all', deny: [] }));
+
+        expect(await offers('offer:read', 'empty')()).to.deep.equal([[]]);
+        let err: unknown;
+        try {
+          await offers('offer:read')();
+        } catch (e) {
+          err = e;
+        }
+        expect(err).to.be.instanceOf(AccessDenied);
+
+        plan.callsFake(async (_p: Principal, permission: string) => (permission === 'offer:read' ? green : { kind: 'filter', permit: 'all', deny: [] }));
+        expect(await offers('offer:read', 'empty')()).to.deep.equal([['o1']]);
+      });
+
+      it("onNone: 'deny' is the default", async () => {
+        plan.resolves({ kind: 'none', reason: { code: 'no_access' } });
+        let err: unknown;
+        try {
+          await as(() => Task.query().accessible('task:read', { onNone: 'deny' }));
+        } catch (e) {
+          err = e;
+        }
+        expect(err).to.be.instanceOf(AccessDenied);
+      });
+
       it('unscoped runs unfiltered and audits once', async () => {
         expect(ids(await as(() => Task.query().unscoped('nightly export')))).to.deep.equal(['t1', 't2', 't3']);
         await new Promise((r) => setImmediate(r));
@@ -127,11 +218,13 @@ describe('.accessible() and .unscoped()', function () {
         expect(() => Task.query().unscoped('x').accessible('task:read')).to.throw(AuthzConfigError, /exclude each other/);
         expect(() => Task.query().accessible('task:read').accessible('task:update')).to.throw(AuthzConfigError, /one permission/);
         expect(() => Task.query().unscoped('')).to.throw(AuthzConfigError, /reason/);
+        expect(() => Task.query().accessible('task:read', { onNone: 'skip' as 'empty' })).to.throw(AuthzConfigError, /onNone/);
       });
 
       it('a clone keeps the marks', () => {
         const q = Task.query().accessible('task:read');
         expect(marksOf(q.clone())).to.deep.equal({ accessible: 'task:read' });
+        expect(marksOf(Task.query().accessible('task:read', { onNone: 'empty' }).clone())).to.deep.equal({ accessible: 'task:read', onNone: 'empty' });
       });
     });
   }

@@ -89,8 +89,10 @@ Permission names are compared exactly: `@AccessResource('task')` registers `task
   `EXISTS` filter: a grant on the row, a grant on any ancestor, the owner column, minus deny roles,
   inside the principal's ceiling. It works on SQLite, PostgreSQL, MySQL and MSSQL, with no recursion.
   `{ env }` as the second argument passes request facts to ABAC.
-- A plan with no permit at all throws `AccessDenied` (a 403, never an empty list). A permission
-  without `list: true` throws `AuthzConfigError`.
+- A plan with no permit at all throws `AccessDenied` (a 403, never an empty list). With
+  `{ onNone: 'empty' }` it matches no row instead: a select returns `[]`, an update or delete
+  touches nothing. Use it where "no access" is a normal answer, such as a child list in `populate()`.
+  A permission without `list: true` throws `AuthzConfigError`.
 - **Boot rule 12** refuses a `list: true` permission when anything that can grant it on the type needs
   the row: an RBAC grant with a relation other than `owner` or `self` or limited to ids by `on`, an
   RBAC `cap`, `restrict` or `threshold` rule, an ABAC policy that is scoped or reads `resource.*` or
@@ -173,8 +175,11 @@ comments of a task you may read are part of it. A child type that is its own res
 the helper; the populate callback runs with the relation query as `this`:
 
 ```ts
-Project.where('id', id).populate('tasks', function () { this.accessible('task:read'); });
+Project.where('id', id).populate('tasks', function () { this.accessible('task:read', { onNone: 'empty' }); });
 ```
+
+Without `onNone: 'empty'`, a caller who may read the project but no task gets `AccessDenied` from
+the populate, which fails the whole load.
 
 ## Keeping the ancestor table right
 

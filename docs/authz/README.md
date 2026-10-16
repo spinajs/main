@@ -590,7 +590,8 @@ export class Folder extends ModelBase {
   must be declared `list: true`: `authz: { permissions: { 'task:read': { list: true } } }` in the root
   domain, `authz.domains.<name>.permissions` in another. Boot refuses one that something can grant
   only by reading the row (boot rule 12). A principal that nothing could ever grant it to gets
-  `AccessDenied`, not an empty list (H16). The same helper works on update and delete
+  `AccessDenied`, not an empty list (H16), unless the call says `.accessible(perm, { onNone: 'empty' })`,
+  which then matches no row. The same helper works on update and delete
   builders. `.withAccess(['task:update', 'task:delete'])` adds `$access` to every row (key:
   `authz.orm.accessField`), equal to what `POST /user/access/checks` answers for that row.
 - **Every multi-row select on an `@AccessResource` model** calls `.accessible()`, `.unscoped(reason)`,
@@ -602,7 +603,8 @@ export class Folder extends ModelBase {
 - **Relations, `populate()`, joins and sub-queries are not filtered.** Authorize the aggregate root;
   load a child type that is its own resource with the helper, inside the populate callback, whose
   `this` is the relation's query:
-  `.populate('tasks', function () { this.accessible('task:read'); })`.
+  `.populate('tasks', function () { this.accessible('task:read', { onNone: 'empty' }); })`. Without
+  `onNone: 'empty'`, a caller with no `task:read` at all fails the whole load with `AccessDenied`.
 - **The ancestor table** follows every ORM insert, `@Parent` update and delete, in the same
   transaction. A delete also forgets the scope: its assignments, links, rules, policies and scope
   attributes, then one audit entry as `SYSTEM` (`resource-deleted`). Writes outside the ORM need

@@ -18,6 +18,8 @@ import type { Rendered } from './render.js';
 type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
 
+const NO_ROW: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
+
 async function nowOf(domain: string): Promise<Date> {
   const c = domainContainer(domain);
   return c.hasRegistered(AuthzClock) ? ((await c.resolve(AuthzClock)) as AuthzClock).now() : new Date();
@@ -77,8 +79,10 @@ export class AccessListMiddleware extends QueryMiddleware {
     const filters: SqlFragment[] = [];
     if (marks.accessible !== undefined) {
       const rendered = renderPlan(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row);
-      if (rendered.kind === 'none') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, rendered.reason));
-      if (rendered.kind === 'sql') filters.push(rendered);
+      if (rendered.kind === 'none') {
+        if (marks.onNone !== 'empty') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, rendered.reason));
+        filters.push(NO_ROW);
+      } else if (rendered.kind === 'sql') filters.push(rendered);
     }
     for (const refs of marks.within ?? []) filters.push(withinSql(refs, row));
     // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().

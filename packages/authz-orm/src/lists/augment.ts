@@ -5,9 +5,14 @@ import { DeleteQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from '@spi
 import { marksOf, setMarks } from '../marker.js';
 import { entryOf } from '../registry.js';
 
-export interface AccessibleOptions {
+export interface WithAccessOptions {
   /** Request env for the plan (ABAC env facts); none unless given. */
   readonly env?: Readonly<Record<string, unknown>>;
+}
+
+export interface AccessibleOptions extends WithAccessOptions {
+  /** A `none` plan (nothing could grant the permission): `'deny'` throws AccessDenied (default, H16), `'empty'` matches no row. */
+  readonly onNone?: 'deny' | 'empty';
 }
 
 declare module '@spinajs/orm' {
@@ -19,14 +24,14 @@ declare module '@spinajs/orm' {
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
     /** `$access` per row for each permission (design §10.3). */
-    withAccess(permissions: readonly Permission[], opts?: AccessibleOptions): this;
+    withAccess(permissions: readonly Permission[], opts?: WithAccessOptions): this;
   }
   interface SelectQueryBuilder<T> {
     accessible(permission: Permission, opts?: AccessibleOptions): this;
     unscoped(reason: string): this;
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
-    withAccess(permissions: readonly Permission[], opts?: AccessibleOptions): this;
+    withAccess(permissions: readonly Permission[], opts?: WithAccessOptions): this;
   }
   interface IUpdateQueryBuilder<T> {
     accessible(permission: Permission, opts?: AccessibleOptions): this;
@@ -59,10 +64,17 @@ function requireResource(builder: object, what: string): void {
   if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${typeof model === 'function' && model.name ? model.name : 'no model'})`);
 }
 
-function envOf(opts: AccessibleOptions | undefined, what: string): { env?: Readonly<Record<string, unknown>> } {
+function envOf(opts: WithAccessOptions | undefined, what: string): { env?: Readonly<Record<string, unknown>> } {
   if (opts === undefined || opts.env === undefined) return {};
   if (opts.env === null || typeof opts.env !== 'object' || Array.isArray(opts.env)) throw new AuthzConfigError(`${what}: env must be an object`);
   return { env: opts.env };
+}
+
+function onNoneOf(opts: AccessibleOptions | undefined, what: string): { onNone?: 'empty' } {
+  const v = opts?.onNone;
+  if (v === undefined || v === 'deny') return {};
+  if (v === 'empty') return { onNone: v };
+  throw new AuthzConfigError(`${what}: onNone must be 'deny' or 'empty', got ${JSON.stringify(v)}`);
 }
 
 function accessible(this: object, permission: Permission, opts?: AccessibleOptions): object {
@@ -72,7 +84,7 @@ function accessible(this: object, permission: Permission, opts?: AccessibleOptio
   const marks = marksOf(this) ?? {};
   if (marks.unscoped !== undefined) throw new AuthzConfigError(`${what}: .accessible() and .unscoped() exclude each other`);
   if (marks.accessible !== undefined && marks.accessible !== permission) throw new AuthzConfigError(`${what}: the query is already .accessible(${JSON.stringify(marks.accessible)}); a query lists by one permission`);
-  setMarks(this, { ...marks, accessible: permission, ...envOf(opts, what) });
+  setMarks(this, { ...marks, accessible: permission, ...envOf(opts, what), ...onNoneOf(opts, what) });
   return this;
 }
 
@@ -106,7 +118,7 @@ function within(this: object, ref: ResourceRef | readonly ResourceRef[]): object
   return this;
 }
 
-function withAccess(this: object, permissions: readonly Permission[], opts?: AccessibleOptions): object {
+function withAccess(this: object, permissions: readonly Permission[], opts?: WithAccessOptions): object {
   const what = '.withAccess()';
   requireResource(this, what);
   if (!Array.isArray(permissions) || permissions.length === 0 || !permissions.every((p) => isPermission(p))) throw new AuthzConfigError(`${what}: needs a non-empty list of permission names`);

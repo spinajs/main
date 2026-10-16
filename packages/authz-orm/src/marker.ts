@@ -5,6 +5,8 @@ const MARKS = Symbol.for('@spinajs/authz-orm:marks');
 /** What `.accessible()`, `.unscoped()` and `.withAccess()` (lane L4) declared on one builder. */
 export interface AccessMarks {
   readonly accessible?: Permission;
+  /** `.accessible(…, { onNone: 'empty' })`: a `none` plan matches no row instead of throwing. */
+  readonly onNone?: 'empty';
   /** Request env for the access plans (`accessPlan`'s `env`). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly unscoped?: string;
