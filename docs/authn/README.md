@@ -11,6 +11,7 @@ impersonation code that lived in `@spinajs/rbac*`.
   [lane notes](../authz/migration-guide.md#9-behaviour-changes-lane-by-lane).
 - Authorization (what the caller may do): [docs/authz](../authz/README.md).
 - OIDC single sign-on: [oidc.md](./oidc.md).
+- Tables, stores and the login flow step by step: [storage-and-login-flow.md](./storage-and-login-flow.md).
 - Rule numbers (A05, SR-03, H31) point to the design: `docs/plans/2026-10-01-authz-v3-design.md`
   (§22.17 for A-rules, §23 for the SR findings).
 

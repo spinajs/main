@@ -5,6 +5,7 @@ It replaces the 2.x `rbac` authorization code (`accesscontrol`, `@Permission`, `
 
 - Moving a 2.x app: read [the migration guide](./migration-guide.md).
 - Authentication (who is calling) is a separate family: [docs/authn](../authn/README.md).
+- Tables, stores and the check flow step by step: [storage-and-check-flow.md](./storage-and-check-flow.md).
 - Rule numbers such as B11 or H1 point to the design:
   `docs/plans/2026-10-01-authz-v3-design.md` (§17 for B-rules, §3.1 for H-decisions).
 - The package READMEs of `authz-orm`, `authz-queue`, `authz-fs` and `authz-http-admin` hold their

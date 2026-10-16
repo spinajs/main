@@ -226,15 +226,19 @@ what each fix changes for an app.
   `LogAuthnAuditSink` resolve it with no console fallback; without it boot fails with the DI error.
 - **A missing required neighbour fails boot with DI's generic error**, `Type X is not registered at
   container` (e.g. no `SessionIssuer`, `IdentityStore` or `PrincipalFactory`), not an authn message.
-- Removed `@spinajs/authn` exports: `MfaStepRegistry` (use `mfaSteps(container)` and `MFA_STEPS_KEY`),
+- Removed `@spinajs/authn` exports: `MfaStepRegistry` (use `steps()` of the configured `MfaPolicy`),
   `SecretStoringMfaStep` and `isSecretStoringMfaStep` (a step sets `MfaStep.storesSecrets`, RFC AT-1),
   `AuditLog`, `auditLog`, `AuthnAuditOptions`, `DEFAULT_AUDIT_SAMPLE_USE`,
   `DEFAULT_AUDIT_SINK_TIMEOUT_MS`, `MAX_AUDIT_SINK_TIMEOUT_MS`, `MIN_AUDIT_HASH_KEY_LENGTH`, the 2.x
   legacy-key exports (`AUTHN_LEGACY_KEYS`, `AuthnLegacyKey`, `AuthnLegacyKeyFinding`,
   `findAuthnLegacyKeys`, `rejectsAuthnLegacyKeys`, `authnLegacyKeysText`, `checkAuthnLegacyKeys`) and
   `LogAuthnAuditSink.out`. `authn:check-config` has no `legacy` topic. `secretStoringSteps` takes the
-  map `mfaSteps` returns instead of a container. `AuthnAudit` takes only the container;
+  map `MfaPolicy.steps()` returns instead of a container. `AuthnAudit` takes only the container;
   `LogAuthnAuditSink` takes the container in its constructor.
+- **`MfaPolicy` is an `AsyncService` with an abstract `steps()`**: login, `completeMfa` and the
+  enrolment routes take the steps from the configured policy. Extend `ConfiguredMfaPolicy` (as
+  `DefaultMfaPolicy` does) to list `authn.mfa.steps`, once per instance at its resolve.
+- **`selectMfaPolicy(container, name)`** resolves the policy `authn.mfa.policy.service` names.
 
 ### HTTP routes and answers
 
@@ -317,6 +321,8 @@ what each fix changes for an app.
 - `get(Array.ofType(X))` honours `parent` and walks parents by default.
 - `Array.chainOf(X)` is new: `resolve(Array.chainOf(X))` merges registrations across parent and child
   containers and also returns factory and `NewInstance` results; it may return a promise.
+- `IToInject.resolveFunc` lets a property dependency build its own value from its `data` and the
+  resolving container; a promise is awaited. `@AutoinjectNamedServices` is built on it.
 - **Child-container fallback.** When `unregister` empties a key, the key is dropped, so resolution falls
   back to the type itself or to the parent's entries. A child that unregistered its last entry used to
   resolve `Array.ofType(X)` to `[]`; it now gets the parent's list. `getRegisteredTypes` answers `null`
@@ -329,7 +335,8 @@ what each fix changes for an app.
 ### Configuration and util (`@spinajs/configuration`, `@spinajs/util`)
 
 - Configuration: `resolveNamedServices(container, path, type, options)` resolves the services a list
-  at `path` names, keyed by `options.keyBy`.
+  at `path` names, keyed by `options.keyBy`; `@AutoinjectNamedServices(path, type, options)` injects
+  that map when the instance is built.
 - Util: `isPlainObject`, `isNonEmptyString`, `deepFreeze` (in place; buffers and typed arrays stay
   mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
   becomes a plain object).
