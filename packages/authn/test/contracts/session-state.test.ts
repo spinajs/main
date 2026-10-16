@@ -4,6 +4,7 @@ import 'mocha';
 import { DI, NewInstance, Singleton } from '@spinajs/di';
 
 import { Session, SessionKeys, resolveSession, sessionKey } from '../../src/contracts/session-state.js';
+import type { SessionInit } from '../../src/contracts/session-state.js';
 import * as index from '../../src/contracts/index.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
 
@@ -111,6 +112,23 @@ describe('resolveSession', () => {
     expect(s).to.be.instanceOf(AppSession);
     expect((s as AppSession).theme).to.eq('dark');
     expect(resolveSession(DI.RootContainer.child(), init('y')).constructor).to.eq(Session);
+    await c.dispose();
+  });
+
+  it('accepts a class that copies the handle before calling super', async () => {
+    @NewInstance()
+    class CopyingSession extends Session {
+      constructor(init: SessionInit) {
+        super({ ...init, handle: { ...init.handle } });
+      }
+    }
+    const c = DI.RootContainer.child();
+    c.register(CopyingSession).as(Session);
+    const a = resolveSession(c, init('a'));
+    const b = resolveSession(c, init('b'));
+    expect(a).to.be.instanceOf(CopyingSession);
+    expect(b).to.be.instanceOf(CopyingSession);
+    expect([a.handle.id, b.handle.id]).to.deep.eq(['a', 'b']);
     await c.dispose();
   });
 

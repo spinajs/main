@@ -128,7 +128,7 @@ export function resolveSession(container: IContainer, value: Session | SessionIn
     throw new Error('authn: the class registered as Session resolved to a value that is not a Session (an AsyncService dependency resolves to a Promise)');
   }
   // A singleton registration ignores the constructor arguments and hands back the first session again.
-  if (session.handle !== value.handle) {
+  if (session.handle.id !== value.handle.id) {
     throw new Error(`authn: declare @NewInstance() on ${session.constructor.name}; a shared instance would hand one session to every request`);
   }
   return session;
