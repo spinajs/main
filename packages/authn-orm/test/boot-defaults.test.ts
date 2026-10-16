@@ -1,8 +1,8 @@
-import { AuthnAudit, AuthnService, AuthnThrottle, IdentityStore, MemoryAuthnThrottle, PrincipalFactory } from '@spinajs/authn';
+import { AuthnAudit, AuthnService, AuthnThrottle, IdentityStore, MemoryAuthnThrottle, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemorySessionIssuer, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { expect } from 'chai';
 import 'mocha';
 
@@ -44,13 +44,14 @@ describe('authn-orm with no throttle config (K6)', function () {
     child.register(StandardAppConfiguration).as(Configuration);
     bind(child, IdentityStore, 'K6IdentityStore', new FakeIdentityStore());
     bind(child, PrincipalFactory, 'K6PrincipalFactory', new RecordingPrincipalFactory());
+    bind(child, SessionIssuer, 'K6SessionIssuer', new MemorySessionIssuer());
 
     const configuration = await child.resolve(Configuration);
     expect(configuration.get('authn.throttle.service'), 'no package ships it').to.eq(undefined);
     expect(configuration.get('authn.audit.sinkTimeoutMs'), 'the package configs are loaded').to.eq(2000);
 
     const service = (await child.resolve(AuthnService)) as AuthnService;
-    const throttle = (service as unknown as { throttle: unknown }).throttle;
+    const throttle = (service as unknown as { Throttle: unknown }).Throttle;
     expect(throttle).to.be.instanceOf(DbAuthnThrottle);
     expect(throttle).to.not.be.instanceOf(MemoryAuthnThrottle);
     const audit = await child.resolve(AuthnAudit);

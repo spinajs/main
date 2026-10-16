@@ -199,7 +199,7 @@ services, never values.
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
 | Audit | An unknown key in `authn.audit` (`sinks` included), a bad `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
-| Neighbours | No `IdentityStore` or `PrincipalFactory`; with an interactive strategy, no `SessionIssuer` | |
+| Neighbours | No `IdentityStore`, `PrincipalFactory` or `SessionIssuer` (also when only per-request strategies are listed) | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, but authn treats the deployment as production, with the strict secret checks. The warning says so. |
 
 **A missing env means production (SR-16).** When no env is named, the configuration still resolves to

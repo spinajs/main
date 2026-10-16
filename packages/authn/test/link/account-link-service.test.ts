@@ -357,8 +357,8 @@ describe('AccountLinkService', function () {
     });
 
     it('fails without a SessionIssuer', async () => {
-      parts = await buildCore({}, { omit: ['SessionIssuer'], strategies: [] });
-      await assert.rejects(async () => parts!.child.resolve(AccountLinkService), /SessionIssuer.*is not registered at container/);
+      // AuthnService resolves first in buildCore and needs a SessionIssuer at every boot.
+      await assert.rejects(async () => buildCore({}, { omit: ['SessionIssuer'], strategies: [] }), /SessionIssuer.*is not registered at container/);
     });
 
     it('is one per container (D11)', async () => {

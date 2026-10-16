@@ -4,10 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthnContext, Credentials, KeyOwner } from '@spinajs/authn/contracts';
 import { MemoryAuthnThrottle } from '@spinajs/authn';
-import { FakeClock, FakeIdentityStore, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, signHttpRequest, throttleParams } from '@spinajs/authn-testing';
+import { FakeClock, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, signHttpRequest, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, KitKeyPair } from '@spinajs/authn-testing';
 import { assertionIssuer } from '../src/strategies/index.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
@@ -49,9 +49,12 @@ async function world(config: ConfigOverrides = {}) {
   ];
   const child = DI.RootContainer.child();
   child.register(configurationOf({ authn: { strategies: listed.map(({ name, service }) => ({ name, service })), throttle: { service: 'MemoryAuthnThrottle' }, audit: {} } })).as(Configuration);
+  // AuthnService's dependencies resolve together, and StrategyRegistry reads @Config in its resolve: the Configuration must be resolved first.
+  await child.resolve(Configuration);
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, IdentityStore, 'K5IdentityStore', new FakeIdentityStore());
   bind(child, PrincipalFactory, 'K5PrincipalFactory', new RecordingPrincipalFactory());
+  bind(child, SessionIssuer, 'K5SessionIssuer', new MemorySessionIssuer());
   bind(child, AuthnEventSink, 'K5Events', new RecordingEventSink());
   for (const s of listed) bind(child, AuthenticationStrategy, s.service, s.instance);
   const service = (await child.resolve(AuthnService)) as AuthnService;

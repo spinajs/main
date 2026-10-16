@@ -211,7 +211,7 @@ sequenceDiagram
 1. The controller revokes and audits any session the caller already holds.
 2. It reads `{login, password}`, or the 2.x names `Email` and `Password`. Each value is capped at
    1024 characters (`PASSWORD_HARD_CAP`).
-3. [`DefaultAuthnService.authenticate`](../../packages/authn/src/service/default-authn-service.ts#L216-L240)
+3. [`DefaultAuthnService.authenticate`](../../packages/authn/src/service/default-authn-service.ts#L215-L239)
    picks the strategy for the credential kind, here `LocalPasswordStrategy` (name `local`,
    interactive).
 4. It builds throttle keys (`keysFor`, lines 547-569): `login:<NFKC, trimmed, lower-cased login>`,

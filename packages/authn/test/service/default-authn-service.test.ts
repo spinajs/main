@@ -1700,15 +1700,13 @@ describe('DefaultAuthnService', function () {
       await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory', 'is not registered at container');
     });
 
-    it('needs a SessionIssuer, the MfaPolicy and the MFA steps only when an interactive strategy is listed', async () => {
-      const broken = { authn: { mfa: { policy: { service: 'NoSuchPolicy' }, steps: [{ name: 'gone', service: 'NoSuchStep' }] } } };
-      await boot([failing()], { omit: ['SessionIssuer'], raw: broken });
-      await parts!.dispose();
-      parts = undefined;
-      const interactive = strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
-      await bootFails([interactive], { omit: ['SessionIssuer'] }, 'SessionIssuer');
-      await bootFails([interactive], { raw: { authn: { mfa: { policy: { service: 'NoSuchPolicy' } } } } }, 'authn.mfa.policy.service', 'NoSuchPolicy', 'DefaultMfaPolicy');
-      await bootFails([interactive], { raw: { authn: { mfa: { steps: [{ name: 'gone', service: 'NoSuchStep' }] } } } }, 'authn.mfa.steps', 'NoSuchStep');
+    it('needs a SessionIssuer, the MfaPolicy and the MFA steps at every boot', async () => {
+      const interactive = () => strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+      for (const listed of [failing, interactive]) {
+        await bootFails([listed()], { omit: ['SessionIssuer'] }, 'SessionIssuer', 'is not registered at container');
+        await bootFails([listed()], { raw: { authn: { mfa: { policy: { service: 'NoSuchPolicy' } } } } }, 'authn.mfa.policy.service', 'NoSuchPolicy', 'DefaultMfaPolicy');
+        await bootFails([listed()], { raw: { authn: { mfa: { steps: [{ name: 'gone', service: 'NoSuchStep' }] } } } }, 'authn.mfa.steps', 'NoSuchStep');
+      }
     });
 
     describe('the MFA policy resolves once, before the secrets check', () => {

@@ -167,9 +167,8 @@ describe('MFA steps and DefaultMfaPolicy', function () {
     });
 
     it('DefaultMfaPolicy refuses a listed service that is not an MfaStep, as the boot does', async () => {
-      parts = await buildCore({}, { strategies: [], raw: { authn: { mfa: { steps: [{ name: 'x', service: 'NotAStep' }] } } }, register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) });
       await assert.rejects(
-        (async () => (await policyOf(parts!)).required(ALICE, PASSWORD))(),
+        buildCore({}, { strategies: [], raw: { authn: { mfa: { steps: [{ name: 'x', service: 'NotAStep' }] } } }, register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) }),
         (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps entry "x": the service is not an MfaStep',
       );
     });

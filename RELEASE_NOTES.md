@@ -238,7 +238,12 @@ what each fix changes for an app.
 - **`MfaPolicy` is an `AsyncService` with an abstract `steps()`**: login, `completeMfa` and the
   enrolment routes take the steps from the configured policy. Extend `ConfiguredMfaPolicy` (as
   `DefaultMfaPolicy` does) to list `authn.mfa.steps`, once per instance at its resolve.
-- **`selectMfaPolicy(container, name)`** resolves the policy `authn.mfa.policy.service` names.
+- **`DefaultAuthnService` resolves a `SessionIssuer` and the MFA policy at every boot**, also when only
+  per-request strategies (tokens, keys) are listed: such an app must register a `SessionIssuer` too. Its
+  dependencies are DI property decorators (`@Autoinject`, `@AutoinjectNamedService` with
+  `MFA_POLICY_SERVICE` and `AUTHN_THROTTLE_SERVICE`, with `pickAuthnThrottle`), resolved together, so a container that registers
+  its own `Configuration` must resolve it before `AuthnService` (dependencies such as `StrategyRegistry`
+  read `@Config` while they resolve).
 - **`SessionIssuer.revoke` and `SessionProvider.delete` resolve to a `boolean`**: true only for the call
   that ended the session, from one atomic store operation. A custom session store or issuer must return it.
   Impersonation start and stop keep their new session only when their own revoke ended the old one, so
@@ -329,6 +334,9 @@ what each fix changes for an app.
   containers and also returns factory and `NewInstance` results; it may return a promise.
 - `IToInject.resolveFunc` lets a property dependency build its own value from its `data` and the
   resolving container; a promise is awaited. `@AutoinjectNamedServices` is built on it.
+- `@Autoinject(X, { check: true })` fails the resolve when no `X` is registered (as `resolve(X, true)`);
+  `@Autoinject(X, { optional: true })` injects `undefined` then (as `resolveOptional(X)`). Without either,
+  an unregistered class is still built from the type itself.
 - **Child-container fallback.** When `unregister` empties a key, the key is dropped, so resolution falls
   back to the type itself or to the parent's entries. A child that unregistered its last entry used to
   resolve `Array.ofType(X)` to `[]`; it now gets the parent's list. `getRegisteredTypes` answers `null`
@@ -343,6 +351,9 @@ what each fix changes for an app.
 - Configuration: `resolveNamedServices(container, path, type, options)` resolves the services a list
   at `path` names, keyed by `options.keyBy`; `@AutoinjectNamedServices(path, type, options)` injects
   that map when the instance is built.
+  `resolveNamedService(container, path, type, options)` (options: `INamedServiceOptions`) and `@AutoinjectNamedService` resolve the one
+  service the value at `path` names, with an optional default (a name, a class or a picker over the
+  registered names) and duck check.
 - Util: `isPlainObject`, `isNonEmptyString`, `deepFreeze` (in place; buffers and typed arrays stay
   mutable) and `frozenCopy` (a frozen copy of plain data and `Date`s; a `Map`, `Set` or class instance
   becomes a plain object).

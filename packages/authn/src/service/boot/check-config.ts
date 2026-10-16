@@ -1,12 +1,12 @@
 import type { IContainer } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration, resolveNamedService } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
-import type { MfaPolicy } from '../../contracts/mfa.js';
-import type { AuthnThrottle } from '../../contracts/throttle.js';
+import { MfaPolicy } from '../../contracts/mfa.js';
+import { AuthnThrottle } from '../../contracts/throttle.js';
 import { MfaEnrolments } from '../../flow/mfa-enrolments.js';
-import { selectAuthnThrottle } from '../../throttle/select.js';
-import { selectMfaPolicy } from '../../flow/select-policy.js';
+import { AUTHN_THROTTLE_SERVICE } from '../../throttle/select.js';
+import { MFA_POLICY_SERVICE } from '../../flow/select-policy.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 import type { StrategyEntry } from '../../registry/strategy-registry.js';
 import { q } from '../../support/format.js';
@@ -38,7 +38,7 @@ function strategyFindings(container: IContainer, config: AuthnConfigSource): Aut
 async function throttleFindings(container: IContainer, config: AuthnConfigSource): Promise<AuthnConfigFinding[]> {
   let throttle: AuthnThrottle;
   try {
-    throttle = await selectAuthnThrottle(container, config.get<string | undefined>('authn.throttle.service'));
+    throttle = await resolveNamedService(container, 'authn.throttle.service', AuthnThrottle, AUTHN_THROTTLE_SERVICE);
   } catch (e) {
     return [{ topic: 'throttle', level: 'error', message: safeMessage(e, 'selecting the throttle') }];
   }
@@ -119,7 +119,7 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
 
   let policy: MfaPolicy | undefined;
   try {
-    policy = await selectMfaPolicy(container, config.get<string>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy');
+    policy = await resolveNamedService(container, 'authn.mfa.policy.service', MfaPolicy, MFA_POLICY_SERVICE);
   } catch (e) {
     out.push({ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA policy') });
   }

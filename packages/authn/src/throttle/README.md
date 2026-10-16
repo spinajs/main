@@ -90,8 +90,9 @@ defaults; `MemoryThrottleConfig` is the type.
 ## Dependency injection
 
 - `MemoryAuthnThrottle` is a `@Singleton` registered as an `AuthnThrottle`. `DefaultAuthnService` gets its
-  throttle from `selectAuthnThrottle(container, authn.throttle.service)`: the named one; when unset, the only
-  registered throttle, or the only one besides `MemoryAuthnThrottle`. An unregistered name, or several
+  throttle from `@AutoinjectNamedService('authn.throttle.service', AuthnThrottle, AUTHN_THROTTLE_SERVICE)`: the
+  named one; when unset, `pickAuthnThrottle` picks the only registered throttle, or the only one besides
+  `MemoryAuthnThrottle`. An unregistered name, or several
   candidates, fails boot. It never falls back to memory.
 - Each flow's table is a `FlowLimiter` (a `KeyedBackoff` plus its `flow`), `@NewInstance`, resolved by
   `DI.resolve(FlowLimiter, [flow, options])` from the root container, matching the throttle's lifetime. The first

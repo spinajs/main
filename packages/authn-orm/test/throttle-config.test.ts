@@ -1,10 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHmac } from 'node:crypto';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnService, AuthnThrottle, IdentityStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import { DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
 import type { ThrottleKey } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemorySessionIssuer, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -184,6 +184,7 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
       }
       bind(child, IdentityStore, 'HashKeyIdentityStore', new FakeIdentityStore());
       bind(child, PrincipalFactory, 'HashKeyPrincipalFactory', new RecordingPrincipalFactory());
+      bind(child, SessionIssuer, 'HashKeySessionIssuer', new MemorySessionIssuer());
       return child.resolve(AuthnService);
     }
 

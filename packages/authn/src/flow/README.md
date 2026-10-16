@@ -140,8 +140,7 @@ Rules the list is held to:
 
 `ConfiguredMfaPolicy`, the base of `DefaultMfaPolicy`, takes the steps through
 `@AutoinjectNamedServices('authn.mfa.steps', MfaStep, …)` when the policy
-resolves (at the authn boot when any strategy is interactive or, with none,
-when `authn.mfa.encryptionKey.secret` is unset; `authn:check-config` resolves
+resolves (at every authn boot; `authn:check-config` resolves
 it too) and keeps them for the life of the instance. Login, completeMfa and the
 enrolment routes all ask the policy of `authn.mfa.policy.service` for its
 `steps()`, so they see that one list. A later `Configuration.set` changes

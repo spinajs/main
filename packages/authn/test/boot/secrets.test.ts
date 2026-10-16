@@ -282,19 +282,19 @@ describe('DefaultAuthnService boot: secrets', function () {
     expect((error as Error).message).to.contain('authn.mfa.steps').and.contain('NotRegistered').and.not.contain('encryptionKey');
   });
 
-  it('fails boot in production when the MFA key is missing and the steps cannot be resolved', async () => {
-    let error: unknown;
-    try {
-      const p = await buildCore({ env: 'production' }, { strategies: [], raw: unresolvableStep });
-      await p.dispose();
-    } catch (e) {
-      error = e;
-    }
-    expect(error).to.be.instanceOf(InvalidOption);
-    expect((error as Error).message).to.contain('authn.mfa.encryptionKey.secret').and.contain('NotRegistered');
-    const p = await buildCore({ env: 'development' }, { strategies: [], raw: unresolvableStep });
-    await p.dispose();
-  });
+  for (const env of ['production', 'development'] as const) {
+    it(`fails boot in ${env} with the steps error, before the secrets check, when no strategy is listed and the steps cannot be resolved`, async () => {
+      let error: unknown;
+      try {
+        const p = await buildCore({ env }, { strategies: [], raw: unresolvableStep });
+        await p.dispose();
+      } catch (e) {
+        error = e;
+      }
+      expect(error).to.be.instanceOf(Error);
+      expect((error as Error).message).to.contain('authn.mfa.steps').and.contain('NotRegistered').and.not.contain('encryptionKey');
+    });
+  }
 
   describe('with no env set (SR-16)', () => {
     withoutProcessEnv();

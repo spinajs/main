@@ -1,17 +1,10 @@
-import type { IContainer } from '@spinajs/di';
-import { InvalidOption } from '@spinajs/exceptions';
+import type { INamedServiceOptions } from '@spinajs/configuration';
 import { isPlainObject } from '@spinajs/util';
 
-import { MfaPolicy } from '../contracts/mfa.js';
-import { q } from '../support/format.js';
+import type { MfaPolicy } from '../contracts/mfa.js';
 
-/** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to `container` wins. */
-export async function selectMfaPolicy(container: IContainer, name: string): Promise<MfaPolicy> {
-  const names = container.getRegisteredNames(MfaPolicy);
-  if (!names.includes(name)) {
-    throw new InvalidOption(`authn.mfa.policy.service ${q(name)}: no MfaPolicy is registered under that name (registered: ${names.map(q).join(', ') || 'none'})`);
-  }
-  const policy: unknown = await container.resolveNamed(MfaPolicy, name);
-  if (!isPlainObject(policy) || typeof policy.required !== 'function' || typeof policy.steps !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${q(name)} is not an MfaPolicy`);
-  return policy as unknown as MfaPolicy;
-}
+/** `authn.mfa.policy.service` (schema default DefaultMfaPolicy), resolved by `@AutoinjectNamedService` and `resolveNamedService`. */
+export const MFA_POLICY_SERVICE: INamedServiceOptions<MfaPolicy> = {
+  default: 'DefaultMfaPolicy',
+  is: (p) => isPlainObject(p) && typeof p.required === 'function' && typeof p.steps === 'function',
+};

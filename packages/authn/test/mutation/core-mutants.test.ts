@@ -4,7 +4,7 @@ import { AUTHN_RULES, planCases, settleCase, throttleParams } from '@spinajs/aut
 import type { HarnessFactory, PlannedCase } from '@spinajs/authn-testing';
 
 import { AuthnImpersonationService, DefaultAuthnService, MemoryAuthnThrottle } from '../../src/index.js';
-import type { AuthenticationResult, AuthnContext, AuthnThrottle, Credentials, IdentityRef, IdentityStatus, IdentityStore, Principal, SessionHandle, StrategyRegistry, ThrottleParams } from '../../src/index.js';
+import type { AuthenticationResult, AuthnContext, AuthnThrottle, Credentials, IdentityRef, IdentityStatus, IdentityStore, Principal, SessionHandle, ThrottleParams } from '../../src/index.js';
 import { buildCore, coreHarness, coreHarnessOf, useHarnessLog } from '../behaviour/harness.js';
 import { Lockout, SuccessClearsIp } from './throttle-mutants.js';
 
@@ -13,7 +13,7 @@ import { Lockout, SuccessClearsIp } from './throttle-mutants.js';
 /** 2.x order (A05): verify first, count only what failed. */
 class VerifyBeforeCount extends DefaultAuthnService {
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
-    const { registry, throttle } = this as unknown as { registry: StrategyRegistry; throttle: AuthnThrottle };
+    const { Registry: registry, Throttle: throttle } = this;
     const s = registry.candidates(c)[0];
     if (!s) return super.authenticate(c, ctx);
     const outcome = await s.verify(c, ctx);
