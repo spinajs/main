@@ -1,7 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { Session, SessionKeys, sessionKey } from '../../src/contracts/session-state.js';
+import { DI, NewInstance, Singleton } from '@spinajs/di';
+
+import { Session, SessionKeys, resolveSession, sessionKey } from '../../src/contracts/session-state.js';
 import * as index from '../../src/contracts/index.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
 
@@ -73,5 +75,57 @@ describe('Session', () => {
     expect(Object.isFrozen(SessionKeys)).to.eq(true);
     expect(Object.isFrozen(SessionKeys.ActiveRole)).to.eq(true);
     expect(Object.values(SessionKeys).map((k) => k.name)).to.deep.eq(['ActiveRole', 'Impersonation', 'Ip', 'UserAgent', 'authn:pendingSteps']);
+  });
+});
+
+describe('resolveSession', () => {
+  const init = (id: string) => ({ handle: { id, state: 'active' as const }, identity: { type: 'user', id: 'u1' }, facts, data: [['ActiveRole', 'editor']] as [string, unknown][] });
+
+  @NewInstance()
+  class AppSession extends Session {
+    public get theme(): string | undefined {
+      return this.get(sessionKey('Theme', (raw) => (typeof raw === 'string' ? raw : undefined)));
+    }
+  }
+
+  @Singleton()
+  class SharedSession extends Session {}
+
+  it('builds a plain Session when nothing is registered, a new one per call', () => {
+    const c = DI.RootContainer.child();
+    const a = resolveSession(c, init('a'));
+    const b = resolveSession(c, init('b'));
+    expect(a.constructor).to.eq(Session);
+    expect([a.handle.id, b.handle.id, a.activeRole]).to.deep.eq(['a', 'b', 'editor']);
+  });
+
+  it('hands back a Session unchanged', () => {
+    const s = new Session(init('s'));
+    expect(resolveSession(DI.RootContainer.child(), s)).to.eq(s);
+  });
+
+  it('builds the class registered as Session in that container', async () => {
+    const c = DI.RootContainer.child();
+    c.register(AppSession).as(Session);
+    const s = resolveSession(c, { ...init('x'), data: [['Theme', 'dark']] });
+    expect(s).to.be.instanceOf(AppSession);
+    expect((s as AppSession).theme).to.eq('dark');
+    expect(resolveSession(DI.RootContainer.child(), init('y')).constructor).to.eq(Session);
+    await c.dispose();
+  });
+
+  it('refuses a registered class that hands back one shared instance', async () => {
+    const c = DI.RootContainer.child();
+    c.register(SharedSession).as(Session);
+    resolveSession(c, init('first'));
+    expect(() => resolveSession(c, init('second'))).to.throw(/@NewInstance\(\)/);
+    await c.dispose();
+  });
+
+  it('refuses a registration that is no Session', async () => {
+    const c = DI.RootContainer.child();
+    c.register({ NotASession: () => ({ handle: { id: 'z', state: 'active' } }) }.NotASession).as(Session);
+    expect(() => resolveSession(c, init('z'))).to.throw(/not a Session/);
+    await c.dispose();
   });
 });

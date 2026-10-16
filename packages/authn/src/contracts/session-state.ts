@@ -1,3 +1,5 @@
+import { NewInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { IdentityRef } from './credentials.js';
@@ -63,6 +65,7 @@ export interface SessionInit {
 }
 
 /** A restored session. Read data through a SessionKey; `data` holds the raw public entries. */
+@NewInstance()
 export class Session {
   public readonly handle: SessionHandle;
   public readonly identity: IdentityRef;
@@ -112,4 +115,21 @@ export class Session {
   public get<T>(key: SessionKey<T>): T | undefined {
     return this.data.has(key.name) ? key.decode(this.data.get(key.name)) : undefined;
   }
+}
+
+/**
+ * `value` itself when it is a Session, else the class registered as Session in `container` (Session when none is),
+ * built from `value`. A registered class must be @NewInstance() and must not depend on an AsyncService.
+ */
+export function resolveSession(container: IContainer, value: Session | SessionInit): Session {
+  if (value instanceof Session) return value;
+  const session: unknown = container.resolve(Session, [value]);
+  if (!(session instanceof Session)) {
+    throw new Error('authn: the class registered as Session resolved to a value that is not a Session (an AsyncService dependency resolves to a Promise)');
+  }
+  // A singleton registration ignores the constructor arguments and hands back the first session again.
+  if (session.handle !== value.handle) {
+    throw new Error(`authn: declare @NewInstance() on ${session.constructor.name}; a shared instance would hand one session to every request`);
+  }
+  return session;
 }
