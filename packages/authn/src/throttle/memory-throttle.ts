@@ -3,7 +3,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { Log } from '@spinajs/log-common';
+import { Log, Logger } from '@spinajs/log-common';
 import { MemoryThrottleStore, deepFreeze } from '@spinajs/util';
 import type { KeyedBackoffOptions, ThrottleStore } from '@spinajs/util';
 
@@ -43,6 +43,9 @@ interface Loaded {
 export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   @Config('authn.throttle')
   protected Throttle: ThrottleConfig;
+
+  @Logger('authn-throttle')
+  protected Log: Log;
 
   private memoryStore: MemoryThrottleStore | undefined;
   private readonly secret = randomBytes(32);
@@ -146,6 +149,6 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
 
   /** Once per full episode of a flow's table, again on the next scan when it throws; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
-    DI.resolve(Log, ['authn-throttle'], true).warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
+    this.Log.warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
   }
 }

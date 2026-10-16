@@ -1760,19 +1760,3 @@ describe('DefaultAuthnService', function () {
     });
   });
 });
-
-describe('DefaultAuthnService without a Log', function () {
-  this.timeout(30000);
-
-  it('fails boot', async () => {
-    const error = await buildCore({}, { strategies: [] }).then(
-      async (p) => {
-        await p.dispose();
-        return undefined;
-      },
-      (e: unknown) => e,
-    );
-    assert.ok(error instanceof Error, String(error));
-    assert.strictEqual(error.message, 'Type Log is not registered at container');
-  });
-});

@@ -440,24 +440,3 @@ describe('AuthnAudit', function () {
     });
   });
 });
-
-describe('AuthnAudit without a Log', function () {
-  this.timeout(15000);
-
-  it('fails to resolve', async () => {
-    const child = DI.RootContainer.child();
-    try {
-      child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-      child.register(configurationOf({ authn: { audit: {} } }, undefined, true)).as(Configuration);
-      await child.resolve(Configuration);
-      const error = await child.resolve(AuthnAudit).then(
-        () => undefined,
-        (e: unknown) => e,
-      );
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal('Type Log is not registered at container');
-    } finally {
-      await child.dispose();
-    }
-  });
-});

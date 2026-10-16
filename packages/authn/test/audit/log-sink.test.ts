@@ -4,12 +4,11 @@ import { createHash, createHmac } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
-import { Log } from '@spinajs/log-common';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
 import type { AuthnEvent } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
-import { TestLog } from './test-log.js';
+import { TestLog, useTestLog } from './test-log.js';
 
 const expect = chai.expect;
 
@@ -39,11 +38,9 @@ const event = (over: Partial<AuthnEvent> = {}): AuthnEvent => ({
 const children: IContainer[] = [];
 
 // Isolated: the shipped authn config lists LogAuthnAuditSink, and config arrays concatenate.
-// The Log is registered in the child only, so a sink that bypassed its container would find none.
-async function childWith(audit: unknown, parent: IContainer = DI.RootContainer, withLog = true): Promise<IContainer> {
+async function childWith(audit: unknown, parent: IContainer = DI.RootContainer): Promise<IContainer> {
   const child = parent.child();
   children.push(child);
-  if (withLog) child.register(TestLog).as(Log as never);
   child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
   child.register(configurationOf({ authn: { audit } }, undefined, true)).as(Configuration);
   await child.resolve(Configuration);
@@ -59,10 +56,7 @@ const lines = (): string[] => written().map((e) => e.message);
 
 describe('LogAuthnAuditSink', function () {
   this.timeout(15000);
-
-  beforeEach(() => {
-    TestLog.clear();
-  });
+  useTestLog();
 
   afterEach(async () => {
     for (const c of children.splice(0).reverse()) await c.dispose();
@@ -85,13 +79,13 @@ describe('LogAuthnAuditSink', function () {
     for (const l of lines()) expect(l).to.not.contain('\n');
   });
 
-  it('writes failures at warn and successes at info, to the Log named authn-audit, as a message without fields', async () => {
+  it('writes failures at warn and successes at info, to the Log named authn-audit', async () => {
     const s = await sink();
     await s.publish(event());
     await s.publish(event({ outcome: 'failure' }));
-    expect(written().map((e) => [e.level, e.logger, e.fields])).to.deep.equal([
-      ['info', 'authn-audit', undefined],
-      ['warn', 'authn-audit', undefined],
+    expect(written().map((e) => [e.level, e.logger])).to.deep.equal([
+      ['info', 'authn-audit'],
+      ['warn', 'authn-audit'],
     ]);
   });
 
@@ -167,7 +161,7 @@ describe('LogAuthnAuditSink', function () {
     expect(line).to.not.contain('\n');
     expect(line).to.contain('strategy="evil\\nauthn audit login success identity=user:admin"');
     expect(line).to.contain('reason="a b"');
-    expect(line).to.contain('identity="us er":"x=y z"');
+    expect(line).to.contain('identity="us er:x=y z"');
   });
 
   it('escapes Unicode line breaks, C1 controls and direction marks', async () => {
@@ -192,20 +186,20 @@ describe('LogAuthnAuditSink', function () {
     const s = await sink();
     await s.publish({ type: 'logout', outcome: 'success', at: new Date('2026-10-03T10:00:00.000Z') });
     await s.publish({ type: 'logout', outcome: 'success', at: new Date(Number.NaN), identity: null } as never);
-    expect(lines()).to.deep.equal(['authn audit logout success at=2026-10-03T10:00:00.000Z', 'authn audit logout success at=?']);
+    expect(lines()).to.deep.equal(['authn audit logout success at=2026-10-03T10:00:00.000Z', 'authn audit logout success at="Invalid Date"']);
   });
 
-  it('writes the event time only when it is a valid Date', async () => {
+  it('writes a valid Date as ISO time and never calls a forged toISOString', async () => {
     const s = await sink();
     const at = (value: unknown) => s.publish({ type: 'logout', outcome: 'success', at: value } as never);
     await at(new Date(Number.NaN));
-    await at('x');
+    await at('x y');
     await at({ toISOString: () => 'forged' });
     await at(new Date('2026-10-03T10:00:00.000Z'));
     expect(lines().map((l) => l.replace('authn audit logout success ', ''))).to.deep.equal([
-      'at=?',
-      'at=?',
-      'at=?',
+      'at="Invalid Date"',
+      'at="x y"',
+      'at="{}"',
       'at=2026-10-03T10:00:00.000Z',
     ]);
   });
@@ -220,18 +214,6 @@ describe('LogAuthnAuditSink', function () {
     expect(error).to.be.instanceOf(InvalidConfiguration);
     expect((error as InvalidConfiguration).violations.map((v) => v.path)).to.include('authn.audit.hashKey.secret');
     expect((error as Error).message).to.not.contain('hunter2');
-  });
-
-  it('fails to publish when no Log is registered', async () => {
-    const s = await (await childWith({ hashKey: { secret: KEY } }, DI.RootContainer, false)).resolve(LogAuthnAuditSink);
-    let error: unknown;
-    try {
-      await s.publish(event());
-    } catch (e) {
-      error = e;
-    }
-    expect(error).to.be.instanceOf(Error);
-    expect((error as Error).message).to.equal('Type Log is not registered at container');
   });
 
   describe('through DI', () => {

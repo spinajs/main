@@ -2,7 +2,7 @@ import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { Log } from '@spinajs/log-common';
+import { Log, Logger } from '@spinajs/log-common';
 
 import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
@@ -153,7 +153,9 @@ export class DefaultAuthnService extends AuthnService {
   private links: IdentityLinkStore | undefined;
   private sessions: SessionIssuer | undefined;
   private policy: MfaPolicy | undefined;
-  private log!: Log;
+
+  @Logger('authn-boot')
+  protected Log: Log;
 
   // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private static readonly warned = new Set<string>();
@@ -181,8 +183,6 @@ export class DefaultAuthnService extends AuthnService {
   public async resolve(): Promise<void> {
     // The boot checks are plain functions over a Configuration and read APP_ENV, so they cannot use @Config.
     const configuration = await this.container.resolve(Configuration);
-    // FrameworkLogger reads the configuration when it is built.
-    this.log = this.container.resolve(Log, ['authn-boot'], true);
     if (authnEnvFellBack(configuration)) this.warnOnce(AUTHN_ENV_FALLBACK_WARNING);
     await checkAuthnSecrets(configuration, this.container, (m) => this.warnOnce(m));
     this.registry = await this.container.resolve(StrategyRegistry);
@@ -206,7 +206,7 @@ export class DefaultAuthnService extends AuthnService {
   private warnOnce(message: string): void {
     if (DefaultAuthnService.warned.has(message)) return;
     DefaultAuthnService.warned.add(message);
-    this.log.warn(message);
+    this.Log.warn(message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {

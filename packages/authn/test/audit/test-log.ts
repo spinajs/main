@@ -1,5 +1,5 @@
 import { DI, NewInstance } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
+import { Log, renderTemplate } from '@spinajs/log-common';
 
 export interface TestLogEntry {
   readonly level: 'info' | 'warn';
@@ -37,7 +37,8 @@ export class TestLog {
   private write(level: TestLogEntry['level'], first: unknown, rest: unknown[]): void {
     const fields = first !== null && typeof first === 'object' ? (first as Record<string, unknown>) : undefined;
     const [format, ...args] = fields ? rest : [first, ...rest];
-    const message = String(format ?? '').replace(/%s/g, () => String(args.shift()));
+    const template = fields ? renderTemplate(String(format ?? ''), fields, args.length !== 0) : String(format ?? '');
+    const message = template.replace(/%s/g, () => String(args.shift()));
     TestLog.entries.push({ level, logger: this.Name, message, ...(fields ? { fields } : {}) });
     TestLog.lines.push(`${level} ${this.Name} ${message}`);
   }

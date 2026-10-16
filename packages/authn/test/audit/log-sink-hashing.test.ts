@@ -3,16 +3,16 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
-import { Log } from '@spinajs/log-common';
 
 import { AUTHN_CONFIGURATION_SCHEMA, LogAuthnAuditSink } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
-import { TestLog } from './test-log.js';
+import { TestLog, useTestLog } from './test-log.js';
 
 const expect = chai.expect;
 
 describe('LogAuthnAuditSink hashIdentifiers set past the schema', function () {
   this.timeout(15000);
+  useTestLog();
 
   const children: IContainer[] = [];
 
@@ -25,7 +25,6 @@ describe('LogAuthnAuditSink hashIdentifiers set past the schema', function () {
       TestLog.clear();
       const child = DI.RootContainer.child();
       children.push(child);
-      child.register(TestLog).as(Log as never);
       child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
       child.register(configurationOf({ authn: { audit: { hashKey: { secret: 'k'.repeat(40) } } } }, undefined, true)).as(Configuration);
       const configuration = await child.resolve(Configuration);
