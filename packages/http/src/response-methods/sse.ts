@@ -1,5 +1,6 @@
 import * as express from 'express';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 // import from the defining module, not the package barrel ( see file.ts: the barrel re-forms an import cycle )
 import { _setCoockies, _setHeaders } from '../responses.js';
@@ -60,6 +61,12 @@ export class SseStream {
     this.res.flushHeaders();
     this.res.on('close', () => this.close());
 
+    // 'close' does not fire for a client that left before the listener was attached
+    if (this.res.destroyed || this.res.writableEnded) {
+      this.close();
+      return;
+    }
+
     if (this.heartbeatMs > 0) {
       this._heartbeat = setInterval(() => this.comment('ping'), this.heartbeatMs);
       this._heartbeat.unref?.();
@@ -70,6 +77,11 @@ export class SseStream {
   }
 
   public send(event: ISseEvent): void {
+    // a line break would start a new SSE field, e.g. an injected data: line
+    if (/[\r\n]/.test(`${event.id ?? ''}${event.event ?? ''}`)) {
+      throw new InvalidArgument('SSE event name and id cannot contain a line break');
+    }
+
     if (this._closed) {
       return;
     }

@@ -4,6 +4,7 @@ import sinon from 'sinon';
 import { EventEmitter } from 'node:events';
 import type * as express from 'express';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 import { SSE_DEFAULT_HEARTBEAT_MS, SseResponse, SseStream, closeAllSseStreams } from '../src/response-methods/sse.js';
 
@@ -13,6 +14,7 @@ class FakeRes extends EventEmitter {
   public chunks: string[] = [];
   public headersFlushed = false;
   public writableEnded = false;
+  public destroyed = false;
   public flushes = 0;
 
   public status(code: number) {
@@ -143,6 +145,26 @@ describe('SseStream', () => {
     stream.onClose(onClose);
 
     expect(onClose.calledOnce).to.eq(true);
+  });
+
+  it('closes at once, without a heartbeat, when the client left before the stream opened', () => {
+    res.destroyed = true;
+    const stream = new SseStream(asRes(res), 1000);
+
+    stream.open();
+
+    expect(stream.Closed).to.eq(true);
+    expect(clock.countTimers()).to.eq(0);
+  });
+
+  it('refuses an event name or id with a line break', () => {
+    const stream = new SseStream(asRes(res), 0);
+    stream.open();
+
+    expect(() => stream.send({ event: 'a\ndata: injected', data: 1 })).to.throw(InvalidArgument);
+    expect(() => stream.send({ event: 'a\rb', data: 1 })).to.throw(InvalidArgument);
+    expect(() => stream.send({ id: '1\nevent: injected', data: 1 })).to.throw(InvalidArgument);
+    expect(res.body).to.eq('');
   });
 
   it('closes every open stream when the http server starts closing', () => {
