@@ -15,7 +15,7 @@ import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
-import { Session, SessionKeys } from '../contracts/session-state.js';
+import { Session, SessionKeys, resolveSession } from '../contracts/session-state.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
 /**
@@ -231,7 +231,7 @@ export class AuthnImpersonationService extends AsyncService {
     if (!ok) return null;
     const stored = await this.sessions.restore(id);
     if (!stored) return null;
-    const session = stored instanceof Session ? stored : new Session(stored);
+    const session = resolveSession(this.container, stored);
     return session.handle.state === 'active' ? session : null;
   }
 
