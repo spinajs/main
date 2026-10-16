@@ -61,6 +61,14 @@ describe("merging-object first argument", () => {
     expect(records[0].Variables.message).to.eq("checkout started");
   });
 
+  it("renders a ${field} template against the call's fields, escaped, before printf args", async () => {
+    const log = DI.resolve(Log, ["mo-template"]);
+    await log.info({ op: "login", why: "a b\n%s" }, "op ${op}${?ip} ip=${ip}${/ip} why=${why} %s", "done");
+
+    const records = sink().getRecords();
+    expect(records[0].Variables.message).to.eq('op login why="a b\\n%s" done');
+  });
+
   it("object-only call yields an empty message and merges fields", async () => {
     const log = DI.resolve(Log, ["mo-object-only"]);
     await log.info({ a: 1 });

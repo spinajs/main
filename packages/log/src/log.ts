@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, renderTemplate, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -34,11 +34,11 @@ function wrapWrite(this: Log, level: LogLevel) {
     if (err instanceof Error) {
       return this.write(createLogMessageObject(err, message, level, this.Name, vars, ...args));
     } else if (err !== null && typeof err === "object" && !Array.isArray(err)) {
-      // merging-object form: `err` is a bag of structured fields, `message` is the
-      // format string, the rest are printf args. Fields are spread into Variables
+      // merging-object form: `err` is a bag of structured fields, `message` is a
+      // `${field}` template ( see renderTemplate ), the rest are printf args. Fields are spread into Variables
       // ( so a nested `error` key still runs the serializer ).
       const fields = err as Record<string, unknown>;
-      const fmt = typeof message === "string" ? message : "";
+      const fmt = typeof message === "string" ? renderTemplate(message, fields, args.length !== 0) : "";
       return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...vars, ...fields }, ...args));
     } else {
       const sErr = err as string;

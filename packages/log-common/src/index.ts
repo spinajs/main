@@ -5,6 +5,7 @@ import { applySerializers } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
 export * from "./serializers.js";
+export * from "./template.js";
 export * from "./filters/filter.js";
 export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
