@@ -1,12 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Session, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
 import type { SessionStoragePort } from '../harness/ports.js';
 
 export interface MemorySessionOptions {
   readonly idleMinutes?: number;
   readonly absoluteMinutes?: number;
   readonly pendingTtlSeconds?: number;
+  readonly container?: IContainer;
 }
 
 interface Row {
@@ -34,12 +37,14 @@ export class MemorySessionIssuer extends SessionIssuer {
   private readonly idleMs: number;
   private readonly absoluteMs: number;
   private readonly pendingMs: number;
+  private readonly container: IContainer;
 
   constructor(opts: MemorySessionOptions = {}) {
     super();
     this.idleMs = (opts.idleMinutes ?? 30) * 60_000;
     this.absoluteMs = (opts.absoluteMinutes ?? 480) * 60_000;
     this.pendingMs = (opts.pendingTtlSeconds ?? 300) * 1000;
+    this.container = opts.container ?? DI.RootContainer;
     this.storage = {
       storedKeys: async () => [...this.rows.keys()],
       seedLegacy: async (r) => {
@@ -135,7 +140,7 @@ export class MemorySessionIssuer extends SessionIssuer {
       row.lastSeen = now;
       row.expiresAt = Math.min(now + this.idleMs, row.creation + this.absoluteMs);
     }
-    return new Session({ handle: { id: rawId, state: row.state }, identity: row.subject, facts: row.facts, data: row.data });
+    return resolveSession(this.container, { handle: { id: rawId, state: row.state }, identity: row.subject, facts: row.facts, data: row.data });
   }
 
   async rotate(h: SessionHandle): Promise<SessionHandle> {

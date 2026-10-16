@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
-import { DI } from '@spinajs/di';
-import { SessionIssuer } from '@spinajs/authn/contracts';
+import { DI, NewInstance } from '@spinajs/di';
+import { Session, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
 import { DefaultSessionIssuer, MemorySessionStore, SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '../src/index.js';
@@ -45,6 +45,21 @@ describe('DefaultSessionIssuer', () => {
   };
 
   describe('issue and restore', () => {
+    it('restore builds the class registered as Session', async () => {
+      @NewInstance()
+      class AppSession extends Session {}
+      DI.register(AppSession).as(Session);
+      try {
+        const { issuer } = await setup();
+        const h = await issuer.issue(alice, facts());
+        const restored = await issuer.restore(h.id);
+        expect(restored).to.be.instanceOf(AppSession);
+        expect(restored!.identity).to.deep.eq(alice);
+      } finally {
+        DI.unregister(AppSession);
+      }
+    });
+
     it('is registered as the SessionIssuer', async () => {
       await setup();
       expect(await DI.resolve(SessionIssuer)).to.be.instanceOf(DefaultSessionIssuer);

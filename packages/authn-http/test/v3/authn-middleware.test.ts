@@ -7,7 +7,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import * as cs from 'cookie-signature';
 import { DateTime } from 'luxon';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { Bootstrapper, DI, NewInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -123,6 +123,7 @@ async function buildSuite(): Promise<Suite> {
   // Built by hand around this suite's own store (fixed 60-minute expiry), not the configured one.
   Object.defineProperty(issuer, 'Store', { value: store });
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
+  Object.defineProperty(issuer, 'Container', { value: child });
   const throttle = new RecordingThrottle();
   const tokens = new Map<string, StrategyOutcome>();
   const jws = new Map<string, StrategyOutcome>();
@@ -279,6 +280,21 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
   });
 
   describe('session cookie', () => {
+    it('a plain object from the issuer becomes the class registered as Session', async () => {
+      @NewInstance()
+      class AppSession extends Session {}
+      const child = s.child.child();
+      child.register(AppSession).as(Session);
+      const plain = { handle: { id: 'x', state: 'active' as const }, identity: alice, facts: FACTS(), data: [] };
+      const mw = Object.create(AuthnMiddleware.prototype) as AuthnMiddleware;
+      for (const [k, v] of Object.entries({ Container: child, Sessions: { restore: async () => plain }, Log: { warn: () => undefined }, CookieName: cookieName, CookieSecret: COOKIE_SECRET })) {
+        Object.defineProperty(mw, k, { value: v });
+      }
+      const restored = await (mw as unknown as { restoreSession(r: unknown): Promise<unknown> }).restoreSession({ cookies: { [cookieName]: cs.sign('x', COOKIE_SECRET) }, storage: {} });
+      expect(restored).to.be.instanceOf(AppSession);
+      await child.dispose();
+    });
+
     it('an active session restores into a principal with authn facts and no-store', async () => {
       const h = await s.issuer.issue(alice, FACTS());
       const res = await probe({ Cookie: cookieOf(h.id) });

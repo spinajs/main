@@ -92,6 +92,7 @@ async function buildSuite(): Promise<Suite> {
   // Built by hand around this suite's own store (fixed 60-minute expiry), not the configured one.
   Object.defineProperty(issuer, 'Store', { value: store });
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
+  Object.defineProperty(issuer, 'Container', { value: child });
   const throttle = new RecordingThrottle();
   const events = new RecordingEventSink();
   const step = new FakeMfaStep({ name: 'totp' });

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import 'mocha';
+import { DI, NewInstance } from '@spinajs/di';
+import { Session } from '@spinajs/authn/contracts';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
 import { FakeClock, MemorySessionIssuer } from '../../src/fakes/index.js';
 
@@ -10,6 +12,19 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const facts = (over: Partial<AuthnFacts> = {}): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(), ...over });
 
 describe('MemorySessionIssuer', () => {
+  it('restore builds the class registered as Session in its container', async () => {
+    @NewInstance()
+    class AppSession extends Session {}
+    const container = DI.RootContainer.child();
+    container.register(AppSession).as(Session);
+    const issuer = new MemorySessionIssuer({ container });
+    const h = await issuer.issue({ type: 'user', id: 'u1' }, facts());
+    assert.ok((await issuer.restore(h.id)) instanceof AppSession);
+    const plain = new MemorySessionIssuer();
+    assert.equal((await plain.restore((await plain.issue({ type: 'user', id: 'u1' }, facts())).id))?.constructor, Session);
+    await container.dispose();
+  });
+
   let clock: FakeClock;
   let s: MemorySessionIssuer;
   beforeEach(() => {

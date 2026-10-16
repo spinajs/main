@@ -2,12 +2,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Container, Injectable } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { Session, SessionIssuer, SessionKeys } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
+import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
@@ -104,6 +105,9 @@ export class DefaultSessionIssuer extends SessionIssuer {
   @AutoinjectService('authn.session', SessionProvider)
   protected Store!: SessionProvider;
 
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
   @Config('authn.session.pendingTtlSeconds')
   protected PendingTtlSeconds!: number;
 
@@ -166,7 +170,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return null;
     }
 
-    return new Session({
+    return resolveSession(this.Container, {
       handle: { id: rawId, state: session.State },
       identity: ref(session.Subject),
       facts: this.factsOf(session, stored),

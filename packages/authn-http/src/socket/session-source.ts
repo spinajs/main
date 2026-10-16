@@ -6,7 +6,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Session, SessionIssuer } from '@spinajs/authn/contracts';
+import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
 import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -63,7 +63,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
       this.Log.warn({ session: logHash(rawId), ip: handshake.address }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
       return null;
     }
-    const session = restored instanceof Session ? restored : new Session(restored);
+    const session = resolveSession(this.Container, restored);
 
     const resolver = await this.Container.resolve(SessionPrincipalResolver);
     const principal = await resolver.principalOfSession(session, this.context(handshake));
