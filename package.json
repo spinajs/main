@@ -15,6 +15,7 @@
     "copy-static": "cpx \"packages/http/src/views/**/*\" packages/http/lib/views && cpx \"packages/http/src/static/**/*\" packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
     "prepare-module-support": "node scripts/generate-packages-for-modules.mjs",
     "docs:check": "node scripts/check-doc-samples.mjs",
+    "prepare": "node scripts/install-hooks.mjs",
     "link": "powershell -NoProfile -ExecutionPolicy Bypass -File link-all.ps1",
     "link:sh": "bash link-all.sh"
   },

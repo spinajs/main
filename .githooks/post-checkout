@@ -1,0 +1,9 @@
+#!/bin/sh
+# Branch switches only, matching graphify's own checkout hook.
+. "$(dirname "$0")/graphify-refresh.sh"
+[ "$3" = "1" ] && [ "$1" != "$2" ] && graphify_refresh checkout
+
+# core.hooksPath bypasses .git/hooks; keep the hooks installed there (graphify) running.
+legacy="$(git rev-parse --git-common-dir)/hooks/post-checkout"
+[ -f "$legacy" ] && exec sh "$legacy" "$@"
+exit 0
