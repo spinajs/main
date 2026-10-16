@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
+import { Log, renderTemplate } from '@spinajs/log-common';
 
 import { InProcessChangeBus, LogDecisionAudit, AuthzClock, SystemClock, isProduction, engineLog, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, TRUE } from '@spinajs/authz';
 import type { AuthzChange, Decision } from '@spinajs/authz';
@@ -56,7 +56,7 @@ describe('InProcessChangeBus', () => {
     const bus = new InProcessChangeBus();
     const errors: string[] = [];
     const orig = console.error;
-    console.error = (m: string) => void errors.push(String(m));
+    console.error = (...a: unknown[]) => void errors.push(a.map(String).join(' '));
     try {
       bus.subscribe(() => {
         throw new Error('sync-fail');
@@ -99,17 +99,21 @@ describe('InProcessChangeBus', () => {
 
 class FakeLog {
   lines: Array<{ level: string; message: string; args: unknown[] }> = [];
-  error(message: string, ...args: unknown[]) {
-    this.lines.push({ level: 'error', message, args });
+  error(...args: unknown[]) {
+    this.push('error', args);
   }
-  warn(message: string, ...args: unknown[]) {
-    this.lines.push({ level: 'warn', message, args });
+  warn(...args: unknown[]) {
+    this.push('warn', args);
   }
-  debug(message: string, ...args: unknown[]) {
-    this.lines.push({ level: 'debug', message, args });
+  debug(...args: unknown[]) {
+    this.push('debug', args);
   }
-  info(message: string, ...args: unknown[]) {
-    this.lines.push({ level: 'info', message, args });
+  info(...args: unknown[]) {
+    this.push('info', args);
+  }
+  private push(level: string, [first, ...rest]: unknown[]) {
+    if (typeof first === 'string') this.lines.push({ level, message: first, args: rest });
+    else this.lines.push({ level, message: renderTemplate(rest[0] as string, first as Record<string, unknown>), args: rest.slice(1) });
   }
 }
 
@@ -338,5 +342,19 @@ describe('engineLog', () => {
       console.warn = orig;
     }
     expect(calls).to.have.length(1);
+  });
+
+  it('renders a fields-form call on the console fallback, the error after the line', () => {
+    const log = engineLog('authz-test5', () => undefined);
+    const orig = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...a: unknown[]) => void calls.push(a);
+    const error = new Error('down');
+    try {
+      log.error({ error, domain: 'root', step: 'a b' }, 'Authz domain ${domain}: ${step} failed');
+    } finally {
+      console.error = orig;
+    }
+    expect(calls).to.deep.equal([['Authz domain root: "a b" failed', error]]);
   });
 });

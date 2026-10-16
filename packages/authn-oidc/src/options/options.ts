@@ -1,3 +1,4 @@
+import type { Log } from '@spinajs/log';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcEndpoints, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../contracts.js';
@@ -57,7 +58,7 @@ export interface ConfiguredOidc {
 export interface BuildOidcOptionsExtra {
   /** The global authn.linking switches (default off); a provider switch without its global one only earns a warning. */
   readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
-  readonly log?: { warn(message: string): void };
+  readonly log?: Pick<Log, 'warn'>;
 }
 
 const ROOT = 'authn.oidc';
@@ -135,7 +136,7 @@ function buildProvider(name: string, provider: ConfiguredProvider, env: string |
     const global = extra.linking ?? { jit: false, byVerifiedEmail: false };
     for (const k of ['jit', 'byVerifiedEmail'] as const) {
       if (linking[k] && !global[k]) {
-        extra.log.warn(`${at}.linking.${k} is on but authn.linking.${k} is off, so it has no effect`);
+        extra.log.warn({ configPath: at, linkingSwitch: k }, '${configPath}.linking.${linkingSwitch} is on but authn.linking.${linkingSwitch} is off, so it has no effect');
       }
     }
   }

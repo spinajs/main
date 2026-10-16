@@ -37,7 +37,7 @@ export class FromCookie extends RouteArgs {
       result = cs.unsign(arg, this._coockieSecret);
       if (result === false) {
 
-        this.Log.warn(`Cookie ${param.Name} is not signed or signature is invalid.`);
+        this.Log.warn({ cookie: param.Name }, 'Cookie ${cookie} is not signed or signature is invalid.');
 
         return { CallData: callData, Args: null };
       }

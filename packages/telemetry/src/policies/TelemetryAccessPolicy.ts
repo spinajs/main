@@ -112,7 +112,7 @@ export class TelemetryAccessPolicy extends SyncService implements BasePolicy {
       const permissions = (typeof raw === 'string' ? [raw] : raw) as Permission[];
 
       if (telemetrySkipsAuth({ skipInDevelopment: this.SkipInDevelopment, isProduction: this.IsProduction, configuredEnv: configuredEnvOf(this) })) {
-        this.Log.warn(`telemetry endpoint ${endpoint}: authorization skipped (telemetry.auth.skipInDevelopment in a development env)`);
+        this.Log.warn({ endpoint }, 'telemetry endpoint ${endpoint}: authorization skipped (telemetry.auth.skipInDevelopment in a development env)');
         return { kind: 'skip' };
       }
       return { kind: 'access', policy: new AccessPolicy('route'), holder: ruleHolder(permissions, this.Domain) };

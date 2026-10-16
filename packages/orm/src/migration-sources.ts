@@ -142,7 +142,7 @@ export class FilesystemMigrationSource extends MigrationSource {
           return true;
         }
 
-        this.Log.trace(`Migration directory ${d} does not exist - skipped`);
+        this.Log.trace({ dir: d }, 'Migration directory ${dir} does not exist - skipped');
         return false;
       })
       .flatMap((d) => patterns.flatMap((p) => glob.sync(path.join(d, p).replace(/\\/g, '/'))))
@@ -153,7 +153,7 @@ export class FilesystemMigrationSource extends MigrationSource {
     // the same file is reachable from two configured directories ( `lib/migrations` and a path
     // that resolves to it ), and importing it twice would report the same class twice
     for (const file of _.uniq(files)) {
-      this.Log.trace(`Loading migration file ${file}`);
+      this.Log.trace({ file }, 'Loading migration file ${file}');
 
       let module: Record<string, unknown>;
 
@@ -165,7 +165,7 @@ export class FilesystemMigrationSource extends MigrationSource {
           // compiled deployment tries the `.ts` copy of every migration and fails to import under
           // a plain JS runtime. The `.js` copy is found by the same scan, so this is routine, not
           // a problem - throwing would make a shipped default take the boot down
-          this.Log.trace(`Could not load migration file ${file}: ${(err as Error).message}`);
+          this.Log.trace({ error: err, file }, 'Could not load migration file ${file}');
           continue;
         }
 
@@ -187,7 +187,7 @@ export class FilesystemMigrationSource extends MigrationSource {
           throw new OrmException(`Could not load migration file ${file}`, undefined, undefined, undefined, err);
         }
 
-        this.Log.warn(err as Error, `Could not load migration file ${file} from a fallback migration directory - this migration was NOT registered`);
+        this.Log.warn({ error: err, file }, 'Could not load migration file ${file} from a fallback migration directory - this migration was NOT registered');
         continue;
       }
 
@@ -206,7 +206,7 @@ export class FilesystemMigrationSource extends MigrationSource {
         // barrel or the base class's own file, never a migration anyone meant to register - and
         // takes the whole boot down. Skipped here instead, at trace.
         if (!MIGRATION_FILE_REGEXP.test(className)) {
-          this.Log.trace(`${file} exports ${className}, which extends OrmMigration but carries no _yyyy_MM_dd_HH_mm_ss timestamp - not a migration, skipped`);
+          this.Log.trace({ file, className }, '${file} exports ${className}, which extends OrmMigration but carries no _yyyy_MM_dd_HH_mm_ss timestamp - not a migration, skipped');
           continue;
         }
 

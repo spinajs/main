@@ -150,18 +150,18 @@ function _listOrResolveFromFiles(
           /* eslint-disable */
           const exists = fs.existsSync(path.normalize(d));
           if (!exists) {
-            logger.warn(`Directory ${d} not exists`);
+            logger.warn({ directory: d }, 'Directory ${directory} not exists');
           }
           return exists;
         })
         .flatMap((d: string) => glob.sync(path.join(d, filter).replace(/\\/g, '/')))
         .flatMap((f: string) => {
-          logger.trace(`Loading file ${f}`);
+          logger.trace({ file: f }, 'Loading file ${file}');
 
           return DI.__spinajs_require__(f).then((fTypes: any) => {
             const _k = Object.keys(fTypes);
             if (!_k) {
-              logger.warn(`File ${f} does not contain any exported type !`);
+              logger.warn({ file: f }, 'File ${file} does not contain any exported type !');
               return null;
             }
 
@@ -197,7 +197,7 @@ function _listOrResolveFromFiles(
                   type,
                 });
               } catch (err) {
-                logger.error(err, `Cannot resolve type ${type.name} from file ${f}`);
+                logger.error({ error: err, type: type.name, file: f }, 'Cannot resolve type ${type} from file ${file}');
               }
             }
           });

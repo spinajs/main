@@ -330,7 +330,7 @@ export class PostgresAlterColumnQueryCompiler extends SqlAlterColumnQueryCompile
   protected _add(definition: string): string | null {
     if (this.builder.AfterColumn) {
       // AFTER is MySQL-only; postgres appends columns at the end and offers no placement
-      this.Log.warn(`postgres cannot place column '${this.builder.Name}' AFTER '${this.builder.AfterColumn}' - the column is appended at the end of the table`);
+      this.Log.warn({ column: this.builder.Name, afterColumn: this.builder.AfterColumn }, 'postgres cannot place column ${column} AFTER ${afterColumn} - the column is appended at the end of the table');
     }
 
     return `ADD COLUMN ${definition}`;

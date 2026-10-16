@@ -13,12 +13,12 @@ export class DeleteUser extends RbacCliCommand {
     try {
 
       await deleteUser(idOrUuid); 
-      this.Log.success(`User ${idOrUuid} deleted`);
+      this.Log.success({ user: idOrUuid }, 'User ${user} deleted');
     } catch (e) {
       if (e instanceof ResourceNotFound) {
-        this.Log.error(`User ${idOrUuid} not found`);
+        this.Log.error({ user: idOrUuid }, 'User ${user} not found');
       } else {
-        this.Log.error(`Error while deleting user ${idOrUuid} ${e.message}`);
+        this.Log.error({ error: e, user: idOrUuid }, 'Error while deleting user ${user}');
       }
     }
   }

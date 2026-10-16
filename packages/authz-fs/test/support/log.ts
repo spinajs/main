@@ -1,4 +1,4 @@
-import { Log } from '@spinajs/log-common';
+import { Log, renderTemplate } from '@spinajs/log-common';
 import { testHost } from '@spinajs/authz-testing';
 
 export interface LogLine {
@@ -18,7 +18,9 @@ function quietLog(name: string): Log {
       if (key in t) return t[key as keyof typeof t];
       if (typeof key !== 'string' || key === 'then') return undefined;
       return (...args: unknown[]) => {
-        const message = args.find((a) => typeof a === 'string');
+        const [first, second] = args;
+        const isFields = typeof first === 'object' && first !== null && !(first instanceof Error) && typeof second === 'string';
+        const message = isFields ? renderTemplate(second, first as Record<string, unknown>) : args.find((a) => typeof a === 'string');
         logLines.push({ logger: name, level: key, message: typeof message === 'string' ? message : '' });
       };
     },

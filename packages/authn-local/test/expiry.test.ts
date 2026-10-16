@@ -13,6 +13,7 @@ import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService, LocalPasswordServiceDeps } from '../src/service.js';
 import { LocalPasswordStrategy } from '../src/strategy.js';
 import { PasswordAgeSource, PasswordExpirationJob, PasswordExpirationJobDeps } from '../src/expiration.js';
+import { recordingLog } from './support/recording-log.js';
 import { RecordingTokenService } from './recording-token-service.js';
 
 const OLD = 'Old-Password-1';
@@ -55,7 +56,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
     sinks: [events],
     hasher,
     policy: new LocalPasswordPolicy({}),
-    log: { warn: (m: string) => warnings.push(m) },
+    log: recordingLog(warnings),
     resetUrl: 'https://app.example.com/password-reset',
     ...over,
   });
@@ -184,7 +185,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
     await x.service.expire(x.alice, { cause: 'aged' }, ctx());
     expect(await x.passwords.get(x.alice)).to.equal(EXPIRED_PASSWORD_MARKER);
     expect(x.warnings).to.have.length(1);
-    expect(x.warnings[0]).to.contain('Error');
+    expect(x.warnings[0]).to.contain('"errorName":"Error"');
     expect(x.warnings[0]).to.not.contain('smtp refused');
   });
 
@@ -267,7 +268,7 @@ describe('PasswordExpirationJob (D16)', function () {
     );
     const service = new RecordingExpiryService(failFor);
     const warnings: string[] = [];
-    const job = new PasswordExpirationJob({ ages, passwords, service, enabled: true, log: { warn: (m: string) => warnings.push(m) }, ...over });
+    const job = new PasswordExpirationJob({ ages, passwords, service, enabled: true, log: recordingLog(warnings), ...over });
     return { passwords, ages, service, warnings, job };
   }
 
@@ -315,7 +316,7 @@ describe('PasswordExpirationJob (D16)', function () {
     expect(await x.job.run(NOW)).to.deep.equal({ expired: 1, skipped: 1, failed: 1 });
     expect(x.service.expired.map((e) => e.id)).to.deep.equal([old2]);
     expect(x.warnings).to.have.length(1);
-    expect(x.warnings[0]).to.contain('TypeError');
+    expect(x.warnings[0]).to.contain('"errorName":"TypeError"');
     expect(x.warnings[0]).to.contain('old-1');
     expect(x.warnings[0]).to.not.contain('$argon2');
   });

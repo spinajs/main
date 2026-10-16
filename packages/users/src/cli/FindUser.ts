@@ -17,7 +17,8 @@ export class FindUser extends RbacCliCommand {
 
       this.Log.info(`User : ${user.Id}, ${user.Uuid}, email: ${user.Email}, login: ${user.Login}, active: ${user.IsActive}, CreatedAt: ${user.CreatedAt?.toISO() ?? '-'}, LastLogin: ${user.LastLoginAt?.toISO() ?? '-'}`);
     } catch (e) {
-      this.Log.error(e instanceof ResourceNotFound ? `User ${options.identifier} not found` : `Error while finding user ${options.identifier} ${(e as Error).message}`);
+      if (e instanceof ResourceNotFound) this.Log.error({ identifier: options.identifier }, 'User ${identifier} not found');
+      else this.Log.error({ error: e, identifier: options.identifier }, 'Error while finding user ${identifier}');
     }
   }
 }

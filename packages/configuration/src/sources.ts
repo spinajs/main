@@ -91,7 +91,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       const hoistingRoot = BaseFileSource.findHoistingRoot(resolve(process.cwd()));
 
       if (hoistingRoot) {
-        InternalLogger.trace(`WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}`, 'Configuration');
+        InternalLogger.trace({ hoistingRoot }, 'WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}', 'Configuration');
         process.env.WORKSPACE_ROOT_PATH = hoistingRoot;
       }
     }
@@ -210,7 +210,7 @@ export class JsFileSource extends BaseFileSource {
 
     async function _load(file: string) {
       try {
-        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
+        InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
 
         let cfg = (await DI.__spinajs_require__(file)) as IConfigLike;
         // execute config func before merge with rest of configuration
@@ -228,7 +228,7 @@ export class JsFileSource extends BaseFileSource {
 
         return cfg;
       } catch (err) {
-        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
+        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
         return {} as IConfigLike;      }
     }
   }
@@ -245,7 +245,7 @@ export class JsonFileSource extends BaseFileSource {
 
     function _load(file: string) {
       try {
-        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
+        InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
 
         const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as any;
 
@@ -258,7 +258,7 @@ export class JsonFileSource extends BaseFileSource {
         }
         return Promise.resolve(cfg);
       } catch (err) {
-        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
+        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
         return Promise.resolve({} as IConfigLike);
       }
     } 

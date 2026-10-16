@@ -9,6 +9,7 @@ import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_PROVIDER_SCHEMA, OIDC_RESER
 import type { OidcOptions, OidcProviderOptions } from '../src/options/options.js';
 import { OIDC_PRESETS, resolveEndpoints, resolveIssuer } from '../src/presets.js';
 import { readOidcOptions } from './support/oidc-config.js';
+import { recordingLog } from './support/recording-log.js';
 
 type Validate = ((data: unknown) => boolean) & { errors?: unknown[] | null };
 
@@ -265,7 +266,7 @@ describe('authn-oidc config', () => {
 
     it('warns when a provider linking switch is on while the global one is off', () => {
       const warnings: string[] = [];
-      const log = { warn: (m: string) => warnings.push(m) };
+      const log = recordingLog(warnings);
       readOidcOptions({ providers: { corp: generic({ linking: { jit: true, byVerifiedEmail: true } }) } }, undefined, { linking: { jit: false, byVerifiedEmail: false }, log });
       expect(warnings).to.have.length(2);
       expect(warnings[0]).to.contain('authn.oidc.providers.corp.linking.jit').and.contain('authn.linking.jit');

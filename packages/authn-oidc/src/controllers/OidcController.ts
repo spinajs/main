@@ -147,7 +147,7 @@ export class OidcController extends BaseController {
       callbackPath: (p) => `/${ROUTE_PREFIX}/${encodeURIComponent(p)}/callback`,
       linker: DI.RootContainer.hasRegistered(OidcAccountLinks) ? await DI.resolve(OidcAccountLinks) : null,
       links: DI.RootContainer.hasRegistered(IdentityLinkStore) ? await DI.resolve(IdentityLinkStore) : null,
-      log: { warn: (m) => this.Log?.warn(m), error: (m) => this.Log?.error(m) },
+      log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)), error: (...args: unknown[]) => this.Log?.error(...(args as Parameters<Log['error']>)) },
     });
     return this.flow;
   }

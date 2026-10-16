@@ -14,7 +14,7 @@ import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit } from '../contrac
 import { readDomainConfig } from '../host/config/domain-config.js';
 import { AuthzClock } from '../host/clock.js';
 import { DefaultAuthzDomains } from '../host/domains.js';
-import { engineLog } from '../host/log.js';
+import { engineLog, thrownError } from '../host/log.js';
 import { AuthzAdminBackend } from './backend.js';
 import { ADMIN_DEFAULTS, mapPermission } from './config.js';
 import type { AdminConfig, AdminPermissionMap } from './config.js';
@@ -337,7 +337,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   /** Bus, sinks and audit; the batch is committed, so their failures are logged, never thrown. */
   private async afterCommit(env: Env, actor: Principal, list: readonly AuthzCommand[], checked: readonly Checked[], applied: readonly Applied[], ctx: AdminCallContext): Promise<void> {
     const actorRef = refOf(actor);
-    const fail = (what: string) => (e: unknown) => this.log.error(`${env.where}: ${what} after a committed admin batch failed: ${describeError(e)}`);
+    const fail = (step: string) => (e: unknown) => this.log.error({ error: thrownError(e), domain: env.domain, step }, 'Authz domain ${domain}: ${step} after a committed admin batch failed');
 
     const tags = [...new Set(applied.flatMap((a) => a.tags))];
     if (env.bus) {

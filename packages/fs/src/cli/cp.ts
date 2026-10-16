@@ -21,9 +21,12 @@ export class FsCpCommand extends CliCommand {
 
     try {
       await _copy(src, dst, fsName, options.dstFs);
-      this.Log.success(`Copied ${src} ( ${fsName} ) -> ${dst} ( ${options.dstFs ?? fsName} )`);
+      this.Log.success(
+        { src, fsName, dst, dstFs: options.dstFs ?? fsName },
+        'Copied ${src} ( ${fsName} ) -> ${dst} ( ${dstFs} )',
+      );
     } catch (err) {
-      this.Log.error(`Cannot copy ${src}: ${err.message}`);
+      this.Log.error({ error: err, src }, 'Cannot copy ${src}');
     }
   }
 }

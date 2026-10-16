@@ -53,7 +53,7 @@ export class OtelTracing extends AsyncService {
     });
     const processor = processorOverride ?? new BatchSpanProcessor(new OTLPTraceExporter({ url: this.endpoint }));
     this.provider = new NodeTracerProvider({ resource, spanProcessors: [processor] });
-    this.log.info(`otel tracing started (service=${this.serviceName}, endpoint=${this.endpoint})`);
+    this.log.info({ serviceName: this.serviceName, endpoint: this.endpoint }, 'otel tracing started (service=${serviceName}, endpoint=${endpoint})');
   }
 
   public get active(): boolean {

@@ -16,6 +16,8 @@ import './dehydrators.js';
  */
 export type TransactionCallback<R = any> = (driver: OrmDriver) => Promise<R>;
 
+const STATE_CHANGE_TEMPLATE = 'connection ${connection} is ${state} (was ${previousState})';
+
 export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> extends SyncService {
   /**
    * Connection options
@@ -159,12 +161,13 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     const previous = this._state;
     this._state = state;
 
+    const fields = { connection: this.Options.Name, state, previousState: previous };
     if (state === ConnectionState.Connected) {
-      this.Log.info(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.info(fields, STATE_CHANGE_TEMPLATE);
     } else if (state === ConnectionState.Degraded || state === ConnectionState.Disconnected) {
-      this.Log.warn(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.warn(fields, STATE_CHANGE_TEMPLATE);
     } else {
-      this.Log.trace(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.trace(fields, STATE_CHANGE_TEMPLATE);
     }
   }
 
@@ -216,14 +219,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
         }
 
         const wait = backoffDelay(attempt, RetryDelay, MaxRetryDelay);
-        this.Log.warn(`connection ${this.Options.Name} lost (${(err as Error).message}); reconnect attempt ${attempt + 1}/${MaxRetries} in ${wait}ms`);
+        this.Log.warn({ error: err, connection: this.Options.Name, attempt: attempt + 1, maxRetries: MaxRetries, wait }, 'connection ${connection} lost; reconnect attempt ${attempt}/${maxRetries} in ${wait}ms');
         await delay(wait);
 
         try {
           this.setState(ConnectionState.Connecting);
           await this.connect();
         } catch (reconnectErr) {
-          this.Log.warn(`reconnect attempt ${attempt + 1} for ${this.Options.Name} failed: ${(reconnectErr as Error).message}`);
+          this.Log.warn({ error: reconnectErr, attempt: attempt + 1, connection: this.Options.Name }, 'reconnect attempt ${attempt} for ${connection} failed');
           this.setState(ConnectionState.Degraded);
         }
       }
@@ -296,7 +299,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       // a real connection ) set the state themselves.
       await this.connect();
     } catch (err) {
-      this.Log.warn(`health check reconnect for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log.warn({ error: err, connection: this.Options.Name }, 'health check reconnect for ${connection} failed');
     }
   }
 
@@ -332,7 +335,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       // Telemetry must never break a connection. This runs first on every health tick, so a
       // registry that throws — or a driver built outside DI, as tooling and tests do — would
       // otherwise stop the probe that follows it from ever running.
-      this.Log?.trace(`publishing pool metrics for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log?.trace({ error: err, connection: this.Options.Name }, 'publishing pool metrics for ${connection} failed');
     }
   }
 
@@ -352,7 +355,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
       ormHistogram(metrics, ORM_METRIC_KEY_ACQUIRE_SECONDS).observe({ connection: this.Options.Name }, seconds);
     } catch (err) {
-      this.Log?.trace(`observing pool acquire time for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log?.trace({ error: err, connection: this.Options.Name }, 'observing pool acquire time for ${connection} failed');
     }
   }
 
@@ -538,7 +541,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       try {
         await cb();
       } catch (err) {
-        this.Log?.error(`afterCommit callback on connection ${this.Options.Name} failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.Log?.error({ error: err, connection: this.Options.Name }, 'afterCommit callback on connection ${connection} failed');
       }
     }
   }

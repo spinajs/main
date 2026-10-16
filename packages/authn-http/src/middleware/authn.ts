@@ -152,13 +152,16 @@ export class AuthnMiddleware extends ServerMiddleware {
     else if (typeof signed === 'string' || signed === false) id = signed;
 
     if (id === false) {
-      this.Log.warn('Rejected a session cookie with an invalid signature', { Cookie: typeof raw === 'string' ? logHash(raw) : undefined, Ip: req.storage.ClientIp });
+      this.Log.warn(
+        { cookie: typeof raw === 'string' ? logHash(raw) : undefined, ip: req.storage.ClientIp },
+        'Rejected a session cookie with an invalid signature:${?cookie} cookie ${cookie},${/cookie} ip ${ip}',
+      );
       return null;
     }
     if (!id) return null;
 
     const restored = await this.Sessions.restore(id);
-    if (!restored) this.Log.warn('Session cookie names no live session (expired or unknown)', { Session: logHash(id), Ip: req.storage.ClientIp });
+    if (!restored) this.Log.warn({ session: logHash(id), ip: req.storage.ClientIp }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
     return restored;
   }
 

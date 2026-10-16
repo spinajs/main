@@ -35,7 +35,7 @@ export class RenderImageCommand extends CliCommand {
     const renderer = await DI.resolve(ImageRenderer, [{ type }]);
 
     try {
-      this.Log.trace(`Rendering ${input} to image ${options.output}, options: ${JSON.stringify(options)}`);
+      this.Log.trace({ input, output: options.output, options }, 'Rendering ${input} to image ${output}, options: ${options}');
 
       const html = await resolveInputHtml(input, options);
 
@@ -47,9 +47,9 @@ export class RenderImageCommand extends CliCommand {
         onProgress: cliProgressReporter(),
       });
 
-      this.Log.success(`Rendered ${input} to image ${options.output}`);
+      this.Log.success({ input, output: options.output }, 'Rendered ${input} to image ${output}');
     } catch (err) {
-      this.Log.error(`Cannot render ${input} to image, reason: ${err.message}`);
+      this.Log.error({ error: err, input }, 'Cannot render ${input} to image');
       throw err;
     } finally {
       // one-shot CLI: close the pooled browser so the process can exit

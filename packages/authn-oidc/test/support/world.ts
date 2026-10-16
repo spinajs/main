@@ -7,6 +7,7 @@ import { readOidcOptions } from './oidc-config.js';
 import { OidcProvider } from '../../src/provider.js';
 import { OidcStrategy } from '../../src/strategy.js';
 import { OidcLogin } from '../../src/login.js';
+import { recordingLog } from './recording-log.js';
 import type { OidcAnswer, OidcRequest } from '../../src/login.js';
 import { flowCookieName } from '../../src/flow/cookie.js';
 import { OidcAccountLinks } from '../../src/links.js';
@@ -101,6 +102,7 @@ export async function world(o: WorldOptions = {}) {
     hooks: () => [hook],
   });
   const linker = new FakeAccountLinks(sessions, links);
+  const logged: string[] = [];
   const login = new OidcLogin({
     linker,
     links,
@@ -111,6 +113,7 @@ export async function world(o: WorldOptions = {}) {
     env: ENV,
     sessionCookie: (h: SessionHandle) => ({ Name: SESSION_COOKIE, Value: h.id, Options: { httpOnly: true } }),
     callbackPath: (p) => `/auth/oidc/${p}/callback`,
+    log: recordingLog(logged),
   });
   const ctx = (): AuthnContext => ({ now: new Date(), purpose: 'login', ip: '192.0.2.10' });
   const request = (query: Record<string, unknown> = {}, cookies: Record<string, string> = {}, navigation = false): OidcRequest => ({ origin: ORIGIN, cookies, query, navigation, ctx: ctx() });
@@ -124,5 +127,5 @@ export async function world(o: WorldOptions = {}) {
     return { begun, query, done, flow: flowOf(begun) };
   }
 
-  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, login, ctx, request, flowOf, roundTrip };
+  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, login, logged, ctx, request, flowOf, roundTrip };
 }

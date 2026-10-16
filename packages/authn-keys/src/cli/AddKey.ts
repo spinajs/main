@@ -51,6 +51,6 @@ export class AddKey extends CliCommand {
     if (!r.ok) {
       throw new Error(`key not registered: ${r.code}`);
     }
-    this.Log.success(`Key registered: kid ${r.key.kid}, ${r.key.alg}, thumbprint ${r.key.thumbprint}`);
+    this.Log.success({ kid: r.key.kid, alg: r.key.alg, thumbprint: r.key.thumbprint }, 'Key registered: kid ${kid}, ${alg}, thumbprint ${thumbprint}');
   }
 }

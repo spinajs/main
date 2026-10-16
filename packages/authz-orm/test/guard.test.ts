@@ -6,6 +6,7 @@ import { AuthzConfigError, SYSTEM, authzStorage, runWithPrincipal } from '@spina
 import type { Principal } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import type { ModelBase } from '@spinajs/orm';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { AccessGuardMiddleware } from '../src/guard/middleware.js';
 import { guardMode } from '../src/guard/env.js';
@@ -101,7 +102,7 @@ describe('authz-orm runtime guard', function () {
     for (let i = 0; i < 3; i++) await as(alice, async () => await Task.query());
     await as(alice, async () => await Task.query());
     expect(warn.callCount).to.equal(2);
-    expect(String(warn.firstCall.args[0])).to.match(/guard\.test\.ts/);
+    expect(renderTemplate(warn.firstCall.args[1] as string, warn.firstCall.args[0] as unknown as Record<string, unknown>)).to.match(/guard\.test\.ts/);
   });
 
   it('does not flag single-object loads by primary key', async () => {

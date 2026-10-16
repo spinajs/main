@@ -193,7 +193,7 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
-    this.Log.info(`Connecting to STOMP queue at ${this.Options.host} with client-id: ${this.ClientId} ...`);
+    this.Log.info({ host: this.Options.host, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
     this.Client = this.createClient({
       brokerURL: this.Options.host,
@@ -241,19 +241,20 @@ export class StompQueueClient extends QueueClient {
     // lifecycle handlers that simply log - installed once, never reassigned
 
     this.Client.onUnhandledMessage = (message) => {
-      this.Log.warn(`Received unhandled message on ${message.headers?.destination ?? '<unknown>'} ( ${this.Options.name} ): ${message.body}`);
+      this.Log.warn({ destination: message.headers?.destination ?? '<unknown>', connection: this.Options.name, body: message.body }, 'Received unhandled message on ${destination} ( ${connection} ): ${body}');
     };
 
     this.Client.onDisconnect = () => {
-      this.Log.warn(`Disconnected from STOMP client, client-id: ${this.ClientId}`);
+      this.Log.warn({ clientId: this.ClientId }, 'Disconnected from STOMP client, client-id: ${clientId}');
     };
 
     this.Client.onWebSocketClose = (evt) => {
       // 1000 = clean close, 1006 = abnormal ( connect failed / dropped without a close frame ),
       // anything else usually comes from the broker with a reason
-      const code = evt?.code ?? 'unknown';
-      const reason = evt?.reason ? `, reason: ${evt.reason}` : '';
-      this.Log.warn(`STOMP websocket closed ( code: ${code}${reason} ), client-id: ${this.ClientId} ( will auto-reconnect if active )`);
+      this.Log.warn(
+        { code: evt?.code ?? 'unknown', reason: evt?.reason, clientId: this.ClientId },
+        'STOMP websocket closed ( code: ${code}${?reason}, reason: ${reason}${/reason} ), client-id: ${clientId} ( will auto-reconnect if active )',
+      );
     };
 
     return new Promise<void>((resolve, reject) => {
@@ -264,7 +265,7 @@ export class StompQueueClient extends QueueClient {
       // onConnect fires on EVERY ( re )connect - this is where we replay
       // subscriptions and flush buffered emits so the client survives drops
       this.Client.onConnect = () => {
-        this.Log.success('Connected to STOMP client, client-id: ' + this.ClientId);
+        this.Log.success({ clientId: this.ClientId }, 'Connected to STOMP client, client-id: ${clientId}');
 
         for (const desc of this.Subscriptions.values()) {
           this.applySubscription(desc);
@@ -282,8 +283,8 @@ export class StompQueueClient extends QueueClient {
       this.Client.onStompError = (frame) => {
         // Compliant brokers terminate the connection after an ERROR frame.
         // Bad login / passcode typically surfaces here.
-        this.Log.error('Broker reported error: ' + frame.headers['message']);
-        this.Log.error('Additional details: ' + frame.body);
+        this.Log.error({ brokerMessage: frame.headers['message'] }, 'Broker reported error: ${brokerMessage}');
+        this.Log.error({ details: frame.body }, 'Additional details: ${details}');
 
         if (!settled) {
           settled = true;
@@ -306,7 +307,7 @@ export class StompQueueClient extends QueueClient {
         }
 
         try {
-          this.Log.error(`Websocket error: ${reason}, client-id: ${this.ClientId}`);
+          this.Log.error({ reason, clientId: this.ClientId }, 'Websocket error: ${reason}, client-id: ${clientId}');
         } catch {
           // logging must never take the connection down
         }
@@ -317,7 +318,7 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async dispose() {
-    this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
+    this.Log.info({ connection: this.Options.name }, 'Disposing queue connection ${connection} ...');
 
     this.Disposing = true;
 
@@ -347,7 +348,7 @@ export class StompQueueClient extends QueueClient {
       // not connected - buffer and flush on next ( re )connect
       return new Promise<void>((resolve, reject) => {
         this.PendingEmits.push({ message, resolve, reject });
-        this.Log.warn(`Queue ${this.Options.name} not connected, message ${message.Name} buffered ( ${this.PendingEmits.length} pending )`);
+        this.Log.warn({ connection: this.Options.name, messageName: message.Name, pending: this.PendingEmits.length }, 'Queue ${connection} not connected, message ${messageName} buffered ( ${pending} pending )');
       });
     }
 
@@ -368,7 +369,7 @@ export class StompQueueClient extends QueueClient {
         // delete the broker-side durable subscription, not just stop consuming.
         // ActiveMQ removes a durable sub when UNSUBSCRIBE carries its subscription name.
         this.Client.unsubscribe(desc.subscriptionId, { 'activemq.subscriptionName': desc.subscriptionId });
-        this.Log.info(`Removed durable subscription ${desc.subscriptionId} on channel ${c}`);
+        this.Log.info({ subscriptionId: desc.subscriptionId, channel: c }, 'Removed durable subscription ${subscriptionId} on channel ${channel}');
       } else {
         desc.active?.unsubscribe();
       }
@@ -382,7 +383,7 @@ export class StompQueueClient extends QueueClient {
 
     channels.forEach((c) => {
       if (this.Subscriptions.has(c)) {
-        this.Log.warn(`Channel ${c} already subscribed !`);
+        this.Log.warn({ channel: c }, 'Channel ${channel} already subscribed !');
         return;
       }
 
@@ -397,7 +398,7 @@ export class StompQueueClient extends QueueClient {
       if (this.Client?.connected) {
         this.applySubscription(desc);
       } else {
-        this.Log.info(`Channel ${c} recorded, will subscribe once connected`);
+        this.Log.info({ channel: c }, 'Channel ${channel} recorded, will subscribe once connected');
       }
     });
   }
@@ -426,7 +427,7 @@ export class StompQueueClient extends QueueClient {
         try {
           qMessage = JSON.parse(message.body);
         } catch (err) {
-          this.Log.error(`Cannot parse message body on channel ${desc.channel}: ${(err as Error).message}`);
+          this.Log.error({ error: err, channel: desc.channel }, 'Cannot parse message body on channel ${channel}');
           this.handleUnparseableMessage(message, desc.channel, err);
           return;
         }
@@ -448,7 +449,7 @@ export class StompQueueClient extends QueueClient {
       headers,
     );
 
-    this.Log.success(`Channel ${desc.channel}, durable: ${desc.durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+    this.Log.success({ channel: desc.channel, durable: !!desc.durable }, 'Channel ${channel}, durable: ${durable} subscribed and ready to receive messages !');
   }
 
   /**
@@ -464,7 +465,7 @@ export class StompQueueClient extends QueueClient {
 
     // events are not retried or tracked - drop them
     if (qMessage.Type !== QueueMessageType.Job) {
-      this.Log.warn(`Event handler failed on channel ${desc.channel}, dropping message ${qMessage.Name}. ${reason}`);
+      this.Log.warn({ channel: desc.channel, messageName: qMessage.Name, reason }, 'Event handler failed on channel ${channel}, dropping message ${messageName}. ${reason}');
       message.ack();
       return;
     }
@@ -501,9 +502,9 @@ export class StompQueueClient extends QueueClient {
         this.Client.publish({ destination: desc.channel, body: message.body, headers });
         message.ack();
 
-        this.Log.warn(`Job ${qMessage.Name} failed on ${desc.channel}, retry ${nextAttempt}/${maxRetries} scheduled in ${delay}ms. ${reason}`);
+        this.Log.warn({ jobName: qMessage.Name, channel: desc.channel, attempt: nextAttempt, maxRetries, delay, reason }, 'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}');
       } catch (retryErr) {
-        this.Log.error(`Failed to reschedule job ${qMessage.Name} on ${desc.channel}, nacking instead: ${(retryErr as Error).message}`);
+        this.Log.error({ error: retryErr, jobName: qMessage.Name, channel: desc.channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
         message.nack();
       }
 
@@ -532,7 +533,7 @@ export class StompQueueClient extends QueueClient {
     if (!dlq) {
       // retries are already exhausted here; nacking would just redeliver into another exhausted
       // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
-      this.Log.warn(`Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}`);
+      this.Log.warn({ channel, reason }, 'Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}');
       message.ack();
       return;
     }
@@ -552,9 +553,9 @@ export class StompQueueClient extends QueueClient {
       this.Client.publish({ destination: dlq, body: message.body, headers });
       message.ack();
 
-      this.Log.warn(`Message failed on channel ${channel}, routed to dead-letter ${dlq}. ${reason}`);
+      this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
     } catch (dlqErr) {
-      this.Log.error(`Failed to route message to dead-letter ${dlq}, nacking instead: ${(dlqErr as Error).message}`);
+      this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
       message.nack();
     }
   }
@@ -632,7 +633,7 @@ export class StompQueueClient extends QueueClient {
 
       this.Client.watchForReceipt(receiptId, () => {
         clearTimeout(timer);
-        this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${channel} ( ${this.Options.name} )`);
+        this.Log.trace({ messageType: message.Type, messageName: message.Name, channel, connection: this.Options.name }, 'Published ${messageType} Name: ${messageName} to channel ${channel} ( ${connection} )');
         resolve();
       });
 
@@ -659,7 +660,7 @@ export class StompQueueClient extends QueueClient {
     const pending = this.PendingEmits;
     this.PendingEmits = [];
 
-    this.Log.info(`Flushing ${pending.length} buffered message(s) for queue ${this.Options.name}`);
+    this.Log.info({ count: pending.length, connection: this.Options.name }, 'Flushing ${count} buffered message(s) for queue ${connection}');
 
     for (const p of pending) {
       this.publishMessage(p.message).then(p.resolve).catch(p.reject);

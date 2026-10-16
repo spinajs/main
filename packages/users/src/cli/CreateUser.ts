@@ -29,7 +29,7 @@ export class CreateUser extends RbacCliCommand {
 
       this.Log.success(options.password ? `User created` : `User created and invited to set a password`);
     } catch (e) {
-      this.Log.error(`Error while creating user ${(e as Error).message}`);
+      this.Log.error({ error: e }, 'Error while creating user');
     }
   }
 }

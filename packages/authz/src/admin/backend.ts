@@ -2,7 +2,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 import type { AuthzCommandResult, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
-import { engineLog } from '../host/log.js';
+import { engineLog, thrownError } from '../host/log.js';
 
 /**
  * What a committed batch leaves under its idempotency key; rows[i] is the row command i wrote (for the sugar
@@ -120,7 +120,7 @@ export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
         try {
           undo();
         } catch (err) {
-          this.log.error(`authz admin: an undo of a rolled back memory transaction failed: ${err instanceof Error ? err.message : String(err)}`);
+          this.log.error({ error: thrownError(err) }, 'authz admin: an undo of a rolled back memory transaction failed');
         }
       }
       throw e;

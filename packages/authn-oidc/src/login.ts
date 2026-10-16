@@ -1,3 +1,5 @@
+import type { Log } from '@spinajs/log';
+import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
 import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, IdentityLinkStore, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
@@ -60,7 +62,7 @@ export interface OidcLoginDeps {
   readonly sessionCookie: (handle: SessionHandle) => FlowCookie;
   /** The callback route path of a provider, e.g. '/auth/oidc/corp/callback'. */
   readonly callbackPath: (provider: string) => string;
-  readonly log?: { warn(message: string): void; error(message: string): void };
+  readonly log?: Pick<Log, 'warn' | 'error'>;
   /** Link routes answer 404 without it (D16). */
   readonly linker?: OidcAccountLinks | null;
   /** Finds the link a DELETE names by provider. */
@@ -80,8 +82,9 @@ function callbackQueryOf(q: Readonly<Record<string, unknown>>): OidcCallbackQuer
     const v = q[k];
     if (v === undefined) continue;
     // A repeated parameter arrives as an array: refuse it rather than pick one.
-    if (typeof v !== 'string' || v.length > MAX_QUERY_VALUE) return null;
-    out[k] = v;
+    const [ok, value] = _try_check_arg(_is_string(_max_length(MAX_QUERY_VALUE)))(v, k);
+    if (!ok) return null;
+    out[k] = value;
   }
   return out;
 }
@@ -102,7 +105,7 @@ export class OidcLogin {
       const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, returnTo: req.query.returnTo, mode: 'login', now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
-      this.d.log?.warn(`authn-oidc: could not start a login with provider ${provider}: ${errorName(err)}`);
+      this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start a login with provider ${provider}: ${errorName}');
       return this.failure(req);
     }
   }
@@ -122,7 +125,7 @@ export class OidcLogin {
     try {
       result = await this.d.service.authenticate(credentials, { ...req.ctx, purpose: 'login' });
     } catch (err) {
-      this.d.log?.error(`authn-oidc: the login with provider ${provider} failed unexpectedly: ${errorName(err)}`);
+      this.d.log?.error({ provider, errorName: errorName(err) }, 'authn-oidc: the login with provider ${provider} failed unexpectedly: ${errorName}');
       return this.failure(req);
     }
     if (result.status === 'failure') return this.failure(req, result.retryAfterSeconds);
@@ -151,7 +154,7 @@ export class OidcLogin {
       const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, mode: 'link', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
-      this.d.log?.warn(`authn-oidc: could not start linking with provider ${provider}: ${errorName(err)}`);
+      this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start linking with provider ${provider}: ${errorName}');
       return this.failure(req);
     }
   }
@@ -178,7 +181,7 @@ export class OidcLogin {
       const linked = await this.d.linker.link(session, external, ctx);
       if (!linked.ok) return this.failure(req);
     } catch (err) {
-      this.d.log?.warn(`authn-oidc: linking with ${strategy.name} failed: ${errorName(err)}`);
+      this.d.log?.warn({ strategy: strategy.name, errorName: errorName(err) }, 'authn-oidc: linking with ${strategy} failed: ${errorName}');
       return this.failure(req);
     }
     return this.moveOn(req, this.d.redirects.success, [clearFlowCookie(this.d.env)]);
@@ -205,7 +208,7 @@ export class OidcLogin {
       const out = await this.d.linker.unlink(session, mine[0].id, { ...req.ctx, purpose: 'link', session });
       return out.ok ? { status: 204, cookies: [] } : { status: 403, cookies: [], body: REFUSED_BODY };
     } catch (err) {
-      this.d.log?.error(`authn-oidc: unlinking ${strategy.name} failed: ${errorName(err)}`);
+      this.d.log?.error({ strategy: strategy.name, errorName: errorName(err) }, 'authn-oidc: unlinking ${strategy} failed: ${errorName}');
       return { status: 403, cookies: [], body: REFUSED_BODY };
     }
   }

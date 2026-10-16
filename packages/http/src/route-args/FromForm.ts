@@ -241,7 +241,7 @@ export class FromFile extends FromFormBase {
     try {
       for (const m of middlewares) {
         for (const f of uplFiles) {
-          this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
+          this.Log.trace({ middleware: m.constructor.name, file: f.Name }, 'Executing file middleware ${middleware} for file ${file}');
           const result = await m.beforeUpload(f, uploadOptions);
           // merge transform result
           Object.assign(f, result);

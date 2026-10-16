@@ -4,6 +4,7 @@ import * as sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { EmailSender, IEmail } from '../src/index.js';
 import { DefaultEmailService } from '../src/index.js';
@@ -155,7 +156,7 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const error = (service as any).Log.error as sinon.SinonStub;
     expect(error.calledOnce).to.equal(true);
-    expect(error.firstCall.args[0]).to.contain('test');
+    expect(renderTemplate(error.firstCall.args[1], error.firstCall.args[0])).to.contain('test');
   });
 
   it('says nothing at startup on a dev environment', async () => {
@@ -174,7 +175,8 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const warn = (service as any).Log.warn as sinon.SinonStub;
     expect(warn.calledOnce).to.equal(true);
-    expect(warn.firstCall.args[0]).to.not.contain('client@acme.com');
+    expect(renderTemplate(warn.firstCall.args[1], warn.firstCall.args[0])).to.not.contain('client@acme.com');
+    expect(JSON.stringify(warn.firstCall.args[0])).to.not.contain('client@acme.com');
     expect((service as any).Log.trace.calledOnce).to.equal(true);
   });
 
@@ -188,6 +190,7 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const info = (service as any).Log.info as sinon.SinonStub;
     expect(info.calledOnce).to.equal(true);
-    expect(info.firstCall.args[0]).to.not.contain('client@acme.com');
+    expect(renderTemplate(info.firstCall.args[1], info.firstCall.args[0])).to.not.contain('client@acme.com');
+    expect(JSON.stringify(info.firstCall.args[0])).to.not.contain('client@acme.com');
   });
 });

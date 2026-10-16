@@ -1,7 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { ChangeBus } from '../contracts/service.js';
 import type { AuthzChange } from '../contracts/service.js';
-import { engineLog } from './log.js';
+import { engineLog, thrownError } from './log.js';
 
 @Singleton()
 @Injectable(ChangeBus)
@@ -12,7 +12,7 @@ export class InProcessChangeBus extends ChangeBus {
   async publish(change: AuthzChange): Promise<void> {
     // Snapshot: a subscriber may unsubscribe (or subscribe) while we deliver.
     for (const fn of [...this.subscribers]) {
-      const fail = (err: unknown) => this.log.error(`authz change subscriber failed: ${err instanceof Error ? err.message : String(err)}`);
+      const fail = (err: unknown) => this.log.error({ error: thrownError(err) }, 'authz change subscriber failed');
       try {
         const r = fn(change) as unknown;
         if (r !== null && typeof r === 'object' && typeof (r as Promise<unknown>).then === 'function') (r as Promise<unknown>).then(undefined, fail);

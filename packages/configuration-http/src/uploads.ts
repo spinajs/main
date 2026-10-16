@@ -64,7 +64,7 @@ export class ConfigFileUploads {
       return await this.acceptFile(entry, file);
     } finally {
       await rm(file.OriginalFile.filepath, { force: true }).catch((err) =>
-        this.Log.warn(`Temporary upload file ${file.OriginalFile.filepath} was not removed: ${(err as Error).message}`),
+        this.Log.warn({ error: err, file: file.OriginalFile.filepath }, 'Temporary upload file ${file} was not removed'),
       );
     }
   }
@@ -92,9 +92,7 @@ export class ConfigFileUploads {
     try {
       await getFs(accepted.fs).rm(accepted.fileName);
     } catch (err) {
-      this.Log.warn(
-        `Accepted file ${accepted.fileName} of '${accepted.entry.Slug}' was not removed: ${(err as Error).message}`,
-      );
+      this.Log.warn({ error: err, file: accepted.fileName, slug: accepted.entry.Slug }, 'Accepted file ${file} of ${slug} was not removed');
     }
   }
 
@@ -135,9 +133,7 @@ export class ConfigFileUploads {
       await target
         .rm(fileName)
         .catch((rmErr) =>
-          this.Log.warn(
-            `Partially uploaded file ${fileName} of '${entry.Slug}' was not removed: ${(rmErr as Error).message}`,
-          ),
+          this.Log.warn({ error: rmErr, file: fileName, slug: entry.Slug }, 'Partially uploaded file ${file} of ${slug} was not removed'),
         );
       throw err;
     }
@@ -158,7 +154,7 @@ export class ConfigFileUploads {
     try {
       return (await this.FileInfo.getInfo(localPath)).MimeType ?? '';
     } catch (err) {
-      this.Log.warn(`Cannot detect the content type of an uploaded file: ${(err as Error).message}`);
+      this.Log.warn({ error: err }, 'Cannot detect the content type of an uploaded file');
       return '';
     }
   }
@@ -203,7 +199,7 @@ export class ConfigFileUploads {
       }
     } catch (err) {
       if (err instanceof SchemaCompileError) {
-        this.Log.error(err.message);
+        this.Log.error({ error: err }, 'Configuration schema compilation failed');
         throw new Error(`configuration schema '${entry.Slug}' is invalid`);
       }
       throw err;

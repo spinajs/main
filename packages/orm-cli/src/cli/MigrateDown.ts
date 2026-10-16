@@ -34,13 +34,21 @@ export class MigrateDownCommand extends CliCommand {
     const executed = await orm.Migration.down(options.name, { all: options.all, fake: options.fake, connection: options.connection });
 
     if (executed.length === 0) {
-      const scope = options.connection ? ` on connection ${options.connection}` : ' on any configured connection';
-
-      this.Log.info(options.name ? `Nothing rolled back - ${options.name} is not applied${scope}` : `Nothing to roll back - no applied migrations found${options.connection ? scope : ''}`);
+      if (options.name) {
+        this.Log.info(
+          { migration: options.name, connection: options.connection },
+          options.connection ? 'Nothing rolled back - ${migration} is not applied on connection ${connection}' : 'Nothing rolled back - ${migration} is not applied on any configured connection',
+        );
+      } else {
+        this.Log.info({ connection: options.connection }, 'Nothing to roll back - no applied migrations found${?connection} on connection ${connection}${/connection}');
+      }
       return;
     }
 
-    this.Log.success(`${options.fake ? 'Recorded as rolled back ( --fake, nothing was executed )' : 'Rolled back'} ${executed.length} migration(s): ${executed.map((m) => m.constructor.name).join(', ')}`);
+    this.Log.success(
+      { count: executed.length, migrations: executed.map((m) => m.constructor.name) },
+      options.fake ? 'Recorded as rolled back ( --fake, nothing was executed ) ${count} migration(s): ${migrations}' : 'Rolled back ${count} migration(s): ${migrations}',
+    );
   }
 
   /**
@@ -51,7 +59,7 @@ export class MigrateDownCommand extends CliCommand {
     // first, and separate from the three below: it narrows all of them, and an operator reading
     // "rolling back EVERY applied migration" needs to know it means every one on ONE connection
     if (options.connection) {
-      this.Log.info(`Limited to connection ${options.connection} - no other configured connection is touched`);
+      this.Log.info({ connection: options.connection }, 'Limited to connection ${connection} - no other configured connection is touched');
     }
 
     if (options.name) {
@@ -60,7 +68,10 @@ export class MigrateDownCommand extends CliCommand {
       // are healthy - only the warning is wrong - and the remedy it suggests is destructive if
       // followed here, which is why this line says what to do with those warnings instead of
       // leaving the operator to act on them.
-      this.Log.warn(`Rolling back a single migration: ${options.name}. The migration service may warn during this run that other migrations have no matching registered class - that is an artifact of a named rollback, those rows are fine. Do not edit or delete them.`);
+      this.Log.warn(
+        { migration: options.name },
+        'Rolling back a single migration: ${migration}. The migration service may warn during this run that other migrations have no matching registered class - that is an artifact of a named rollback, those rows are fine. Do not edit or delete them.',
+      );
       return;
     }
 

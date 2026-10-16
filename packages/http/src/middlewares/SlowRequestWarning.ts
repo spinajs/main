@@ -40,14 +40,17 @@ export class SlowRequestWarning extends ServerMiddleware {
         const ms = Date.now() - startedAt;
         if (ms >= threshold) {
           const path = redactUrl(req.originalUrl);
-          log.warn(`Slow request: ${req.method} ${path} took ${ms}ms (threshold ${threshold}ms)`, {
-            method: req.method,
-            path,
-            ms,
-            threshold,
-            status: res.statusCode,
-            requestId: req.storage?.requestId,
-          });
+          log.warn(
+            {
+              method: req.method,
+              path,
+              ms,
+              threshold,
+              status: res.statusCode,
+              requestId: req.storage?.requestId,
+            },
+            'Slow request: ${method} ${path} took ${ms}ms (threshold ${threshold}ms)',
+          );
         }
       });
       next();

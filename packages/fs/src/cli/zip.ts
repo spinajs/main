@@ -36,9 +36,12 @@ export class FsZipCommand extends CliCommand {
       const dstFs = options.dstFs ? _fs(options.dstFs)() : undefined;
       const result = await provider.zip(list, dstFs, options.out);
 
-      this.Log.success(`Zipped ${list.length} path(s) -> ${result.asFilePath()} ( fs: ${result.fs.Name} )`);
+      this.Log.success(
+        { count: list.length, file: result.asFilePath(), fsName: result.fs.Name },
+        'Zipped ${count} path(s) -> ${file} ( fs: ${fsName} )',
+      );
     } catch (err) {
-      this.Log.error(`Cannot zip on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, fsName }, 'Cannot zip on ${fsName}');
     }
   }
 }

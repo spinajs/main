@@ -4,6 +4,7 @@ import 'mocha';
 
 import { HostLog } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
 import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, readVersion, toDate, USER_ROLES_SOURCE } from '../../src/index.js';
@@ -51,12 +52,14 @@ async function status(db: TestDb) {
   return (await db.orm.Migration.status()).find((s) => s.name === MIGRATION)!;
 }
 
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
+
 /** Captures what the migration logs. */
 function recordingLog(lines: string[]): HostLog {
   return {
-    error: (m: string) => lines.push(`error ${m}`),
-    warn: (m: string) => lines.push(`warn ${m}`),
-    info: (m: string) => lines.push(`info ${m}`),
+    error: (fields: unknown, template?: unknown) => void lines.push(`error ${logLine(fields, template)}`),
+    warn: (fields: unknown, template?: unknown) => void lines.push(`warn ${logLine(fields, template)}`),
+    info: (fields: unknown, template?: unknown) => void lines.push(`info ${logLine(fields, template)}`),
     debug: () => {},
   };
 }
@@ -299,7 +302,7 @@ for (const kind of DB_KINDS) {
       const migration = new RecordingMigration();
       await migration.up(db.driver);
       expect(migration.lines).to.have.length(1);
-      expect(migration.lines[0]).to.match(/^warn .*table users has no column Role \(authz\.rbac\.migration\.roleColumn\); its columns are Id, Uuid, Email;/);
+      expect(migration.lines[0]).to.match(/^warn .*table users has no column \["Role \(authz\.rbac\.migration\.roleColumn\)"\]; its columns are \["Id","Uuid","Email"\];/);
     });
 
     it('logs at info when an empty users table lacks the role column', async function () {
@@ -310,7 +313,7 @@ for (const kind of DB_KINDS) {
       const migration = new RecordingMigration();
       await migration.up(db.driver);
       expect(migration.lines).to.have.length(1);
-      expect(migration.lines[0]).to.match(/^info .*has no column Role/);
+      expect(migration.lines[0]).to.match(/^info .*has no column \["Role \(/);
     });
 
     it('fails the migration when the users probe throws', async function () {

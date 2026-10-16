@@ -6,6 +6,7 @@ import ajvKeywords from 'ajv-keywords';
 
 import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, configAt, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { existsSync } from 'node:fs';
@@ -248,7 +249,7 @@ describe('readDomainConfig', () => {
 describe('legacy keys', () => {
   const logger = () => {
     const warnings: string[] = [];
-    return { warnings, log: { warn: (m: string) => void warnings.push(m) } };
+    return { warnings, log: { warn: (fields: unknown, template?: unknown) => void warnings.push(typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>)) } };
   };
 
   it('lists the authorization rows', () => {

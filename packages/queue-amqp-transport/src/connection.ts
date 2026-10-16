@@ -171,7 +171,7 @@ export class AmqpQueueClient extends QueueClient {
   }
 
   public async dispose() {
-    this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
+    this.Log.info({ connection: this.Options.name }, 'Disposing queue connection ${connection} ...');
 
     this.Disposing = true;
     if (this.ReconnectTimer) {
@@ -187,13 +187,13 @@ export class AmqpQueueClient extends QueueClient {
         await this.Connection.close();
       }
     } catch (err) {
-      this.Log.warn(`Error while closing AMQP connection for ${this.Options.name}: ${err?.message}`);
+      this.Log.warn({ error: err, connection: this.Options.name }, 'Error while closing AMQP connection for ${connection}');
     }
 
     this.Connected = false;
     this.Subscriptions.clear();
 
-    this.Log.success(`AMQP connection ${this.Options.name} disposed`);
+    this.Log.success({ connection: this.Options.name }, 'AMQP connection ${connection} disposed');
   }
 
   /**
@@ -201,7 +201,7 @@ export class AmqpQueueClient extends QueueClient {
    * Called on initial resolve and on every reconnect.
    */
   protected async connect() {
-    this.Log.info(`Connecting to AMQP queue at ${this.Options.host ?? 'localhost'} with client-id: ${this.ClientId} ...`);
+    this.Log.info({ host: this.Options.host ?? 'localhost', clientId: this.ClientId }, 'Connecting to AMQP queue at ${host} with client-id: ${clientId} ...');
 
     // channels are recreated - forget what the previous ( dead ) channels had asserted
     this.AssertedQueues.clear();
@@ -223,7 +223,7 @@ export class AmqpQueueClient extends QueueClient {
     }
 
     this.Connection.on('error', (err) => {
-      this.Log.error(`AMQP connection error, client-id: ${this.ClientId}, name: ${this.Options.name}: ${err?.message}`);
+      this.Log.error({ error: err, clientId: this.ClientId, connection: this.Options.name }, 'AMQP connection error, client-id: ${clientId}, name: ${connection}');
     });
 
     this.Connection.on('close', () => {
@@ -239,7 +239,7 @@ export class AmqpQueueClient extends QueueClient {
     await this.ConsumeChannel.prefetch(this.Prefetch);
 
     this.Connected = true;
-    this.Log.success(`Connected to AMQP broker, client-id: ${this.ClientId}`);
+    this.Log.success({ clientId: this.ClientId }, 'Connected to AMQP broker, client-id: ${clientId}');
 
     await this.replaySubscriptions();
     await this.flushPendingEmits();
@@ -254,7 +254,7 @@ export class AmqpQueueClient extends QueueClient {
     }
 
     this.Connected = false;
-    this.Log.warn(`AMQP connection ${this.Options.name} lost, scheduling reconnect in ${this.ReconnectDelay}ms`);
+    this.Log.warn({ connection: this.Options.name, reconnectDelay: this.ReconnectDelay }, 'AMQP connection ${connection} lost, scheduling reconnect in ${reconnectDelay}ms');
     this.scheduleReconnect();
   }
 
@@ -266,7 +266,7 @@ export class AmqpQueueClient extends QueueClient {
     this.ReconnectTimer = setTimeout(() => {
       this.ReconnectTimer = undefined;
       this.connect().catch((err) => {
-        this.Log.error(`AMQP reconnect for ${this.Options.name} failed: ${err?.message}. Retrying in ${this.ReconnectDelay}ms`);
+        this.Log.error({ error: err, connection: this.Options.name, reconnectDelay: this.ReconnectDelay }, 'AMQP reconnect for ${connection} failed. Retrying in ${reconnectDelay}ms');
         this.scheduleReconnect();
       });
     }, this.ReconnectDelay);
@@ -290,7 +290,7 @@ export class AmqpQueueClient extends QueueClient {
 
     for (const c of channels) {
       if (this.Subscriptions.has(c)) {
-        this.Log.warn(`Channel ${c} already subscribed !`);
+        this.Log.warn({ channel: c }, 'Channel ${channel} already subscribed !');
         continue;
       }
 
@@ -316,7 +316,7 @@ export class AmqpQueueClient extends QueueClient {
       // so messages keep accumulating while no consumer is attached ( same semantics as STOMP ).
       if (sub.consumerTag) {
         this.ConsumeChannel.cancel(sub.consumerTag).catch((err) => {
-          this.Log.warn(`Error while cancelling consumer for channel ${c}: ${err?.message}`);
+          this.Log.warn({ error: err, channel: c }, 'Error while cancelling consumer for channel ${channel}');
         });
       }
     }
@@ -351,7 +351,7 @@ export class AmqpQueueClient extends QueueClient {
         try {
           qMessage = JSON.parse(msg.content.toString()) as IQueueMessage;
         } catch (err) {
-          this.Log.error(`Cannot parse incoming message on channel ${c}, dead-lettering it: ${err?.message}`);
+          this.Log.error({ error: err, channel: c }, 'Cannot parse incoming message on channel ${channel}, dead-lettering it');
           this.deadLetterRaw(msg, this.Options.defaultQueueDeadLetterChannel, c, (err as Error)?.message ?? String(err));
           return;
         }
@@ -365,7 +365,7 @@ export class AmqpQueueClient extends QueueClient {
     );
 
     descriptor.consumerTag = consumerTag;
-    this.Log.success(`Channel ${c}, durable: ${descriptor.durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+    this.Log.success({ channel: c, durable: !!descriptor.durable }, 'Channel ${channel}, durable: ${durable} subscribed and ready to receive messages !');
   }
 
   /**
@@ -380,7 +380,7 @@ export class AmqpQueueClient extends QueueClient {
 
     // events are not retried or tracked - drop them
     if (qMessage.Type !== QueueMessageType.Job || this.isTopic(channel)) {
-      this.Log.warn(`Handler failed on channel ${channel}, dropping message ${qMessage.Name}. ${reason}`);
+      this.Log.warn({ channel, messageName: qMessage.Name, reason }, 'Handler failed on channel ${channel}, dropping message ${messageName}. ${reason}');
       this.ConsumeChannel.ack(msg);
       return;
     }
@@ -390,7 +390,7 @@ export class AmqpQueueClient extends QueueClient {
 
     if (attempt < maxRetries) {
       this.retryJob(msg, qMessage, channel, attempt + 1, reason).catch((retryErr) => {
-        this.Log.error(`Failed to reschedule job ${qMessage.Name} on ${channel}, nacking instead: ${(retryErr as Error).message}`);
+        this.Log.error({ error: retryErr, jobName: qMessage.Name, channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
         this.ConsumeChannel.nack(msg, false, false);
       });
       return;
@@ -416,7 +416,10 @@ export class AmqpQueueClient extends QueueClient {
     });
 
     this.ConsumeChannel.ack(msg);
-    this.Log.warn(`Job ${qMessage.Name} failed on ${workQueue}, retry ${nextAttempt}/${(qMessage as IQueueJob).RetryCount} scheduled in ${delay}ms. ${reason}`);
+    this.Log.warn(
+      { jobName: qMessage.Name, channel: workQueue, attempt: nextAttempt, maxRetries: (qMessage as IQueueJob).RetryCount, delay, reason },
+      'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}',
+    );
   }
 
   /**
@@ -426,7 +429,7 @@ export class AmqpQueueClient extends QueueClient {
    */
   protected deadLetterRaw(msg: ConsumeMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number) {
     if (!dlq) {
-      this.Log.warn(`Message failed on channel ${channel}, no dead-letter queue configured - dropping. ${reason}`);
+      this.Log.warn({ channel, reason }, 'Message failed on channel ${channel}, no dead-letter queue configured - dropping. ${reason}');
       this.ConsumeChannel.ack(msg);
       return;
     }
@@ -439,10 +442,10 @@ export class AmqpQueueClient extends QueueClient {
           headers: { ...msg.properties.headers, 'x-error': reason, ...(attempt !== undefined ? { [RETRY_COUNT_HEADER]: attempt } : {}) },
         });
         this.ConsumeChannel.ack(msg);
-        this.Log.warn(`Message failed on channel ${channel}, routed to dead-letter ${dlq}. ${reason}`);
+        this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
       })
       .catch((dlqErr) => {
-        this.Log.error(`Failed to route message to dead-letter ${dlq}, nacking instead: ${(dlqErr as Error).message}`);
+        this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
         this.ConsumeChannel.nack(msg, false, false);
       });
   }
@@ -491,7 +494,7 @@ export class AmqpQueueClient extends QueueClient {
 
     for (const c of channels) {
       await this.EmitPipeline.execute(() => this.publishToChannel(c, buffer, publishOptions));
-      this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${c} ( ${this.Options.name} )`);
+      this.Log.trace({ messageType: message.Type, messageName: message.Name, channel: c, connection: this.Options.name }, 'Published ${messageType} Name: ${messageName} to channel ${channel} ( ${connection} )');
     }
   }
 
@@ -529,7 +532,7 @@ export class AmqpQueueClient extends QueueClient {
     const pending = this.PendingEmits;
     this.PendingEmits = [];
 
-    this.Log.info(`Flushing ${pending.length} buffered message(s) for queue ${this.Options.name}`);
+    this.Log.info({ count: pending.length, connection: this.Options.name }, 'Flushing ${count} buffered message(s) for queue ${connection}');
 
     for (const p of pending) {
       this.publishMessage(p.message).then(p.resolve).catch(p.reject);
@@ -620,13 +623,16 @@ export class AmqpQueueClient extends QueueClient {
         await channel.close();
       }
     } catch (err) {
-      this.Log.warn(`Error while closing AMQP channel for ${this.Options.name}: ${err?.message}`);
+      this.Log.warn({ error: err, connection: this.Options.name }, 'Error while closing AMQP channel for ${connection}');
     }
   }
 
   protected warnOnUnsupportedScheduling(message: IQueueMessage) {
     if (message.ScheduleDelay || message.ScheduleCron || message.SchedulePeriod || message.ScheduleRepeat) {
-      this.Log.warn(`Message ${message.Name} has scheduling options set, but the AMQP transport does not support delayed/scheduled delivery yet. Message will be delivered immediately.`);
+      this.Log.warn(
+        { messageName: message.Name },
+        'Message ${messageName} has scheduling options set, but the AMQP transport does not support delayed/scheduled delivery yet. Message will be delivered immediately.',
+      );
     }
   }
 }

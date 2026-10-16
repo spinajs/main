@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import { AuthzDomains, AuthzService } from '../contracts/service.js';
-import { engineLog } from './log.js';
+import { engineLog, thrownError } from './log.js';
 import { configAt } from './config/domain-config.js';
 
 const DOMAIN_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -181,7 +181,7 @@ export class DefaultAuthzDomains extends AuthzDomains {
       for (const service of record.services) {
         Promise.resolve()
           .then(() => service.dispose())
-          .catch((e: unknown) => engineLog('authz').error(`Authz domain ${q(n)}: disposing its service failed: ${e instanceof Error ? e.message : q(e)}`));
+          .catch((e: unknown) => engineLog('authz').error({ error: thrownError(e), domain: n }, 'Authz domain ${domain}: disposing its service failed'));
       }
     }
   }

@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log-common';
 import { userPrincipal } from '@spinajs/authz-testing';
 
 import { AuthzConfigError, AuthzEventSink, LogAuthzEventSink, adminActor, adminContainer } from '@spinajs/authz';
@@ -31,7 +32,7 @@ describe('LogAuthzEventSink', () => {
 
   function recordingLog(): HostLog & { lines: string[] } {
     const lines: string[] = [];
-    const push = (m: string) => lines.push(m);
+    const push = (fields: unknown, template?: unknown) => void lines.push(typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
     return { lines, info: push, warn: push, error: push, debug: push };
   }
 

@@ -19,13 +19,13 @@ function asSystem<T>(fn: () => Promise<T>): Promise<T> {
 
 export function callOnOrmConnection(connection: string, method: string, ...args: any[]): Promise<any> {
   return asSystem(async () => {
-    log().trace(`call on __spinajsIpcBridge::callOnOrmConnection(), method: ${method}`);
+    log().trace({ method }, "call on __spinajsIpcBridge::callOnOrmConnection(), method: ${method}");
 
     const _s = await DI.get(Orm);
     if (!_s) {
       const msg = `call on __spinajsIpcBridge::callOnOrmConnection() failed, method: ${method}`;
       const error = new Error(msg);
-      log().error(msg);
+      log().error({ method }, "call on __spinajsIpcBridge::callOnOrmConnection() failed, method: ${method}");
 
       // inform render process
       throw error;
@@ -35,7 +35,7 @@ export function callOnOrmConnection(connection: string, method: string, ...args:
     if (!_conn) {
       const msg = `call on __spinajsIpcBridge::callOnOrmConnection() failed, method: ${method}, connection: ${connection}"`;
       const error = new Error(msg);
-      log().error(msg);
+      log().error({ method, connection }, "call on __spinajsIpcBridge::callOnOrmConnection() failed, method: ${method}, connection: ${connection}");
 
       // inform render process
       throw error;
@@ -51,7 +51,7 @@ export function callOnOrmConnection(connection: string, method: string, ...args:
         const error = new Error(msg, {
           cause: err,
         });
-        log().error(msg);
+        log().error({ method, connection }, "call on __spinajsIpcBridge::callOnOrmConnection() failed, method: ${method}, connection: ${connection}");
 
         // inform render process
         return error;
@@ -63,13 +63,13 @@ export function callService(method: string, service: string, resolveArgs: any[],
   // Renderer log lines read no scoped data; as SYSTEM each one would write a runAs audit entry.
   const run = service === "Log" ? <T>(fn: () => Promise<T>) => fn() : asSystem;
   return run(async () => {
-    log().trace(`call on __spinajsIpcBridge::call(), method: ${method}, service: ${service}`);
+    log().trace({ method, service }, "call on __spinajsIpcBridge::call(), method: ${method}, service: ${service}");
 
     const _s = await DI.resolve<any>(service, resolveArgs ?? undefined);
     if (!_s) {
       const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service} exists in DI container`;
       const error = new Error(msg);
-      log().error(msg);
+      log().error({ method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service} exists in DI container");
 
       // inform render process
       return error;
@@ -80,7 +80,7 @@ export function callService(method: string, service: string, resolveArgs: any[],
         return await _s[method](...args);
       } catch (err) {
         const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, on service: ${service}, cause: ${err.message}`;
-        log().error(msg);
+        log().error({ error: err, method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, on service: ${service}");
 
         throw new Error(msg, {
           cause: err,
@@ -88,7 +88,7 @@ export function callService(method: string, service: string, resolveArgs: any[],
       }
     } else {
       const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, not found in service named: ${service}`;
-      log().error(msg);
+      log().error({ method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, not found in service named: ${service}");
 
       throw new Error(msg);
     }
@@ -98,12 +98,12 @@ export function callService(method: string, service: string, resolveArgs: any[],
 // Answers through event.returnValue, so it cannot await runAs: it runs unattended,
 // and a scoped ORM query or an authz check inside it fails closed.
 export function callServiceSync(event: { returnValue: unknown }, method: string, service: string, ...args: any[]): void {
-  log().trace(`call on __spinajsIpcBridge::callSync(), method: ${method}, service: ${service}`);
+  log().trace({ method, service }, "call on __spinajsIpcBridge::callSync(), method: ${method}, service: ${service}");
 
   const _s = DI.get<any>(service);
   if (!_s) {
     const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service} exists in DI container`;
-    log().error(msg);
+    log().error({ method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service} exists in DI container");
 
     // we return error, in render process preload we check & throw
     event.returnValue = new Error(msg);
@@ -115,14 +115,14 @@ export function callServiceSync(event: { returnValue: unknown }, method: string,
       event.returnValue = _s[method](...args);
     } catch (err) {
       const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service}, cause: ${err.message}`;
-      log().error(msg);
+      log().error({ error: err, method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service}");
 
       // we return error, in render process preload we check & throw
       event.returnValue = new Error(msg);
     }
   } else {
     const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, not found in service named: ${service}`;
-    log().error(msg);
+    log().error({ method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, not found in service named: ${service}");
 
     // we return error, in render process preload we check & throw
     event.returnValue = new Error(msg);

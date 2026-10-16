@@ -37,7 +37,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
     descriptor.value = async function (...args: any[]) {
       const log = DI.resolve('__log__', ['TASKS']) as Log;
 
-      log.info(`Executing task ${_name} ...`);
+      log.info({ taskName: _name }, 'Executing task ${taskName} ...');
 
       try {
         const task = await __task.getOrCreate(null, {
@@ -52,7 +52,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           });
 
           if (!lock.Locked) {
-            log.warn(`Cannot acquire mutex for task ${_name}, already locked !`);
+            log.warn({ taskName: _name }, 'Cannot acquire mutex for task ${taskName}, already locked !');
             return;
           }
         }
@@ -69,9 +69,9 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
             TaskName: taskName,
           });
 
-          log.success(`Task ${taskName} executed !`);
+          log.success({ taskName }, 'Task ${taskName} executed !');
         } catch (err) {
-          log.error(err, `Cannot execute task ${taskName}`);
+          log.error({ error: err, taskName }, 'Cannot execute task ${taskName}');
           taskResult = {
             error: true,
             message: err.Message,
@@ -103,7 +103,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           return taskResult;
         }
       } catch (err) {
-        log.error(err, `Cannot start task ${taskName}`);
+        log.error({ error: err, taskName }, 'Cannot start task ${taskName}');
         throw err;
       }
     };

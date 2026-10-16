@@ -257,7 +257,7 @@ export class DefaultTeamService extends TeamService {
         purged.push(...(await this.purge(t)));
       } catch (e) {
         failed.push(t.id);
-        this.Log.error(e instanceof Error ? e : new Error(String(e)), `purge of team ${t.id} failed`);
+        this.Log.error({ error: e instanceof Error ? e : new Error(String(e)), teamId: t.id }, 'purge of team ${teamId} failed');
       }
     }
     return Object.freeze({ purged: Object.freeze(purged), failed: Object.freeze(failed) });
@@ -312,7 +312,7 @@ export class DefaultTeamService extends TeamService {
       try {
         await sink.publish([event]);
       } catch (e) {
-        this.Log.warn(`${event.type} of team ${String(event.data.team)} was not delivered to ${sink.constructor.name}: ${e instanceof Error ? e.message : String(e)}`);
+        this.Log.warn({ error: e, eventType: event.type, team: event.data.team, sink: sink.constructor.name }, '${eventType} of team ${team} was not delivered to ${sink}');
       }
     }
   }

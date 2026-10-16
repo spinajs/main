@@ -149,6 +149,6 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
 
   /** Once per full episode of a flow's table, again on the next scan when it throws; names no key. */
   protected reportFull(flow: ThrottleFlow): void {
-    this.Log.warn(`MemoryAuthnThrottle: all ${this.maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)`);
+    this.Log.warn({ maxRows: this.maxRows, flow }, 'MemoryAuthnThrottle: all ${maxRows} ${flow} rows delay someone; ${flow} attempts that need a new row are refused until one frees (authn.throttle.maxRows)');
   }
 }

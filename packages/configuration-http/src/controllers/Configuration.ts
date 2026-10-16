@@ -145,7 +145,7 @@ export class ConfigurationController extends BaseController {
    * registered for this slug.
    */
   private schemaCompileError(err: SchemaCompileError): ServerError {
-    this.Log.error(err.message);
+    this.Log.error({ error: err }, 'Configuration schema compilation failed');
     return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
   }
 

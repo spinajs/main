@@ -11,6 +11,7 @@ import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../src/i
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { socketMetrics } from '../src/metrics.js';
 import { ITestServer, command, delay, nextId, open, resultOf, startServer } from './harness.js';
+import { logText } from './log-text.js';
 
 export const obsStageSeen: Array<{ handler: string | null; args: boolean }> = [];
 
@@ -90,7 +91,7 @@ describe('socket observability', function () {
 
     await command(socket, 'obs.echo', 1);
 
-    const lines = debug.getCalls().map((c) => String(c.args[0]));
+    const lines = debug.getCalls().map((c) => logText(c.args));
     expect(lines.some((line) => /^socket command obs\.echo ok \d+ms connection /.test(line))).to.be.true;
   });
 

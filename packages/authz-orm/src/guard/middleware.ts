@@ -82,6 +82,6 @@ export class AccessGuardMiddleware extends QueryMiddleware {
     const site = this.sites.get(query) ?? 'unknown call site';
     if (this.warned.has(site)) return;
     this.warned.add(site);
-    ormLog().warn(`${message} (${site})`);
+    ormLog().warn({ model: nameOf(query.Model), resourceType: entry.type, site }, 'authz-orm: a select of ${model} (@AccessResource ${resourceType}) runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM) (${site})');
   }
 }

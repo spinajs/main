@@ -60,7 +60,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
 
     const session = await (await this.Container.resolve(SessionIssuer)).restore(rawId);
     if (!session) {
-      this.Log.warn('Session cookie names no live session (expired or unknown)', { Session: logHash(rawId), Ip: handshake.address });
+      this.Log.warn({ session: logHash(rawId), ip: handshake.address }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
       return null;
     }
 
@@ -102,7 +102,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
     assertSessionCookieSecret(this.CookieSecret, env);
     const id = cs.unsign(value.startsWith('s:') ? value.slice(2) : value, this.CookieSecret);
     if (id === false) {
-      this.Log.warn('Rejected a socket session cookie with an invalid signature', { Cookie: logHash(value), Ip: handshake.address });
+      this.Log.warn({ cookie: logHash(value), ip: handshake.address }, 'Rejected a socket session cookie with an invalid signature: cookie ${cookie}, ip ${ip}');
       return null;
     }
 

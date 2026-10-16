@@ -14,7 +14,7 @@ const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
 const MJS_DIR = join(PKG_ROOT, 'lib', 'mjs', 'contracts');
 const CJS_DIR = join(PKG_ROOT, 'lib', 'cjs', 'contracts');
-const ALLOWED_PACKAGES = ['@spinajs/di'];
+const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/util'];
 const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'ExternalLoginHook', 'CredentialAdminGuard'];
 
 // Plain JS so the same code runs in this process and in the child processes.
@@ -47,7 +47,7 @@ const SNAPSHOT = `(di) => {
 }`;
 
 interface ProbeResult {
-  diFiles?: string[];
+  depFiles?: string[];
   contractFiles?: string[];
   loaded?: string[];
   before?: unknown;
@@ -128,12 +128,13 @@ describe('@spinajs/authn/contracts boundary', function () {
        const snapshot = ${SNAPSHOT};
        const initial = new Set(Object.keys(require.cache));
        const di = require('@spinajs/di');
-       const diFiles = Object.keys(require.cache).filter((k) => !initial.has(k));
        const before = snapshot(di);
+       require('@spinajs/util');
+       const depFiles = Object.keys(require.cache).filter((k) => !initial.has(k));
        const c = require('@spinajs/authn/contracts');
        const after = snapshot(di);
-       const contractFiles = Object.keys(require.cache).filter((k) => !initial.has(k) && !diFiles.includes(k));
-       console.log(JSON.stringify({ diFiles, contractFiles, before, after, exercise: exercise(c) }));`,
+       const contractFiles = Object.keys(require.cache).filter((k) => !initial.has(k) && !depFiles.includes(k));
+       console.log(JSON.stringify({ depFiles, contractFiles, before, after, exercise: exercise(c) }));`,
     );
 
     cjsAlone = probe(
@@ -161,32 +162,32 @@ describe('@spinajs/authn/contracts boundary', function () {
   });
 
   describe('imports', () => {
-    it('src/contracts imports nothing outside src/contracts except @spinajs/di', () => {
+    it('src/contracts imports nothing outside src/contracts except @spinajs/di and @spinajs/util', () => {
       const { found, bad } = violations(SRC_DIR, /\.ts$/);
       expect(found, 'scanner found no import in src/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/mjs/contracts imports nothing outside itself except @spinajs/di', () => {
+    it('lib/mjs/contracts imports nothing outside itself except @spinajs/di and @spinajs/util', () => {
       const { found, bad } = violations(MJS_DIR, /\.js$/);
       expect(found, 'scanner found no import in lib/mjs/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/cjs/contracts requires nothing outside itself except @spinajs/di', () => {
+    it('lib/cjs/contracts requires nothing outside itself except @spinajs/di and @spinajs/util', () => {
       const { found, bad } = violations(CJS_DIR, /\.js$/);
       expect(found, 'scanner found no require in lib/cjs/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('CJS loads only lib/cjs/contracts files and what @spinajs/di itself loads', () => {
-      const diFiles = new Set(cjs.diFiles);
+    it('CJS loads only lib/cjs/contracts files and what @spinajs/di and @spinajs/util themselves load', () => {
+      const depFiles = new Set(cjs.depFiles);
       expect(cjsAlone.loaded).to.include(join(CJS_DIR, 'index.js'));
-      const outside = cjsAlone.loaded!.filter((f) => !isInside(CJS_DIR, f) && !diFiles.has(f));
+      const outside = cjsAlone.loaded!.filter((f) => !isInside(CJS_DIR, f) && !depFiles.has(f));
       expect(outside).to.deep.eq([]);
     });
 
-    it('CJS adds only lib/cjs/contracts files once @spinajs/di is loaded', () => {
+    it('CJS adds only lib/cjs/contracts files once @spinajs/di and @spinajs/util are loaded', () => {
       expect(cjs.contractFiles).to.not.be.empty;
       expect(cjs.contractFiles!.filter((f) => !isInside(CJS_DIR, f))).to.deep.eq([]);
     });

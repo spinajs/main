@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { OrmException } from '@spinajs/orm';
 import { AuthnEventSink, TokenService } from '@spinajs/authn/contracts';
@@ -58,6 +59,17 @@ interface Output {
 
 const captureBox = sinon.createSandbox();
 
+// A fields call renders its template; the error it carries is printed after it, as the layout does.
+function text(args: unknown[]): string {
+  const [first, template, ...rest] = args;
+  if (first !== null && typeof first === 'object' && !(first instanceof Error) && typeof template === 'string') {
+    const fields = first as Record<string, unknown>;
+    const error = fields.error instanceof Error ? [fields.error.message] : [];
+    return [renderTemplate(template, fields), ...error, ...rest.map(String)].join(' ');
+  }
+  return args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+}
+
 function capture(cmd: object): () => Output {
   const log = (cmd as { Log: Record<(typeof LEVELS)[number], (...args: unknown[]) => void> }).Log;
   // The commands share one logger, so the previous command run of this test is unwrapped first.
@@ -68,7 +80,7 @@ function capture(cmd: object): () => Output {
     captureBox.stub(cmd as { write(line: string): void }, 'write').callsFake((line: string) => void out.push(line));
   }
   return () => {
-    const logs = spies.flatMap((s) => s.getCalls().map((c) => c.args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')));
+    const logs = spies.flatMap((s) => s.getCalls().map((c) => text(c.args)));
     return { out: [...out], logs, all: [...out, ...logs] };
   };
 }

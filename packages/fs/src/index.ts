@@ -65,7 +65,10 @@ export class fsService extends AsyncService {
       DI.register(fs).asMapValue('__file_provider_instance__', cProvider.value.name);
       created.push([cProvider.value, fs]);
 
-      this.Logger.info(`File provider ${cProvider.value.name} registered, type: ${cProvider.value.service}`);
+      this.Logger.info(
+        { provider: cProvider.value.name, service: cProvider.value.service },
+        'File provider ${provider} registered, type: ${service}',
+      );
     }
 
     // Only after every provider exists, so providers that looked up others by name
@@ -102,7 +105,7 @@ export class fsService extends AsyncService {
       DI.register(instance).asMapValue('__file_provider_instance__', config.name);
 
       if (instance !== raw) {
-        this.Logger.info(`File provider ${config.name} decorated with ${names}`);
+        this.Logger.info({ provider: config.name, decorators: names }, 'File provider ${provider} decorated with ${decorators}');
       }
     }
   }

@@ -45,7 +45,7 @@ export class DbSessionStore extends SessionProvider {
       // An unhandled rejection here would end the process; the next tick retries.
       try {
         const count = await this.cleanupExpired();
-        this.Log.info(`Cleaned up expired session, count: ${count}`);
+        this.Log.info({ count }, 'Cleaned up expired session, count: ${count}');
       } catch (err) {
         this.Log.error(err as Error, 'Expired session cleanup failed');
       }

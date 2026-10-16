@@ -358,7 +358,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const rOption = this.Routing?.[eName];
 
     if (!rOption) {
-      this.Log.warn(`No routing for event ${eName} found, using default channel`);
+      this.Log.warn({ eventName: eName }, 'No routing for event ${eventName} found, using default channel');
       return [isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!];
     }
 

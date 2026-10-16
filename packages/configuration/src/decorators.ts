@@ -205,6 +205,29 @@ export async function resolveNamedServices<T>(container: IContainer, path: strin
 }
 
 /**
+ * Injects what {@link resolveNamedServices} gives for `path` in the resolving container: a Map keyed by each entry's
+ * `keyBy`, in list order, looked up across the container lineage. Resolved when the instance is built, so an unknown
+ * service or a bad list rejects that resolve.
+ *
+ * @example
+ * ```ts
+ * @AutoinjectNamedServices('authn.mfa.steps', MfaStep, { lineage: true, keyBy: 'name' })
+ * protected Steps: Map<string, MfaStep>;
+ * ```
+ */
+export function AutoinjectNamedServices<T>(path: string, type: Class<T>, options: IAutoinjectServiceOptions) {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, _target: Class<unknown>, propertyKey: string | symbol) => {
+    descriptor.inject.push({
+      autoinject: true,
+      autoinjectKey: propertyKey,
+      inject: type,
+      data: path,
+      resolveFunc: (data: string, container: IContainer) => resolveNamedServices(container, data, type, options),
+    });
+  });
+}
+
+/**
  * Inject service based on configuration.
  * Configuration could be object or string containing service
  *
@@ -240,7 +263,7 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         }
 
         if (!cfgVal) {
-          InternalLogger.warn(`Configuration value for path ${data} is empty. Cannot autoinject service for property ${propertyKey.toString()}`, "Configuration");
+          InternalLogger.warn({ path: data, property: propertyKey.toString() }, 'Configuration value for path ${path} is empty. Cannot autoinject service for property ${property}', "Configuration");
           return undefined;
         }
 

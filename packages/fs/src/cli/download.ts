@@ -15,9 +15,9 @@ export class FsDownloadCommand extends CliCommand {
 
     try {
       const local = await _download(path, fsName);
-      this.Log.success(`Downloaded ${path} ( fs: ${fsName} ) -> ${local}`);
+      this.Log.success({ path, fsName, local }, 'Downloaded ${path} ( fs: ${fsName} ) -> ${local}');
     } catch (err) {
-      this.Log.error(`Cannot download ${path} from ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot download ${path} from ${fsName}');
     }
   }
 }

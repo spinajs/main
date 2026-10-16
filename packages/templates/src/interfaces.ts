@@ -112,7 +112,7 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
       const s = await localStat(template);
       return `${s.mtimeMs}|${s.size}`;
     } catch (err) {
-      this.Log.warn(`Cannot stat template ${template}, serving cached version. ${err}`);
+      this.Log.warn({ error: err, template }, 'Cannot stat template ${template}, serving cached version');
       return null;
     }
   }

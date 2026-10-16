@@ -57,7 +57,7 @@ export class DefaultQueueService extends QueueService {
       try {
         await val.dispose();
       } catch (err) {
-        this.Log.error(err, `Cannot dispose queue connection ${val.constructor.name}`);
+        this.Log.error({ error: err, connection: val.constructor.name }, 'Cannot dispose queue connection ${connection}');
       }
     });
 
@@ -83,7 +83,7 @@ export class DefaultQueueService extends QueueService {
 
       await connection.emit(event);
 
-      this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
+      this.Log.trace({ messageName: event.Name, messageType: event.Type, connection: c }, 'Emitted message ${messageName}, type: ${messageType} to connection ${connection}');
     }
 
     // for jobs this is the id the caller uses to track progress / status
@@ -177,7 +177,7 @@ export class DefaultQueueService extends QueueService {
 
               // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
               if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
-                this.Log.warn(`Job ${ev.Name}:${ev.JobId} dropped: its initiator differs from the one that owns the tracking row`);
+                this.Log.warn({ jobName: ev.Name, jobId: ev.JobId }, 'Job ${jobName}:${jobId} dropped: its initiator differs from the one that owns the tracking row');
                 return;
               }
 
@@ -185,7 +185,7 @@ export class DefaultQueueService extends QueueService {
               // ( consumer crash before ack, broker failover ). Skip re-running a job whose tracking
               // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.
               if ((this.Configuration?.deduplicate ?? true) && JOB_TERMINAL_STATUSES.includes(jModel.Status)) {
-                this.Log.info(`Job ${ev.Name}:${ev.JobId} already in terminal state ${jModel.Status}, skipping duplicate delivery`);
+                this.Log.info({ jobName: ev.Name, jobId: ev.JobId, status: jModel.Status }, 'Job ${jobName}:${jobId} already in terminal state ${status}, skipping duplicate delivery');
                 return;
               }
 
@@ -210,9 +210,9 @@ export class DefaultQueueService extends QueueService {
                 jModel.FinishedAt = DateTime.now();
                 jModel.Progress = 100;
 
-                this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
+                this.Log.trace({ jobName: event.name, result: jModel.Result }, 'Job ${jobName} processed with result ${result}');
               } catch (err) {
-                this.Log.error(err, `Cannot execute job ${event.name}`);
+                this.Log.error({ error: err, jobName: event.name }, 'Cannot execute job ${jobName}');
 
                 // record the failed attempt and mark the job retrying / dead so the
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
@@ -233,7 +233,7 @@ export class DefaultQueueService extends QueueService {
                   const failure = { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId };
                   await runAroundHandle(ev, () => (ev as QueueJob).onFailed(err, failure));
                 } catch (hookErr) {
-                  this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
+                  this.Log.error({ error: hookErr, jobName: event.name }, 'onFailed hook for job ${jobName} threw');
                 }
 
                 // propagate so the transport sees the failure and can retry / dead-letter.
@@ -267,7 +267,7 @@ export class DefaultQueueService extends QueueService {
                 jModel.Progress = p;
                 await tracked(() => jModel.update());
 
-                self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
+                self.Log.trace({ jobName: event.name, jobId: jModel.JobId, progress: p }, 'Job ${jobName}:${jobId} progress: ${progress}%');
               }
             }
 
@@ -275,7 +275,7 @@ export class DefaultQueueService extends QueueService {
               throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
             }
 
-            this.Log.trace(`Queue message ${event.name} processed`);
+            this.Log.trace({ messageName: event.name }, 'Queue message ${messageName} processed');
 
             if (callback) {
               return runAroundHandle(ev, () => callback(ev as T));

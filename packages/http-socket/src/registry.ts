@@ -40,7 +40,7 @@ export class SocketHandlerRegistry {
       const descriptor = controller.Descriptor;
 
       if (!descriptor) {
-        this.Log.warn(`Socket controller ${type.name} has no socket decorators, skipped`);
+        this.Log.warn({ controller: type.name }, 'Socket controller ${controller} has no socket decorators, skipped');
         continue;
       }
 
@@ -105,7 +105,7 @@ export class SocketHandlerRegistry {
         break;
     }
 
-    this.Log.trace(`Registered socket ${handler.Kind} ${fullName} -> ${controllerName}::${String(handler.Method)}`);
+    this.Log.trace({ kind: handler.Kind, name: fullName, controller: controllerName, method: handler.Method }, 'Registered socket ${kind} ${name} -> ${controller}::${method}');
   }
 
   protected unique(map: Map<string, IRegisteredHandler>, registered: IRegisteredHandler, controllerName: string): void {

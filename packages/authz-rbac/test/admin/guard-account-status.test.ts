@@ -1,5 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
 import { AdminGuard, PermissionRegistry, TRUE, principalKey } from '@spinajs/authz';
@@ -55,9 +56,11 @@ const answering = (states: Record<string, boolean>) => new FakeAccountStatus((re
 
 const warnings: string[] = [];
 
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
+
 /** DefaultAdminGuard with its warnings recorded. */
 class RecordingGuard extends DefaultAdminGuard {
-  protected override log: HostLog = { error: () => undefined, warn: (m: string) => void warnings.push(m), info: () => undefined, debug: () => undefined };
+  protected override log: HostLog = { error: () => undefined, warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)), info: () => undefined, debug: () => undefined };
 }
 
 const GUARD = { service: 'RecordingGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true };

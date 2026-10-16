@@ -1,5 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { AccessDenied, AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzService, FALSE, GLOBAL, PermissionRegistryImpl, ResourceAdapter, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { Assignment, PermissionInput, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
@@ -29,7 +30,8 @@ const PERMISSIONS: PermissionInput[] = ['Widget:create', 'Widget:update', 'Widge
 const ROLES: RoleDef[] = [role('admin', ['Widget:create', 'Widget:update']), role('member', [{ permission: 'Widget:create', relation: 'owner' }, { permission: 'Widget:update', relation: 'owner' }]), role('viewer', [{ permission: 'Widget:read', relation: 'owner' }]), role('frobber', [{ permission: 'Widget:frob', relation: 'capacity' }])];
 
 const warnings: string[] = [];
-const log = { warn: (message: string) => void warnings.push(message) };
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
+const log = { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) };
 
 const registry = () => {
   const r = new PermissionRegistryImpl();
@@ -95,7 +97,7 @@ describe('RbacModel as the 2.x PermissionService grants', () => {
     it('an unknown role counts as none, with a warning, instead of an error', async () => {
       const model = await rbac([assignment('a1', 'u1', 'ghost')]);
       expect((await vote(model, userPrincipal('u1'), 'Widget:create')).permitWhen).to.deep.equal(FALSE);
-      expect(warnings.filter((w) => w.includes("'ghost'"))).to.have.length(1);
+      expect(warnings.filter((w) => w.includes('unknown role ghost;'))).to.have.length(1);
     });
 
     it('projects through the ceiling of the principal', async () => {

@@ -97,7 +97,7 @@ export class DataValidator extends AsyncService {
       }, [])
       .filter((s) => {
         if (!s.schema || typeof s.schema !== 'object' || !s.schema.$id) {
-          this.Log.error(`Schema at ${s.file} is empty or has no $id property`, 'validator');
+          this.Log.error({ file: s.file }, 'Schema at ${file} is empty or has no $id property');
           return false;
         }
 
@@ -105,14 +105,14 @@ export class DataValidator extends AsyncService {
         try {
           const vResult = this.Validator.validateSchema(s.schema, true);
           if (!vResult) {
-            this.Log.error(`Schema at ${s.file} invalid`, 'validator');
+            this.Log.error({ file: s.file }, 'Schema at ${file} invalid');
 
             return false;
           }
 
           return true;
         } catch (err) {
-          this.Log.error(`Schema at ${s.file} invalid, reason: ${(err as Error).message}`, 'validator');
+          this.Log.error({ error: err, file: s.file }, 'Schema at ${file} invalid');
           return false;
         }
       })
@@ -125,12 +125,12 @@ export class DataValidator extends AsyncService {
 
   public addSchema(schemaObject: object, identifier: string) {
     if (this.hasSchema(identifier)) {
-      this.Log.warn(`Schema ${identifier} already registered, skipping`, 'validator');
+      this.Log.warn({ schema: identifier }, 'Schema ${schema} already registered, skipping');
       return;
     }
 
     this.Validator.addSchema(schemaObject, identifier);
-    this.Log.trace(`Schema ${identifier} added !`, 'validator');
+    this.Log.trace({ schema: identifier }, 'Schema ${schema} added !');
   }
 
   /**
@@ -141,7 +141,7 @@ export class DataValidator extends AsyncService {
   public removeSchema(schemaId: string): void {
     if (this.hasSchema(schemaId)) {
       this.Validator.removeSchema(schemaId);
-      this.Log.trace(`Schema ${schemaId} removed !`, 'validator');
+      this.Log.trace({ schema: schemaId }, 'Schema ${schema} removed !');
     }
   }
 

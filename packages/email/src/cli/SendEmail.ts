@@ -38,13 +38,13 @@ export class SendEmailCommand extends CliCommand {
   protected EmailSrv: EmailService;
 
   public async execute(options: EmailOptions): Promise<void> {
-    this.Log.trace(`Sending email with options options: ${JSON.stringify(options)}`);
+    this.Log.trace({ options }, 'Sending email with options options: ${options}');
 
     try {
       let model = {};
 
       if (options.model && fs.existsSync(options.model)) {
-        this.Log.trace(`Found model file at ${options.model}, trying to load model data ... `);
+        this.Log.trace({ modelFile: options.model }, 'Found model file at ${modelFile}, trying to load model data ... ');
 
         const mText = fs.readFileSync(options.model, { encoding: 'utf-8' });
         model = JSON.parse(mText);
@@ -71,9 +71,9 @@ export class SendEmailCommand extends CliCommand {
         await this.EmailSrv.send(email);
       }
 
-      this.Log.success(`Email send succesyfully to: ${options.to}, from: ${options.from}, subject: ${options.subject}`);
+      this.Log.success({ to: options.to, from: options.from, subject: options.subject }, 'Email send succesyfully to: ${to}, from: ${from}, subject: ${subject}');
     } catch (err) {
-      this.Log.error(`Cannot send email, reason: ${err.message}, stack: ${err.stack}`);
+      this.Log.error({ error: err }, 'Cannot send email');
     }
   }
 }

@@ -30,17 +30,17 @@ export class Csv extends TemplateRenderer {
 
   public async renderToFile(_template: string, model: IJsonToCsvOptions, filePath: string, language?: string): Promise<void> {
 
-    this.Log.trace(`Rendering template ${_template} to file ${filePath}`);
+    this.Log.trace({ template: _template, filePath }, 'Rendering template ${template} to file ${filePath}');
 
     try {
       const csv = await this.render(_template, model, language);
       ensureParentDir(filePath);
       fs.writeFileSync(filePath, csv, 'utf8');
     } catch (err) {
-      this.Log.error(err, `Error rendering template ${_template} to file ${filePath}`);
+      this.Log.error({ error: err, template: _template, filePath }, 'Error rendering template ${template} to file ${filePath}');
       throw err;
     } finally {
-      this.Log.trace(`Ended rendering template ${_template} to file ${filePath}`);
+      this.Log.trace({ template: _template, filePath }, 'Ended rendering template ${template} to file ${filePath}');
 
     }
   }

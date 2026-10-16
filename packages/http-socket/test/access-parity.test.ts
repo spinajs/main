@@ -16,6 +16,7 @@ import { SocketAccessContributor } from '../src/access-contributor.js';
 import { ISocketCallStorage, ISocketControllerDescriptor, SOCKET_CONTROLLER_DESCRIPTOR } from '../src/interfaces.js';
 import type { ISocketPolicyRequest } from '../src/policies.js';
 import { ITestServer, command, errorOf, open, resultOf, startServer } from './harness.js';
+import { logText } from './log-text.js';
 import { ScriptedSocketAuthz, ScriptedSocketDomains } from './scripted-authz.js';
 
 interface IAcpNote {
@@ -319,7 +320,7 @@ export class AcpLateSocket extends BaseSocketController {
 describe('SocketServer and the boot checks of @SocketAccess (B02)', function () {
   this.timeout(15000);
 
-  const b02Lines = (warn: sinon.SinonSpy) => warn.args.map((args) => String(args[0])).filter((line) => line.includes('B02'));
+  const b02Lines = (warn: sinon.SinonSpy) => warn.args.map((args) => logText(args)).filter((line) => line.includes('B02'));
 
   it('warns about the rules of a controller registered after the domain it checks in booted, until a boot sees it', async () => {
     let t = await startServer();
@@ -334,7 +335,7 @@ describe('SocketServer and the boot checks of @SocketAccess (B02)', function () 
       t = await startServer();
       const lines = b02Lines(warn);
       expect(lines).to.have.length(1);
-      expect(lines[0]).to.include('@SocketAccess on AcpLateSocket.read (domain root)').and.not.include('AccessParitySocket');
+      expect(lines[0]).to.include('{"source":"@SocketAccess on AcpLateSocket.read","domain":"root"}').and.not.include('AccessParitySocket');
 
       await t.close();
       new SocketAccessContributor().contribute('root');

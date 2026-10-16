@@ -32,6 +32,6 @@ export class MfaReset extends CliCommand {
       throw new Error(`no account with login ${login}`);
     }
     const { reset } = await this.Totp.adminReset(CLI_ACTOR, id, cliContext());
-    this.Log.success(reset ? `MFA reset for ${login}` : `No MFA enrolment for ${login}`);
+    this.Log.success({ login }, reset ? 'MFA reset for ${login}' : 'No MFA enrolment for ${login}');
   }
 }

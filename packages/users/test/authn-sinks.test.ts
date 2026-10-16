@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
@@ -166,14 +167,15 @@ describe('users authn event sinks', function () {
     it('logs a failure by its class and does not throw', async () => {
       const { ref } = await seedUser({ login: 'invite-broken', active: false, invitePending: true });
       const sink = await DI.resolve(UserAccountSink);
-      const warn = sinon.stub((sink as unknown as { Log: { warn: (m: string) => void } }).Log, 'warn');
+      const warn = sinon.stub((sink as unknown as { Log: { warn: (fields: Record<string, unknown>, template: string) => void } }).Log, 'warn');
       sinon.stub(UserAccountSink.prototype as unknown as { recordPasswordSet: () => Promise<void> }, 'recordPasswordSet').rejects(new Error(`UPDATE users SET Password = '${HASH}'`));
       sinon.stub(UserAccountSink.prototype as unknown as { activateInvited: () => Promise<void> }, 'activateInvited').rejects(new TypeError('boom'));
 
       await sink.publish(event('invite.redeem', ref));
 
       expect(warn.callCount).to.eq(2);
-      expect(warn.args.map((a) => a[0])).to.deep.eq([`Could not record when its password was set on invite.redeem of user ${ref.id}: Error`, `Could not activate its invited account on invite.redeem of user ${ref.id}: TypeError`]);
+      expect(warn.args.map(([fields, template]) => renderTemplate(template, fields))).to.deep.eq([`Could not record when its password was set on invite.redeem of user ${ref.id}: Error`, `Could not activate its invited account on invite.redeem of user ${ref.id}: TypeError`]);
+      expect(JSON.stringify(warn.args)).to.not.contain(HASH);
     });
   });
 

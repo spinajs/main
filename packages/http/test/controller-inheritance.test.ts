@@ -7,6 +7,7 @@ import { BaseController, BasePath, Controllers, ControllerSource, Get, Middlewar
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
 import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
 import { OtherFilePkgController } from './controller-inheritance-fixture.js';
+import { renderTemplate } from '@spinajs/log-common';
 
 class MinimalTestConfiguration extends FrameworkConfiguration {
   protected onLoad() {
@@ -98,7 +99,12 @@ interface ILogCall {
  * built from this file's blackhole configuration.
  */
 function recordingLog(calls: ILogCall[]) {
-  const record = (level: string) => (message: string) => { calls.push({ level, message: String(message) }); };
+  const render = (first: unknown, template?: string): string => {
+    if (typeof first === 'string') return first;
+    if (first instanceof Error) return template ?? first.message;
+    return renderTemplate(template ?? '', first as Record<string, unknown>);
+  };
+  const record = (level: string) => (first: unknown, template?: string) => { calls.push({ level, message: render(first, template) }); };
   return {
     trace: record('trace'),
     debug: record('debug'),

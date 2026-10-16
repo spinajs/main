@@ -42,7 +42,7 @@ export class Generate2FaQrCode extends CliCommand {
 
     if (options.output) {
       await QRCode.toFile(options.output, url, { type: 'png' });
-      this.Log.success(`QR code written to ${options.output}`);
+      this.Log.success({ file: options.output }, 'QR code written to ${file}');
     }
   }
 }

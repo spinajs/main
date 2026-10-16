@@ -30,7 +30,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
     await inTransaction(connection, async () => {
       const info = await connection.tableInfo(USERS_TABLE);
       if (!info || info.length === 0) {
-        this.log.info(`${NAME}: no table ${USERS_TABLE}; nothing dropped`);
+        this.log.info({ migration: NAME, table: USERS_TABLE }, '${migration}: no table ${table}; nothing dropped');
         return;
       }
 
@@ -39,9 +39,10 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       const filled = await hasUsers(connection);
 
       if (!roleColumn) {
-        const message = `${NAME}: table ${USERS_TABLE} has no column ${configured.roleColumn} (${USER_ROLES_ROLE_COLUMN_KEY}); its columns are ${names.join(', ')}; nothing dropped`;
-        if (filled) this.log.warn(message);
-        else this.log.info(message);
+        const fields = { migration: NAME, table: USERS_TABLE, column: configured.roleColumn, configKey: USER_ROLES_ROLE_COLUMN_KEY, columns: names };
+        const template = '${migration}: table ${table} has no column ${column} (${configKey}); its columns are ${columns}; nothing dropped';
+        if (filled) this.log.warn(fields, template);
+        else this.log.info(fields, template);
         return;
       }
 
@@ -75,7 +76,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
     await inTransaction(connection, async () => {
       const info = await connection.tableInfo(USERS_TABLE);
       if (!info || info.length === 0) {
-        this.log.info(`${NAME}: no table ${USERS_TABLE}; nothing re-added`);
+        this.log.info({ migration: NAME, table: USERS_TABLE }, '${migration}: no table ${table}; nothing re-added');
         return;
       }
 
@@ -90,7 +91,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       const idColumn = matchColumn(names, configured.idColumn);
       if (!idColumn) {
         if (await hasUsers(connection)) {
-          this.log.warn(`${NAME}: table ${USERS_TABLE} has no column ${configured.idColumn} (${USER_ROLES_ID_COLUMN_KEY}); ${roleColumn} re-added empty`);
+          this.log.warn({ migration: NAME, table: USERS_TABLE, column: configured.idColumn, configKey: USER_ROLES_ID_COLUMN_KEY, roleColumn }, '${migration}: table ${table} has no column ${column} (${configKey}); ${roleColumn} re-added empty');
         }
         return;
       }
@@ -169,8 +170,9 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
     const refused = !unique || count > 0;
 
     if (skipped > 0) {
-      const lost = refused ? '' : ' and are lost with the dropped column';
-      this.log.warn(`${NAME}: skipped ${skipped} ${USERS_TABLE} row(s) with roles whose ${idColumn} is null or empty; their roles were not copied${lost}`);
+      const fields = { migration: NAME, skipped, table: USERS_TABLE, idColumn };
+      if (refused) this.log.warn(fields, '${migration}: skipped ${skipped} ${table} row(s) with roles whose ${idColumn} is null or empty; their roles were not copied');
+      else this.log.warn(fields, '${migration}: skipped ${skipped} ${table} row(s) with roles whose ${idColumn} is null or empty; their roles were not copied and are lost with the dropped column');
     }
 
     // a keyset walk over tied ids skips rows; the copy skipped the same ones, so their pairs look complete

@@ -50,12 +50,15 @@ export class TelemetryTokenPolicy extends BasePolicy {
 
     const token = req.headers[this.HEADER_TOKEN_FIELD] ?? this.bearerToken(req);
     if (typeof token !== 'string' || token.length === 0) {
-      this.Log.warn(`No token is set for restricted area, header field: ${this.HEADER_TOKEN_FIELD} (or Authorization: Bearer), policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
+      this.Log.warn(
+        { headerField: this.HEADER_TOKEN_FIELD, ip: req.storage.realIp },
+        'No token is set for restricted area, header field: ${headerField} (or Authorization: Bearer), policy: TelemetryTokenPolicy, ip: ${ip}',
+      );
       throw new Forbidden('access token is not set');
     }
 
     if (!this.matches(token)) {
-      this.Log.warn(`Invalid access token received, header field: ${this.HEADER_TOKEN_FIELD}, policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
+      this.Log.warn({ headerField: this.HEADER_TOKEN_FIELD, ip: req.storage.realIp }, 'Invalid access token received, header field: ${headerField}, policy: TelemetryTokenPolicy, ip: ${ip}');
       throw new Forbidden('invalid access token');
     }
   }

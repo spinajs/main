@@ -13,8 +13,9 @@ import { SocketConnection } from '../src/connection.js';
 import { SocketHub } from '../src/hub.js';
 import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
 import type { IdempotentReply } from '../src/interfaces.js';
-import { assertShutdownConfig, shutdownOverrun } from '../src/limits.js';
+import { SHUTDOWN_FLUSH_MS, assertShutdownConfig, shutdownOverrun } from '../src/limits.js';
 import { ITestServer, command, connect, connected, delay, errorOf, nextEvent, open, refusalOf, resultOf, startServer, waitFor } from './harness.js';
+import { logText } from './log-text.js';
 import { rawStream } from './stream-client.js';
 
 export const shutAborts: string[] = [];
@@ -556,10 +557,10 @@ describe('socket graceful shutdown', function () {
 
   it('warns when the http server would cut the drain short', () => {
     expect(shutdownOverrun(5_000, 10_000)).to.be.null;
-    expect(shutdownOverrun(8_000, 10_000)).to.match(/http\.shutdownTimeout/);
+    expect(shutdownOverrun(8_000, 10_000)).to.deep.equal({ drainMs: 8_000, graceMs: 3 * SHUTDOWN_FLUSH_MS, shutdownTimeoutMs: 10_000 });
     // the drain, the keyed grace and the transport flush each add up to SHUTDOWN_FLUSH_MS
     expect(shutdownOverrun(6_999, 10_000)).to.be.null;
-    expect(shutdownOverrun(7_000, 10_000)).to.match(/http.shutdownTimeout/);
+    expect(shutdownOverrun(7_000, 10_000)).to.deep.equal({ drainMs: 7_000, graceMs: 3 * SHUTDOWN_FLUSH_MS, shutdownTimeoutMs: 10_000 });
   });
 
   it('refuses to start with a drainMs or shutdownRetryAfterMs it cannot use', async () => {
@@ -587,7 +588,7 @@ describe('socket graceful shutdown', function () {
     try {
       await restartWith({ http: { socket: { drainMs: 7_000 } } });
 
-      expect(warn.args.map((args) => String(args[0]))).to.satisfy((lines: string[]) => lines.some((line) => line.includes('http.shutdownTimeout')));
+      expect(warn.args.map((args) => logText(args))).to.satisfy((lines: string[]) => lines.some((line) => line.includes('http.shutdownTimeout')));
     } finally {
       warn.restore();
     }

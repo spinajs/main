@@ -23,17 +23,17 @@ export class MjmlRenderer extends TemplateRenderer {
   }
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering mjml template ${templateName}`);
+    this.Log.trace({ templateName }, 'Rendering mjml template ${templateName}');
     this.Log.timeStart(`MjmlRenderer.render.start.${templateName}`);
 
     const mjmTemplate = await this.Templates.compile(templateName, 'handlebars', model, language);
     const html = await mjml2html(mjmTemplate, this.Options);
 
     const time = this.Log.timeEnd(`MjmlRenderer.render.start.${templateName}`);
-    this.Log.trace(`Rendering mjml template ${templateName} ended, (${time} ms)`);
+    this.Log.trace({ templateName, time }, 'Rendering mjml template ${templateName} ended, (${time} ms)');
 
     html.errors.forEach((error) => {
-      this.Log.warn(`MJML error: ${error.formattedMessage}`);
+      this.Log.warn({ mjmlError: error.formattedMessage }, 'MJML error: ${mjmlError}');
     });
     
     return html.html;

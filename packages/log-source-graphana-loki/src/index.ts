@@ -198,7 +198,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         // successful send() so a later episode warns again.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${droppedItems.length} oldest entries.`);
+          this.Log.warn({ maxBufferSize: this.Options.maxBufferSize, dropped: droppedItems.length }, "Graphana loki buffer exceeded ${maxBufferSize} entries, dropped ${dropped} oldest entries.");
         }
 
         // spill each dropped entry to the fallback ( if a wrapper wired one ) so
@@ -279,7 +279,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       // drained successfully - allow the next overflow episode to warn again
       this.Overflowed = false;
 
-      this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.host}, ${batch.length} messages.`);
+      this.Log.trace({ host: this.Options.host, messages: batch.length }, "Wrote buffered messages to graphana target at url ${host}, ${messages} messages.");
     } catch (err) {
       // reached only after retries are exhausted ( transient ) or immediately
       // for a non-retryable error.
@@ -303,7 +303,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         this.OnDropped?.(entry);
       }
 
-      this.Log.error(err, `Cannot write log messages to graphana target - dropping ${batch.length} entries because the error is non-retryable.`);
+      this.Log.error({ error: err, entries: batch.length }, "Cannot write log messages to graphana target - dropping ${entries} entries because the error is non-retryable.");
     }
   }
 }

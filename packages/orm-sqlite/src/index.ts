@@ -292,7 +292,7 @@ export class SqliteOrmDriver extends SqlDriver {
           new Promise<sqlite3.Database | null>((resolve) => {
             const db = new sqlite3.Database(filename, sqlite3.OPEN_READONLY, (err: unknown) => {
               if (err) {
-                this.Log.warn(`could not open a read-only sqlite handle for ${this.Options.Name}: ${(err as Error).message}`);
+                this.Log.warn({ error: err, connection: this.Options.Name }, 'could not open a read-only sqlite handle for ${connection}');
                 resolve(null);
                 return;
               }

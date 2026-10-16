@@ -4,6 +4,7 @@ import 'mocha';
 
 import { HostLog } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
 import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
@@ -102,11 +103,13 @@ const asSet = (roles: string) =>
     ),
   ].sort();
 
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
+
 function recordingLog(lines: string[]): HostLog {
   return {
-    error: (m: string) => lines.push(`error ${m}`),
-    warn: (m: string) => lines.push(`warn ${m}`),
-    info: (m: string) => lines.push(`info ${m}`),
+    error: (fields: unknown, template?: unknown) => void lines.push(`error ${logLine(fields, template)}`),
+    warn: (fields: unknown, template?: unknown) => void lines.push(`warn ${logLine(fields, template)}`),
+    info: (fields: unknown, template?: unknown) => void lines.push(`info ${logLine(fields, template)}`),
     debug: () => {},
   };
 }
@@ -461,7 +464,7 @@ for (const kind of DB_KINDS) {
       const filled = new RecordingDrop();
       await filled.up(db.driver);
       expect(filled.lines).to.have.length(1);
-      expect(filled.lines[0]).to.match(/^warn .*table users has no column Role \(authz\.rbac\.migration\.roleColumn\); its columns are Id, Uuid, Email, Login, IsActive, CreatedAt; nothing dropped/);
+      expect(filled.lines[0]).to.match(/^warn .*table users has no column Role \(authz\.rbac\.migration\.roleColumn\); its columns are \["Id","Uuid","Email","Login","IsActive","CreatedAt"\]; nothing dropped/);
       expect(await columnNames(db.driver)).to.deep.eq(['Id', 'Uuid', 'Email', 'Login', 'IsActive', 'CreatedAt']);
     });
 

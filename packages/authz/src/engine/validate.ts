@@ -88,7 +88,7 @@ const CORE_OPS: ReadonlySet<string> = new Set(CORE_FILTER_OPS);
 const FALLBACK_ALGORITHM = 'deny-overrides';
 
 /** Design §6.5 rules 1–8 and 10, and rule 12 (list permissions, resource-access plan decision 8); rules 9 and 11 are checked by the models. */
-export function validateBoot(input: BootInput): { readonly warnings: readonly string[] } {
+export function validateBoot(input: BootInput): { readonly warnings: readonly string[]; readonly unrouted: readonly string[] } {
   const { domain, registry } = input;
   const problems: Problem[] = [];
   const add: Add = (p) => problems.push(p);
@@ -181,8 +181,9 @@ export function validateBoot(input: BootInput): { readonly warnings: readonly st
     throw new AuthzConfigError(`Authorization config of domain ${q(domain)} is invalid (${lines.length} ${lines.length === 1 ? 'problem' : 'problems'}):\n${lines.join('\n')}`);
   }
 
-  const warnings = sorted([...(table?.unrouted ?? [])]).map((name) => `domain ${q(domain)}, model ${q(name)}: no combine entry routes this model`);
-  return Object.freeze({ warnings: Object.freeze(warnings) });
+  const unrouted = sorted([...(table?.unrouted ?? [])]);
+  const warnings = unrouted.map((name) => `domain ${q(domain)}, model ${q(name)}: no combine entry routes this model`);
+  return Object.freeze({ warnings: Object.freeze(warnings), unrouted: Object.freeze(unrouted) });
 }
 
 function readModel(model: unknown, index: number, named: NamedModel[], caps: Map<AuthorizationModel, ModelCaps>, add: Add): void {

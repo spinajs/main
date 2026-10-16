@@ -3,6 +3,7 @@ import { Config, service } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
@@ -55,10 +56,11 @@ function parseRoles(roles: unknown): string[] | undefined | null {
     return undefined;
   }
   // Roles is a comma-joined column: a comma would smuggle in a second role.
-  if (!Array.isArray(roles) || roles.length === 0 || !roles.every((r) => isNonEmptyString(r) && !r.includes(','))) {
+  const [ok, valid] = _try_check_arg(_is_array(), _non_empty(), _is_array_of(_is_string(_non_empty(), _custom((r: string) => !r.includes(',')))))(roles, 'roles');
+  if (!ok) {
     return null;
   }
-  const unique = [...new Set(roles as string[])];
+  const unique = [...new Set(valid as string[])];
   // Postgres and strict mysql would throw on overflow; non-strict mysql would cut the last role to another name.
   return unique.join(',').length <= MAX_ROLES_LENGTH ? unique : null;
 }
@@ -75,18 +77,20 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   const out: { permissions?: string[]; resources?: ResourceRef[]; agent?: boolean } = {};
 
   if (scope.permissions !== undefined) {
-    if (!Array.isArray(scope.permissions) || scope.permissions.length > MAX_SCOPE_ENTRIES || !scope.permissions.every(isNonEmptyString)) {
+    const [ok, permissions] = _try_check_arg(_is_array(), _max_length(MAX_SCOPE_ENTRIES), _is_array_of(_is_string(_non_empty())))(scope.permissions, 'scope.permissions');
+    if (!ok) {
       return null;
     }
-    out.permissions = [...scope.permissions];
+    out.permissions = [...(permissions as string[])];
   }
 
   if (scope.resources !== undefined) {
-    if (!Array.isArray(scope.resources) || scope.resources.length > MAX_SCOPE_ENTRIES) {
+    const [ok, entries] = _try_check_arg(_is_array(), _max_length(MAX_SCOPE_ENTRIES))(scope.resources, 'scope.resources');
+    if (!ok) {
       return null;
     }
     const resources: ResourceRef[] = [];
-    for (const r of scope.resources as unknown[]) {
+    for (const r of entries as unknown[]) {
       if (!isRecord(r) || !isNonEmptyString(r.type) || (r.id !== undefined && typeof r.id !== 'string')) {
         return null;
       }
@@ -173,8 +177,8 @@ export class DbTokenService extends TokenService {
 
     // Callers can bypass the types, so every field is checked as unknown.
     const raw: Record<string, unknown> = isRecord(opts) ? opts : {};
-    const kind = raw.kind;
-    if (typeof kind !== 'string' || !TOKEN_KINDS.includes(kind)) {
+    const [knownKind, kind] = _try_check_arg(_is_string(_contains(TOKEN_KINDS)))(raw.kind, 'kind');
+    if (!knownKind) {
       return INVALID_SCOPE;
     }
 
@@ -195,10 +199,11 @@ export class DbTokenService extends TokenService {
 
     let profile: string | undefined;
     if (raw.profile !== undefined) {
-      if (!isNonEmptyString(raw.profile) || !(await this.profiles.allowedProfiles(owner)).includes(raw.profile)) {
+      const [ok, requested] = _try_check_arg(_is_string(_non_empty()))(raw.profile, 'profile');
+      if (!ok || !(await this.profiles.allowedProfiles(owner)).includes(requested)) {
         return INVALID_SCOPE;
       }
-      profile = raw.profile;
+      profile = requested;
     }
 
     const expiresAt = instant(raw.expiresAt);
@@ -214,9 +219,7 @@ export class DbTokenService extends TokenService {
     }
 
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
-    if (name.length === 0 || name.length > MAX_NAME_LENGTH) {
-      throw new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`);
-    }
+    _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
 
     const rowId = await this.owners.rowIdOf(owner);
     if (rowId === null) {
@@ -262,7 +265,8 @@ export class DbTokenService extends TokenService {
 
   public async revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
     const now = this.nowOf(ctx);
-    if (!isNonEmptyString(id)) {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
+    if (!ok) {
       return false;
     }
     const rowId = await this.owners.rowIdOf(owner);
@@ -293,7 +297,8 @@ export class DbTokenService extends TokenService {
    */
   public async revokeById(id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
     const now = this.nowOf(ctx);
-    if (!isNonEmptyString(id)) {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
+    if (!ok) {
       return false;
     }
 
@@ -314,7 +319,7 @@ export class DbTokenService extends TokenService {
     try {
       owner = await this.owners.refOf(token.user_id);
     } catch (err) {
-      this.Log.error(err as Error, `Owner lookup failed for revoked token ${token.Uuid}; publishing token.revoke without an identity`);
+      this.Log.error({ error: err, tokenUuid: token.Uuid }, 'Owner lookup failed for revoked token ${tokenUuid}; publishing token.revoke without an identity');
     }
 
     await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
@@ -374,7 +379,8 @@ export class DbTokenService extends TokenService {
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
     // Without a valid now no token could ever count as expired.
     const now = instant(ctx?.now);
-    if (!Number.isFinite(now) || !isNonEmptyString(raw)) {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(raw, 'raw');
+    if (!ok || !Number.isFinite(now)) {
       return fail('invalid_credentials');
     }
 
@@ -448,10 +454,12 @@ export class DbTokenService extends TokenService {
    */
   public async touch(id: string, ctx: AuthnContext, intervalSeconds: number): Promise<boolean> {
     const now = this.nowOf(ctx);
-    if (typeof intervalSeconds !== 'number' || !Number.isFinite(intervalSeconds) || intervalSeconds < 0) {
+    const [validInterval] = _try_check_arg(_is_number(_finite(), _gte(0)))(intervalSeconds, 'intervalSeconds');
+    if (!validInterval) {
       throw new Error('the last-used interval must be a non-negative number of seconds');
     }
-    if (!isNonEmptyString(id)) {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
+    if (!ok) {
       return false;
     }
 
@@ -534,7 +542,7 @@ export class DbTokenService extends TokenService {
       // Resolved per event, so a sink registered after this service still gets it.
       sinks = (await DI.resolve(Array.ofType(AuthnEventSink))) ?? [];
     } catch (err) {
-      this.Log.error(err as Error, `AuthnEventSink resolution failed; publishing ${type} to the sinks already built`);
+      this.Log.error({ error: err, eventType: type }, 'AuthnEventSink resolution failed; publishing ${eventType} to the sinks already built');
       sinks = DI.get(Array.ofType(AuthnEventSink)) ?? [];
     }
 
@@ -542,7 +550,7 @@ export class DbTokenService extends TokenService {
       try {
         await sink.publish(event);
       } catch (err) {
-        this.Log.error(err as Error, `AuthnEventSink ${sink.constructor.name} failed to publish ${type}`);
+        this.Log.error({ error: err, sink: sink.constructor.name, eventType: type }, 'AuthnEventSink ${sink} failed to publish ${eventType}');
       }
     }
   }

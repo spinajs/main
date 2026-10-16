@@ -1,5 +1,5 @@
-import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -31,7 +31,7 @@ export interface RbacModelOptions {
   /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. The model adds tokenRoleExtension last either way. */
   readonly extensions?: readonly RbacExtension[];
   /** Default: the host log under the name 'authz-rbac'. */
-  readonly log?: { warn(message: string): void };
+  readonly log?: Pick<HostLog, 'warn'>;
   /** Times the assignment cache TTL and the role version check; default: the system clock. */
   readonly clock?: { now(): Date };
 }
@@ -59,7 +59,7 @@ export class RbacModel extends AuthorizationModel {
   readonly capabilities: ModelCapabilities;
   readonly extensions: readonly RbacExtension[];
 
-  private readonly log: { warn(message: string): void };
+  private readonly log: Pick<HostLog, 'warn'>;
   private loaded?: Loaded;
   private grants?: GrantIndex;
   private readonly warnedRoles = new Set<string>();
@@ -184,7 +184,7 @@ export class RbacModel extends AuthorizationModel {
     const text = `rbac: rule '${blocking.id}' (${blocking.kind}, source: ${blocking.source}) can apply to ${permission} on ${JSON.stringify(type)}, so lists of it are refused; delete or narrow the rule`;
     if (!this.warnedListRules.has(blocking.id)) {
       this.warnedListRules.add(blocking.id);
-      this.log.warn(text);
+      this.log.warn({ rule: blocking.id, ruleKind: blocking.kind, source: blocking.source, permission, resourceType: type }, 'rbac: rule ${rule} (${ruleKind}, source: ${source}) can apply to ${permission} on ${resourceType}, so lists of it are refused; delete or narrow the rule');
     }
     throw new Error(text);
   }
@@ -413,8 +413,8 @@ export class RbacModel extends AuthorizationModel {
   private compileIndex(graph: RoleGraph, registry: PermissionRegistry): GrantIndex {
     const index = compileGrants(graph, registry);
     for (const ext of this.extensions) ext.compile?.(graph, index, registry);
-    for (const { role, glob } of index.unmatchedGlobs) this.log.warn(`rbac role '${role}' grants '${glob}', which matches no registered permission`);
-    for (const { role, glob } of index.droppedFields) this.log.warn(`rbac role '${role}' grants '${glob}' with fields, but no permission it matches takes fields; the fields are ignored`);
+    for (const { role, glob } of index.unmatchedGlobs) this.log.warn({ role, glob }, 'rbac role ${role} grants ${glob}, which matches no registered permission');
+    for (const { role, glob } of index.droppedFields) this.log.warn({ role, glob }, 'rbac role ${role} grants ${glob} with fields, but no permission it matches takes fields; the fields are ignored');
     return index;
   }
 
@@ -456,7 +456,7 @@ export class RbacModel extends AuthorizationModel {
       this.rolesBroken = false;
     } catch (e) {
       this.rolesBroken = true;
-      this.log.warn(`rbac: reloading the role definitions failed; RBAC votes fail until a reload succeeds: ${e instanceof Error ? e.message : String(e)}`);
+      this.log.warn({ error: thrownError(e) }, 'rbac: reloading the role definitions failed; RBAC votes fail until a reload succeeds');
       throw e;
     }
   }
@@ -505,14 +505,15 @@ export class RbacModel extends AuthorizationModel {
   private unknownRole(a: Assignment): void {
     if (this.warnedRoles.has(a.role)) return;
     this.warnedRoles.add(a.role);
-    this.log.warn(`rbac: assignment '${a.id}' (source: ${a.source}) names unknown role '${a.role}'; assignments of this role are ignored`);
+    this.log.warn({ assignmentId: a.id, source: a.source, role: a.role }, 'rbac: assignment ${assignmentId} (source: ${source}) names unknown role ${role}; assignments of this role are ignored');
   }
 
   private refusedAssignment(a: Assignment, problem: Exclude<AssignmentProblem, 'unknown_role'>): void {
     if (this.warnedAssignments.has(a.id)) return;
     this.warnedAssignments.add(a.id);
-    const why = problem === 'not_assignable' ? `role '${a.role}' is not assignable` : `the scopeTypes of role '${a.role}' leave out '${a.scope.type}'`;
-    this.log.warn(`rbac: assignment '${a.id}' (source: ${a.source}) at ${resourceKey(a.scope)} is ignored: ${why}`);
+    const fields = { assignmentId: a.id, source: a.source, scope: resourceKey(a.scope), role: a.role, scopeType: a.scope.type };
+    if (problem === 'not_assignable') this.log.warn(fields, 'rbac: assignment ${assignmentId} (source: ${source}) at ${scope} is ignored: role ${role} is not assignable');
+    else this.log.warn(fields, 'rbac: assignment ${assignmentId} (source: ${source}) at ${scope} is ignored: the scopeTypes of role ${role} leave out ${scopeType}');
   }
 }
 

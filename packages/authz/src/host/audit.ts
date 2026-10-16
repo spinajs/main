@@ -5,21 +5,26 @@ import type { HostLog } from './log.js';
 
 type AuditRecord = Parameters<DecisionAudit['record']>[0];
 
-// Values may carry user input: anything but a plain token is JSON-encoded so it cannot forge a field or a line.
-const enc = (v: unknown): string => {
-  const s = String(v);
-  return /^[A-Za-z0-9_.:@/*-]+$/.test(s) ? s : JSON.stringify(s);
-};
+// The Log escapes and quotes each value, so user input in one cannot forge a field or a line.
+const LINE =
+  'authz audit ${kind} principal=${principalType}:${principalId}' +
+  '${?permission} permission=${permission}${/permission}' +
+  '${?resourceType} resource=${resourceType}${/resourceType}${?resourceId}:${resourceId}${/resourceId}' +
+  '${?reason} reason=${reason}${/reason}${?command} command=${command}${/command}${?durationMs} durationMs=${durationMs}${/durationMs}';
 
-function format(e: AuditRecord): string {
-  const parts = [`authz audit ${enc(e.kind)}`, `principal=${enc(e.principal.type)}:${enc(e.principal.id)}`];
-  if (e.permission !== undefined) parts.push(`permission=${enc(e.permission)}`);
-  if (e.resource !== undefined) parts.push(`resource=${enc(e.resource.type)}${e.resource.id === undefined ? '' : `:${enc(e.resource.id)}`}`);
-  if (e.reason !== undefined) parts.push(`reason=${JSON.stringify(e.reason)}`);
+function fields(e: AuditRecord): Record<string, unknown> {
   const cmd = e.command as { kind?: unknown } | null | undefined;
-  if (e.kind === 'admin' && cmd !== null && typeof cmd === 'object' && typeof cmd.kind === 'string') parts.push(`command=${enc(cmd.kind)}`);
-  if (e.trace !== undefined) parts.push(`durationMs=${e.trace.durationMs}`);
-  return parts.join(' ');
+  return {
+    kind: e.kind,
+    principalType: e.principal.type,
+    principalId: e.principal.id,
+    permission: e.permission,
+    resourceType: e.resource?.type,
+    resourceId: e.resource?.id,
+    reason: e.reason,
+    command: e.kind === 'admin' && cmd !== null && typeof cmd === 'object' && typeof cmd.kind === 'string' ? cmd.kind : undefined,
+    durationMs: e.trace?.durationMs,
+  };
 }
 
 @Singleton()
@@ -36,9 +41,9 @@ export class LogDecisionAudit extends DecisionAudit {
   record(e: AuditRecord): void {
     try {
       const log = (this.log ??= engineLog('authz-audit'));
-      const line = format(e);
-      if (e.kind === 'deny') log.warn(line);
-      else log.info(line);
+      const f = fields(e);
+      if (e.kind === 'deny') log.warn(f, LINE);
+      else log.info(f, LINE);
     } catch {
       // auditing never fails a check
     }

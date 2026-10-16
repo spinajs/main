@@ -51,7 +51,7 @@ export class DefaultJobRetentionService extends JobRetentionService {
       this.purgeJobs(cutoff, this.Options.statuses)
         .then((n) => {
           if (n > 0) {
-            this.Log.info(`Retention purge removed ${n} job(s) older than ${cutoff.toISO()}`);
+            this.Log.info({ count: n, cutoff }, 'Retention purge removed ${count} job(s) older than ${cutoff}');
           }
         })
         .catch((err) => this.Log.error(err, 'Job retention purge failed'));
@@ -60,7 +60,7 @@ export class DefaultJobRetentionService extends JobRetentionService {
     // don't keep the process alive just for the purge timer
     (this.RetentionTimer as { unref?: () => void }).unref?.();
 
-    this.Log.info(`Job retention enabled: purging jobs older than ${maxAge}ms every ${interval}ms`);
+    this.Log.info({ maxAge, interval }, 'Job retention enabled: purging jobs older than ${maxAge}ms every ${interval}ms');
   }
 
   /**

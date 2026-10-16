@@ -183,7 +183,10 @@ export class DefaultAccountGuard extends AccountGuard {
       }
       return new Set(refs.filter((ref) => answers.get(principalKey(ref)) === true).map((ref) => ref.id));
     } catch (e) {
-      this.Log.warn(`users-http AccountGuard: the AccountStatusSource failed, so no account counts as a remaining holder of the privileged permission: ${e instanceof Error ? `${e.name}: ${e.message}` : typeof e}`);
+      this.Log.warn(
+        { errorName: e instanceof Error ? e.name : typeof e, reason: e instanceof Error ? e.message : undefined },
+        'users-http AccountGuard: the AccountStatusSource failed, so no account counts as a remaining holder of the privileged permission: ${errorName}${?reason}: ${reason}${/reason}',
+      );
       return undefined;
     }
   }

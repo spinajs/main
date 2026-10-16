@@ -78,13 +78,22 @@ export class fsTemp extends fs {
 
     if (!this.Options.cleanup) {
       this.Logger.info(
-        `Cleanup for temporary files system ${this.Options.name} set to false. Check configuration file if you want to automatically clenaup temporary files.`,
+        { fsName: this.Options.name },
+        'Cleanup for temporary files system ${fsName} set to false. Check configuration file if you want to automatically clenaup temporary files.',
       );
       return;
     }
 
     this.Logger.info(
-      `Starting cleanup for temporary files system ${this.Options.name}, backend: ${this.Options.provider}, strategy: ${strategyName}, interval: ${this.Options.cleanupInterval}, cron: ${this.Options.cleanupCronExpression}, max file age: ${this.Options.maxFileAge}`,
+      {
+        fsName: this.Options.name,
+        backend: this.Options.provider,
+        strategy: strategyName,
+        interval: this.Options.cleanupInterval,
+        cron: this.Options.cleanupCronExpression,
+        maxFileAge: this.Options.maxFileAge,
+      },
+      'Starting cleanup for temporary files system ${fsName}, backend: ${backend}, strategy: ${strategy}, interval: ${interval}, cron: ${cron}, max file age: ${maxFileAge}',
     );
 
     this.CleanupStrategy.start(this.Provider, this.Options);

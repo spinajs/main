@@ -9,6 +9,7 @@ import { Command, SocketController } from '../src/decorators.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SOCKET_METRIC_KEY_STREAMS, socketMetrics } from '../src/metrics.js';
 import { ITestServer, delay, open, startServer, waitFor } from './harness.js';
+import { logText } from './log-text.js';
 import { rawStream } from './stream-client.js';
 
 @SocketController('strmobs')
@@ -88,7 +89,7 @@ describe('stream observability', function () {
 
     const s = rawStream(socket, 'strmobs.two', null, 4);
     await s.finished;
-    const streamLines = () => debug.getCalls().map((c) => String(c.args[0])).filter((line) => /^socket stream /.test(line));
+    const streamLines = () => debug.getCalls().map((c) => logText(c.args)).filter((line) => /^socket stream /.test(line));
     await waitFor(() => streamLines().length > 0);
 
     expect(streamLines()).to.have.length(1);

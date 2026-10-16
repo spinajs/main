@@ -14,6 +14,7 @@ import { AUTHN_OIDC_CONFIGURATION_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/op
 import { OidcProviders } from '../src/providers.js';
 import { boot, configurationOf, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
 import { withSchemaDefaults } from './support/oidc-config.js';
+import { recordingLog } from './support/recording-log.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_OIDC_CONFIGURATION_SCHEMA];
 const SECRET = 'SUPER-SECRET-VALUE-42';
@@ -241,8 +242,8 @@ describe('authn.oidc through its own schema', function () {
     it('warns when a provider switch has no global switch behind it, and redacts the secret', async () => {
       const cfg = await configOf({ corp: generic({ linking: { jit: true } }) });
       const warnings: string[] = [];
-      const options = buildOidcOptions(cfg, 'production', { linking: { jit: false, byVerifiedEmail: false }, log: { warn: (m) => warnings.push(m) } });
-      expect(warnings.join('\n')).to.contain('authn.oidc.providers.corp.linking.jit').and.to.contain('authn.linking.jit');
+      const options = buildOidcOptions(cfg, 'production', { linking: { jit: false, byVerifiedEmail: false }, log: recordingLog(warnings) });
+      expect(warnings.join('\n')).to.contain('authn.oidc.providers.corp.linking.jit').and.to.contain('authn.linking.jit').and.to.not.contain(SECRET);
       const provider = options.providers.get('corp')!;
       expect(provider.clientSecret.secret).to.eq(SECRET);
       expect(JSON.stringify(provider)).to.not.contain(SECRET);

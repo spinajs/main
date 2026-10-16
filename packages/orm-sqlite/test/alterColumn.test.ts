@@ -12,6 +12,7 @@ import * as chai from 'chai';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
+import { renderTemplate } from '@spinajs/log-common';
 import { ConnectionConf, db } from './common.js';
 
 const expect = chai.expect;
@@ -130,8 +131,10 @@ describe('Sqlite alter column', function () {
 
     expect(output.expression).to.eq('');
     expect(spy.calledOnce).to.be.true;
-    expect(spy.firstCall.args[0]).to.match(/Status/);
-    expect(spy.firstCall.args[0]).to.match(/NOT NULL/i);
+    expect(spy.firstCall.args[0]).to.deep.equal({ column: 'Status' });
+    const message = renderTemplate(spy.firstCall.args[1], spy.firstCall.args[0]);
+    expect(message).to.match(/Status/);
+    expect(message).to.match(/NOT NULL/i);
   });
 
   it('add column should not emit MySQL AFTER clause on sqlite', () => {

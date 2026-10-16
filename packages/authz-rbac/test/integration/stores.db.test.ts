@@ -7,6 +7,7 @@ import type { AuthzService, Permission } from '@spinajs/authz';
 import { BEHAVIOUR_FIXTURES, fixtureDsl, modelSteps, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { DecisionExpectation, HostSetup, Step, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -46,6 +47,7 @@ const check = (as: string, permission: Permission, resource: { type: string; id?
 // --- B12 store part: the warning L1 logs for a stored row of an unknown role ------------------
 
 const warnings: string[] = [];
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 const ghostWorld: World = {
   permissions: ['doc:read'],
   principals: { alice, carol },
@@ -72,9 +74,9 @@ const warningFixture = extension('B12', [
           {
             note: 'one warning for the role',
             do: () => {
-              const ghost = warnings.filter((w) => w.includes("unknown role 'ghost'"));
+              const ghost = warnings.filter((w) => w.includes('unknown role ghost;'));
               expect(ghost, JSON.stringify(warnings)).to.have.length(1);
-              expect(ghost[0]).to.match(/assignment 'g[12]' \(source: test\)/);
+              expect(ghost[0]).to.match(/assignment g[12] \(source: test\)/);
             },
           },
         ],
@@ -180,7 +182,7 @@ for (const kind of DB_KINDS) {
       await db?.dispose();
     });
 
-    runBehaviour(['B12.l2-store-warning'], () => dbHarness(dbOf, { log: { warn: (m) => void warnings.push(m) } }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, warningFixture] });
+    runBehaviour(['B12.l2-store-warning'], () => dbHarness(dbOf, { log: { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) } }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, warningFixture] });
 
     if (kind === 'sqlite') {
       runBehaviour(['B43.l2-store-cli'], () => dbHarness(dbOf, { admin: true, register: remember }), { ...RUN, fixtures: [...BEHAVIOUR_FIXTURES, cliFixture] });

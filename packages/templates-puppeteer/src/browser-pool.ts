@@ -63,12 +63,12 @@ export class BrowserPool {
       await Promise.allSettled(pages.map((page) => page.close()));
       await browser.close();
     } catch (err) {
-      this.log.warn(`Error during normal browser cleanup: ${err.message}`);
+      this.log.warn({ error: err }, 'Error during normal browser cleanup');
 
       try {
         this.forceClose(browser);
       } catch (killErr) {
-        this.log.error(`Failed to force kill browser: ${killErr.message}`);
+        this.log.error({ error: killErr }, 'Failed to force kill browser');
       }
     }
   }

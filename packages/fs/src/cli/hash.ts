@@ -22,7 +22,7 @@ export class FsHashCommand extends CliCommand {
       const hash = await _hash(path, options.algo, fsName);
       this.Log.info(`${options.algo ?? 'sha256'}(${path}) = ${hash}`);
     } catch (err) {
-      this.Log.error(`Cannot hash ${path} on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot hash ${path} on ${fsName}');
     }
   }
 }

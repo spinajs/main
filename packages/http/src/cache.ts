@@ -162,7 +162,7 @@ export class DefaultControllerCache extends AsyncService {
   public async resolve() {
     await super.resolve();
     await this.dropStaleEntries();
-    this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')} ( @spinajs/http ${this.Version} )`);
+    this.Log.info({ dir: this.CacheFS.resolvePath(''), version: this.Version }, 'Controller cache dir is: ${dir} ( @spinajs/http ${version} )');
   }
 
   /**
@@ -202,7 +202,7 @@ export class DefaultControllerCache extends AsyncService {
 
     for (const entry of await this.CacheFS.list('')) {
       if (ENTRY_NAME.test(entry) && !mine(entry)) {
-        this.Log.info(`Dropping stale controller cache entry ${entry}`);
+        this.Log.info({ entry }, 'Dropping stale controller cache entry ${entry}');
         await this.CacheFS.rm(entry);
       }
     }
@@ -235,13 +235,13 @@ export class DefaultControllerCache extends AsyncService {
     const docExists = await this.CacheFS.exists(docHash);
 
     if (!paramExists || !docExists) {
-      this.Log.info(`Generating controller cache for ${controller.name}`);
+      this.Log.info({ controller: controller.name }, 'Generating controller cache for ${controller}');
       const { parameters, documentation } = this.extractAll(file, controller.name);
 
       if (!paramExists) await this.CacheFS.write(paramHash, JSON.stringify(parameters));
       if (!docExists) await this.CacheFS.write(docHash, JSON.stringify(documentation));
 
-      this.Log.info(`Controller cache generated for ${controller.name}`);
+      this.Log.info({ controller: controller.name }, 'Controller cache generated for ${controller}');
     }
 
     return this.CacheFS.read(paramHash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
@@ -326,7 +326,7 @@ export class DefaultControllerCache extends AsyncService {
         const description = this.extractClassJsDoc(policyFile, name);
         out[name] = { file: policyFile, description };
       } catch (err) {
-        this.Log.trace(`Could not parse policy file ${policyFile} for ${name}: ${(err as Error).message}`);
+        this.Log.trace({ error: err, policyFile, policy: name }, 'Could not parse policy file ${policyFile} for ${policy}');
         out[name] = { file: policyFile };
       }
     }
@@ -352,7 +352,7 @@ export class DefaultControllerCache extends AsyncService {
     const documentation: IControllerDocumentation = { className, methods: {} };
 
     if (!sourceFile) {
-      this.Log.warn(`Could not parse source file: ${file}`);
+      this.Log.warn({ file }, 'Could not parse source file: ${file}');
       return { parameters, documentation };
     }
 

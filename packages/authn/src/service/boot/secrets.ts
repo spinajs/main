@@ -1,9 +1,7 @@
 import { ServiceNotFound } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { MfaStep } from '../../contracts/mfa.js';
-import { mfaSteps } from '../../flow/mfa-steps.js';
 import { kindOf, q } from '../../support/format.js';
 import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from './env.js';
 import type { AuthnConfigSource } from './env.js';
@@ -65,12 +63,9 @@ export async function authnSecretFindings(config: AuthnConfigSource, steps: Secr
   return out;
 }
 
-/**
- * Fails boot with every error of authnSecretFindings, after passing its warnings to `warn`. The steps are those
- * `authn.mfa.steps` lists for the container.
- */
-export async function checkAuthnSecrets(config: AuthnConfigSource, container: IContainer, warn: (message: string) => void): Promise<void> {
-  const findings = await authnSecretFindings(config, async () => secretStoringSteps(await mfaSteps(container)));
+/** Fails boot with every error of authnSecretFindings, after passing its warnings to `warn`. */
+export async function checkAuthnSecrets(config: AuthnConfigSource, steps: () => Promise<ReadonlyMap<string, MfaStep>>, warn: (message: string) => void): Promise<void> {
+  const findings = await authnSecretFindings(config, async () => secretStoringSteps(await steps()));
   for (const f of findings) if (f.level === 'warning') warn(f.message);
   const errors = findings.filter((f) => f.level === 'error');
   if (errors.length > 0) throw new InvalidOption(`authn boot refused: ${errors.map((f) => f.message).join('; ')}`);

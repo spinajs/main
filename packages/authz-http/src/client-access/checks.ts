@@ -72,7 +72,7 @@ export async function answerClientChecks(service: AuthzService, principal: Princ
   const results = parsed.map(() => false);
   const reasons = parsed.map((p): string | null => (typeof p === 'string' ? p : null));
   parsed.forEach((p, i) => {
-    if (typeof p === 'string') opts.log.debug(`POST /user/access/checks: entry ${i} answered false (${p})`);
+    if (typeof p === 'string') opts.log.debug({ entry: i, reason: p }, 'POST /user/access/checks: entry ${entry} answered false (${reason})');
   });
 
   const pending = parsed.flatMap((p, i) => (typeof p === 'string' ? [] : [{ i, check: p }]));

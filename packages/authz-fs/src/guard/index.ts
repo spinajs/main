@@ -5,9 +5,9 @@ import { AuthzConfigError, SYSTEM, UNATTENDED, currentPrincipal, engineLog } fro
 import type { Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
 import { fsNative, fsTemp } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
+import { _check_arg, _is_object, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
 import type { FileMetadataStore } from '../api.js';
 import { fsAccessConfig } from '../access-config/index.js';
@@ -155,9 +155,7 @@ export function isGuardedFs(value: unknown): boolean {
 }
 
 function makeGuard(name: string, raw: fs, config: FsAccessConfig, env: Env): Guard {
-  if (typeof name !== 'string' || name === '' || name.includes(':')) {
-    throw new InvalidArgument(`fs name must be a non-empty string without ':', got ${JSON.stringify(name)}`, 'fsName');
-  }
+  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(name, 'fsName');
   let pending: Promise<FsGuardService> | undefined;
   let store: Promise<FileMetadataStore | undefined> | undefined;
   return {
@@ -232,8 +230,8 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   };
   const log = guard.env.log;
   const afterIo = await planMetadata(method, metadataPath, {
-    error: (message) => (log.error ?? log.warn).call(log, `authz.fs.${guard.name}: ${message}`),
-    warn: (message) => log.warn(`authz.fs.${guard.name}: ${message}`),
+    error: (fields, template) => (log.error ?? log.warn).call(log, { ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template),
+    warn: (fields, template) => log.warn({ ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template),
     timeoutMs: guard.env.metadataTimeoutMs,
   });
 
@@ -253,9 +251,8 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
 /** enforce: AuthzConfigError unless SYSTEM; audit: a warning. */
 function refuse(guard: Guard, principal: Principal, problem: string): void {
   if (principal === SYSTEM) return;
-  const message = `authz.fs.${guard.name}: ${problem}`;
-  if (guard.config.mode === 'enforce') throw new AuthzConfigError(message);
-  guard.env.log.warn(`${message}; allowed in audit mode`);
+  if (guard.config.mode === 'enforce') throw new AuthzConfigError(`authz.fs.${guard.name}: ${problem}`);
+  guard.env.log.warn({ fsName: guard.name, problem }, 'authz.fs.${fsName}: ${problem}; allowed in audit mode');
 }
 
 /** One normalizeFsPath result per path argument feeds the checked ref, the subject row and the argument the raw method gets. */
@@ -339,11 +336,9 @@ function defaultName(spec: NonNullable<FsPathSpec['default']>, args: readonly un
 
 /** The guard of a filesystem passed as an argument: its own when guarded, else one built from its config (null when off). */
 function guardOf(value: unknown, env: Env): Guard | null {
-  if (value === null || typeof value !== 'object') throw new InvalidArgument('dstFs must be a filesystem', 'dstFs');
-  const known = guards.get(value);
+  const known = guards.get(_check_arg(_is_object())(value, 'dstFs'));
   if (known) return known;
-  const name: unknown = (value as { Name?: unknown }).Name;
-  if (typeof name !== 'string') throw new InvalidArgument('dstFs must be a filesystem with a Name', 'dstFs');
+  const name: string = _check_arg(_is_string())((value as { Name?: unknown }).Name, 'dstFs.Name');
   const config = fsAccessConfig(name, env.container);
   return config.mode === 'off' ? null : makeGuard(name, value as fs, config, env);
 }

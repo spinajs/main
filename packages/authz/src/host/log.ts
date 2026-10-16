@@ -1,18 +1,27 @@
 import { DI } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
-import type { EngineLog } from '../engine/authorizer.js';
+import { Log, renderTemplate } from '@spinajs/log-common';
+export { thrownError } from '../engine/vote.js';
 
-/** EngineLog plus `info`, which the audit trail needs. */
-export interface HostLog extends EngineLog {
-  info(message: string, ...args: unknown[]): void;
-}
+/** The Log methods the host and its models write with, fields form included. */
+export type HostLog = Pick<Log, 'error' | 'warn' | 'info' | 'debug'>;
 
 type Level = 'error' | 'warn' | 'info' | 'debug';
 
-const FALLBACK: HostLog = {
-  error: (message, ...args) => console.error(message, ...args),
-  warn: (message, ...args) => console.warn(message, ...args),
-  info: (message, ...args) => console.info(message, ...args),
+const isFields = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !(v instanceof Error) && !Array.isArray(v);
+
+// The console has no layout: a fields-form call is rendered here as a Log would render it, and its error, which a layout prints, follows the line.
+function consoleArgs(args: unknown[]): unknown[] {
+  const [fields, template, ...rest] = args;
+  if (!isFields(fields) || typeof template !== 'string') return args;
+  const error = fields.error instanceof Error ? [fields.error] : [];
+  const tail = [...rest, ...error];
+  return [renderTemplate(template, fields, tail.length > 0), ...tail];
+}
+
+const FALLBACK: Record<Level, (...args: unknown[]) => void> = {
+  error: (...args) => console.error(...consoleArgs(args)),
+  warn: (...args) => console.warn(...consoleArgs(args)),
+  info: (...args) => console.info(...consoleArgs(args)),
   debug: () => {},
 };
 
@@ -32,19 +41,19 @@ export function engineLog(name: string, resolveLog: (name: string) => Log | unde
   };
   const write =
     (level: Level) =>
-    (message: string, ...args: unknown[]): void => {
+    (...args: unknown[]): void => {
       try {
         const l = target();
         const fn = l?.[level] as ((...a: unknown[]) => void) | undefined;
         if (l !== undefined && typeof fn === 'function') {
-          fn.call(l, message, ...args);
+          fn.apply(l, args);
           return;
         }
       } catch {
         // fall through to the console fallback
       }
       try {
-        FALLBACK[level](message, ...args);
+        FALLBACK[level](...args);
       } catch {
         // logging never throws
       }

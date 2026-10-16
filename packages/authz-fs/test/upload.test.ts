@@ -14,6 +14,9 @@ import type { AuthzUploadMiddlewareOptions } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 import { FakeAuthz } from './support/fake-authz.js';
 import { installQuietLog } from './support/log.js';
+import { renderTemplate } from '@spinajs/log-common';
+
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 
 const expect = chai.expect;
 
@@ -36,7 +39,7 @@ describe('authz-fs AuthzUploadMiddleware', function () {
       container: child,
       service: async (domain) => (domains.push(domain), authz),
       principal: () => alice,
-      log: { warn: (m: string) => warnings.push(m) },
+      log: { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) },
       ...extra,
     });
 

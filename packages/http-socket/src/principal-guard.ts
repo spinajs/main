@@ -178,7 +178,10 @@ export class SocketPrincipalGuard {
     await (this.pending.get(connection) ?? this.check(connection, 'recovery'));
 
     if (connection.principal === restored && !this.closing.has(connection)) {
-      this.Log.debug(`Socket ${connection.id}: the re-check of the recovered connection carried no principal; an identity flattened by a serializing adapter stays flattened`);
+      this.Log.debug(
+        { connectionId: connection.id },
+        'Socket ${connectionId}: the re-check of the recovered connection carried no principal; an identity flattened by a serializing adapter stays flattened',
+      );
     }
   }
 
@@ -247,17 +250,16 @@ export class SocketPrincipalGuard {
 
     if (verdict.status === 'unavailable' && auth.unavailableSince === undefined) {
       auth.unavailableSince = Date.now();
-      const reason = `Socket ${connection.id}: source ${auth.source} could not revalidate its principal; the connection keeps running for one more ${this.Options.revalidateMs} ms`;
-      if (verdict.error) {
-        this.Log.warn(verdict.error, reason);
-      } else {
-        this.Log.warn(reason);
-      }
+      const fields = { connectionId: connection.id, source: auth.source, revalidateMs: this.Options.revalidateMs };
+      this.Log.warn(
+        verdict.error ? { ...fields, error: verdict.error } : fields,
+        'Socket ${connectionId}: source ${source} could not revalidate its principal; the connection keeps running for one more ${revalidateMs} ms',
+      );
       return true;
     }
 
     if (verdict.status === 'unavailable') {
-      this.Log.warn(`Socket ${connection.id}: source ${auth.source} is still unavailable, closing after grace`);
+      this.Log.warn({ connectionId: connection.id, source: auth.source }, 'Socket ${connectionId}: source ${source} is still unavailable, closing after grace');
     }
     this.close(connection, verdict.status === 'unavailable' ? 'its principal source is still unavailable' : 'credentials are no longer valid');
     return false;
@@ -287,7 +289,7 @@ export class SocketPrincipalGuard {
     }
 
     if (verdict.principal && principalKey(verdict.principal) !== principalKey(connection.principal)) {
-      this.Log.warn(`Socket ${connection.id}: source ${source.name} revalidated it as another principal; refusing it`);
+      this.Log.warn({ connectionId: connection.id, source: source.name }, 'Socket ${connectionId}: source ${source} revalidated it as another principal; refusing it');
       return { status: 'invalid' };
     }
 
@@ -306,7 +308,7 @@ export class SocketPrincipalGuard {
 
     this.closing.add(connection);
     this.closingIds.add(connection.id);
-    this.Log.info(`Socket ${connection.id} closed: ${why}`);
+    this.Log.info({ connectionId: connection.id, reason: why }, 'Socket ${connectionId} closed: ${reason}');
 
     setImmediate(() => {
       if (connection.connected) {

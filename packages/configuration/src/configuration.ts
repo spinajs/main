@@ -219,15 +219,15 @@ export class FrameworkConfiguration extends Configuration {
       }
 
       this.CustomConfigPaths.forEach((p) => {
-        InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
+        InternalLogger.trace({ path: p }, 'Custom config path at: ${path}', 'Configuration');
       });
     }
 
     if (this.RunApp) {
-      InternalLogger.info(`Run app is ${this.RunApp}`, 'Configuration');
+      InternalLogger.info({ runApp: this.RunApp }, 'Run app is ${runApp}', 'Configuration');
     }
 
-    InternalLogger.info(`App base dir is ${this.AppBaseDir}`, 'Configuration');
+    InternalLogger.info({ appBaseDir: this.AppBaseDir }, 'App base dir is ${appBaseDir}', 'Configuration');
 
     this.initValidator();
     this.applyAppDirs();
@@ -278,7 +278,7 @@ export class FrameworkConfiguration extends Configuration {
       APP_ENV: this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
     });
 
-    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
+    InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
@@ -346,7 +346,7 @@ export class FrameworkConfiguration extends Configuration {
     // Build protocol map for O(1) lookup
     const protocolMap = new Map<string, ConfigVarProtocol>();
     configProtocols.forEach((p) => {
-      InternalLogger.info(`Registered configuration protocol: ${p.Protocol}`, 'Configuration');
+      InternalLogger.info({ protocol: p.Protocol }, 'Registered configuration protocol: ${protocol}', 'Configuration');
       protocolMap.set(p.Protocol, p);
     });
 
@@ -394,7 +394,7 @@ export class FrameworkConfiguration extends Configuration {
           const protocol = protocolMap.get(match[1]);
 
           if (!protocol) {
-            InternalLogger.warn(`Protocol ${match[1]} used in configuration is not registered.`, 'Configuration');
+            InternalLogger.warn({ protocol: match[1] }, 'Protocol ${protocol} used in configuration is not registered.', 'Configuration');
             return;
           }
 
@@ -402,7 +402,7 @@ export class FrameworkConfiguration extends Configuration {
           try {
             obj[key] = await protocol.getVar(match[2], this.Config);
           } catch (err) {
-            InternalLogger.error(err as Error, `Error loading configuration var for key ${fullPath} using protocol ${protocol.Protocol}, value: ${val}`, 'Configuration');
+            InternalLogger.error({ error: err, key: fullPath, protocol: protocol.Protocol, value: val }, 'Error loading configuration var for key ${key} using protocol ${protocol}, value: ${value}', 'Configuration');
           }
         }),
       );
@@ -470,7 +470,7 @@ export class FrameworkConfiguration extends Configuration {
 
   private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
     if (violations.length === 0) return;
-    violations.forEach((v) => InternalLogger.error('Invalid configuration at %s ( schema %s ): %s', 'Configuration', v.path, v.schema, v.message));
+    violations.forEach((v) => InternalLogger.error({ path: v.path, schema: v.schema, violation: v.message }, 'Invalid configuration at ${path} ( schema ${schema} ): ${violation}', 'Configuration'));
     throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
   }
 
@@ -484,7 +484,7 @@ export class FrameworkConfiguration extends Configuration {
       if (this.Validator.validate(s, empty)) {
         this.set(s.$configurationModule, empty);
       } else {
-        InternalLogger.warn(`Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`, 'Configuration');
+        InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
       }
       return { errors: [], violations: [] };
     }
@@ -593,7 +593,7 @@ export class FrameworkConfiguration extends Configuration {
       const subconfig = this.Config[`${prop}`] as IConfigurable;
 
       if (!subconfig) {
-        InternalLogger.warn(`Configuration for ${prop} not exists, check configuration file`, 'configuration');
+        InternalLogger.warn({ section: prop }, 'Configuration for ${section} not exists, check configuration file', 'configuration');
         continue;
       }
 

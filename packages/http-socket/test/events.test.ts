@@ -19,6 +19,7 @@ import { SocketHandlerRegistry } from '../src/registry.js';
 import { SocketPrincipalGuard } from '../src/principal-guard.js';
 import { ISocketCallStorage, ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
 import { IConnectOptions, ITestServer, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
+import { logText } from './log-text.js';
 
 export const evtLog: Array<{ name: string; payload?: unknown; connection: string }> = [];
 
@@ -281,7 +282,7 @@ describe('socket events and lifecycle hooks', function () {
   };
 
   /** the message of every `level` line logged so far */
-  const lines = (level: Level) => spies![level].getCalls().map((c) => String(c.args.find((a) => typeof a === 'string')));
+  const lines = (level: Level) => spies![level].getCalls().map((c) => logText(c.args));
 
   /** waits until the dispatcher logged a line matching `pattern` at `level` */
   const logged = (pattern: RegExp, level: Level = 'warn') => waitFor(() => lines(level).some((l) => pattern.test(l)));
@@ -334,7 +335,7 @@ describe('socket events and lifecycle hooks', function () {
     socket.emit(WIRE_EVENTS.event, { name: 'evt.explode', payload: null });
     socket.emit(WIRE_EVENTS.event, { name: 'evt.unknown', payload: null });
     socket.emit(WIRE_EVENTS.event, 'not a frame');
-    await logged(/evt\.explode .* dropped: internal event handler failure/);
+    await logged(/evt\.explode .* dropped: internal "event handler failure"/);
 
     expect(socket.connected).to.be.true;
     expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
@@ -475,7 +476,7 @@ describe('socket events and lifecycle hooks', function () {
   it('drops an oversized event', async () => {
     await start({ http: { socket: { maxPayloadBytes: 200 } } });
     socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x: 1, pad: 'x'.repeat(300) } });
-    await logged(/evt\.cursor .* dropped: resource_exhausted payload of \d+ bytes exceeds the limit of 200 bytes/, 'debug');
+    await logged(/evt\.cursor .* dropped: resource_exhausted "payload of \d+ bytes exceeds the limit of 200 bytes"/, 'debug');
 
     expect(seen('cursor', socket.id!)).to.have.length(0);
     expect(socket.connected).to.be.true;
@@ -586,7 +587,7 @@ describe('socket events and lifecycle hooks', function () {
     for (let x = 0; x < 5; x++) {
       socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x } });
     }
-    await logged(/evt\.cursor .* dropped: resource_exhausted rate limit exceeded/, 'debug');
+    await logged(/evt\.cursor .* dropped: resource_exhausted "rate limit exceeded"/, 'debug');
     await delay(50);
 
     expect(seen('cursor', socket.id!).map((e) => (e.payload as { x: number }).x)).to.deep.equal([0, 1]);

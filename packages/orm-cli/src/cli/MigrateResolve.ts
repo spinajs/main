@@ -35,9 +35,9 @@ export class MigrateResolveCommand extends CliCommand {
     await orm.Migration.resolve(options.name, action);
 
     if (action === 'applied') {
-      this.Log.success(`Migration ${options.name} is now recorded as applied. It will not run again.`);
+      this.Log.success({ migration: options.name }, 'Migration ${migration} is now recorded as applied. It will not run again.');
     } else {
-      this.Log.success(`Migration ${options.name} is now recorded as rolled back. It is pending again and WILL run on the next migrate-up.`);
+      this.Log.success({ migration: options.name }, 'Migration ${migration} is now recorded as rolled back. It is pending again and WILL run on the next migrate-up.');
     }
   }
 

@@ -153,12 +153,12 @@ export function resolveFallback(params: URLSearchParams, source: string, id: str
   const message = err instanceof Error ? err.message : String(err);
 
   if (params.has('default')) {
-    InternalLogger.warn(`Could not resolve '${id}' (${err ? message : 'no value'}), using default value`, source);
+    InternalLogger.warn({ id, reason: err ? message : 'no value' }, 'Could not resolve ${id} (${reason}), using default value', source);
     return { handled: true, value: params.get('default') ?? '' };
   }
 
   if (params.get('optional') === 'true') {
-    InternalLogger.warn(`Could not resolve optional '${id}' (${message}), using empty string`, source);
+    InternalLogger.warn({ id, reason: message }, 'Could not resolve optional ${id} (${reason}), using empty string', source);
     return { handled: true, value: '' };
   }
 
@@ -178,7 +178,7 @@ export function warnUnknownParams(params: URLSearchParams, allowed: string[], so
   const allowedSet = new Set(allowed);
   for (const key of params.keys()) {
     if (!allowedSet.has(key)) {
-      InternalLogger.warn(`Unknown query parameter '${key}' for '${id}' (${source}), ignoring it`, source);
+      InternalLogger.warn({ key, id, source }, 'Unknown query parameter ${key} for ${id} (${source}), ignoring it', source);
     }
   }
 }
@@ -205,7 +205,7 @@ export function parseBoolParam(params: URLSearchParams, key: string, fallback: b
     return false;
   }
 
-  InternalLogger.warn(`Invalid value '${value ?? ''}' for query parameter '${key}', expected 'true' or 'false'; using ${String(fallback)}`, source);
+  InternalLogger.warn({ value, key, fallback }, "Invalid value ${value} for query parameter ${key}, expected 'true' or 'false'; using ${fallback}", source);
   return fallback;
 }
 

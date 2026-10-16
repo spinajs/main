@@ -3,6 +3,7 @@ import type { DecisionRequest, EvaluationContext, ListPlanRequest, ListSupport, 
 import { PermissionRegistryImpl } from '../../src/engine/registry.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
 import type { EngineLog } from '../../src/engine/authorizer.js';
+import { renderTemplate } from '@spinajs/log-common';
 
 export type VoteSpec = Partial<Vote> | ((req: DecisionRequest, ctx: EvaluationContext) => unknown);
 
@@ -316,21 +317,32 @@ export interface LogEntry {
   readonly level: 'error' | 'warn' | 'debug';
   readonly message: string;
   readonly args: unknown[];
+  readonly fields?: Record<string, unknown>;
+  /** The `error` field, which a layout prints after the message. */
+  readonly error?: Error;
 }
 
 export class RecordingLog implements EngineLog {
   readonly entries: LogEntry[] = [];
 
-  error(message: string, ...args: unknown[]): void {
-    this.entries.push({ level: 'error', message, args });
+  error(first: unknown, ...args: unknown[]): void {
+    this.record('error', first, args);
   }
 
-  warn(message: string, ...args: unknown[]): void {
-    this.entries.push({ level: 'warn', message, args });
+  warn(first: unknown, ...args: unknown[]): void {
+    this.record('warn', first, args);
   }
 
-  debug(message: string, ...args: unknown[]): void {
-    this.entries.push({ level: 'debug', message, args });
+  debug(first: unknown, ...args: unknown[]): void {
+    this.record('debug', first, args);
+  }
+
+  private record(level: LogEntry['level'], first: unknown, args: unknown[]): void {
+    if (typeof first === 'string') this.entries.push({ level, message: first, args });
+    else {
+      const fields = first as Record<string, unknown>;
+      this.entries.push({ level, message: renderTemplate(args[0] as string, fields), args: args.slice(1), fields, ...(fields.error instanceof Error ? { error: fields.error } : {}) });
+    }
   }
 
   at(level: LogEntry['level']): LogEntry[] {

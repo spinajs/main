@@ -100,7 +100,7 @@ export class Controllers extends AsyncService {
    */
   public async add(type: Class<BaseController>): Promise<void> {
     if (this.RegisteredTypes.has(type)) {
-      this.Log.trace(`Controller ${type.name} already registered, skipping`);
+      this.Log.trace({ controller: type.name }, 'Controller ${controller} already registered, skipping');
       return;
     }
 
@@ -129,10 +129,10 @@ export class Controllers extends AsyncService {
   }
 
   public async register(controller: ClassInfo<BaseController>) {
-    this.Log.trace(`Loading controller: ${controller.name}`);
+    this.Log.trace({ controller: controller.name }, 'Loading controller: ${controller}');
 
     if (controller.type && this.RegisteredTypes.has(controller.type)) {
-      this.Log.trace(`Controller ${controller.name} already registered, skipping`);
+      this.Log.trace({ controller: controller.name }, 'Controller ${controller} already registered, skipping');
       return;
     }
 
@@ -145,7 +145,7 @@ export class Controllers extends AsyncService {
     const parameters = await this.ControllersCache.getCache(controller);
 
     if (!controller.instance.Descriptor) {
-      this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
+      this.Log.warn({ controller: controller.name, file: controller.file }, 'Controller ${controller} in file ${file} dont have descriptor or routes defined');
     } else {
       for (const [name, route] of controller.instance.Descriptor.Routes) {
         let member = parameters[name as string];
@@ -207,13 +207,13 @@ export class Controllers extends AsyncService {
 
     for (const ci of uniqueBy(listed, (c) => c.name)) {
       if (!ci.type) {
-        this.Log.warn(`Controller ${ci.name} in file ${ci.file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
+        this.Log.warn({ controller: ci.name, file: ci.file }, 'Controller ${controller} in file ${file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters');
         continue;
       }
 
       fileByType.set(ci.type as Class<BaseController>, ci);
       DI.register(ci.type).as(BaseController);
-      this.Log.trace(`Controller ${ci.name} from ${ci.file} registered as BaseController`);
+      this.Log.trace({ controller: ci.name, file: ci.file }, 'Controller ${controller} from ${file} registered as BaseController');
     }
 
     const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
@@ -236,12 +236,15 @@ export class Controllers extends AsyncService {
       if (!mounted.has(type)) {
         // Scanned, yet absent from the collection — DI chained its registration
         // to the subclass. Say so rather than dropping it silently.
-        this.Log.info(`Controller ${ci.name} overridden by ${descendant.constructor.name}`);
+        this.Log.info({ controller: ci.name, override: descendant.constructor.name }, 'Controller ${controller} overridden by ${override}');
       } else {
         // Subclassed but never registered as an override, so BOTH mounted and
         // Express route order picks the winner. Warn rather than throw, since
         // legitimate shared bases exist.
-        this.Log.warn(`Controller ${descendant.constructor.name} extends ${ci.name} but was not registered as an override. Call DI.register(${descendant.constructor.name}).as(${ci.name}) to replace it, otherwise both mount and route order decides which one answers.`);
+        this.Log.warn(
+          { controller: ci.name, subclass: descendant.constructor.name },
+          'Controller ${subclass} extends ${controller} but was not registered as an override. Call DI.register(${subclass}).as(${controller}) to replace it, otherwise both mount and route order decides which one answers.',
+        );
       }
     }
 

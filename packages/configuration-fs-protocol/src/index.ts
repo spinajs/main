@@ -20,7 +20,11 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
       const args = path.match(reg);
 
       if (!args || args.length < 3) {
-        InternalLogger.warn(`Invalid fs-path variable format: ${path}, expected format is fs-path://filesystemName/path/to/file`, 'Configuration');
+        InternalLogger.warn(
+          { path },
+          'Invalid fs-path variable format: ${path}, expected format is fs-path://filesystemName/path/to/file',
+          'Configuration',
+        );
         return null;
       }
 
@@ -38,10 +42,11 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
           return f.resolvePath(fPath);
         }
 
-        InternalLogger.warn(`fs-path filesystem ${fsName} not exists, check your configuration file !`, 'Configuration');
+        InternalLogger.warn({ fsName }, 'fs-path filesystem ${fsName} not exists, check your configuration file !', 'Configuration');
       } catch (err) {
         InternalLogger.warn(
-          `Cannot resolve fs-path variable ${path} yet: ${(err as Error).message}. Returning null, value will be retried on next access.`,
+          { error: err, path },
+          'Cannot resolve fs-path variable ${path} yet. Returning null, value will be retried on next access.',
           'Configuration',
         );
       }

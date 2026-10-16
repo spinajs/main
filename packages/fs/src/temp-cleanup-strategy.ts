@@ -60,7 +60,7 @@ export abstract class TempCleanupStrategy {
     try {
       await this.cleanup(fs, options);
     } catch (err) {
-      this.Logger.warn(`Cleanup of temporary files system ${options.name} failed: ${(err as Error).message}`);
+      this.Logger.warn({ error: err, fsName: options.name }, 'Cleanup of temporary files system ${fsName} failed');
     }
   }
 }
@@ -118,15 +118,14 @@ export class MaxAgeTempCleanupStrategy extends TempCleanupStrategy {
 
         if (now.diff(ts!, 'seconds').seconds > maxFileAge) {
           this.Logger.trace(
-            `Temp file at path ${f} is older than ${maxFileAge} seconds, ( CreatedAt: ${ts!.toFormat(
-              'dd/MM/yyyy HH:mm:ss',
-            )} ), deleting...`,
+            { path: f, maxFileAge, createdAt: ts },
+            'Temp file at path ${path} is older than ${maxFileAge} seconds, ( CreatedAt: ${createdAt} ), deleting...',
           );
 
           await fs.rm(f);
         }
       } catch (err) {
-        this.Logger.warn(`Cleanup of temp file ${f} on fs ${fs.Name} failed: ${(err as Error).message}`);
+        this.Logger.warn({ error: err, path: f, fsName: fs.Name }, 'Cleanup of temp file ${path} on fs ${fsName} failed');
       }
     }
   }
@@ -151,7 +150,8 @@ export class CronTempCleanupStrategy extends MaxAgeTempCleanupStrategy {
 
     if (options.cleanupInterval) {
       this.Logger.warn(
-        `Temp filesystem ${options.name} sets 'cleanupInterval' but CronTempCleanupStrategy ignores it, schedule is driven by 'cleanupCronExpression'`,
+        { fsName: options.name },
+        "Temp filesystem ${fsName} sets 'cleanupInterval' but CronTempCleanupStrategy ignores it, schedule is driven by 'cleanupCronExpression'",
       );
     }
 

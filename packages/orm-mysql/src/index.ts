@@ -405,12 +405,12 @@ export class MySqlOrmDriver extends SqlDriver {
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      this.Log.trace(`Table ${dbSchema}.${name} does not have any columns.`);
+      this.Log.trace({ schema: dbSchema, table: name }, 'Table ${schema}.${table} does not have any columns.');
       return null as any;
     }
 
     if (isView && isView[0].Table_type === 'VIEW') {
-      this.Log.trace(`Table ${dbSchema}.${name} is a VIEW and dont have indexes set.`);
+      this.Log.trace({ schema: dbSchema, table: name }, 'Table ${schema}.${table} is a VIEW and dont have indexes set.');
     } else {
       indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)}`, [], QueryContext.Select)) as IIndexInfo[];
     }

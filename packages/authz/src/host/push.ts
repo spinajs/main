@@ -6,7 +6,7 @@ import type { ResourceRef } from '../contracts/principal.js';
 import { resourceKey } from '../contracts/resource.js';
 import { AccessPushTransport, ChangeAudience } from '../contracts/service.js';
 import type { AccessChangedEvent, AuthzChange, ChangeBus } from '../contracts/service.js';
-import { engineLog } from './log.js';
+import { engineLog, thrownError } from './log.js';
 import type { HostLog } from './log.js';
 
 /** The event name every push transport sends an AccessChangedEvent under (design §10.4). */
@@ -17,7 +17,6 @@ type Audience = { readonly principals: readonly string[] | '*'; readonly objects
 const EVERYONE: Audience = Object.freeze({ principals: '*' });
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const describeError = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const nameOf = (v: unknown): string => {
   try {
     if (isObject(v) && typeof v.name === 'string') return v.name;
@@ -73,12 +72,12 @@ export class AccessChangeRouter {
           try {
             await t.push(audience.principals, event);
           } catch (e) {
-            this.log.error(`authz push: transport ${JSON.stringify(nameOf(t))} failed: ${describeError(e)}`);
+            this.log.error({ error: thrownError(e), transport: nameOf(t) }, 'authz push: transport ${transport} failed');
           }
         }),
       );
     } catch (e) {
-      this.log.error(`authz push: routing a change failed: ${describeError(e)}`);
+      this.log.error({ error: thrownError(e) }, 'authz push: routing a change failed');
     }
   }
 
@@ -92,7 +91,7 @@ export class AccessChangeRouter {
         try {
           return readAudience(await a.audience(change));
         } catch (e) {
-          this.log.error(`authz push: audience ${JSON.stringify(nameOf(a))} failed, pushing to every session: ${describeError(e)}`);
+          this.log.error({ error: thrownError(e), audience: nameOf(a) }, 'authz push: audience ${audience} failed, pushing to every session');
           return EVERYONE;
         }
       }),

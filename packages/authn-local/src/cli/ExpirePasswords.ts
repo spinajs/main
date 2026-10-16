@@ -18,7 +18,7 @@ export class ExpirePasswords extends CliCommand {
     } else if (result.idle === 'no_source') {
       this.Log.warn('No PasswordAgeSource is registered; nothing was expired');
     } else {
-      this.Log.success(`Passwords expired: ${result.expired}, already expired: ${result.skipped}, failed: ${result.failed}`);
+      this.Log.success({ expired: result.expired, skipped: result.skipped, failed: result.failed }, 'Passwords expired: ${expired}, already expired: ${skipped}, failed: ${failed}');
     }
   }
 }

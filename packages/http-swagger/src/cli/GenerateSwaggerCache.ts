@@ -25,7 +25,7 @@ export class SwaggerCacheCommand extends CliCommand {
 
     const controllers = await this.Controllers;
     for (const controller of controllers) {
-      this.Log.info(`Processing controller: ${controller.name}`);
+      this.Log.info({ controller: controller.name }, 'Processing controller: ${controller}');
       await cache.getCache(controller);
     }
 

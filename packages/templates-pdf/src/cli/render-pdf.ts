@@ -33,7 +33,7 @@ export class RenderPdfCommand extends CliCommand {
     const renderer = await DI.resolve(PdfRenderer, [this.resolvePdfOptions(options)]);
 
     try {
-      this.Log.trace(`Rendering ${input} to pdf ${options.output}, options: ${JSON.stringify(options)}`);
+      this.Log.trace({ input, output: options.output, options }, 'Rendering ${input} to pdf ${output}, options: ${options}');
 
       const html = await resolveInputHtml(input, options);
 
@@ -44,9 +44,9 @@ export class RenderPdfCommand extends CliCommand {
         onProgress: cliProgressReporter(),
       });
 
-      this.Log.success(`Rendered ${input} to pdf ${options.output}`);
+      this.Log.success({ input, output: options.output }, 'Rendered ${input} to pdf ${output}');
     } catch (err) {
-      this.Log.error(`Cannot render ${input} to pdf, reason: ${err.message}`);
+      this.Log.error({ error: err, input }, 'Cannot render ${input} to pdf');
       throw err;
     } finally {
       // one-shot CLI: close the pooled browser so the process can exit

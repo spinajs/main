@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
-import { ChangeBus, engineLog } from '@spinajs/authz';
+import { ChangeBus, engineLog, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
 
@@ -92,7 +92,7 @@ export class QueueChangeBus extends ChangeBus {
         }
       },
       (err) => {
-        this.log.error(`authz change bus: cannot listen on the queue, retrying: ${err instanceof Error ? err.message : String(err)}`);
+        this.log.error({ error: thrownError(err) }, 'authz change bus: cannot listen on the queue, retrying');
         this.retried = true;
         if (this.disposed || this.timer) return;
         this.timer = setTimeout(() => {
@@ -166,6 +166,6 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   private fail(err: unknown): void {
-    this.log.error(`authz change subscriber failed: ${err instanceof Error ? err.message : String(err)}`);
+    this.log.error({ error: thrownError(err) }, 'authz change subscriber failed');
   }
 }

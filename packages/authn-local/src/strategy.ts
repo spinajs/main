@@ -14,9 +14,7 @@ const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentia
 const isPasswordKind = (c: Credentials) => c !== null && typeof c === 'object' && c.kind === 'password';
 
 /** The part of `Log` the strategy uses. */
-export interface LocalPasswordStrategyLog {
-  warn(message: string, ...args: unknown[]): void;
-}
+export type LocalPasswordStrategyLog = Pick<Log, 'warn'>;
 
 export interface LocalPasswordStrategyDeps {
   readonly identities: IdentityStore;
@@ -118,7 +116,7 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
       await (await this.passwords()).set(id, fresh, verified);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
-      this.log().warn(`Could not store the rehashed password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);
+      this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'Could not store the rehashed password of ${identityType} ${identityId}: ${errorName}');
     }
   }
 

@@ -11,9 +11,6 @@ import type { AuthnEvent } from '../contracts/audit.js';
 import { errorClass } from '../support/guards.js';
 import type { AuditConfig } from './config.js';
 
-// The log layout expands `${...}` inside a message.
-const q = (v: unknown): string => (JSON.stringify(v) ?? String(v)).replace(/\$/g, '\\u0024');
-
 /**
  * Every AuthnEventSink registered in the container's lineage gets every event (A21). Sinks run concurrently, each
  * bounded by `sinkTimeoutMs`, so a stuck sink cannot hold up a login. One per container, so a child boot reads its own
@@ -65,8 +62,8 @@ export class AuthnAudit extends AsyncService {
     try {
       await this.pipeline.execute(() => Promise.resolve().then(() => sink.publish(event)));
     } catch (err) {
-      if (err instanceof TimeoutRejectedException) this.Log.warn(`AuthnAudit: sink ${q(name)} timed out on a ${q(event.type)} event after ${this.Config.sinkTimeoutMs} ms`);
-      else this.Log.warn(`AuthnAudit: sink ${q(name)} failed to publish a ${q(event.type)} event (${errorClass(err)})`);
+      if (err instanceof TimeoutRejectedException) this.Log.warn({ sink: name, eventType: event.type, timeoutMs: this.Config.sinkTimeoutMs }, 'AuthnAudit: sink ${sink} timed out on a ${eventType} event after ${timeoutMs} ms');
+      else this.Log.warn({ sink: name, eventType: event.type, errorClass: errorClass(err) }, 'AuthnAudit: sink ${sink} failed to publish a ${eventType} event (${errorClass})');
     }
   }
 

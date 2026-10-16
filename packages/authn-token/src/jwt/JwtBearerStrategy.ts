@@ -6,6 +6,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { _is_string, _max_length, _reg_match, _try_check_arg } from '@spinajs/util';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, ExternalSubject, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { createLocalJWKSet, createRemoteJWKSet, customFetch, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
@@ -200,7 +201,7 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     if (!(url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback(url.hostname)))) {
       throw new Error(`${at}.jwksUri must use https (http only for a loopback host)`);
     }
-    return remoteKeys(url, (err) => this.Log.warn(`Could not fetch the JWKS of JWT issuer ${issuer}: ${err instanceof Error ? err.message : String(err)}`));
+    return remoteKeys(url, (err) => this.Log.warn({ error: err, issuer }, 'Could not fetch the JWKS of JWT issuer ${issuer}'));
   }
 
   /** Refuses a key jose would never select or verify with, so a config error does not look like an attack. The schema has judged the member shapes. */
@@ -235,11 +236,8 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       if (this.issuers.size === 0 || typeof c !== 'object' || c === null || c.kind !== 'bearer') {
         return null;
       }
-      const token: unknown = (c as { token?: unknown }).token;
-      if (typeof token !== 'string' || token.length > MAX_JWT_LENGTH || !JWT_FORMAT.test(token)) {
-        return null;
-      }
-      return token;
+      const [ok, token] = _try_check_arg(_is_string(_max_length(MAX_JWT_LENGTH), _reg_match(JWT_FORMAT)))((c as { token?: unknown }).token, 'token');
+      return ok ? (token as string) : null;
     } catch {
       return null;
     }

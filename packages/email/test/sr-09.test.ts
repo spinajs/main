@@ -29,7 +29,7 @@ function setup() {
   const email = capturingEmailService();
   const identities = new FakeIdentityStore();
   const events = new RecordingEventSink();
-  const warnings: string[] = [];
+  const warnings: unknown[][] = [];
   const service = new LocalPasswordService({
     identities,
     passwords: new MemoryPasswordCredentialStore(),
@@ -41,7 +41,7 @@ function setup() {
     sinks: [events],
     hasher: new Argon2PasswordHasher({}),
     policy: new LocalPasswordPolicy({}),
-    log: { warn: (m: string) => warnings.push(m) },
+    log: { warn: (...args: unknown[]) => void warnings.push(args) },
     resetUrl: RESET_URL,
   });
   const alice = identities.add({ login: LOGIN, email: LOGIN, name: 'Alice' });

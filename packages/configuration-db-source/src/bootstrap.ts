@@ -70,7 +70,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
       // insert all exposed config options (InsertOrIgnore - safe to repeat)
       void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
-        InternalLogger.error(`Failed to persist exposed config options to db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+        InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
       });
 
       vars.filter((x) => x.options.exposeOptions?.watch).forEach((x) => this.watchedSlugs.add(x.path));
@@ -172,7 +172,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       const stored = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
       DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
     } catch (err) {
-      InternalLogger.error(`Failed to sync exposed config option '${v.path}' with db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+      InternalLogger.error({ error: err, path: v.path }, 'Failed to sync exposed config option ${path} with db', LOG_CHANNEL);
     }
 
     if (v.options.exposeOptions?.watch) {
@@ -198,7 +198,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         }
       });
     } catch (err) {
-      InternalLogger.error(`Failed to refresh watched config values from db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+      InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
     }
   }
 

@@ -65,7 +65,7 @@ export class DefaultEmailService extends EmailService {
     // guaranteed, and a guard that silently no-ops is worse than no guard.
     for (const c of this.Configuration?.connections ?? []) {
       if (c.redirectTo?.length) {
-        this.Log.error(`Email connection ${c.name} configures redirectTo, which is refused on production. Recipients are NOT redirected.`);
+        this.Log.error({ connection: c.name }, 'Email connection ${connection} configures redirectTo, which is refused on production. Recipients are NOT redirected.');
       }
     }
   }
@@ -80,7 +80,7 @@ export class DefaultEmailService extends EmailService {
     const connection = email.connection;
 
     if (!this.Senders.has(connection)) {
-      this.Log.error(`Email sender ${connection} not exists. Please check your configuration files.`);
+      this.Log.error({ connection }, 'Email sender ${connection} not exists. Please check your configuration files.');
       Perf.count('email.send.failed', 1, { connection });
       throw new InvalidOperation(`Email sender ${connection} not exists. Please check your configuration files.`);
     }
@@ -91,7 +91,7 @@ export class DefaultEmailService extends EmailService {
     try {
       withFiles = await this.readAttachments(email);
     } catch (err) {
-      this.Log.error(err, `Cannot read attachments of email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+      this.Log.error({ error: err, connection, subject: email.subject, recipients: email.to?.length ?? 0 }, 'Cannot read attachments of email on connection ${connection}, subject: ${subject}, recipients: ${recipients}');
       Perf.count('email.send.failed', 1, { connection });
       throw err;
     }
@@ -104,8 +104,11 @@ export class DefaultEmailService extends EmailService {
     const redirected = redirectRecipients(withFiles, target);
 
     if (redirected) {
-      this.Log.warn(`Email on connection ${connection} redirected to ${target!.length} configured address(es), ${email.to?.length ?? 0} original recipient(s) replaced`);
-      this.Log.trace(`Original recipients on connection ${connection}: ${(email.to ?? []).join(', ')}`);
+      this.Log.warn(
+        { connection, redirectTargets: target!.length, recipients: email.to?.length ?? 0 },
+        'Email on connection ${connection} redirected to ${redirectTargets} configured address(es), ${recipients} original recipient(s) replaced',
+      );
+      this.Log.trace({ connection, originalRecipients: email.to ?? [] }, 'Original recipients on connection ${connection}: ${originalRecipients}');
     }
 
     // Only the transport sees the redirected copy. Every log line below, and the EmailSent
@@ -126,8 +129,8 @@ export class DefaultEmailService extends EmailService {
       await Perf.measure('email.send', transport, { labels: { connection } });
     } catch (err) {
       // full recipient addresses are PII - keep them at trace level only, log just the count otherwise.
-      this.Log.error(err, `Cannot send email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
-      this.Log.trace(`Failed email recipients on connection ${connection}: ${(email.to ?? []).join(', ')}`);
+      this.Log.error({ error: err, connection, subject: email.subject, recipients: email.to?.length ?? 0 }, 'Cannot send email on connection ${connection}, subject: ${subject}, recipients: ${recipients}');
+      this.Log.trace({ connection, failedRecipients: email.to ?? [] }, 'Failed email recipients on connection ${connection}: ${failedRecipients}');
       Perf.count('email.send.failed', 1, { connection });
 
       // Rethrow so a queue consumer can retry or dead-letter; for a mail with `redact` this is already the redacted copy.
@@ -135,14 +138,14 @@ export class DefaultEmailService extends EmailService {
     }
 
     Perf.count('email.sent', 1, { connection });
-    this.Log.info(`Email sent on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+    this.Log.info({ connection, subject: email.subject, recipients: email.to?.length ?? 0 }, 'Email sent on connection ${connection}, subject: ${subject}, recipients: ${recipients}');
 
     // inform others of email event. Guard separately: rethrowing after a successful SMTP send
     // would make the queue retry the job and send a DUPLICATE email.
     try {
       await this.Queue.emit(new EmailSent(email));
     } catch (err) {
-      this.Log.error(err, `Failed to emit EmailSent event on connection ${connection}, subject: ${email.subject}`);
+      this.Log.error({ error: err, connection, subject: email.subject }, 'Failed to emit EmailSent event on connection ${connection}, subject: ${subject}');
     }
   }
 

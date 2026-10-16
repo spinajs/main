@@ -18,6 +18,9 @@ import { CLI_ACTOR } from '../../src/cli/common.js';
 import { registered } from '../../src/support/registered.js';
 import authnTotpConfig from '../../src/config/authn-totp.js';
 import * as pkg from '../../src/index.js';
+import { renderTemplate } from '@spinajs/log';
+
+const text = (first: unknown, template?: string): string => (typeof first === 'string' ? first : renderTemplate(template ?? '', first as Record<string, unknown>));
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 
@@ -35,7 +38,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   function command(): { cmd: MfaReset; out: Lines } {
     const out: Lines = { success: [], info: [], warn: [] };
     const cmd = new MfaReset();
-    Object.defineProperty(cmd, 'Log', { value: { success: (m: string) => out.success.push(m), info: (m: string) => out.info.push(m), warn: (m: string) => out.warn.push(m) } });
+    Object.defineProperty(cmd, 'Log', { value: { success: (m: unknown, t?: string) => out.success.push(text(m, t)), info: (m: unknown, t?: string) => out.info.push(text(m, t)), warn: (m: unknown, t?: string) => out.warn.push(text(m, t)) } });
     Object.defineProperty(cmd, 'Identities', { value: identities });
     Object.defineProperty(cmd, 'Totp', { value: service });
     return { cmd, out };
@@ -194,7 +197,7 @@ describe('v3 cli: authn:mfa-reset', () => {
       seen.length = 0;
       const cmd = await DI.resolve(MfaReset);
       const out: string[] = [];
-      Object.defineProperty(cmd, 'Log', { value: { success: (m: string) => out.push(m) } });
+      Object.defineProperty(cmd, 'Log', { value: { success: (m: unknown, t?: string) => out.push(text(m, t)) } });
       await cmd.execute('alice');
       assert.deepStrictEqual(out, ['MFA reset for alice']);
       assert.strictEqual(await step.enrolment(alice), 'none');

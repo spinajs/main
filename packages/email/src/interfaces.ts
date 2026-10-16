@@ -52,7 +52,7 @@ export class BlackHoleEmailSender extends EmailSender {
       await attachmentFile(a, this.DefaultFileProvider);
     }
 
-    this.Log.info(`Email ${email.subject} sent to black hole`);
+    this.Log.info({ subject: email.subject }, 'Email ${subject} sent to black hole');
   }
 }
 

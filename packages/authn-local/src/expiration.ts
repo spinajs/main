@@ -86,7 +86,7 @@ export class PasswordExpirationJob {
       } catch (err) {
         counts.failed++;
         // The name only: a store error may carry the hash in its message.
-        this.log().warn(`Could not expire the password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);
+        this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'Could not expire the password of ${identityType} ${identityId}: ${errorName}');
       }
     }
     return counts;

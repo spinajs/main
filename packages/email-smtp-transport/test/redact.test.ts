@@ -45,6 +45,8 @@ const mail = (redact?: string[]): IEmail => ({
 });
 
 const describeError = (e: any) => JSON.stringify({ name: e?.name, message: e?.message, stack: e?.stack, cause: e?.cause, ...e });
+const dumpLogged = (calls: unknown[][]) =>
+  JSON.stringify(calls, (_key, value) => (value instanceof Error ? { ...value, name: value.name, message: value.message, stack: value.stack, cause: (value as any).cause } : value));
 const holds = (text: string) => text.includes(TOKEN) || text.includes(encodeURIComponent(TOKEN));
 
 describe('smtp sender with secret values ( redact )', () => {
@@ -63,7 +65,7 @@ describe('smtp sender with secret values ( redact )', () => {
     expect((err as any).cause).to.equal(undefined);
     expect(holds(describeError(err))).to.equal(false);
     expect(logged).to.have.length(1);
-    expect(holds(logged.map((args) => args.map(describeError).join(' ')).join('\n'))).to.equal(false);
+    expect(holds(dumpLogged(logged))).to.equal(false);
   });
 
   it('throws the original error for a mail without secret values', async () => {
@@ -91,8 +93,8 @@ describe('smtp sender with secret values ( redact )', () => {
     expect(err!.message).to.contain('helper failed on');
     expect((err as any).cause).to.equal(undefined);
     expect(holds(describeError(err))).to.equal(false);
-    expect(logged.filter((args) => args[0] instanceof Error)).to.have.length(1);
-    expect(holds(logged.map((args) => args.map(describeError).join(' ')).join('\n'))).to.equal(false);
+    expect(logged.filter((args) => (args[0] as { error?: unknown })?.error instanceof Error)).to.have.length(1);
+    expect(holds(dumpLogged(logged))).to.equal(false);
   });
 
   it('throws the original render error for a mail without secret values', async () => {

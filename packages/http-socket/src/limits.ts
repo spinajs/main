@@ -122,12 +122,15 @@ export function assertShutdownConfig(options: Pick<ISocketServerConfig, 'drainMs
 /** How long the replies, stream `fail` frames and transports of a shutdown get to flush, and a started keyed command gets past `drainMs`. */
 export const SHUTDOWN_FLUSH_MS = 1_000;
 
+export const SHUTDOWN_OVERRUN =
+  'http.socket.drainMs ( ${drainMs} ms ) plus ${graceMs} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written';
+
 /** The http server destroys every connection `http.shutdownTimeout` after it starts closing; a drain that may outlast that is cut short. */
-export function shutdownOverrun(drainMs: number, shutdownTimeoutMs: number): string | null {
-  const worst = drainMs + 3 * SHUTDOWN_FLUSH_MS;
-  if (worst < shutdownTimeoutMs) {
+export function shutdownOverrun(drainMs: number, shutdownTimeoutMs: number): { drainMs: number; graceMs: number; shutdownTimeoutMs: number } | null {
+  const graceMs = 3 * SHUTDOWN_FLUSH_MS;
+  if (drainMs + graceMs < shutdownTimeoutMs) {
     return null;
   }
 
-  return `http.socket.drainMs ( ${drainMs} ms ) plus ${3 * SHUTDOWN_FLUSH_MS} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written`;
+  return { drainMs, graceMs, shutdownTimeoutMs };
 }

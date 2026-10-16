@@ -11,6 +11,7 @@ import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
 import { LocalPasswordService, LocalPasswordServiceDeps } from '../src/service.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
+import { recordingLog } from './support/recording-log.js';
 import { RecordingTokenService } from './recording-token-service.js';
 
 const OLD = 'Old-Password-1';
@@ -71,7 +72,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
     sinks: [events],
     hasher,
     policy,
-    log: { warn: (m: string) => warnings.push(m) },
+    log: recordingLog(warnings),
     ...over,
   };
   const service = new LocalPasswordService(deps);

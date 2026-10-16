@@ -7,7 +7,7 @@ import type { DecisionRequest } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, Ok, Req } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { FrameworkLogger } from '@spinajs/log';
+import { FrameworkLogger, renderTemplate } from '@spinajs/log';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
@@ -351,7 +351,12 @@ describe('TelemetryAccessPolicy', function () {
       const proto = FrameworkLogger.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
       const warn = proto.warn;
       proto.warn = function (this: unknown, ...args: unknown[]) {
-        warnings.push(args.filter((a) => typeof a === 'string').join(' '));
+        const [fields, template] = args;
+        warnings.push(
+          fields !== null && typeof fields === 'object' && !(fields instanceof Error) && typeof template === 'string'
+            ? renderTemplate(template, fields as Record<string, unknown>)
+            : args.filter((a) => typeof a === 'string').join(' '),
+        );
         return warn.apply(this, args);
       };
 

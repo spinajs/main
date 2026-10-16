@@ -1,3 +1,4 @@
+import type { Log } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -32,7 +33,7 @@ import { ModelContext, NoConditionCompiler, l1Key, memo } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
 import type { Pipeline, Settled } from './run.js';
-import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, validDate } from './vote.js';
+import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, thrownError, validDate } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
 
@@ -56,11 +57,7 @@ const MAX_PRELOADED = 10_000;
 let generations = 0;
 const nextGeneration = (): number => ++generations;
 
-export interface EngineLog {
-  error(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  debug(message: string, ...args: unknown[]): void;
-}
+export type EngineLog = Pick<Log, 'error' | 'warn' | 'debug'>;
 
 export interface AuthorizerOptions {
   readonly domain: string;
@@ -570,7 +567,7 @@ export class Authorizer {
           return c !== undefined && c !== THREW && c.faulted;
         })
         .map((d) => d.name);
-      if (faulted.length > 0) this.logAt('error', `${this.where}: summary left out ${faulted.length} permission(s) whose decision rests on an engine fault: ${faulted.slice(0, 10).join(', ')}${faulted.length > 10 ? ', …' : ''}`);
+      if (faulted.length > 0) this.logAt('error', { count: faulted.length, permissions: faulted.slice(0, 10), truncated: faulted.length > 10 ? true : undefined }, 'Authz domain ${domain}: summary left out ${count} permission(s) whose decision rests on an engine fault: ${permissions}${?truncated}, …${/truncated}');
       out.permissions = candidates.flatMap((def, i) => {
         const c = checked[i];
         if (c === undefined || c === THREW || c.faulted) return [];
@@ -580,7 +577,7 @@ export class Authorizer {
         try {
           return [summaryEntry(def, true, def.fields === true ? this.listedFields(entries) : NO_FIELDS)];
         } catch (e) {
-          this.logAt('error', `${this.where}: summary left out ${def.name}: the fields its model summaries list could not be combined: ${describeError(e)}`);
+          this.logAt('error', { error: thrownError(e), permission: def.name }, 'Authz domain ${domain}: summary left out ${permission}: the fields its model summaries list could not be combined');
           return [];
         }
       });
@@ -623,7 +620,7 @@ export class Authorizer {
     // After quietRun: a model version change recompiles the routes there.
     const custom = this.customPlan(defs, ref);
     if (custom) {
-      this.logAt('error', `${this.where}: covers is false: ${custom.def.name} on ${quote(custom.type)} uses the combinator ${quote(custom.algorithm)}, which may allow without a permit that a summary lists`);
+      this.logAt('error', { permission: custom.def.name, resourceType: custom.type, algorithm: custom.algorithm }, 'Authz domain ${domain}: covers is false: ${permission} on ${resourceType} uses the combinator ${algorithm}, which may allow without a permit that a summary lists');
       return false;
     }
     const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
@@ -631,23 +628,23 @@ export class Authorizer {
     try {
       const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
       if (summarized === EXPIRED) {
-        this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+        this.logAt('error', { deadlineMs: limit.ms }, 'Authz domain ${domain}: covers is false: it ran past its deadline of ${deadlineMs} ms');
         return false;
       }
       if (summarized.names === undefined) {
-        this.logAt('error', `${this.where}: covers is false: a model routed for the target gave no summary`);
+        this.logAt('error', {}, 'Authz domain ${domain}: covers is false: a model routed for the target gave no summary');
         return false;
       }
       const listed = this.summaryEntries(target, summarized.list, defs, run.instant);
       if (listed === undefined) {
-        this.logAt('error', `${this.where}: covers is false: the onBehalfOf chain of the target does not resolve`);
+        this.logAt('error', {}, 'Authz domain ${domain}: covers is false: the onBehalfOf chain of the target does not resolve');
         return false;
       }
       for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
         const batch = defs.slice(i, i + SUMMARY_BATCH);
         const compared = await limit.race(Promise.all(batch.map((def) => Promise.all(comparedRefs(def, ref).map((r) => Promise.all([this.quietCheck(holder, def, r, run, true), this.quietCheck(target, def, r, run)]))))));
         if (compared === EXPIRED) {
-          this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+          this.logAt('error', { deadlineMs: limit.ms }, 'Authz domain ${domain}: covers is false: it ran past its deadline of ${deadlineMs} ms');
           return false;
         }
         for (const [k, pairs] of compared.entries()) {
@@ -655,7 +652,7 @@ export class Authorizer {
           // A denial on missing data is no proof that the target lacks the permission; a holder fault is refused too, to stay simple.
           const fault = pairs.find(([h, t]) => h.faulted || t.faulted);
           if (fault) {
-            this.logAt('error', `${this.where}: covers is false: the ${fault[0].faulted ? 'holder' : 'target'} check of ${def.name} rests on an engine fault`);
+            this.logAt('error', { side: fault[0].faulted ? 'holder' : 'target', permission: def.name }, 'Authz domain ${domain}: covers is false: the ${side} check of ${permission} rests on an engine fault');
             return false;
           }
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
@@ -668,7 +665,7 @@ export class Authorizer {
         }
       }
     } catch (e) {
-      this.logAt('error', `${this.where}: covers is false: a check or a field comparison failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: covers is false: a check or a field comparison failed');
       return false;
     } finally {
       limit.clear();
@@ -699,7 +696,7 @@ export class Authorizer {
       }
     } catch (e) {
       // A check of this principal throws too, so no model would run.
-      this.logAt('error', `${this.where}: preload could not resolve the onBehalfOf chain, preloading nothing: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: preload could not resolve the onBehalfOf chain, preloading nothing');
       return;
     }
     const map = scopeMap(scope);
@@ -724,7 +721,7 @@ export class Authorizer {
               failed.add(cacheId);
               // The model may now vote from missing per-request state.
               this.markFault(map);
-              this.logAt('error', `${this.where}: model ${quote(model.name)} failed to preload: ${settled.error}`);
+              this.logAt('error', { model: model.name, cause: settled.error }, 'Authz domain ${domain}: model ${model} failed to preload: ${cause}');
             }),
       ),
     );
@@ -748,7 +745,7 @@ export class Authorizer {
       try {
         if (typeof model.invalidate === 'function') model.invalidate(copy);
       } catch (e) {
-        this.logAt('error', `${this.where}: model ${quote(model.name)} failed to invalidate: ${describeError(e)}`);
+        this.logAt('error', { error: thrownError(e), model: model.name }, 'Authz domain ${domain}: model ${model} failed to invalidate');
       }
     }
   }
@@ -770,7 +767,7 @@ export class Authorizer {
     try {
       return this.delegation(gate.principal, undefined, this.config.maxDelegation).denial === undefined;
     } catch (e) {
-      this.logAt('debug', `${this.where}: covers is false: the onBehalfOf chain of ${principalKey(gate.ref)} does not resolve: ${describeError(e)}`);
+      this.logAt('debug', { error: thrownError(e), principal: principalKey(gate.ref) }, 'Authz domain ${domain}: covers is false: the onBehalfOf chain of ${principal} does not resolve');
       return false;
     }
   }
@@ -787,7 +784,7 @@ export class Authorizer {
       .filter((d) => ref.type === GLOBAL_TYPE || d.types.includes(ref.type))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     if (defs.length <= MAX_SUMMARY_PERMISSIONS) return { defs, truncated: false };
-    this.logAt('warn', `${this.where}: ${what} at ${resourceKey(ref)} has ${defs.length} permissions to check, more than the limit of ${MAX_SUMMARY_PERMISSIONS}`);
+    this.logAt('warn', { operation: what, resource: resourceKey(ref), count: defs.length, limit: MAX_SUMMARY_PERMISSIONS }, 'Authz domain ${domain}: ${operation} at ${resource} has ${count} permissions to check, more than the limit of ${limit}');
     return { defs: defs.slice(0, MAX_SUMMARY_PERMISSIONS), truncated: true };
   }
 
@@ -804,7 +801,7 @@ export class Authorizer {
       if (d.denial) return { list: [], names: undefined };
       runAs = d.principal;
     } catch (e) {
-      this.logAt('error', `${this.where}: summary could not resolve the onBehalfOf chain: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: summary could not resolve the onBehalfOf chain');
       return { list: [], names: undefined };
     }
     const routed = new Set<AuthorizationModel>();
@@ -836,7 +833,7 @@ export class Authorizer {
             return copySummary(settled.value, model.name);
           } catch (e) {
             complete = false;
-            this.logAt('error', `${this.where}: model ${quote(model.name)} failed to summarize, left out: ${describeError(e)}`);
+            this.logAt('error', { error: thrownError(e), model: model.name }, 'Authz domain ${domain}: model ${model} failed to summarize, left out');
             return undefined;
           }
         }),
@@ -869,9 +866,9 @@ export class Authorizer {
       );
       await limit.race(Promise.all(batch));
     }
-    if (failed > 0) this.logAt('error', `${this.where}: summary left out ${failed} permission(s) whose check threw, the first: ${describeError(first)}`);
+    if (failed > 0) this.logAt('error', { error: thrownError(first), count: failed }, 'Authz domain ${domain}: summary left out ${count} permission(s) whose check threw; the error is the first');
     const unchecked = out.filter((c) => c === undefined).length;
-    if (unchecked > 0) this.logAt('error', `${this.where}: summary left out ${unchecked} permission(s) not checked within its deadline of ${limit.ms} ms`);
+    if (unchecked > 0) this.logAt('error', { count: unchecked, deadlineMs: limit.ms }, 'Authz domain ${domain}: summary left out ${count} permission(s) not checked within its deadline of ${deadlineMs} ms');
     return out;
   }
 
@@ -999,7 +996,7 @@ export class Authorizer {
       }
     }
     if (plan !== undefined) return { model: model.name, plan, faulted: false };
-    this.logAt('error', `${this.where}: model ${quote(model.name)} failed to plan ${label}: ${fault}`);
+    this.logAt('error', { model: model.name, check: label, cause: fault }, 'Authz domain ${domain}: model ${model} failed to plan ${check}: ${cause}');
     ctx.detachMemo();
     return { model: model.name, plan: Object.freeze({ kind: 'deny-all', reason: Object.freeze({ code: 'model_error', model: model.name }) }), faulted: true };
   }
@@ -1020,7 +1017,7 @@ export class Authorizer {
           'ancestorsMany',
         );
         if (!settled.ok || !(settled.value instanceof Map)) {
-          this.logAt('error', `${this.where}: ancestorsMany of adapter ${quote(adapter.kind)} for ${list.length} ${quote(type)} ref(s) failed, asking ancestors() per ref: ${settled.ok ? 'it did not return a Map' : settled.error}`);
+          this.logAt('error', { adapter: adapter.kind, count: list.length, resourceType: type, cause: settled.ok ? 'it did not return a Map' : settled.error }, 'Authz domain ${domain}: ancestorsMany of adapter ${adapter} for ${count} ${resourceType} ref(s) failed, asking ancestors() per ref: ${cause}');
           return;
         }
         const found = settled.value as ReadonlyMap<string, unknown>;
@@ -1029,7 +1026,7 @@ export class Authorizer {
           try {
             scope.set(l1Key('ancestors', this.domain, key), this.ancestorList(found.get(key) ?? null, ref));
           } catch (e) {
-            this.logAt('error', `${this.where}: ancestorsMany of adapter ${quote(adapter.kind)} answered a malformed list for ${key}, asking ancestors(): ${describeError(e)}`);
+            this.logAt('error', { error: thrownError(e), adapter: adapter.kind, resource: key }, 'Authz domain ${domain}: ancestorsMany of adapter ${adapter} answered a malformed list for ${resource}, asking ancestors()');
           }
         }
       }),
@@ -1051,7 +1048,7 @@ export class Authorizer {
             'loadMany',
           );
           const found = settled.ok && settled.value instanceof Map ? (settled.value as ReadonlyMap<string, unknown>) : undefined;
-          if (!found) this.logAt('error', `${this.where}: loadMany of adapter ${quote(adapter.kind)} for ${list.length} ${quote(type)} row(s) failed: ${settled.ok ? 'it did not return a Map' : settled.error}`);
+          if (!found) this.logAt('error', { adapter: adapter.kind, count: list.length, resourceType: type, cause: settled.ok ? 'it did not return a Map' : settled.error }, 'Authz domain ${domain}: loadMany of adapter ${adapter} for ${count} ${resourceType} row(s) failed: ${cause}');
           for (const ref of list) out.set(resourceKey(ref), found ? rowOf(found.get(resourceKey(ref))) : FAILED_ROW);
         } else if (adapter && typeof adapter.load === 'function') {
           await Promise.all(
@@ -1062,7 +1059,7 @@ export class Authorizer {
                 describeError,
                 'load',
               );
-              if (!settled.ok) this.logAt('error', `${this.where}: load of ${resourceKey(ref)} from adapter ${quote(adapter.kind)} failed: ${settled.error}`);
+              if (!settled.ok) this.logAt('error', { resource: resourceKey(ref), adapter: adapter.kind, cause: settled.error }, 'Authz domain ${domain}: load of ${resource} from adapter ${adapter} failed: ${cause}');
               out.set(resourceKey(ref), settled.ok ? rowOf(settled.value) : FAILED_ROW);
             }),
           );
@@ -1112,7 +1109,7 @@ export class Authorizer {
     // Step 6's key, in the same synchronous stretch as the delegation: the caller may change the principal while a step waits.
     const keyed = parties !== undefined && subject === undefined && !run.bypass && run.versions !== undefined;
     const key = keyed ? decisionKey({ domain: this.domain, principal: gate.principal, actor, permission: def.name, ref, versions: run.versions! }) : undefined;
-    if (keyed && key === undefined) this.logAt('debug', `${this.where}: ${def.name} for ${principalKey(requester)} is not cached: the principal or actor has no canonical state`);
+    if (keyed && key === undefined) this.logAt('debug', { permission: def.name, principal: principalKey(requester) }, 'Authz domain ${domain}: ${permission} for ${principal} is not cached: the principal or actor has no canonical state');
 
     let ancestors: readonly ResourceRef[] | undefined;
     if (ref.id !== undefined) {
@@ -1188,7 +1185,7 @@ export class Authorizer {
           const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
           if (!settled.ok) {
             subjectFault = true;
-            this.logAt('error', `${this.where}: evaluating the stripped type-level residual of the delegate ${delegation.intersectKey} of ${label} against the subject failed: ${settled.error}`);
+            this.logAt('error', { delegate: delegation.intersectKey, check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the stripped type-level residual of the delegate ${delegate} of ${check} against the subject failed: ${cause}');
           }
           holds = settled.ok && settled.value === true;
           truth = settled.ok ? (settled.value === undefined ? 'UNKNOWN' : String(settled.value)) : settled.error;
@@ -1207,7 +1204,7 @@ export class Authorizer {
       const truth = settled.ok ? settled.value : undefined;
       if (!settled.ok) {
         subjectFault = true;
-        this.logAt('error', `${this.where}: evaluating the residual of ${label} against the subject failed: ${settled.error}`);
+        this.logAt('error', { check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the residual of ${check} against the subject failed: ${cause}');
       }
       core('subject', `residual against the subject: ${settled.ok ? (truth === undefined ? 'UNKNOWN' : String(truth)) : settled.error}`);
       residual = truth === true ? TRUE : FALSE;
@@ -1289,13 +1286,13 @@ export class Authorizer {
     try {
       found = this.cache.get(key);
     } catch (e) {
-      this.logAt('error', `${this.where}: the decision cache failed on get: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: the decision cache failed on get');
       return undefined;
     }
     swallow(found);
     const decision = this.usable(found, def, ref, runAs, now);
     if (!decision) {
-      if (found !== undefined) this.logAt('warn', `${this.where}: ignored a cached decision that does not match ${def.name} on ${resourceKey(ref)} or has expired`);
+      if (found !== undefined) this.logAt('warn', { permission: def.name, resource: resourceKey(ref) }, 'Authz domain ${domain}: ignored a cached decision that does not match ${permission} on ${resource} or has expired');
       return undefined;
     }
     // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
@@ -1337,7 +1334,7 @@ export class Authorizer {
       try {
         this.cache.set(key, stored, t, ttl.ms);
       } catch (e) {
-        this.logAt('error', `${this.where}: the decision cache failed on set: ${describeError(e)}`);
+        this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: the decision cache failed on set');
       }
     }
     return checked;
@@ -1411,7 +1408,7 @@ export class Authorizer {
     if (versions === undefined) {
       if (!this.versionsWarned) {
         this.versionsWarned = true;
-        this.logAt('warn', `${this.where}: a model's version() threw or returned a non-string; decisions are not cached while it does`);
+        this.logAt('warn', {}, "Authz domain ${domain}: a model's version() threw or returned a non-string; decisions are not cached while it does");
       }
       return undefined;
     }
@@ -1422,7 +1419,7 @@ export class Authorizer {
         this.table = this.compileTable();
       } catch (e) {
         // The old routes stay; the next call tries again.
-        this.logAt('error', `${this.where}: recompiling the routes after a model version change failed; decisions are not cached: ${describeError(e)}`);
+        this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: recompiling the routes after a model version change failed; decisions are not cached');
         return undefined;
       }
       this.versions = versions;
@@ -1446,7 +1443,7 @@ export class Authorizer {
       if (tags.includes('*')) this.l2Stale = false;
     } catch (e) {
       this.l2Stale = true;
-      this.logAt(level, `${this.where}: the decision cache failed to invalidate ${tags.join(', ')}; it is not used until a full invalidation succeeds: ${describeError(e)}`);
+      this.logAt(level, { error: thrownError(e), tags }, 'Authz domain ${domain}: the decision cache failed to invalidate ${tags}; it is not used until a full invalidation succeeds');
     }
   }
 
@@ -1556,7 +1553,7 @@ export class Authorizer {
     } catch (e) {
       // Nodes left unloaded make their refs missing below.
       loads.degraded = true;
-      this.logAt('error', `${this.where}: loading the scope attributes of the votes of ${label} failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the votes of ${check} failed');
     }
     return votes.map((v) => {
       if (v.error !== undefined) return v;
@@ -1568,7 +1565,7 @@ export class Authorizer {
         fault = `reading its scope refs failed: ${describeError(e)}`;
       }
       if (fault === undefined) return v;
-      this.logAt('error', `${this.where}: model ${quote(v.model)} is indeterminate for ${label}: ${fault}`);
+      this.logAt('error', { model: v.model, check: label, cause: fault }, 'Authz domain ${domain}: model ${model} is indeterminate for ${check}: ${cause}');
       return faultVote(v.model, fault);
     });
   }
@@ -1596,7 +1593,7 @@ export class Authorizer {
   private accept(model: AuthorizationModel, ctx: ModelContext, result: { readonly raw: unknown } | { readonly fault: string }, label: string): Vote {
     let vote = 'fault' in result ? faultVote(model.name, result.fault) : sanitizeVote(result.raw, model.name, capabilitiesOf(model));
     if (vote.error === undefined && ctx.fault !== undefined) vote = faultVote(model.name, ctx.fault);
-    if (vote.error !== undefined) this.logAt('error', `${this.where}: model ${quote(model.name)} is indeterminate for ${label}: ${vote.error}`);
+    if (vote.error !== undefined) this.logAt('error', { model: model.name, check: label, cause: vote.error }, 'Authz domain ${domain}: model ${model} is indeterminate for ${check}: ${cause}');
     return vote;
   }
 
@@ -1615,7 +1612,7 @@ export class Authorizer {
       const allow = simplify(sanitizeFilter(result.allow, '*', 'combinator allow', budget(MAX_FILTER_NODES * scale), budget(MAX_DATA_VALUES * scale)));
       return algorithm === 'first-applicable' && result.deciding !== undefined ? { allow, deciding: result.deciding, failed: false } : { allow, failed: false };
     } catch (e) {
-      this.logAt('error', `${this.where}: combinator ${quote(algorithm)} failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e), algorithm }, 'Authz domain ${domain}: combinator ${algorithm} failed');
       return { allow: FALSE, failed: true };
     }
   }
@@ -1631,7 +1628,7 @@ export class Authorizer {
       const covered = yield* binder.cover([allow]);
       return { residual: binder.bind(allow), failed: covered.failed, degraded: covered.degraded, uncacheable: covered.uncacheable };
     } catch (e) {
-      this.logAt('error', `${this.where}: binding refs failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e) }, 'Authz domain ${domain}: binding refs failed');
       return { residual: FALSE, failed: true, degraded: true, uncacheable: true };
     }
   }
@@ -1645,16 +1642,16 @@ export class Authorizer {
     const load = this.nodeLoad(node, scope);
     return bounded(() => load.result, this.config.modelTimeoutMs).then((r): BoundAttributes => {
       if (r.kind === 'value') return { ...(r.value as LoadedAttributes), failed: false };
-      if (r.kind === 'error') this.logAt('error', `${this.where}: scope attributes of ${resourceKey(node)} failed: ${describeError(r.error)}; its refs bind as missing`);
-      else this.logTimeout(load, `${this.where}: scope attributes of ${resourceKey(node)} timed out after ${this.config.modelTimeoutMs} ms; its refs bind as missing`);
+      if (r.kind === 'error') this.logAt('error', { error: thrownError(r.error), resource: resourceKey(node) }, 'Authz domain ${domain}: scope attributes of ${resource} failed; its refs bind as missing');
+      else this.logTimeout(load, { resource: resourceKey(node), timeoutMs: this.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} timed out after ${timeoutMs} ms; its refs bind as missing');
       return { attributes: null, failed: r.kind === 'error', degraded: true };
     });
   }
 
-  private logTimeout(load: NodeLoad, message: string): void {
+  private logTimeout(load: NodeLoad, fields: Record<string, unknown>, template: string): void {
     if (load.timeoutLogged) return;
     load.timeoutLogged = true;
-    this.logAt('error', message);
+    this.logAt('error', fields, template);
   }
 
   /** Throws AuthzConfigError for a malformed actor and for a chain deeper than the budget or with a cycle (B08). */
@@ -1706,7 +1703,7 @@ export class Authorizer {
       faulted = covered.degraded;
     } catch (e) {
       // Refs of nodes left unloaded bind as missing: fewer fields, more hidden.
-      this.logAt('error', `${this.where}: loading the scope attributes of the field sets of ${label} failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the field sets of ${check} failed');
       uncacheable = true;
       faulted = true;
     }
@@ -1718,7 +1715,7 @@ export class Authorizer {
       return { fields, firm: firm.delegate ? this.fieldCombiner.intersect(firmOwn, firm.delegate) : firmOwn, failed: false, faulted, uncacheable };
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
-      this.logAt('error', `${this.where}: combining the field sets of ${label} failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: combining the field sets of ${check} failed');
       return { fields: NO_FIELDS, failed: true, faulted: true, uncacheable: true };
     }
   }
@@ -1743,7 +1740,7 @@ export class Authorizer {
       uncacheable = (yield* binder.cover(counted.filter((v) => v.error === undefined).flatMap((v) => [v.permitWhen, ...(v.denies ?? []).map((d) => d.when)]))).uncacheable;
     } catch (e) {
       // Refs of nodes left unloaded bind as missing.
-      this.logAt('error', `${this.where}: loading the scope attributes of the deny reasons of ${label} failed: ${describeError(e)}`);
+      this.logAt('error', { error: thrownError(e), check: label }, 'Authz domain ${domain}: loading the scope attributes of the deny reasons of ${check} failed');
       uncacheable = true;
     }
     // A deny entry sits under `not` in the allow, where the binder reads a missing ref as TRUE: it is bound under `not` here too.
@@ -1768,7 +1765,7 @@ export class Authorizer {
     const left = Math.max(0, this.config.modelTimeoutMs - (performance.now() - started));
     const settled = (yield settleWithin(batch, left, describeError, 'deny reason pass')) as Settled;
     if (!settled.ok) {
-      this.logAt('error', `${this.where}: evaluating the deny reasons of ${label} against the subject failed: ${settled.error}; using static truths`);
+      this.logAt('error', { check: label, cause: settled.error }, 'Authz domain ${domain}: evaluating the deny reasons of ${check} against the subject failed: ${cause}; using static truths');
       core('reason', 'deny reason against the subject', { fallback: 'static' });
       return { truths: votes.map(staticTruths), uncacheable };
     }
@@ -1823,7 +1820,7 @@ export class Authorizer {
     if (f.steps) {
       trace = deepFreeze({ domain: this.domain, algorithm: f.algorithm as CombiningAlgorithm, models: [...o.models], votes: [...o.votes], steps: [...f.steps], durationMs: performance.now() - f.started });
       if (f.explain) decision.trace = trace;
-      if (this.config.explain) this.logAt('debug', `${this.where}: trace of ${f.def.name} on ${resourceKey(f.ref)}`, trace);
+      if (this.config.explain) this.logAt('debug', { permission: f.def.name, resource: resourceKey(f.ref), trace }, 'Authz domain ${domain}: trace of ${permission} on ${resource}: ${trace}');
     }
     deepFreeze(decision);
 
@@ -1838,7 +1835,7 @@ export class Authorizer {
 
   private record(entry: Parameters<DecisionAudit['record']>[0]): void {
     if (!this.auditSink) return;
-    const failed = (e: unknown) => this.logAt('error', `${this.where}: audit failed for a ${entry.kind} entry: ${describeError(e)}`);
+    const failed = (e: unknown) => this.logAt('error', { error: thrownError(e), entryKind: entry.kind }, 'Authz domain ${domain}: audit failed for a ${entryKind} entry');
     try {
       const r = this.auditSink.record(entry);
       if (isThenable(r)) r.then(undefined, failed);
@@ -1967,7 +1964,7 @@ export class Authorizer {
     const r = await bounded(load, this.config.modelTimeoutMs);
     if (r.kind === 'error') throw r.error;
     if (r.kind === 'value') return r.value;
-    this.logTimeout(node, `${this.where}: scope attributes of ${resourceKey(ref)} from ${source} timed out after ${this.config.modelTimeoutMs} ms; the node is unknown`);
+    this.logTimeout(node, { resource: resourceKey(ref), source, timeoutMs: this.config.modelTimeoutMs }, 'Authz domain ${domain}: scope attributes of ${resource} from ${source} timed out after ${timeoutMs} ms; the node is unknown');
     return TIMED_OUT;
   }
 
@@ -2054,9 +2051,9 @@ export class Authorizer {
     return now;
   }
 
-  private logAt(level: keyof EngineLog, message: string, ...args: unknown[]): void {
+  private logAt(level: keyof EngineLog, fields: Record<string, unknown>, template: string): void {
     try {
-      this.log[level](message, ...args);
+      this.log[level]({ domain: this.domain, ...fields }, template);
     } catch {
       // a broken logger must not change a decision
     }

@@ -2,6 +2,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { OrmDriver } from '../src/driver.js';
 import { Builder } from '../src/builders.js';
@@ -163,11 +164,11 @@ describe('OrmDriver transaction contract ( F2, B24 )', () => {
 });
 
 describe('OrmDriver.afterCommit ( decision 18 )', () => {
-  /** A FakeTxDriver whose log records error messages ( `resolve()`, which sets the real one, never runs here ). */
-  const driver = (opts?: IFakeTxDriverOptions): { d: FakeTxDriver; errors: string[] } => {
+  /** A FakeTxDriver whose log records error calls ( `resolve()`, which sets the real one, never runs here ). */
+  const driver = (opts?: IFakeTxDriverOptions): { d: FakeTxDriver; errors: { text: string; error: unknown }[] } => {
     const d = new FakeTxDriver(opts);
-    const errors: string[] = [];
-    (d as unknown as { Log: unknown }).Log = { error: (message: string) => errors.push(message) };
+    const errors: { text: string; error: unknown }[] = [];
+    (d as unknown as { Log: unknown }).Log = { error: (fields: Record<string, unknown>, template: string) => errors.push({ text: renderTemplate(template, fields), error: fields.error }) };
     return { d, errors };
   };
 
@@ -293,7 +294,8 @@ describe('OrmDriver.afterCommit ( decision 18 )', () => {
     expect(result).to.equal(1);
     expect(d.calls).to.include('next');
     expect(errors).to.have.length(2);
-    expect(errors[0]).to.include('publish failed');
-    expect(errors[1]).to.include('immediate failed');
+    expect(errors[0].text).to.include('afterCommit callback');
+    expect(errors[0].error).to.be.instanceOf(Error).with.property('message', 'publish failed');
+    expect(errors[1].error).to.be.instanceOf(Error).with.property('message', 'immediate failed');
   });
 });

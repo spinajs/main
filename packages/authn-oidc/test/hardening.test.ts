@@ -10,6 +10,7 @@ import { OidcJwks } from '../src/jwks.js';
 import { appPathOrNull } from '../src/flow/cookie.js';
 import { FAKE_ISSUER, FakeIdp } from './support/fake-idp.js';
 import { readOidcOptions } from './support/oidc-config.js';
+import { recordingLog } from './support/recording-log.js';
 
 const SECRET = 'SUPER-SECRET-VALUE-42';
 const generic = { issuer: 'https://idp.example.test', clientId: 'canvas', clientSecret: { secret: SECRET } };
@@ -53,7 +54,7 @@ describe('authn-oidc hardening', () => {
 
     it('warns about a provider linking switch when no global switches are given (they default to off)', () => {
       const warnings: string[] = [];
-      readOidcOptions({ providers: { a: { ...generic, linking: { jit: true } } } }, undefined, { log: { warn: (m) => warnings.push(m) } });
+      readOidcOptions({ providers: { a: { ...generic, linking: { jit: true } } } }, undefined, { log: recordingLog(warnings) });
       expect(warnings).to.have.length(1);
     });
   });

@@ -63,7 +63,7 @@ export abstract class BaseController extends AsyncService implements IController
     await super.resolve();
 
     if (!this.Descriptor) {
-      this._log.warn(`Controller ${this.constructor.name} does not have descriptor. If its abstract or base class ignore this message.`);
+      this._log.warn({ controller: this.constructor.name }, 'Controller ${controller} does not have descriptor. If its abstract or base class ignore this message.');
       return;
     }
 
@@ -83,7 +83,7 @@ export abstract class BaseController extends AsyncService implements IController
       const policies = await resolveRoutePolicies(this.Descriptor, route, this._container, this._cfg, this._log, this.constructor.name, path);
       const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
-      this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${String(route.Method)} at ${path}`);
+      this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),

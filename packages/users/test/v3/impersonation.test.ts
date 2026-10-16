@@ -7,6 +7,7 @@ import type { AuthnFacts, IdentityRef, ImpersonationGuard, Principal } from '@sp
 import { BEHAVIOUR_FIXTURES, fixtureDsl, hostHarness, runBehaviour, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { Case, CoversStep, DoStep, World } from '@spinajs/authz-testing';
 import { expect } from 'chai';
+import { renderTemplate } from '@spinajs/log';
 
 import { AuthzImpersonationGuard } from '../../src/index.js';
 import { useKitConfiguration } from '../support/kit-configuration.js';
@@ -123,7 +124,7 @@ const harness = () =>
         roles: new MemoryRoleStore(rbac.roles ?? [], []),
         assignments: new MemoryAssignmentStore([...(rbac.assignments ?? []), ...STALE]),
         clock: host.kit.clock,
-        log: { warn: (m: string) => void warnings.push(String(m)) },
+        log: { warn: (fields: unknown, template?: unknown) => void warnings.push(renderTemplate(String(template), fields as Record<string, unknown>)) },
       });
       host.container.register(testHost.instance(model)).as(AuthorizationModel);
       host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);

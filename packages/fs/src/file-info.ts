@@ -205,7 +205,7 @@ export class DefaultFileInfo extends FileInfoService {
 
     if (!this.ExifToolPath) {
       this.ExifToolPath = await resolveExifToolPath();
-      this.Log.trace(`Using exiftool binary: ${this.ExifToolPath}`);
+      this.Log.trace({ exifToolPath: this.ExifToolPath }, 'Using exiftool binary: ${exifToolPath}');
     }
 
     return this.ExifToolPath;

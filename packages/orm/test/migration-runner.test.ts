@@ -3,7 +3,7 @@ import { Class, ClassInfo, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb } from './misc.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb, logText } from './misc.js';
 import { DefaultMigrationService, IMigrationDownOptions, IMigrationRecord, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MIGRATION_TABLE_NAME, Migration, MigrationResolveAction, MigrationRunner, OrmException, OrmMigration, OrmMigrationService, migrationChecksum } from '../src/index.js';
 import { InsertQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
@@ -511,9 +511,9 @@ describe('MigrationRunner', () => {
 
     // the gate is a property of the connection, not of the migration - repeating it once per
     // migration turns a boot log into noise nobody reads
-    const gatedWarnings = warn.getCalls().filter((c) => String(c.args[0]).includes('OnStartup'));
+    const gatedWarnings = warn.getCalls().filter((c) => logText(c).includes('OnStartup'));
     expect(gatedWarnings, 'one warning per gated connection').to.have.length(1);
-    expect(String(gatedWarnings[0].args[0])).to.contain('sqlite');
+    expect(logText(gatedWarnings[0])).to.contain('sqlite');
 
     await new MigrationRunner(orm).up(); // force defaults true
     expect(up.calledOnce).to.be.true;
@@ -665,9 +665,9 @@ describe('MigrationRunner', () => {
     expect(result).to.eql([]);
 
     // a migration dropped without a word is how a typo in @Migration('...') stays invisible
-    const skipped = warn.getCalls().find((c) => String(c.args[0]).includes('MigrationRunnerTest_Lost_2021_01_01_00_00_00'));
+    const skipped = warn.getCalls().find((c) => logText(c).includes('MigrationRunnerTest_Lost_2021_01_01_00_00_00'));
     expect(skipped, 'expected a warning naming the skipped migration').to.not.be.undefined;
-    expect(String(skipped!.args[0]), 'and the connection it asked for').to.contain('nope');
+    expect(logText(skipped!), 'and the connection it asked for').to.contain('nope');
   });
 
   it('warns and skips a migration class carrying no @Migration descriptor', async () => {
@@ -689,9 +689,9 @@ describe('MigrationRunner', () => {
     expect(executed, 'no descriptor means no connection to run against').to.eql([]);
     expect(up.called).to.be.false;
 
-    const skipped = warn.getCalls().find((c) => String(c.args[0]).includes('MigrationRunnerTest_Bare_2021_11_01_00_00_00'));
+    const skipped = warn.getCalls().find((c) => logText(c).includes('MigrationRunnerTest_Bare_2021_11_01_00_00_00'));
     expect(skipped, 'a class with no @Migration() must be reported, not silently dropped').to.not.be.undefined;
-    expect(String(skipped!.args[0]), 'and the operator told what is missing').to.contain('@Migration');
+    expect(logText(skipped!), 'and the operator told what is missing').to.contain('@Migration');
   });
 
   it('down rolls back the last batch, and { all: true } reaches every batch', async () => {

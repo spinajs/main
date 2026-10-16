@@ -526,7 +526,9 @@ export class DefaultAdminGuard extends AdminGuard {
       const answers = await source.inService(refs);
       return refs.some((r) => answers.get(principalKey(r)) === true);
     } catch (e) {
-      this.log.warn(`DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${e instanceof Error ? `${e.name}: ${e.message}` : typeof e}`);
+      // Name and message only: the stack stays out of this log.
+      const cause = e instanceof Error ? `${e.name}: ${e.message}` : typeof e;
+      this.log.warn({ cause }, 'DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${cause}');
       return false;
     }
   }

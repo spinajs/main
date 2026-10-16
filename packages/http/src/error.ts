@@ -87,7 +87,7 @@ export function __handle_error__() {
         const bodyFailure = bodyFailureMessage(err, errorMap);
 
         if (bodyFailure) {
-            logger.warn(`Request body failure (${err.type}) at ${req.method} ${redactUrl(req.originalUrl)}`);
+            logger.warn({ failure: err.type, method: req.method, url: redactUrl(req.originalUrl) }, 'Request body failure (${failure}) at ${method} ${url}');
 
             error = { message: bodyFailure };
             const httpResponse = errorMap ? __resolve_error_response__(errorMap, new BadRequest(bodyFailure)) : null;
@@ -114,13 +114,13 @@ export function __handle_error__() {
                 error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
             }
 
-            logger.error(err, `Error in controller ${req.method} at path ${redactUrl(req.originalUrl)}`);
+            logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url}');
 
             const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
             if (httpResponse) {
                 response = new httpResponse(error);
             } else {
-                logger.warn(`Error type ${err.constructor?.name} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
+                logger.warn({ errorType: err.constructor?.name }, 'Error type ${errorType} dont have assigned http response. Map error to response via _http_error_map__ in DI container');
                 response = new ServerError(error);
             }
         }

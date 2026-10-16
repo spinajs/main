@@ -40,15 +40,18 @@ export class AccessLog extends ServerMiddleware {
       const startedAt = Date.now();
       res.on('finish', () => {
         const path = redactUrl(req.originalUrl);
-        log.info(`${req.method} ${path} ${res.statusCode} ${Date.now() - startedAt}ms`, {
-          method: req.method,
-          path,
-          status: res.statusCode,
-          ms: Date.now() - startedAt,
-          ip: req.storage?.realIp,
-          requestId: req.storage?.requestId,
-          userAgent: req.headers['user-agent'],
-        });
+        log.info(
+          {
+            method: req.method,
+            path,
+            status: res.statusCode,
+            ms: Date.now() - startedAt,
+            ip: req.storage?.realIp,
+            requestId: req.storage?.requestId,
+            userAgent: req.headers['user-agent'],
+          },
+          '${method} ${path} ${status} ${ms}ms',
+        );
       });
       next();
     };

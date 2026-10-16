@@ -274,7 +274,7 @@ export class RedisSessionStore extends SessionProvider {
       indexed += rows.length;
     });
 
-    this.Log.info(`Indexed ${indexed} 2.x sessions by subject and impersonator`);
+    this.Log.info({ count: indexed }, 'Indexed ${count} 2.x sessions by subject and impersonator');
     return indexed;
   }
 

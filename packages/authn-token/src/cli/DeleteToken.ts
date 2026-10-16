@@ -29,12 +29,12 @@ export class DeleteToken extends TokenCliCommand {
       }
 
       if (await tokens.revokeById(uuid, { now: new Date(), purpose: 'request' }, { actor: CLI_ACTOR })) {
-        this.Log.success(`Token ${uuid} revoked`);
+        this.Log.success({ uuid }, 'Token ${uuid} revoked');
       } else {
-        this.Log.warn(`Token ${uuid} not found or already revoked`);
+        this.Log.warn({ uuid }, 'Token ${uuid} not found or already revoked');
       }
     } catch (e) {
-      this.Log.error(`Error while revoking token ${uuid}: ${(e as Error).message}`);
+      this.Log.error({ error: e, uuid }, 'Error while revoking token ${uuid}');
       process.exitCode = 1;
     }
   }

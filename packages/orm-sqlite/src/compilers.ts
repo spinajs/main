@@ -370,7 +370,10 @@ export class SqliteAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler 
    * (mysql's MODIFY drops any attribute you omit), and throwing would break them.
    */
   protected _modify(_definition: string): string | null {
-    this.Log.warn(`sqlite cannot MODIFY column '${this.builder.Name}' - skipping. Type changes are a no-op (sqlite is dynamically typed); any NOT NULL / DEFAULT / UNIQUE change was NOT applied. Write an explicit table-rebuild migration if you need one.`);
+    this.Log.warn(
+      { column: this.builder.Name },
+      'sqlite cannot MODIFY column ${column} - skipping. Type changes are a no-op (sqlite is dynamically typed); any NOT NULL / DEFAULT / UNIQUE change was NOT applied. Write an explicit table-rebuild migration if you need one.',
+    );
     return null;
   }
 

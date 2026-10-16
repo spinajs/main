@@ -9,13 +9,16 @@ import { AddKey, CLI_ACTOR, ListKeys, RevokeKey } from '../src/cli/index.js';
 import authnKeysConfig from '../src/config/authn-keys.js';
 import { keysParts } from './harness.js';
 import type { KeysParts } from './harness.js';
+import { renderTemplate } from '@spinajs/log';
+
+const text = (first: unknown, template?: string): string => (typeof first === 'string' ? first : renderTemplate(template ?? '', first as Record<string, unknown>));
 
 type Lines = { success: string[]; info: string[] };
 
 function command<T extends AddKey | ListKeys | RevokeKey>(Type: new () => T, p: KeysParts): { cmd: T; out: Lines } {
   const out: Lines = { success: [], info: [] };
   const cmd = new Type();
-  Object.defineProperty(cmd, 'Log', { value: { success: (m: string) => out.success.push(m), info: (m: string) => out.info.push(m) } });
+  Object.defineProperty(cmd, 'Log', { value: { success: (m: unknown, t?: string) => out.success.push(text(m, t)), info: (m: unknown, t?: string) => out.info.push(text(m, t)) } });
   Object.defineProperty(cmd, 'Registry', { value: p.registry });
   return { cmd, out };
 }

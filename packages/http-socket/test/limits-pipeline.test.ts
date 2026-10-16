@@ -11,6 +11,7 @@ import { SocketDispatcher } from '../src/dispatcher.js';
 import { SizeStage } from '../src/stages/limits.js';
 import { InvalidConfiguration } from '@spinajs/configuration';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
+import { logText } from './log-text.js';
 
 let release: () => void = () => undefined;
 let gate: Promise<void> = Promise.resolve();
@@ -94,7 +95,7 @@ describe('socket pipeline limits', function () {
       socket = await open(t);
     };
 
-    const lines = (level: Level, part: string) => spies[level].getCalls().filter((c) => c.args.some((a) => typeof a === 'string' && a.includes(part))).length;
+    const lines = (level: Level, part: string) => spies[level].getCalls().filter((c) => logText(c.args).includes(part)).length;
     const malformed = () => socket!.timeout(5000).emitWithAck(WIRE_EVENTS.command, { bogus: true }) as Promise<Parameters<typeof errorOf>[0]>;
 
     afterEach(() => sinon.restore());

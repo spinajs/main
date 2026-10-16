@@ -51,7 +51,7 @@ export class ControllersCacheCommand extends CliCommand {
       await cache.clear();
     }
 
-    this.Log.info(`Generating controllers cache for ${controllers.length} controllers ( rebuild: ${rebuild} ) ...`);
+    this.Log.info({ count: controllers.length, rebuild }, 'Generating controllers cache for ${count} controllers ( rebuild: ${rebuild} ) ...');
 
     const failed: string[] = [];
     for (const c of controllers) {
@@ -59,11 +59,11 @@ export class ControllersCacheCommand extends CliCommand {
         await cache.getCache(c);
       } catch (err) {
         failed.push(c.name);
-        this.Log.error(`Failed to generate cache for controller ${c.name} ( ${c.file} ): ${(err as Error).message}`);
+        this.Log.error({ error: err, controller: c.name, file: c.file }, 'Failed to generate cache for controller ${controller} ( ${file} )');
       }
     }
 
-    this.Log.info(`Controllers cache done: ${controllers.length - failed.length} ok, ${failed.length} failed`);
+    this.Log.info({ ok: controllers.length - failed.length, failed: failed.length }, 'Controllers cache done: ${ok} ok, ${failed} failed');
 
     if (failed.length > 0) {
       throw new Exception(`Controllers cache generation failed for: ${failed.join(', ')}`);

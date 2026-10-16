@@ -30,7 +30,7 @@ import { AuthzContributor } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
 import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
-import { engineLog } from './log.js';
+import { engineLog, thrownError } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
 import { AccessChangeRouter } from './push.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
@@ -254,12 +254,12 @@ export class DefaultAuthzService extends AuthzService {
     try {
       s.unsubscribe?.();
     } catch (e) {
-      this.log.error(`Authz domain ${q(s.name)}: unsubscribing from the change bus failed: ${describeError(e)}`);
+      this.log.error({ error: thrownError(e), domain: s.name }, 'Authz domain ${domain}: unsubscribing from the change bus failed');
     }
     try {
       s.stopPush?.();
     } catch (e) {
-      this.log.error(`Authz domain ${q(s.name)}: stopping the access push router failed: ${describeError(e)}`);
+      this.log.error({ error: thrownError(e), domain: s.name }, 'Authz domain ${domain}: stopping the access push router failed');
     }
     s.domains.detach(s.name, this);
     await this.release(s.used, []);
@@ -277,7 +277,7 @@ export class DefaultAuthzService extends AuthzService {
   }
 
   private record(s: Booted, entry: Parameters<DecisionAudit['record']>[0]): void {
-    const fail = (e: unknown) => this.log.error(`Authz domain ${q(s.name)}: audit of ${entry.kind} failed: ${describeError(e)}`);
+    const fail = (e: unknown) => this.log.error({ error: thrownError(e), domain: s.name, entryKind: entry.kind }, 'Authz domain ${domain}: audit of ${entryKind} failed');
     try {
       const r: unknown = s.audit!.record(entry);
       if (isObject(r) && typeof r.then === 'function') (r as unknown as Promise<void>).then(undefined, fail);
@@ -290,7 +290,7 @@ export class DefaultAuthzService extends AuthzService {
     try {
       this.bootSubscription?.();
     } catch (e) {
-      this.log.error(`Authz domain ${q(this.name)}: unsubscribing from the change bus failed: ${describeError(e)}`);
+      this.log.error({ error: thrownError(e), domain: this.name }, 'Authz domain ${domain}: unsubscribing from the change bus failed');
     }
     this.bootSubscription = undefined;
     this.buffered = undefined;
@@ -323,7 +323,7 @@ export class DefaultAuthzService extends AuthzService {
       try {
         await model.dispose();
       } catch (e) {
-        this.log.error(`Authz domain ${q(this.name)}: model ${q(model.name)} failed to dispose: ${describeError(e)}`);
+        this.log.error({ error: thrownError(e), domain: this.name, model: model.name }, 'Authz domain ${domain}: model ${model} failed to dispose');
       }
     }
   }
@@ -366,7 +366,7 @@ export class DefaultAuthzService extends AuthzService {
       if (typeof off !== 'function') throw new AuthzConfigError(`${where}: ChangeBus.subscribe did not return an unsubscribe function`);
       this.bootSubscription = off as () => void;
     } else {
-      this.log.warn(`${where}: no ChangeBus is registered; published changes will not reach this domain`);
+      this.log.warn({ domain: name }, 'Authz domain ${domain}: no ChangeBus is registered; published changes will not reach this domain');
     }
 
     // Entry i of getTypesChain is the registration of element i of the Array.chainOf resolve.
@@ -383,7 +383,7 @@ export class DefaultAuthzService extends AuthzService {
     const combinators = await chain(Combinator);
     const contributors = await chain(AuthzContributor);
 
-    const models = mergeModels(where, chainModels, modelOwners, levels, disables, (m) => this.log.warn(m));
+    const models = mergeModels(where, chainModels, modelOwners, levels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
     for (const [i, model] of models.entries()) {
       if (!isObject(model) || typeof model.init !== 'function') throw new AuthzConfigError(`${where}: models[${i}] (${q(modelName(model))}) is not an AuthorizationModel`);
     }
@@ -463,7 +463,7 @@ export class DefaultAuthzService extends AuthzService {
 
     const relations = [...new Set([...chainRelations, ...modelRelations])];
     const nativeFilters = [...new Set([...chainFilters, ...modelFilters])];
-    const { warnings } = validateBoot({
+    const { unrouted } = validateBoot({
       domain: name,
       models,
       registry,
@@ -480,7 +480,7 @@ export class DefaultAuthzService extends AuthzService {
       joinTypes,
       ...(listTypes ? { listTypes } : {}),
     });
-    for (const w of warnings) this.log.warn(w);
+    for (const model of unrouted) this.log.warn({ domain: name, model }, 'domain ${domain}, model ${model}: no combine entry routes this model');
 
     const store = container.hasRegistered(ScopeAttributeStore) ? ((await container.resolve(ScopeAttributeStore)) as ScopeAttributeStore) : undefined;
     const conditions = container.hasRegistered(ConditionCompiler) ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler) : undefined;
@@ -638,7 +638,7 @@ export class DefaultAuthzService extends AuthzService {
       // Copied: the publisher may reuse its array before the boot ends.
       else this.buffered?.push([...tags]);
     } catch (e) {
-      this.log.error(`Authz domain ${q(name)}: applying a published change failed: ${describeError(e)}`);
+      this.log.error({ error: thrownError(e), domain: name }, 'Authz domain ${domain}: applying a published change failed');
     }
   }
 }
@@ -661,7 +661,7 @@ function input(principal: Principal, permission: Permission, resource?: Resource
  * level's own models; one whose name an ancestor level placed replaces it in
  * place, a second one of a name within the level is kept for rule 2.
  */
-function mergeModels(where: string, chain: readonly AuthorizationModel[], owners: readonly IContainer[], levels: readonly IContainer[], disables: readonly (readonly string[])[], warn: (message: string) => void): AuthorizationModel[] {
+function mergeModels(where: string, chain: readonly AuthorizationModel[], owners: readonly IContainer[], levels: readonly IContainer[], disables: readonly (readonly string[])[], warnUnknownDisable: (model: string) => void): AuthorizationModel[] {
   const levelOf = owners.map((c) => levels.indexOf(c));
   if (levelOf.some((l) => l < 0)) throw new AuthzConfigError(`${where}: a model is registered in a container outside the domain lineage`);
   let list: { model: AuthorizationModel; level: number }[] = [];
@@ -669,7 +669,7 @@ function mergeModels(where: string, chain: readonly AuthorizationModel[], owners
     const disabled = new Set(disables[level] ?? []);
     // A misspelt name would leave on a model the operator meant to turn off.
     for (const name of disabled) {
-      if (!list.some((e) => modelName(e.model) === name)) warn(`${where}: disable lists ${q(name)}, which no ancestor domain registers`);
+      if (!list.some((e) => modelName(e.model) === name)) warnUnknownDisable(name);
     }
     list = list.filter((e) => {
       const n = modelName(e.model);

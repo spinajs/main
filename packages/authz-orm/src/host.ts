@@ -1,4 +1,4 @@
-import { AuthzDomains, DecisionAudit, DefaultAuthzDomains, authzStorage, configuredLineage, engineLog, readDomainConfig } from '@spinajs/authz';
+import { AuthzDomains, DecisionAudit, DefaultAuthzDomains, authzStorage, configuredLineage, engineLog, readDomainConfig, thrownError } from '@spinajs/authz';
 import type { DomainConfig, HostLog, Principal, ResourceType } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI, ResolveType, isFactory } from '@spinajs/di';
@@ -51,7 +51,7 @@ async function auditOf(domain: string): Promise<DecisionAudit | undefined> {
 export function recordAudit(domain: string, record: AuditRecord): void {
   auditOf(domain)
     .then((audit) => audit?.record(record))
-    .then(undefined, (e: unknown) => ormLog().error(`authz-orm: audit record failed: ${e instanceof Error ? e.message : String(e)}`));
+    .then(undefined, (e: unknown) => ormLog().error({ error: thrownError(e) }, 'authz-orm: audit record failed'));
 }
 
 /** A `.unscoped(reason)` query, audited when `authz.audit.unscoped` is on. */

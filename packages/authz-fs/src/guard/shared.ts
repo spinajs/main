@@ -1,5 +1,5 @@
 import { AccessDenied, AuthzClock, AuthzDomains, DEFAULT_DENY_PRIORITY, FALSE, principalKey, resourceKey } from '@spinajs/authz';
-import type { CheckInput, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import type { CheckInput, Decision, HostLog, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
 import type { fs } from '@spinajs/fs';
 
@@ -15,11 +15,8 @@ export interface FsGuardService {
   assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>;
 }
 
-export interface FsGuardLog {
-  warn(message: string): void;
-  /** A metadata update that failed after the IO; default `warn`. */
-  error?(message: string): void;
-}
+/** `error` is for a metadata update that failed after the IO; default `warn`. */
+export type FsGuardLog = Pick<HostLog, 'warn'> & Partial<Pick<HostLog, 'error'>>;
 
 /** One check of one path: enforce asserts, audit checks and warns. */
 export interface FsCheck {
@@ -53,7 +50,7 @@ function conditional(decision: Decision): Decision {
 
 export function warnDenied(fsName: string, log: FsGuardLog, principal: Principal, permission: Permission, ref: ResourceRef, decision: Decision): void {
   const why = decision.allowed ? 'conditional' : decision.reason?.code;
-  log.warn(`authz.fs.${fsName}: ${principalKey(principal)} lacks ${permission} on ${resourceKey(ref)}${why ? ` (${why})` : ''}; allowed in audit mode`);
+  log.warn({ fsName, principal: principalKey(principal), permission, resource: resourceKey(ref), why }, 'authz.fs.${fsName}: ${principal} lacks ${permission} on ${resource}${?why} (${why})${/why}; allowed in audit mode');
 }
 
 /** The service of an fs domain, created with its fs models first when it is missing (D11). */

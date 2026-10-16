@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { TestConfiguration } from './common.js';
 import { SwaggerService } from '../src/swagger-service.js';
@@ -43,7 +44,7 @@ describe('Swagger spec build failure', function () {
       },
       SwaggerConfig: { enabled: true, title: 'test', version: '1.0.0' },
       RoutePrefix: '',
-      Log: { info: () => undefined, warn: () => undefined, error: (m: string) => errors.push(m), trace: () => undefined },
+      Log: { info: () => undefined, warn: () => undefined, error: (fields: Record<string, unknown>, template: string) => errors.push(renderTemplate(template, fields)), trace: () => undefined },
     };
 
     for (const [name, value] of Object.entries(stubs)) {

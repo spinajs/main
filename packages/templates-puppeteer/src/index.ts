@@ -183,7 +183,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
     try {
       this.Log.timeStart(timerLabel);
-      this.Log.trace(`Rendering to file ${filePath}`);
+      this.Log.trace({ filePath }, 'Rendering to file ${filePath}');
       progress.phase(RenderPhase.Starting);
 
       // fire up local http server for serving images etc, because chromium
@@ -218,7 +218,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
         progress.phase(RenderPhase.Done);
       } catch (renderError) {
-        this.Log.error(renderError, `Error during rendering for ${filePath}`);
+        this.Log.error({ error: renderError, filePath }, 'Error during rendering for ${filePath}');
         throw renderError;
       } finally {
         cancelWatchdog();
@@ -226,13 +226,13 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
       }
     } catch (err) {
       progress.phase(RenderPhase.Failed, err?.message);
-      this.Log.error(err, `Error rendering to file ${filePath}`);
+      this.Log.error({ error: err, filePath }, 'Error rendering to file ${filePath}');
       throw err;
     } finally {
       progress.dispose();
 
       const duration = this.Log.timeEnd(timerLabel);
-      this.Log.trace(`Ended rendering to file ${filePath}, took: ${duration}ms`);
+      this.Log.trace({ filePath, duration }, 'Ended rendering to file ${filePath}, took: ${duration}ms');
       this.warnIfSlow(filePath, duration);
 
       // Close the page (not the pooled browser). Skip if debug.close is false
@@ -268,7 +268,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
   protected armRenderWatchdog(page: Page): () => void {
     const timeoutMs = this.renderTimeoutMs;
     const handle = setTimeout(() => {
-      this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
+      this.Log.warn({ timeoutMs }, 'Render timeout (${timeoutMs}ms) - closing page');
       page.close().catch(() => { /* page may already be closing */ });
     }, timeoutMs);
 
@@ -278,13 +278,13 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
   /** Warn if a render took longer than the configured warning threshold. */
   protected warnIfSlow(filePath: string, duration: number): void {
     if (this.Options && duration > this.Options.renderDurationWarning) {
-      this.Log.warn(`Rendering to file ${filePath} took too long.`);
+      this.Log.warn({ filePath }, 'Rendering to file ${filePath} took too long.');
     }
   }
 
   /** Close a page, downgrading any close error to a warning (best-effort cleanup). */
   protected async closePage(page: Page): Promise<void> {
-    await page.close().catch((err) => this.Log.warn(`Error closing page: ${err.message}`));
+    await page.close().catch((err) => this.Log.warn({ error: err }, 'Error closing page'));
   }
 
   /**
@@ -330,12 +330,12 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
    */
   protected addPageEventListeners(page: Page): () => void {
     const listeners = {
-      console: (message: ConsoleMessage) => this.Log.trace(`${message.type().slice(0, 3).toUpperCase()} ${message.text()}`),
-      pageerror: (error: Error) => this.Log.error(error.message),
-      response: (response: HTTPResponse) => this.Log.trace(`${response.status()} ${response.url()}`),
+      console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: message.text() }, '${consoleType} ${text}'),
+      pageerror: (error: Error) => this.Log.error({ error }, 'Page error'),
+      response: (response: HTTPResponse) => this.Log.trace({ status: response.status(), url: response.url() }, '${status} ${url}'),
       requestfailed: (request: HTTPRequest) => {
         const failure = request.failure();
-        this.Log.error(`${failure ? failure.errorText : 'request failed'} ${request.url()}`);
+        this.Log.error({ reason: failure ? failure.errorText : 'request failed', url: request.url() }, '${reason} ${url}');
       }
     };
 
@@ -353,7 +353,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
         page.off('response', listeners.response);
         page.off('requestfailed', listeners.requestfailed);
       } catch (err) {
-        this.Log.warn(`Error removing page listeners: ${err.message}`);
+        this.Log.warn({ error: err }, 'Error removing page listeners');
       }
     };
   }

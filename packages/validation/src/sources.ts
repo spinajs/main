@@ -29,7 +29,7 @@ export class FileSystemSource extends SchemaSource {
             };
           })
           .catch((err: Error) => {
-            this.Log.error(`Cannot load schema file ${f}, reason: ${err.message}`, 'validator');
+            this.Log.error({ error: err, file: f }, 'Cannot load schema file ${file}');
             return null;
           });
       });
@@ -39,7 +39,7 @@ export class FileSystemSource extends SchemaSource {
       .filter((x): x is { result: { default: unknown }; file: string } => x !== null)
       .filter((x) => {
         if (x.result.default === undefined || x.result.default === null) {
-          this.Log.warn(`Schema file ${x.file} has no default export, skipped`, 'validator');
+          this.Log.warn({ file: x.file }, 'Schema file ${file} has no default export, skipped');
           return false;
         }
         return true;
@@ -64,7 +64,7 @@ export class FileSystemSource extends SchemaSource {
             file: path.basename(f),
           };
         } catch (err) {
-          this.Log.error(`Cannot parse schema file ${f}, reason: ${(err as Error).message}`, 'validator');
+          this.Log.error({ error: err, file: f }, 'Cannot parse schema file ${file}');
           return null;
         }
       })

@@ -3,6 +3,7 @@ import 'mocha';
 
 import { AuthorizationModel, DecisionAudit } from '@spinajs/authz';
 import type { HostLog, Principal, Trace } from '@spinajs/authz';
+import { renderTemplate } from '@spinajs/log-common';
 import { RecordingAudit, StaticModel, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -26,7 +27,7 @@ const alice: Principal = { type: 'user', id: 'alice', authenticated: true, sourc
 /** A HostLog that keeps its lines. */
 const recordingLog = () => {
   const lines: { level: string; message: string }[] = [];
-  const at = (level: string) => (message: string) => void lines.push({ level, message });
+  const at = (level: string) => (fields: unknown, template?: unknown) => void lines.push({ level, message: typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>) });
   const log: HostLog = { error: at('error'), warn: at('warn'), info: at('info'), debug: at('debug') };
   return { log, lines };
 };

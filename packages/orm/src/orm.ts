@@ -88,7 +88,7 @@ export class Orm extends AsyncService {
         const connection = this.Connections.get(descriptor.Connection!);
 
         if (!connection) {
-          this.Log.warn(`Cannot find connection ${descriptor.Connection} in connection list (model ${descriptor.Name})`);
+          this.Log.warn({ connection: descriptor.Connection, model: descriptor.Name }, 'Cannot find connection ${connection} in connection list (model ${model})');
           continue;
         }
 
@@ -253,11 +253,11 @@ export class Orm extends AsyncService {
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
     // `error` is deliberately `unknown` and kept verbatim - a rejection value is not promoted to
     // an Error, so `inner` still carries whatever the hook actually threw. `reason` is the
-    // human-readable rendering of it, computed once and used by both the log line and the aggregate.
+    // human-readable rendering of it for the aggregate.
     const errors: Array<{ name: string; reason: string; error: unknown }> = [];
 
     for (const m of executed) {
-      this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);
+      this.Log.trace({ migration: m.constructor.name }, 'Migrating data function for migration ${migration} ...');
 
       try {
         await m.data();
@@ -267,7 +267,7 @@ export class Orm extends AsyncService {
         // message reporting the failure would name no reason for it at all
         const reason = err instanceof Error ? err.message : String(err);
 
-        this.Log.error(`Migration ${m.constructor.name}:data() failed: ${reason}`);
+        this.Log.error({ error: err, migration: m.constructor.name }, 'Migration ${migration}:data() failed');
         errors.push({ name: m.constructor.name, reason, error: err });
       }
     }
@@ -372,7 +372,7 @@ export class Orm extends AsyncService {
           // below is skipped on purpose: merging environments across two unrelated classes would
           // surface as "the same migration cannot belong to two environments", contradicting the
           // warning just logged - so the first entry is kept untouched instead.
-          this.Log.warn(`Two different migration classes are both named ${found.name} ( ${previous.file} and ${found.file} ) - keeping the first. Rename one of them.`);
+          this.Log.warn({ migration: found.name, firstFile: previous.file, secondFile: found.file }, 'Two different migration classes are both named ${migration} ( ${firstFile} and ${secondFile} ) - keeping the first. Rename one of them.');
           continue;
         }
 
@@ -397,7 +397,7 @@ export class Orm extends AsyncService {
         return true;
       }
 
-      this.Log.trace(`Migration ${m.type.name} belongs to environment '${m.env}' and this process runs as '${environment}' - it is not registered`);
+      this.Log.trace({ migration: m.type.name, migrationEnv: m.env, environment }, 'Migration ${migration} belongs to environment ${migrationEnv} and this process runs as ${environment} - it is not registered');
       return false;
     });
   }
@@ -433,8 +433,8 @@ export class Orm extends AsyncService {
     const cConnections = this.Configuration.get<IDriverOptions[]>('db.Connections', []);
 
     for (const c of cConnections) {
-      const connectionInfo = JSON.stringify(_.pick(c, CFG_PROPS));
-      this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
+      const parameters = _.pick(c, CFG_PROPS);
+      this.Log.trace({ connection: c.Name, driver: c.Driver }, 'Trying to create connection name: ${connection}, driver: ${driver}');
 
       if (!this.Container.hasRegistered(c.Driver)) {
         throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
@@ -444,14 +444,14 @@ export class Orm extends AsyncService {
       try {
         driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
       } catch (err) {
-        this.Log.error(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name} with parameters ${connectionInfo}`);
+        this.Log.error({ driver: c.Driver, connection: c.Name, parameters }, 'Failed to resolve ORM driver ${driver} for connection ${connection} with parameters ${parameters}');
         throw new OrmException(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name}`, c, undefined, undefined, err);
       }
 
       try {
         await driver.connect();
       } catch (err) {
-        this.Log.error(`Failed to connect to database for connection ${c.Name} (driver: ${c.Driver}) with parameters ${connectionInfo}, reason: ${err instanceof Error ? err.message : String(err)}`);
+        this.Log.error({ error: err, connection: c.Name, driver: c.Driver, parameters }, 'Failed to connect to database for connection ${connection} (driver: ${driver}) with parameters ${parameters}');
 
         // Try to clean up driver resources on failed connection
         try {
@@ -468,7 +468,7 @@ export class Orm extends AsyncService {
       // a connection that was healthy at boot says nothing about one whose server has since
       // restarted, so the probe keeps running for the lifetime of the connection
       driver.startHealthCheck();
-      this.Log.success(`Created ORM connection ${c.Name} with parameters ${connectionInfo}`);
+      this.Log.success({ connection: c.Name, parameters }, 'Created ORM connection ${connection} with parameters ${parameters}');
     }
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');

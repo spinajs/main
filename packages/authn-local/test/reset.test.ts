@@ -9,6 +9,7 @@ import { PasswordMail, PasswordMailer } from '../src/mailer.js';
 import { DeferredWork } from '../src/deferred.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService, LocalPasswordServiceDeps } from '../src/service.js';
+import { recordingLog } from './support/recording-log.js';
 import { RecordingTokenService } from './recording-token-service.js';
 
 const OLD = 'Old-Password-1';
@@ -81,7 +82,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
     sinks: [events],
     hasher,
     policy,
-    log: { warn: (m: string) => warnings.push(m) },
+    log: recordingLog(warnings),
     resetUrl: 'https://app.example.com/password-reset',
     ...over,
   });
@@ -229,7 +230,7 @@ describe('LocalPasswordService reset and invite', function () {
       expect(await x.service.requestReset(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
       await x.service.drain();
       expect(x.warnings).to.have.length(1);
-      expect(x.warnings[0]).to.contain('Error');
+      expect(x.warnings[0]).to.contain('"errorName":"Error"');
       expect(x.warnings[0]).to.not.contain('smtp refused');
     });
 

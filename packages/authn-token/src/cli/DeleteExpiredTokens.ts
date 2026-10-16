@@ -25,9 +25,9 @@ export class DeleteExpiredTokens extends TokenCliCommand {
       }
 
       const count = await tokens.deleteExpired(new Date());
-      this.Log.success(`Deleted ${count} expired or revoked token(s)`);
+      this.Log.success({ count }, 'Deleted ${count} expired or revoked token(s)');
     } catch (e) {
-      this.Log.error(`Error while deleting expired tokens: ${(e as Error).message}`);
+      this.Log.error({ error: e }, 'Error while deleting expired tokens');
       process.exitCode = 1;
     }
   }

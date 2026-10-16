@@ -5,6 +5,7 @@ import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from '@spinajs/cli';
 import type { IArgument, ICommand, IOption } from '@spinajs/cli';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { renderTemplate } from '@spinajs/log';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -142,8 +143,11 @@ describe('authn-local cli commands', function () {
         private readonly tty = false,
       ) {
         super();
+        // A fields call is recorded rendered and with its fields, so a leak into either shows.
         const record = (...args: unknown[]) => {
-          this.logged.push(args.map(String).join(' '));
+          const [first, template, ...rest] = args;
+          const fieldsCall = first !== null && typeof first === 'object' && typeof template === 'string';
+          this.logged.push((fieldsCall ? [renderTemplate(template, first as Record<string, unknown>), JSON.stringify(first), ...rest] : args).map(String).join(' '));
         };
         // The @Logger getter lives on the prototype; an own property shadows it.
         Object.defineProperty(this, 'Log', { value: { error: record, success: record, info: record, warn: record, debug: record, trace: record } });

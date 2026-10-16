@@ -32,12 +32,19 @@ export class MigrateUpCommand extends CliCommand {
     const executed = await orm.Migration.up(options.name, { fake: options.fake, connection: options.connection });
 
     if (executed.length > 0) {
-      this.Log.success(`${options.fake ? 'Recorded as applied ( --fake, nothing was executed )' : 'Applied'} ${executed.length} migration(s): ${executed.map((m) => m.constructor.name).join(', ')}`);
+      this.Log.success(
+        { count: executed.length, migrations: executed.map((m) => m.constructor.name) },
+        options.fake ? 'Recorded as applied ( --fake, nothing was executed ) ${count} migration(s): ${migrations}' : 'Applied ${count} migration(s): ${migrations}',
+      );
       return;
     }
 
     if (!options.name) {
-      this.Log.info(options.connection ? `No pending migrations on connection ${options.connection} - it is already up to date ( --connection was given, other connections were not touched )` : 'No pending migrations - every configured connection is already up to date');
+      if (options.connection) {
+        this.Log.info({ connection: options.connection }, 'No pending migrations on connection ${connection} - it is already up to date ( --connection was given, other connections were not touched )');
+      } else {
+        this.Log.info('No pending migrations - every configured connection is already up to date');
+      }
       return;
     }
 
@@ -63,13 +70,13 @@ export class MigrateUpCommand extends CliCommand {
     const entry = (await orm.Migration.status()).find((e) => e.name === name);
 
     if (!entry) {
-      this.Log.error(`Migration ${name} did NOT run: it is registered, but the connection it declares is not configured here ( or the class carries no @Migration('connection') decorator ). Nothing was applied.`);
+      this.Log.error({ migration: name }, "Migration ${migration} did NOT run: it is registered, but the connection it declares is not configured here ( or the class carries no @Migration('connection') decorator ). Nothing was applied.");
       process.exitCode = 1;
       return;
     }
 
     if (entry.applied) {
-      this.Log.info(`Migration ${name} is already applied on connection ${entry.connection} ( batch ${entry.batch ?? '-'} ) - nothing to do`);
+      this.Log.info({ migration: name, connection: entry.connection, batch: entry.batch ?? '-' }, 'Migration ${migration} is already applied on connection ${connection} ( batch ${batch} ) - nothing to do');
       return;
     }
 
@@ -77,13 +84,16 @@ export class MigrateUpCommand extends CliCommand {
     // here can differ while naming the same driver. Stated as a possibility rather than as fact
     // for exactly that reason - the alternative readings below are printed either way.
     if (connection) {
-      this.Log.error(`Migration ${name} did NOT run, and --connection ${connection} was given while the migration belongs to connection ${entry.connection}. Drop --connection, or point it at ${entry.connection}.`);
+      this.Log.error(
+        { migration: name, requestedConnection: connection, connection: entry.connection },
+        'Migration ${migration} did NOT run, and --connection ${requestedConnection} was given while the migration belongs to connection ${connection}. Drop --connection, or point it at ${connection}.',
+      );
     }
 
     if (entry.failed) {
-      this.Log.error(`Migration ${name} did NOT run - it is in the FAILED state on connection ${entry.connection}. It blocks every later migrate-up on that connection until migrate-resolve records what really happened.`);
+      this.Log.error({ migration: name, connection: entry.connection }, 'Migration ${migration} did NOT run - it is in the FAILED state on connection ${connection}. It blocks every later migrate-up on that connection until migrate-resolve records what really happened.');
     } else {
-      this.Log.error(`Migration ${name} did NOT run and is still pending on connection ${entry.connection} - check migrate-status`);
+      this.Log.error({ migration: name, connection: entry.connection }, 'Migration ${migration} did NOT run and is still pending on connection ${connection} - check migrate-status');
     }
 
     process.exitCode = 1;

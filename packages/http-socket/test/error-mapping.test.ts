@@ -10,6 +10,7 @@ import type { Decision } from '@spinajs/authz';
 import { ErrorCode, SocketException } from '@spinajs/http-socket-common';
 import { AccessDeniedMapping, ForbiddenMapping, HandleSocketException, SocketErrorMapper, codeMapping, resolveSocketErrorMapping } from '../src/errors.js';
 import { configure } from './harness.js';
+import { logText } from './log-text.js';
 
 export class ErrDocumentLocked extends Forbidden {}
 export class ErrEditWindowClosed extends Forbidden {}
@@ -135,7 +136,7 @@ describe('socket error mapping', function () {
     expect(wire.errorId).to.match(/^[0-9a-f-]{36}$/);
     expect((wire.details as { stack?: string }).stack).to.contain('kaput');
     expect(log.calledOnce).to.be.true;
-    expect(String(log.firstCall.args[1])).to.contain(wire.errorId!);
+    expect(logText(log.firstCall.args)).to.contain(wire.errorId!);
   });
 
   it('maps thrown non-errors to internal', () => {

@@ -20,7 +20,10 @@ import type { FsGuardOptions } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 import { FakeAuthz } from './support/fake-authz.js';
 import { installQuietLog } from './support/log.js';
+import { renderTemplate } from '@spinajs/log-common';
 import { MemoryFileMetadataStore } from './support/memory-store.js';
+
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 
 const expect = chai.expect;
 
@@ -74,6 +77,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
   let store: MemoryFileMetadataStore;
   let archiveStore: ArchiveMetadataStore;
   let errors: string[];
+  let failures: unknown[];
   let warnings: string[];
   let undoLog: () => void;
 
@@ -93,7 +97,13 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       container: child,
       service: async () => authz,
       principal: () => principal,
-      log: { warn: (m: string) => warnings.push(m), error: (m: string) => errors.push(m) },
+      log: {
+        warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)),
+        error: (fields: unknown, template?: unknown) => {
+          errors.push(logLine(fields, template));
+          failures.push((fields as { error?: unknown }).error);
+        },
+      },
       ...extra,
     });
 
@@ -118,6 +128,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
     child.register(HungMetadataStore).as(FileMetadataStore);
     principal = alice;
     errors = [];
+    failures = [];
     warnings = [];
   });
 
@@ -486,6 +497,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect((e as Error).message).to.equal('set failed');
       expect(existsSync(join(dir, 'uploads', 'a.txt'))).to.equal(true);
       expect(errors.join('\n')).to.contain('a.txt').and.contain('write');
+      expect(failures).to.deep.equal([e]);
     });
 
     it('metadata the store cannot hold is refused before the IO (review M2)', async () => {
@@ -502,7 +514,8 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       const done = new Promise((resolve) => stream.once('close', resolve));
       stream.end('data');
       await done;
-      expect(errors.join('\n')).to.contain('s.txt').and.contain('50 ms');
+      expect(errors.join('\n')).to.contain('s.txt');
+      expect(failures.map((f) => (f as Error).message).join('\n')).to.contain('50 ms');
     });
 
     it('a metadata store the config names but DI does not hold fails before the IO', async () => {

@@ -3,9 +3,12 @@ import type { Assignment, ResourceRef, Vote } from '@spinajs/authz';
 import { ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '../../src/index.js';
 import type { LadderDef, RbacExtension, RoleDef } from '../../src/index.js';
+
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 
 const expect = chai.expect;
 
@@ -62,7 +65,7 @@ async function setup(opts: { config?: Record<string, unknown>; extensions?: read
   const roles = new CountingRoleStore(READER);
   const warnings: string[] = [];
   const clock = new ManualClock(NOW);
-  const model = new RbacModel({ roles, assignments: new MemoryAssignmentStore([assignment('a1', 'viewer')]), clock, log: { warn: (m) => void warnings.push(m) }, ...(opts.extensions ? { extensions: opts.extensions } : {}) });
+  const model = new RbacModel({ roles, assignments: new MemoryAssignmentStore([assignment('a1', 'viewer')]), clock, log: { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) }, ...(opts.extensions ? { extensions: opts.extensions } : {}) });
   await model.init(fakeModelInitContext({ model: 'rbac', config: opts.config ?? {}, permissions: registry }));
   model.grantIndex();
   await model.preload(alice, ctx());

@@ -59,7 +59,10 @@ export class EmailSenderSmtp extends EmailSender {
       this.Options.options,
     );
 
-    this.Log.info(`Creating connection to smtp: ${options.auth.user}@${options.host}:${options.port}, secure: ${options.secure}`)
+    this.Log.info(
+      { user: options.auth.user, host: options.host, port: options.port, secure: options.secure },
+      'Creating connection to smtp: ${user}@${host}:${port}, secure: ${secure}',
+    );
 
     // create reusable transporter object using the default SMTP transport
     this.Transporter = nodemailer.createTransport(options);
@@ -73,11 +76,11 @@ export class EmailSenderSmtp extends EmailSender {
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      this.Log.error(err, `Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`);
+      this.Log.error({ error: err, connection: this.Options.name, host: this.Options.host, port: this.Options.port }, 'Cannot verify smtp connection ${connection} (${host}:${port})');
       throw new UnexpectedServerError(`Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`, err);
     }
 
-    this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
+    this.Log.success({ connection: this.Options.name, host: this.Options.host }, 'Email smtp connection ${connection} on host ${host} established !');
   }
 
   public async send(email: IEmail): Promise<void> {
@@ -101,16 +104,16 @@ export class EmailSenderSmtp extends EmailSender {
         }
       }
 
-      this.Log.trace(`Using filesystem ${templateFs.Name} to resolve email template`);
+      this.Log.trace({ filesystem: templateFs.Name }, 'Using filesystem ${filesystem} to resolve email template');
       const tfile = await (_.isString(email.template) ? templateFs.download(email.template) : templateFs.download(email.template.file));
-      this.Log.trace(`Resolved email template ${tfile}`);
+      this.Log.trace({ templateFile: tfile }, 'Resolved email template ${templateFile}');
 
       try {
         html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang, email.redact ? { redact: email.redact } : undefined);
       } catch (err) {
         // template rendering is a deterministic failure - log & rethrow, do not retry
         const failure = redactError(err, email.redact);
-        this.Log.error(failure, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
+        this.Log.error({ error: failure, templateFile: tfile, connection: this.Options.name }, 'Cannot render email template ${templateFile} for connection ${connection}');
         throw failure;
       }
     }
@@ -145,10 +148,16 @@ export class EmailSenderSmtp extends EmailSender {
     } catch (err) {
       // an SMTP response may quote the message back, secret values included
       const failure = redactError(err, email.redact);
-      this.Log.error(failure, `Cannot send email for connection ${this.Options.name}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+      this.Log.error(
+        { error: failure, connection: this.Options.name, subject: email.subject, recipients: email.to?.length ?? 0 },
+        'Cannot send email for connection ${connection}, subject: ${subject}, recipients: ${recipients}',
+      );
       throw failure;
     }
 
-    this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, messageId: ${message?.messageId}, response: ${message?.response}`);
+    this.Log.trace(
+      { email: _.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']), messageId: message?.messageId, response: message?.response },
+      'Sent email with data: ${email}, messageId: ${messageId}, response: ${response}',
+    );
   }
 }

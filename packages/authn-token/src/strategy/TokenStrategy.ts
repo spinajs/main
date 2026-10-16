@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
+import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
 import { AuthenticationStrategy, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey, TokenRecord } from '@spinajs/authn/contracts';
 
@@ -68,16 +69,17 @@ export class TokenStrategy extends AuthenticationStrategy {
     } catch {
       return null;
     }
-    if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH) {
+    const [ok, bearer] = _try_check_arg(_is_string(_max_length(MAX_TOKEN_LENGTH)))(token, 'token');
+    if (!ok) {
       return null;
     }
     // Outside the try and only for a bearer value: a refused authn.token section fails a token request instead of
     // reading as "not ours", and never touches other credential kinds.
     const prefix = this.Prefix;
-    if (prefix.length === 0 || !token.startsWith(prefix)) {
+    if (prefix.length === 0 || !(bearer as string).startsWith(prefix)) {
       return null;
     }
-    return token;
+    return bearer as string;
   }
 
   public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
@@ -130,7 +132,7 @@ export class TokenStrategy extends AuthenticationStrategy {
       }
       await this.tokens.touch(token.id, ctx, interval);
     } catch (err) {
-      this.Log.error(err as Error, `Could not stamp the last use of access token ${token.id}`);
+      this.Log.error({ error: err, tokenId: token.id }, 'Could not stamp the last use of access token ${tokenId}');
     }
   }
 }

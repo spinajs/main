@@ -51,7 +51,7 @@ export class LongSpanRegistry extends AsyncService {
       this.spans.set(key, { span, openedAt: Date.now() });
       this.ensureSweepTimer();
     } catch (err) {
-      this.log.warn(`long-span open('${key}') failed: ${(err as Error).message}`);
+      this.log.warn({ error: err, spanKey: key }, 'long-span open(${spanKey}) failed');
     }
   }
 
@@ -61,7 +61,7 @@ export class LongSpanRegistry extends AsyncService {
       if (!key) return;
       this.spans.get(key)?.span.addEvent(name, attrs);
     } catch (err) {
-      this.log.warn(`long-span event('${key ?? ''}') failed: ${(err as Error).message}`);
+      this.log.warn({ error: err, spanKey: key }, 'long-span event(${spanKey}) failed');
     }
   }
 
@@ -69,7 +69,7 @@ export class LongSpanRegistry extends AsyncService {
     try {
       this.spans.get(key)?.span.setAttributes(attrs);
     } catch (err) {
-      this.log.warn(`long-span setAttributes('${key}') failed: ${(err as Error).message}`);
+      this.log.warn({ error: err, spanKey: key }, 'long-span setAttributes(${spanKey}) failed');
     }
   }
 
@@ -88,7 +88,7 @@ export class LongSpanRegistry extends AsyncService {
       this.spans.delete(key);
       if (this.spans.size === 0) this.stopSweepTimer();
     } catch (err) {
-      this.log.warn(`long-span close('${key}') failed: ${(err as Error).message}`);
+      this.log.warn({ error: err, spanKey: key }, 'long-span close(${spanKey}) failed');
     }
   }
 
@@ -104,7 +104,7 @@ export class LongSpanRegistry extends AsyncService {
       const ctx = parent ? trace.setSpan(ROOT_CONTEXT, parent) : context.active();
       span = this.tracing.tracer('paystation').startSpan(name, { attributes: attrs }, ctx);
     } catch (err) {
-      this.log.warn(`long-span childSpan('${name}') failed to start: ${(err as Error).message}`);
+      this.log.warn({ error: err, spanName: name }, 'long-span childSpan(${spanName}) failed to start');
     }
     try {
       const result = await fn();
@@ -124,7 +124,7 @@ export class LongSpanRegistry extends AsyncService {
     const cutoff = Date.now() - this.maxAgeMs;
     for (const [key, entry] of this.spans) {
       if (entry.openedAt <= cutoff) {
-        this.log.warn(`long-span '${key}' exceeded maxAgeMs; closing as orphaned`);
+        this.log.warn({ spanKey: key }, 'long-span ${spanKey} exceeded maxAgeMs; closing as orphaned');
         entry.span.setAttribute('orphaned', true);
         entry.span.setStatus({ code: SpanStatusCode.ERROR, message: 'span outlived otel.longSpan.maxAgeMs' });
         entry.span.end();

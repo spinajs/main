@@ -3,9 +3,12 @@ import type { Assignment, AssignmentSubject, EvaluationContext, PermissionInput,
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, groupPrincipal, servicePrincipal, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, subjectKey } from '../../src/index.js';
 import type { GrantDef, LadderDef, RoleDef, SubjectResolver } from '../../src/index.js';
+
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 
 const expect = chai.expect;
 
@@ -91,11 +94,11 @@ describe('authz-rbac subject sets (B33)', () => {
 
     it('groupPrincipalConfig warns when a malformed value turns the mapping off, not for null', () => {
       const warned: string[] = [];
-      const log = { warn: (message: string) => warned.push(message) };
+      const log = { warn: (fields: unknown, template?: unknown) => void warned.push(logLine(fields, template)) };
       groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal: 'group.member' } }), log);
       groupPrincipalConfig(fakeModelInitContext({ model: 'rbac', config: { groupPrincipal: null } }), log);
       expect(warned).to.have.length(1);
-      expect(warned[0]).to.contain('authz.rbac.groupPrincipal').and.contain('"group.member"');
+      expect(warned[0]).to.contain('authz.rbac.groupPrincipal is group.member,');
     });
 
     describe('memberships', () => {

@@ -29,7 +29,8 @@ export abstract class SqlDriver extends OrmDriver {
   protected logQuery(expression: string, bindings: unknown[], builder: Builder<any>) {
     // `Log` is only assigned in OrmDriver.resolve(), so a driver used before it is
     // resolved has none. Logging must never be the thing that breaks a query.
-    this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, expression);
+    // The SQL is a printf arg: as the template its `${...}` would be read as placeholders, as a field it prints quoted.
+    this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, '%s', expression);
   }
 
   public execute(builder: Builder<any>) {
@@ -58,7 +59,7 @@ export abstract class SqlDriver extends OrmDriver {
         });
       }
     } catch (err: any) {
-      this.Log.error(`Error during query execution: ${err.message}, ${err.stack}, model: ${builder.Model?.name}, context: ${builder.QueryContext}`);
+      this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during query execution, model: ${model}, context: ${context}');
       throw err;
     }
   }

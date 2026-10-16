@@ -183,6 +183,9 @@ export class MigrateCreateCommand extends CliCommand {
     // would scan too, but only when the consumer boots FROM that package's own cwd, which almost
     // never happens: the running process's cwd is the application, not any of its dependencies. A
     // package's migrations must always be re-exported from its own index, or they never run.
-    this.Log.info(`Created migration ${cls} for connection "${connection}"${env ? ` in environment "${env}"` : ''}. A file under the application's own system.dirs.migrations is discovered automatically. Inside a package, always re-export it from the package's index - a package's own directories are never scanned at a consumer's runtime - so the @Migration decorator runs and registers it.`);
+    this.Log.info(
+      { migration: cls, connection, env },
+      "Created migration ${migration} for connection ${connection}${?env} in environment ${env}${/env}. A file under the application's own system.dirs.migrations is discovered automatically. Inside a package, always re-export it from the package's index - a package's own directories are never scanned at a consumer's runtime - so the @Migration decorator runs and registers it.",
+    );
   }
 }

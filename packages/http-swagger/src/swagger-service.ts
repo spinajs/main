@@ -68,7 +68,7 @@ export class SwaggerService extends AsyncService {
       this.Log.info('Building Swagger/OpenAPI documentation...');
       this._buildPromise = this.buildSpec()
         .then((spec) => {
-          this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+          this.Log.info({ paths: Object.keys(spec.paths ?? {}).length }, 'Swagger documentation ready. ${paths} paths documented.');
           return spec;
         })
         .finally(() => {
@@ -105,14 +105,14 @@ export class SwaggerService extends AsyncService {
     // controller's first bad method, and when these failures were only warned about, seven
     // log lines stood for thirteen broken arguments - and the twenty-one operations of the
     // controllers that failed silently vanished from a spec that still answered 200.
-    const failures: string[] = [];
+    const failures: { controller: string; error: string }[] = [];
 
     for (const controller of controllers) {
       try {
         const docCache = await this.DocCache.getCache(controller);
         builder.addController(controller, docCache);
       } catch (err) {
-        failures.push(`  - ${controller.name}: ${(err as Error)?.message ?? err}`);
+        failures.push({ controller: controller.name, error: (err as Error)?.message ?? String(err) });
       }
     }
 
@@ -120,9 +120,10 @@ export class SwaggerService extends AsyncService {
       // A controller that cannot be documented is a controller that is wrong - it is fixed,
       // not worked around. Omitting it would publish a spec that looks complete and is not,
       // which is precisely the failure this replaces.
-      const message = `Cannot build the OpenAPI spec: ${failures.length} controller(s) could not be documented.\n${failures.join('\n')}`;
-      this.Log.error(message);
-      throw new InvalidArgument(message);
+      this.Log.error({ count: failures.length, failures }, 'Cannot build the OpenAPI spec: ${count} controller(s) could not be documented: ${failures}');
+      throw new InvalidArgument(
+        `Cannot build the OpenAPI spec: ${failures.length} controller(s) could not be documented.\n${failures.map((f) => `  - ${f.controller}: ${f.error}`).join('\n')}`,
+      );
     }
 
     this._spec = builder.build();

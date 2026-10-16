@@ -24,7 +24,7 @@ export class UnzipFileTransformer extends FileUploadMiddleware {
             const result = await file.Provider!.unzip(file.BaseName, undefined, file.Provider!);
             const stat = await file.Provider!.stat(result);
             const duration = this.Log.timeEnd(`[ZIP] ${originalName}`);
-            this.Log.trace(`[ZIP] Unpacking ${originalName} to ${result}, duration: ${duration}ms`);
+            this.Log.trace({ file: originalName, result, duration }, '[ZIP] Unpacking ${file} to ${result}, duration: ${duration}ms');
             
             return {
                 ...file,

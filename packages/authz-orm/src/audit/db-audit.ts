@@ -1,4 +1,4 @@
-import { DecisionAudit, SYSTEM, engineLog, resourceKey, runWithPrincipal } from '@spinajs/authz';
+import { DecisionAudit, SYSTEM, engineLog, resourceKey, runWithPrincipal, thrownError } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
 import { Singleton } from '@spinajs/di';
 import { DateTime } from 'luxon';
@@ -14,8 +14,6 @@ const fit = (s: string, max: number): string => {
 };
 
 const optional = (v: unknown, max: number): string | null => (v === undefined || v === null ? null : fit(String(v), max));
-
-const describeError = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
  * Writes one `authz_audit` row per record (migration `AuthzAudit_2026_10_01_00_00_00`) through the
@@ -34,7 +32,7 @@ export class DbDecisionAudit extends DecisionAudit {
   }
 
   record(e: AuditRecord): Promise<void> {
-    return this.write(e).catch((err: unknown) => this.logger().error(`authz audit: writing a ${String(e?.kind)} entry to ${AUDIT_TABLE} failed, the entry is dropped: ${describeError(err)}`));
+    return this.write(e).catch((err: unknown) => this.logger().error({ error: thrownError(err), entryKind: e?.kind, table: AUDIT_TABLE }, 'authz audit: writing a ${entryKind} entry to ${table} failed, the entry is dropped'));
   }
 
   private logger(): HostLog {
@@ -62,7 +60,7 @@ export class DbDecisionAudit extends DecisionAudit {
     try {
       return JSON.stringify(value) ?? null;
     } catch (err) {
-      this.logger().warn(`authz audit: the trace of a ${String(e.kind)} entry is not JSON, stored without it: ${describeError(err)}`);
+      this.logger().warn({ error: thrownError(err), entryKind: e.kind }, 'authz audit: the trace of a ${entryKind} entry is not JSON, stored without it');
       return null;
     }
   }

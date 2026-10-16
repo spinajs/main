@@ -182,7 +182,7 @@ export class DefaultMigrationService extends OrmMigrationService {
         throw new OrmException(`Could not create migration table ${name} on connection ${this.driver.Options.Name}: ${(err as Error).message}`, undefined, undefined, undefined, err);
       }
 
-      this.Log.trace(`Migration table ${name} on connection ${this.driver.Options.Name} was created concurrently by another process - continuing`);
+      this.Log.trace({ table: name, connection: this.driver.Options.Name }, 'Migration table ${table} on connection ${connection} was created concurrently by another process - continuing');
     }
 
     return true;
@@ -436,12 +436,10 @@ export class DefaultMigrationService extends OrmMigrationService {
         continue;
       }
 
-      // rendered without `new Date(...)`: a dialect that hands timestamps back as strings would
-      // make that an Invalid Date on some formats, and `toISOString()` on one THROWS - out of a
-      // warning, which would replace the diagnosis with a crash
-      const started = rec.StartedAt instanceof Date ? rec.StartedAt.toISOString() : String(rec.StartedAt);
-
-      this.Log.warn(`Migration ${u.name} on connection ${this.driver.Options.Name} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${started} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${u.name}', 'applied') or ('rolled-back') before running again.`);
+      this.Log.warn(
+        { migration: u.name, connection: this.driver.Options.Name, startedAt: rec.StartedAt },
+        "Migration ${migration} on connection ${connection} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${startedAt} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${migration}', 'applied') or ('rolled-back') before running again.",
+      );
     }
   }
 
@@ -471,7 +469,7 @@ export class DefaultMigrationService extends OrmMigrationService {
     const rec = records.find((r) => r.Migration === u.name);
 
     if (rec?.Checksum && rec.Checksum !== migrationChecksum(u.type)) {
-      this.Log.warn(`Migration ${u.name} source changed since it was applied (checksum mismatch). This is advisory - transpilation differences also change the checksum.`);
+      this.Log.warn({ migration: u.name }, 'Migration ${migration} source changed since it was applied (checksum mismatch). This is advisory - transpilation differences also change the checksum.');
     }
   }
 
@@ -539,7 +537,10 @@ export class DefaultMigrationService extends OrmMigrationService {
 
             // Loud, because the alternative reading is a live run that outlasted StaleAfter - in
             // which case two migration runs are now in flight and somebody has to know
-            this.Log.warn(`Stealing stale migration lock on connection ${this.driver.Options.Name}, held by ${holder.Owner} since ${acquiredAt.toISOString()} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.`);
+            this.Log.warn(
+              { connection: this.driver.Options.Name, owner: holder.Owner, acquiredAt, staleAfter },
+              'Stealing stale migration lock on connection ${connection}, held by ${owner} since ${acquiredAt} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.',
+            );
             await this.driver.del().from(this.lockTable).where({ Id: 1 });
 
             // straight back to the INSERT: the row should be free now, and sleeping a poll
@@ -597,7 +598,10 @@ export class DefaultMigrationService extends OrmMigrationService {
         // migration error is the one the operator actually needs - the likeliest reason the
         // release died is the same dead connection that killed the run. The lock is left behind
         // instead: it goes stale and the next run steals it, which is what StaleAfter is for.
-        this.Log.error(`Could not release the migration lock on connection ${this.driver.Options.Name}: ${(err as Error).message}. It will block further runs until it goes stale ( Migration.Lock.StaleAfter ) or its row is deleted from ${this.lockTable} by hand.`);
+        this.Log.error(
+          { error: err, connection: this.driver.Options.Name, lockTable: this.lockTable },
+          'Could not release the migration lock on connection ${connection}. It will block further runs until it goes stale ( Migration.Lock.StaleAfter ) or its row is deleted from ${lockTable} by hand.',
+        );
       }
     }
   }
@@ -656,7 +660,7 @@ export class DefaultMigrationService extends OrmMigrationService {
           }
 
           executed.push(instanceOf(u));
-          this.Log.info(`Migration ${u.name}: faked (recorded without executing)`);
+          this.Log.info({ migration: u.name }, 'Migration ${migration}: faked (recorded without executing)');
         }
 
         return executed;
@@ -674,7 +678,7 @@ export class DefaultMigrationService extends OrmMigrationService {
         await this.markFinished(u.name, batch, migrationChecksum(u.type));
 
         executed.push(migration);
-        this.Log.info(`Migration ${u.name}:up() success !`);
+        this.Log.info({ migration: u.name }, 'Migration ${migration}:up() success !');
       };
 
       /**
@@ -697,7 +701,10 @@ export class DefaultMigrationService extends OrmMigrationService {
           // the likeliest reason up() died is a connection that is now gone, which kills this
           // write too. The migration error is what the caller needs; losing it to a secondary
           // failure would hide both the migration name and the root cause.
-          this.Log.error(`Migration ${name} on connection ${this.driver.Options.Name} failed, and the failure row could not be written: ${(bookkeeping as Error).message}. The tracking table may not reflect that this migration is half-applied - verify it by hand.`);
+          this.Log.error(
+            { error: bookkeeping, migration: name, connection: this.driver.Options.Name },
+            'Migration ${migration} on connection ${connection} failed, and the failure row could not be written. The tracking table may not reflect that this migration is half-applied - verify it by hand.',
+          );
         }
       };
 
@@ -781,7 +788,10 @@ export class DefaultMigrationService extends OrmMigrationService {
       if (failedRows.length > 0) {
         // every one of them has to be cleared: assertNoFailed blocks on the first failed row it
         // finds, so resolving one of two leaves the connection just as blocked as before
-        this.Log.warn(`Migration(s) ${failedRows.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Clear each of them with orm.Migration.resolve('${failedRows[0].Migration}', 'applied') or ('rolled-back').`);
+        this.Log.warn(
+          { migrations: failedRows.map((r) => r.Migration), connection: this.driver.Options.Name, firstMigration: failedRows[0].Migration },
+          "Migration(s) ${migrations} on connection ${connection} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Clear each of them with orm.Migration.resolve('${firstMigration}', 'applied') or ('rolled-back').",
+        );
       }
 
       if (appliedRows.length === 0) {
@@ -803,7 +813,10 @@ export class DefaultMigrationService extends OrmMigrationService {
       const orphans = target.filter((r) => !units.some((u) => u.name === r.Migration));
 
       if (orphans.length > 0) {
-        this.Log.warn(`Migration(s) ${orphans.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are recorded as applied but no registered migration matches them (file deleted or renamed). They cannot be rolled back and stay applied - restore the migration file, or remove the row by hand once the schema is undone.`);
+        this.Log.warn(
+          { migrations: orphans.map((r) => r.Migration), connection: this.driver.Options.Name },
+          'Migration(s) ${migrations} on connection ${connection} are recorded as applied but no registered migration matches them (file deleted or renamed). They cannot be rolled back and stay applied - restore the migration file, or remove the row by hand once the schema is undone.',
+        );
       }
 
       // newest first - a migration has to be undone before the one it was built on top of.
@@ -842,14 +855,17 @@ export class DefaultMigrationService extends OrmMigrationService {
           // the row still claims the migration is applied - the one state nothing downstream
           // can detect. Inside a transaction the wrapper unwinds both, so it is not a lie there
           if (!options?.fake && this.driver.CurrentTransaction === undefined) {
-            this.Log.error(`Migration ${u.name} on connection ${this.driver.Options.Name}: down() completed but its tracking row could not be removed (${(err as Error).message}). The schema is reverted while the table still reports this migration as applied - delete the row from ${this.table} by hand, or every later up() will skip it.`);
+            this.Log.error(
+              { error: err, migration: u.name, connection: this.driver.Options.Name, table: this.table },
+              'Migration ${migration} on connection ${connection}: down() completed but its tracking row could not be removed. The schema is reverted while the table still reports this migration as applied - delete the row from ${table} by hand, or every later up() will skip it.',
+            );
           }
 
           throw err;
         }
 
         executed.push(migration);
-        this.Log.info(`Migration ${u.name}: ${options?.fake ? 'faked (record removed without executing)' : 'down() success !'}`);
+        this.Log.info({ migration: u.name }, options?.fake ? 'Migration ${migration}: faked (record removed without executing)' : 'Migration ${migration}: down() success !');
       };
 
       /**
@@ -1005,14 +1021,14 @@ export class DefaultMigrationService extends OrmMigrationService {
       }
 
       await this.driver.update().in(this.table).update(patch).where({ Migration: name });
-      this.Log.info(`Migration ${name} resolved as applied (batch ${batch})${unit ? '' : ' - Checksum left NULL, drift cannot be detected for it'}`);
+      this.Log.info({ migration: name, batch }, unit ? 'Migration ${migration} resolved as applied (batch ${batch})' : 'Migration ${migration} resolved as applied (batch ${batch}) - Checksum left NULL, drift cannot be detected for it');
     } else {
       // Logs is cleared, not merely annotated with RolledBackAt. Failed state is the pair
       // `FinishedAt` NULL *and* `Logs` set, and a rolled-back resolution leaves FinishedAt
       // NULL - so a row that kept its Logs would still trip `assertNoFailed` and block every
       // later run, which is the exact thing this call exists to undo.
       await this.driver.update().in(this.table).update({ RolledBackAt: new Date(), Logs: null }).where({ Migration: name });
-      this.Log.info(`Migration ${name} resolved as rolled-back (pending again)`);
+      this.Log.info({ migration: name }, 'Migration ${migration} resolved as rolled-back (pending again)');
     }
   }
 }

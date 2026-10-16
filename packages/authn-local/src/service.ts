@@ -293,7 +293,7 @@ export class LocalPasswordService extends PasswordService {
         await this.mail(id, 'reset', this.resetTtlSeconds());
       }
     } catch (err) {
-      this.log().warn(`The reset mail after the password expiry of ${id.type} ${id.id} failed: ${(err as Error)?.name ?? typeof err}`);
+      this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'The reset mail after the password expiry of ${identityType} ${identityId} failed: ${errorName}');
     }
   }
 
@@ -316,7 +316,7 @@ export class LocalPasswordService extends PasswordService {
   protected async mail(id: IdentityRef, purpose: 'reset' | 'invite', ttlSeconds: number): Promise<boolean> {
     const mailer = await this.mailer();
     if (!mailer) {
-      this.log().warn(`No PasswordMailer is registered: the ${purpose} mail for ${id.type} ${id.id} was not sent`);
+      this.log().warn({ purpose, identityType: id.type, identityId: id.id }, 'No PasswordMailer is registered: the ${purpose} mail for ${identityType} ${identityId} was not sent');
       return false;
     }
     const to = await (await this.identities()).display(id);

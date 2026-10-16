@@ -167,7 +167,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
     _render(file, model, options?.StatusCode ? options.StatusCode : HTTP_STATUS_CODE.OK).catch((err) => {
       const log: Log = DI.resolve(Log, ['http']);
 
-      log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
+      log.warn({ error: err, file }, 'Cannot render html file ${file}');
 
       const fs = getFs('__fs_http_response_templates__');
       fs.download('serverError.pug').then((file) => {
@@ -178,7 +178,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
           // final fallback rendering error fails, we render embedded html error page
           const ticketNo = randomstring.generate(7);
 
-          log.warn(`Cannot render pug file error: ${err2.message}, ticket: ${ticketNo}`, err);
+          log.warn({ error: err2, originalError: err, ticket: ticketNo }, 'Cannot render pug file, ticket: ${ticket}, original error: ${originalError}');
 
           res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
           res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
@@ -260,7 +260,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
       .catch((err) => {
         const log: Log = DI.resolve(Log, ['http']);
 
-        log.warn(`Cannot render html file ${template}, error: ${err.message}:${err.stack}`, err);
+        log.warn({ error: err, file: template }, 'Cannot render html file ${file}');
         fs.download('serverError.pug').then((file) => {
           // try to render server error response
           htmlResponse(

@@ -57,19 +57,20 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
     const basePath = this.Options.basePath ?? process.env.WORKSPACE_ROOT_PATH ?? process.cwd();
 
-    this.Logger.info(`Initializing file provider ${this.Options.name} with base path ${basePath}`);
+    this.Logger.info({ provider: this.Options.name, basePath }, 'Initializing file provider ${provider} with base path ${basePath}');
 
     // check the raw path - this.exists() would resolve it against basePath again
     if (!existsSync(basePath)) {
       this.Logger.warn(
-        `Base path ${basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
+        { basePath, provider: this.Options.name },
+        'Base path ${basePath} for file provider ${provider} not exists, trying to create base folder',
       );
 
       // use the computed base path - Options.basePath may be undefined when the
       // env / cwd fallback was taken
       await mkdir(basePath, { recursive: true });
 
-      this.Logger.success(`Base path ${basePath} created`);
+      this.Logger.success({ basePath }, 'Base path ${basePath} created');
     }
   }
 
@@ -417,19 +418,28 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     await this.addZipEntries(archive, paths);
 
     archive.on('entry', (entry) => {
-      this.Logger.trace(`Archiving file ${entry.name}, size: ${entry.stats?.size} into ${outFile}, fs: ${fs.Name}`);
+      this.Logger.trace(
+        { entry: entry.name, size: entry.stats?.size, outFile, fsName: fs.Name },
+        'Archiving file ${entry}, size: ${size} into ${outFile}, fs: ${fsName}',
+      );
     });
 
     archive.on('progress', (entry) => {
       this.Logger.trace(
-        `Entries ${entry.entries.total}/${entry.entries.processed}, fs: ${entry.fs.totalBytes}/${entry.fs.processedBytes}`,
+        {
+          entriesTotal: entry.entries.total,
+          entriesProcessed: entry.entries.processed,
+          bytesTotal: entry.fs.totalBytes,
+          bytesProcessed: entry.fs.processedBytes,
+        },
+        'Entries ${entriesTotal}/${entriesProcessed}, fs: ${bytesTotal}/${bytesProcessed}',
       );
     });
 
     return new Promise<IZipResult>((resolve, reject) => {
       archive.on('warning', (err) => {
         if (err.code === 'ENOENT') {
-          this.Logger.error(err, `File not found ( archiving file ), reason: ${err.message})`);
+          this.Logger.error({ error: err }, 'File not found ( archiving file )');
           return;
         }
 

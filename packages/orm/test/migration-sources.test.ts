@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import { currentBuildMigrationDir, DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
-import { ConnectionConf, registerFakes } from './misc.js';
+import { ConnectionConf, registerFakes, logText } from './misc.js';
 import '@spinajs/log';
 
 const expect = chai.expect;
@@ -409,7 +409,7 @@ describe('FilesystemMigrationSource import failures', () => {
     await source.getMigrations();
 
     expect(warn.called, 'a .ts import failure must not be logged at warn').to.equal(false);
-    expect(trace.getCalls().some((c) => String(c.args[0]).includes(brokenFile)), 'expected the failure to be logged at trace, naming the file').to.equal(true);
+    expect(trace.getCalls().some((c) => logText(c).includes(brokenFile)), 'expected the failure to be logged at trace, naming the file').to.equal(true);
   });
 
   it('matches .cjs files at all - a broken one throws, naming the file', async () => {
@@ -518,10 +518,10 @@ describe('FilesystemMigrationSource import failures - fallback directory', () =>
     expect(caught, 'a broken .js migration in a FALLBACK directory must not throw').to.equal(undefined);
 
     expect(warn.called, 'the failure must be logged at warn').to.equal(true);
-    const call = warn.getCalls().find((c) => String(c.args[1]).includes(brokenFile));
+    const call = warn.getCalls().find((c) => logText(c).includes(brokenFile));
     expect(call, 'the warning must name the file').to.not.equal(undefined);
-    expect(call!.args[0], 'the warning must carry the original error so the stack survives').to.be.instanceOf(Error);
-    expect(String(call!.args[1]), 'the warning must say the migration was not registered').to.match(/not registered/i);
+    expect(call!.args[0].error, 'the warning must carry the original error so the stack survives').to.be.instanceOf(Error);
+    expect(logText(call!), 'the warning must say the migration was not registered').to.match(/not registered/i);
 
     // one bad file must not have voided the rest of the scan
     expect(found!.map((f) => f.name), 'the good migration alongside the skipped one must still be reported').to.include('GoodFallback_2026_07_29_10_13_00');

@@ -62,7 +62,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
 
       skipped += await countNullIds(connection, idColumn);
       if (skipped > 0) {
-        this.log.warn(`${NAME}: skipped ${skipped} ${USERS_TABLE} row(s) whose ${idColumn} is null or empty; their roles were not copied`);
+        this.log.warn({ migration: NAME, skipped, table: USERS_TABLE, idColumn }, '${migration}: skipped ${skipped} ${table} row(s) whose ${idColumn} is null or empty; their roles were not copied');
       }
 
       if (inserted > 0) await bumpVersion(connection, ROOT_DOMAIN);
@@ -93,7 +93,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     const info = await connection.tableInfo(USERS_TABLE);
 
     if (!info || info.length === 0) {
-      this.log.info(`${NAME}: no table ${USERS_TABLE}; no roles copied`);
+      this.log.info({ migration: NAME, table: USERS_TABLE }, '${migration}: no table ${table}; no roles copied');
       return null;
     }
 
@@ -108,11 +108,12 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     ]
       .filter(([, , found]) => !found)
       .map(([column, key]) => `${column} (${key})`);
-    const message = `${NAME}: table ${USERS_TABLE} has no column ${missing.join(', ')}; its columns are ${names.join(', ')}; no roles copied`;
+    const fields = { migration: NAME, table: USERS_TABLE, missing, columns: names };
+    const template = '${migration}: table ${table} has no column ${missing}; its columns are ${columns}; no roles copied';
 
     // an empty table loses nothing; a filled one is a misconfiguration the operator must see
-    if (await hasUsers(connection)) this.log.warn(message);
-    else this.log.info(message);
+    if (await hasUsers(connection)) this.log.warn(fields, template);
+    else this.log.info(fields, template);
 
     return null;
   }

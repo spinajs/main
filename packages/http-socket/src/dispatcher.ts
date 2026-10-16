@@ -127,7 +127,7 @@ export class SocketDispatcher extends AsyncService {
     socket.on(WIRE_EVENTS.credit, (frame: unknown) => this.onCredit(runtime, frame));
     socket.on(WIRE_EVENTS.event, (frame: unknown) => {
       this.clientActive(connection);
-      this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
+      this.onEvent(runtime, frame).catch((err: Error) => this.Log.error({ error: err, connectionId: connection.id }, 'Socket event from connection ${connectionId} failed outside its handler'));
     });
     runtime.ready = connection.recovered ? this.afterRecovery(runtime) : this.connectHooks(runtime);
 
@@ -156,7 +156,7 @@ export class SocketDispatcher extends AsyncService {
     // a client that leaves while its connect hooks still run gets its disconnect hooks after them
     this.track(
       this.hookRuns,
-      runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error(err, `Socket disconnect hooks of connection ${connection.id} failed`)),
+      runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error({ error: err, connectionId: connection.id }, 'Socket disconnect hooks of connection ${connectionId} failed')),
     );
   }
 
@@ -253,7 +253,7 @@ export class SocketDispatcher extends AsyncService {
 
     // observability must never turn into a missing reply
     try {
-      this.Log.debug(`socket command ${ctx.request.name} ${code} ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+      this.Log.debug({ command: ctx.request.name, code, ms: Math.round(ms), connectionId: ctx.connection.id }, 'socket command ${command} ${code} ${ms}ms connection ${connectionId}');
       // only registered names are labels; a refusal before lookup still resolves the name here
       observeCommand((ctx.handler ?? this.Registry.command(ctx.request.name))?.fullName ?? SOCKET_UNKNOWN_COMMAND, code, ms / 1000);
     } catch {
@@ -281,7 +281,7 @@ export class SocketDispatcher extends AsyncService {
 
     if (typeof ack !== 'function') {
       if (limited === null) {
-        this.windowed(runtime, `Socket command without an ack callback from connection ${runtime.connection.id}, ignored`);
+        this.windowed(runtime, { connectionId: runtime.connection.id }, 'Socket command without an ack callback from connection ${connectionId}, ignored');
       }
       return;
     }
@@ -334,7 +334,7 @@ export class SocketDispatcher extends AsyncService {
       try {
         reply({ id: answer.id, ok: false, error: this.Errors.toWire(err, `command ${name} reply encoding`) });
       } catch (second) {
-        this.Log.error(second as Error, `Socket command ${name}: the error reply could not be sent either`);
+        this.Log.error({ error: second, command: name }, 'Socket command ${command}: the error reply could not be sent either');
       }
     }
   }
@@ -369,12 +369,12 @@ export class SocketDispatcher extends AsyncService {
     const connection = runtime.connection;
 
     if (!isEventFrame(frame)) {
-      this.Log.debug(`Malformed socket event from connection ${connection.id}, dropped`);
+      this.Log.debug({ connectionId: connection.id }, 'Malformed socket event from connection ${connectionId}, dropped');
       return;
     }
 
     if (this.refusal) {
-      this.Log.debug(`Socket event ${frame.name} from connection ${connection.id} dropped: the server is shutting down`);
+      this.Log.debug({ event: frame.name, connectionId: connection.id }, 'Socket event ${event} from connection ${connectionId} dropped: the server is shutting down');
       return;
     }
 
@@ -402,7 +402,7 @@ export class SocketDispatcher extends AsyncService {
 
     const handler = this.Registry.event(name);
     if (!handler) {
-      this.Log.debug(`Unknown socket event ${name} from connection ${connection.id}, dropped`);
+      this.Log.debug({ event: name, connectionId: connection.id }, 'Unknown socket event ${event} from connection ${connectionId}, dropped');
       return;
     }
 
@@ -415,32 +415,37 @@ export class SocketDispatcher extends AsyncService {
   /** A client can make every event fail, so refusals must not turn into one warn each. */
   protected dropped(runtime: IConnectionRuntime, name: string, err: unknown): void {
     const wire = this.Errors.toWire(err, `event ${name}`);
-    this.windowed(runtime, `Socket event ${name} from connection ${runtime.connection.id} dropped: ${wire.code} ${wire.message}`, wire.code === 'resource_exhausted' || wire.code === 'unauthenticated');
+    this.windowed(
+      runtime,
+      { event: name, connectionId: runtime.connection.id, code: wire.code, reason: wire.message },
+      'Socket event ${event} from connection ${connectionId} dropped: ${code} ${reason}',
+      wire.code === 'resource_exhausted' || wire.code === 'unauthenticated',
+    );
   }
 
   /** At most one warn per connection in EVENT_WARN_WINDOW_MS; the other lines, and every `quiet` one, go to debug. */
-  protected windowed(runtime: IConnectionRuntime, line: string, quiet = false): void {
+  protected windowed(runtime: IConnectionRuntime, fields: Record<string, unknown>, template: string, quiet = false): void {
     const now = Date.now();
 
     if (quiet || now - (runtime.warnedAt ?? Number.NEGATIVE_INFINITY) < EVENT_WARN_WINDOW_MS) {
-      this.Log.debug(line);
+      this.Log.debug(fields, template);
       return;
     }
 
     runtime.warnedAt = now;
-    this.Log.warn(line);
+    this.Log.warn(fields, template);
   }
 
   protected connectHooks(runtime: IConnectionRuntime): Promise<void> {
     const id = runtime.connection.id;
     const ms = this.Options.hooks.connectTimeoutMs;
-    const hooks = this.runHooks(runtime, 'connect').catch((err: Error) => this.Log.error(err, `Socket connect hooks of connection ${id} failed`));
+    const hooks = this.runHooks(runtime, 'connect').catch((err: Error) => this.Log.error({ error: err, connectionId: id }, 'Socket connect hooks of connection ${connectionId} failed'));
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       timer = setTimeout(() => {
         if (this.runtimes.get(id) === runtime) {
-          this.Log.error(`Socket connect hooks of connection ${id} still running after ${ms} ms; its commands and events no longer wait for them`);
+          this.Log.error({ connectionId: id, ms }, 'Socket connect hooks of connection ${connectionId} still running after ${ms} ms; its commands and events no longer wait for them');
         }
         resolve();
       }, ms);
@@ -457,7 +462,7 @@ export class SocketDispatcher extends AsyncService {
     try {
       await this.Guard.recheck(connection);
     } catch (err) {
-      this.Log.error(err as Error, `Socket ${connection.id}: re-checking the principal of a recovered connection failed`);
+      this.Log.error({ error: err, connectionId: connection.id }, 'Socket ${connectionId}: re-checking the principal of a recovered connection failed');
     }
 
     if (this.Guard.isClosing(connection)) {
@@ -484,7 +489,10 @@ export class SocketDispatcher extends AsyncService {
         await this.call(ctx, handler);
       } catch (err) {
         const wire = this.Errors.toWire(err, `${kind} hook ${handler.fullName}`);
-        this.Log.warn(`Socket ${kind} hook ${handler.fullName} failed for connection ${connection.id}: ${wire.code} ${wire.message}`);
+        this.Log.warn(
+          { kind, hook: handler.fullName, connectionId: connection.id, code: wire.code, reason: wire.message },
+          'Socket ${kind} hook ${hook} failed for connection ${connectionId}: ${code} ${reason}',
+        );
       }
     }
   }
@@ -663,7 +671,10 @@ export class SocketDispatcher extends AsyncService {
   protected streamEnded(ctx: SocketCommandContext, stream: ServerStream, outcome: StreamOutcome, ms: number): void {
     // observability must never break the stream bookkeeping, and a failing log must not cost the metric
     try {
-      this.Log.debug(`socket stream ${ctx.request.name} ${outcome} ${stream.sent} chunks ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+      this.Log.debug(
+        { command: ctx.request.name, outcome, chunks: stream.sent, ms: Math.round(ms), connectionId: ctx.connection.id },
+        'socket stream ${command} ${outcome} ${chunks} chunks ${ms}ms connection ${connectionId}',
+      );
     } catch {
       // swallowed on purpose
     }

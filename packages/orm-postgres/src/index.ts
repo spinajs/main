@@ -275,7 +275,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // An idle client's connection can die between checkouts; without a listener pg emits
     // 'error' on the pool and an unhandled 'error' event kills the process.
     this.Pool.on('error', (err) => {
-      this.Log?.warn(`postgres pool connection error for ${this.Options.Name}: ${err.message}`);
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'postgres pool connection error for ${connection}');
     });
 
     try {
@@ -288,7 +288,7 @@ export class PostgresOrmDriver extends SqlDriver {
       if (schema) {
         this.Pool.on('connect', (c) => {
           c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`).catch((err: Error) => {
-            this.Log?.warn(`could not set search_path to ${schema} for ${this.Options.Name}: ${err.message}`);
+            this.Log?.warn({ error: err, schema, connection: this.Options.Name }, 'could not set search_path to ${schema} for ${connection}');
           });
         });
         // the test client above predates the listener

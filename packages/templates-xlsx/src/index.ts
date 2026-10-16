@@ -19,7 +19,7 @@ export class XlsxRenderer extends TemplateRenderer {
       throw new IOFail(`File for template at path ${template} not exists`);
     }
 
-    this.Log.trace(`Rendering xlsx template ${template}`);
+    this.Log.trace({ template }, 'Rendering xlsx template ${template}');
     this.Log.timeStart(`XlsxTemplate.render.start.${template}`);
 
     const renderer = new Renderer();
@@ -28,7 +28,7 @@ export class XlsxRenderer extends TemplateRenderer {
     await result.xlsx.writeFile(filePath);
 
     const time = this.Log.timeEnd(`XlsxTemplate.render.start.${template}`);
-    this.Log.trace(`Rendering xlsx template ${template} ended, (${time} ms)`);
+    this.Log.trace({ template, time }, 'Rendering xlsx template ${template} ended, (${time} ms)');
   }
 
   public async render(_templateName: string, _model: unknown, _language?: string): Promise<string> {

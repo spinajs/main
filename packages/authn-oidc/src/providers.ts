@@ -51,7 +51,7 @@ export class OidcProviders extends AsyncService {
     this.linking = { jit: this.GlobalLinking?.jit === true, byVerifiedEmail: this.GlobalLinking?.byVerifiedEmail === true };
     this.options = buildOidcOptions(this.Oidc, this.env, {
       linking: this.linking,
-      log: { warn: (m: string) => this.Log?.warn(m) },
+      log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
     });
     if (this.options.providers.size > 0) {
       const http = await this.container.resolve(OidcHttpClient);

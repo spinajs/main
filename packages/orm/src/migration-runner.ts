@@ -294,14 +294,14 @@ export class MigrationRunner {
       // configuration, or switched off for startup, is a normal state - taking the whole boot
       // down over it would be worse than running what can be run
       if (!md?.Connection) {
-        this.Log.warn(`Migration ${u.name} has no connection assigned ( missing @Migration('connection') decorator ) and is skipped`);
+        this.Log.warn({ migration: u.name }, "Migration ${migration} has no connection assigned ( missing @Migration('connection') decorator ) and is skipped");
         continue;
       }
 
       const driver = this.orm.Connections.get(md.Connection);
 
       if (!driver) {
-        this.Log.warn(`Connection ${md.Connection} not exists for migration ${u.name} - migration is skipped`);
+        this.Log.warn({ connection: md.Connection, migration: u.name }, 'Connection ${connection} not exists for migration ${migration} - migration is skipped');
         continue;
       }
 
@@ -317,7 +317,7 @@ export class MigrationRunner {
         // repeating it per migration turns a boot log into noise nobody reads
         if (!gated.has(driver)) {
           gated.add(driver);
-          this.Log.warn(`Migration for connection ${md.Connection} is disabled on startup, please check conf file for db.[connection].Migration.OnStartup property`);
+          this.Log.warn({ connection: md.Connection }, 'Migration for connection ${connection} is disabled on startup, please check conf file for db.[connection].Migration.OnStartup property');
         }
 
         continue;

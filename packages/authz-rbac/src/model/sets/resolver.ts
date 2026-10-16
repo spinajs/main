@@ -95,7 +95,7 @@ export function groupPrincipalConfig(ctx: ModelInitContext, log: Pick<HostLog, '
   const value = ctx.config<Partial<GroupPrincipalConfig> | null | undefined>('groupPrincipal', undefined);
   // An unvalidated configuration still gets here: a non-object (false, '', a string) turns the mapping off, never on with the defaults.
   if (value !== undefined && (typeof value !== 'object' || Array.isArray(value))) {
-    log.warn(`authz.rbac.groupPrincipal is ${JSON.stringify(value)}, not an object or null: group principals speak for no member set`);
+    log.warn({ value }, 'authz.rbac.groupPrincipal is ${value}, not an object or null: group principals speak for no member set');
     return null;
   }
   return value === null ? null : Object.freeze({ ...DEFAULT_GROUP_PRINCIPAL, ...value });

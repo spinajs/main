@@ -3,9 +3,12 @@ import type { Assignment, AssignmentSubject, EvaluationContext, Principal, Resou
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { MembershipStore, MemoryAssignmentStore, MemoryRoleStore, MemoryRuleStore, RbacModel, RuleStore } from '../../src/index.js';
 import type { GrantDef, RoleDef, RuleDef } from '../../src/index.js';
+
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
 
 const expect = chai.expect;
 
@@ -102,7 +105,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
     const warned: string[] = [];
     const reg = registry();
     const stored = new MemoryRuleStore({ rules: [{ id: 'old-cap', kind: 'cap', scope: { type: 'project', id: 'p1' }, stripTags: true, source: 'db' }] });
-    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([row('v', 'viewer', P1)]), rules: stored, log: { warn: (msg) => warned.push(msg) } });
+    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([row('v', 'viewer', P1)]), rules: stored, log: { warn: (fields: unknown, template?: unknown) => void warned.push(logLine(fields, template)) } });
     await m.init(fakeModelInitContext({ model: 'rbac', permissions: reg }));
     m.grantIndex();
     for (let i = 0; i < 2; i++) {
@@ -114,7 +117,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
       }
       expect((caught as Error).message).to.contain('rule \'old-cap\' (cap, source: db) can apply to doc:read on "doc"');
     }
-    expect(warned.filter((msg) => msg.includes("'old-cap'"))).to.have.length(1);
+    expect(warned.filter((msg) => msg.includes('rule old-cap '))).to.have.length(1);
     const expired = new MemoryRuleStore({ rules: [{ id: 'gone', kind: 'cap', scope: GLOBAL, stripTags: true, expiresAt: new Date(NOW.getTime() - 1), source: 'db' }] });
     expect((await plan([row('v', 'viewer')], { rules: expired })).kind).to.equal('all');
   });

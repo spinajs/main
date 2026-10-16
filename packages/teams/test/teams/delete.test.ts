@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 import { AccessDenied } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log';
 import { InvalidArgument, InvalidOperation, ResourceNotFound } from '@spinajs/exceptions';
 
 import { GroupService, TeamService } from '../../src/index.js';
@@ -107,11 +108,11 @@ describe('TeamService: delete, restore, purge', function () {
     const owner = await teamCreator();
     const [a, bad, c] = await Promise.all(['a', 'bad', 'c'].map((s) => teams.createTeam(owner, { slug: slug(s), name: s })));
     for (const t of [a, bad, c]) await teams.deleteTeam(owner, t.id);
-    const service = teams as unknown as { beforePurge(t: { id: string }): Promise<void>; Log: { error(e: Error, message: string): void } };
+    const service = teams as unknown as { beforePurge(t: { id: string }): Promise<void>; Log: { error(fields: Record<string, unknown>, message: string): void } };
     const beforePurge = service.beforePurge;
     const logError = service.Log.error;
     const logged: string[] = [];
-    service.Log.error = (_e: Error, message: string) => void logged.push(message);
+    service.Log.error = (fields: Record<string, unknown>, message: string) => void logged.push(renderTemplate(message, fields));
     service.beforePurge = async function (this: unknown, t: { id: string }) {
       if (t.id === bad.id) throw new Error('purge failed');
       return beforePurge.call(this, t);

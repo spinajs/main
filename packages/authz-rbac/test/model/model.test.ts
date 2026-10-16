@@ -3,6 +3,7 @@ import type { Assignment, ModelInitContext, NativeFilter, PermissionInput, Permi
 import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { DEFAULT_RBAC_EXTENSIONS, MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, SubjectResolver, createRbacExtensions, isTokenRoleExtension } from '../../src/index.js';
 import type { AssignmentSubject, GrantIndex, RbacExtension, RoleDef, RoleGraph } from '../../src/index.js';
@@ -38,7 +39,8 @@ interface Setup {
 }
 
 const warnings: string[] = [];
-const log = { warn: (message: string) => void warnings.push(message) };
+const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
+const log = { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) };
 
 async function model(s: Setup = {}): Promise<{ model: RbacModel; store: MemoryAssignmentStore; roles: MemoryRoleStore }> {
   const roles = new MemoryRoleStore(s.roles ?? ROLES);
@@ -154,7 +156,7 @@ describe('authz-rbac model: RbacModel', () => {
       expect((await check(m, alice, 'file:read')).permitWhen).to.deep.equal(TRUE);
       expect((await check(m, bob, 'file:read')).reason?.code).to.equal('no_access');
       expect((await check(m, bob, 'file:read')).reason?.code).to.equal('no_access');
-      expect(warnings.filter((w) => w.includes("'ghost'"))).to.have.length(1);
+      expect(warnings.filter((w) => w.includes('unknown role ghost;'))).to.have.length(1);
     });
 
     it('ignores a stored assignment the role definition refuses, warning once per assignment', async () => {
@@ -164,7 +166,7 @@ describe('authz-rbac model: RbacModel', () => {
         expect((await check(m, alice, 'file:read')).reason?.code).to.equal('no_access');
         expect((await check(m, bob, 'file:read')).reason?.code).to.equal('no_access');
       }
-      const about = (id: string) => warnings.filter((w) => w.includes(`assignment '${id}'`));
+      const about = (id: string) => warnings.filter((w) => w.includes(`assignment ${id} `));
       expect(about('p1')).to.have.length(1);
       expect(about('p1')[0]).to.contain('is not assignable');
       expect(about('o1')).to.have.length(1);

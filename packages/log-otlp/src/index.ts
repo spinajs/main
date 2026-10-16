@@ -345,7 +345,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         // successful send() so a later episode warns again.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`OTLP buffer exceeded ${this.Options.maxBufferSize} records, dropped ${droppedItems.length} oldest records.`);
+          this.Log.warn({ maxBufferSize: this.Options.maxBufferSize, dropped: droppedItems.length }, "OTLP buffer exceeded ${maxBufferSize} records, dropped ${dropped} oldest records.");
         }
 
         // spill each dropped entry to the fallback ( if a wrapper wired one ) so
@@ -407,7 +407,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       // drained successfully - allow the next overflow episode to warn again
       this.Overflowed = false;
 
-      this.Log.trace(`Wrote buffered messages to OTLP target at ${this.Options.endpoint}, ${batch.length} records.`);
+      this.Log.trace({ endpoint: this.Options.endpoint, records: batch.length }, "Wrote buffered messages to OTLP target at ${endpoint}, ${records} records.");
     } catch (err) {
       // reached only after retries are exhausted ( transient ) or immediately
       // for a non-retryable error.
@@ -431,7 +431,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         this.OnDropped?.(rec.entry);
       }
 
-      this.Log.error(err, `Cannot export log records to OTLP target - dropping ${batch.length} records because the error is non-retryable.`);
+      this.Log.error({ error: err, records: batch.length }, "Cannot export log records to OTLP target - dropping ${records} records because the error is non-retryable.");
     }
   }
 }

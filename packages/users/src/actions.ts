@@ -578,7 +578,7 @@ async function discardInsertedUser(u: User): Promise<void> {
     await driver.del().from(UserMetadataBase.getModelDescriptor().TableName).where('user_id', u.Id);
     await driver.del().from(User.getModelDescriptor().TableName).where('Id', u.Id);
   } catch (err) {
-    DI.resolve(Log, ['rbac']).error(err as Error, `Could not remove the account ${u.Uuid} after its creation failed; delete it by hand.`);
+    DI.resolve(Log, ['rbac']).error({ error: err, userUuid: u.Uuid }, 'Could not remove the account ${userUuid} after its creation failed; delete it by hand.');
   }
 }
 

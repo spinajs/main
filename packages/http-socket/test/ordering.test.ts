@@ -8,6 +8,7 @@ import { DI } from '@spinajs/di';
 import { SocketCommandStage } from '../src/interfaces.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
+import { logText } from './log-text.js';
 
 export const ordDone: string[] = [];
 
@@ -235,7 +236,7 @@ describe('socket ordered commands', function () {
       expect(resultOf(await b)).to.equal('B');
       expect(ordDone).to.deep.equal(['B']);
       expect(logged).to.have.length(1);
-      const text = logged[0].map(String).join(' ');
+      const text = logText(logged[0]);
       expect(text).to.contain('connection:').and.to.contain('ord.hang');
     } finally {
       stage.Log.error = original;

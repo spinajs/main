@@ -19,6 +19,6 @@ export class RevokeKey extends CliCommand {
     if (!(await this.Registry.revoke(ownerArg(ownerType, ownerId), kid, cliContext(), { actor: CLI_ACTOR }))) {
       throw new Error(`no key ${kid} of ${ownerType} ${ownerId}`);
     }
-    this.Log.success(`Key ${kid} revoked`);
+    this.Log.success({ kid }, 'Key ${kid} revoked');
   }
 }

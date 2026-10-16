@@ -302,9 +302,9 @@ export class SocketIdempotency {
         },
         // a key left running would refuse every resend for good
         (err: unknown) => {
-          this.Log.error(err as Error, `Socket command ${name}: recording its idempotent outcome failed, releasing its key`);
+          this.Log.error({ error: err, command: name }, 'Socket command ${command}: recording its idempotent outcome failed, releasing its key');
           return this.Store.release(scoped)
-            .catch((releaseErr: Error) => this.Log.error(releaseErr, `Socket command ${name}: releasing its idempotency key failed`))
+            .catch((releaseErr: Error) => this.Log.error({ error: releaseErr, command: name }, 'Socket command ${command}: releasing its idempotency key failed'))
             .then(() => {
               forget();
               publish(null);
@@ -353,7 +353,7 @@ export class SocketIdempotency {
     // the call's own deadline, cancel, disconnect or shutdown: the command produced no outcome
     if (isAbortOf(outcome.error, signal)) {
       if (started && OUTCOME_UNKNOWN.has(signal.reason as object)) {
-        this.Log.warn(`Socket command ${name}: aborted by shutdown after its handler started; its idempotency key stays running, as it may have committed`);
+        this.Log.warn({ command: name }, 'Socket command ${command}: aborted by shutdown after its handler started; its idempotency key stays running, as it may have committed');
         return null;
       }
       return this.forgo(scoped, name);
@@ -375,7 +375,7 @@ export class SocketIdempotency {
     try {
       await this.Store.complete(scoped, reply, this.Options.ttlMs);
     } catch (err) {
-      this.Log.error(err as Error, `Socket command ${name}: storing its idempotent reply failed, releasing its key`);
+      this.Log.error({ error: err, command: name }, 'Socket command ${command}: storing its idempotent reply failed, releasing its key');
       await this.forgo(scoped, name);
     }
   }
@@ -385,7 +385,7 @@ export class SocketIdempotency {
     try {
       await this.Store.release(scoped);
     } catch (err) {
-      this.Log.error(err as Error, `Socket command ${name}: releasing its idempotency key failed`);
+      this.Log.error({ error: err, command: name }, 'Socket command ${command}: releasing its idempotency key failed');
     }
     return null;
   }

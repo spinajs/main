@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import { renderTemplate } from '@spinajs/log-common';
 import type { IContainer } from '@spinajs/di';
 
 import { AUTHZ_CHANGED_EVENT, AccessChangeRouter, AccessPushTransport, ChangeAudience, ChangeBus } from '@spinajs/authz';
@@ -38,7 +39,7 @@ class FixedAudience extends ChangeAudience {
 
 class QuietRouter extends AccessChangeRouter {
   readonly errors: string[] = [];
-  protected log: HostLog = { error: (m: string) => void this.errors.push(m), warn: () => {}, info: () => {}, debug: () => {} };
+  protected log: HostLog = { error: (fields: unknown, template?: unknown) => void this.errors.push(typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>)), warn: () => {}, info: () => {}, debug: () => {} };
 }
 
 const change = (tags: string[]): AuthzChange => ({ domain: 'root', tags, at: new Date(0) });

@@ -60,7 +60,10 @@ export class OrderingStage extends SocketCommandStage {
         let timer: NodeJS.Timeout | undefined;
         const onAbort = () => {
           timer = setTimeout(() => {
-            this.Log.error(`Ordered command ${ctx.request.name} on ${key} still running ${this.Options.ordering.abortGraceMs} ms after abort, releasing its queue place`);
+            this.Log.error(
+              { command: ctx.request.name, key, graceMs: this.Options.ordering.abortGraceMs },
+              'Ordered command ${command} on ${key} still running ${graceMs} ms after abort, releasing its queue place',
+            );
             resolve(false);
           }, this.Options.ordering.abortGraceMs);
           timer.unref();

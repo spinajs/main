@@ -42,14 +42,14 @@ export const criticalSection = async <T>(name: string, callback: () => Promise<T
   // Start the critical section
   mutex = (async () => {
     try {
-      log.trace(`Entering critical section ${name}`);
+      log.trace({ section: name }, 'Entering critical section ${section}');
       await callback();
     } catch (err) {
       // release mutex before rethrow error
       DI.register(Promise.resolve()).asMapValue('__mutex__', name);
       throw err;
     } finally {
-      log.trace(`Leaving critical section ${name}`);
+      log.trace({ section: name }, 'Leaving critical section ${section}');
     }
   })();
 

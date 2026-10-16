@@ -151,7 +151,7 @@ export class MsSqlOrmDriver extends SqlDriver {
           await this._connectionPool.close();
           this._connectionPool = null as any;
         } catch (closeErr) {
-          this.Log.warn(`Error cleaning up failed MSSQL connection pool for ${this.Options.Name}: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+          this.Log.warn({ error: closeErr, connection: this.Options.Name }, 'Error cleaning up failed MSSQL connection pool for ${connection}');
         }
       }
       throw err;

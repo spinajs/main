@@ -21,7 +21,10 @@ export class LazyUploadJob extends QueueJob {
   public DeleteAfterUpload: boolean;
 
   public async execute(progress: (p: number) => Promise<void>) {
-    this.Log.info(`COPY: ${this.Path}, fs: ${this.SourceFilesystem} dst: ${this.ToFilesystem}, deleteAfterUpload: ${this.DeleteAfterUpload}`);
+    this.Log.info(
+      { path: this.Path, sourceFs: this.SourceFilesystem, targetFs: this.ToFilesystem, deleteAfterUpload: this.DeleteAfterUpload },
+      'COPY: ${path}, fs: ${sourceFs} dst: ${targetFs}, deleteAfterUpload: ${deleteAfterUpload}',
+    );
 
     const sFs = getFs(this.SourceFilesystem);
     const tFs = getFs(this.ToFilesystem);
@@ -47,7 +50,7 @@ export class LazyUploadJob extends QueueJob {
     await progress(100);
 
     const d = this.Log.timeEnd(`[COPY] ${this.Path}`);
-    this.Log.trace(`Copied ${this.Path} from ${this.SourceFilesystem} to ${this.ToFilesystem} in ${d}ms`);
+    this.Log.trace({ path: this.Path, sourceFs: this.SourceFilesystem, targetFs: this.ToFilesystem, ms: d }, 'Copied ${path} from ${sourceFs} to ${targetFs} in ${ms}ms');
 
     return 'finished';
   }

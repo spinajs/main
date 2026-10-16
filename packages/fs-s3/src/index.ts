@@ -78,26 +78,29 @@ export class fsS3 extends fs {
    */
   private async ensureBucketExists(): Promise<void> {
     try {
-      this.Logger.trace(`Checking if bucket '${this.Options.bucket}' exists`);
+      this.Logger.trace({ bucket: this.Options.bucket }, 'Checking if bucket ${bucket} exists');
       await this.S3.send(new HeadBucketCommand({ Bucket: this.Options.bucket }));
-      this.Logger.info(`Bucket '${this.Options.bucket}' exists and is accessible`);
+      this.Logger.info({ bucket: this.Options.bucket }, 'Bucket ${bucket} exists and is accessible');
     } catch (error) {
       if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
         if (this.Options.createBucketIfNotExists === false) {
-          this.Logger.error(`Bucket '${this.Options.bucket}' does not exist and createBucketIfNotExists is disabled`);
+          this.Logger.error({ bucket: this.Options.bucket }, 'Bucket ${bucket} does not exist and createBucketIfNotExists is disabled');
           throw new IOFail(`Bucket '${this.Options.bucket}' does not exist`);
         }
 
-        this.Logger.warn(`Bucket '${this.Options.bucket}' does not exist, attempting to create it`);
+        this.Logger.warn({ bucket: this.Options.bucket }, 'Bucket ${bucket} does not exist, attempting to create it');
         try {
           await this.S3.send(new CreateBucketCommand({ Bucket: this.Options.bucket }));
-          this.Logger.info(`Successfully created bucket '${this.Options.bucket}'`);
+          this.Logger.info({ bucket: this.Options.bucket }, 'Successfully created bucket ${bucket}');
         } catch (createError) {
-          this.Logger.error(`Failed to create bucket '${this.Options.bucket}': ${createError.message}`);
+          this.Logger.error({ error: createError, bucket: this.Options.bucket }, 'Failed to create bucket ${bucket}');
           throw createError;
         }
       } else {
-        this.Logger.error(`Error checking bucket '${this.Options.bucket}': ${error.name} - ${error.message}, code: ${error.$metadata?.httpStatusCode}`);
+        this.Logger.error(
+          { error, bucket: this.Options.bucket, errorName: error.name, statusCode: error.$metadata?.httpStatusCode },
+          'Error checking bucket ${bucket}: ${errorName}, code: ${statusCode}',
+        );
         throw error;
       }
     }
@@ -107,16 +110,23 @@ export class fsS3 extends fs {
 
     await super.resolve();
 
-    this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
+    this.Logger.info(
+      { provider: this.Options.name, bucket: this.Options.bucket },
+      'Initializing S3 file provider ${provider} for bucket ${bucket}',
+    );
     
     const credentials = typeof this.AwsConfig.credentials === 'function' ? undefined : this.AwsConfig.credentials;
-    this.Logger.debug(`S3 Configuration: ${JSON.stringify({
-      endpoint: this.AwsConfig.endpoint,
-
-      region: this.AwsConfig.region,
-      secretAccessKey: credentials?.secretAccessKey ? '****' : undefined,
-      accessKeyId: credentials?.accessKeyId ? '****' : undefined,
-    })}`);
+    this.Logger.debug(
+      {
+        config: {
+          endpoint: this.AwsConfig.endpoint,
+          region: this.AwsConfig.region,
+          secretAccessKey: credentials?.secretAccessKey ? '****' : undefined,
+          accessKeyId: credentials?.accessKeyId ? '****' : undefined,
+        },
+      },
+      'S3 Configuration: ${config}',
+    );
 
     this.S3 = new S3Client(
       Object.assign({}, this.AwsConfig, {
@@ -134,12 +144,12 @@ export class fsS3 extends fs {
     await this.ensureBucketExists();
 
     if (this.Options.signer) {
-      this.Logger.info(`Initializing URL signer for service '${this.Options.signer.service}'`);
+      this.Logger.info({ service: this.Options.signer.service }, 'Initializing URL signer for service ${service}');
       this.Signer = await DI.resolve(this.Options.signer.service, [{...this.Options.signer, bucket: this.Options.bucket, s3Client: this.S3 }]);
       this.Logger.trace(`URL signer initialized successfully`);
     }
 
-    this.Logger.info(`S3 file provider '${this.Options.name}' initialized successfully`);
+    this.Logger.info({ provider: this.Options.name }, 'S3 file provider ${provider} initialized successfully');
   }
 
   /**
@@ -147,20 +157,20 @@ export class fsS3 extends fs {
    * This ensures the event loop can exit and the process can terminate
    */
   public async dispose(): Promise<void> {
-    this.Logger.trace(`Disposing S3 provider '${this.Options.name}'`);
+    this.Logger.trace({ provider: this.Options.name }, 'Disposing S3 provider ${provider}');
 
     if (this.TempFs) {
-      this.Logger.trace(`Disposing TempFs for provider '${this.Options.name}'`);
+      this.Logger.trace({ provider: this.Options.name }, 'Disposing TempFs for provider ${provider}');
       await this.TempFs.dispose();
     }
 
     if (this.S3) {
-      this.Logger.trace(`Destroying S3 client for provider '${this.Options.name}'`);
+      this.Logger.trace({ provider: this.Options.name }, 'Destroying S3 client for provider ${provider}');
       this.S3.destroy();
-      this.Logger.info(`S3 client destroyed for provider '${this.Options.name}'`);
+      this.Logger.info({ provider: this.Options.name }, 'S3 client destroyed for provider ${provider}');
     }
 
-    this.Logger.info(`S3 provider '${this.Options.name}' disposed successfully`);
+    this.Logger.info({ provider: this.Options.name }, 'S3 provider ${provider} disposed successfully');
   }
 
   /**
@@ -339,7 +349,7 @@ export class fsS3 extends fs {
       // delete raw information from exif
       delete fInfo.Raw;
     } catch (err) {
-      this.Logger.warn(`Could not extract file info for ${srcPath}: ${err.message}`);
+      this.Logger.warn({ error: err, srcPath }, 'Could not extract file info for ${srcPath}');
     }
 
     // Create stream after file info extraction to ensure it hasn't been consumed
@@ -460,7 +470,7 @@ export class fsS3 extends fs {
     upload
       .done()
       .then(() => {
-        this.Logger.trace(`Stream upload to ${path} finished, bucket: ${this.Options.bucket}`);
+        this.Logger.trace({ path, bucket: this.Options.bucket }, 'Stream upload to ${path} finished, bucket: ${bucket}');
         pass.emit('close');
       })
       .catch((err) => {

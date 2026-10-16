@@ -83,7 +83,7 @@ export class CreateToken extends TokenCliCommand {
       const tokens = await DI.resolve(TokenService);
       const result = await tokens.create({ type: 'user', id: ownerUuid }, opts, { now, purpose: 'request' });
       if (!result.ok) {
-        this.fail(`Token not created: ${result.code}`);
+        this.fail('Token not created: ${code}', { code: result.code });
         return;
       }
 
@@ -91,9 +91,9 @@ export class CreateToken extends TokenCliCommand {
       this.write(`Token ${result.record.id} created, expires ${result.record.expiresAt.toISOString()}`);
       this.write('Copy the token now, it will not be shown again:');
       this.write(result.plaintext);
-      this.Log.info(`Token ${result.record.id} created for user ${ownerUuid}`);
+      this.Log.info({ tokenId: result.record.id, userUuid: ownerUuid }, 'Token ${tokenId} created for user ${userUuid}');
     } catch (e) {
-      this.fail(`Error while creating token: ${reasonOf(e)}`);
+      this.fail('Error while creating token: ${reason}', { reason: reasonOf(e) });
     }
   }
 
@@ -101,8 +101,9 @@ export class CreateToken extends TokenCliCommand {
     process.stdout.write(`${line}\n`);
   }
 
-  protected fail(message: string): void {
-    this.Log.error(message);
+  protected fail(message: string, fields?: object): void {
+    if (fields) this.Log.error(fields, message);
+    else this.Log.error(message);
     process.exitCode = 1;
   }
 

@@ -22,7 +22,7 @@ import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
 import { assertIdempotencyConfig, outcomeUnknownAfter } from './idempotency.js';
-import { SHUTDOWN_FLUSH_MS, assertShutdownConfig, shutdownOverrun } from './limits.js';
+import { SHUTDOWN_FLUSH_MS, SHUTDOWN_OVERRUN, assertShutdownConfig, shutdownOverrun } from './limits.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
 function refusal(wire: SocketError): Error & { data: SocketError } {
@@ -165,14 +165,17 @@ export class SocketServer extends AsyncService {
     assertShutdownConfig(this.Options);
     const overrun = shutdownOverrun(this.Options.drainMs, this.HttpShutdownTimeout);
     if (overrun) {
-      this.Log.warn(overrun);
+      this.Log.warn(overrun, SHUTDOWN_OVERRUN);
     }
     await this.ControllerFiles;
     // a duplicate or orphan handler rejects here, before socket.io attaches: no partial routing
     await this.Registry.build();
     const missed = missedByBoot();
     if (missed.length > 0) {
-      this.Log.warn(`Socket controllers registered after their authz domain booted skip its boot checks (B02) until its next boot: ${missed.map((r) => `${r.source} (domain ${r.access.domain ?? 'root'})`).join(', ')}. Resolve SocketServer before http.start().`);
+      this.Log.warn(
+        { rules: missed.map((r) => ({ source: r.source, domain: r.access.domain ?? 'root' })) },
+        'Socket controllers registered after their authz domain booted skip its boot checks (B02) until its next boot: ${rules}. Resolve SocketServer before http.start().',
+      );
     }
 
     const http = await this.Host.server();
@@ -226,7 +229,7 @@ export class SocketServer extends AsyncService {
         [...io._nsps.values()].map((nsp) =>
           Promise.resolve()
             .then(() => nsp.adapter.close())
-            .catch((err: Error) => this.Log.warn(`Socket adapter close failed: ${err?.message}`)),
+            .catch((err: Error) => this.Log.warn({ error: err }, 'Socket adapter close failed')),
         ),
         SHUTDOWN_FLUSH_MS,
       );
@@ -250,7 +253,7 @@ export class SocketServer extends AsyncService {
     }
 
     if (!(await this.Dispatcher.drained(this.Options.drainMs))) {
-      this.Log.warn(`Socket commands still running after a ${this.Options.drainMs} ms drain are answered unavailable`);
+      this.Log.warn({ drainMs: this.Options.drainMs }, 'Socket commands still running after a ${drainMs} ms drain are answered unavailable');
       // a keyed handler that already runs may commit any moment: it gets a grace to answer, and record, its real outcome
       this.Dispatcher.abortAll(unavailable, true);
 
@@ -258,7 +261,7 @@ export class SocketServer extends AsyncService {
         this.Dispatcher.abortAll(unavailable);
         // the abort answers at once, but the replies are written in later microtasks; closing first would drop them
         if (!(await this.Dispatcher.answered(SHUTDOWN_FLUSH_MS))) {
-          this.Log.warn(`Socket replies still unwritten ${SHUTDOWN_FLUSH_MS} ms after the drain, closing anyway`);
+          this.Log.warn({ flushMs: SHUTDOWN_FLUSH_MS }, 'Socket replies still unwritten ${flushMs} ms after the drain, closing anyway');
         }
       }
     }
@@ -270,10 +273,10 @@ export class SocketServer extends AsyncService {
     // disconnect hooks may still push to rooms, so the hub stays attached until they are done
     const [flushed, hooksDone] = await Promise.all([transportsClosed(transports, SHUTDOWN_FLUSH_MS), this.Dispatcher.hooksDone(this.Options.drainMs)]);
     if (!flushed) {
-      this.Log.warn(`Socket transports still writing ${SHUTDOWN_FLUSH_MS} ms after the disconnect, closing anyway`);
+      this.Log.warn({ flushMs: SHUTDOWN_FLUSH_MS }, 'Socket transports still writing ${flushMs} ms after the disconnect, closing anyway');
     }
     if (!hooksDone) {
-      this.Log.warn(`Socket disconnect hooks still running after ${this.Options.drainMs} ms, closing anyway`);
+      this.Log.warn({ drainMs: this.Options.drainMs }, 'Socket disconnect hooks still running after ${drainMs} ms, closing anyway');
     }
   }
 
@@ -299,7 +302,7 @@ export class SocketServer extends AsyncService {
         }
 
         if (reason !== null) {
-          this.Log.debug(`Socket transport request refused: ${reason}`);
+          this.Log.debug({ reason }, 'Socket transport request refused: ${reason}');
         }
         callback(reason, reason === null);
       },
@@ -387,7 +390,7 @@ export class SocketServer extends AsyncService {
       this.handshakes.set(socket, handshake);
     } catch (err) {
       const wire = this.Errors.toWire(err, 'handshake');
-      this.Log.debug(`Socket handshake refused: ${wire.code} ${wire.message}`);
+      this.Log.debug({ code: wire.code, reason: wire.message }, 'Socket handshake refused: ${code} ${reason}');
       throw refusal(wire);
     }
   }
@@ -453,7 +456,7 @@ export class SocketServer extends AsyncService {
   }
 
   protected refuseConnected(socket: Socket, wire: SocketError): void {
-    this.Log.warn(`Socket ${socket.id} refused after connecting: ${wire.code} ${wire.message}`);
+    this.Log.warn({ socketId: socket.id, code: wire.code, reason: wire.message }, 'Socket ${socketId} refused after connecting: ${code} ${reason}');
 
     const frame: EventFrame<DisconnectNotice> = { name: SYSTEM_EVENTS.disconnect, payload: { reason: wire.code } };
     socket.emit(WIRE_EVENTS.event, frame);

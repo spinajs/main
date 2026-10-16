@@ -34,11 +34,11 @@ export class UserAccountSink extends AuthnEventSink {
 
     const setsPassword = (e.type === 'password.change' && e.data?.expired !== true) || e.type === 'password.reset' || e.type === 'invite.redeem';
     if (setsPassword) {
-      await this.guarded(e, 'record when its password was set', () => this.recordPasswordSet(e.identity!, e.at));
+      await this.guarded(e, 'Could not record when its password was set on ${eventType} of user ${userId}: ${errorClass}', () => this.recordPasswordSet(e.identity!, e.at));
     }
 
     if (e.type === 'invite.redeem') {
-      await this.guarded(e, 'activate its invited account', () => this.activateInvited(e.identity!));
+      await this.guarded(e, 'Could not activate its invited account on ${eventType} of user ${userId}: ${errorClass}', () => this.activateInvited(e.identity!));
     }
   }
 
@@ -75,12 +75,12 @@ export class UserAccountSink extends AuthnEventSink {
     await ev(new UserActivated(u));
   }
 
-  private async guarded(e: AuthnEvent, what: string, work: () => Promise<void>): Promise<void> {
+  private async guarded(e: AuthnEvent, failure: string, work: () => Promise<void>): Promise<void> {
     try {
       await work();
     } catch (err) {
       // The class only: a driver error's message carries the statement and its bindings.
-      this.Log.warn(`Could not ${what} on ${e.type} of user ${e.identity!.id}: ${(err as Error)?.name ?? typeof err}`);
+      this.Log.warn({ eventType: e.type, userId: e.identity!.id, errorClass: (err as Error)?.name ?? typeof err }, failure);
     }
   }
 }

@@ -101,18 +101,18 @@ export class Cli extends AsyncService {
     for (const cmd of commands ?? []) {
 
       if (!cmd.type) {
-        this.Log.warn(`Command ${cmd.name} has no exported class. Make sure the file exports a CliCommand subclass`);
+        this.Log.warn({ command: cmd.name }, 'Command ${command} has no exported class. Make sure the file exports a CliCommand subclass');
         continue;
       }
 
-      this.Log.info(`Found command ${cmd.name}`);
+      this.Log.info({ command: cmd.name }, 'Found command ${command}');
 
       const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
       const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
       const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.type) as IArgument[];
 
       if (!cMeta) {
-        this.Log.warn(`Command ${cmd.name} is not marked as command. Use decorators to add description to command`);
+        this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
         continue;
       }
 
@@ -156,7 +156,7 @@ export class Cli extends AsyncService {
           // a required option can't meaningfully carry a default — the default
           // would satisfy the requirement and make it optional. drop it.
           if (defaultValue !== undefined) {
-            this.Log.warn(`Option ${o.flags} is required; ignoring its default value`);
+            this.Log.warn({ flags: o.flags }, 'Option ${flags} is required; ignoring its default value');
           }
         } else if (defaultValue !== undefined) {
           opt.default(defaultValue);
@@ -190,7 +190,7 @@ export class Cli extends AsyncService {
       const getInstance = () => {
         if (!instance) {
           instance = Promise.resolve(DI.resolve(cmd.type) as CliCommand | Promise<CliCommand>).catch((err: Error) => {
-            this.Log.error(`Cannot resolve command ${cmd.name} ( ${cmd.file} ): ${err.message}`);
+            this.Log.error({ error: err, command: cmd.name, file: cmd.file }, 'Cannot resolve command ${command} ( ${file} )');
             throw err;
           });
         }
@@ -223,7 +223,7 @@ export class Cli extends AsyncService {
           parent.addCommand(b.command);
           continue;
         }
-        this.Log.warn(`Parent command '${b.parent}' for '${b.name}' not found; registering at top level`);
+        this.Log.warn({ parent: b.parent, command: b.name }, 'Parent command ${parent} for ${command} not found; registering at top level');
       }
       program.addCommand(b.command);
     }

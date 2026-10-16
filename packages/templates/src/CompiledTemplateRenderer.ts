@@ -37,14 +37,14 @@ export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplat
     }
 
     const label = `${this.constructor.name}.render.${templateName}`;
-    this.Log.trace(`Rendering template ${templateName}`);
+    this.Log.trace({ templateName }, 'Rendering template ${templateName}');
     this.Log.timeStart(label);
 
     const delegate = await this.withCache(templateName, () => this.compile(templateName));
     const content = delegate(this.buildContext(model, this.resolveLanguage(language)));
 
     const time = this.Log.timeEnd(label);
-    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
+    this.Log.trace({ templateName, time }, 'Rendering template ${templateName} ended, (${time} ms)');
 
     return content;
   }

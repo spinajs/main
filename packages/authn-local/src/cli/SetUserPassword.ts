@@ -60,11 +60,11 @@ export class SetUserPassword extends CliCommand {
     const result = await service.set(id, password, { now: new Date(), purpose: 'request' }, { actor: CLI_ACTOR });
     if (result.status === 'rejected') {
       const violations = result.violations.join(', ');
-      this.Log.error(`The password was rejected (${violations}); the stored password is unchanged`);
+      this.Log.error({ violations: result.violations }, 'The password was rejected (${violations}); the stored password is unchanged');
       throw new InvalidArgument(`password rejected: ${violations}`);
     }
 
-    this.Log.success(`Password set for ${id.type} ${id.id}`);
+    this.Log.success({ identityType: id.type, identityId: id.id }, 'Password set for ${identityType} ${identityId}');
     if (generated) {
       // Straight to stdout, not the logger: log targets may persist it.
       this.print(`Password (copy it now, it is not shown again): ${password}\n`);

@@ -155,7 +155,7 @@ export class SocketErrorMapper {
     const errorId = randomUUID();
     const err = error instanceof Error ? error : new Error(String(error));
 
-    this.Log.error(err, `Socket ${context} failed, errorId: ${errorId}`);
+    this.Log.error({ error: err, context, errorId }, 'Socket ${context} failed, errorId: ${errorId}');
 
     if (isProduction(this.IsProduction)) {
       return { code: 'internal', message: 'Internal server error', retryable: false, errorId };

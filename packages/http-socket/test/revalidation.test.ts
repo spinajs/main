@@ -14,6 +14,7 @@ import { SocketHub } from '../src/hub.js';
 import { ISocketCallStorage, ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from '../src/interfaces.js';
 import { MAX_CONCURRENT_REVALIDATIONS, SocketPrincipalGuard } from '../src/principal-guard.js';
 import { ALICE_PRINCIPAL, ITestServer, TestPrincipalSource, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
+import { logText, loggedError } from './log-text.js';
 
 export const revalRevoked = new Set<string>();
 export let revalChecks = 0;
@@ -279,12 +280,12 @@ describe('socket principal revalidation on commands', function () {
       clock.tick(1_000);
       expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
       expect(warn.callCount).to.equal(1);
-      expect(warn.firstCall.args.some((a) => a instanceof Error)).to.be.true;
+      expect(loggedError(warn.firstCall.args)).to.be.instanceOf(Error);
 
       clock.tick(1_000);
       expect(errorOf(await command(socket, 'reval.ping')).code).to.equal('unauthenticated');
       expect(warn.callCount).to.equal(2);
-      expect(String(warn.secondCall.args.find((a) => typeof a === 'string'))).to.match(/closing after grace/);
+      expect(logText(warn.secondCall.args)).to.match(/closing after grace/);
     } finally {
       warn.restore();
     }

@@ -96,11 +96,13 @@ export class fsFTP extends fs {
         secure: this.Options.secure ?? false,
       });
 
-      this.Logger.info(`Connected to ftp server at ${this.Options.host}:${this.Options.port}`);
+      this.Logger.info({ host: this.Options.host, port: this.Options.port }, 'Connected to ftp server at ${host}:${port}');
 
       this.FtpClient.trackProgress((info) => {
-        const cmd = info.name ? `file: ${info.name}` : `command: ${info.type}`;
-        this.Logger.debug(`Progress - ${cmd}, transferred: ${info.bytes} of total ${info.bytesOverall} bytes`);
+        this.Logger.debug(
+          { ...(info.name ? { file: info.name } : { command: info.type }), bytes: info.bytes, bytesOverall: info.bytesOverall },
+          'Progress - ${?file}file: ${file}${/file}${?command}command: ${command}${/command}, transferred: ${bytes} of total ${bytesOverall} bytes',
+        );
       });
     } catch (e) {
       throw new IOFail(`Cannot connect to ftp server: ${e.message}`);
@@ -122,7 +124,7 @@ export class fsFTP extends fs {
     await this._setWorkingDir(p);
     await this.FtpClient.downloadTo(wStream, path.basename(p));
 
-    this.Logger.debug(`Downloaded file ${p} to ${tmpName}`);
+    this.Logger.debug({ path: p, tmpName }, 'Downloaded file ${path} to ${tmpName}');
 
     return tmpName;
   }

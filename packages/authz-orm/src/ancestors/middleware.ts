@@ -84,6 +84,6 @@ export class AncestorMiddleware extends QueryMiddleware {
   private warnUnknownIds(work: Work): void {
     if (this.warned.has(work.model)) return;
     this.warned.add(work.model);
-    ormLog().warn(`authz-orm: an insert of ${nameOf(work.model)} did not report the ids it wrote, so their authz_resource_ancestor rows are missing (access only narrows); insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${work.entry.type}`);
+    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the ids it wrote, so their authz_resource_ancestor rows are missing (access only narrows); insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${resourceType}');
   }
 }

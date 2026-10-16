@@ -57,7 +57,7 @@ export class AuthnPasswordController extends BaseController {
       if (result.status === 'throttled') return resetRequestThrottled(result.retryAfterSeconds);
     } catch (err) {
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
-      this._log.warn(`A password reset request failed: ${(err as Error)?.name ?? typeof err}`);
+      this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A password reset request failed: ${errorName}');
     }
     return resetAck();
   }

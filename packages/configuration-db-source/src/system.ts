@@ -55,7 +55,7 @@ function serviceOf(domain: string): Promise<AuthzService> {
     };
     const timer = setTimeout(() => {
       if (domain === 'root') {
-        InternalLogger.warn(`AuthzService not booted ${bootWaitMs} ms after start (no http server?); booting it for the configuration source`, 'configuration-db-source');
+        InternalLogger.warn({ bootWaitMs }, 'AuthzService not booted ${bootWaitMs} ms after start (no http server?); booting it for the configuration source', 'configuration-db-source');
         go();
       }
     }, bootWaitMs);
