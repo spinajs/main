@@ -90,3 +90,14 @@ packages/*/__cache__/
 
 # docs:check scratch (scripts/check-doc-samples.mjs)
 .tmp/
+
+# graphify: graph, report, viz and extraction cache are versioned; manifest and run state stay local
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/graph.html
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cache/hook_sessions/
+graphify-out/cache/last_query_stamp
+graphify-out/cache/.gfy-*.tmp
