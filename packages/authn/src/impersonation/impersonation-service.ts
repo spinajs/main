@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
@@ -77,26 +76,11 @@ function actingFacts(f: AuthnFacts): AuthnFacts {
   return { ...ownFacts(f), ...(isNonEmptyString(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
 }
 
-// Per process, across containers: two parallel starts (or stops) on one session must not both pass the checks.
-const switching = new Map<string, Promise<unknown>>();
-
-async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Promise<T> {
-  const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(session, 'session');
-  if (!ok) return run();
-  const key = createHash('sha256').update(id).digest('hex');
-  const mine = (switching.get(key) ?? Promise.resolve()).then(run, run);
-  const tail = mine.catch(() => undefined);
-  switching.set(key, tail);
-  try {
-    return await mine;
-  } finally {
-    if (switching.get(key) === tail) switching.delete(key);
-  }
-}
-
 /**
- * Impersonation (design §22.14, A20, SR-06): start and stop issue a new session and revoke the old one. An ended
- * impersonation answers null, never the impersonator, because a request cannot rotate the cookie. One per container (D11).
+ * Impersonation (design §22.14, A20, SR-06): start and stop issue a new session and revoke the old one. Only the call
+ * whose revoke ended the old session keeps its new one, so parallel starts or stops on one session, in any process, let
+ * one through. An ended impersonation answers null, never the impersonator, because a request cannot rotate the cookie.
+ * One per container (D11).
  */
 @PerChildInstance()
 @Inject(Container)
@@ -126,16 +110,6 @@ export class AuthnImpersonationService extends AsyncService {
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     await super.resolve();
-  }
-
-  /** `reauth` is verified only when `requirePassword` is on and the session is not fresh. */
-  public start(session: SessionHandle, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<ImpersonationStart> {
-    return oneAtATime(session, () => this.startNow(session, target, ctx, reauth));
-  }
-
-  /** The impersonator's new session, or null when this is no live impersonation or the impersonator may not log in. */
-  public stop(session: SessionHandle, ctx: AuthnContext): Promise<SessionHandle | null> {
-    return oneAtATime(session, () => this.stopNow(session, ctx));
   }
 
   /** What a request with this session resolves to; null when it yields no principal. */
@@ -172,7 +146,8 @@ export class AuthnImpersonationService extends AsyncService {
     return this.sessions.revokeAll(impersonator, { includeImpersonations: true, ...(opts.except ? { except: opts.except } : {}) });
   }
 
-  private async startNow(session: SessionHandle, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<ImpersonationStart> {
+  /** `reauth` is verified only when `requirePassword` is on and the session is not fresh. */
+  public async start(session: SessionHandle, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<ImpersonationStart> {
     let about: About = {};
     let issued: SessionHandle | undefined;
     try {
@@ -187,12 +162,11 @@ export class AuthnImpersonationService extends AsyncService {
       issued = await this.sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
       await this.sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
       const now = await this.sessions.restore(issued.id);
-      // An endFor of the actor that ran since the first restore swept the old session but not the new one.
-      if (!(await this.sessions.restore(stored.handle.id))) {
+      // A parallel start, or an endFor of the actor, ended the old session first.
+      if (!(await this.sessions.revoke(stored.handle))) {
         await this.sessions.revoke(issued);
         return await this.refuseStart(ctx, 'revoked', about);
       }
-      await this.sessions.revoke(stored.handle);
       await this.audit(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
       return { ok: true, session: issued };
     } catch (err) {
@@ -201,7 +175,8 @@ export class AuthnImpersonationService extends AsyncService {
     }
   }
 
-  private async stopNow(session: SessionHandle, ctx: AuthnContext): Promise<SessionHandle | null> {
+  /** The impersonator's new session, or null when this is no live impersonation or the impersonator may not log in. */
+  public async stop(session: SessionHandle, ctx: AuthnContext): Promise<SessionHandle | null> {
     let about: About = {};
     let issued: SessionHandle | undefined;
     try {
@@ -220,11 +195,10 @@ export class AuthnImpersonationService extends AsyncService {
       // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
       if (actorCeiling) await this.sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
       const now = await this.sessions.restore(issued.id);
-      if (!(await this.sessions.restore(stored.handle.id))) {
+      if (!(await this.sessions.revoke(stored.handle))) {
         await this.sessions.revoke(issued);
         return await this.refuseStop(ctx, 'revoked', about);
       }
-      await this.sessions.revoke(stored.handle);
       await this.audit(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
       return issued;
     } catch (err) {

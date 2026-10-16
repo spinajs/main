@@ -145,8 +145,8 @@ export class DbSessionStore extends SessionProvider {
     return !this.expirationEquals(current, session.Expiration);
   }
 
-  public async delete(sessionId: string): Promise<void> {
-    await DbSession.destroy(sessionId);
+  public async delete(sessionId: string): Promise<boolean> {
+    return rowsAffected(await DbSession.destroy(sessionId)) === 1;
   }
 
   /**

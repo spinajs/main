@@ -59,8 +59,8 @@ class MemoryStore extends SessionProvider {
     this.applyRenewedExpiration(session);
     return before !== session.Expiration?.toMillis();
   }
-  async delete(sessionId: string): Promise<void> {
-    this.rows.delete(sessionId);
+  async delete(sessionId: string): Promise<boolean> {
+    return this.rows.delete(sessionId);
   }
   async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
     let n = 0;
@@ -404,7 +404,7 @@ describe('@spinajs/authn-session contracts', function () {
       same<Parameters<SessionProvider['touch']>, [ISession]>(true);
       same<ReturnType<SessionProvider['touch']>, Promise<boolean>>(true);
       same<Parameters<SessionProvider['delete']>, [string]>(true);
-      same<ReturnType<SessionProvider['delete']>, Promise<void>>(true);
+      same<ReturnType<SessionProvider['delete']>, Promise<boolean>>(true);
       same<Parameters<SessionProvider['deleteBySubject']>, [IdentityRef, { includeImpersonations?: boolean; except?: string }?]>(true);
       same<ReturnType<SessionProvider['deleteBySubject']>, Promise<number>>(true);
       same<Parameters<SessionProvider['listBySubject']>, [IdentityRef, { includeImpersonations?: boolean }?]>(true);
@@ -445,6 +445,7 @@ describe('@spinajs/authn-session contracts', function () {
         async touch(): Promise<boolean> {
           return false;
         }
+        // @ts-expect-error delete resolves to whether this call removed the row
         async delete(): Promise<void> {}
         // @ts-expect-error deleteBySubject resolves to the count
         async deleteBySubject(): Promise<void> {}

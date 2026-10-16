@@ -62,8 +62,10 @@ class MemoryIssuer extends SessionIssuer {
   async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
     this.rows.find((x) => x.id === h.id)!.data.set(key, value);
   }
-  async revoke(h: SessionHandle): Promise<void> {
+  async revoke(h: SessionHandle): Promise<boolean> {
+    const before = this.rows.length;
     this.rows = this.rows.filter((x) => x.id !== h.id);
+    return this.rows.length < before;
   }
   async revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number> {
     const hit = (r: Row) => r.id !== opts?.except?.id && (r.identity.id === subject.id || (!!opts?.includeImpersonations && r.impersonator?.id === subject.id));
@@ -228,7 +230,7 @@ describe('session issuer contract', () => {
       same<Parameters<SessionIssuer['set']>, [SessionHandle, string, unknown]>(true);
       same<ReturnType<SessionIssuer['set']>, Promise<void>>(true);
       same<Parameters<SessionIssuer['revoke']>, [SessionHandle]>(true);
-      same<ReturnType<SessionIssuer['revoke']>, Promise<void>>(true);
+      same<ReturnType<SessionIssuer['revoke']>, Promise<boolean>>(true);
       same<Parameters<SessionIssuer['revokeAll']>, [IdentityRef, { except?: SessionHandle; includeImpersonations?: boolean }?]>(true);
       same<ReturnType<SessionIssuer['revokeAll']>, Promise<number>>(true);
       same<Parameters<SessionIssuer['revokeHandle']>, [IdentityRef, string]>(true);
@@ -270,7 +272,9 @@ describe('session issuer contract', () => {
           return h;
         }
         async set(): Promise<void> {}
-        async revoke(): Promise<void> {}
+        async revoke(): Promise<boolean> {
+          return false;
+        }
         async revokeHandle(): Promise<boolean> {
           return false;
         }

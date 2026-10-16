@@ -64,7 +64,8 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   /** Renews through applyRenewedExpiration, so a pending session is never extended; true when the expiration changed and was written. */
   public abstract touch(session: ISession): Promise<boolean>;
 
-  public abstract delete(sessionId: string): Promise<void>;
+  /** True only when this call removed the row: one atomic store operation, so parallel deletes of one key yield one true. */
+  public abstract delete(sessionId: string): Promise<boolean>;
 
   /**
    * Deletes the subject's sessions and returns how many. With includeImpersonations

@@ -291,7 +291,20 @@ describe('AuthnImpersonationService', function () {
       const rs = await Promise.all([svc.start(admin, b, ctx()), svc.start(admin, carol, ctx())]);
       assert.strictEqual(rs.filter((r) => r.ok).length, 1);
       assert.strictEqual((await p.sessions.storage.storedKeys()).length, 1, 'one impersonation session, no actor session');
-      assert.deepStrictEqual(reasons(p, 'impersonation.start'), [undefined, 'not_active']);
+      assert.deepStrictEqual(reasons(p, 'impersonation.start').sort(), ['revoked', undefined]);
+    });
+
+    it('refuses when another process ends the actor session right before its own revoke', async () => {
+      const { p, svc, a, b } = await boot();
+      const admin = await issue(p, a);
+      const revoke = p.sessions.revoke.bind(p.sessions);
+      p.sessions.revoke = async (h) => {
+        if (h.id === admin.id) await revoke(h);
+        return revoke(h);
+      };
+      assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), [], 'no impersonation session is left');
+      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['revoked']);
     });
 
     it('cannot renew the session lifetime of the original login by cycling start and stop (I1)', async () => {
@@ -415,6 +428,21 @@ describe('AuthnImpersonationService', function () {
       const rs = await Promise.all([svc.stop(imp, ctx()), svc.stop(imp, ctx())]);
       assert.strictEqual(rs.filter((r) => r !== null).length, 1);
       assert.strictEqual((await p.sessions.storage.storedKeys()).length, 1);
+      assert.deepStrictEqual(reasons(p, 'impersonation.end').sort(), ['revoked', undefined]);
+    });
+
+    it('refuses when another process ends the impersonation session right before its own revoke', async () => {
+      const booted = await boot();
+      const { p, svc } = booted;
+      const { imp } = await started(booted);
+      const revoke = p.sessions.revoke.bind(p.sessions);
+      p.sessions.revoke = async (h) => {
+        if (h.id === imp.id) await revoke(h);
+        return revoke(h);
+      };
+      assert.strictEqual(await svc.stop(imp, ctx()), null);
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), [], 'no impersonator session is left');
+      assert.strictEqual(events(p, 'impersonation.end').at(-1)?.reason, 'revoked');
     });
 
     it('does not escape an endFor of the impersonator that runs while it stops (R2)', async () => {

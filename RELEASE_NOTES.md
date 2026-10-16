@@ -239,6 +239,12 @@ what each fix changes for an app.
   enrolment routes take the steps from the configured policy. Extend `ConfiguredMfaPolicy` (as
   `DefaultMfaPolicy` does) to list `authn.mfa.steps`, once per instance at its resolve.
 - **`selectMfaPolicy(container, name)`** resolves the policy `authn.mfa.policy.service` names.
+- **`SessionIssuer.revoke` and `SessionProvider.delete` resolve to a `boolean`**: true only for the call
+  that ended the session, from one atomic store operation. A custom session store or issuer must return it.
+  Impersonation start and stop keep their new session only when their own revoke ended the old one, so
+  parallel switches on one session let exactly one through across processes, not only within one. The same
+  holds for `rotate` and `elevate`: of parallel calls on one session one succeeds, the rest throw
+  `InvalidOperation`, where each used to leave a live session.
 
 ### HTTP routes and answers
 

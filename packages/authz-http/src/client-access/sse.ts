@@ -166,7 +166,7 @@ export class AccessEventStream extends HttpResponse {
 const SESSION_ENDS: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['logout', 'session.revoke', 'session.expire']);
 
 /**
- * Their `session` is not always the ended one (stopNow names the impersonator's new session, startNow the
+ * Their `session` is not always the ended one (stop names the impersonator's new session, start the
  * impersonation's), so the identity's and the actor's streams are only re-checked against the SessionIssuer.
  */
 const IMPERSONATION: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['impersonation.start', 'impersonation.end', 'impersonation.expire']);

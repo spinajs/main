@@ -135,6 +135,10 @@ The interfaces are in `authn/src/contracts/` unless noted.
 | `TokenService` | `DbTokenService` (`authn-token/src/service/token-service.ts:135`) | — |
 | `AuthnEventSink` | `DbAuthnAuditSink` (`authn-orm`) | `LogAuthnAuditSink` |
 
+`SessionProvider.delete` and `SessionIssuer.revoke` resolve to true only for the call that removed the
+session, so a store must decide it in one atomic operation (a DELETE's affected rows, Redis `DEL`, DynamoDB
+`ReturnValues: ALL_OLD`). Impersonation start and stop rely on it to let one of parallel switches through.
+
 `users` adds two sinks: `UserAccountSink` writes `PasswordSetAt` and activates invited accounts, and
 the queue sink re-emits `UserLogged` and `UserLoginFailed`.
 

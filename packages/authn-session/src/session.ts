@@ -79,8 +79,8 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     return !expirationEquals(current, session.Expiration);
   }
 
-  public async delete(sessionId: string): Promise<void> {
-    this.Sessions.delete(sessionId);
+  public async delete(sessionId: string): Promise<boolean> {
+    return this.Sessions.delete(sessionId);
   }
 
   public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {

@@ -295,6 +295,29 @@ describe('DefaultSessionIssuer hardening', () => {
       expect(rowsOf(store).size).to.equal(0);
     });
 
+    it('of parallel rotations of one session exactly one succeeds and leaves one working session', async () => {
+      const { issuer, store } = await setup();
+      const h = await issuer.issue(alice, facts());
+
+      const results = await Promise.allSettled([issuer.rotate(h), issuer.rotate(h), issuer.rotate(h)]);
+      const won = results.filter((r): r is PromiseFulfilledResult<SessionHandle> => r.status === 'fulfilled');
+      expect(won).to.have.length(1);
+      for (const r of results.filter((x) => x.status === 'rejected')) {
+        expect((r as PromiseRejectedResult).reason).to.be.instanceOf(InvalidOperation);
+      }
+      expect(rowsOf(store).size).to.equal(1);
+      expect(await issuer.restore(won[0].value.id)).to.not.be.null;
+    });
+
+    it('of parallel elevations of one pending session exactly one succeeds', async () => {
+      const { issuer, store } = await setup();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+
+      const results = await Promise.allSettled([issuer.elevate(pd, { mfa: ['totp'] }), issuer.elevate(pd, { mfa: ['totp'] })]);
+      expect(results.filter((r) => r.status === 'fulfilled')).to.have.length(1);
+      expect(rowsOf(store).size).to.equal(1);
+    });
+
     it('the first use of a 2.x id after a ban does not migrate it back', async () => {
       const { issuer, store } = await setup();
       const raw = randomUUID();

@@ -198,13 +198,15 @@ export class DynamoDbSessionProvider extends SessionProvider {
     return !this.expirationEquals(current, session.Expiration);
   }
 
-  public async delete(sessionId: string): Promise<void> {
-    await this.DynamoDb.send(
+  public async delete(sessionId: string): Promise<boolean> {
+    const result = await this.DynamoDb.send(
       new DeleteItemCommand({
         TableName: this.Table,
         Key: { SessionId: { S: sessionId } },
+        ReturnValues: 'ALL_OLD',
       }),
     );
+    return result.Attributes !== undefined;
   }
 
   /**

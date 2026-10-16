@@ -61,6 +61,19 @@ export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout
     },
   }),
   defineCase({
+    name: 'A08 of parallel revokes of one session exactly one reports that it ended it',
+    facet: 'A08/store',
+    needs: ['sessions', 'seed'],
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      const s1 = await h.sessions.issue(a, factsAal1(k));
+      const results = await Promise.all([h.sessions.revoke(s1), h.sessions.revoke(s1), h.sessions.revoke(s1)]);
+      assert.strictEqual(results.filter((r) => r).length, 1);
+      assert.strictEqual(await h.sessions.restore(s1.id), null);
+      assert.strictEqual(await h.sessions.revoke(s1), false, 'an ended session is not ended again');
+    },
+  }),
+  defineCase({
     name: 'A08 revokeAll except keeps the current session',
     facet: 'A08/store',
     needs: ['sessions', 'seed'],

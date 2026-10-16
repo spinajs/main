@@ -172,9 +172,21 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
 
         const session = makeSession();
         await provider.save(session);
-        await provider.delete(session.SessionId);
+        expect(await provider.delete(session.SessionId)).to.eq(true);
 
         expect(await provider.restore(session.SessionId)).to.be.null;
+        expect(await provider.delete(session.SessionId), 'a second delete removes nothing').to.eq(false);
+      });
+
+      it('of parallel deletes of one session exactly one reports the removal', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const session = makeSession();
+        await provider.save(session);
+        const results = await Promise.all([provider.delete(session.SessionId), provider.delete(session.SessionId), provider.delete(session.SessionId)]);
+
+        expect(results.filter((r) => r)).to.have.length(1);
       });
 
       it('deleteBySubject removes all sessions for a subject and returns the count', async () => {

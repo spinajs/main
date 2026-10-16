@@ -27,7 +27,8 @@ export abstract class SessionIssuer {
   abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
   /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
   abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
-  abstract revoke(h: SessionHandle): Promise<void>;
+  /** True only for the call that ended the session, so of parallel revokes of one session exactly one gets true. */
+  abstract revoke(h: SessionHandle): Promise<boolean>;
   /** Returns the count. includeImpersonations also ends sessions in which the subject is the impersonator (SR-06, A08, A20). */
   abstract revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number>;
   /**

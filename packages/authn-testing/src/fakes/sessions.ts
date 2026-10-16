@@ -165,8 +165,8 @@ export class MemorySessionIssuer extends SessionIssuer {
     this.need(h).row.data.set(key, value);
   }
 
-  async revoke(h: SessionHandle): Promise<void> {
-    this.rows.delete(sha256hex(h.id));
+  async revoke(h: SessionHandle): Promise<boolean> {
+    return this.rows.delete(sha256hex(h.id));
   }
 
   async revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number> {

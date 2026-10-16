@@ -216,15 +216,14 @@ export class DefaultSessionIssuer extends SessionIssuer {
     }
   }
 
-  public async revoke(h: SessionHandle): Promise<void> {
+  public async revoke(h: SessionHandle): Promise<boolean> {
     const key = keyOf(h);
     if (key === null) {
-      return;
+      return false;
     }
-    await this.Store.delete(key);
-    if (isLegacySessionId(h.id)) {
-      await this.Store.delete(h.id);
-    }
+    const deleted = await this.Store.delete(key);
+    const legacyDeleted = isLegacySessionId(h.id) && (await this.Store.delete(h.id));
+    return deleted || legacyDeleted;
   }
 
   public async revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number> {
@@ -391,7 +390,9 @@ export class DefaultSessionIssuer extends SessionIssuer {
    * Re-keys a row under a fresh id. The new row is saved first; if the old row
    * vanished meanwhile (logout, ban), the copy is dropped, so a revocation that
    * lands during a rotation is never undone. A revokeAll after the check also
-   * reaches the copy, which already carries the subject.
+   * reaches the copy, which already carries the subject. Only the move whose
+   * delete removed the old row keeps its copy, so of parallel rotations or
+   * elevations of one session exactly one succeeds.
    */
   protected async moveTo(session: ISession, data: Map<string, unknown>, over: Partial<ISession>): Promise<SessionHandle> {
     const rawId = randomBytes(16).toString('base64url');
@@ -413,11 +414,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
       await this.Store.delete(session.SessionId);
       throw new InvalidOperation('Unknown or expired session');
     }
-    if (!(await this.Store.restore(session.SessionId))) {
+    // restore first: a delete also reports an expired row that the store has not swept yet.
+    if (!(await this.Store.restore(session.SessionId)) || !(await this.Store.delete(session.SessionId))) {
       await this.Store.delete(moved.SessionId);
       throw new InvalidOperation('Unknown or expired session');
     }
-    await this.Store.delete(session.SessionId);
     return { id: rawId, state: moved.State };
   }
 }

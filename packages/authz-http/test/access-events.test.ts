@@ -294,7 +294,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
     try {
       for (const s of opened) await s.frame();
 
-      // ImpersonationService.startNow revokes a0 and publishes the impersonation session's handle.
+      // ImpersonationService.start revokes a0 and publishes the impersonation session's handle.
       ListOnlySessions.live = { kate: ['k1', 'imp'], liam: [] };
       await sink.publish({ type: 'impersonation.start', at: new Date(), outcome: 'success', identity: target, actor, session: 'imp' });
       await ended(before);
@@ -304,7 +304,7 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
       opened.push(imp);
       await imp.frame();
 
-      // stopNow revokes imp and publishes the impersonator's new session a1.
+      // stop revokes imp and publishes the impersonator's new session a1.
       ListOnlySessions.live = { kate: ['k1'], liam: ['a1'] };
       const after = await openStream(app, { 'x-user': 'liam', 'x-session': 'a1' });
       opened.push(after);

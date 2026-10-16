@@ -165,7 +165,7 @@ export class RedisSessionStore extends SessionProvider {
     throw new Error(`Session touch lost ${TOUCH_ATTEMPTS} races in a row`);
   }
 
-  public async delete(sessionId: string): Promise<void> {
+  public async delete(sessionId: string): Promise<boolean> {
     const key = this.sessionKey(sessionId);
     const raw = await this.Client.get(key);
     const row = raw ? this.toSession(sessionId, raw, true) : null;
@@ -174,7 +174,8 @@ export class RedisSessionStore extends SessionProvider {
     for (const set of row ? this.indexSetsOf(row) : []) {
       multi.srem(set.key, sessionId);
     }
-    await this.exec(multi);
+    const [deleted] = await this.exec(multi);
+    return deleted === 1;
   }
 
   /**
