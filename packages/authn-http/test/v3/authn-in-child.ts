@@ -1,6 +1,8 @@
 import sinon from 'sinon';
 import type { IContainer } from '@spinajs/di';
+import { CredentialExtractor, SessionIssuer } from '@spinajs/authn/contracts';
 
+import { AuthnPrincipalResolver } from '../../src/api.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 
 /**
@@ -11,7 +13,11 @@ import { AuthnMiddleware } from '../../src/middleware/authn.js';
 export function buildAuthnMiddlewareIn(child: IContainer): sinon.SinonStub {
   const resolve = AuthnMiddleware.prototype.resolve;
   return sinon.stub(AuthnMiddleware.prototype, 'resolve').callsFake(async function (this: AuthnMiddleware) {
-    (this as unknown as { Container: IContainer }).Container = child;
+    const self = this as unknown as { Container: IContainer; Sessions: unknown; Extractors: unknown; Resolvers: unknown };
+    self.Container = child;
+    self.Sessions = await child.resolve(SessionIssuer);
+    self.Extractors = await child.resolve(Array.ofType(CredentialExtractor));
+    self.Resolvers = await child.resolve(Array.ofType(AuthnPrincipalResolver));
     return resolve.call(this);
   });
 }

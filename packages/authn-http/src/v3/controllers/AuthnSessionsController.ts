@@ -23,6 +23,9 @@ export class AuthnSessionsController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(SessionIssuer)
+  protected Sessions!: SessionIssuer;
+
   /**
    * List own sessions
    * Newest first; `Current` marks the one making the request. Sessions in which someone impersonates the caller are
@@ -32,7 +35,7 @@ export class AuthnSessionsController extends BaseController {
   @Get('sessions')
   public async list(@Req() req: Request) {
     const session = this.own(req);
-    const rows = await (await this.Container.resolve(SessionIssuer)).list(session.identity, { current: session.handle });
+    const rows = await this.Sessions.list(session.identity, { current: session.handle });
     const entries = [...rows]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((r) => ({
@@ -54,7 +57,7 @@ export class AuthnSessionsController extends BaseController {
   @Del('sessions/:handle')
   public async revoke(@Req() req: Request, @Param() handle: string) {
     const session = this.own(req);
-    const ended = typeof handle === 'string' && (await (await this.Container.resolve(SessionIssuer)).revokeHandle(session.identity, handle));
+    const ended = typeof handle === 'string' && (await this.Sessions.revokeHandle(session.identity, handle));
     if (!ended) return new NotFound({ error: 'session_not_found', message: 'No such session' });
     await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
     const current = handle === session.facts.sessionHandle;
@@ -69,7 +72,7 @@ export class AuthnSessionsController extends BaseController {
   @Del('sessions')
   public async revokeOthers(@Req() req: Request) {
     const session = this.own(req);
-    const revoked = await (await this.Container.resolve(SessionIssuer)).revokeAll(session.identity, { except: session.handle });
+    const revoked = await this.Sessions.revokeAll(session.identity, { except: session.handle });
     await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
     return new Ok({ Revoked: revoked }, { Headers: [NO_STORE] });
   }

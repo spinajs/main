@@ -144,7 +144,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
       const warnings: string[] = [];
       Object.defineProperty(mw, 'Configuration', { value: configuration });
       Object.defineProperty(mw, 'Log', { value: { warn: (m: string) => warnings.push(m) } as unknown as Log });
-      Object.defineProperty(mw, 'Container', { value: { resolve: async (t: unknown) => ((t as { Type?: unknown }).Type ? [] : { restore: async () => null }) } });
+      Object.assign(mw, { Container: {}, Sessions: { restore: async () => null }, Extractors: [], Resolvers: [] });
       return { mw: mw as unknown as AuthnMiddleware, warnings };
     };
 

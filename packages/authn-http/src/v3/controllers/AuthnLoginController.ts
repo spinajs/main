@@ -21,6 +21,12 @@ export class AuthnLoginController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(SessionIssuer)
+  protected Sessions!: SessionIssuer;
+
+  @Autoinject(AuthnService)
+  protected Authn!: AuthnService;
+
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
@@ -34,7 +40,7 @@ export class AuthnLoginController extends BaseController {
    */
   @Post('login')
   public async login(@Req() req: Request) {
-    const sessions = await this.Container.resolve(SessionIssuer);
+    const sessions = this.Sessions;
     const held = req.storage.AuthnSession;
     if (held) {
       await sessions.revoke(held.handle);
@@ -47,7 +53,7 @@ export class AuthnLoginController extends BaseController {
     const password = boundedString(bodyField(req, 'password', 'Password'), PASSWORD_HARD_CAP);
     if (login === null || password === null) return authnFailureResponse(undefined, cleared);
 
-    const authn = await this.Container.resolve(AuthnService);
+    const authn = this.Authn;
     const result = await authn.authenticate({ kind: 'password', login, password }, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {
@@ -73,7 +79,7 @@ export class AuthnLoginController extends BaseController {
   public async logout(@Req() req: Request) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
-    await (await this.Container.resolve(SessionIssuer)).revoke(session.handle);
+    await this.Sessions.revoke(session.handle);
     await auditEnded(this.Container, req, session, 'logout', 'logout');
     return new Ok(null, {
       Coockies: [authnClearedSessionCookie(this._cfg)],

@@ -1,4 +1,4 @@
-import { AsyncService, Container, DI, Inject, PerChildInstance } from '@spinajs/di';
+import { Autoinject, AsyncService, DI, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
@@ -23,10 +23,24 @@ export const appEnvOf = (config: Configuration): string | undefined => sessionAp
  * as the core's services (D11). Boot fails on any invalid provider.
  */
 @PerChildInstance()
-@Inject(Container)
 export class OidcProviders extends AsyncService {
   @Logger('authn-oidc')
   protected Log: Log;
+
+  @Autoinject(Configuration)
+  protected Configuration!: Configuration;
+
+  @Autoinject(OidcHttpClient)
+  protected Http!: OidcHttpClient;
+
+  @Autoinject(NonceStore)
+  protected Nonces!: NonceStore;
+
+  @Autoinject(IdentityLinkStore)
+  protected Links!: IdentityLinkStore;
+
+  @Autoinject(IdentityStore, { optional: true })
+  protected Identities: IdentityStore | undefined;
 
   @Config('authn.oidc')
   protected Oidc: ConfiguredOidc;
@@ -39,14 +53,9 @@ export class OidcProviders extends AsyncService {
   public linking = { jit: false, byVerifiedEmail: false };
   protected readonly byName = new Map<string, OidcStrategy>();
 
-  constructor(protected readonly container: IContainer) {
-    super();
-  }
-
   public async resolve(): Promise<void> {
     // A @Config read needs the container's Configuration resolved; the env needs the object itself (SR-16).
-    const config = await this.container.resolve(Configuration);
-    this.env = appEnvOf(config);
+    this.env = appEnvOf(this.Configuration);
     // === true: the strategy reads these as truthy, and a value set at runtime never went through the schema.
     this.linking = { jit: this.GlobalLinking?.jit === true, byVerifiedEmail: this.GlobalLinking?.byVerifiedEmail === true };
     this.options = buildOidcOptions(this.Oidc, this.env, {
@@ -54,13 +63,10 @@ export class OidcProviders extends AsyncService {
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
     });
     if (this.options.providers.size > 0) {
-      const http = await this.container.resolve(OidcHttpClient);
-      const nonces = await this.container.resolve(NonceStore);
-      const links = await this.container.resolve(IdentityLinkStore);
-      const identities = this.container.hasRegistered(IdentityStore) ? await this.container.resolve(IdentityStore) : null;
+      const identities = this.Identities ?? null;
       const relaxed = isRelaxedEnv(this.env);
       for (const [name, options] of this.options.providers) {
-        this.byName.set(name, new OidcStrategy({ provider: new OidcProvider(options, http, nonces, relaxed), links, identities, linking: this.linking }));
+        this.byName.set(name, new OidcStrategy({ provider: new OidcProvider(options, this.Http, this.Nonces, relaxed), links: this.Links, identities, linking: this.linking }));
       }
     }
     await super.resolve();

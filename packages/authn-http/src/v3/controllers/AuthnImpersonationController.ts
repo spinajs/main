@@ -28,6 +28,12 @@ export class AuthnImpersonationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(AuthnImpersonationService, { optional: true })
+  protected Impersonation: AuthnImpersonationService | undefined;
+
+  @Autoinject(SessionIssuer)
+  protected Sessions!: SessionIssuer;
+
   /**
    * Impersonation state
    * `{ Active: false }`, or the impersonator, the target and the start time.
@@ -73,13 +79,13 @@ export class AuthnImpersonationController extends BaseController {
       throw err;
     }
 
-    const service = await this.Container.resolve(AuthnImpersonationService);
+    const service = this.Impersonation!;
     const ctx = contextOf(req, 'request', session.handle);
     // The service checks freshness again when authn.impersonation.requirePassword is on; a stale session passed above
     // only with the password, which it then needs too.
     const started = await service.start(session.handle, target, ctx, reauth ?? undefined);
     if (!started.ok) throw refused('impersonation_refused', 'impersonation refused');
-    await stampClient(await this.Container.resolve(SessionIssuer), started.session, req);
+    await stampClient(this.Sessions, started.session, req);
     const principal = await service.principalOf(started.session, ctx);
     if (!principal) return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
     return new Ok(await answerFor(this.Container, 'impersonation', principal), { Coockies: [authnSessionCookie(this._cfg, started.session)], Headers: [NO_STORE] });
@@ -98,10 +104,10 @@ export class AuthnImpersonationController extends BaseController {
     if (!req.storage.AuthnPrincipal?.authn?.impersonator || session?.handle.state !== 'active') {
       return new BadRequestResponse({ error: 'not_impersonating', message: 'no impersonation is active' });
     }
-    const service = await this.Container.resolve(AuthnImpersonationService);
+    const service = this.Impersonation!;
     const ctx = contextOf(req, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);
-    const sessions = await this.Container.resolve(SessionIssuer);
+    const sessions = this.Sessions;
     const own = back ? await service.principalOf(back, ctx) : null;
     const restored = back && own ? await sessions.restore(back.id) : null;
     if (!back || !own || !restored) {

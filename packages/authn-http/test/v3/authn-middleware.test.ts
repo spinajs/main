@@ -730,17 +730,7 @@ describe('AuthnMiddleware units', () => {
     Object.defineProperty(mw, 'Configuration', { value: config(values) });
     Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ 'authn.session.cookie': { name: 'ssid' }, ...values }) });
     Object.defineProperty(mw, 'Log', { value: l });
-    Object.defineProperty(mw, 'Container', {
-      value: {
-        resolve: async (t: unknown) => {
-          if (t === SessionIssuer) return parts.sessions ?? { restore: async () => null };
-          const type = (t as { Type?: unknown }).Type;
-          if (type === CredentialExtractor) return parts.extractors ?? [];
-          if (type === AuthnPrincipalResolver) return parts.resolvers ?? [];
-          throw new Error('unexpected resolve');
-        },
-      },
-    });
+    Object.assign(mw, { Container: {}, Sessions: parts.sessions ?? { restore: async () => null }, Extractors: parts.extractors ?? [], Resolvers: parts.resolvers ?? [] });
     return { mw, log: l };
   }
 

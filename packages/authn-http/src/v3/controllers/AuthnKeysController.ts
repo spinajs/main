@@ -31,6 +31,15 @@ export class AuthnKeysController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(SessionIssuer)
+  protected Sessions!: SessionIssuer;
+
+  @Autoinject(AuthnService)
+  protected Authn!: AuthnService;
+
+  @Autoinject(KeyRegistry, { optional: true })
+  protected Keys: KeyRegistry | undefined;
+
   /**
    * List own keys
    * Every key of the caller, revoked and expired ones included and marked.
@@ -132,7 +141,7 @@ export class AuthnKeysController extends BaseController {
    */
   @Post('auth/keys/login')
   public async login(@Req() req: Request) {
-    const sessions = await this.Container.resolve(SessionIssuer);
+    const sessions = this.Sessions;
     const held = req.storage.AuthnSession;
     if (held) {
       await sessions.revoke(held.handle);
@@ -143,7 +152,7 @@ export class AuthnKeysController extends BaseController {
     const credentials = keyLoginCredentialsOf(req);
     if (credentials === null) return authnFailureResponse(undefined, cleared);
 
-    const authn = await this.Container.resolve(AuthnService);
+    const authn = this.Authn;
     const result = await authn.authenticate(credentials, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {
@@ -157,6 +166,6 @@ export class AuthnKeysController extends BaseController {
   }
 
   protected async registry(): Promise<KeyRegistry> {
-    return await this.Container.resolve(KeyRegistry);
+    return this.Keys!;
   }
 }

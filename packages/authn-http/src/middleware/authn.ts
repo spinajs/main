@@ -71,9 +71,15 @@ export class AuthnMiddleware extends ServerMiddleware {
   @Logger('authn-http')
   protected Log!: Log;
 
+  @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
-  protected Extractors: readonly CredentialExtractor[] = [];
-  protected Resolvers: readonly AuthnPrincipalResolver[] = [];
+
+  @Autoinject(CredentialExtractor)
+  protected Extractors!: CredentialExtractor[];
+
+  @Autoinject(AuthnPrincipalResolver)
+  protected Resolvers!: AuthnPrincipalResolver[];
+
   protected CookieName!: string;
   protected CookieSecret!: string;
 
@@ -94,9 +100,8 @@ export class AuthnMiddleware extends ServerMiddleware {
     }
     this.CookieSecret = secret;
     this.CookieName = sessionCookieName(this.SessionCookie, env);
-    this.Sessions = await this.Container.resolve(SessionIssuer);
-    this.Extractors = [...(await this.Container.resolve(Array.ofType(CredentialExtractor)))].sort(byOrder);
-    this.Resolvers = [...(await this.Container.resolve(Array.ofType(AuthnPrincipalResolver)))].sort(byOrder);
+    this.Extractors = [...this.Extractors].sort(byOrder);
+    this.Resolvers = [...this.Resolvers].sort(byOrder);
     await super.resolve();
   }
 

@@ -1,5 +1,4 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Patch, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
@@ -27,8 +26,8 @@ import { contextOf } from '../routes.js';
 @BasePath('/')
 @Policy(PasswordServiceRegistered)
 export class AuthnPasswordController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
+  @Autoinject(PasswordService, { optional: true })
+  protected Passwords: PasswordService | undefined;
 
   /**
    * Password policy
@@ -122,6 +121,6 @@ export class AuthnPasswordController extends BaseController {
   }
 
   protected async service(): Promise<PasswordService> {
-    return await this.Container.resolve(PasswordService);
+    return this.Passwords!;
   }
 }

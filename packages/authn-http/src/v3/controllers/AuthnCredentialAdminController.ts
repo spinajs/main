@@ -37,6 +37,18 @@ export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(PasswordService, { optional: true })
+  protected Passwords: PasswordService | undefined;
+
+  @Autoinject(SessionIssuer, { optional: true })
+  protected Sessions: SessionIssuer | undefined;
+
+  @Autoinject(TokenService, { optional: true })
+  protected Tokens: TokenService | undefined;
+
+  @Autoinject(CredentialAdminGuard, { optional: true })
+  protected Guard: CredentialAdminGuard | undefined;
+
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
@@ -64,7 +76,7 @@ export class AuthnCredentialAdminController extends BaseController {
       return null;
     });
     if ('answer' in admitted) return admitted.answer;
-    await (await this.Container.resolve(PasswordService)).expire(admitted.target, { cause: 'admin', actor: admitted.actor, sendReset }, admitted.ctx);
+    await this.Passwords!.expire(admitted.target, { cause: 'admin', actor: admitted.actor, sendReset }, admitted.ctx);
     return new Ok({ expired: true, resetMailRequested: sendReset }, { Headers: [NO_STORE] });
   }
 
@@ -93,7 +105,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async sessions(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'sessions');
     if ('answer' in admitted) return admitted.answer;
-    const revoked = await (await this.Container.resolve(SessionIssuer)).revokeAll(admitted.target, { includeImpersonations: true });
+    const revoked = await this.Sessions!.revokeAll(admitted.target, { includeImpersonations: true });
     // SessionIssuer audits nothing.
     await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
@@ -109,7 +121,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async tokens(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'tokens');
     if ('answer' in admitted) return admitted.answer;
-    const revoked = await (await this.Container.resolve(TokenService)).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
+    const revoked = await this.Tokens!.revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
   }
 
@@ -132,7 +144,7 @@ export class AuthnCredentialAdminController extends BaseController {
     const invalid = fields?.();
     if (invalid) return { answer: invalid };
     const principal = authenticatedPrincipal(req);
-    const verdict = await (await this.Container.resolve(CredentialAdminGuard)).allowed(principal, target, action);
+    const verdict = await this.Guard!.allowed(principal, target, action);
     // A guard written past the types may answer anything; only `ok: true` opens the effect.
     if (verdict?.ok !== true) return { answer: guardRefusal(verdict?.code) };
     return { actor: { type: principal.type, id: principal.id }, target, ctx: contextOf(req, 'request', session.handle) };

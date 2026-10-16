@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import * as cs from 'cookie-signature';
-import { Autoinject, Container, DI, Injectable } from '@spinajs/di';
+import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
@@ -34,6 +34,12 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(SessionIssuer, { optional: true })
+  protected Sessions: SessionIssuer | undefined;
+
+  @Autoinject(SessionPrincipalResolver)
+  protected Resolver!: SessionPrincipalResolver;
+
   // appEnvOf reads the Configuration's Env for the SR-16 "no env named" rule, which @Config cannot give
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
@@ -49,7 +55,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
 
   public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
     // inert until the 3.0 session layer is registered, as AuthnCredentialSource is without an AuthnService
-    if (!DI.check(SessionIssuer)) {
+    if (!this.Sessions) {
       return null;
     }
 
@@ -58,15 +64,14 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
       return null;
     }
 
-    const restored = await (await this.Container.resolve(SessionIssuer)).restore(rawId);
+    const restored = await this.Sessions.restore(rawId);
     if (!restored) {
       this.Log.warn({ session: logHash(rawId), ip: handshake.address }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
       return null;
     }
     const session = resolveSession(this.Container, restored);
 
-    const resolver = await this.Container.resolve(SessionPrincipalResolver);
-    const principal = await resolver.principalOfSession(session, this.context(handshake));
+    const principal = await this.Resolver.principalOfSession(session, this.context(handshake));
     if (principal === null && session.handle.state === 'active') {
       throw new AuthenticationFailed(AUTHENTICATION_FAILED);
     }

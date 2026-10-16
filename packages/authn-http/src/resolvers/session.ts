@@ -34,6 +34,9 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(IdentityStore)
+  protected Identities!: IdentityStore;
+
   public async resolve(req: Request, _credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined> {
     const session = req.storage.AuthnSession;
     if (!session) return undefined;
@@ -56,7 +59,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
 
   /** authn-http cannot see the users lifecycle actions, so a refused status found here ends the identity's sessions (N8a-D4). */
   protected async endRefused(session: Session, impersonation: AuthnImpersonationService): Promise<void> {
-    const identities = await this.Container.resolve(IdentityStore);
+    const identities = this.Identities;
     const subjects: IdentityRef[] = [session.identity, ...(session.facts.impersonator ? [session.facts.impersonator] : [])];
     for (const subject of subjects) {
       if (VOUCHED_TYPES.has(subject.type)) continue;

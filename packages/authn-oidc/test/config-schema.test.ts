@@ -289,7 +289,8 @@ describe('authn.oidc through its own schema', function () {
         const values: Record<string, unknown> = { 'authn.oidc': { providers: {}, redirects: { success: '/', failure: '/' } }, 'authn.linking': linking };
         const configuration = { get: (path: string) => values[path] };
         const container = { Registry: { ownsRegistration: () => true }, getRegisteredTypes: () => [], get: () => configuration, resolve: async () => configuration } as unknown as IContainer;
-        const providers = readingFrom(new OidcProviders(container), container);
+        const providers = readingFrom(new OidcProviders(), container);
+        (providers as unknown as { Configuration: unknown }).Configuration = configuration;
         await providers.resolve();
         expect(providers.linking, JSON.stringify(linking)).to.deep.eq({ jit: false, byVerifiedEmail: false });
       }
