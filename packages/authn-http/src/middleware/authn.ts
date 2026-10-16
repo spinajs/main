@@ -8,14 +8,14 @@ import { Log, Logger } from '@spinajs/log';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
+import { Session } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, Principal, SignedRequest } from '@spinajs/authn/contracts';
 import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import type * as express from 'express';
 
 import { AuthnPrincipalResolver } from '../api.js';
 import { publicOriginOf } from '../extractors/signature.js';
-
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
@@ -161,7 +161,8 @@ export class AuthnMiddleware extends ServerMiddleware {
 
     const restored = await this.Sessions.restore(id);
     if (!restored) this.Log.warn({ session: logHash(id), ip: req.storage.ClientIp }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
-    return restored;
+    // An issuer outside TypeScript may hand back a plain object; the typed reads need a Session.
+    return restored && !(restored instanceof Session) ? new Session(restored) : restored;
   }
 
   /** `targetUri` is the origin-form target (path and query); the signature extractor adds authn.http.publicOrigin. */

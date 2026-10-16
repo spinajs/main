@@ -54,6 +54,15 @@ export function activeRoleSuite(): void {
     });
   });
 
+  it("GET /auth/active-role: a stored value no role switch writes answers ''", async () => {
+    const { c } = await withRoles();
+    const issuer = (await DI.resolve(SessionIssuer)) as SessionIssuer;
+    await issuer.set({ id: c.sessionId!, state: 'active' }, 'ActiveRole', 42);
+    const res = await c.get('/auth/active-role');
+    expect(res.status).to.eq(200);
+    expect(res.body.ActiveRole).to.eq('');
+  });
+
   it('A26 a held role: rotates the session, then sets ActiveRole; the ceiling and the role-switch extensions follow', async () => {
     const { u, c } = await withRoles();
     resetRecorders();

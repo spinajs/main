@@ -656,6 +656,19 @@ describe('AuthnImpersonationService', function () {
       assert.strictEqual(stored?.data.has(ACTIVE_ROLE_KEY), false, 'the switch would narrow the target');
     });
 
+    it('start: a plain-object restore result still narrows the actor', async () => {
+      const booted = await boot();
+      const { p, svc, b } = booted;
+      const { admin } = await switched(booted);
+      const restore = p.sessions.restore.bind(p.sessions);
+      p.sessions.restore = async (id) => {
+        const s = await restore(id);
+        return s ? ({ handle: s.handle, identity: s.identity, facts: s.facts, data: s.data } as unknown as Session) : null;
+      };
+      assert.ok((await svc.start(admin, b, ctx())).ok);
+      assert.deepStrictEqual(p.guard.calls[0].actor.ceiling, { roles: ['user'] });
+    });
+
     it('start: a guard that refuses the narrowed actor refuses the start; the same actor unswitched starts', async () => {
       const booted = await boot();
       const { p, svc, b } = booted;

@@ -16,8 +16,7 @@ import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
-import { SessionKeys } from '../contracts/session-state.js';
-import type { Session } from '../contracts/session-state.js';
+import { Session, SessionKeys } from '../contracts/session-state.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
 /**
@@ -257,7 +256,9 @@ export class AuthnImpersonationService extends AsyncService {
     const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
     if (!ok) return null;
     const stored = await this.sessions.restore(id);
-    return stored && stored.handle.state === 'active' ? stored : null;
+    if (!stored) return null;
+    const session = stored instanceof Session ? stored : new Session(stored);
+    return session.handle.state === 'active' ? session : null;
   }
 
   /** The block of a live impersonation, or why the impersonation is over whatever the stores say. */

@@ -847,7 +847,7 @@ export declare const SessionKeys: Readonly<{
     Impersonation: SessionKey<ImpersonationBlock | null>;
     Ip: SessionKey<string | undefined>;
     UserAgent: SessionKey<string | undefined>;
-    /** Only on a pending session, from the issuer; `set` refuses it. */
+    /** Only on a pending session, from the issuer; DefaultSessionIssuer's `set` refuses it. */
     PendingSteps: SessionKey<readonly string[] | undefined>;
 }>;
 export interface SessionInit {

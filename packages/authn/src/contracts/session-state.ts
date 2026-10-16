@@ -51,7 +51,7 @@ export const SessionKeys = Object.freeze({
   Impersonation: sessionKey('Impersonation', impersonationBlock),
   Ip: sessionKey('Ip', nonEmpty),
   UserAgent: sessionKey('UserAgent', nonEmpty),
-  /** Only on a pending session, from the issuer; `set` refuses it. */
+  /** Only on a pending session, from the issuer; DefaultSessionIssuer's `set` refuses it. */
   PendingSteps: sessionKey('authn:pendingSteps', pendingSteps),
 });
 
