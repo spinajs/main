@@ -1,5 +1,4 @@
-import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
@@ -15,35 +14,27 @@ import type { SessionHandle } from '../contracts/session.js';
  * One per container. Not named FreshAuth: DI keys classes by name, and authn-http's route policy has that name.
  */
 @PerChildInstance()
-@Inject(Container)
 export class FreshAuthCheck extends AsyncService {
   @Config('authn.freshAuth.maxAgeSeconds')
   protected MaxAgeSeconds: number;
 
-  private authn!: AuthnService;
-  private sessions!: SessionIssuer;
+  @Autoinject(SessionIssuer, { check: true })
+  protected Sessions: SessionIssuer;
 
-  constructor(private readonly container: IContainer) {
-    super();
-  }
+  @Autoinject(AuthnService)
+  protected Authn: AuthnService;
 
   public get maxAgeSeconds(): number {
     return this.MaxAgeSeconds;
-  }
-
-  public async resolve(): Promise<void> {
-    this.sessions = await this.container.resolve(SessionIssuer, true);
-    this.authn = await this.container.resolve(AuthnService);
-    await super.resolve();
   }
 
   /** `reauth` is verified only when the session is not fresh. */
   public async check(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<boolean> {
     const [ok, id] = _try_check_arg(_is_string(_non_empty()))((session as Partial<SessionHandle> | null | undefined)?.id, 'session.id');
     if (!ok) return false;
-    const stored = await this.sessions.restore(id);
+    const stored = await this.Sessions.restore(id);
     if (!stored || stored.handle.state !== 'active' || stored.facts.impersonator !== undefined) return false;
     if (isFresh(stored.facts, ctx.now, this.MaxAgeSeconds)) return true;
-    return reauth !== undefined && (await this.authn.reauthenticate(session, reauth, ctx));
+    return reauth !== undefined && (await this.Authn.reauthenticate(session, reauth, ctx));
   }
 }

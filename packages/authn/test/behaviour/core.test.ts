@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { InvalidOption } from '@spinajs/exceptions';
+import { ServiceNotFound } from '@spinajs/di';
 import { runAuthnBehaviour } from '@spinajs/authn-testing';
 import type { Facet } from '@spinajs/authn-testing';
 
@@ -19,7 +19,7 @@ describe('N1 core behaviour', function () {
       const b = await bootPort().start({ strategies: [{ name: 'ghost', service: 'KitNoSuchStrategy', listed: true }] });
       assert.strictEqual(b.ok, false);
       const error = (b as { error: unknown }).error;
-      assert.ok(error instanceof InvalidOption, String(error));
+      assert.ok(error instanceof ServiceNotFound, String(error));
       assert.match(error.message, /authn\.strategies entry "ghost": no AuthenticationStrategy is registered as service "KitNoSuchStrategy"/);
     });
   });

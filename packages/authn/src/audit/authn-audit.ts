@@ -1,5 +1,4 @@
-import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
@@ -17,7 +16,6 @@ import type { AuditConfig } from './config.js';
  * `authn.audit` and sinks.
  */
 @PerChildInstance()
-@Inject(Container)
 export class AuthnAudit extends AsyncService {
   @Config('authn.audit')
   protected Config: AuditConfig;
@@ -25,22 +23,20 @@ export class AuthnAudit extends AsyncService {
   @Logger('authn-audit')
   protected Log: Log;
 
+  // A child that registers its own sink keeps its ancestors' ones; each is built where it was registered.
+  @Autoinject(Array.chainOf(AuthnEventSink))
+  protected Sinks: AuthnEventSink[];
+
   private all: readonly AuthnEventSink[] = [];
   private pipeline!: ResiliencePipeline<void>;
-
-  constructor(private readonly container: IContainer) {
-    super();
-  }
 
   public async resolve(): Promise<void> {
     const config = this.Config;
     if (!config) throw new InvalidOperation('authn.audit is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
-    // A child that registers its own sink keeps its ancestors' ones; each is built where it was registered.
-    const sinks = await this.container.resolve(Array.chainOf(AuthnEventSink));
-    if (sinks.length === 0) this.Log.warn('AuthnAudit: no AuthnEventSink is registered; authentication events are not audited');
+    if (this.Sinks.length === 0) this.Log.warn('AuthnAudit: no AuthnEventSink is registered; authentication events are not audited');
 
     this.pipeline = new ResiliencePipelineBuilder<void>().addTimeout(TimeSpan.fromMilliseconds(config.sinkTimeoutMs)).build();
-    this.all = Object.freeze([...sinks]);
+    this.all = Object.freeze([...this.Sinks]);
     await super.resolve();
   }
 

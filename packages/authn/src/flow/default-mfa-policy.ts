@@ -1,5 +1,5 @@
 import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedServices, Config } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
@@ -63,6 +63,12 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
   @Config('authn.mfa.policy.forceForRoles')
   protected ForceForRoles: string[];
 
+  @Autoinject(PrincipalFactory, { optional: true })
+  protected Principals: PrincipalFactory | undefined;
+
+  @Autoinject(RoleSource, { optional: true })
+  protected Roles: RoleSource | undefined;
+
   public get force(): boolean {
     return this.Force === true;
   }
@@ -73,12 +79,12 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
 
   public async resolve(): Promise<void> {
     if (this.forceForRoles.length > 0) {
-      const required: ReadonlyArray<readonly [Class<unknown>, string]> = [
-        [RoleSource, 'RoleSource'],
-        [PrincipalFactory, 'PrincipalFactory'],
+      const required: ReadonlyArray<readonly [unknown, string]> = [
+        [this.Roles, 'RoleSource'],
+        [this.Principals, 'PrincipalFactory'],
       ];
-      for (const [type, name] of required) {
-        if (!this.Container.hasRegistered(type)) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
+      for (const [dependency, name] of required) {
+        if (!dependency) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
       }
     }
     await super.resolve();
@@ -114,9 +120,8 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
     if (this.force) return true;
     if (this.forceForRoles.length === 0) return false;
     try {
-      const principals = await this.Container.resolve(PrincipalFactory);
-      const principal = await principals.principalOf(id, { ...facts, assurance: 'aal1', mfa: [], authenticatedAt: new Date() }, {});
-      const roles = await (await this.Container.resolve(RoleSource)).rolesOf(principal);
+      const principal = await this.Principals!.principalOf(id, { ...facts, assurance: 'aal1', mfa: [], authenticatedAt: new Date() }, {});
+      const roles = await this.Roles!.rolesOf(principal);
       return roles.some((r) => this.forceForRoles.includes(r.role));
     } catch {
       // Fail closed: without the roles, ask for the step.

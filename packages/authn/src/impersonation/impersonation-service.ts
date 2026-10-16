@@ -1,4 +1,4 @@
-import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
@@ -83,7 +83,6 @@ function actingFacts(f: AuthnFacts): AuthnFacts {
  * One per container (D11).
  */
 @PerChildInstance()
-@Inject(Container)
 export class AuthnImpersonationService extends AsyncService {
   @Config('authn.impersonation')
   protected Settings: ImpersonationConfig;
@@ -91,26 +90,26 @@ export class AuthnImpersonationService extends AsyncService {
   @Config('authn.session.expiration.maxLifetime')
   protected MaxLifetimeMinutes: number;
 
-  private sessions!: SessionIssuer;
-  private identities!: IdentityStore;
-  private principals!: PrincipalFactory;
-  private guard: ImpersonationGuard | undefined;
-  private fresh!: FreshAuthCheck;
-  private auditor!: AuthnAudit;
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
-  constructor(private readonly container: IContainer) {
-    super();
-  }
+  @Autoinject(SessionIssuer, { check: true })
+  protected Sessions: SessionIssuer;
 
-  public async resolve(): Promise<void> {
-    this.sessions = await this.container.resolve(SessionIssuer, true);
-    this.identities = await this.container.resolve(IdentityStore, true);
-    this.principals = await this.container.resolve(PrincipalFactory, true);
-    this.guard = await this.container.resolveOptional(ImpersonationGuard);
-    this.fresh = await this.container.resolve(FreshAuthCheck);
-    this.auditor = await this.container.resolve(AuthnAudit);
-    await super.resolve();
-  }
+  @Autoinject(IdentityStore, { check: true })
+  protected Identities: IdentityStore;
+
+  @Autoinject(PrincipalFactory, { check: true })
+  protected Principals: PrincipalFactory;
+
+  @Autoinject(ImpersonationGuard, { optional: true })
+  protected Guard: ImpersonationGuard | undefined;
+
+  @Autoinject(FreshAuthCheck)
+  protected Fresh: FreshAuthCheck;
+
+  @Autoinject(AuthnAudit)
+  protected Auditor: AuthnAudit;
 
   /** What a request with this session resolves to; null when it yields no principal. */
   public async principalOf(session: SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
@@ -120,12 +119,12 @@ export class AuthnImpersonationService extends AsyncService {
     if (!impersonator) {
       // The session stop hands back is a new row whose store lifetime starts again; the login bounds it.
       if (this.beyondLifetime(stored.facts, ctx)) {
-        await this.sessions.revoke(stored.handle);
+        await this.Sessions.revoke(stored.handle);
         await this.audit(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
         return null;
       }
       if (await this.statusRefusal(stored.identity)) return null;
-      return this.principals.principalOf(stored.identity, stored.facts, {});
+      return this.Principals.principalOf(stored.identity, stored.facts, {});
     }
     const live = this.live(stored, ctx);
     if ('ending' in live) return this.end(ctx, stored, live.ending.type, live.ending.reason);
@@ -135,7 +134,7 @@ export class AuthnImpersonationService extends AsyncService {
     if (targetRefused) return this.end(ctx, stored, 'impersonation.end', `target_${targetRefused}`);
     const denied = await this.denial(refOf(impersonator), actingFacts(stored.facts), stored.identity, live.block.actorCeiling);
     if (denied) return this.end(ctx, stored, 'impersonation.end', denied.reason, denied.data);
-    return this.principals.principalOf(stored.identity, stored.facts, {});
+    return this.Principals.principalOf(stored.identity, stored.facts, {});
   }
 
   /**
@@ -143,7 +142,7 @@ export class AuthnImpersonationService extends AsyncService {
    * code that bans or deactivates an identity or changes or resets its password (SR-06); it audits nothing itself.
    */
   public endFor(impersonator: IdentityRef, opts: { except?: SessionHandle } = {}): Promise<number> {
-    return this.sessions.revokeAll(impersonator, { includeImpersonations: true, ...(opts.except ? { except: opts.except } : {}) });
+    return this.Sessions.revokeAll(impersonator, { includeImpersonations: true, ...(opts.except ? { except: opts.except } : {}) });
   }
 
   /** `reauth` is verified only when `requirePassword` is on and the session is not fresh. */
@@ -159,18 +158,18 @@ export class AuthnImpersonationService extends AsyncService {
       const refused = await this.startRefusal(stored, target, ctx, actorCeiling, reauth);
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
-      issued = await this.sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
-      await this.sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
-      const now = await this.sessions.restore(issued.id);
+      issued = await this.Sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
+      await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
+      const now = await this.Sessions.restore(issued.id);
       // A parallel start, or an endFor of the actor, ended the old session first.
-      if (!(await this.sessions.revoke(stored.handle))) {
-        await this.sessions.revoke(issued);
+      if (!(await this.Sessions.revoke(stored.handle))) {
+        await this.Sessions.revoke(issued);
         return await this.refuseStart(ctx, 'revoked', about);
       }
       await this.audit(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
       return { ok: true, session: issued };
     } catch (err) {
-      if (issued) await this.sessions.revoke(issued).catch(() => undefined);
+      if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
       return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
   }
@@ -190,25 +189,25 @@ export class AuthnImpersonationService extends AsyncService {
       const refused = await this.statusRefusal(refOf(impersonator));
       if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
 
-      issued = await this.sessions.issue(refOf(impersonator), ownFacts(stored.facts));
+      issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
       const { actorCeiling } = live.block;
       // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
-      if (actorCeiling) await this.sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
-      const now = await this.sessions.restore(issued.id);
-      if (!(await this.sessions.revoke(stored.handle))) {
-        await this.sessions.revoke(issued);
+      if (actorCeiling) await this.Sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
+      const now = await this.Sessions.restore(issued.id);
+      if (!(await this.Sessions.revoke(stored.handle))) {
+        await this.Sessions.revoke(issued);
         return await this.refuseStop(ctx, 'revoked', about);
       }
       await this.audit(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
       return issued;
     } catch (err) {
-      if (issued) await this.sessions.revoke(issued).catch(() => undefined);
+      if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
       return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
   }
 
   private async startRefusal(stored: Session, target: IdentityRef, ctx: AuthnContext, actorCeiling: Ceiling | undefined, reauth?: Credentials): Promise<Denial | null> {
-    if (!this.guard) return { reason: 'no_guard' };
+    if (!this.Guard) return { reason: 'no_guard' };
     if (stored.facts.impersonator !== undefined) return { reason: 'nested' };
     if (this.beyondLifetime(stored.facts, ctx)) return { reason: 'session_lifetime' };
     if (!isRef(target)) return { reason: 'invalid_target' };
@@ -218,7 +217,7 @@ export class AuthnImpersonationService extends AsyncService {
     if (this.Settings.requireMfa !== false && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
     const actorRefused = await this.statusRefusal(stored.identity);
     if (actorRefused) return { reason: actorRefused };
-    if (this.Settings.requirePassword !== false && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
+    if (this.Settings.requirePassword !== false && !(await this.Fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
       return { reason: 'not_fresh' };
     }
     const targetRefused = await this.statusRefusal(target);
@@ -229,9 +228,9 @@ export class AuthnImpersonationService extends AsyncService {
   private async restore(h: SessionHandle): Promise<Session | null> {
     const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
     if (!ok) return null;
-    const stored = await this.sessions.restore(id);
+    const stored = await this.Sessions.restore(id);
     if (!stored) return null;
-    const session = resolveSession(this.container, stored);
+    const session = resolveSession(this.Container, stored);
     return session.handle.state === 'active' ? session : null;
   }
 
@@ -274,10 +273,10 @@ export class AuthnImpersonationService extends AsyncService {
 
   /** Why the guard, or its absence, refuses `actor`, narrowed by its role switch, impersonating `target` now; null when it consents. */
   private async denial(actor: IdentityRef, facts: AuthnFacts, target: IdentityRef, ceiling: Ceiling | undefined): Promise<Denial | null> {
-    if (!this.guard) return { reason: 'no_guard' };
+    if (!this.Guard) return { reason: 'no_guard' };
     try {
-      const principal = await this.principals.principalOf(actor, facts, ceiling ? { ceiling } : {});
-      const answer: unknown = await this.guard.allowed(principal, target);
+      const principal = await this.Principals.principalOf(actor, facts, ceiling ? { ceiling } : {});
+      const answer: unknown = await this.Guard.allowed(principal, target);
       if (isPlainObject(answer) && answer.ok === true) return null;
       return { reason: isPlainObject(answer) && isNonEmptyString(answer.code) ? answer.code : 'forbidden' };
     } catch (err) {
@@ -286,14 +285,14 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async end(ctx: AuthnContext, stored: Session, type: AuthnEventType, reason: string, data?: Readonly<Record<string, unknown>>): Promise<null> {
-    await this.sessions.revoke(stored.handle);
+    await this.Sessions.revoke(stored.handle);
     const impersonator = stored.facts.impersonator;
     await this.audit(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
     return null;
   }
 
   private async statusRefusal(subject: IdentityRef): Promise<string | null> {
-    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.identities.status(subject));
+    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.Identities.status(subject));
   }
 
   private handleOf(stored: Session): { session?: string } {
@@ -311,6 +310,6 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
+    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

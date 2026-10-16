@@ -1,6 +1,5 @@
-import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
-import { Config, InvalidConfiguration } from '@spinajs/configuration';
+import { AsyncService, PerChildInstance } from '@spinajs/di';
+import { AutoinjectNamedServices, Config, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { _is_array_of, _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
@@ -15,22 +14,18 @@ export interface StrategyEntry {
   readonly service: string;
 }
 
-interface Listed {
+interface Checked {
   readonly strategy: AuthenticationStrategy;
   readonly kinds: readonly string[];
   readonly selector: boolean;
 }
 
 // Duck-typed: strategies built against another copy of the contracts (cjs/mjs, the kit) fail instanceof.
-function check(e: StrategyEntry, s: unknown): Listed {
+function check(e: StrategyEntry, s: unknown): Checked {
   const at = `authn.strategies entry ${q(e.name)} (service ${q(e.service)})`;
   const strategy = s as AuthenticationStrategy | null;
   if (strategy === null || typeof strategy !== 'object' || typeof strategy.verify !== 'function' || typeof strategy.throttleKeys !== 'function') {
     throw new InvalidOption(`${at}: the service is not an AuthenticationStrategy`);
-  }
-  if (strategy.name !== e.name) {
-    const own = typeof strategy.name === 'string' ? q(strategy.name) : `a ${kindOf(strategy.name)}`;
-    throw new InvalidOption(`${at}: the strategy names itself ${own}; the entry name must match it`);
   }
   // A missing flag would read as false: the per-request path, which never asks for MFA.
   if (typeof strategy.interactive !== 'boolean') {
@@ -64,30 +59,26 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
  * per container, so a child boot reads its own list.
  */
 @PerChildInstance()
-@Inject(Container)
 export class StrategyRegistry extends AsyncService {
+  // Read only to name an entry's service in check()'s errors.
   @Config('authn.strategies')
   protected Entries: StrategyEntry[];
 
-  private listed: readonly Listed[] | undefined;
+  // The whole lineage: a child may list a root strategy next to its own.
+  @AutoinjectNamedServices('authn.strategies', AuthenticationStrategy, { lineage: true, keyBy: 'name' })
+  protected Listed: Map<string, AuthenticationStrategy>;
+
+  private checked: readonly Checked[] | undefined;
   private all: readonly AuthenticationStrategy[] | undefined;
 
-  constructor(private readonly container: IContainer) {
-    super();
-  }
-
   public async resolve(): Promise<void> {
-    const listed: Listed[] = [];
-    const registered = this.container.getRegisteredNames(AuthenticationStrategy);
-    for (const e of this.Entries) {
-      // The whole lineage: a child may list a root strategy next to its own.
-      if (!registered.includes(e.service)) {
-        throw new InvalidOption(`authn.strategies entry ${q(e.name)}: no AuthenticationStrategy is registered as service ${q(e.service)}`);
-      }
-      listed.push(check(e, await this.container.resolveNamed(AuthenticationStrategy, e.service)));
+    const checked: Checked[] = [];
+    for (const [name, strategy] of this.Listed) {
+      const service = this.Entries.find((e) => e.name === name)!.service;
+      checked.push(check({ name, service }, strategy));
     }
-    this.listed = Object.freeze(listed);
-    this.all = Object.freeze(listed.map((l) => l.strategy));
+    this.checked = Object.freeze(checked);
+    this.all = Object.freeze(checked.map((l) => l.strategy));
     await super.resolve();
   }
 
@@ -105,8 +96,8 @@ export class StrategyRegistry extends AsyncService {
     return Object.freeze(listed.filter((l) => l.kinds.includes(kind) && (!l.selector || accepts(l.strategy, c))).map((l) => l.strategy));
   }
 
-  private state(): readonly Listed[] {
-    if (!this.listed) throw new InvalidOperation('StrategyRegistry is not resolved');
-    return this.listed;
+  private state(): readonly Checked[] {
+    if (!this.checked) throw new InvalidOperation('StrategyRegistry is not resolved');
+    return this.checked;
   }
 }

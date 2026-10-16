@@ -1,6 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
-import { DI } from '@spinajs/di';
+import { DI, ServiceNotFound } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
@@ -216,8 +216,11 @@ describe('StrategyRegistry', function () {
       expect(names(await boot([]))).to.deep.equal([]);
     });
 
-    it('fails on an unknown service name, naming the entry', async () => {
-      await bootFails([LOCAL, entry('ghost', 'NoSuchStrategy')], '"ghost"', '"NoSuchStrategy"');
+    it('fails on an unknown service name with ServiceNotFound, naming the entry', async () => {
+      const error = await boot([LOCAL, entry('ghost', 'NoSuchStrategy')]).catch((e: unknown) => e);
+      expect(error).to.be.instanceOf(ServiceNotFound);
+      expect((error as Error).message).to.equal('authn.strategies entry "ghost": no AuthenticationStrategy is registered as service "NoSuchStrategy"');
+      expect(DI.has(StrategyRegistry)).to.equal(false);
     });
 
     it('does not find a class that is not registered as an AuthenticationStrategy', async () => {
@@ -232,8 +235,8 @@ describe('StrategyRegistry', function () {
       await bootFails([LOCAL, entry('local-2', 'LocalPassword')], '"local-2"');
     });
 
-    it('lists an identical entry twice when the configuration skipped the schema: only the schema refuses repeats', async () => {
-      expect(names(await boot([LOCAL, LOCAL]))).to.deep.equal(['local', 'local']);
+    it('fails on an identical entry listed twice, also when the configuration skipped the schema', async () => {
+      await bootFails([LOCAL, LOCAL], 'authn.strategies lists name "local" twice');
     });
 
     it('fails on a strategy whose interactive is not a boolean', async () => {
@@ -324,7 +327,7 @@ describe('StrategyRegistry', function () {
     });
 
     it('throws when used before it is resolved', () => {
-      const r = new StrategyRegistry(DI.RootContainer);
+      const r = new StrategyRegistry();
       expect(() => r.strategies()).to.throw(Error);
       expect(() => r.candidates(password)).to.throw(Error);
     });

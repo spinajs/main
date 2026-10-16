@@ -8,8 +8,6 @@ import type { AuthenticationResult, AuthnContext, AuthnThrottle, Credentials, Id
 import { buildCore, coreHarness, coreHarnessOf, useHarnessLog } from '../behaviour/harness.js';
 import { Lockout, SuccessClearsIp } from './throttle-mutants.js';
 
-// The mutants reach private members by casting: TypeScript's private is compile-time only.
-
 /** 2.x order (A05): verify first, count only what failed. */
 class VerifyBeforeCount extends DefaultAuthnService {
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
@@ -26,11 +24,10 @@ class VerifyBeforeCount extends DefaultAuthnService {
 /** 2.x shape (SR-06): only the target's status ends an impersonation; the impersonator's ban is not seen. */
 class IgnoresImpersonatorBan extends AuthnImpersonationService {
   async principalOf(session: SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
-    const self = this as unknown as { sessions: { restore(id: string): Promise<{ facts: { impersonator?: IdentityRef } } | null> }; identities: IdentityStore };
-    const actor = (await self.sessions.restore(session.id))?.facts.impersonator;
+    const actor = (await this.Sessions.restore(session.id))?.facts.impersonator;
     if (!actor) return super.principalOf(session, ctx);
-    const real = self.identities;
-    self.identities = Object.assign(Object.create(real) as IdentityStore, {
+    const real = this.Identities;
+    this.Identities = Object.assign(Object.create(real) as IdentityStore, {
       async status(id: IdentityRef): Promise<IdentityStatus> {
         const st = await real.status(id);
         return id.type === actor.type && id.id === actor.id ? { ...st, banned: false } : st;
@@ -39,7 +36,7 @@ class IgnoresImpersonatorBan extends AuthnImpersonationService {
     try {
       return await super.principalOf(session, ctx);
     } finally {
-      self.identities = real;
+      this.Identities = real;
     }
   }
 }

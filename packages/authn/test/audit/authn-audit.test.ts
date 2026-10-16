@@ -360,7 +360,7 @@ describe('AuthnAudit', function () {
     });
 
     it('throws when used before resolve', async () => {
-      const a = new AuthnAudit(DI.RootContainer);
+      const a = new AuthnAudit();
       let error: unknown;
       try {
         await a.publish(ev('login'));
