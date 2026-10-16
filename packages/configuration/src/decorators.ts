@@ -13,14 +13,9 @@ export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
  * class in an ancestor would hand out the ancestor's instance.
  */
 function getOwnConfiguration(container: IContainer): Configuration | null {
-  let owner: IContainer | undefined = container;
-  while (owner && !owner.Registry.ownsRegistration(Configuration)) {
-    owner = owner.Parent;
-  }
-  owner ??= DI.RootContainer;
+  const owner = configurationOwner(container) ?? DI.RootContainer;
 
-  const types = owner.getRegisteredTypes(Configuration, false) ?? [];
-  if (isFactory(types[types.length - 1])) {
+  if (registersFactory(owner)) {
     // A factory result is never cached, so it can only be read by resolving it.
     const resolved = owner.resolve(Configuration);
     if (isPromise(resolved)) {
@@ -31,6 +26,37 @@ function getOwnConfiguration(container: IContainer): Configuration | null {
   }
 
   return owner.get(Configuration, false);
+}
+
+function registersFactory(owner: IContainer): boolean {
+  const types = owner.getRegisteredTypes(Configuration, false) ?? [];
+  return isFactory(types[types.length - 1]);
+}
+
+/** The nearest container (self or ancestor) that registers a Configuration. */
+function configurationOwner(container: IContainer): IContainer | undefined {
+  let owner: IContainer | undefined = container;
+  while (owner && !owner.Registry.ownsRegistration(Configuration)) {
+    owner = owner.Parent;
+  }
+  return owner;
+}
+
+/**
+ * {@link getOwnConfiguration}, resolving the owner's Configuration first when it is registered but not resolved yet:
+ * property dependencies resolve together, so `@Autoinject(Configuration)` cannot run before this. A resolve already
+ * in flight is shared by the container. Null only when no container in the lineage registers a Configuration.
+ */
+async function resolveOwnConfiguration(container: IContainer): Promise<Configuration | null> {
+  const owner = configurationOwner(container);
+  // A factory result is never cached: one resolve is the only read, a second would run the factory again.
+  if (owner && registersFactory(owner)) return (await owner.resolve(Configuration)) as Configuration;
+
+  const cfg = getOwnConfiguration(container);
+  if (cfg) return cfg;
+  if (!owner) return null;
+  const resolved = (await owner.resolve(Configuration)) as Configuration;
+  return getOwnConfiguration(container) ?? resolved;
 }
 
 /**
@@ -160,13 +186,15 @@ const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
  * Resolves the services named by the list at `path` in `container`: the entries,
  * each `{ [keyBy], service }`, in list order. An unset path gives an empty Map.
  *
+ * Not for classes the Configuration itself resolves (sources, protocols): it awaits that Configuration.
+ *
  * @throws ServiceNotFound when no registration of `type` is named as an entry's service
  * @throws InvalidOption when the value is not a list, a key is listed twice, or an instance's key differs from its entry's
  */
 export async function resolveNamedServices<T>(container: IContainer, path: string, type: Class<T>, options: IAutoinjectServiceOptions): Promise<Map<string, T>> {
-  const cfg = getOwnConfiguration(container);
+  const cfg = await resolveOwnConfiguration(container);
   if (!cfg) {
-    throw new InvalidOperation(`Cannot resolve the services of ${path}: the Configuration of the container is not resolved`);
+    throw new InvalidOperation(`Cannot resolve the services of ${path}: no container in the lineage registers a Configuration`);
   }
 
   const { keyBy } = options;
@@ -223,6 +251,74 @@ export function AutoinjectNamedServices<T>(path: string, type: Class<T>, options
       inject: type,
       data: path,
       resolveFunc: (data: string, container: IContainer) => resolveNamedServices(container, data, type, options),
+    });
+  });
+}
+
+export interface INamedServiceOptions<T> {
+  /**
+   * Used when the value at `path` is unset or ''. A class must be a subclass of `type`; any other function is treated
+   * as a picker, which gets the registered names and returns one, or undefined when none fits.
+   */
+  default?: string | Class<T> | ((registered: readonly string[]) => string | undefined);
+  /** Duck check of the resolved instance (instanceof fails across cjs/mjs copies). */
+  is?: (instance: unknown) => boolean;
+}
+
+/**
+ * The one service of `type` named by the value at `path` in `container`'s configuration, or by `options.default` when
+ * that is unset. Looked up by registration name across the container lineage, nearest container first.
+ * Not for classes the Configuration itself resolves (sources, protocols): it awaits that Configuration.
+ *
+ * @throws InvalidOption when the value is not a string, no name applies, the name is not registered, or `options.is` rejects the instance
+ */
+export async function resolveNamedService<T>(container: IContainer, path: string, type: Class<T>, options: INamedServiceOptions<T> = {}): Promise<T> {
+  const cfg = await resolveOwnConfiguration(container);
+  if (!cfg) {
+    throw new InvalidOperation(`Cannot resolve the service of ${path}: no container in the lineage registers a Configuration`);
+  }
+
+  const registered = container.getRegisteredNames(type);
+  const listed = registered.map(q).join(', ') || 'none';
+  const value = cfg.get<unknown>(path);
+  if (value !== undefined && value !== null && typeof value !== 'string') {
+    throw new InvalidOption(`${path} must be a string`);
+  }
+  let name = value === '' ? undefined : (value as string | null | undefined) ?? undefined;
+  if (name === undefined) {
+    const fallback = options.default;
+    if (fallback === undefined) throw new InvalidOption(`${path} is not set (registered: ${listed})`);
+    name = typeof fallback === 'string' ? fallback : fallback.prototype instanceof type ? fallback.name : (fallback as (registered: readonly string[]) => string | undefined)(registered);
+    if (name === undefined) throw new InvalidOption(`${path} is not set and no ${type.name} is the default among those registered (${listed}); name one`);
+  }
+
+  if (!registered.includes(name)) {
+    throw new InvalidOption(`${path} ${q(name)}: no ${type.name} is registered under that name (registered: ${listed})`);
+  }
+  const instance = await container.resolveNamed(type, name);
+  if (options.is && !options.is(instance)) {
+    throw new InvalidOption(`${path} ${q(name)} is not an ${type.name}`);
+  }
+  return instance;
+}
+
+/**
+ * Injects {@link resolveNamedService} for `path` in the resolving container, when the instance is built.
+ *
+ * @example
+ * ```ts
+ * @AutoinjectNamedService('authn.mfa.policy.service', MfaPolicy, { default: 'DefaultMfaPolicy' })
+ * protected Policy: MfaPolicy;
+ * ```
+ */
+export function AutoinjectNamedService<T>(path: string, type: Class<T>, options?: INamedServiceOptions<T>) {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, _target: Class<unknown>, propertyKey: string | symbol) => {
+    descriptor.inject.push({
+      autoinject: true,
+      autoinjectKey: propertyKey,
+      inject: type,
+      data: path,
+      resolveFunc: (data: string, container: IContainer) => resolveNamedService(container, data, type, options),
     });
   });
 }

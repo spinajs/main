@@ -175,6 +175,15 @@ describe('config-listed services', () => {
       expect(injected.get('other')).to.be.instanceOf(OtherStep);
     });
 
+    it('resolves the Configuration of the container first when it is registered but not resolved yet', async () => {
+      const c = child(root, [{ name: 'other', service: 'OtherStep' }]);
+      c.register(OtherStep).as(Step);
+
+      const flow = await (c.resolve(Flow) as unknown as Promise<Flow>);
+
+      expect([...flow.Steps.keys()]).to.deep.equal(['other']);
+    });
+
     it('lists per container: each child injects its own list', async () => {
       const a = child(root, [{ name: 'root', service: 'RootStep' }]);
       const b = child(root, null);
