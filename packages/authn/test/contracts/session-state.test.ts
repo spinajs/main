@@ -43,9 +43,10 @@ describe('Session', () => {
     expect(seen).to.deep.eq([null]);
   });
 
-  it('ActiveRole: none when absent or null, the role for a non-empty string, no role for anything else', () => {
+  it('ActiveRole: none when absent, null or undefined, the role for a non-empty string, no role for anything else', () => {
     expect(session().activeRole).to.eq(undefined);
     expect(session([['ActiveRole', null]]).activeRole).to.eq(undefined);
+    expect(session([['ActiveRole', undefined]]).activeRole).to.eq(undefined);
     expect(session([['ActiveRole', 'editor']]).activeRole).to.eq('editor');
     for (const bad of ['', 42, ['admin'], { role: 'admin' }, true]) expect(session([['ActiveRole', bad]]).activeRole, JSON.stringify(bad)).to.eq('');
   });

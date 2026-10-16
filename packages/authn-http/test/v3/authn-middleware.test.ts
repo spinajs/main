@@ -413,7 +413,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     };
 
     it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration)', async () => {
-      const { rawId, rows } = plant2x([['ActiveRole', null]]);
+      const { rawId, rows } = plant2x([['ActiveRole', undefined]]);
       const p = await principalWith({ Cookie: cookieOf(rawId) });
       expect(p).to.include({ type: 'user', id: alice.id });
       expect(p.ceiling).to.eq(undefined);

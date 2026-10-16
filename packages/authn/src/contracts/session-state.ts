@@ -23,7 +23,7 @@ export interface ImpersonationBlock {
 const nonEmpty = (raw: unknown): string | undefined => (isNonEmptyString(raw) ? raw : undefined);
 
 function activeRole(raw: unknown): string | undefined {
-  if (raw === null) return undefined;
+  if (raw === null || raw === undefined) return undefined;
   // A value no role switch writes narrows to no role instead of lifting the narrowing.
   return isNonEmptyString(raw) ? raw : '';
 }
