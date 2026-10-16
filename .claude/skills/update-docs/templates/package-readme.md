@@ -1,21 +1,21 @@
-# `@spinajs/<pkg>` documentation
+# `@spinajs/<pkg>`
 
-<What the package does and which package it plugs into, in one or two sentences.>
+<What the package does, in one or two sentences.>
 
 <What it does not do, when readers would assume it does.>
-
-## Contents
-
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Configuration](#configuration)
-- [API](#api)
 
 ## Install
 
 ```sh
 npm install @spinajs/<pkg>
 ```
+
+## Features
+
+| Feature | What it does |
+| --- | --- |
+| [<Feature>](01-<feature>.md) | <one line> |
+| [<Feature>](02-<feature>.md) | <one line> |
 
 ## Quick start
 
@@ -25,13 +25,6 @@ import { <Export> } from '@spinajs/<pkg>';
 <smallest working use>
 ```
 
-## Configuration
+## Related packages
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-
-## API
-
-### `<Export>`
-
-<Purpose, when to use it, signature, errors thrown.>
+- [`@spinajs/<other>`](../<other>/README.md): <why it matters here, one line>.
