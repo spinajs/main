@@ -1,5 +1,5 @@
 import { ResolveType } from './enums.js';
-import { IAutoinjectOptions, IInjectDescriptor } from './interfaces.js';
+import { IAutoinjectOptions, IContainer, IInjectDescriptor } from './interfaces.js';
 import { Class } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 import * as DI from './root.js';
@@ -166,6 +166,9 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoin
     let opt = options;
 
     if (isChainArray(typeOrOptions)) {
+      if (opt?.check || opt?.optional) {
+        throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
+      }
       if (!isArray) {
         throw new Error(`@Autoinject(Array.chainOf(${getTypeName(typeOrOptions)})) needs an array or map property, ${String(propertyKey)} is not one`);
       }
@@ -187,6 +190,31 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoin
       type = typeOrOptions;
     } else {
       opt = typeOrOptions;
+    }
+
+    if (opt?.check || opt?.optional) {
+      if (opt.check && opt.optional) {
+        throw new Error('@Autoinject: check and optional exclude each other');
+      }
+      if (isArray) {
+        throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
+      }
+      const single = type;
+      const args = opt.options !== undefined ? [opt.options] : undefined;
+      descriptor.inject.push({
+        autoinject: true,
+        autoinjectKey: propertyKey,
+        inject: single,
+        // A synchronous throw would leave the already started async siblings unhandled; reject instead.
+        resolveFunc: (_data: unknown, container: IContainer) => {
+          try {
+            return opt.optional ? container.resolveOptional(single, args) : container.resolve(single, args, true);
+          } catch (e) {
+            return Promise.reject(e);
+          }
+        },
+      });
+      return;
     }
 
     descriptor.inject.push({

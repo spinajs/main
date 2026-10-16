@@ -268,4 +268,8 @@ export abstract class Bootstrapper {
 export interface IAutoinjectOptions<T> {
   mapFunc?: (x: T) => string;
   options?: any;
+  /** Resolve as `resolve(type, true)`: fail when nothing is registered instead of building the type itself. */
+  check?: boolean;
+  /** Resolve as `resolveOptional(type)`: `undefined` when nothing is registered. */
+  optional?: boolean;
 }
