@@ -350,7 +350,7 @@ through `authn_identity`. It never links by email.
 4. No MFA is asked for, since the method is not `password`. The session cookie is set and the
    browser goes to `returnTo`.
 
-Linking an account: `POST` and `DELETE /auth/oidc/:provider/link`. Details: [oidc.md](./oidc.md).
+Linking an account: `POST` and `DELETE /auth/oidc/:provider/link`. Details: [OIDC](../authn-oidc/README.md).
 
 ### Keys (`authn-keys`)
 

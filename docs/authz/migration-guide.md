@@ -8,8 +8,7 @@ one step, and the database in another.
 Related documents:
 
 - [Authorization in 3.0](./README.md)
-- [Authentication in 3.0](../authn/README.md) and [OIDC](../authn/oidc.md)
-- Design: `docs/plans/2026-10-01-authz-v3-design.md`. Rule numbers (H1, B24, A31, SR-01) point there.
+- [Authentication in 3.0](../authn/README.md) and [OIDC](../authn-oidc/README.md)
 
 This guide describes `3.0.0-rc.1`. What is still open is in [section 11](#11-open-items-in-300-rc1). The
 release notes (`RELEASE_NOTES.md` at the repository root) list every breaking change in one place.
@@ -89,7 +88,7 @@ Rules for the move (§4.1.1):
 | App type | Packages |
 |---|---|
 | **Session web app** (login page, cookies) | `users`, `users-http`, `authn`, `authn-orm`, `authn-session`, `authn-local`, `authn-http`, `authz`, `authz-rbac`, `authz-orm`, `authz-http`, and one `session-provider-*`. Add `authn-totp` for 2FA, `authn-token` for API tokens, `authz-abac` for policies, `authz-http-admin` for role routes. |
-| **SSO app** | The session web app set plus `authn-oidc` ([OIDC](../authn/oidc.md)). |
+| **SSO app** | The session web app set plus `authn-oidc` ([OIDC](../authn-oidc/README.md)). |
 | **Machine-only service** (runner gateway, telemetry) | `authn`, `authn-orm`, `authn-http`, `authn-keys` or `authn-token`, `authz`, `authz-rbac`, `authz-http`. No `users`, no session packages. |
 
 An app that forgets a package has no login route for it: `authn-http` registers a route group only
@@ -957,7 +956,7 @@ are rewritten or dropped. If you keep your own copy of those tests, use them as 
   it verifies and counts only a failure, so a valid API call adds nothing to the count.
 - Boot fails on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6, password
   bounds outside 8-128, `session.hashIds: false`, and a step named `recovery`.
-- OIDC limits: see [OIDC](../authn/oidc.md).
+- OIDC limits: see [OIDC](../authn-oidc/README.md).
 
 ### F7 and F7b: authn test kit
 
@@ -1255,7 +1254,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 ### N10: OIDC (`authn-oidc`)
 
 2.x had no OIDC, so there is nothing to convert. Config, routes, presets and limits are in
-[OIDC](../authn/oidc.md). What an app must do to use it:
+[OIDC](../authn-oidc/README.md). What an app must do to use it:
 
 - Import `@spinajs/authn-oidc`. Its bootstrapper registers one strategy service per provider, named
   `oidc:<name>`. List each as `{ name: 'oidc:<name>', service: 'oidc:<name>' }` in `authn.strategies`.
@@ -1623,7 +1622,7 @@ The `npm deprecate` pointers for the five 2.x package names (`@spinajs/rbac`, `r
 ## 12. From query scoping (2.x and 3.0.0-rc.1)
 
 3.0.0-rc.1 scoped every select, update and delete of an `@AccessResource` model in a query middleware.
-3.0 does not rewrite queries (design: `docs/plans/2026-10-14-authz-resource-access-design.md`). Section
+3.0 does not rewrite queries. Section
 9, lanes L4 and L4b, describes rc.1; this section replaces it. A 2.x app reads it after section 8.
 
 ### 12.1 What changed

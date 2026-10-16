@@ -20,7 +20,7 @@ message.
 
 The fix is a mapper reading the `SELECT SCOPE_IDENTITY() as ID` that `MsSqlInsertQueryCompiler`
 already appends to every insert, registered in `resolve()`. See
-[docs/README.md](docs/README.md) for a working implementation.
+[docs/README.md](../../docs/orm-mssql/README.md) for a working implementation.
 
 Until then, treat this driver as **read-capable only**. Selects, schema operations and
 transactions all work.
@@ -81,12 +81,12 @@ await DI.resolve(Orm);
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm-mssql/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](docs/01-configuration.md) |
-| 02 | [Dialect notes](docs/02-dialect-notes.md) |
+| 01 | [Configuration](../../docs/orm-mssql/01-configuration.md) |
+| 02 | [Dialect notes](../../docs/orm-mssql/02-dialect-notes.md) |
 
 ## Development
 

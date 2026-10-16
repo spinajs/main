@@ -49,16 +49,16 @@ export class MyDbOrmDriver extends SqlDriver {
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm-sql/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Overview](docs/01-overview.md) |
-| 02 | [Compilers](docs/02-compilers.md) |
-| 03 | [Statements](docs/03-statements.md) |
-| 04 | [Writing a driver](docs/04-writing-a-driver.md) |
+| 01 | [Overview](../../docs/orm-sql/01-overview.md) |
+| 02 | [Compilers](../../docs/orm-sql/02-compilers.md) |
+| 03 | [Statements](../../docs/orm-sql/03-statements.md) |
+| 04 | [Writing a driver](../../docs/orm-sql/04-writing-a-driver.md) |
 
-See also [the core's architecture page](../orm/docs/12-architecture.md) for how a query becomes
+See also [the core's architecture page](../../docs/orm/12-architecture.md) for how a query becomes
 SQL, end to end.
 
 ## Development

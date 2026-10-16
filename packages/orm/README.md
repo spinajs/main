@@ -42,23 +42,23 @@ static methods used above.
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Getting started](docs/01-getting-started.md) |
-| 02 | [Configuration](docs/02-configuration.md) |
-| 03 | [Models and decorators](docs/03-models-and-decorators.md) |
-| 04 | [Static model API](docs/04-static-model-api.md) |
-| 05 | [Instance API](docs/05-instance-api.md) |
-| 06 | [Query builder](docs/06-query-builder.md) |
-| 07 | [Relations](docs/07-relations.md) |
-| 08 | [Unit of work](docs/08-unit-of-work.md) |
-| 09 | [Transactions](docs/09-transactions.md) |
-| 10 | [Schema and migrations](docs/10-schema-and-migrations.md) |
-| 11 | [Converters and hydration](docs/11-converters-and-hydration.md) |
-| 12 | [Architecture](docs/12-architecture.md) |
-| 13 | [Observability](docs/13-observability.md) |
+| 01 | [Getting started](../../docs/orm/01-getting-started.md) |
+| 02 | [Configuration](../../docs/orm/02-configuration.md) |
+| 03 | [Models and decorators](../../docs/orm/03-models-and-decorators.md) |
+| 04 | [Static model API](../../docs/orm/04-static-model-api.md) |
+| 05 | [Instance API](../../docs/orm/05-instance-api.md) |
+| 06 | [Query builder](../../docs/orm/06-query-builder.md) |
+| 07 | [Relations](../../docs/orm/07-relations.md) |
+| 08 | [Unit of work](../../docs/orm/08-unit-of-work.md) |
+| 09 | [Transactions](../../docs/orm/09-transactions.md) |
+| 10 | [Schema and migrations](../../docs/orm/10-schema-and-migrations.md) |
+| 11 | [Converters and hydration](../../docs/orm/11-converters-and-hydration.md) |
+| 12 | [Architecture](../../docs/orm/12-architecture.md) |
+| 13 | [Observability](../../docs/orm/13-observability.md) |
 
 ## Related packages
 

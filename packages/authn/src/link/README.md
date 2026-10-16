@@ -96,7 +96,7 @@ through `OidcController`, and delegates to this service through
   linked, 409 when several match, 403 when the service refuses.
 
 Without an `OidcAccountLinks` registration these routes answer 404. See
-[oidc.md](../../../../docs/authn/oidc.md).
+[oidc.md](../../../../docs/authn-oidc/README.md).
 
 ## Configuration
 

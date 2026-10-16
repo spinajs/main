@@ -83,12 +83,12 @@ collide, and the private key must be unencrypted.
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm-mysql/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](docs/01-configuration.md) |
-| 02 | [Dialect notes](docs/02-dialect-notes.md) |
+| 01 | [Configuration](../../docs/orm-mysql/01-configuration.md) |
+| 02 | [Dialect notes](../../docs/orm-mysql/02-dialect-notes.md) |
 
 ## Development
 

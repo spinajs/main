@@ -1,4 +1,4 @@
-// Verbatim from design §17 (docs/plans/2026-10-01-authz-v3-design.md).
+// Verbatim from the authz v3 design, §17.
 export const BEHAVIOUR_RULES = Object.freeze({
   B01: 'No routed model permits ⇒ `allowed: false`, reason `no_access`.',
   B02: 'An unregistered permission in `@Access`, a grant, a policy, a rule, an adapter or `check()` ⇒ `AuthzConfigError`/`UnknownPermission` at boot or call; never `false`. A permission checked on a type outside `PermissionDef.types` ⇒ `AuthzConfigError`.',

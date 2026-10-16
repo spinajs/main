@@ -3,8 +3,7 @@
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
 > (`@spinajs/authn*`) and authorization (`@spinajs/authz*`). There is no compatibility mode, no
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
-> `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn/oidc.md`. Design:
-> `docs/plans/2026-10-01-authz-v3-design.md` (rule numbers such as H1, B24, A31 and SR-03 point there).
+> `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
 ## Upgrade now: the 2.x security findings stay open
 

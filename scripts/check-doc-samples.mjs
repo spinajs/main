@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Type-checks the TypeScript samples embedded in the packages' `docs/` markdown.
+ * Type-checks the TypeScript samples embedded in the per-package markdown under `docs/<package>/`.
  *
  * A fenced block participates only when its info string is exactly `ts sample`:
  *
@@ -82,7 +82,7 @@ function collect() {
 
   for (const pkg of packages) {
     if (only.length && !only.includes(pkg)) continue;
-    const docs = join(PACKAGES, pkg, 'docs');
+    const docs = join(ROOT, 'docs', pkg);
     try {
       if (!statSync(docs).isDirectory()) continue;
     } catch {

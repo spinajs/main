@@ -147,7 +147,7 @@ const LOCAL = [
       name: 'rbac-probe',
       facets: ['engine', 'rbac'],
       lanes: ['L1'],
-      note: 'AuthzService.covers must count a typed doc:read grant of the target (docs/plans/authz-v3-rfc/L1-3.md).',
+      note: 'AuthzService.covers must count a typed doc:read grant of the target (RFC L1-3).',
       cases: [
         {
           name: 'a caller without doc:read does not cover a target whose doc:read comes from a typed grant',

@@ -55,12 +55,12 @@ await DI.resolve(Orm);
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm-sqlite/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](docs/01-configuration.md) |
-| 02 | [Dialect notes](docs/02-dialect-notes.md) |
+| 01 | [Configuration](../../docs/orm-sqlite/01-configuration.md) |
+| 02 | [Dialect notes](../../docs/orm-sqlite/02-dialect-notes.md) |
 
 ## Development
 

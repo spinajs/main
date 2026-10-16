@@ -10,10 +10,8 @@ impersonation code that lived in `@spinajs/rbac*`.
   [steps 6 to 9](../authz/migration-guide.md#8-steps-for-an-app) and
   [lane notes](../authz/migration-guide.md#9-behaviour-changes-lane-by-lane).
 - Authorization (what the caller may do): [docs/authz](../authz/README.md).
-- OIDC single sign-on: [oidc.md](./oidc.md).
+- OIDC single sign-on: [OIDC](../authn-oidc/README.md).
 - Tables, stores and the login flow step by step: [storage-and-login-flow.md](./storage-and-login-flow.md).
-- Rule numbers (A05, SR-03, H31) point to the design: `docs/plans/2026-10-01-authz-v3-design.md`
-  (§22.17 for A-rules, §23 for the SR findings).
 
 This page describes `3.0.0-rc.1`. Open items are listed in
 [the migration guide, section 11](../authz/migration-guide.md#11-open-items-in-300-rc1).
@@ -169,7 +167,7 @@ authn: {
 | `keys-jws` (`JwsAssertionStrategy`) | `jws-assertion` | no | `authn-keys` |
 | `keys-httpsig` (`HttpSignatureStrategy`) | `http-signature` | no | `authn-keys` |
 | `keys-challenge` (`KeyChallengeStrategy`) | `key-challenge` | yes | `authn-keys` |
-| `oidc:<name>` | `external` | yes | `authn-oidc` ([oidc.md](./oidc.md)) |
+| `oidc:<name>` | `external` | yes | `authn-oidc` ([OIDC](../authn-oidc/README.md)) |
 
 ### Local password
 
@@ -218,7 +216,7 @@ See [Keys](#keys).
 
 ### OIDC
 
-See [oidc.md](./oidc.md).
+See [OIDC](../authn-oidc/README.md).
 
 ## Sessions
 
@@ -625,7 +623,7 @@ export default {
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
 | `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches; a login links only when the strategy's own switch is on too (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`; K6). Guide: [account linking](../../packages/authn/src/link/README.md). |
-| `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
+| `authn.oidc.*` | `authn-oidc` | See [OIDC](../authn-oidc/README.md). |
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
 | `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |

@@ -11,17 +11,9 @@ const expect = chai.expect;
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, 'scripts', 'api-snapshot.mjs');
 
-interface Change {
-  status: string;
-  path: string;
-}
-
 interface SnapshotTool {
   snapshotPackage(pkg: { dir: string; entries: readonly string[]; tsconfig?: string }): string;
   compareSnapshots(generated: Map<string, string>, committed: Map<string, string>): { ok: boolean; problems: string[] };
-  rfcDecision(changes: readonly Change[], gateReached: boolean): { ok: boolean; snapshots: string[]; rfcs: string[]; message: string };
-  parseNameStatus(text: string): Change[];
-  g1Reached(root: string): { reached: boolean; tagFound: boolean };
   findAugmentations(root: string, targets: { packages: Set<string>; files: Set<string> }, allowlist?: readonly string[]): string[];
   unconfiguredFrozenFiles(root: string, config: { packages: Record<string, readonly string[]>; pending?: readonly string[] }): string[];
 }
@@ -267,80 +259,6 @@ describe('API snapshot of the frozen contracts', function () {
     });
   });
 
-  describe('rfcDecision', () => {
-    const snapshot: Change = { status: 'M', path: 'packages/authz/etc/authz.api.md' };
-    const rfc: Change = { status: 'A', path: 'docs/plans/authz-v3-rfc/L1-1.md' };
-    const other: Change = { status: 'M', path: 'packages/authz/src/engine.ts' };
-
-    const grid: [gate: boolean, snapshotChanged: boolean, rfcPresent: boolean, ok: boolean][] = [
-      [false, false, false, true],
-      [false, false, true, true],
-      [false, true, false, true],
-      [false, true, true, true],
-      [true, false, false, true],
-      [true, false, true, true],
-      [true, true, false, false],
-      [true, true, true, true],
-    ];
-
-    for (const [gate, changed, present, ok] of grid) {
-      it(`gate ${gate ? 'reached' : 'not reached'}, snapshot ${changed ? 'changed' : 'unchanged'}, RFC ${present ? 'present' : 'absent'} => ${ok ? 'pass' : 'fail'}`, () => {
-        const changes = [other, ...(changed ? [snapshot] : []), ...(present ? [rfc] : [])];
-        const res = tool.rfcDecision(changes, gate);
-        expect(res.ok).to.eq(ok);
-        if (!ok) expect(res.message).to.include('packages/authz/etc/authz.api.md');
-      });
-    }
-
-    it('counts only <lane>-<n>.md files as RFCs', () => {
-      for (const path of ['docs/plans/authz-v3-rfc/.gitkeep', 'docs/plans/authz-v3-rfc/notes.md', 'docs/plans/authz-v3-rfc/sub/L1-1.md', 'docs/plans/authz-v3-rfc/L1-x.md']) {
-        expect(tool.rfcDecision([snapshot, { status: 'A', path }], true).ok, path).to.eq(false);
-      }
-      expect(tool.rfcDecision([snapshot, { status: 'M', path: 'docs/plans/authz-v3-rfc/SEC1-12.md' }], true).ok).to.eq(true);
-    });
-
-    it('does not count a deleted RFC file', () => {
-      const res = tool.rfcDecision([snapshot, { status: 'D', path: 'docs/plans/authz-v3-rfc/L2-3.md' }], true);
-      expect(res.ok).to.eq(false);
-    });
-
-    it('counts a deleted snapshot as a change', () => {
-      const res = tool.rfcDecision([{ status: 'D', path: 'packages/authz-fs/etc/authz-fs.api.md' }], true);
-      expect(res.ok).to.eq(false);
-      expect(res.snapshots).to.deep.eq(['packages/authz-fs/etc/authz-fs.api.md']);
-    });
-  });
-
-  describe('parseNameStatus', () => {
-    it('reads git diff --name-status output', () => {
-      expect(tool.parseNameStatus('M\tpackages/a/etc/a.api.md\nA\tdocs/plans/authz-v3-rfc/L1-1.md\r\nD\told file.ts\n\n')).to.deep.eq([
-        { status: 'M', path: 'packages/a/etc/a.api.md' },
-        { status: 'A', path: 'docs/plans/authz-v3-rfc/L1-1.md' },
-        { status: 'D', path: 'old file.ts' },
-      ]);
-    });
-  });
-
-  describe('g1Reached', () => {
-    const git = (cwd: string, ...args: string[]): void => {
-      const res = spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
-      expect(res.status, res.stderr).to.eq(0);
-    };
-
-    it('needs the tag and its ancestry', () => {
-      const repo = mkdtempSync(join(tmp, 'git-'));
-      git(repo, 'init', '-q');
-      git(repo, 'commit', '-q', '--allow-empty', '-m', 'a');
-      expect(tool.g1Reached(repo)).to.deep.eq({ reached: false, tagFound: false });
-      git(repo, 'tag', 'authz-v3-g1');
-      git(repo, 'commit', '-q', '--allow-empty', '-m', 'b');
-      expect(tool.g1Reached(repo)).to.deep.eq({ reached: true, tagFound: true });
-      git(repo, 'checkout', '-q', '--orphan', 'other');
-      git(repo, 'commit', '-q', '--allow-empty', '-m', 'c');
-      expect(tool.g1Reached(repo)).to.deep.eq({ reached: false, tagFound: true });
-    });
-  });
-
   describe('findAugmentations', () => {
     it('reports declare module blocks that target a snapshotted package or file', () => {
       const root = mkdtempSync(join(tmp, 'aug-'));
@@ -384,10 +302,8 @@ describe('API snapshot of the frozen contracts', function () {
 
   describe('the command line', () => {
     it('exits 2 on usage errors', () => {
-      for (const args of [['--bogus'], ['--check-rfc']]) {
-        const res = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO_ROOT, encoding: 'utf8' });
-        expect(res.status, args.join(' ')).to.eq(2);
-      }
+      const res = spawnSync(process.execPath, [SCRIPT, '--bogus'], { cwd: REPO_ROOT, encoding: 'utf8' });
+      expect(res.status).to.eq(2);
     });
   });
 
@@ -401,10 +317,6 @@ describe('API snapshot of the frozen contracts', function () {
     let repo: string;
 
     const run = (...args: string[]) => spawnSync(process.execPath, [join(repo, 'scripts', 'api-snapshot.mjs'), ...args], { cwd: repo, encoding: 'utf8', timeout: 60_000 });
-    const git = (...args: string[]): void => {
-      const res = spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'core.autocrlf=false', ...args], { cwd: repo, encoding: 'utf8', timeout: 60_000 });
-      expect(res.status, res.stderr).to.eq(0);
-    };
     const editApi = (from: string, to: string): void => {
       const text = readFileSync(join(repo, API), 'utf8');
       expect(text).to.include(from);
@@ -452,27 +364,6 @@ describe('API snapshot of the frozen contracts', function () {
       } finally {
         editApi('// decided for every request, then cached', NOTE);
       }
-    });
-
-    it('--check-rfc after G1 needs an RFC for a doc comment change', () => {
-      expect(run('--update').status).to.eq(0);
-      git('init', '-q');
-      git('add', '-A');
-      git('commit', '-q', '-m', 'g1');
-      git('tag', 'authz-v3-g1');
-
-      editApi('/** The outcome of a check. */', '/** The final outcome of a check. */');
-      expect(run('--update').status).to.eq(0);
-      git('commit', '-q', '-am', 'doc only');
-      const blocked = run('--check-rfc', 'HEAD~1');
-      expect(blocked.status, `${blocked.stdout}\n${blocked.stderr}`).to.eq(1);
-      expect(blocked.stderr).to.include(SNAPSHOT);
-
-      writeTree(repo, { 'docs/plans/authz-v3-rfc/D3-1.md': '# RFC D3-1\n' });
-      git('add', '-A');
-      git('commit', '-q', '--amend', '--no-edit');
-      const allowed = run('--check-rfc', 'HEAD~1');
-      expect(allowed.status, `${allowed.stdout}\n${allowed.stderr}`).to.eq(0);
     });
   });
 

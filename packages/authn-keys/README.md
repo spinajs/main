@@ -2,8 +2,7 @@
 
 Public-key authentication for SpinaJS: a key registry, strict JWS (the
 canvas C8 rules), JWS client assertions, RFC 9421 HTTP signatures and a
-challenge-response login. Design: `docs/plans/2026-10-01-authz-v3-design.md`
-§22.10, rules A17 and A18.
+challenge-response login.
 
 ## Keys
 

@@ -1,6 +1,6 @@
 # `@spinajs/eslint-plugin-authz`
 
-ESLint rules for SpinaJS authorization (design `docs/plans/2026-10-14-authz-resource-access-design.md` §8).
+ESLint rules for SpinaJS authorization.
 
 ## Install
 

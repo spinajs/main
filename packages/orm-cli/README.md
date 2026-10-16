@@ -149,7 +149,7 @@ warning to `FAILED`: it blocks nothing, and the next `migrate-up` re-runs it fro
 or not anybody looked. Under the default `Transaction.Mode: None` that means non-idempotent data
 changes get applied twice, silently. The same two `migrate-resolve` invocations are printed for
 it. See "Interrupted runs" in
-[the ORM migration docs](../orm/docs/10-schema-and-migrations.md#interrupted-runs).
+[the ORM migration docs](../../docs/orm/10-schema-and-migrations.md#interrupted-runs).
 
 `[checksum mismatch]` marks a migration whose source changed after it was applied. It is
 reported but does **not** on its own make the command exit non-zero — only pending and failed

@@ -21,9 +21,8 @@ the kit uses the `describe`, `it` and `after` globals).
 
 - `ctx`: `rule`, `facet`, `caseName`, `clock` (a `FakeClock`), `config` (the
   case's `ConfigOverrides`, `{}` when none).
-- Apply `ctx.config`: `authn.*` keys mean what the `authn.*` config means
-  (`docs/plans/2026-10-01-authz-v3-design.md` §22.5); secrets are the
-  values themselves; `throttle` merges over `DEFAULT_THROTTLE`. Without
+- Apply `ctx.config`: `authn.*` keys mean what the `authn.*` config means;
+  secrets are the values themselves; `throttle` merges over `DEFAULT_THROTTLE`. Without
   overrides, run those defaults. A config you cannot apply: throw
   `new UnsupportedConfig(keys)`.
 - Return only the ports you have; every port shares one container (the

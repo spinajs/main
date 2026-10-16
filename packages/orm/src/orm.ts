@@ -246,7 +246,7 @@ export class Orm extends AsyncService {
    * Not fixed here, because the tracking table has no notion of "applied but unseeded" and
    * inventing one would make the seed phase a second, weaker migration state machine - `data()`
    * has no `down()`, no checksum and no failure row, so a "seeded" column would be a claim
-   * nothing could verify or undo. It is documented instead ( packages/orm/docs,
+   * nothing could verify or undo. It is documented instead ( docs/orm,
    * 10-schema-and-migrations.md ), where the guidance is the one thing that actually holds:
    * write `data()` so that running it again is harmless.
    */
