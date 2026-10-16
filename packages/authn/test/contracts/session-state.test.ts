@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { DI, NewInstance, Singleton } from '@spinajs/di';
+import { Autoinject, AsyncService, DI, NewInstance, Singleton } from '@spinajs/di';
 
 import { Session, SessionKeys, resolveSession, sessionKey } from '../../src/contracts/session-state.js';
 import type { SessionInit } from '../../src/contracts/session-state.js';
@@ -107,12 +107,15 @@ describe('resolveSession', () => {
 
   it('builds the class registered as Session in that container', async () => {
     const c = DI.RootContainer.child();
-    c.register(AppSession).as(Session);
-    const s = resolveSession(c, { ...init('x'), data: [['Theme', 'dark']] });
-    expect(s).to.be.instanceOf(AppSession);
-    expect((s as AppSession).theme).to.eq('dark');
-    expect(resolveSession(DI.RootContainer.child(), init('y')).constructor).to.eq(Session);
-    await c.dispose();
+    try {
+      c.register(AppSession).as(Session);
+      const s = resolveSession(c, { ...init('x'), data: [['Theme', 'dark']] });
+      expect(s).to.be.instanceOf(AppSession);
+      expect((s as AppSession).theme).to.eq('dark');
+      expect(resolveSession(DI.RootContainer.child(), init('y')).constructor).to.eq(Session);
+    } finally {
+      await c.dispose();
+    }
   });
 
   it('accepts a class that copies the handle before calling super', async () => {
@@ -123,27 +126,74 @@ describe('resolveSession', () => {
       }
     }
     const c = DI.RootContainer.child();
-    c.register(CopyingSession).as(Session);
-    const a = resolveSession(c, init('a'));
-    const b = resolveSession(c, init('b'));
-    expect(a).to.be.instanceOf(CopyingSession);
-    expect(b).to.be.instanceOf(CopyingSession);
-    expect([a.handle.id, b.handle.id]).to.deep.eq(['a', 'b']);
-    await c.dispose();
+    try {
+      c.register(CopyingSession).as(Session);
+      const a = resolveSession(c, init('a'));
+      const b = resolveSession(c, init('b'));
+      expect(a).to.be.instanceOf(CopyingSession);
+      expect(b).to.be.instanceOf(CopyingSession);
+      expect([a.handle.id, b.handle.id]).to.deep.eq(['a', 'b']);
+    } finally {
+      await c.dispose();
+    }
   });
 
   it('refuses a registered class that hands back one shared instance', async () => {
     const c = DI.RootContainer.child();
-    c.register(SharedSession).as(Session);
-    resolveSession(c, init('first'));
-    expect(() => resolveSession(c, init('second'))).to.throw(/@NewInstance\(\)/);
-    await c.dispose();
+    try {
+      c.register(SharedSession).as(Session);
+      resolveSession(c, init('first'));
+      expect(() => resolveSession(c, init('second'))).to.throw(/@NewInstance\(\)/);
+    } finally {
+      await c.dispose();
+    }
   });
 
-  it('refuses a registration that is no Session', async () => {
+  it('refuses a shared instance even when both calls carry the same init id', async () => {
     const c = DI.RootContainer.child();
-    c.register({ NotASession: () => ({ handle: { id: 'z', state: 'active' } }) }.NotASession).as(Session);
-    expect(() => resolveSession(c, init('z'))).to.throw(/not a Session/);
-    await c.dispose();
+    try {
+      c.register(SharedSession).as(Session);
+      resolveSession(c, init('same'));
+      expect(() => resolveSession(c, init('same'))).to.throw(/@NewInstance\(\)/);
+    } finally {
+      await c.dispose();
+    }
+  });
+
+  it('refuses a registration that is no Session, naming what it resolved to', async () => {
+    const c = DI.RootContainer.child();
+    try {
+      c.register({ NotASession: () => ({ handle: { id: 'z', state: 'active' } }) }.NotASession).as(Session);
+      expect(() => resolveSession(c, init('z'))).to.throw(/resolved to Object, which is not a Session/);
+    } finally {
+      await c.dispose();
+    }
+  });
+
+  it('refuses a class with an AsyncService dependency and leaves no unhandled rejection', async () => {
+    class Slow extends AsyncService {
+      public async resolve(): Promise<void> {
+        await new Promise((r) => setTimeout(r, 5));
+        throw new Error('slow dependency failed');
+      }
+    }
+    @NewInstance()
+    class NeedsSlow extends Session {
+      @Autoinject(Slow)
+      public slow!: Slow;
+    }
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    const c = DI.RootContainer.child();
+    try {
+      c.register(NeedsSlow).as(Session);
+      expect(() => resolveSession(c, init('a'))).to.throw(/not a Session/);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(unhandled).to.deep.eq([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      await c.dispose();
+    }
   });
 });

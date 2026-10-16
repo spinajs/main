@@ -1,6 +1,6 @@
 import { NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { isNonEmptyString, isPlainObject, isThenable } from '@spinajs/util';
 
 import type { IdentityRef } from './credentials.js';
 import type { AuthnFacts, PrincipalRef } from './principal.js';
@@ -117,6 +117,10 @@ export class Session {
   }
 }
 
+const handedOut = new WeakSet<Session>();
+
+const describe = (value: unknown): string => (value as { constructor?: { name?: string } } | null | undefined)?.constructor?.name ?? typeof value;
+
 /**
  * `value` itself when it is a Session, else the class registered as Session in `container` (Session when none is),
  * built from `value`. A registered class must be @NewInstance() and must not depend on an AsyncService.
@@ -125,11 +129,14 @@ export function resolveSession(container: IContainer, value: Session | SessionIn
   if (value instanceof Session) return value;
   const session: unknown = container.resolve(Session, [value]);
   if (!(session instanceof Session)) {
-    throw new Error('authn: the class registered as Session resolved to a value that is not a Session (an AsyncService dependency resolves to a Promise)');
+    // An AsyncService dependency makes the resolve return a Promise; nobody awaits it here.
+    if (isThenable(session)) session.then(undefined, () => undefined);
+    throw new Error(`authn: the class registered as Session resolved to ${describe(session)}, which is not a Session (an AsyncService dependency resolves to a Promise)`);
   }
-  // A singleton registration ignores the constructor arguments and hands back the first session again.
-  if (session.handle.id !== value.handle.id) {
+  // A singleton registration hands back the session it built first.
+  if (handedOut.has(session)) {
     throw new Error(`authn: declare @NewInstance() on ${session.constructor.name}; a shared instance would hand one session to every request`);
   }
+  handedOut.add(session);
   return session;
 }

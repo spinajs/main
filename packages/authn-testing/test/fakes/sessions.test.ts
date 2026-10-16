@@ -16,13 +16,16 @@ describe('MemorySessionIssuer', () => {
     @NewInstance()
     class AppSession extends Session {}
     const container = DI.RootContainer.child();
-    container.register(AppSession).as(Session);
-    const issuer = new MemorySessionIssuer({ container });
-    const h = await issuer.issue({ type: 'user', id: 'u1' }, facts());
-    assert.ok((await issuer.restore(h.id)) instanceof AppSession);
-    const plain = new MemorySessionIssuer();
-    assert.equal((await plain.restore((await plain.issue({ type: 'user', id: 'u1' }, facts())).id))?.constructor, Session);
-    await container.dispose();
+    try {
+      container.register(AppSession).as(Session);
+      const issuer = new MemorySessionIssuer({ container });
+      const h = await issuer.issue({ type: 'user', id: 'u1' }, facts());
+      assert.ok((await issuer.restore(h.id)) instanceof AppSession);
+      const plain = new MemorySessionIssuer();
+      assert.equal((await plain.restore((await plain.issue({ type: 'user', id: 'u1' }, facts())).id))?.constructor, Session);
+    } finally {
+      await container.dispose();
+    }
   });
 
   let clock: FakeClock;
