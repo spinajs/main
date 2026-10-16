@@ -825,6 +825,7 @@ export declare abstract class PrincipalFactory {
 ## src/contracts/session-state.ts
 
 ```ts
+import type { IContainer } from "@spinajs/di";
 import type { IdentityRef } from "./credentials.js";
 import type { AuthnFacts, PrincipalRef } from "./principal.js";
 import type { SessionHandle } from "./session.js";
@@ -877,6 +878,11 @@ export declare class Session {
     has(key: SessionKey<unknown>): boolean;
     get<T>(key: SessionKey<T>): T | undefined;
 }
+/**
+ * `value` itself when it is a Session, else the class registered as Session in `container` (Session when none is),
+ * built from `value`. A registered class must be @NewInstance() and must not depend on an AsyncService.
+ */
+export declare function resolveSession(container: IContainer, value: Session | SessionInit): Session;
 
 // values
 const SessionKeys = Object.freeze({
