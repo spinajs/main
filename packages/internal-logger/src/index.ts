@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Bootstrapper, DI, Injectable } from "@spinajs/di";
 import { Configuration, format } from "@spinajs/configuration-common";
-import { ILogEntry, LogLevel, createLogMessageObject, Log, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
+import { ILogEntry, LogLevel, createLogMessageObject, renderTemplate, Log, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
 import _ from "lodash";
 
 /**
@@ -124,10 +124,10 @@ export class InternalLogger extends Bootstrapper {
       InternalLogger.write(err, message, level, name, {}, ...args);
     } else if (err !== null && typeof err === "object" && !Array.isArray(err)) {
       // merging-object form: `err` is a bag of structured fields, `message` is the
-      // format string. Fields are spread into the log variables ( so a nested
+      // `${field}` template ( see renderTemplate ). Fields are spread into the log variables ( so a nested
       // `error` key still runs the serializer ), the name stays in the `name` slot.
       const fields = err as Record<string, unknown>;
-      const fmt = typeof message === "string" ? message : "";
+      const fmt = typeof message === "string" ? renderTemplate(message, fields, args.length !== 0) : "";
       InternalLogger.write(null as any, fmt, level, name, { ...fields }, ...args);
     } else {
       // Non-Error branch: `err` carries the format string. createLogMessageObject

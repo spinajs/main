@@ -23,7 +23,7 @@ const unhandledRejection = (reason: Error, p: Promise<unknown>) => {
   // if not log to console
   if (DI.has(Configuration)) {
     const log = DI.resolve(Log, ["process"]);
-    log.fatal(reason as Error, "Unhandled rejection at Promise %s", p);
+    log.fatal({ error: reason, promise: p }, "Unhandled rejection at Promise ${promise}");
   } else {
     console.error("Unhandled rejection: \n reason: " + reason.message + " \n stack:" + reason.stack);
   }

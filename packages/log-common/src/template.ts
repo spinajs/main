@@ -1,7 +1,7 @@
 // JSON.stringify leaves U+007F-U+009F, Unicode line breaks and direction marks as they are, and a text target's layout
 // expands a `${name}` that a value brings into the message.
 const UNSAFE = /[$\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g;
-const PLAIN = /^[A-Za-z0-9_.:/+-]+$/;
+const PLAIN = /^[\p{L}\p{N}_.,:;/\\+@#~*!?&|()[\]<>'-]+$/u;
 const CONDITIONAL = /\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs;
 const PLACEHOLDER = /\$\{([^:}?/][^:}]*)\}/g;
 
@@ -13,30 +13,39 @@ const has = (fields: Record<string, unknown>, name: string): boolean => {
   return v !== undefined && v !== null && v !== "";
 };
 
-function text(v: unknown): string {
-  if (v instanceof Date) {
-    return Number.isFinite(v.getTime()) ? v.toISOString() : String(v);
+const escape = (s: string): string => s.replace(UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
+function json(v: object): string | undefined {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return undefined;
   }
-  if (typeof v === "object" && v !== null) {
-    try {
-      return JSON.stringify(v) ?? String(v);
-    } catch {
-      return String(v);
-    }
-  }
-  return typeof v === "function" ? "" : String(v);
 }
 
 /**
- * Renders one field value for a log line: a plain token as it is, anything else quoted and escaped, so a value can
- * forge neither a field nor a line.
+ * Renders one field value for a log line: a plain token as it is, an object or array as JSON, anything else quoted.
+ * All of it escaped, so a value can forge neither a field nor a line.
  */
 export function renderValue(v: unknown): string {
-  const s = text(v);
-  if (PLAIN.test(s)) {
-    return s;
+  if (v instanceof Date && Number.isFinite(v.getTime())) {
+    return v.toISOString();
   }
-  return JSON.stringify(s).replace(UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  if (v instanceof Error) {
+    return renderValue(v.message);
+  }
+  if (typeof v === "object" && v !== null && !(v instanceof Date)) {
+    // A luxon DateTime and the like serialize to a plain string, which reads better as one than as quoted JSON.
+    const j = json(v);
+    if (j !== undefined && j.startsWith('"')) {
+      return renderValue(JSON.parse(j) as string);
+    }
+    if (j !== undefined) {
+      return escape(j);
+    }
+  }
+  const s = typeof v === "function" ? "" : String(v);
+  return PLAIN.test(s) ? s : escape(JSON.stringify(s));
 }
 
 /**

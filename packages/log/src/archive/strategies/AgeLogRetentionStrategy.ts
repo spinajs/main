@@ -26,10 +26,10 @@ export class AgeLogRetentionStrategy extends LogRetentionStrategy {
 
       if (now.diff(ts, "seconds").seconds > maxAge) {
         try {
-          this.Logger.trace(`Deleting archive ${a.path} ( older than ${maxAge}s )`);
+          this.Logger.trace({ archivePath: a.path, maxAge }, "Deleting archive ${archivePath} ( older than ${maxAge}s )");
           await ctx.archiveFs.rm(a.path);
         } catch (err) {
-          this.Logger.warn(`Cannot delete archive ${a.path}: ${(err as Error).message}`);
+          this.Logger.warn({ error: err, archivePath: a.path }, "Cannot delete archive ${archivePath}");
         }
       }
     }

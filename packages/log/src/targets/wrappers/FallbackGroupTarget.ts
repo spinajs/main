@@ -82,7 +82,7 @@ export class FallbackGroupTarget extends LogTarget<IFallbackGroupTargetOptions> 
     }
 
     // every target rejected - swallow ( warn-only ) so logging never throws.
-    this.Log?.warn(`FallbackGroupTarget ${this.Options.name}: all ${this.Inner.length} targets rejected the entry.`);
+    this.Log?.warn({ target: this.Options.name, targetCount: this.Inner.length }, "FallbackGroupTarget ${target}: all ${targetCount} targets rejected the entry.");
   }
 
   public forceFlush(): Promise<void> {

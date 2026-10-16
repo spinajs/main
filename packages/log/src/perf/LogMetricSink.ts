@@ -2,6 +2,13 @@ import { Singleton, Injectable } from "@spinajs/di";
 import { Config } from "@spinajs/configuration";
 import { Logger, Log, PerfSink, IPerfMetric, IPerfRollup } from "@spinajs/log-common";
 
+const STATEMENT_SUFFIX = "${?statement} - ${statement}${/statement}";
+const SPAN_FAILED = "${metricName} failed after ${duration}ms" + STATEMENT_SUFFIX;
+const SPAN_SLOW = "Slow ${metricName}: ${duration}ms" + STATEMENT_SUFFIX;
+const SPAN = "${metricName}: ${duration}ms" + STATEMENT_SUFFIX;
+const COUNTER = "${metricName}=${value}";
+const ROLLUP = "perf rollup${?requestId} [${requestId}]${/requestId}: ${summary}";
+
 /**
  * Default {@link PerfSink}: renders perf measurements as structured log entries
  * through the normal targets/filters/rules pipeline, on a dedicated `perf`
@@ -69,18 +76,16 @@ export class LogMetricSink extends PerfSink {
    * passwords, tokens and personal data. They stay in the structured fields, where a
    * target can opt into them.
    */
-  private sqlSuffix(fields: Record<string, unknown>): string {
+  private statementOf(fields: Record<string, unknown>): string | undefined {
     const sql = fields.sql;
 
     if (typeof sql !== "string" || sql.trim().length === 0) {
-      return "";
+      return undefined;
     }
 
     const flattened = sql.replace(/\s+/g, " ").trim();
     const max = this.SqlMaxLength ?? 2000;
-    const clipped = flattened.length > max ? `${flattened.slice(0, max)}...` : flattened;
-
-    return ` - ${clipped}`;
+    return flattened.length > max ? `${flattened.slice(0, max)}...` : flattened;
   }
 
   public collect(metric: IPerfMetric): void {
@@ -91,9 +96,10 @@ export class LogMetricSink extends PerfSink {
       // `metric.fields` already carries `error` for a failed span ( set by the
       // facade ), so the log's error serializer runs when this object is logged.
       const fields = { durationMs: dur, ...(metric.labels ?? {}), ...(metric.fields ?? {}) };
+      const spanFields = { ...fields, metricName: metric.name, duration: dur.toFixed(1), statement: this.statementOf(fields) };
 
       if (metric.error !== undefined) {
-        this.emitAt("error", `${metric.name} failed after ${dur.toFixed(1)}ms${this.sqlSuffix(fields)}`, fields);
+        this.emitAt("error", SPAN_FAILED, spanFields);
         return;
       }
 
@@ -105,12 +111,12 @@ export class LogMetricSink extends PerfSink {
       }
 
       const level = slow ? this.OverLevel : this.UnderLevel;
-      this.emitAt(level, `${slow ? "Slow " : ""}${metric.name}: ${dur.toFixed(1)}ms${this.sqlSuffix(fields)}`, fields);
+      this.emitAt(level, slow ? SPAN_SLOW : SPAN, spanFields);
       return;
     }
 
     if (this.LogCounters && (metric.kind === "counter" || metric.kind === "value")) {
-      this.emitAt("trace", `${metric.name}=${metric.value}`, { ...(metric.labels ?? {}) });
+      this.emitAt("trace", COUNTER, { ...(metric.labels ?? {}), metricName: metric.name, value: metric.value });
     }
   }
 
@@ -119,12 +125,12 @@ export class LogMetricSink extends PerfSink {
     const parts = Object.entries(rollup.byName)
       .map(([n, e]) => `${n} x${e.count} ${e.totalMs.toFixed(0)}ms`)
       .join(", ");
-    const tag = rollup.requestId ? ` [${rollup.requestId}]` : "";
-    this.emitAt("info", `perf rollup${tag}: ${parts || "no measurements"}`, {
+    this.emitAt("info", ROLLUP, {
       requestId: rollup.requestId,
       totalMs: rollup.totalMs,
       byName: rollup.byName,
       ...(rollup.labels ?? {}),
+      summary: parts || "no measurements",
     });
   }
 
@@ -135,22 +141,22 @@ export class LogMetricSink extends PerfSink {
    * object as a printf argument, so passing fields last would silently drop
    * them. See the `warn(fields, message?)` overload on the `Log` base class.
    */
-  private emitAt(level: string, message: string, fields: Record<string, unknown>): void {
+  private emitAt(level: string, template: string, fields: Record<string, unknown>): void {
     switch (level) {
       case "error":
-        this.Log.error(fields, message);
+        this.Log.error(fields, template);
         break;
       case "warn":
-        this.Log.warn(fields, message);
+        this.Log.warn(fields, template);
         break;
       case "info":
-        this.Log.info(fields, message);
+        this.Log.info(fields, template);
         break;
       case "debug":
-        this.Log.debug(fields, message);
+        this.Log.debug(fields, template);
         break;
       default:
-        this.Log.trace(fields, message);
+        this.Log.trace(fields, template);
         break;
     }
   }

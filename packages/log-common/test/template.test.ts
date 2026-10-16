@@ -41,7 +41,19 @@ describe("renderValue", () => {
     expect(renderValue(new Date(Number.NaN))).to.equal('"Invalid Date"');
   });
 
-  it("writes an object as quoted JSON", () => {
-    expect(renderValue({ a: 1 })).to.equal('"{\\"a\\":1}"');
+  it("writes an object or array as escaped JSON and an Error as its message", () => {
+    expect(renderValue({ a: "x y", b: [1] })).to.equal('{"a":"x y","b":[1]}');
+    expect(renderValue({ a: "${level}" })).to.equal('{"a":"\\u0024{level}"}');
+    expect(renderValue(new Error("not found"))).to.equal('"not found"');
+  });
+
+  it("writes an object whose toJSON gives a string as that string", () => {
+    expect(renderValue({ toJSON: () => "2026-10-03T10:00:00.000+02:00" })).to.equal("2026-10-03T10:00:00.000+02:00");
+  });
+
+  it("writes Windows paths, non-ASCII letters and emails as plain tokens", () => {
+    expect(renderValue("C:\\logs\\app.log")).to.equal("C:\\logs\\app.log");
+    expect(renderValue("Zażółć")).to.equal("Zażółć");
+    expect(renderValue("a@b.pl")).to.equal("a@b.pl");
   });
 });

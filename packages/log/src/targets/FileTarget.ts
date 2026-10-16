@@ -97,7 +97,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     this.Ready.catch((err) => {
       this.HasError = true;
       this.Error = err;
-      this.Log.error(err as Error, `Cannot initialize file target ${this.Options.name}`);
+      this.Log.error({ error: err, target: this.Options.name }, "Cannot initialize file target ${target}");
     });
 
     // BatchQueue owns accumulation, the periodic flush tick ( unref'd, so a
@@ -116,7 +116,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
         // not File-as-primary drops.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`File target ${this.Options.name} buffer exceeded ${this.Options.options.maxQueueSize} messages, dropped ${droppedItems.length} oldest buffered messages.`);
+          this.Log.warn({ target: this.Options.name, maxQueueSize: this.Options.options.maxQueueSize, dropped: droppedItems.length }, "File target ${target} buffer exceeded ${maxQueueSize} messages, dropped ${dropped} oldest buffered messages.");
         }
       },
     });
@@ -226,7 +226,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       } catch (err) {
         this.HasError = true;
         this.Error = err;
-        this.Log.error(err as Error, `Cannot write log messages to file target at path ${path}`);
+        this.Log.error({ error: err, path }, "Cannot write log messages to file target at path ${path}");
 
         // restore the batch in front of anything queued meanwhile - never drop.
         // the queue caps at maxQueue, dropping the oldest if the sink stays down.

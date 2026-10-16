@@ -128,7 +128,7 @@ export class LogArchiveService extends AsyncService {
     await ctx.archiveFs.zip(archived, ctx.archiveFs, zipRel);
     await ctx.archiveFs.rm(archived);
 
-    this.Logger.trace(`Compressed archive ${archived} -> ${zipRel}`);
+    this.Logger.trace({ archived, zipPath: zipRel }, "Compressed archive ${archived} -> ${zipPath}");
   }
 
   /**
