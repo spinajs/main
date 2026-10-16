@@ -695,6 +695,12 @@ export class Container extends EventEmitter implements IContainer {
 
   protected resolveDependencies(toInject: IToInject<unknown>[]) {
     const dependencies = toInject.map((t) => {
+      if (t.resolveFunc) {
+        const injected = (instance: unknown) => ({ autoinject: t.autoinject, autoinjectKey: t.autoinjectKey, instance });
+        const value = t.resolveFunc(t.data, this);
+        return isPromise(value) ? value.then(injected) : injected(value);
+      }
+
       let tInject = null;
 
       // if we have service func, retrieve target

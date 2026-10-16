@@ -67,7 +67,7 @@ export interface DbHarnessOptions {
   /** Per case, with the model's options; default: the model's own. */
   readonly extensions?: (host: HostSetup, model: RbacModelOptions) => readonly RbacExtension[];
   /** The model's log (L1 warns about stored rows it ignores). */
-  readonly log?: { warn(message: string): void };
+  readonly log?: RbacModelOptions['log'];
   /** After the stores and the model are registered, before the domain boots. */
   register?(host: HostSetup, stores: DbHarnessStores): void | Promise<void>;
 }

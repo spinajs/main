@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmDriver, RawQuery } from '@spinajs/orm';
 import type { IUpdateResult } from '@spinajs/orm';
+import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
 import { fromUtcColumn } from '../models/utc.js';
@@ -105,14 +106,12 @@ export const sha256hex = (value: string): string => createHash('sha256').update(
 
 /** @internal A string of at most `max` characters (code points), or `InvalidArgument`; never truncated. */
 export function checkedText(value: unknown, max: number, label: string, allowEmpty = false): string {
-  if (typeof value !== 'string' || (!allowEmpty && value.length === 0)) {
-    throw new InvalidArgument(`${label} must be a non-empty string`);
-  }
-  const length = [...value].length;
+  const text: string = _check_arg(_is_string(...(allowEmpty ? [] : [_non_empty()])))(value, label);
+  const length = [...text].length;
   if (length > max) {
     throw new InvalidArgument(`${label} is ${length} characters long, the column holds ${max}`);
   }
-  return value;
+  return text;
 }
 
 /** @internal Cuts to `max` code points, so no surrogate pair is split. */

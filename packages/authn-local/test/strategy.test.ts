@@ -11,6 +11,7 @@ import { Argon2PasswordHasher, Argon2PasswordHasherOptions, EXPIRED_PASSWORD_MAR
 import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { LocalPasswordStrategy, LocalPasswordStrategyLog } from '../src/strategy.js';
+import { logLine } from './support/recording-log.js';
 
 const ARGON2_DEFAULT_PREFIX = '$argon2id$v=19$m=65536,t=3,p=4$';
 const LOGIN = 'alice@example.com';
@@ -23,8 +24,8 @@ const pw = (login: unknown, password: unknown): Credentials => ({ kind: 'passwor
 
 class RecordingLog implements LocalPasswordStrategyLog {
   public readonly lines: string[] = [];
-  public warn(message: string, ...args: unknown[]): void {
-    this.lines.push([message, ...args.map((a) => (a instanceof Error ? a.message : String(a)))].join(' '));
+  public warn(...args: unknown[]): void {
+    this.lines.push(logLine(...args));
   }
 }
 
@@ -231,7 +232,7 @@ describe('LocalPasswordStrategy', function () {
       expect(await passwords.get(alice)).to.equal(old);
       expect(log.lines).to.have.length(1);
       const line = log.lines[0];
-      expect(line).to.contain('StoreDownError');
+      expect(line).to.contain('"errorName":"StoreDownError"');
       expect(line).to.not.contain('bindings');
       expect(line).to.not.contain(PASSWORD);
       expect(line).to.not.contain('$argon2');

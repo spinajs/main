@@ -1,5 +1,6 @@
 import FakeTimers from '@sinonjs/fake-timers';
 import type { AuthnContext } from '@spinajs/authn/contracts';
+import { _check_arg, _gte, _is_number, _non_NaN } from '@spinajs/util';
 
 const DEFAULT_IP = '192.0.2.10';
 
@@ -21,9 +22,7 @@ export class FakeClock {
   }
 
   tick(ms: number): void {
-    if (!(ms >= 0)) {
-      throw new RangeError('FakeClock.tick needs ms >= 0');
-    }
+    _check_arg(_is_number(_non_NaN(), _gte(0)))(ms, 'ms');
     this.ms += ms;
     this.timers?.setSystemTime(this.ms);
   }

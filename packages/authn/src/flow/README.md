@@ -17,8 +17,9 @@ the flow live on `AuthnService`.
 - `MfaStep` (`contracts/mfa.ts`): one factor. `TotpMfaStep` in
   `@spinajs/authn-totp` is the one that ships.
 - `MfaPolicy` and `DefaultMfaPolicy`: which steps this login must pass.
-- `mfaSteps(container)` and `RECOVERY_STEP`: the configured steps and the
-  reserved step name for recovery codes.
+  `MfaPolicy.steps()` gives the steps; `ConfiguredMfaPolicy` lists those of
+  `authn.mfa.steps`.
+- `RECOVERY_STEP`: the reserved step name for recovery codes.
 - `MfaEnrolments` (also at `@spinajs/authn/mfa-enrolments`): the confirmed
   enrolments a store holds, read by the policy to refuse a login it would
   otherwise let through with the password alone.
@@ -36,6 +37,50 @@ HTTP routes are in `@spinajs/authn-http`:
 
 `AuthnMfaController` serves the first two, `AuthnMfaEnrolmentController` the
 rest.
+
+## Steps that ship
+
+None is on by default. `authn.mfa.steps` is unset in the default config
+(under `authn.mfa`, `config/authn.ts` sets only `policy`), so
+`DefaultMfaPolicy`'s `steps()` returns an empty map, the policy returns `[]` and every password
+login gets an `aal1` session. A step takes part only when both hold:
+
+1. its class is registered under `MfaStep` (`@Injectable(MfaStep)` in a
+   package the app imports), and
+2. the app lists it in `authn.mfa.steps`. Packages never list a step, since
+   arrays concatenate across config files.
+
+| Step | Name | Package | Notes |
+| --- | --- | --- | --- |
+| `TotpMfaStep` | `totp` | `@spinajs/authn-totp` (`step/totp-step.ts`) | RFC 6238 on `otpauth`. `storesSecrets = true`: seeds AES-256-GCM encrypted with a key id. Takes recovery codes (`verifyRecovery`, `regenerateRecoveryCodes`). |
+
+TOTP is the only factor that ships. Its defaults
+(`authn-totp/src/config/authn-totp.ts`): issuer `SpinaJS`, `SHA1`, 6 digits,
+30 s period, `window: 1`, 10 recovery codes. To turn it on:
+
+```ts
+authn: {
+  mfa: {
+    steps: [{ name: 'totp', service: 'TotpMfaStep' }],
+    encryptionKey: { secret: '<32 random bytes as 64 hex chars>' },
+  },
+}
+```
+
+and `import '@spinajs/authn-totp/db'` for the database secret store. See
+`@spinajs/authn-totp`, "Turning TOTP on".
+
+The pieces around it:
+
+| Class | Package | Registered |
+| --- | --- | --- |
+| `DbMfaSecretStore` | `@spinajs/authn-totp/db` | Under `MfaSecretStore` once that entry is imported; uses `authn_mfa` and `authn_recovery_code`. |
+| `MemoryMfaSecretStore` | `@spinajs/authn-totp` | Not registered. Pass it yourself, for tests or a single process; it loses every enrolment on restart. |
+| `DbMfaEnrolments` | `@spinajs/authn-orm` | Under `MfaEnrolments` whenever authn-orm loads. The policy reads it to refuse a login an enrolled user would otherwise pass with the password alone. |
+
+`FakeMfaStep` (`@spinajs/authn-testing`) is a test double, not a factor.
+Email codes and passkeys are planned (`docs/auth-feat/08`, `09`) and do not
+exist as steps yet.
 
 ## Registering a step
 
@@ -93,10 +138,18 @@ Rules the list is held to:
 - A step may add `verifyRecovery` and `regenerateRecoveryCodes` to take part
   in the recovery path.
 
-`mfaSteps(container)` reads the list once per container, at the authn boot
-when any strategy is interactive, and keeps it under `MFA_STEPS_KEY`. Login,
-the policy and the enrolment routes all see that one list. A later
-`Configuration.set` changes nothing until `container.uncache(MFA_STEPS_KEY)`.
+`ConfiguredMfaPolicy`, the base of `DefaultMfaPolicy`, takes the steps through
+`@AutoinjectNamedServices('authn.mfa.steps', MfaStep, …)` when the policy
+resolves (at the authn boot when any strategy is interactive or, with none,
+when `authn.mfa.encryptionKey.secret` is unset; `authn:check-config` resolves
+it too) and keeps them for the life of the instance. Login, completeMfa and the
+enrolment routes all ask the policy of `authn.mfa.policy.service` for its
+`steps()`, so they see that one list. A later `Configuration.set` changes
+nothing until the policy and the `AuthnService` that holds it are resolved
+anew. A custom policy extends `ConfiguredMfaPolicy` to get the same list, or
+implements `steps()`. To list each container's own `authn.mfa.steps`, register
+it per child container (`@PerChildInstance`, as `DefaultMfaPolicy` is); a
+singleton lists once, from the container it is registered in.
 
 ## One step
 
@@ -146,6 +199,57 @@ possession of a key and an IdP does its own MFA, so those logins never go
 pending. With `authn.mfa.policy.force`, or a role of
 `authn.mfa.policy.forceForRoles`, an identity with no enrolment is required to
 pass the first configured step, so its pending session can only enrol.
+
+## A password login, step by step
+
+### `POST auth/login` (`AuthnLoginController.login`)
+
+1. A session the request already holds, pending ones included, is revoked.
+2. `login` and `password` are read and capped at `PASSWORD_HARD_CAP`. A
+   missing or over-long value answers 401 before any strategy, throttle or
+   log sees it.
+3. `AuthnService.authenticate({ kind: 'password', login, password }, ctx)`:
+   1. `registry.candidates` picks the strategies that take passwords
+      (`authn-local`). None: `unsupported_credentials`.
+   2. `throttle.attempt(keys, 'login')` counts the attempt before the
+      password is checked. Blocked: `throttled` with `retryAfterSeconds`.
+   3. The strategy verifies. An unknown login still reads the password store
+      and runs the hash, so its timing matches a known one. A stale hash is
+      rehashed.
+   4. The identity must be a `user` and its status must allow a login
+      (`statusRefusal`).
+   5. `MfaPolicy.required(id, { method, strategy })` returns the steps, or
+      throws over stored enrolments (see "Stored enrolments" below).
+   6. Only now `throttle.succeed(keys, 'login')`: a login the policy refuses
+      keeps its count, so the backoff cannot tell a right password from a
+      wrong one.
+   7. No steps: an active `aal1` session, audited `login` and
+      `session.issue`, result `success`. Steps: a pending session, audited
+      `mfa.challenge`, result `{ status: 'mfa_required', pending, steps }`.
+4. The answer: a failure is 401 with one body (plus `Retry-After` when
+   throttled); `mfa_required` is 200 `{ MfaRequired: [steps] }` with the
+   pending session cookie; `success` is the session cookie and the principal
+   summary.
+
+A pending session grants no route; `GET auth/` (whoami) answers only
+`{ MfaRequired: [steps] }`.
+
+### `POST auth/mfa/verify` (`AuthnService.completeMfa`)
+
+1. The pending session is restored from the cookie. Missing or not pending:
+   `not_pending`.
+2. `throttle.attempt(keys, 'mfa')`, keyed by identity and address.
+3. The policy is asked again, as the session does not keep its steps. The
+   step must be required now and enrolled; `RECOVERY_STEP` goes to the first
+   enrolled step with `verifyRecovery`. Then `step.verify(id, code)`.
+4. The account status is read again; a ban or delete since the password
+   revokes the pending session.
+5. `SessionIssuer.elevate` raises the session to `aal2` with `mfa: [step]`
+   and rotates its id. `throttle.succeed(keys, 'mfa')`.
+6. Audited `mfa.verify` and `login`; the controller sets the new cookie.
+
+Every failure along both paths reaches the client as `invalid_credentials`;
+the reason goes to the audit event only.
 
 ## Verification and errors
 

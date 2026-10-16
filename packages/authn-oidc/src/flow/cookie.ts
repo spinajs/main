@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { _is_string, _max_length, _non_empty, _reg_match, _try_check_arg } from '@spinajs/util';
 
 import { checkedUrl, isPlainObject, isRelaxedEnv } from '../support.js';
 import { OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from '../options/schema.js';
@@ -94,12 +95,13 @@ export const encodeFlow = (f: OidcFlow): string => Buffer.from(canonical(f), 'ut
 
 /** The flow in a cookie value, or null for anything malformed. */
 export function decodeFlow(value: unknown): OidcFlow | null {
-  if (typeof value !== 'string' || value.length === 0 || value.length > OIDC_FLOW_COOKIE_MAX_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+  const [wellFormed, encoded] = _try_check_arg(_is_string(_non_empty(), _max_length(OIDC_FLOW_COOKIE_MAX_LENGTH), _reg_match(/^[A-Za-z0-9_-]+$/)))(value, 'value');
+  if (!wellFormed) {
     return null;
   }
   let f: unknown;
   try {
-    f = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    f = JSON.parse(Buffer.from(encoded as string, 'base64url').toString('utf8'));
   } catch {
     return null;
   }

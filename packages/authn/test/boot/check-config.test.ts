@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaStep, checkAuthnConfig } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep, checkAuthnConfig } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
 import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
@@ -151,7 +151,11 @@ describe('authn:check-config', () => {
     });
 
     it('under another authn.mfa.policy.service says DefaultMfaPolicy refuses these logins and the configured policy decides', async () => {
-      const f = await check(merge(sound(), { authn: { mfa: { policy: { service: 'CustomMfaPolicy' } } } }), { register: withSources(new Enrolments(['totp'])) });
+      const custom = (c: IContainer): void => {
+        withSources(new Enrolments(['totp']))(c);
+        bind(c, MfaPolicy, 'CustomMfaPolicy', { required: async () => [], steps: async () => new Map() });
+      };
+      const f = await check(merge(sound(), { authn: { mfa: { policy: { service: 'CustomMfaPolicy' } } } }), { register: custom });
       expect(topics(f)).to.deep.eq(['mfa:error']);
       expect(f[0].message).to.contain('"totp"').and.contain('DefaultMfaPolicy refuses').and.contain('"CustomMfaPolicy"').and.contain('decides').and.not.contain('their password logins are refused');
       const ours = await check(sound(), { register: withSources(new Enrolments(['totp'])) });

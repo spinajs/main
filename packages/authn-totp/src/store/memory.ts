@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import { identityKey } from './identity.js';
 import { MfaSecretStore } from './store.js';
 import type { MfaRecord } from './store.js';
@@ -10,10 +11,7 @@ const MAX_STEP = 32;
 const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
 function text(value: unknown, what: string, max = Number.MAX_SAFE_INTEGER): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > max) {
-    throw new InvalidArgument(`MemoryMfaSecretStore: ${what} must be a non-empty string of at most ${max} characters`);
-  }
-  return value;
+  return _check_arg(_is_string(_non_empty(), _max_length(max)))(value, what);
 }
 
 const rowKey = (id: IdentityRef, step: string): string => JSON.stringify([identityKey(id), text(step, 'step', MAX_STEP)]);
@@ -56,9 +54,7 @@ export class MemoryMfaSecretStore extends MfaSecretStore {
 
   async acceptStep(id: IdentityRef, step: string, timeStep: number): Promise<boolean> {
     const key = rowKey(id, step);
-    if (typeof timeStep !== 'number' || !Number.isSafeInteger(timeStep) || timeStep < 0) {
-      throw new InvalidArgument('MemoryMfaSecretStore.acceptStep: timeStep must be a non-negative safe integer');
-    }
+    _check_arg(_is_number(_integer(), _between(0, Number.MAX_SAFE_INTEGER)))(timeStep, 'timeStep');
     const row = this.rows.get(key);
     if (!row || (row.lastStep !== null && row.lastStep >= timeStep)) {
       return false;
@@ -73,9 +69,7 @@ export class MemoryMfaSecretStore extends MfaSecretStore {
 
   async replaceRecoveryCodes(id: IdentityRef, rawCodes: readonly string[]): Promise<void> {
     const identity = identityKey(id);
-    if (!Array.isArray(rawCodes)) {
-      throw new InvalidArgument('MemoryMfaSecretStore.replaceRecoveryCodes: rawCodes must be an array');
-    }
+    _check_arg(_is_array())(rawCodes, 'rawCodes');
     const hashes = rawCodes.map((code) => sha256hex(text(code, 'a recovery code')));
     if (new Set(hashes).size !== hashes.length) {
       throw new InvalidArgument('MemoryMfaSecretStore.replaceRecoveryCodes: the codes repeat');
@@ -85,7 +79,7 @@ export class MemoryMfaSecretStore extends MfaSecretStore {
 
   async redeemRecoveryCode(id: IdentityRef, raw: string): Promise<boolean> {
     const set = this.codes.get(identityKey(id));
-    if (typeof raw !== 'string' || raw.length === 0 || !set) {
+    if (!_try_check_arg(_is_string(_non_empty()))(raw, 'raw')[0] || !set) {
       return false;
     }
     const hash = sha256hex(raw);

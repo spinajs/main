@@ -1,3 +1,5 @@
+import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
+
 /** Runs at most `max` tasks at once; the rest wait in FIFO order. */
 export class ConcurrencyLimiter {
   private _active = 0;
@@ -6,9 +8,7 @@ export class ConcurrencyLimiter {
   private readonly _queue: (() => void)[] = [];
 
   constructor(public readonly max: number) {
-    if (!Number.isInteger(max) || max < 1) {
-      throw new RangeError(`concurrency limit must be a positive integer, got ${max}`);
-    }
+    _check_arg(_is_number(_integer(), _gte(1)))(max, 'max');
   }
 
   public get active(): number {

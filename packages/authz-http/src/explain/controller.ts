@@ -4,14 +4,15 @@ import { BaseController, BasePath, BasePolicy, Get, Ok, Policy, Query, Req } fro
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
+import { _check_arg, _is_string, _non_empty, _one_of } from '@spinajs/util';
 
 import { domainService } from '../domains.js';
 import { forbidden, unauthenticated } from '../access/policy.js';
 import { explainTree } from './tree.js';
 import '../storage.js';
 
-function splitKey(key: unknown, what: string): { type: string; id?: string } {
-  if (typeof key !== 'string' || key === '') throw new InvalidArgument(`${what} is required as <type>:<id>`, what);
+function splitKey(raw: unknown, what: string): { type: string; id?: string } {
+  const key: string = _check_arg(_is_string(_non_empty()))(raw, what);
   const at = key.indexOf(':');
   const rawType = at < 0 ? key : key.slice(0, at);
   const id = at < 0 ? undefined : key.slice(at + 1);
@@ -58,7 +59,7 @@ export class ExplainController extends BaseController {
   @Get('explain')
   @Policy(ExplainPolicy)
   public async explain(@Req() _req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string, @Query() format?: string) {
-    if (format !== undefined && format !== '' && format !== 'decision' && format !== 'tree') throw new InvalidArgument("format must be 'decision' or 'tree'", 'format');
+    _check_arg(_one_of([undefined, '', 'decision', 'tree'], new InvalidArgument("format must be 'decision' or 'tree'", 'format')))(format, 'format');
     const target = splitKey(principal, 'principal');
     if (target.id === undefined) throw new InvalidArgument('principal must be <type>:<id>', 'principal');
     if (!isPermission(permission)) throw new InvalidArgument('permission must be a permission name', 'permission');

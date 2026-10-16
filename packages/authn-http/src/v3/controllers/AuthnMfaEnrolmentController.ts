@@ -7,6 +7,7 @@ import type { Request } from '@spinajs/http';
 
 import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
+import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf } from '../routes.js';
@@ -37,6 +38,9 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
+  @Config('authn.mfa.policy.service')
+  protected MfaPolicyService: string;
+
   /**
    * MFA status
    * `{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not
@@ -47,10 +51,8 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async status(@Req() req: Request) {
     const session = activeSession(req);
-    // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-    const { mfaSteps } = await import('@spinajs/authn');
     const steps = [];
-    for (const step of (await mfaSteps(this.Container)).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
+    for (const step of (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
     return new Ok({ steps }, { Headers: [NO_STORE] });
   }
 
@@ -125,7 +127,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   }
 
   protected totp() {
-    return totpServiceOf(this.Container, this.MfaEncryptionKey);
+    return totpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService);
   }
 }
 

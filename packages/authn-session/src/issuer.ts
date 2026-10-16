@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
+import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -140,7 +141,8 @@ export class DefaultSessionIssuer extends SessionIssuer {
   }
 
   public async restore(rawId: string): Promise<Restored | null> {
-    if (typeof rawId !== 'string' || rawId.length === 0 || rawId.length > MAX_RAW_ID_LENGTH) {
+    const [ok] = _try_check_arg(_is_string(_non_empty(), _max_length(MAX_RAW_ID_LENGTH)))(rawId, 'rawId');
+    if (!ok) {
       return null;
     }
 
@@ -206,9 +208,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
   }
 
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
-    if (typeof key !== 'string' || key.startsWith(RESERVED_PREFIX) || REFUSED_KEYS.has(key)) {
-      throw new InvalidArgument(`Session key ${String(key)} is reserved`, 'key');
-    }
+    _check_arg(_is_string(_custom((k: string) => !k.startsWith(RESERVED_PREFIX) && !REFUSED_KEYS.has(k), new InvalidArgument(`Session key ${String(key)} is reserved`, 'key'))))(key, 'key');
     const session = await this.need(h);
     session.Data.set(key, value);
     // touch is the store's update-only write, so a revocation since the read stays in force.

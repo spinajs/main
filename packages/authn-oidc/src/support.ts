@@ -1,4 +1,5 @@
 import { normalizeEnvironment } from '@spinajs/configuration-common';
+import { _custom, _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
 export const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -22,17 +23,18 @@ export interface UrlRules {
  * rewrites them, and callers use the raw string.
  */
 export function checkedUrl(value: unknown, rules: UrlRules): URL | null {
-  if (typeof value !== 'string' || value.length === 0 || /[\x00-\x20\x7f\\]/.test(value)) {
+  const [ok, text] = _try_check_arg(_is_string(_non_empty(), _custom((s: string) => !/[\x00-\x20\x7f\\]/.test(s))))(value, 'value');
+  if (!ok) {
     return null;
   }
   let url: URL;
   try {
-    url = new URL(value);
+    url = new URL(text);
   } catch {
     return null;
   }
   const schemeOk = url.protocol === 'https:' || (rules.relaxed && url.protocol === 'http:');
-  if (!schemeOk || url.username !== '' || url.password !== '' || value.includes('#') || (!rules.query && value.includes('?'))) {
+  if (!schemeOk || url.username !== '' || url.password !== '' || text.includes('#') || (!rules.query && text.includes('?'))) {
     return null;
   }
   return url;

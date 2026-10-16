@@ -3,6 +3,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
 import { decodeB64url } from '../jwk/base64url.js';
 import { KEY_ALGORITHMS } from '../jwk/keys.js';
 import { dummyVerify } from '../jwk/signature.js';
@@ -77,12 +78,13 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
     if (c.kind !== 'jws-assertion') {
       return failure('unsupported_credentials');
     }
-    if (typeof c.jws !== 'string' || c.jws.length > MAX_CREDENTIAL_LENGTH) {
+    const [ok, jws] = _try_check_arg(_is_string(_max_length(MAX_CREDENTIAL_LENGTH)))(c.jws, 'jws');
+    if (!ok) {
       return failure('invalid_credentials');
     }
     const a = this.options.assertion;
     let unusable: AuthnFailure = 'invalid_credentials';
-    const r = await this.verifier.verify<AssertionClaims, KeyRecord>(c.jws, {
+    const r = await this.verifier.verify<AssertionClaims, KeyRecord>(jws, {
       typ: a.typ,
       algorithms: this.options.algorithms,
       keys: async (kid) => {
@@ -102,8 +104,8 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
     });
     if (!r.ok) {
       if (r.code === 'unknown_key') {
-        const [h, p, s] = c.jws.split('.');
-        this.unknownKeyWork(headerOf(c.jws).alg, Buffer.from(`${h}.${p}`, 'ascii'), decodeB64url(s) ?? Buffer.alloc(0));
+        const [h, p, s] = jws.split('.');
+        this.unknownKeyWork(headerOf(jws).alg, Buffer.from(`${h}.${p}`, 'ascii'), decodeB64url(s) ?? Buffer.alloc(0));
         return failure(unusable);
       }
       return failure('invalid_credentials');

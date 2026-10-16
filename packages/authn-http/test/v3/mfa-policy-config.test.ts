@@ -13,7 +13,7 @@ import { boot, disposeBooted, readingFrom, violationsOf } from '../support/confi
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 
-const policy = { required: async () => ['totp'] };
+const policy = { required: async () => ['totp'], steps: async () => new Map() };
 const named = { CustomPolicy: () => policy }.CustomPolicy;
 
 const session = (stored?: unknown) => ({ data: new Map([[SESSION_PENDING_STEPS_KEY, stored]]), identity: { type: 'user', id: 'u1' }, facts: { method: 'password', strategy: 'local' } }) as never;
@@ -74,7 +74,7 @@ describe('authn.mfa.policy.service through @Config', () => {
   it('pendingSteps answers no step when the policy refuses the identity over its stored enrolments; another error still throws', async () => {
     const { child } = await boot(SCHEMAS, {});
     let failure: Error = new MfaStepNotListed(['totp']);
-    const refusing = { required: async () => Promise.reject(failure) };
+    const refusing = { required: async () => Promise.reject(failure), steps: async () => new Map() };
     child.register({ RefusingPolicy: () => refusing }.RefusingPolicy).as(MfaPolicy as never);
     expect(await pendingSteps(child, session(undefined), 'RefusingPolicy')).to.deep.eq([]);
     failure = new MfaEnrolmentMismatch(['totp']);

@@ -1,5 +1,6 @@
 import type { EventEmitter } from 'node:events';
 
+import { thrownError } from '@spinajs/authz';
 import type { PrincipalRef } from '@spinajs/authz';
 import type { fs } from '@spinajs/fs';
 
@@ -23,8 +24,8 @@ export interface MetadataPath {
 
 export interface MetadataOptions {
   /** A metadata update that failed after the IO. */
-  readonly error: (message: string) => void;
-  readonly warn: (message: string) => void;
+  readonly error: (fields: Record<string, unknown>, template: string) => void;
+  readonly warn: (fields: Record<string, unknown>, template: string) => void;
   /** How long a stream's 'close' waits for the store. */
   readonly timeoutMs: number;
 }
@@ -78,7 +79,7 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
   const effect = EFFECTS[method];
   if (!effect) return undefined;
   const failed = (where: readonly MetadataPath[], e: unknown): Error => {
-    opts.error(`${method} on ${where.map((p) => `${p.target.name}:${p.path}`).join(' → ')} succeeded, but the metadata was not updated: ${e instanceof Error ? e.message : String(e)}`);
+    opts.error({ error: thrownError(e), method, paths: where.map((p) => `${p.target.name}:${p.path}`) }, '${method} on ${paths} succeeded, but the metadata was not updated');
     return e as Error;
   };
   const after =
@@ -173,7 +174,7 @@ async function planMove(src: MetadataPath | undefined, dst: MetadataPath | undef
   return after(where, async () => {
     if (before) await stampIfAbsent(dstStore, dst, before);
     await removeSource();
-    if (directory) opts.warn(`move of the directory ${src.target.name}:${src.path} to ${dst.target.name}:${dst.path} carried only its own metadata to another store; the files under it lost their owners`);
+    if (directory) opts.warn({ srcFs: src.target.name, srcPath: src.path, dstFs: dst.target.name, dstPath: dst.path }, 'move of the directory ${srcFs}:${srcPath} to ${dstFs}:${dstPath} carried only its own metadata to another store; the files under it lost their owners');
   });
 }
 

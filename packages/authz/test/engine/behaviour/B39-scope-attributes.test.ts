@@ -174,7 +174,7 @@ describe('B39: scope attributes and engine refs', () => {
       expect(d.reason, name).to.deep.equal({ code: 'model_error', model: 'm' });
       expect(d.trace!.votes[0].error, name).to.include(missingRef);
       expect(
-        log.at('error').some((e) => /"m"/.test(e.message) && e.message.includes(missingRef)),
+        log.at('error').some((e) => /model m is indeterminate/.test(e.message) && e.message.includes(missingRef)),
         name,
       ).to.equal(true);
     }
@@ -239,7 +239,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     const denied = await setup([new StaticModel('m', { vote: permit(eq('plan', ref('scope.org.plan'))) })], { store: failing() }).a.check(read(D1));
     expect(denied.reason).to.deep.equal({ code: 'model_error', model: 'm' });
-    expect(log.at('error').some((e) => /org:o1/.test(e.message) && /store down/.test(e.message))).to.equal(true);
+    expect(log.at('error').some((e) => /org:o1/.test(e.message) && /store down/.test(e.error?.message ?? ''))).to.equal(true);
   });
 
   it('B39: a store answering a non-object fails the load (no default shows through)', async () => {

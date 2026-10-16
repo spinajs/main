@@ -1,9 +1,9 @@
 import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { DI } from '@spinajs/di';
+import { _check_arg, _is_array, _max_length } from '@spinajs/util';
 
 import { domainService } from '../domains.js';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
@@ -34,9 +34,7 @@ export class AccessController extends BaseController {
   @Post('checks')
   @Policy(HasPrincipal)
   public async checks(@Req() req: Request, @Body() checks: unknown[]) {
-    if (!Array.isArray(checks) || checks.length > MAX_ACCESS_CHECKS) {
-      throw new InvalidArgument(`checks must be a list of at most ${MAX_ACCESS_CHECKS} entries`, 'checks');
-    }
+    _check_arg(_is_array(), _max_length(MAX_ACCESS_CHECKS))(checks, 'checks');
     const authz = await domainService(this.AccessDomain);
     return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, log: this.Log }));
   }

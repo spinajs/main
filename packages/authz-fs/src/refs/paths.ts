@@ -1,4 +1,5 @@
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string } from '@spinajs/util';
 
 const DRIVE = /^([A-Za-z]):/;
 const UNC = /^\/\/[^/]/;
@@ -25,12 +26,8 @@ interface AbsolutePath {
  * outside `basePath`, or has a segment holding ':' or ending in '.' or a space
  */
 export function normalizeFsPath(path: string, basePath?: string): string {
-  if (typeof path !== 'string') {
-    throw new InvalidArgument(`fs path must be a string, got ${typeof path}`, 'path');
-  }
-  if (basePath !== undefined && typeof basePath !== 'string') {
-    throw new InvalidArgument(`fs base path must be a string, got ${typeof basePath}`, 'basePath');
-  }
+  _check_arg(_is_string())(path, 'path');
+  if (basePath !== undefined) _check_arg(_is_string())(basePath, 'basePath');
   if (path.includes('\0')) {
     throw new InvalidArgument(`fs path ${JSON.stringify(path)} contains a NUL byte`, 'path');
   }

@@ -127,7 +127,7 @@ describe('authz-fs refs: normalizeFsPath', () => {
     expect(() => normalizeFsPath('/x', 5 as unknown as string))
       .to.throw(InvalidArgument)
       .with.property('message')
-      .that.includes('base path');
+      .that.includes('basePath');
   });
 
   it('names the base path when the base path climbs above its root', () => {

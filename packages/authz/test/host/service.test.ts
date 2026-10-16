@@ -263,7 +263,7 @@ describe('DefaultAuthzService', function () {
       } finally {
         console.warn = original;
       }
-      expect(warned.some((w) => w.includes('"aa"') && w.includes('no ancestor domain registers'))).to.equal(true);
+      expect(warned.some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
     });
 
     it('inits a model listed by root and child once; its init permissions are checkable in the child', async () => {

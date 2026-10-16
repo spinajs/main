@@ -114,7 +114,7 @@ export function _is_string(...checks: ((arg: string, name: string) => unknown)[]
   };
 }
 
-export function _is_array(...checks: ((arg: any[], name: string) => any[])[]) {
+export function _is_array(...checks: ((arg: any[], name: string) => unknown)[]) {
   return function (arg: any[], name: string) {
     if (!Array.isArray(arg)) {
       throw new InvalidArgument(`${name} should be array`, name, 'TYPE_MISMATCH');
@@ -528,6 +528,26 @@ export function _positive(error?: InvalidArgument) {
   return function (arg: number, name: string) {
     if (typeof arg !== 'number' || arg <= 0) {
       throw error ?? new InvalidArgument(`${name} should be a positive number`, name, 'NEGATIVE_OR_ZERO');
+    }
+
+    return arg;
+  };
+}
+
+export function _finite(error?: InvalidArgument) {
+  return function (arg: number, name: string) {
+    if (!Number.isFinite(arg)) {
+      throw error ?? new InvalidArgument(`${name} should be a finite number`, name, 'NOT_FINITE');
+    }
+
+    return arg;
+  };
+}
+
+export function _integer(error?: InvalidArgument) {
+  return function (arg: number, name: string) {
+    if (!Number.isInteger(arg)) {
+      throw error ?? new InvalidArgument(`${name} should be an integer`, name, 'NOT_INTEGER');
     }
 
     return arg;

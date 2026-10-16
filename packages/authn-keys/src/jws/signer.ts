@@ -2,6 +2,7 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { JwsSigner } from '@spinajs/authn/contracts';
 import type { JwsClaims, JwsKey, JwsSignOptions } from '@spinajs/authn/contracts';
+import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { decodeB64url, encodeB64url } from '../jwk/base64url.js';
 import { checkPublicJwk, isValidKid } from '../jwk/keys.js';
 import { signRaw } from '../jwk/signature.js';
@@ -78,7 +79,8 @@ export class LocalJwsSigner extends JwsSigner {
     if (!key) {
       throw new Error(`no signing key ${JSON.stringify(kid)}`);
     }
-    if (typeof opts.typ !== 'string' || opts.typ.length === 0) {
+    const [hasTyp] = _try_check_arg(_is_string(_non_empty()))(opts.typ, 'opts.typ');
+    if (!hasTyp) {
       throw new Error('a JWS needs a typ');
     }
     if (typeof claims.iss !== 'string' || typeof claims.aud !== 'string' || !isUint(claims.iat) || !isUint(claims.exp) || claims.exp <= claims.iat) {

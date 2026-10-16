@@ -2,6 +2,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
@@ -203,8 +204,8 @@ export class TotpService {
   /** The restored session, active or pending, unless it is gone or impersonated. */
   private async restored(session: SessionHandle): Promise<Current | null> {
     const sessions = await this.need('sessions');
-    const id: unknown = (session as Partial<SessionHandle> | null | undefined)?.id;
-    if (typeof id !== 'string' || id === '') {
+    const [ok, id] = _try_check_arg(_is_string(_non_empty()))((session as Partial<SessionHandle> | null | undefined)?.id, 'session.id');
+    if (!ok) {
       return null;
     }
     const s = await sessions.restore(id);

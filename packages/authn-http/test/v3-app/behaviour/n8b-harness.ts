@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
@@ -326,9 +326,13 @@ export const laneTotpServiceClass = (): TotpModules['TotpService'] => loaded(tot
 export async function laneMfaConfig(over: { steps?: unknown; encryptionKey?: unknown }): Promise<void> {
   const state = totpNow();
   for (const [key, value] of Object.entries(over)) state.undo.push(setConfig(`authn.mfa.${key}`, value));
-  // A container lists its steps once.
-  const { MFA_STEPS_KEY } = await import('@spinajs/authn');
-  DI.uncache(MFA_STEPS_KEY);
+  // An MfaPolicy lists its steps once, and AuthnService keeps the policy it resolved. Rebuilding AuthnService reruns
+  // its boot checks, which refuse a secret-storing step without the key, so a key change alone rebuilds nothing.
+  if (!('steps' in over)) return;
+  for (const base of [MfaPolicy, AuthnService]) {
+    for (const type of DI.getRegisteredTypes(base as Class<unknown>) ?? []) DI.uncache(type as Class<unknown>);
+    DI.uncache(base as Class<unknown>);
+  }
 }
 
 /** Puts the lane's TOTP store out of order (code checks throw) until the case ends. */
@@ -474,12 +478,6 @@ export function laneKeysConfig(leaves: Record<string, unknown>): void {
 /** The authn.mfa.policy.service of a case whose key logins must pass TOTP; no other login asks for a step. */
 export const KEY_LOGIN_MFA_POLICY = 'N8bKeyLoginMfaPolicy';
 
-class N8bKeyLoginMfaPolicy extends MfaPolicy {
-  public async required(_id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
-    return facts.method === 'key-challenge' ? ['totp'] : [];
-  }
-}
-
 let keyPolicyBound = false;
 
 /**
@@ -493,6 +491,13 @@ export const keysPart: LanePart = {
     keysModule = await import('@spinajs/authn-keys');
     if (!keyPolicyBound) {
       keyPolicyBound = true;
+      // Declared here: ConfiguredMfaPolicy comes from the @spinajs/authn root, which registers its services as it loads.
+      const { ConfiguredMfaPolicy } = await import('@spinajs/authn');
+      class N8bKeyLoginMfaPolicy extends ConfiguredMfaPolicy {
+        public async required(_id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
+          return facts.method === 'key-challenge' ? ['totp'] : [];
+        }
+      }
       DI.register(N8bKeyLoginMfaPolicy).as(MfaPolicy);
     }
   },

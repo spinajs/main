@@ -1,5 +1,6 @@
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
 import type { FileMeta } from '../api.js';
 
@@ -41,8 +42,7 @@ const canonical = (m: FileMeta | null): unknown => (m === null ? null : [m.owner
 
 /** A non-empty filesystem name without ':' (the first ':' of a ref id ends the name). */
 export function checkFsName(fsName: unknown): string {
-  if (!text(fsName) || fsName.includes(':')) throw new InvalidArgument(`fs name must be a non-empty string without ':', got ${show(fsName)}`, 'fsName');
-  return fsName;
+  return _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(fsName, 'fsName');
 }
 
 function show(value: unknown): string {

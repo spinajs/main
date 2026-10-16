@@ -1,6 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { AccessToken } from '../models/AccessToken.js';
 
@@ -19,11 +20,12 @@ export abstract class TokenOwnerResolver {
 @Injectable(TokenOwnerResolver)
 export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
   public async rowIdOf(owner: IdentityRef): Promise<number | null> {
-    if (owner?.type !== 'user' || typeof owner.id !== 'string' || owner.id.length === 0) {
+    const [ok, uuid] = _try_check_arg(_is_string(_non_empty()))(owner?.id, 'owner.id');
+    if (owner?.type !== 'user' || !ok) {
       return null;
     }
 
-    const row = (await this.connection().select().from('users').columns(['Id']).where({ Uuid: owner.id }).first()) as { Id: number } | undefined;
+    const row = (await this.connection().select().from('users').columns(['Id']).where({ Uuid: uuid }).first()) as { Id: number } | undefined;
     return row ? Number(row.Id) : null;
   }
 

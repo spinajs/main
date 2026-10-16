@@ -1,6 +1,7 @@
 import type { ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
 import { basePathOf, publishedFs, refOf } from '../guard/shared.js';
 import { normalizeFsPath } from '../refs/index.js';
@@ -16,10 +17,8 @@ import { normalizeFsPath } from '../refs/index.js';
  * path is refused
  */
 export function fromFsPath(fsName: string, param: string): (req: unknown) => ResourceRef | Promise<ResourceRef> {
-  if (typeof fsName !== 'string' || fsName === '' || fsName.includes(':')) {
-    throw new InvalidArgument(`fs name must be a non-empty string without ':', got ${JSON.stringify(fsName)}`, 'fsName');
-  }
-  if (typeof param !== 'string' || param === '') throw new InvalidArgument(`url parameter name must be a non-empty string, got ${JSON.stringify(param)}`, 'param');
+  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(fsName, 'fsName');
+  _check_arg(_is_string(_non_empty()))(param, 'param');
 
   return (req: unknown): ResourceRef => {
     const params: unknown = req !== null && typeof req === 'object' ? (req as { params?: unknown }).params : undefined;

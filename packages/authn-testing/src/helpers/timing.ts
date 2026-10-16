@@ -1,4 +1,5 @@
 import { AssertionError } from 'node:assert/strict';
+import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
 
 export interface TimingOptions {
   readonly runs?: number;
@@ -91,9 +92,7 @@ async function attempts(a: TimedSource, b: TimedSource, opts?: TimingOptions): P
   const defined = Object.fromEntries(Object.entries(opts ?? {}).filter(([, v]) => v !== undefined));
   const o: Required<TimingOptions> = { ...timingDefaults(), ...defined };
   for (const k of ['runs', 'warmup', 'retries'] as const) {
-    if (!Number.isInteger(o[k]) || o[k] < 0) {
-      throw new RangeError(`timing option ${k} must be a non-negative integer`);
-    }
+    _check_arg(_is_number(_integer(), _gte(0)))(o[k], k);
   }
   const all: TimingReport[] = [];
   for (let n = 1; n <= o.retries + 1; n++) {

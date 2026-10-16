@@ -3,9 +3,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmDriver } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
+import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
@@ -41,9 +41,7 @@ export class DbSecretStore extends SecretStore {
   public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {
     const key = identityKey(identity);
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
-    if (typeof ttlSeconds !== 'number' || !Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
-      throw new InvalidArgument('DbSecretStore.issue: ttlSeconds must be a positive number');
-    }
+    _check_arg(_is_number(_finite(), _gt(0)))(ttlSeconds, 'ttlSeconds');
     const nowMs = checkedMs(new Date(), 'DbSecretStore.issue: the clock');
     const { driver } = await this.connection.get();
     await this.purgeNowAndThen(nowMs);
@@ -64,7 +62,7 @@ export class DbSecretStore extends SecretStore {
   public async redeem(identity: IdentityRef, purpose: string, raw: string): Promise<boolean> {
     const key = identityKey(identity);
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
-    if (typeof raw !== 'string' || raw.length === 0 || raw.length > RAW_MAX) return false;
+    if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
     const nowMs = checkedMs(new Date(), 'DbSecretStore.redeem: the clock');
     const { driver, dialect } = await this.connection.get();
     await this.purgeNowAndThen(nowMs);

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
-import { InvalidOption } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
-import { DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource, mfaSteps } from '../../src/index.js';
+import { ConfiguredMfaPolicy, DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -85,10 +85,19 @@ describe('MFA steps and DefaultMfaPolicy', function () {
   const policyOf = async (p: CoreParts): Promise<DefaultMfaPolicy> => p.child.resolve(DefaultMfaPolicy);
 
   describe('authn.mfa.steps', () => {
+    it('a ConfiguredMfaPolicy a factory returns has no steps to give', async () => {
+      class Bare extends ConfiguredMfaPolicy {
+        async required(): Promise<readonly string[]> {
+          return [];
+        }
+      }
+      await assert.rejects(new Bare().steps(), (e: Error) => e instanceof InvalidOperation && e.message.includes('was not created by DI'));
+    });
+
     it('lists the steps by name, in list order', async () => {
       const second = new FakeMfaStep({ name: 'second' });
       const p = await boot({ extra: [second] });
-      const steps = await mfaSteps(p.child);
+      const steps = await (await policyOf(p)).steps();
       assert.deepStrictEqual([...steps.keys()], ['fake', 'second']);
       assert.strictEqual(steps.get('second'), second);
       assert.strictEqual(steps.get('recovery'), undefined);
@@ -97,7 +106,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
 
     it('is empty when authn.mfa.steps is unset, through the schema default', async () => {
       await boot({ steps: undefined });
-      assert.deepStrictEqual([...(await mfaSteps(parts!.child))], []);
+      assert.deepStrictEqual([...(await (await policyOf(parts!)).steps())], []);
     });
 
     it('fails boot on an unknown service, a name mismatch and a non-step', async () => {
@@ -142,18 +151,19 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       ]);
       const fresh = p.child.child();
       try {
-        await assert.rejects(mfaSteps(fresh), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
+        await assert.rejects(fresh.resolve(DefaultMfaPolicy), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
       } finally {
         await fresh.dispose();
       }
     });
 
-    it('lists the steps once per container: a later Configuration.set changes neither mfaSteps nor DefaultMfaPolicy', async () => {
+    it('lists the steps once per policy: a later Configuration.set changes neither its steps nor what it requires', async () => {
       const p = await boot({ mfa: { policy: { force: true } } });
-      const listed = await mfaSteps(p.child);
+      const policy = await policyOf(p);
+      const listed = await policy.steps();
       p.configuration.set('authn.mfa.steps', []);
-      assert.strictEqual(await mfaSteps(p.child), listed);
-      assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
+      assert.strictEqual(await policy.steps(), listed);
+      assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), ['fake']);
     });
 
     it('DefaultMfaPolicy refuses a listed service that is not an MfaStep, as the boot does', async () => {

@@ -41,6 +41,9 @@ class ForcedMfaPolicy extends MfaPolicy {
   constructor(private readonly step: MfaStep) {
     super();
   }
+  async steps(): Promise<ReadonlyMap<string, MfaStep>> {
+    return new Map([[this.step.name, this.step]]);
+  }
   async required(_id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
     return facts.method === 'password' ? [this.step.name] : [];
   }

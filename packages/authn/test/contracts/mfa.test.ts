@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { SyncService } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { MfaPolicy, MfaStep } from '../../src/contracts/mfa.js';
 import { SecretStore } from '../../src/contracts/secrets.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
@@ -63,13 +63,16 @@ class RecoveryStep extends CodeStep {
 }
 
 class EnrolledPolicy extends MfaPolicy {
-  constructor(private steps: readonly MfaStep[]) {
+  constructor(private configured: readonly MfaStep[]) {
     super();
+  }
+  async steps(): Promise<ReadonlyMap<string, MfaStep>> {
+    return new Map(this.configured.map((s) => [s.name, s]));
   }
   async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
     if (facts.method !== 'password') return [];
     const out: string[] = [];
-    for (const s of this.steps) if (await s.enrolled(id)) out.push(s.name);
+    for (const s of this.configured) if (await s.enrolled(id)) out.push(s.name);
     return out;
   }
 }
@@ -148,7 +151,7 @@ describe('mfa and secret contracts', () => {
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
       expect(MfaPolicy).to.be.a('function');
-      expect(Object.getPrototypeOf(MfaPolicy)).to.eq(SyncService);
+      expect(Object.getPrototypeOf(MfaPolicy)).to.eq(AsyncService);
     });
 
     it('a concrete step and policy work', async () => {
@@ -213,8 +216,11 @@ describe('mfa and secret contracts', () => {
           ],
         },
         MfaPolicy: {
-          base: 'SyncService',
-          members: [{ name: 'required', modifiers: ['abstract'], optional: false, params: ['id', 'facts'] }],
+          base: 'AsyncService',
+          members: [
+            { name: 'steps', modifiers: ['abstract'], optional: false, params: [] },
+            { name: 'required', modifiers: ['abstract'], optional: false, params: ['id', 'facts'] },
+          ],
         },
       });
     });

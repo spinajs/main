@@ -48,6 +48,9 @@ export const describeError = (e: unknown): string => {
   }
 };
 
+/** A caught value as the `error` log field: a non-Error is wrapped so only its description, never the value, is logged. */
+export const thrownError = (e: unknown): Error => (e instanceof Error ? e : new Error(describeError(e)));
+
 export function faultVote(model: string, error: string): Vote {
   return Object.freeze({ model, permitWhen: FALSE, denyWhen: TRUE, error, cacheable: false });
 }

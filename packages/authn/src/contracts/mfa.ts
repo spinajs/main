@@ -1,4 +1,4 @@
-import { SyncService } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import type { IdentityRef } from './credentials.js';
 import type { AuthnFacts } from './principal.js';
 
@@ -26,8 +26,13 @@ export abstract class MfaStep {
   abstract disable(id: IdentityRef): Promise<void>;
 }
 
-/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. A SyncService so an implementation can check its setup in `resolve()`. */
-export abstract class MfaPolicy extends SyncService {
+/**
+ * DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. An AsyncService so an implementation can
+ * check its setup and list its steps in `resolve()`; ConfiguredMfaPolicy lists those of `authn.mfa.steps`.
+ */
+export abstract class MfaPolicy extends AsyncService {
+  /** The steps by name, in list order; login, completeMfa and the enrolment routes take them from the configured policy. */
+  abstract steps(): Promise<ReadonlyMap<string, MfaStep>>;
   /** Names of the steps still to pass; empty: no MFA for this login. */
   abstract required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]>;
 }

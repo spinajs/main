@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import type { KeyAlgorithm, KeyChallenge, KeyMaterial } from '@spinajs/authn/contracts';
+import { _between, _custom, _is_string, _try_check_arg } from '@spinajs/util';
 import { decodeB64url, encodeB64url } from '../jwk/base64url.js';
 import { signRaw, verifySignature } from '../jwk/signature.js';
 
@@ -24,11 +25,12 @@ export const newChallengeRid = (): string => randomBytes(RID_BYTES).toString('ba
 export const challengeId = (rid: string, nonce: string): string => `${rid}.${nonce}`;
 
 export function parseChallengeId(id: unknown): { rid: string; nonce: string } | null {
-  if (typeof id !== 'string' || id.length <= RID_LENGTH + 1 || id.length > RID_LENGTH + 1 + MAX_NONCE_LENGTH || id[RID_LENGTH] !== '.') {
+  const [ok, text] = _try_check_arg(_is_string(_between(RID_LENGTH + 2, RID_LENGTH + 1 + MAX_NONCE_LENGTH), _custom((s: string) => s[RID_LENGTH] === '.')))(id, 'id');
+  if (!ok) {
     return null;
   }
-  const rid = id.slice(0, RID_LENGTH);
-  const nonce = id.slice(RID_LENGTH + 1);
+  const rid = (text as string).slice(0, RID_LENGTH);
+  const nonce = (text as string).slice(RID_LENGTH + 1);
   return RID.test(rid) && isChallengeNonce(nonce) ? { rid, nonce } : null;
 }
 

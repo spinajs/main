@@ -292,7 +292,7 @@ describe('Authorizer.summary', () => {
     const rbac = new StaticModel('rbac', { vote: P() });
     const s = await make({ models: [rbac], registry: new ThrowingRegistry('doc:read') }).summary(alice);
     expect(names(s)).to.deep.equal(['doc:delete', 'doc:write', 'org:view']);
-    expect(log.at('error').some((e) => e.message.includes('registry down'))).to.equal(true);
+    expect(log.at('error').some((e) => e.error?.message === 'registry down')).to.equal(true);
   });
 
   it('a malformed at is refused', async () => {
@@ -546,7 +546,7 @@ describe('Authorizer.covers', () => {
     expect((await a.check({ principal: bob, permission: 'doc:read', resource: GLOBAL })).allowed).to.equal(true);
     expect((await a.check({ principal: alice, permission: 'doc:read', resource: GLOBAL })).allowed).to.equal(true);
     expect(await a.covers(alice, bob)).to.equal(false);
-    expect(log.at('error').some((e) => e.message.includes('covers is false') && e.message.includes('too complex'))).to.equal(true);
+    expect(log.at('error').some((e) => e.message.includes('covers is false') && (e.error?.message ?? '').includes('too complex'))).to.equal(true);
   });
 
   it('B26: an ABAC deny policy on the holder counts', async () => {
@@ -579,7 +579,7 @@ describe('Authorizer.covers', () => {
     const rbac = new Summarizing('rbac', { vote: table('rbac', { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }) });
     expect(await make({ models: [rbac] }).covers(alice, bob)).to.equal(true);
     expect(await make({ models: [rbac], registry: new ThrowingRegistry('org:view') }).covers(alice, bob)).to.equal(false);
-    expect(log.at('error').some((e) => e.message.includes('registry down'))).to.equal(true);
+    expect(log.at('error').some((e) => e.error?.message === 'registry down')).to.equal(true);
   });
 
   it('a typed at compares the permissions checkable on its type, sharing one scope', async () => {
@@ -687,7 +687,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
     const clean = new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) });
     expect(await make({ models: [clean], ...options }).covers(alice, bob)).to.equal(false);
     expect(rbac.calls.length + clean.calls.length).to.equal(0);
-    expect(log.at('error').some((e) => e.message.includes('covers is false') && e.message.includes('"flaky"'))).to.equal(true);
+    expect(log.at('error').some((e) => e.message.includes('covers is false') && e.message.includes('combinator flaky,'))).to.equal(true);
     // Control: the same worlds under deny-overrides.
     expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })] }).covers(alice, bob)).to.equal(true);
   });

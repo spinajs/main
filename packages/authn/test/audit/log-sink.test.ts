@@ -199,7 +199,7 @@ describe('LogAuthnAuditSink', function () {
     expect(lines().map((l) => l.replace('authn audit logout success ', ''))).to.deep.equal([
       'at="Invalid Date"',
       'at="x y"',
-      'at="{}"',
+      'at={}',
       'at=2026-10-03T10:00:00.000Z',
     ]);
   });

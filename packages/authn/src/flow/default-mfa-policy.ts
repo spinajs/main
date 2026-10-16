@@ -1,15 +1,45 @@
-import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
-import { InvalidOption } from '@spinajs/exceptions';
+import { AutoinjectNamedServices, Config } from '@spinajs/configuration';
+import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import type { IdentityRef } from '../contracts/credentials.js';
 import { RoleSource } from '../contracts/hooks.js';
-import { MfaPolicy } from '../contracts/mfa.js';
+import { MfaPolicy, MfaStep } from '../contracts/mfa.js';
 import type { AuthnFacts } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
 import { MfaEnrolmentMismatch, MfaEnrolments, MfaStepNotListed } from './mfa-enrolments.js';
-import { mfaSteps } from './mfa-steps.js';
+
+/** completeMfa's step name for recovery codes; no configured step may take it. */
+export const RECOVERY_STEP = 'recovery';
+
+/**
+ * An MfaPolicy whose steps are those of `authn.mfa.steps`, keyed by name in list order and looked up by service name
+ * across the container lineage (nearest first). Listed as the policy resolves, so a bad list fails the boot, and kept
+ * for the life of the instance: a later Configuration.set changes nothing until the policy is resolved anew. Fails on
+ * an unknown service (ServiceNotFound), an entry name that differs from the step's own `name` and a service that is
+ * not an MfaStep (InvalidOption). Extend it to give a custom policy the configured steps.
+ */
+export abstract class ConfiguredMfaPolicy extends MfaPolicy {
+  // Undefined for an instance a factory returns: only DI injects it.
+  @AutoinjectNamedServices('authn.mfa.steps', MfaStep, { lineage: true, keyBy: 'name' })
+  protected Steps: Map<string, MfaStep> | undefined;
+
+  public async resolve(): Promise<void> {
+    // Duck-typed: steps built against another copy of the contracts (cjs/mjs, the kit) fail instanceof.
+    for (const [name, step] of this.Steps ?? []) {
+      if (typeof step.verify !== 'function' || typeof step.enrolled !== 'function') {
+        throw new InvalidOption(`authn.mfa.steps entry ${JSON.stringify(name)}: the service is not an MfaStep`);
+      }
+    }
+    await super.resolve();
+  }
+
+  public async steps(): Promise<ReadonlyMap<string, MfaStep>> {
+    if (!this.Steps) throw new InvalidOperation(`${this.constructor.name} was not created by DI and has no container to list authn.mfa.steps from`);
+    return this.Steps;
+  }
+}
 
 /**
  * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for password logins only (D13: a key
@@ -19,21 +49,19 @@ import { mfaSteps } from './mfa-steps.js';
  * MfaEnrolmentMismatch (a listed step that does not see the stored enrolment). Otherwise `force`, or a role of
  * `forceForRoles` (asked through RoleSource), requires the first configured step, so the pending session can only
  * enrol. Boot fails when forceForRoles has no RoleSource or PrincipalFactory to ask; the schema refuses force and
- * forceForRoles with no step to require. The steps are the container's `mfaSteps`.
+ * forceForRoles with no step to require.
  */
 @PerChildInstance()
 @Injectable(MfaPolicy)
-@Inject(Container)
-export class DefaultMfaPolicy extends MfaPolicy {
+export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   @Config('authn.mfa.policy.force')
   protected Force: boolean;
 
   @Config('authn.mfa.policy.forceForRoles')
   protected ForceForRoles: string[];
-
-  constructor(private readonly container: IContainer) {
-    super();
-  }
 
   public get force(): boolean {
     return this.Force === true;
@@ -43,22 +71,22 @@ export class DefaultMfaPolicy extends MfaPolicy {
     return this.ForceForRoles ?? [];
   }
 
-  public resolve(): void {
+  public async resolve(): Promise<void> {
     if (this.forceForRoles.length > 0) {
       const required: ReadonlyArray<readonly [Class<unknown>, string]> = [
         [RoleSource, 'RoleSource'],
         [PrincipalFactory, 'PrincipalFactory'],
       ];
       for (const [type, name] of required) {
-        if (!this.container.hasRegistered(type)) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
+        if (!this.Container.hasRegistered(type)) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
       }
     }
-    super.resolve();
+    await super.resolve();
   }
 
   public async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
     if (facts.method !== 'password') return [];
-    const steps = [...(await mfaSteps(this.container)).values()];
+    const steps = [...(await this.steps()).values()];
     const enrolled: string[] = [];
     for (const s of steps) if (await s.enrolled(id)) enrolled.push(s.name);
     if (enrolled.length > 0) return enrolled;
@@ -73,7 +101,7 @@ export class DefaultMfaPolicy extends MfaPolicy {
 
   /** A source that throws fails the login (the caller's policy_error). */
   private async storedSteps(id: IdentityRef): Promise<string[]> {
-    const sources = await this.container.resolve(Array.chainOf(MfaEnrolments));
+    const sources = await this.Container.resolve(Array.chainOf(MfaEnrolments));
     const out = new Set<string>();
     // A resolve of the abstract base itself leaves an instance of it in the chain; it is no source.
     for (const source of sources.filter((s) => s?.constructor !== MfaEnrolments)) {
@@ -86,9 +114,9 @@ export class DefaultMfaPolicy extends MfaPolicy {
     if (this.force) return true;
     if (this.forceForRoles.length === 0) return false;
     try {
-      const principals = await this.container.resolve(PrincipalFactory);
+      const principals = await this.Container.resolve(PrincipalFactory);
       const principal = await principals.principalOf(id, { ...facts, assurance: 'aal1', mfa: [], authenticatedAt: new Date() }, {});
-      const roles = await (await this.container.resolve(RoleSource)).rolesOf(principal);
+      const roles = await (await this.Container.resolve(RoleSource)).rolesOf(principal);
       return roles.some((r) => this.forceForRoles.includes(r.role));
     } catch {
       // Fail closed: without the roles, ask for the step.

@@ -21,14 +21,15 @@ const off = () => notFound('not_found', 'the MFA enrolment routes are off');
  * authn-totp's TotpService while login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep and
  * authn.mfa.encryptionKey.secret is set (what authn-totp calls "Turning TOTP on"). Otherwise 404 `not_found`: a factor
  * enrolled here that login never asks for would only look like a second factor (design §22.11). `encryptionKey` is
- * that secret as the caller's `@Config` reads it from `container`'s configuration.
+ * that secret and `policyService` authn.mfa.policy.service, as the caller's `@Config` reads them from `container`'s
+ * configuration.
  */
-export async function totpServiceOf(container: IContainer, encryptionKey: string | null | undefined): Promise<TotpService> {
+export async function totpServiceOf(container: IContainer, encryptionKey: string | null | undefined, policyService: string): Promise<TotpService> {
   if (!container.hasRegistered(TOTP_SERVICE)) throw off();
   if (!encryptionKey) throw off();
   // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-  const { mfaSteps } = await import('@spinajs/authn');
-  const steps = [...(await mfaSteps(container)).values()];
+  const { mfaPolicyOf } = await import('../policies/v3/mfa.js');
+  const steps = [...(await (await mfaPolicyOf(container, policyService)).steps()).values()];
   // The name check first, so an app that lists no such step never loads authn-totp here.
   if (!steps.some((s) => s.constructor.name === 'TotpMfaStep')) throw off();
   // Already loaded where the real classes registered. DI keeps the first class of a name, so a foreign TotpService or
@@ -48,11 +49,14 @@ export class TotpEnrolmentOn extends BasePolicy {
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
+  @Config('authn.mfa.policy.service')
+  protected MfaPolicyService: string;
+
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    await totpServiceOf(this.Container, this.MfaEncryptionKey);
+    await totpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService);
   }
 }

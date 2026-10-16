@@ -258,8 +258,8 @@ describe('AuthnAudit', function () {
         expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'RejectingSink:login', 'ThrowingSink:login', 'LastSink:login']);
         const failures = auditorLines().filter((l) => l.startsWith('warn'));
         expect(failures).to.have.length(2);
-        const rejecting = failures.find((l) => l.includes('"RejectingSink"'));
-        const throwing = failures.find((l) => l.includes('"ThrowingSink"'));
+        const rejecting = failures.find((l) => l.includes('sink RejectingSink failed'));
+        const throwing = failures.find((l) => l.includes('sink ThrowingSink failed'));
         expect(rejecting).to.contain('login').and.contain('(Error)');
         expect(throwing).to.contain('(TypeError)');
       });
@@ -286,7 +286,7 @@ describe('AuthnAudit', function () {
         expect(calls).to.deep.equal(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'HangingSink:login', 'LastSink:login']);
         expect(auditorLines()).to.have.length(1);
         expect(auditorLines()[0]).to.match(/^warn /);
-        expect(auditorLines()[0]).to.contain('"HangingSink"').and.contain('timed out').and.contain('"login"');
+        expect(auditorLines()[0]).to.contain('sink HangingSink timed out on a login event');
         expect(auditorLines()[0]).to.not.contain(IP);
         expect(auditorLines()[0]).to.not.contain('u-1');
       });

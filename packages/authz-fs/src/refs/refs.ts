@@ -1,6 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty, _one_of, _reg_match } from '@spinajs/util';
 
 import { normalizeFsPath } from './paths.js';
 
@@ -21,12 +21,8 @@ const isFsName = (name: unknown): name is string => typeof name === 'string' && 
 
 /** `{ type: 'fs', id: fsName }` for the root, else `{ type: kind, id: '<fsName>:<normalised path>' }`. */
 export function fsRef(fsName: string, path: string, kind: FsPathKind): ResourceRef {
-  if (!isFsName(fsName)) {
-    throw new InvalidArgument(`fs name must be a non-empty string without ':', got ${JSON.stringify(fsName)}`, 'fsName');
-  }
-  if (kind !== 'file' && kind !== 'dir') {
-    throw new InvalidArgument(`fs ref kind must be 'file' or 'dir', got ${JSON.stringify(kind)}`, 'kind');
-  }
+  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(fsName, 'fsName');
+  _check_arg(_one_of(['file', 'dir']))(kind, 'kind');
   const normalised = normalizeFsPath(path);
   return normalised === '' ? { type: 'fs', id: fsName } : { type: kind, id: `${fsName}:${normalised}` };
 }

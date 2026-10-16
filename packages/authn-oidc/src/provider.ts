@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import type { OidcExternalSubject } from './contracts.js';
 import type { OidcProviderOptions } from './options/options.js';
@@ -111,7 +112,8 @@ export class OidcProvider {
     const claim = stateClaim(flow, secrets.state);
     if (!(await this.states.claim(claim.key, claim.expiresAt, now))) refuse('state already used');
     if (query.error !== undefined) refuse('the provider answered an error');
-    if (typeof query.code !== 'string' || query.code.length === 0 || query.code.length > MAX_CODE_LENGTH) refuse('code');
+    const [codeOk] = _try_check_arg(_is_string(_non_empty(), _max_length(MAX_CODE_LENGTH)))(query.code, 'query.code');
+    if (!codeOk) refuse('code');
 
     const endpoints = await this.endpoints(now);
     const issuer = this.options.issuer;

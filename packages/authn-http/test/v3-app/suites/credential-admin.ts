@@ -108,7 +108,7 @@ export function credentialAdminGateSuite(): void {
           expect(e.message).to.eq('the admin MFA reset route is off');
         },
       );
-      await adminTotpServiceOf(empty, key).then(
+      await adminTotpServiceOf(empty, key, 'DefaultMfaPolicy').then(
         () => expect.fail('adminTotpServiceOf found a service'),
         (e: { error?: unknown }) => expect(e.error).to.eq('not_found'),
       );

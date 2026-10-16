@@ -3,7 +3,7 @@ import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 import { Injectable } from '@spinajs/di';
 
-import { AuthnService, MfaStep, RECOVERY_STEP, mfaSteps } from '../../src/index.js';
+import { AuthnService, DefaultMfaPolicy, MfaStep, RECOVERY_STEP } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, IdentityRef } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
@@ -49,7 +49,7 @@ async function loginWithAnyStep(authn: AuthnService, ctx: AuthnContext, ask: (st
 }
 
 async function stepsOfContainer(p: CoreParts): Promise<string[]> {
-  return [...(await mfaSteps(p.child)).keys()];
+  return [...(await (await p.child.resolve(DefaultMfaPolicy)).steps()).keys()];
 }
 
 describe('flow README examples', function () {

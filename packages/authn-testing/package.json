@@ -56,6 +56,8 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/exceptions": "2.0.549",
+    "@spinajs/util": "2.0.549",
     "@sinonjs/fake-timers": "^10.3.0"
   },
   "peerDependencies": {

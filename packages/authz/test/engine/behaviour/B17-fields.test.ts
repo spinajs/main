@@ -272,7 +272,7 @@ describe('B17: fields through the Authorizer', () => {
       expect(r.decision.reason).to.deep.equal({ code: 'model_error', model: 'abac' });
       expect(r.decision.fields).to.deep.equal({ read: [], write: [] });
       expect(r.uncacheable).to.equal(true);
-      expect(log.at('error').some((e) => /store down/.test(e.message))).to.equal(true);
+      expect(log.at('error').some((e) => /store down/.test(e.error?.message ?? ''))).to.equal(true);
     });
 
     it('B17: a timed-out load makes the vote reading it indeterminate: denied, non-cacheable (decision 29)', async () => {
@@ -305,7 +305,7 @@ describe('B17: fields through the Authorizer', () => {
       // The votes' pass already loaded the node, so the fields still bind it.
       expect(r.decision.fields.read).to.deep.equal(['Name', 'Salary']);
       expect(r.uncacheable).to.equal(true);
-      expect(log.at('error').some((e) => /cover down/.test(e.message))).to.equal(true);
+      expect(log.at('error').some((e) => /cover down/.test(e.error?.message ?? ''))).to.equal(true);
     });
   });
 });

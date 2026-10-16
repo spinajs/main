@@ -4,6 +4,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 import { OrmDriver, RawQuery } from '@spinajs/orm';
+import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
@@ -174,9 +175,7 @@ export class DbMfaStore {
   public async acceptStep(id: IdentityRef, step: string, timeStep: number): Promise<boolean> {
     const identity = identityKey(id);
     const name = stepName(step);
-    if (typeof timeStep !== 'number' || !Number.isSafeInteger(timeStep) || timeStep < 0) {
-      throw new InvalidArgument('DbMfaStore.acceptStep: timeStep must be a non-negative safe integer');
-    }
+    _check_arg(_is_number(_integer(), _between(0, Number.MAX_SAFE_INTEGER)))(timeStep, 'timeStep');
     const { driver } = await this.connection.get();
     const older = function (this: WhereBuilder<unknown>) {
       this.whereNull('last_step');
@@ -213,7 +212,7 @@ export class DbMfaStore {
   /** Deletes the identity's codes, then stores the SHA-256 of each new one. Empty or repeated codes throw. */
   public async replaceRecoveryCodes(id: IdentityRef, rawCodes: readonly string[]): Promise<void> {
     const identity = identityKey(id);
-    if (!Array.isArray(rawCodes)) throw new InvalidArgument('DbMfaStore.replaceRecoveryCodes: rawCodes must be an array');
+    _check_arg(_is_array())(rawCodes, 'rawCodes');
     const hashes = rawCodes.map((code) => sha256hex(checkedText(code, Number.MAX_SAFE_INTEGER, 'DbMfaStore: a recovery code')));
     if (new Set(hashes).size !== hashes.length) throw new InvalidArgument('DbMfaStore.replaceRecoveryCodes: the codes repeat');
     const { driver } = await this.connection.get();
@@ -229,7 +228,7 @@ export class DbMfaStore {
   /** Spends the code in one conditional update; true for exactly one caller. */
   public async redeemRecoveryCode(id: IdentityRef, raw: string): Promise<boolean> {
     const identity = identityKey(id);
-    if (typeof raw !== 'string' || raw.length === 0 || raw.length > RAW_MAX) return false;
+    if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
     const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock'));
     const { driver } = await this.connection.get();
     const r = await driver.update().in(CODES).update({ used_at: now }).where('identity', identity).where('code_hash', sha256hex(raw)).whereNull('used_at');

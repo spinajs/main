@@ -338,7 +338,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       ensureFsDomain(name, scope);
       logLines.length = 0;
       const svc = await domains.service(name);
-      expect(logLines.some((l) => l.level === 'warn' && l.message.includes('"fs-abac"') && l.message.includes('no combine entry routes this model'))).to.equal(true);
+      expect(logLines.some((l) => l.level === 'warn' && l.message.includes('model fs-abac: no combine entry routes this model'))).to.equal(true);
       expect(await svc.can(alice, 'fs:read', { type: 'file', id: 'uploads:public/a.png' })).to.equal(false);
 
       const routed = fresh();

@@ -31,6 +31,8 @@ import {
   _to_float,
   _to_date,
   _positive,
+  _finite,
+  _integer,
   _convert,
   _or,
   _is_instance_of,
@@ -103,6 +105,16 @@ describe('args validators (extended)', () => {
       expect(run(_positive(), 1)).to.eq(1);
       expect(() => run(_positive(), 0)).to.throw(InvalidArgument);
       expect(() => run(_positive(), -1)).to.throw(InvalidArgument);
+    });
+
+    it('_finite rejects NaN and infinities', () => {
+      expect(run(_finite(), 1.5)).to.eq(1.5);
+      for (const bad of [NaN, Infinity, -Infinity, '1']) expect(() => run(_finite(), bad), String(bad)).to.throw(InvalidArgument);
+    });
+
+    it('_integer rejects fractions and non-finite numbers', () => {
+      expect(run(_integer(), -3)).to.eq(-3);
+      for (const bad of [1.5, NaN, Infinity, '1']) expect(() => run(_integer(), bad), String(bad)).to.throw(InvalidArgument);
     });
   });
 

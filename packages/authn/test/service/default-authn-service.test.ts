@@ -1711,8 +1711,21 @@ describe('DefaultAuthnService', function () {
       await bootFails([interactive], { raw: { authn: { mfa: { steps: [{ name: 'gone', service: 'NoSuchStep' }] } } } }, 'authn.mfa.steps', 'NoSuchStep');
     });
 
+    describe('the MFA policy resolves once, before the secrets check', () => {
+      const forced = { raw: { authn: { mfa: { policy: { forceForRoles: ['admin'] } } } } };
+      const interactive = () => strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+
+      it('fails with the policy own message, never an encryptionKey one', async () => {
+        const message = await bootFails([interactive()], forced, 'authn.mfa.policy.forceForRoles needs a RoleSource to read roles, and none is registered');
+        assert.ok(!message.includes('encryptionKey'), message);
+      });
+    });
+
     it('uses the MfaPolicy named by authn.mfa.policy.service', async () => {
       class Always extends MfaPolicy {
+        async steps(): Promise<ReadonlyMap<string, MfaStep>> {
+          return new Map();
+        }
         async required(): Promise<readonly string[]> {
           return ['fake'];
         }

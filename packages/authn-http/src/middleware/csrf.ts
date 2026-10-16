@@ -70,8 +70,9 @@ class RefusalWarnings {
     if (at === undefined && this.last.size >= WARN_KEYS_MAX) this.last.clear();
     this.last.set(key, now);
     this.log()?.warn(
-      `CsrfOriginGuard refused a cookie request: Origin ${clip(shown)}, own origin ${own === undefined ? 'unknown (no usable Host)' : clip(own)}. ` +
-        `Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${ALLOWED_ORIGINS_KEY}.`,
+      { origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: ALLOWED_ORIGINS_KEY },
+      'CsrfOriginGuard refused a cookie request: Origin ${origin}, own origin ${ownOrigin}. ' +
+        'Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${allowedOriginsKey}.',
     );
   }
 }

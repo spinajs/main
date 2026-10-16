@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { assertSameTiming, compareTiming, repeat, timingDefaults, timingTimeoutMs } from '../../src/helpers/index.js';
 import type { TimedSource } from '../../src/helpers/index.js';
 
@@ -50,8 +51,8 @@ describe('timing helpers', () => {
 
   it('timingDefaults ignores fractional env values and compareTiming refuses bad options', async () => {
     assert.equal(timingDefaults({ AUTHN_TESTING_TIMING_RETRIES: '2.5' }).retries, 2);
-    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { retries: -1 }), RangeError);
-    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { runs: 1.5 }), RangeError);
+    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { retries: -1 }), InvalidArgument);
+    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { runs: 1.5 }), InvalidArgument);
   });
 
   it('timingTimeoutMs has a 60 s floor and scales with the call cost', () => {

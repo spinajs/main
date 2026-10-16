@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
 import { identityKey } from '../identity.js';
 
@@ -49,15 +50,15 @@ export function mfaKeyFrom(secret: string): MfaKey {
 
 function aad(identity: IdentityRef | string, step: string): Buffer {
   const id = typeof identity === 'string' ? identity : identityKey(identity);
-  if (typeof id !== 'string' || id.length === 0) throw new InvalidArgument('MFA cipher: identity must be a non-empty string');
+  _check_arg(_is_string(_non_empty()))(id, 'identity');
   // With no "|" in the step, the last "|" splits the AAD into exactly one (identity, step) pair.
-  if (typeof step !== 'string' || step.length === 0 || step.includes('|')) throw new InvalidArgument('MFA cipher: step must be a non-empty string without "|"');
+  _check_arg(_is_string(_non_empty(), _reg_match(/^[^|]*$/)))(step, 'step');
   return Buffer.from(`${id}|${step}`, 'utf8');
 }
 
 /** AES-256-GCM under `key` with AAD `${identity}|${step}`; returns `v1.<iv>.<tag>.<ct>`, each part base64url. */
 export function encryptMfaSecret(key: MfaKey, identity: IdentityRef | string, step: string, plain: string): string {
-  if (typeof plain !== 'string' || plain.length === 0) throw new InvalidArgument('MFA cipher: the secret must be a non-empty string');
+  _check_arg(_is_string(_non_empty()))(plain, 'plain');
   const ad = aad(identity, step);
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key.key, iv, { authTagLength: TAG_BYTES });

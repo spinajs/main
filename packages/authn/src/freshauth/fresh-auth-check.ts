@@ -1,7 +1,7 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { isNonEmptyString } from '@spinajs/util';
+import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import type { AuthnContext, Credentials } from '../contracts/credentials.js';
 import { isFresh } from '../contracts/fresh.js';
@@ -39,9 +39,8 @@ export class FreshAuthCheck extends AsyncService {
 
   /** `reauth` is verified only when the session is not fresh. */
   public async check(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<boolean> {
-    const id: unknown = (session as Partial<SessionHandle> | null | undefined)?.id;
-
-    if (!isNonEmptyString(id)) return false;
+    const [ok, id] = _try_check_arg(_is_string(_non_empty()))((session as Partial<SessionHandle> | null | undefined)?.id, 'session.id');
+    if (!ok) return false;
     const stored = await this.sessions.restore(id);
     if (!stored || stored.handle.state !== 'active' || stored.facts.impersonator !== undefined) return false;
     if (isFresh(stored.facts, ctx.now, this.MaxAgeSeconds)) return true;

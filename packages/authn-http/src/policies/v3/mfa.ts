@@ -5,7 +5,7 @@ import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { mfaEnrolmentRefusal, mfaSteps } from '@spinajs/authn';
+import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
@@ -15,7 +15,7 @@ import { authenticatedPrincipal } from './principal.js';
 export async function mfaPolicyOf(container: IContainer, name: string): Promise<MfaPolicy> {
   if (!container.getRegisteredNames(MfaPolicy).includes(name)) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
   const policy = (await container.resolveNamed(MfaPolicy, name)) as MfaPolicy | null | undefined;
-  if (typeof policy?.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required())`);
+  if (typeof policy?.required !== 'function' || typeof policy?.steps !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required() or steps())`);
   return policy;
 }
 
@@ -74,13 +74,13 @@ export class PendingMfaEnrolment extends BasePolicy {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a session');
     if (session.handle.state !== 'pending') throw refused('enrolment_closed', 'only a pending session forced to enrol passes here');
-    const steps = [...(await mfaSteps(this.Container)).values()];
+    const policy = await mfaPolicyOf(this.Container, this.PolicyService);
+    const steps = [...(await policy.steps()).values()];
     if (steps.length === 0) throw refused('enrolment_closed', 'no MFA step is configured');
     for (const step of steps) {
       if (await step.enrolled(session.identity)) throw refused('enrolment_closed', 'complete the second factor instead');
     }
     // A stored enrolment no listed step sees must not be bypassed by enrolling a fresh factor.
-    const policy = await mfaPolicyOf(this.Container, this.PolicyService);
     try {
       await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy });
     } catch (err) {

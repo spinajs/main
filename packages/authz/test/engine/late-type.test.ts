@@ -224,7 +224,7 @@ describe('Authorizer: a resource type registered after the Authorizer was built'
         expect(d.allowed).to.equal(false);
         expect(d.reason?.code).to.equal('model_error');
         expect(
-          log.entries.some((e) => `${e.message} ${e.args.map(String).join(' ')}`.includes('was registered with adapter "orm" after the domain booted')),
+          log.entries.some((e) => `${e.message} ${Object.values(e.fields ?? {}).map(String).join(' ')}`.includes('was registered with adapter "orm" after the domain booted')),
           JSON.stringify(log.entries),
         ).to.equal(true);
       });

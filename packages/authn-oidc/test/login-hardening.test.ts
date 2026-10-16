@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 
 import { flowCookieName } from '../src/flow/cookie.js';
+import { FAKE_CLIENT_SECRET } from './support/fake-idp.js';
 import { ENV, world } from './support/world.js';
 
 type World = Awaited<ReturnType<typeof world>>;
@@ -95,6 +96,17 @@ describe('authn-oidc login hardening', () => {
     expect((await w.login.unlink('corp', { ...w.request({ subject: 'b' }), session })).status).to.eq(204);
     expect(await w.links.find('oidc:corp', 'b')).to.eq(null);
     expect(await w.links.find('oidc:corp', 'a')).to.not.eq(null);
+  });
+
+  it('a provider that cannot start a login is logged by error name only', async () => {
+    const w = await world();
+    w.provider.begin = async () => {
+      throw new TypeError(`discovery failed for ${FAKE_CLIENT_SECRET}`);
+    };
+    expect((await w.login.begin('corp', w.request())).status).to.eq(401);
+    expect(w.logged).to.have.length(1);
+    expect(w.logged[0]).to.contain('could not start a login with provider corp').and.contain('"errorName":"TypeError"');
+    expect(w.logged[0]).to.not.contain('discovery failed').and.not.contain(FAKE_CLIENT_SECRET);
   });
 
   it('a login the hooks refuse is audited once, as a failure, and never as a success', async () => {

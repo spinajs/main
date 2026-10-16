@@ -2,10 +2,11 @@ import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
+import type { MfaPolicy } from '../../contracts/mfa.js';
 import type { AuthnThrottle } from '../../contracts/throttle.js';
 import { MfaEnrolments } from '../../flow/mfa-enrolments.js';
-import { mfaSteps } from '../../flow/mfa-steps.js';
 import { selectAuthnThrottle } from '../../throttle/select.js';
+import { selectMfaPolicy } from '../../flow/select-policy.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 import type { StrategyEntry } from '../../registry/strategy-registry.js';
 import { q } from '../../support/format.js';
@@ -116,16 +117,13 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
 
   out.push(...strategyFindings(container, config));
 
-  out.push(
-    ...(await authnSecretFindings(config, async () => {
-      try {
-        return secretStoringSteps(await mfaSteps(container));
-      } catch (e) {
-        out.push({ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA steps') });
-        return [];
-      }
-    })),
-  );
+  let policy: MfaPolicy | undefined;
+  try {
+    policy = await selectMfaPolicy(container, config.get<string>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy');
+  } catch (e) {
+    out.push({ topic: 'mfa', level: 'error', message: safeMessage(e, 'resolving the MFA policy') });
+  }
+  out.push(...(await authnSecretFindings(config, async () => (policy ? secretStoringSteps(await policy.steps()) : []))));
 
   out.push(...(await throttleFindings(container, config)));
 

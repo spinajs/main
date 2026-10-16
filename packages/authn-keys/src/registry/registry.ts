@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
+import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -22,18 +23,24 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v ===
 const nonEmpty = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
 function ownerOf(v: unknown): KeyOwner {
-  if (!isPlainObject(v) || typeof v.type !== 'string' || !OWNER_TYPES.includes(v.type) || !nonEmpty(v.id, MAX_OWNER_ID)) {
+  const o: Record<string, unknown> = isPlainObject(v) ? v : {};
+  const [typeOk, type] = _try_check_arg(_is_string(_contains(OWNER_TYPES)))(o.type, 'owner.type');
+  const [idOk, id] = _try_check_arg(_is_string(_between(1, MAX_OWNER_ID)))(o.id, 'owner.id');
+  if (!typeOk || !idOk) {
     throw new TypeError('a key owner is a user, a service or an agent with an id of 1-64 characters');
   }
-  return Object.freeze({ type: v.type as KeyOwner['type'], id: v.id });
+  return Object.freeze({ type: type as KeyOwner['type'], id: id as string });
 }
 
 /** An actor that fits authn_key.created_by (varchar 100). */
 function principalRefOf(v: unknown): PrincipalRef | null {
-  if (!isPlainObject(v) || !nonEmpty(v.type, MAX_CREATED_BY) || !nonEmpty(v.id, MAX_CREATED_BY)) {
+  const o: Record<string, unknown> = isPlainObject(v) ? v : {};
+  const [typeOk, type] = _try_check_arg(_is_string(_between(1, MAX_CREATED_BY)))(o.type, 'actor.type');
+  const [idOk, id] = _try_check_arg(_is_string(_between(1, MAX_CREATED_BY)))(o.id, 'actor.id');
+  if (!typeOk || !idOk) {
     return null;
   }
-  const ref = Object.freeze({ type: v.type, id: v.id });
+  const ref = Object.freeze({ type: type as string, id: id as string });
   return encodePrincipalRef(ref).length <= MAX_CREATED_BY ? ref : null;
 }
 

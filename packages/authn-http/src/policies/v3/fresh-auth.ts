@@ -1,11 +1,11 @@
 import { Autoinject, Container, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { FreshAuthCheck, isFresh } from '@spinajs/authn';
 import { AuthnService, IdentityStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef } from '@spinajs/authn/contracts';
+import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
 
 import { publishAuthnEvent } from './audit.js';
 import { authnFailed, refused } from './errors.js';
@@ -74,8 +74,8 @@ export class FreshAuth extends BasePolicy {
 
   constructor(public readonly maxAgeSeconds?: number) {
     super();
-    if (maxAgeSeconds !== undefined && !(Number.isInteger(maxAgeSeconds) && maxAgeSeconds >= 1)) {
-      throw new InvalidArgument('FreshAuth: maxAgeSeconds must be a positive integer');
+    if (maxAgeSeconds !== undefined) {
+      _check_arg(_is_number(_integer(), _gte(1)))(maxAgeSeconds, 'maxAgeSeconds');
     }
   }
 

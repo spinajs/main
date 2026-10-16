@@ -101,9 +101,13 @@ export class FakeMfaStep extends MfaStep {
 export class EnrolledMfaPolicy extends MfaPolicy {
   private readonly methods: readonly string[];
 
-  constructor(private readonly steps: readonly MfaStep[], opts: { methods?: readonly string[] } = {}) {
+  constructor(private readonly configured: readonly MfaStep[], opts: { methods?: readonly string[] } = {}) {
     super();
     this.methods = opts.methods ?? ['password'];
+  }
+
+  override async steps(): Promise<ReadonlyMap<string, MfaStep>> {
+    return new Map(this.configured.map((s) => [s.name, s]));
   }
 
   async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
@@ -111,7 +115,7 @@ export class EnrolledMfaPolicy extends MfaPolicy {
       return [];
     }
     const names: string[] = [];
-    for (const step of this.steps) {
+    for (const step of this.configured) {
       if (await step.enrolled(id)) {
         names.push(step.name);
       }

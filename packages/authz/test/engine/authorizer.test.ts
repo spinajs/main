@@ -143,7 +143,7 @@ describe('Authorizer', () => {
         expect(d.allowed).to.equal(false);
         expect(d.reason?.code).to.equal('model_error');
         expect(unhandled).to.deep.equal([]);
-        expect(log.at('error').some((e) => /synchronous/.test(e.message))).to.equal(true);
+        expect(log.at('error').some((e) => /synchronous/.test(e.error?.message ?? ''))).to.equal(true);
       } finally {
         process.off('unhandledRejection', guard);
       }
@@ -729,7 +729,7 @@ describe('Authorizer', () => {
       expect(d.trace).to.equal(undefined);
       const debug = log.at('debug');
       expect(debug.length).to.be.greaterThan(0);
-      expect(debug.some((e) => e.args.some((x) => x !== null && typeof x === 'object' && 'steps' in (x as object)))).to.equal(true);
+      expect(debug.some((e) => { const x = e.fields?.trace; return x !== null && typeof x === 'object' && 'steps' in (x as object); })).to.equal(true);
     });
   });
 

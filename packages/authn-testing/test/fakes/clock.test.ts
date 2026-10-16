@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { FakeClock } from '../../src/fakes/index.js';
 
 describe('FakeClock', () => {
@@ -19,7 +20,7 @@ describe('FakeClock', () => {
     assert.notEqual(new Date().getUTCFullYear(), 2030);
     clock.set(new Date('2029-06-01T00:00:00Z'));
     assert.equal(clock.now().toISOString(), '2029-06-01T00:00:00.000Z');
-    assert.throws(() => clock.tick(-1), RangeError);
+    assert.throws(() => clock.tick(-1), InvalidArgument);
   });
 
   it('install fakes Date only and follows tick and set', async () => {

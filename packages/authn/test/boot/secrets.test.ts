@@ -270,6 +270,18 @@ describe('DefaultAuthnService boot: secrets', function () {
 
   const unresolvableStep = { http: { cookie: { secret: STRONG } }, authn: { mfa: { steps: [{ name: 'totp', service: 'NotRegistered' }], encryptionKey: { secret: null } } } };
 
+  it('fails boot with the policy own message when an interactive strategy lists steps that cannot be resolved', async () => {
+    let error: unknown;
+    try {
+      const p = await buildCore({ env: 'production' }, { raw: unresolvableStep });
+      await p.dispose();
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(Error);
+    expect((error as Error).message).to.contain('authn.mfa.steps').and.contain('NotRegistered').and.not.contain('encryptionKey');
+  });
+
   it('fails boot in production when the MFA key is missing and the steps cannot be resolved', async () => {
     let error: unknown;
     try {

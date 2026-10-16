@@ -1,6 +1,6 @@
-import { InvalidArgument } from '@spinajs/exceptions';
 import { Parameter, ParameterType, Route, RouteArgs } from '@spinajs/http';
 import type { IRouteArgsResult, IRouteCall, IRouteParameter, Request } from '@spinajs/http';
+import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 
 import type { AuthnIdentity } from '../api.js';
 
@@ -80,6 +80,6 @@ export function SessionId(): ReturnType<typeof Route> {
  * Pending sessions included, so not authentication.
  */
 export function FromSession(key: string): ReturnType<typeof Route> {
-  if (typeof key !== 'string' || key === '') throw new InvalidArgument('FromSession needs a non-empty session data key');
+  _check_arg(_is_string(_non_empty()))(key, 'key');
   return Route(Parameter('AuthnSessionDataArg', undefined, { key }));
 }

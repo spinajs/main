@@ -1,7 +1,7 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
@@ -142,8 +142,9 @@ export class AccountLinkService extends AsyncService {
 
   /** The session's identity, and the audit reason when it may not change its links. */
   private async guard(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<Guarded> {
-    if (!isPlainObject(session) || !isNonEmptyString(session.id)) return { refused: 'not_active' };
-    const stored = await this.sessions.restore(session.id);
+    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(session, 'session');
+    if (!ok) return { refused: 'not_active' };
+    const stored = await this.sessions.restore(id);
     if (!stored || stored.handle.state !== 'active') return { refused: 'not_active' };
     const holder: Holder = { identity: stored.identity, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     if (ctx.purpose !== 'link') return { holder, refused: 'wrong_purpose' };

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { TimeSpan, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
@@ -89,8 +89,9 @@ function blockCeiling(block: Record<string, unknown>): Ceiling | undefined | nul
 const switching = new Map<string, Promise<unknown>>();
 
 async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Promise<T> {
-  if (!isPlainObject(session) || !isNonEmptyString(session.id)) return run();
-  const key = createHash('sha256').update(session.id).digest('hex');
+  const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(session, 'session');
+  if (!ok) return run();
+  const key = createHash('sha256').update(id).digest('hex');
   const mine = (switching.get(key) ?? Promise.resolve()).then(run, run);
   const tail = mine.catch(() => undefined);
   switching.set(key, tail);
@@ -260,8 +261,9 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async restore(h: SessionHandle): Promise<Stored | null> {
-    if (!isPlainObject(h) || !isNonEmptyString(h.id)) return null;
-    const stored = await this.sessions.restore(h.id);
+    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
+    if (!ok) return null;
+    const stored = await this.sessions.restore(id);
     return stored && stored.handle.state === 'active' ? stored : null;
   }
 

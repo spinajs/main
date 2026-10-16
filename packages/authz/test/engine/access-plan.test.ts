@@ -216,7 +216,7 @@ describe('Authorizer.accessPlan', () => {
             .at('error')
             .map((e) => e.message)
             .join('\n'),
-        ).to.match(/model "m" failed to plan doc:read on "doc"/);
+        ).to.match(/model m failed to plan "doc:read on \\"doc\\""/);
       });
     }
 

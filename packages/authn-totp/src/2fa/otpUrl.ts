@@ -1,5 +1,6 @@
 import * as OTPAuth from 'otpauth';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty, _trim } from '@spinajs/util';
 
 export interface IOtpUrlOptions {
   issuer: string;
@@ -17,11 +18,7 @@ export interface IOtpUrlOptions {
  * secrets are often shared in `jbsw y3dp ...` form.
  */
 export function buildOtpAuthUrl(secretOrUrl: string, options: IOtpUrlOptions): string {
-  const input = secretOrUrl.trim();
-
-  if (!input) {
-    throw new InvalidArgument('2fa secret or otpauth url is empty');
-  }
+  const input: string = _check_arg(_is_string(_trim(), _non_empty(new InvalidArgument('2fa secret or otpauth url is empty'))))(secretOrUrl, 'secretOrUrl');
 
   if (input.toLowerCase().startsWith('otpauth://')) {
     return input;

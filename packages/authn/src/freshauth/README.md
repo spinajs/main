@@ -15,8 +15,8 @@ session handle. The HTTP layer wraps it in a route policy.
   test, also usable on a `Principal`'s `authn` facts. It is true when
   `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary
   included. A time after `now`, an invalid time and any impersonation are
-  not fresh. A `maxAgeSeconds` that is not a positive number throws
-  `RangeError`.
+  not fresh. A `maxAgeSeconds` that is not a positive finite number throws
+  `InvalidArgument`.
 - The `FreshAuth` policy in `@spinajs/authn-http`
   (`policies/v3/fresh-auth.ts`), for routes:
   `@Policy(FreshAuth)` or `@Policy(FreshAuth, 600)` for a stricter window.
