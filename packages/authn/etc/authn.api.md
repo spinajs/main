@@ -290,6 +290,7 @@ export declare abstract class ImpersonationGuard {
 export * from "./principal.js";
 export * from "./credentials.js";
 export * from "./session.js";
+export * from "./session-state.js";
 export * from "./throttle.js";
 export * from "./strategy.js";
 export * from "./service.js";
@@ -821,11 +822,78 @@ export declare abstract class PrincipalFactory {
 }
 ```
 
+## src/contracts/session-state.ts
+
+```ts
+import type { IdentityRef } from "./credentials.js";
+import type { AuthnFacts, PrincipalRef } from "./principal.js";
+import type { SessionHandle } from "./session.js";
+/** A typed entry of session data. `decode` gets the stored value whenever the key is present, null included. */
+export interface SessionKey<T> {
+    readonly name: string;
+    decode(raw: unknown): T;
+}
+export declare function sessionKey<T>(name: string, decode: (raw: unknown) => T): SessionKey<T>;
+export interface ImpersonationBlock {
+    readonly startedAt: Date;
+    /** The role of the actor's role switch at start; [] when that switch narrowed to no role. */
+    readonly actorRoles?: readonly string[];
+}
+/** The data keys authn reads. An app defines its own with `sessionKey` and reads them with `Session.get`. */
+export declare const SessionKeys: Readonly<{
+    /** Written by a role switch (D14); '' narrows to no role. */
+    ActiveRole: SessionKey<string | undefined>;
+    /** Written by impersonation start; null when it cannot be read. */
+    Impersonation: SessionKey<ImpersonationBlock | null>;
+    Ip: SessionKey<string | undefined>;
+    UserAgent: SessionKey<string | undefined>;
+    /** Only on a pending session, from the issuer; `set` refuses it. */
+    PendingSteps: SessionKey<readonly string[] | undefined>;
+}>;
+export interface SessionInit {
+    readonly handle: SessionHandle;
+    readonly identity: IdentityRef;
+    readonly facts: AuthnFacts;
+    readonly data?: Iterable<readonly [
+        string,
+        unknown
+    ]>;
+}
+/** A restored session. Read data through a SessionKey; `data` holds the raw public entries. */
+export declare class Session {
+    readonly handle: SessionHandle;
+    readonly identity: IdentityRef;
+    readonly facts: AuthnFacts;
+    readonly data: ReadonlyMap<string, unknown>;
+    constructor(init: SessionInit);
+    get state(): SessionHandle["state"];
+    get impersonator(): PrincipalRef | undefined;
+    get activeRole(): string | undefined;
+    /** undefined without a block (a migrated 2.x session), null for one that cannot be read. */
+    get impersonation(): ImpersonationBlock | null | undefined;
+    get ip(): string | undefined;
+    get userAgent(): string | undefined;
+    get pendingSteps(): readonly string[] | undefined;
+    has(key: SessionKey<unknown>): boolean;
+    get<T>(key: SessionKey<T>): T | undefined;
+}
+
+// values
+const SessionKeys = Object.freeze({
+    ActiveRole: sessionKey("ActiveRole", activeRole),
+    Impersonation: sessionKey("Impersonation", impersonationBlock),
+    Ip: sessionKey("Ip", nonEmpty),
+    UserAgent: sessionKey("UserAgent", nonEmpty),
+    PendingSteps: sessionKey("authn:pendingSteps", pendingSteps)
+});
+```
+
 ## src/contracts/session.ts
 
 ```ts
 import type { IdentityRef } from "./credentials.js";
 import type { AuthnFacts } from "./principal.js";
+import type { Session } from "./session-state.js";
 export interface SessionHandle {
     /** Raw id; lives only in memory and the cookie. */
     readonly id: string;
@@ -847,12 +915,7 @@ export declare abstract class SessionIssuer {
      * Looks the session up by sha256(rawId); only a uuid v4 input falls back to a raw lookup, so a 2.x id is migrated
      * on first use (A07) and a stored hash never works as an id (SR-18).
      */
-    abstract restore(rawId: string): Promise<{
-        handle: SessionHandle;
-        identity: IdentityRef;
-        facts: AuthnFacts;
-        data: ReadonlyMap<string, unknown>;
-    } | null>;
+    abstract restore(rawId: string): Promise<Session | null>;
     /** New id, same data (fixation). */
     abstract rotate(h: SessionHandle): Promise<SessionHandle>;
     /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */
