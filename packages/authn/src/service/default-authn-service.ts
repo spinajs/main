@@ -13,6 +13,7 @@ import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import type { MfaPolicy } from '../contracts/mfa.js';
+import type { Session } from '../contracts/session-state.js';
 import { ExternalLoginHook } from '../contracts/hooks.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
@@ -37,7 +38,6 @@ type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 type Verified = Extract<StrategyOutcome, { ok: true }>;
 type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
-type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 
 /** The answer of the first candidate that does not pass the credentials on, or why none gave one. */
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
@@ -498,7 +498,7 @@ export class DefaultAuthnService extends AuthnService {
     return verified !== undefined && sameRef(verified, id);
   }
 
-  private async restore(h: SessionHandle): Promise<Stored | null> {
+  private async restore(h: SessionHandle): Promise<Session | null> {
     if (!this.sessions) return null;
     const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
     if (!ok) return null;

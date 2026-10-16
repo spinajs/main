@@ -1,14 +1,13 @@
-import { isNonEmptyString } from '@spinajs/util';
-
+import { SessionKeys } from '../contracts/session-state.js';
+import type { Session } from '../contracts/session-state.js';
 import type { Ceiling } from '../contracts/principal.js';
 
 /** Session data key of the role chosen by a role switch (D14). */
-export const ACTIVE_ROLE_KEY = 'ActiveRole';
+export const ACTIVE_ROLE_KEY = SessionKeys.ActiveRole.name;
 
 /** `ceiling.roles = [ActiveRole]` after a role switch (D14); undefined before any. */
-export function activeRoleCeiling(data: ReadonlyMap<string, unknown>): Ceiling | undefined {
-  const role = data.get(ACTIVE_ROLE_KEY);
-  if (role === undefined || role === null) return undefined;
-  // A value no role switch writes narrows to no role instead of lifting the narrowing.
-  return { roles: isNonEmptyString(role) ? [role] : [] };
+export function activeRoleCeiling(session: Pick<Session, 'activeRole'>): Ceiling | undefined {
+  const role = session.activeRole;
+  if (role === undefined) return undefined;
+  return { roles: role === '' ? [] : [role] };
 }

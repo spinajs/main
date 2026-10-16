@@ -5,6 +5,7 @@ import { fakeHash } from '@spinajs/authn-testing';
 
 import { ACTIVE_ROLE_KEY, FreshAuthCheck, AuthnImpersonationService, activeRoleCeiling, isFresh } from '../../src/index.js';
 import type { AuthnContext, AuthnEvent, AuthnEventType, AuthnFacts, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
+import { Session } from '../../src/contracts/session-state.js';
 import { IMPERSONATION_BLOCK } from '../../src/impersonation/impersonation-service.js';
 import { buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -630,11 +631,12 @@ describe('AuthnImpersonationService', function () {
     };
 
     it('activeRoleCeiling: none before a switch, the role after one, no role for a value no switch writes', () => {
-      assert.strictEqual(activeRoleCeiling(new Map()), undefined);
-      assert.strictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, null]])), undefined);
-      assert.deepStrictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, 'user']])), { roles: ['user'] });
+      const withRole = (...raw: unknown[]) => new Session({ handle: { id: 'x', state: 'active' }, identity: { type: 'user', id: 'u' }, facts: { method: 'password', strategy: 'local', assurance: 'aal2', mfa: [], authenticatedAt: T0 }, data: raw.map((v) => [ACTIVE_ROLE_KEY, v] as const) });
+      assert.strictEqual(activeRoleCeiling(withRole()), undefined);
+      assert.strictEqual(activeRoleCeiling(withRole(null)), undefined);
+      assert.deepStrictEqual(activeRoleCeiling(withRole('user')), { roles: ['user'] });
       for (const bad of ['', 42, ['admin'], { role: 'admin' }, true]) {
-        assert.deepStrictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, bad]])), { roles: [] }, JSON.stringify(bad));
+        assert.deepStrictEqual(activeRoleCeiling(withRole(bad)), { roles: [] }, JSON.stringify(bad));
       }
     });
 
@@ -702,7 +704,7 @@ describe('AuthnImpersonationService', function () {
       const stored = await p.sessions.restore(back.id);
       assert.deepStrictEqual(stored?.identity, a);
       assert.strictEqual(stored?.data.get(ACTIVE_ROLE_KEY), 'user');
-      assert.deepStrictEqual(activeRoleCeiling(stored!.data), { roles: ['user'] });
+      assert.deepStrictEqual(activeRoleCeiling(stored!), { roles: ['user'] });
       assert.strictEqual(events(p, 'impersonation.end').at(-1)?.outcome, 'success');
       p.guard.calls.length = 0;
       assert.ok((await svc.start(back, b, ctx(at(2 * MINUTE)))).ok, 'a later start');
@@ -737,7 +739,7 @@ describe('AuthnImpersonationService', function () {
         assert.deepStrictEqual(p.guard.calls[1].actor.ceiling, { roles: [] });
         const back = await svc.stop(r.session, ctx());
         assert.ok(back);
-        assert.deepStrictEqual(activeRoleCeiling((await p.sessions.restore(back.id))!.data), { roles: [] });
+        assert.deepStrictEqual(activeRoleCeiling((await p.sessions.restore(back.id))!), { roles: [] });
       });
     }
 

@@ -21,13 +21,13 @@ and the role ceiling, so it is described here too.
   - `endFor(impersonator, { except? })` revokes every session of an identity,
     the impersonations it runs included. Call it when you ban or deactivate an
     identity or change or reset its password (SR-06). It audits nothing.
-- `IMPERSONATION_BLOCK`: the session data key of the block described below.
+- `IMPERSONATION_BLOCK`: the session data key of the block described below. `session.impersonation` reads it.
 - `ImpersonationGuard` (`contracts/impersonation.ts`):
   `allowed(actor, target)` answers `{ ok: true }` or `{ ok: false, code }` with
   `forbidden`, `protected_role` or `escalation`. `AuthzImpersonationGuard` in
   `@spinajs/users` implements it over authz (`authn.*` never imports authz).
-- `ACTIVE_ROLE_KEY` and `activeRoleCeiling(data)`: the role chosen by a role
-  switch, as a ceiling `{ roles: [role] }` that narrows the principal.
+- `ACTIVE_ROLE_KEY` and `activeRoleCeiling(session)`: the role chosen by a role
+  switch (`session.activeRole`), as a ceiling `{ roles: [role] }` that narrows the principal.
 
 ## DI registration
 
