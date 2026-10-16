@@ -6,7 +6,7 @@ import { Injectable } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { SessionIssuer } from '@spinajs/authn/contracts';
+import { Session, SessionIssuer, SessionKeys } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
@@ -15,10 +15,10 @@ import { sameRef } from './match.js';
 import { LEGACY_IDENTITY_KEYS, isLegacySessionId } from './legacy.js';
 
 /** Client IP shown by `list`; set by the HTTP layer through `set` (the issuer takes no request context). */
-export const SESSION_IP_KEY = 'Ip';
+export const SESSION_IP_KEY = SessionKeys.Ip.name;
 
 /** Client user agent shown by `list`; set like SESSION_IP_KEY. */
-export const SESSION_USER_AGENT_KEY = 'UserAgent';
+export const SESSION_USER_AGENT_KEY = SessionKeys.UserAgent.name;
 
 /**
  * In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen,
@@ -26,7 +26,7 @@ export const SESSION_USER_AGENT_KEY = 'UserAgent';
  * flow then picks them from the subject's enrolled factors and must never elevate on no step.
  * Reserved, so `set` refuses it.
  */
-export const SESSION_PENDING_STEPS_KEY = 'authn:pendingSteps';
+export const SESSION_PENDING_STEPS_KEY = SessionKeys.PendingSteps.name;
 
 const RESERVED_PREFIX = 'authn:';
 const FACTS_KEY = 'authn:facts';
@@ -47,8 +47,6 @@ interface StoredFacts {
   mfa: string[];
   authenticatedAt: number;
 }
-
-type Restored = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
 
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -136,11 +134,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
   }
 
   /** `restore` without its side effects: checks the session but neither slides its idle deadline nor records lastSeenAt. */
-  public peek(rawId: string): Promise<Restored | null> {
+  public peek(rawId: string): Promise<Session | null> {
     return peekingSessions(() => this.restore(rawId));
   }
 
-  public async restore(rawId: string): Promise<Restored | null> {
+  public async restore(rawId: string): Promise<Session | null> {
     const [ok] = _try_check_arg(_is_string(_non_empty(), _max_length(MAX_RAW_ID_LENGTH)))(rawId, 'rawId');
     if (!ok) {
       return null;
@@ -168,12 +166,12 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return null;
     }
 
-    return {
+    return new Session({
       handle: { id: rawId, state: session.State },
       identity: ref(session.Subject),
       facts: this.factsOf(session, stored),
       data: this.publicData(session),
-    };
+    });
   }
 
   public async rotate(h: SessionHandle): Promise<SessionHandle> {

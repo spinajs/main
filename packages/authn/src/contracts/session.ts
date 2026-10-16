@@ -1,5 +1,6 @@
 import type { IdentityRef } from './credentials.js';
 import type { AuthnFacts } from './principal.js';
+import type { Session } from './session-state.js';
 
 export interface SessionHandle {
   /** Raw id; lives only in memory and the cookie. */
@@ -19,7 +20,7 @@ export abstract class SessionIssuer {
    * Looks the session up by sha256(rawId); only a uuid v4 input falls back to a raw lookup, so a 2.x id is migrated
    * on first use (A07) and a stored hash never works as an id (SR-18).
    */
-  abstract restore(rawId: string): Promise<{ handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> } | null>;
+  abstract restore(rawId: string): Promise<Session | null>;
   /** New id, same data (fixation). */
   abstract rotate(h: SessionHandle): Promise<SessionHandle>;
   /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */

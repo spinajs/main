@@ -7,6 +7,7 @@ import ts from 'typescript';
 
 import { SessionIssuer } from '../../src/contracts/session.js';
 import type { SessionHandle } from '../../src/contracts/session.js';
+import { Session } from '../../src/contracts/session-state.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
 import * as index from '../../src/contracts/index.js';
@@ -17,7 +18,6 @@ const expect = chai.expect;
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const same = <A, B>(ok: Equals<A, B>): Equals<A, B> => ok;
 
-type Restored = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
 type Listed = { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean };
 
 const SRC_DIR = join(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'), 'src', 'contracts');
@@ -44,9 +44,9 @@ class MemoryIssuer extends SessionIssuer {
     this.rows.push(row);
     return { id: row.id, state: row.state };
   }
-  async restore(rawId: string): Promise<Restored | null> {
+  async restore(rawId: string): Promise<Session | null> {
     const r = this.rows.find((x) => x.id === rawId);
-    return r ? { handle: { id: r.id, state: r.state }, identity: r.identity, facts: r.facts, data: r.data } : null;
+    return r ? new Session({ handle: { id: r.id, state: r.state }, identity: r.identity, facts: r.facts, data: r.data }) : null;
   }
   async rotate(h: SessionHandle): Promise<SessionHandle> {
     const r = this.rows.find((x) => x.id === h.id)!;
@@ -220,7 +220,7 @@ describe('session issuer contract', () => {
       same<Parameters<SessionIssuer['issue']>, [IdentityRef, AuthnFacts, { pending?: { steps: readonly string[] } }?]>(true);
       same<ReturnType<SessionIssuer['issue']>, Promise<SessionHandle>>(true);
       same<Parameters<SessionIssuer['restore']>, [string]>(true);
-      same<ReturnType<SessionIssuer['restore']>, Promise<Restored | null>>(true);
+      same<ReturnType<SessionIssuer['restore']>, Promise<Session | null>>(true);
       same<Parameters<SessionIssuer['rotate']>, [SessionHandle]>(true);
       same<ReturnType<SessionIssuer['rotate']>, Promise<SessionHandle>>(true);
       same<Parameters<SessionIssuer['elevate']>, [SessionHandle, Partial<AuthnFacts>]>(true);
@@ -260,7 +260,7 @@ describe('session issuer contract', () => {
         async issue(): Promise<SessionHandle> {
           return { id: 'x', state: 'active' };
         }
-        async restore(): Promise<Restored | null> {
+        async restore(): Promise<Session | null> {
           return null;
         }
         async rotate(h: SessionHandle): Promise<SessionHandle> {

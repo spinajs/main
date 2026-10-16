@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { SessionIssuer } from '@spinajs/authn/contracts';
+import { Session, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import type { SessionStoragePort } from '../harness/ports.js';
 
@@ -111,7 +111,7 @@ export class MemorySessionIssuer extends SessionIssuer {
     });
   }
 
-  async restore(rawId: string): Promise<{ handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> } | null> {
+  async restore(rawId: string): Promise<Session | null> {
     const key = sha256hex(rawId);
     let row = this.rows.get(key);
     if (!row && UUID_V4.test(rawId)) {
@@ -135,7 +135,7 @@ export class MemorySessionIssuer extends SessionIssuer {
       row.lastSeen = now;
       row.expiresAt = Math.min(now + this.idleMs, row.creation + this.absoluteMs);
     }
-    return { handle: { id: rawId, state: row.state }, identity: row.subject, facts: row.facts, data: new Map(row.data) };
+    return new Session({ handle: { id: rawId, state: row.state }, identity: row.subject, facts: row.facts, data: row.data });
   }
 
   async rotate(h: SessionHandle): Promise<SessionHandle> {
