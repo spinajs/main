@@ -3,13 +3,13 @@ import type { IContainer } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
+import type { Session } from '@spinajs/authn/contracts';
 
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered, assertFreshAuth } from '../index.js';
 import { isAuthnFailed, refused, unauthenticated } from '../../policies/v3/errors.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, onLiveSession } from '../routes.js';
-import type { Restored } from '../routes.js';
 
 const ROLE_CAP = 256;
 
@@ -35,8 +35,7 @@ export class AuthnActiveRoleController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy])
   public async state(@Req() req: Request) {
     const session = this.own(req);
-    const role = session.data.get(ACTIVE_ROLE_KEY);
-    return new Ok({ ActiveRole: typeof role === 'string' ? role : null, Roles: await this.held(session) }, { Headers: [NO_STORE] });
+    return new Ok({ ActiveRole: session.activeRole ?? null, Roles: await this.held(session) }, { Headers: [NO_STORE] });
   }
 
   /**
@@ -73,14 +72,14 @@ export class AuthnActiveRoleController extends BaseController {
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
   }
 
-  protected own(req: Request): Restored {
+  protected own(req: Request): Session {
     const session = req.storage.AuthnSession;
     if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
     return session;
   }
 
   /** The roles of the session's identity without the current narrowing, so a narrowed session can switch back. */
-  protected async held(session: Restored): Promise<{ role: string; requirePassword: boolean }[]> {
+  protected async held(session: Session): Promise<{ role: string; requirePassword: boolean }[]> {
     const factory = await this.Container.resolve(PrincipalFactory);
     const principal = await factory.principalOf(session.identity, session.facts, {});
     const roles = await (await this.Container.resolve(RoleSource)).rolesOf(principal);

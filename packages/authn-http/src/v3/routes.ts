@@ -3,8 +3,8 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import type { Request } from '@spinajs/http';
 import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
-import { SESSION_IP_KEY, SESSION_PENDING_STEPS_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
+import type { AuthnContext, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
@@ -13,8 +13,6 @@ import { mfaPolicyOf } from '../policies/v3/mfa.js';
 export { publishAuthnEvent };
 
 // Helpers of the 3.0 account controllers (src/v3/controllers); not exported by any entry.
-
-export type Restored = NonNullable<Request['storage']['AuthnSession']>;
 
 export type AnswerKind = 'login' | 'mfa' | 'role-switch' | 'impersonation' | 'whoami';
 
@@ -54,7 +52,7 @@ export async function stampClient(sessions: SessionIssuer, handle: SessionHandle
  * Audits the end of `session` by this request: `type` for the session, plus `impersonation.end` with `reason` when it
  * was an impersonation, which AuthnImpersonationService audits only for its own stop and expiry (A20).
  */
-export async function auditEnded(container: IContainer, req: Request, session: Restored, type: 'logout' | 'session.revoke', reason: string): Promise<void> {
+export async function auditEnded(container: IContainer, req: Request, session: Session, type: 'logout' | 'session.revoke', reason: string): Promise<void> {
   const { sessionHandle, impersonator } = session.facts;
   const about = { identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) };
   const actor = impersonator ? { actor: { type: impersonator.type, id: impersonator.id } } : {};
@@ -107,9 +105,9 @@ export async function answerFor(container: IContainer, kind: AnswerKind, princip
  * (authn.mfa.policy.service) is asked as completeMfa asks it. A policy refusal over the stored enrolments gives no step:
  * MFA verify then answers its usual failure, whoami an empty list.
  */
-export async function pendingSteps(container: IContainer, session: Restored, policyService: string): Promise<string[]> {
-  const stored = session.data.get(SESSION_PENDING_STEPS_KEY);
-  if (Array.isArray(stored) && stored.length > 0 && stored.every((s) => typeof s === 'string')) return [...stored];
+export async function pendingSteps(container: IContainer, session: Session, policyService: string): Promise<string[]> {
+  const stored = session.pendingSteps;
+  if (stored) return [...stored];
   const policy = await mfaPolicyOf(container, policyService);
   try {
     return [...(await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy }))];

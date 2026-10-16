@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { MfaEnrolmentMismatch, MfaStepNotListed } from '@spinajs/authn';
-import { MfaPolicy } from '@spinajs/authn/contracts';
+import { MfaPolicy, Session } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { SESSION_PENDING_STEPS_KEY } from '@spinajs/authn-session';
 
@@ -16,7 +16,7 @@ const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 const policy = { required: async () => ['totp'], steps: async () => new Map() };
 const named = { CustomPolicy: () => policy }.CustomPolicy;
 
-const session = (stored?: unknown) => ({ data: new Map([[SESSION_PENDING_STEPS_KEY, stored]]), identity: { type: 'user', id: 'u1' }, facts: { method: 'password', strategy: 'local' } }) as never;
+const session = (stored?: unknown) => new Session({ handle: { id: 'x', state: 'pending' }, identity: { type: 'user', id: 'u1' }, facts: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(0) }, data: [[SESSION_PENDING_STEPS_KEY, stored]] });
 
 describe('authn.mfa.policy.service through @Config', () => {
   afterEach(disposeBooted);

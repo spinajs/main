@@ -1,4 +1,4 @@
-import type { AuthnContext, AuthnFacts, Credentials, IAuthnPrincipalStorage, IdentityRef, Principal, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFacts, Credentials, IAuthnPrincipalStorage, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 import { BasePolicy, ServerMiddleware } from '@spinajs/http';
 import type { IController, IRoute, Request, Route } from '@spinajs/http';
 import type * as express from 'express';
@@ -11,7 +11,7 @@ declare module '@spinajs/http' {
      * Written by AuthnMiddleware: the restored session, pending included; null without one. The session route args read it.
      * A session here is not authentication: check handle.state; only AuthnPrincipal means authenticated (SR-07).
      */
-    AuthnSession?: NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>> | null;
+    AuthnSession?: Session | null;
   }
 }
 

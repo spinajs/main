@@ -1,6 +1,6 @@
 import { BadRequestResponse, Conflict, NotFound, Ok } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import type { Credentials, KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk } from '@spinajs/authn/contracts';
+import type { Credentials, KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk, Session } from '@spinajs/authn/contracts';
 
 import { tooManyRequests } from '../password/fields.js';
 import type { TooManyRequestsResponse } from '../password/fields.js';
@@ -9,7 +9,6 @@ import { authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/princ
 import { badRequest, expiryOf } from '../token/fields.js';
 import { NO_STORE } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
-import type { Restored } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 key routes. Every field is checked and capped before KeyRegistry sees it; no answer
 // but the challenge answer carries a challenge.
@@ -34,7 +33,7 @@ export const kidOf = (value: unknown): string | null => (typeof value === 'strin
  * yields none), 403 `session_required` for a per-request credential (no token or key manages keys), 403 `impersonating`
  * (a key added there would outlive the impersonation).
  */
-export function keyManager(req: Request): Restored {
+export function keyManager(req: Request): Session {
   const principal = authenticatedPrincipal(req);
   if (!isSessionPrincipal(principal)) throw refused('session_required', 'this route needs a session, not a per-request credential');
   if (principal.authn?.impersonator !== undefined) throw refused('impersonating', 'this route cannot be used while impersonating another user');

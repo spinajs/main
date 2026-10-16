@@ -4,6 +4,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import type { Session } from '@spinajs/authn/contracts';
 
 import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
@@ -11,7 +12,6 @@ import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf } from '../routes.js';
-import type { Restored } from '../routes.js';
 
 /**
  * The owner's TOTP enrolment over authn-totp's TotpService (design §22.8, §22.11; A09, A10, A13). Off (404) unless
@@ -132,13 +132,13 @@ export class AuthnMfaEnrolmentController extends BaseController {
 }
 
 /** The caller's session, active or pending; the policies have chosen which. */
-function ownSession(req: Request): Restored {
+function ownSession(req: Request): Session {
   const session = req.storage.AuthnSession;
   if (!session) throw unauthenticated('this route needs a session');
   return session;
 }
 
-function activeSession(req: Request): Restored {
+function activeSession(req: Request): Session {
   const session = ownSession(req);
   if (session.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
   return session;

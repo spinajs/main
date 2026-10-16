@@ -2,13 +2,12 @@ import type { IContainer } from '@spinajs/di';
 import { Conflict, ForbiddenResponse, Unauthorized } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
 import { IdentityStore } from '@spinajs/authn/contracts';
-import type { Credentials } from '@spinajs/authn/contracts';
+import type { Credentials, Session } from '@spinajs/authn/contracts';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { PASSWORD_HARD_CAP, REAUTH_PASSWORD_FIELD } from '../policies/v3/fresh-auth.js';
 import { NO_STORE, authnFailureResponse } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
-import type { Restored } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 MFA enrolment routes. No answer but the one that hands it out, no error message
 // and no event carries a provisioning URI, a recovery code or a password.
@@ -22,7 +21,7 @@ export const codeField = (req: Request): string | null => boundedString(bodyFiel
  * answer for a password that can never verify. The field leaves the body, as FreshAuth removes it, and TotpService
  * verifies the credentials only when an active session is not fresh: one check, counted in the reauth throttle.
  */
-export async function reauthOf(container: IContainer, req: Request, session: Restored): Promise<{ credentials?: Credentials } | { answer: Response }> {
+export async function reauthOf(container: IContainer, req: Request, session: Session): Promise<{ credentials?: Credentials } | { answer: Response }> {
   const password = bodyField(req, REAUTH_PASSWORD_FIELD);
   if (password !== undefined) {
     delete (req.body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];

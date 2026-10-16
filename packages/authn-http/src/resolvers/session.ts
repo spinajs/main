@@ -2,12 +2,10 @@ import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AuthnImpersonationService, activeRoleCeiling } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, IdentityRef, IdentityStatus, Principal, Session } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
 
 import { AuthnPrincipalResolver } from '../api.js';
-
-type Restored = NonNullable<Request['storage']['AuthnSession']>;
 
 export { ACTIVE_ROLE_KEY } from '@spinajs/authn';
 
@@ -17,8 +15,8 @@ const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
 
 /** `principal` of `session`, narrowed by the session's role switch (D14): the principal every request on it resolves to. */
-export async function narrowedBySwitch(container: IContainer, session: Pick<Restored, 'identity' | 'facts' | 'data'>, principal: Principal): Promise<Principal> {
-  const ceiling = activeRoleCeiling(session.data);
+export async function narrowedBySwitch(container: IContainer, session: Pick<Session, 'identity' | 'facts' | 'activeRole'>, principal: Principal): Promise<Principal> {
+  const ceiling = activeRoleCeiling(session);
   if (!ceiling) return principal;
   const factory = await container.resolve(PrincipalFactory);
   return factory.principalOf(session.identity, session.facts, { ceiling });
@@ -43,7 +41,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   }
 
   /** The principal of a restored session without an http request: `@spinajs/authn-http/socket` resolves socket sessions with it. */
-  public async principalOfSession(session: Restored, ctx: AuthnContext): Promise<Principal | null> {
+  public async principalOfSession(session: Session, ctx: AuthnContext): Promise<Principal | null> {
     if (session.handle.state !== 'active') return null;
 
     const impersonation = await this.Container.resolve(AuthnImpersonationService);
@@ -57,7 +55,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   }
 
   /** authn-http cannot see the users lifecycle actions, so a refused status found here ends the identity's sessions (N8a-D4). */
-  protected async endRefused(session: Restored, impersonation: AuthnImpersonationService): Promise<void> {
+  protected async endRefused(session: Session, impersonation: AuthnImpersonationService): Promise<void> {
     const identities = await this.Container.resolve(IdentityStore);
     const subjects: IdentityRef[] = [session.identity, ...(session.facts.impersonator ? [session.facts.impersonator] : [])];
     for (const subject of subjects) {

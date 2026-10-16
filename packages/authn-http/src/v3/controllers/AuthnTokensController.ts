@@ -3,6 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
+import type { Session } from '@spinajs/authn/contracts';
 
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
 import { TOKEN_ID_CAP, badRequest, invalidExpiry, takeReauthPassword, tokenEntry, tokenNotFound, tokenRequestOf } from '../../token/fields.js';
@@ -10,7 +11,6 @@ import { TokenServiceRegistered } from '../../token/gate.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { boundedString, contextOf } from '../routes.js';
-import type { Restored } from '../routes.js';
 
 /**
  * The owner's API tokens over the TokenService contract (design §22.9, §22.11; A13, A14, SR-08). Off (404) while no
@@ -103,7 +103,7 @@ export class AuthnTokensController extends BaseController {
   }
 }
 
-function activeSession(req: Request): Restored {
+function activeSession(req: Request): Session {
   const session = req.storage.AuthnSession;
   if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
   return session;

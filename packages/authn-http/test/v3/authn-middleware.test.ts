@@ -16,8 +16,8 @@ import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spin
 import type { Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
-import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SessionHandle, SignedRequest, StrategyOutcome } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, Session, SessionIssuer } from '@spinajs/authn';
+import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SignedRequest, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISession, ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrincipalFactory, RecordingThrottle } from '@spinajs/authn-testing';
@@ -413,7 +413,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     };
 
     it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration)', async () => {
-      const { rawId, rows } = plant2x([['ActiveRole', undefined]]);
+      const { rawId, rows } = plant2x([['ActiveRole', null]]);
       const p = await principalWith({ Cookie: cookieOf(rawId) });
       expect(p).to.include({ type: 'user', id: alice.id });
       expect(p.ceiling).to.eq(undefined);
@@ -966,7 +966,7 @@ describe('AuthnMiddleware units', () => {
       const res = new SessionPrincipalResolver();
       expect(await res.resolve({ storage: {} } as Request, null, ctx)).to.eq(undefined);
       expect(await res.resolve({ storage: { AuthnSession: null } } as unknown as Request, null, ctx)).to.eq(undefined);
-      const pending = { handle: { id: 'x', state: 'pending' } as SessionHandle, identity: { type: 'user', id: 'u' }, facts: FACTS(), data: new Map() };
+      const pending = new Session({ handle: { id: 'x', state: 'pending' }, identity: { type: 'user', id: 'u' }, facts: FACTS() });
       expect(await res.resolve({ storage: { AuthnSession: pending } } as unknown as Request, null, ctx)).to.eq(null);
     });
 
@@ -982,7 +982,7 @@ describe('AuthnMiddleware units', () => {
           resolve: async (t: unknown) => parts.get(t) ?? { principalOf: async () => null, endFor: async (id: IdentityRef) => (ended.push(id), 0) },
         },
       });
-      const active = (identity: IdentityRef, impersonator?: IdentityRef) => ({ storage: { AuthnSession: { handle: { id: 'x', state: 'active' }, identity, facts: FACTS(impersonator ? { impersonator } : {}), data: new Map() } } }) as unknown as Request;
+      const active = (identity: IdentityRef, impersonator?: IdentityRef) => ({ storage: { AuthnSession: new Session({ handle: { id: 'x', state: 'active' }, identity, facts: FACTS(impersonator ? { impersonator } : {}) }) } }) as unknown as Request;
       expect(await res.resolve(active({ type: 'service', id: 's1' }, { type: 'agent', id: 'a1' }), null, ctx)).to.eq(null);
       expect(asked).to.deep.eq([]);
       expect(ended).to.deep.eq([]);

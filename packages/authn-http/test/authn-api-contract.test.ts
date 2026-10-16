@@ -9,7 +9,7 @@ import * as express from 'express';
 import { Container } from '@spinajs/di';
 import { BasePolicy, Ip, ServerMiddleware, Route } from '@spinajs/http';
 import type { IActionLocalStoregeContext, IController, IRoute, Request } from '@spinajs/http';
-import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 
 import * as api from '../src/api.js';
 import { Authenticated, AuthnMiddleware, AuthnPrincipalResolver, AuthnSession, ClientIp, CsrfOriginGuard, FreshAuth, FromSession, Identity, KeyPrincipalResolver, MfaSatisfied, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId, SessionPrincipalResolver, TokenPrincipalResolver } from '../src/api.js';
@@ -62,7 +62,6 @@ const LANE: Record<string, unknown> = {
 const KEPT_2X: string[] = [];
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
-type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
 type ResolveResult = Promise<Principal | null | undefined>;
 type Handler = (req: Request, res: express.Response, next: express.NextFunction) => void;
 
@@ -425,7 +424,7 @@ describe('authn-http api stubs (api.ts)', function () {
     it('req.storage carries AuthnPrincipal, AuthnSession and ClientIp', () => {
       same<IActionLocalStoregeContext['AuthnPrincipal'], Principal | null | undefined>(true);
       same<Request['storage']['AuthnPrincipal'], Principal | null | undefined>(true);
-      same<Request['storage']['AuthnSession'], RestoredSession | null | undefined>(true);
+      same<Request['storage']['AuthnSession'], Session | null | undefined>(true);
       same<Request['storage']['ClientIp'], string | undefined>(true);
       const s = {} as Request['storage'];
       s.AuthnPrincipal = null;

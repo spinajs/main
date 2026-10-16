@@ -3,12 +3,12 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, NotFound, Ok, Param, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
+import type { Session } from '@spinajs/authn/contracts';
 
 import { refused } from '../../policies/v3/errors.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { publishAuthnEvent } from '../routes.js';
-import type { Restored } from '../routes.js';
 
 /**
  * The caller's own sessions: list them, end one, end all others (A08; design §22.11). Needs a session principal; a
@@ -74,7 +74,7 @@ export class AuthnSessionsController extends BaseController {
     return new Ok({ Revoked: revoked }, { Headers: [NO_STORE] });
   }
 
-  protected own(req: Request): Restored {
+  protected own(req: Request): Session {
     const session = req.storage.AuthnSession;
     if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
     return session;

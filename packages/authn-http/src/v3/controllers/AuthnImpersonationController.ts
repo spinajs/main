@@ -15,9 +15,6 @@ import { answerFor, bodyField, contextOf, identityRefOf, stampClient } from '../
 
 const TARGET_CAP = 256;
 
-/** AuthnImpersonationService's session data key of the impersonation block (IMPERSONATION_BLOCK in @spinajs/authn). */
-const IMPERSONATION_BLOCK = 'Impersonation';
-
 /**
  * Impersonation over AuthnImpersonationService (A20, design §22.14). Off (404) while no ImpersonationGuard is
  * registered. Start needs an MFA-satisfied session and fresh authentication (a recent login, or the password in the
@@ -42,13 +39,13 @@ export class AuthnImpersonationController extends BaseController {
     const principal = req.storage.AuthnPrincipal!;
     const impersonator = principal.authn?.impersonator;
     if (!impersonator) return new Ok({ Active: false }, { Headers: [NO_STORE] });
-    const block = req.storage.AuthnSession?.data.get(IMPERSONATION_BLOCK) as { startedAt?: unknown } | undefined;
+    const startedAt = req.storage.AuthnSession?.impersonation?.startedAt;
     return new Ok(
       {
         Active: true,
         Impersonator: { type: impersonator.type, id: impersonator.id },
         Target: { type: principal.type, id: principal.id },
-        ...(typeof block?.startedAt === 'string' ? { StartedAt: block.startedAt } : {}),
+        ...(startedAt ? { StartedAt: startedAt.toISOString() } : {}),
       },
       { Headers: [NO_STORE] },
     );

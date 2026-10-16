@@ -8,7 +8,7 @@ import { Log, Logger } from '@spinajs/log';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, Principal, SignedRequest } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
 import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import type * as express from 'express';
@@ -16,7 +16,6 @@ import type * as express from 'express';
 import { AuthnPrincipalResolver } from '../api.js';
 import { publicOriginOf } from '../extractors/signature.js';
 
-type Restored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
@@ -144,7 +143,7 @@ export class AuthnMiddleware extends ServerMiddleware {
    * The cookie as 2.x accepted it: signed by hand (http `_setCoockies`) in req.cookies, or `s:`-signed by express,
    * which cookie-parser verifies into req.signedCookies (false for a bad signature).
    */
-  protected async restoreSession(req: Request): Promise<Restored | null> {
+  protected async restoreSession(req: Request): Promise<Session | null> {
     const raw: unknown = req.cookies?.[this.CookieName];
     const signed: unknown = req.signedCookies?.[this.CookieName];
     let id: string | false | undefined;
