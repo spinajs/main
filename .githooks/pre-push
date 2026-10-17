@@ -67,6 +67,9 @@ docs_sync() {
 refs=$(cat)
 printf '%s\n' "$refs" | docs_sync
 
+. "$(dirname "$0")/graphify-refresh.sh"
+graphify_refresh push
+
 legacy="$(git rev-parse --git-common-dir)/hooks/pre-push"
 [ -f "$legacy" ] && { printf '%s\n' "$refs" | sh "$legacy" "$@"; exit $?; }
 exit 0

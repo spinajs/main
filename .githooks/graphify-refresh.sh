@@ -1,20 +1,15 @@
-# Sourced by post-commit, post-merge and post-checkout. graphify's own hooks
-# (<git-common-dir>/hooks) skip linked worktrees, so a worktree rebuilds its versioned graph
-# here. Every checkout then re-exports graphify-out/wiki, which no graphify rebuild regenerates.
+# Sourced by pre-push: the knowledge graph is rebuilt once per push, never per commit, merge or
+# checkout. The rebuilt graph lands in the working tree; pre-commit stages it into the next commit.
+# Every rebuild also re-exports graphify-out/wiki, which no graphify rebuild regenerates.
 # Run output is appended to <git-dir>/graphify-hook.log.
-#   GRAPHIFY_SKIP_HOOK=1 git commit ...   skip it, the same switch graphify's hooks honor
-#   GRAPHIFY_BIN=/path/to/graphify        use a specific CLI binary
+#   GRAPHIFY_SKIP_HOOK=1 git push ...   skip it, the same switch graphify's hooks honor
+#   GRAPHIFY_BIN=/path/to/graphify      use a specific CLI binary
 
 graphify_refresh() {
   [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ] && return 0
   [ -f graphify-out/graph.json ] || return 0
 
   gfy_git_dir=$(cd "$(git rev-parse --git-dir)" && pwd)
-  gfy_common_dir=$(cd "$(git rev-parse --git-common-dir)" && pwd)
-  [ -d "$gfy_git_dir/rebase-merge" ] && return 0
-  [ -d "$gfy_git_dir/rebase-apply" ] && return 0
-  [ -f "$gfy_git_dir/MERGE_HEAD" ] && return 0
-  [ -f "$gfy_git_dir/CHERRY_PICK_HEAD" ] && return 0
 
   gfy_bin=${GRAPHIFY_BIN:-$(command -v graphify)}
   # GUI git clients often run hooks without ~/.local/bin on PATH.
@@ -31,14 +26,7 @@ graphify_refresh() {
 
   # Double fork with every stream redirected, so git returns without waiting for the run.
   ( {
-      if [ "$gfy_git_dir" != "$gfy_common_dir" ]; then
-        "$gfy_bin" update .
-      else
-        # graphify's hook has just launched a detached rebuild; give it time to take its
-        # lock, then wait for the lock file to go before exporting from the new graph.
-        sleep 20
-        while [ -f graphify-out/.rebuild.lock ]; do sleep 5; done
-      fi
+      "$gfy_bin" update .
       # Article names follow community labels, so stale ones would linger without the wipe.
       rm -rf graphify-out/wiki
       "$gfy_bin" export wiki --labels "$gfy_labels"

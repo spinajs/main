@@ -1,8 +1,0 @@
-#!/bin/sh
-. "$(dirname "$0")/graphify-refresh.sh"
-graphify_refresh merge
-
-# core.hooksPath bypasses .git/hooks; keep the hooks installed there (graphify) running.
-legacy="$(git rev-parse --git-common-dir)/hooks/post-merge"
-[ -f "$legacy" ] && exec sh "$legacy" "$@"
-exit 0

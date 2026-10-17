@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rides a graph refreshed by `graphify update .` (or the post-commit rebuild) along with
+# Rides a graph refreshed by `graphify update .` (or the pre-push rebuild) along with
 # the next commit, so the versioned graphify-out/ never lags behind the code for long.
 #   GRAPHIFY_SKIP_STAGE=1 git commit ...   leave graph changes out of one commit
 if [ "${GRAPHIFY_SKIP_STAGE:-0}" != "1" ] && [ -f graphify-out/graph.json ]; then
