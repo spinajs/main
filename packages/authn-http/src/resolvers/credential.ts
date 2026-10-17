@@ -1,4 +1,5 @@
-import { Autoinject, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { AuthnService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
@@ -7,7 +8,9 @@ import { AuthnPrincipalResolver } from '../api.js';
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-async function principalOf(service: AuthnService, credentials: Credentials, ctx: AuthnContext): Promise<Principal | null> {
+async function principalOf(container: IContainer, credentials: Credentials, ctx: AuthnContext): Promise<Principal | null> {
+  // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
+  const service = await container.resolve(AuthnService);
   const result = await service.authenticate(credentials, { ...ctx, purpose: 'request' });
   return result.status === 'success' ? service.principalOf(result) : null;
 }
@@ -17,11 +20,11 @@ async function principalOf(service: AuthnService, credentials: Credentials, ctx:
 export class KeyPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 45;
 
-  @Autoinject(AuthnService)
-  protected Authn!: AuthnService;
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
   public async resolve(_req: Request, credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined> {
-    return credentials && KEY_KINDS.has(credentials.kind) ? principalOf(this.Authn, credentials, ctx) : undefined;
+    return credentials && KEY_KINDS.has(credentials.kind) ? principalOf(this.Container, credentials, ctx) : undefined;
   }
 }
 
@@ -34,10 +37,10 @@ export class KeyPrincipalResolver extends AuthnPrincipalResolver {
 export class TokenPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 50;
 
-  @Autoinject(AuthnService)
-  protected Authn!: AuthnService;
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
   public async resolve(_req: Request, credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined> {
-    return credentials?.kind === 'bearer' ? principalOf(this.Authn, credentials, ctx) : undefined;
+    return credentials?.kind === 'bearer' ? principalOf(this.Container, credentials, ctx) : undefined;
   }
 }

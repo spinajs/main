@@ -544,7 +544,7 @@ export declare abstract class IdentityLinkStore {
 ## src/contracts/mfa.ts
 
 ```ts
-import { SyncService } from "@spinajs/di";
+import { AsyncService } from "@spinajs/di";
 import type { IdentityRef } from "./credentials.js";
 import type { AuthnFacts } from "./principal.js";
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
@@ -574,8 +574,13 @@ export declare abstract class MfaStep {
      */
     abstract disable(id: IdentityRef): Promise<void>;
 }
-/** DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. A SyncService so an implementation can check its setup in `resolve()`. */
-export declare abstract class MfaPolicy extends SyncService {
+/**
+ * DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. An AsyncService so an implementation can
+ * check its setup and list its steps in `resolve()`; ConfiguredMfaPolicy lists those of `authn.mfa.steps`.
+ */
+export declare abstract class MfaPolicy extends AsyncService {
+    /** The steps by name, in list order; login, completeMfa and the enrolment routes take them from the configured policy. */
+    abstract steps(): Promise<ReadonlyMap<string, MfaStep>>;
     /** Names of the steps still to pass; empty: no MFA for this login. */
     abstract required(id: IdentityRef, facts: Pick<AuthnFacts, "method" | "strategy">): Promise<readonly string[]>;
 }
@@ -892,6 +897,7 @@ const SessionKeys = Object.freeze({
     UserAgent: sessionKey("UserAgent", nonEmpty),
     PendingSteps: sessionKey("authn:pendingSteps", pendingSteps)
 });
+const handedOut = new WeakSet<Session>();
 ```
 
 ## src/contracts/session.ts
@@ -928,7 +934,8 @@ export declare abstract class SessionIssuer {
     abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
     /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
     abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
-    abstract revoke(h: SessionHandle): Promise<void>;
+    /** True only for the call that ended the session, so of parallel revokes of one session exactly one gets true. */
+    abstract revoke(h: SessionHandle): Promise<boolean>;
     /** Returns the count. includeImpersonations also ends sessions in which the subject is the impersonator (SR-06, A08, A20). */
     abstract revokeAll(subject: IdentityRef, opts?: {
         except?: SessionHandle;

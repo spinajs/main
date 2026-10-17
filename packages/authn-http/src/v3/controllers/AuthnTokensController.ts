@@ -29,9 +29,6 @@ export class AuthnTokensController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Autoinject(TokenService, { optional: true })
-  protected Tokens: TokenService | undefined;
-
   /**
    * List own tokens
    * A bare list of the caller's live and expired tokens (`Expired` tells them apart); revoked ones are left out.
@@ -102,7 +99,8 @@ export class AuthnTokensController extends BaseController {
   }
 
   protected async service(): Promise<TokenService> {
-    return this.Tokens!;
+    // Per call: apps that list no token strategy register no TokenService.
+    return await this.Container.resolve(TokenService);
   }
 }
 

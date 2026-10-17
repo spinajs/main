@@ -28,9 +28,6 @@ export class AuthnImpersonationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Autoinject(AuthnImpersonationService, { optional: true })
-  protected Impersonation: AuthnImpersonationService | undefined;
-
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
@@ -79,7 +76,8 @@ export class AuthnImpersonationController extends BaseController {
       throw err;
     }
 
-    const service = this.Impersonation!;
+    // Per call: apps that don't enable impersonation register none of its collaborators.
+    const service = await this.Container.resolve(AuthnImpersonationService);
     const ctx = contextOf(req, 'request', session.handle);
     // The service checks freshness again when authn.impersonation.requirePassword is on; a stale session passed above
     // only with the password, which it then needs too.
@@ -104,7 +102,8 @@ export class AuthnImpersonationController extends BaseController {
     if (!req.storage.AuthnPrincipal?.authn?.impersonator || session?.handle.state !== 'active') {
       return new BadRequestResponse({ error: 'not_impersonating', message: 'no impersonation is active' });
     }
-    const service = this.Impersonation!;
+    // Per call: apps that don't enable impersonation register none of its collaborators.
+    const service = await this.Container.resolve(AuthnImpersonationService);
     const ctx = contextOf(req, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);
     const sessions = this.Sessions;

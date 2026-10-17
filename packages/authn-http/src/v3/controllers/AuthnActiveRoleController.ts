@@ -29,8 +29,8 @@ export class AuthnActiveRoleController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
-  @Autoinject(PrincipalFactory)
-  protected Principals!: PrincipalFactory;
+  @Autoinject(PrincipalFactory, { optional: true })
+  protected Principals: PrincipalFactory | undefined;
 
   @Autoinject(RoleSource, { optional: true })
   protected Roles: RoleSource | undefined;
@@ -76,7 +76,7 @@ export class AuthnActiveRoleController extends BaseController {
     await onLiveSession(() => sessions.set(rotated, ACTIVE_ROLE_KEY, role));
     const now = await sessions.restore(rotated.id);
     if (!now) throw unauthenticated('the session has ended');
-    const factory = this.Principals;
+    const factory = this.Principals!;
     const principal = await factory.principalOf(now.identity, now.facts, { ceiling: { roles: [role] } });
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
   }
@@ -89,7 +89,7 @@ export class AuthnActiveRoleController extends BaseController {
 
   /** The roles of the session's identity without the current narrowing, so a narrowed session can switch back. */
   protected async held(session: Session): Promise<{ role: string; requirePassword: boolean }[]> {
-    const factory = this.Principals;
+    const factory = this.Principals!;
     const principal = await factory.principalOf(session.identity, session.facts, {});
     const roles = await this.Roles!.rolesOf(principal);
     return roles.map((r) => ({ role: r.role, requirePassword: r.requirePassword }));

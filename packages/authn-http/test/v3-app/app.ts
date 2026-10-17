@@ -158,6 +158,7 @@ export async function switchHooksOn(): Promise<void> {
   // It reads the guard when it resolves, which a request with a session may have done already.
   const { AuthnImpersonationService } = await import('@spinajs/authn');
   DI.uncache(AuthnImpersonationService);
+  await rebuildServer();
 }
 
 let booted = false;
@@ -185,6 +186,13 @@ export async function startServer(): Promise<void> {
     throw err instanceof Error ? err : new Error(inspect(err));
   }
   await (await DI.resolve(HttpServer)).start();
+}
+
+/** Controllers take their services when they are built, so a service bound after the server started needs a rebuild. */
+export async function rebuildServer(): Promise<void> {
+  if (!DI.get(HttpServer)) return;
+  await releaseHttpServer();
+  await startServer();
 }
 
 export async function startApp(): Promise<void> {

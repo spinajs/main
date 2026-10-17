@@ -34,12 +34,6 @@ export class AuthnKeysController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
-  @Autoinject(AuthnService)
-  protected Authn!: AuthnService;
-
-  @Autoinject(KeyRegistry, { optional: true })
-  protected Keys: KeyRegistry | undefined;
-
   /**
    * List own keys
    * Every key of the caller, revoked and expired ones included and marked.
@@ -152,7 +146,8 @@ export class AuthnKeysController extends BaseController {
     const credentials = keyLoginCredentialsOf(req);
     if (credentials === null) return authnFailureResponse(undefined, cleared);
 
-    const authn = this.Authn;
+    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
+    const authn = await this.Container.resolve(AuthnService);
     const result = await authn.authenticate(credentials, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {
@@ -166,6 +161,7 @@ export class AuthnKeysController extends BaseController {
   }
 
   protected async registry(): Promise<KeyRegistry> {
-    return this.Keys!;
+    // Per call: apps that list no key strategy register no KeyRegistry.
+    return await this.Container.resolve(KeyRegistry);
   }
 }

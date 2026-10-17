@@ -25,9 +25,6 @@ export class AuthnMfaController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Autoinject(AuthnService)
-  protected Authn!: AuthnService;
-
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
@@ -67,7 +64,8 @@ export class AuthnMfaController extends BaseController {
       step = chosen;
     }
 
-    const authn = this.Authn;
+    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
+    const authn = await this.Container.resolve(AuthnService);
     const result = await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status !== 'success' || !result.session) return authnFailureResponse();

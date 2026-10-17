@@ -18,7 +18,7 @@ import type {
 import { PasswordServiceRegistered } from '../../../src/password/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, bind, clearLog, guard, logLines, loggedIn, loggedInAal2, seedUser, sessionSetCookie, step, switchHooksOn, tokens } from '../app.js';
+import { Client, bind, clearLog, guard, logLines, loggedIn, loggedInAal2, rebuildServer, seedUser, sessionSetCookie, step, switchHooksOn, tokens } from '../app.js';
 import type { Res } from '../app.js';
 import { mountedRoutes } from './route-table.js';
 
@@ -120,8 +120,9 @@ export function passwordGateSuite(): void {
 
 /** The routes over a recording PasswordService (the real one runs in behaviour/n8b.test.ts). */
 export function passwordRoutesSuite(): void {
-  before(() => {
+  before(async () => {
     bind(PasswordService, 'V3AppPasswordService', () => fake);
+    await rebuildServer();
   });
 
   beforeEach(() => {

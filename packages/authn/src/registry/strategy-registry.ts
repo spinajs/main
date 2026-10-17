@@ -54,7 +54,7 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
 /**
  * The strategies of `authn.strategies`, in list order (A01). The list comes from the resolving container's Configuration, and
  * services are looked up by name among the AuthenticationStrategy types registered there or in its ancestors; registered but unlisted
- * strategies never run. Boot fails on an unknown service and an entry name that differs from the
+ * strategies never run. Boot fails on an unknown service (`ServiceNotFound` from `@AutoinjectNamedServices`) and an entry name that differs from the
  * strategy's own `name`. Strategies may share kinds: the service falls through on `unsupported_credentials` (D1). One
  * per container, so a child boot reads its own list.
  */

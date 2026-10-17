@@ -24,9 +24,6 @@ export class AuthnLoginController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
-  @Autoinject(AuthnService)
-  protected Authn!: AuthnService;
-
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
@@ -53,7 +50,8 @@ export class AuthnLoginController extends BaseController {
     const password = boundedString(bodyField(req, 'password', 'Password'), PASSWORD_HARD_CAP);
     if (login === null || password === null) return authnFailureResponse(undefined, cleared);
 
-    const authn = this.Authn;
+    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
+    const authn = await this.Container.resolve(AuthnService);
     const result = await authn.authenticate({ kind: 'password', login, password }, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {

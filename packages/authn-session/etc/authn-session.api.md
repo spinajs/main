@@ -57,7 +57,8 @@ export declare abstract class SessionProvider<T extends ISession = ISession> ext
     abstract save(session: ISession): Promise<void>;
     /** Renews through applyRenewedExpiration, so a pending session is never extended; true when the expiration changed and was written. */
     abstract touch(session: ISession): Promise<boolean>;
-    abstract delete(sessionId: string): Promise<void>;
+    /** True only when this call removed the row: one atomic store operation, so parallel deletes of one key yield one true. */
+    abstract delete(sessionId: string): Promise<boolean>;
     /**
      * Deletes the subject's sessions and returns how many. With includeImpersonations
      * also the sessions whose impersonator is the subject (SR-06). `except` is a

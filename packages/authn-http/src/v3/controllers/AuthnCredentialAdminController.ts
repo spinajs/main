@@ -43,9 +43,6 @@ export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(SessionIssuer, { optional: true })
   protected Sessions: SessionIssuer | undefined;
 
-  @Autoinject(TokenService, { optional: true })
-  protected Tokens: TokenService | undefined;
-
   @Autoinject(CredentialAdminGuard, { optional: true })
   protected Guard: CredentialAdminGuard | undefined;
 
@@ -121,7 +118,8 @@ export class AuthnCredentialAdminController extends BaseController {
   public async tokens(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'tokens');
     if ('answer' in admitted) return admitted.answer;
-    const revoked = await this.Tokens!.revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
+    // Per call: apps that list no token strategy register no TokenService.
+    const revoked = await (await this.Container.resolve(TokenService)).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
   }
 
