@@ -41,20 +41,32 @@ export class OrmMutex extends Mutex {
       };
     }
 
+    const now = DateTime.now();
+
+    // Compare-and-set against the state read above, so two tenants racing for a free lock cannot both win.
     const result = await (__mutex__ as any)
       .update({
         Locked: true,
         Tenant: _tenant,
+        Updated_at: now,
       })
-      .where({
-        Name: _name,
-      });
+      .where(mutex.Locked ? { Name: _name, Tenant: _tenant } : { Name: _name, Locked: false });
+
+    if (result.RowsAffected !== 1) {
+      return {
+        Locked: false,
+        Mutex: null as any,
+      };
+    }
 
     return {
-      Locked: result.RowsAffected === 1,
+      Locked: true,
       Mutex: {
-        ...mutex,
+        Name: mutex.Name,
         Tenant: _tenant,
+        Locked: true,
+        Created_at: mutex.Created_at,
+        Updated_at: now,
       },
     };
   }
@@ -72,6 +84,7 @@ export class OrmMutex extends Mutex {
       result = await (__mutex__ as any)
         .update({
           Locked: false,
+          Updated_at: DateTime.now(),
         })
         .where({
           Name: _name,
@@ -105,6 +118,7 @@ export class OrmMutex extends Mutex {
      * */
     const result = await (__mutex__ as any).destroy(_name).where({
       Tenant: _tenant,
+      Locked: false,
     });
     return result.RowsAffected === 1;
   }
@@ -121,7 +135,7 @@ export class OrmMutex extends Mutex {
       const checkInterval = setInterval(async () => {
         try {
           const mutex = await this.get(name);
-          if (!mutex!.Locked) {
+          if (!mutex || !mutex.Locked) {
             clearInterval(checkInterval);
             resolve(true);
           } else {
