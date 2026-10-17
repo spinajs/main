@@ -428,6 +428,13 @@ export class Authorizer {
     return (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision;
   }
 
+  /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
+  async inspect(input: CheckInput, scope?: RequestScope): Promise<Decision> {
+    if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
+    const run: Run = { ...this.newRun(false, scope), bypass: true, quiet: true };
+    return (await runAsync(this.pipeline({ ...input, explain: false, fresh: true }, run))).decision;
+  }
+
   /** Every model evaluated, trace attached, caches bypassed. */
   async explain(input: CheckInput, scope?: RequestScope): Promise<Decision> {
     if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);

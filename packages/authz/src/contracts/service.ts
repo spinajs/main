@@ -16,6 +16,8 @@ export abstract class AuthzService extends AsyncService {
   abstract check(req: CheckInput): Promise<Decision>;
   abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
   abstract assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>; // throws AccessDenied
+  /** A decision for introspection (admin tools), not an access attempt: never audited, reads and stores no decision cache, models read fresh. */
+  inspect?(req: CheckInput): Promise<Decision>;
   abstract checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>>;
   abstract checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]>;
   abstract accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>): Promise<AccessPlan>;
