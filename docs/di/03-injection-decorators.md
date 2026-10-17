@@ -52,7 +52,7 @@ Decorators declare what a class needs; the container supplies it when it builds 
 - On an interface-typed property, `design:type` is `Object`. Pass the class explicitly: `@Autoinject(Container)`, not `@Autoinject() c: IContainer`.
 - `@LazyInject` always resolves from the **root** container, even for an object built in a child container, and it resolves on every read. With a string key it calls `DI.get(key)`, so it returns only what is already cached.
 - `@LazyInject` defines the getter on the prototype. An own class field with the same name shadows it, which happens when `useDefineForClassFields` is `true` (the default for `target` ES2022 and later). Keep `useDefineForClassFields: false`.
-- Adding `@Inject` or `@Autoinject` to a subclass gives it its own descriptor with the default `Singleton` lifetime. A lifetime decorator on the base class is then **not** inherited; repeat it on the subclass. A subclass without its own injection decorators inherits the base lifetime.
+- A subclass inherits the lifetime of its nearest decorated base class, also when it adds its own `@Inject` or `@Autoinject`. Put a lifetime decorator (`@Singleton()` included) on the subclass to change it.
 - `@Autoinject(Array.chainOf(T))` and `@Autoinject(T)` on an array are different dependencies: the first merges the container lineage, the second takes the nearest list. See [Multiple implementations](06-multiple-implementations.md).
 
 ## Best practices
