@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
@@ -45,16 +46,10 @@ class ThrowingTokenSink extends AuthnEventSink {
   }
 }
 
-class UnbuildableTokenSink extends AuthnEventSink {
-  public static attempts = 0;
-
-  constructor() {
-    super();
-    UnbuildableTokenSink.attempts++;
-    throw new Error('sink misconfigured');
+class HangingTokenSink extends AuthnEventSink {
+  public publish(_event: AuthnEvent): Promise<void> {
+    return new Promise(() => undefined);
   }
-
-  public async publish(_event: AuthnEvent): Promise<void> {}
 }
 
 class ViewerRoleSource extends RoleSource {
@@ -95,25 +90,20 @@ describe('DbTokenService', function () {
 
   before(async () => {
     await bootV3Db();
-    DI.register(TokenTestSink).as(AuthnEventSink);
     for (const key of ['maxTtlDays', 'agentMaxTtlMinutes', 'prefix', 'length']) {
       savedConfig.set(key, config().get(['authn', 'token', key]));
     }
   });
 
   after(async () => {
-    DI.unregister(TokenTestSink);
-    DI.uncache(TokenTestSink);
-    DI.uncache(Array.ofType(AuthnEventSink));
     await shutdownV3Db();
   });
 
   beforeEach(() => {
     identities = new FakeIdentityStore();
     profiles = new StubProfilePolicy();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities);
-    sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof TokenTestSink) as TokenTestSink;
-    sink.clear();
+    sink = new TokenTestSink();
+    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([sink]));
   });
 
   afterEach(() => {
@@ -358,7 +348,7 @@ describe('DbTokenService', function () {
 
     it('allows no profile under the default NoTokenProfilesPolicy', async () => {
       const a = await owner();
-      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities);
+      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities, AuthnAudit.over([sink]));
       await refused(a, { name: 'x', kind: 'pat', profile: 'user', expiresAt: at(DAY) }, 'invalid_scope');
     });
 
@@ -820,63 +810,41 @@ describe('DbTokenService', function () {
       expect(sink.all()).to.deep.equal([]);
     });
 
-    it('works with no sink registered', async () => {
-      DI.unregister(TokenTestSink);
-      DI.uncache(Array.ofType(AuthnEventSink));
-      try {
-        const a = await owner();
-        const t = await pat(a);
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-      } finally {
-        DI.register(TokenTestSink).as(AuthnEventSink);
-      }
+    it('works with no sink', async () => {
+      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([]));
+      const a = await owner();
+      const t = await pat(a);
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
     });
 
     it('keeps a stored token and a completed revoke when a sink throws', async () => {
-      DI.register(ThrowingTokenSink).as(AuthnEventSink);
-      DI.uncache(Array.ofType(AuthnEventSink));
-      try {
-        const recording = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof TokenTestSink) as TokenTestSink;
-        recording.clear();
-        const a = await owner();
+      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([new ThrowingTokenSink(), sink]));
+      const a = await owner();
 
-        const t = await pat(a);
-        expect(t.plaintext).to.match(/^spt_/);
-        expect((await validate(t.plaintext)).ok).to.equal(true);
+      const t = await pat(a);
+      expect(t.plaintext).to.match(/^spt_/);
+      expect((await validate(t.plaintext)).ok).to.equal(true);
 
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
+      expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
 
-        await pat(a);
-        expect(await tokens.revokeAllFor(a, ctx())).to.equal(1);
+      await pat(a);
+      expect(await tokens.revokeAllFor(a, ctx())).to.equal(1);
 
-        expect(recording.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke', 'token.create', 'token.revoke']);
-      } finally {
-        DI.unregister(ThrowingTokenSink);
-        DI.uncache(ThrowingTokenSink);
-        DI.uncache(Array.ofType(AuthnEventSink));
-      }
+      expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke', 'token.create', 'token.revoke']);
     });
 
-    it('keeps a stored token and a completed revoke when a sink cannot be constructed', async () => {
-      DI.register(UnbuildableTokenSink).as(AuthnEventSink);
-      try {
-        const a = await owner();
-        sink.clear();
+    it('holds a create or a revoke no longer than the audit timeout when a sink hangs', async () => {
+      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([new HangingTokenSink(), sink], { sinkTimeoutMs: 50 }));
+      const a = await owner();
+      const started = Date.now();
 
-        const t = await pat(a);
-        expect(t.plaintext).to.match(/^spt_/);
-        expect((await validate(t.plaintext)).ok).to.equal(true);
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+      const t = await pat(a);
+      expect(t.plaintext).to.match(/^spt_/);
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
 
-        expect(UnbuildableTokenSink.attempts).to.be.greaterThan(0);
-        expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
-      } finally {
-        DI.unregister(UnbuildableTokenSink);
-        DI.uncache(UnbuildableTokenSink);
-        DI.uncache(Array.ofType(AuthnEventSink));
-      }
+      expect(Date.now() - started).to.be.below(2000);
+      expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
     });
   });
 
@@ -899,11 +867,21 @@ describe('DbTokenService', function () {
       bare.register(IdentityStore).as(IdentityStore);
       bare.register(DbTokenService).as(TokenService);
       try {
-        expect(() => bare.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+        const err = await Promise.resolve()
+          .then(() => bare.resolve(TokenService))
+          .catch((e: unknown) => e);
+        expect(err).to.be.instanceOf(Error);
+        expect((err as Error).message).to.match(/IdentityStore/);
       } finally {
         await bare.dispose();
       }
       expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(Error, /IdentityStore/);
+    });
+
+    it('publishes through the AuthnAudit of its container', async () => {
+      DI.register(TokenTestIdentityStore).as(IdentityStore);
+      const service = await DI.resolve(TokenService);
+      expect((service as unknown as { Audit: unknown }).Audit).to.equal(await DI.resolve(AuthnAudit));
     });
 
     it('resolves as the TokenService with the default resolver, profile policy and the registered IdentityStore', async () => {
