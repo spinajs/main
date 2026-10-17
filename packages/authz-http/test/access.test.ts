@@ -347,12 +347,15 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
     });
 
     it('is not audited while the domain turns audit.unscoped off', async () => {
-      testHost.config().set(['authz', 'domains', D, 'audit'], { unscoped: false });
+      // The audit follows the config the domain's service booted with.
+      await domain.dispose();
+      domain = await createDomain(D, { permissions: PERMISSIONS, model: { votes }, domain: { audit: { unscoped: false } } });
       try {
         await app.request().get('/acc/reports').set('x-user', 'alice');
         expect(domain.audit.of('unscoped')).to.deep.eq([]);
       } finally {
-        testHost.config().unset(['authz', 'domains', D, 'audit']);
+        await domain.dispose();
+        domain = await createDomain(D, { permissions: PERMISSIONS, model: { votes } });
       }
     });
   });
