@@ -350,7 +350,7 @@ export class RbacModel extends AuthorizationModel {
       links: this.opts.links,
       extensions: this.extensions,
       configAssignments: (subjects) => configAssignments(loaded, subjects),
-      load: (subjects, c) => loaded.assignments.read(subjects, c),
+      load: (subjects, c, fresh) => loaded.assignments.read(subjects, c, { fresh }),
       ...(this.opts.membership ? { setsOf: (keys: readonly string[], ctx: EvaluationContext) => this.setsOf(keys, ctx) } : {}),
       onUnknownRole: (a) => this.unknownRole(a),
       onRefusedAssignment: (a, problem) => this.refusedAssignment(a, problem),

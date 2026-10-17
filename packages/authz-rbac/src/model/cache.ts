@@ -69,15 +69,15 @@ export class AssignmentCache {
    * order: the rows themselves when the request or the cache holds every subject, else a promise.
    * @throws (rejects) when the store fails or returns a row whose subject cannot be read
    */
-  read(subjects: readonly AssignmentSubject[], ctx: EvaluationContext): Rows | Promise<Rows> {
+  read(subjects: readonly AssignmentSubject[], ctx: EvaluationContext, opts: { readonly fresh?: boolean } = {}): Rows | Promise<Rows> {
     const bySubject = new Map<string, AssignmentSubject>();
     for (const s of subjects) bySubject.set(subjectKey(s), s);
     const memoKey = MEMO_PREFIX + JSON.stringify([...bySubject.keys()]);
     const at = ctx.now.getTime();
     const memo = ctx.cache.get(memoKey) as Snapshot | undefined;
-    if (memo !== undefined && memo.generation === this.generation && memo.at <= at) return memo.rows;
+    if (opts.fresh !== true && memo !== undefined && memo.generation === this.generation && memo.at <= at) return memo.rows;
     const generation = this.generation;
-    const rows = this.load(bySubject, ctx.now);
+    const rows = this.load(bySubject, ctx.now, opts.fresh === true);
     if (!(rows instanceof Promise)) {
       ctx.cache.set(memoKey, { generation, at, rows });
       return rows;
@@ -137,12 +137,16 @@ export class AssignmentCache {
     }
   }
 
-  private load(subjects: ReadonlyMap<string, AssignmentSubject>, at: Date): Rows | Promise<Rows> {
+  private load(subjects: ReadonlyMap<string, AssignmentSubject>, at: Date, fresh = false): Rows | Promise<Rows> {
     const now = at.getTime();
     const clock = this.opts.clock.now().getTime();
     const parts = new Map<string, Rows | Promise<Rows>>();
     const missing: string[] = [];
     for (const key of subjects.keys()) {
+      if (fresh) {
+        missing.push(key);
+        continue;
+      }
       const entry = this.entries.get(key);
       // An entry from the future (the clock went back) would outlive its TTL.
       if (entry !== undefined && (clock >= entry.until || clock < entry.until - this.opts.ttlMs)) this.entries.delete(key);

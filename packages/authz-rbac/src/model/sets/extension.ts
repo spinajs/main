@@ -22,7 +22,7 @@ export interface NestedSet {
  * `memberships` (RbacSubjectResolver, the default) names them.
  */
 export class SetsExtension implements RbacExtension {
-  gather(_request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>> {
+  gather(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>> {
     const resolver = sources.subjects;
     if (!isSetResolver(resolver)) return {};
     const base = input.subjects ?? [];
@@ -41,7 +41,7 @@ export class SetsExtension implements RbacExtension {
       const sets: AssignmentSubject[] = [...direct, ...[...nested.values()].map((n) => n.subject)];
       if (sets.length === 0) return extra;
       const merge = (rows: readonly Assignment[]): Partial<RbacInput> => ({ ...extra, subjects: [...base, ...sets], assignments: [...input.assignments, ...rows] });
-      const rows = sources.load ? sources.load(sets, ctx) : sources.assignments.forSubjects(sets, input.now);
+      const rows = sources.load ? sources.load(sets, ctx, request.fresh === true) : sources.assignments.forSubjects(sets, input.now);
       return isThenable(rows) ? Promise.resolve(rows).then(merge) : merge(rows);
     };
     if (!sources.setsOf) {

@@ -389,8 +389,8 @@ export interface RbacSources {
   readonly extensions?: readonly RbacExtension[];
   /** Assignments the config gives these subjects at GLOBAL (anonymousRoles, serviceRoles). */
   readonly configAssignments?: (subjects: readonly AssignmentSubject[]) => readonly Assignment[];
-  /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache). */
-  readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext) => readonly Assignment[] | Promise<readonly Assignment[]>;
+  /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache); `fresh` skips every cached copy. */
+  readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext, fresh?: boolean) => readonly Assignment[] | Promise<readonly Assignment[]>;
   /** The sets the member keys belong to, transitively, with their membership expiry (MembershipStore.setsOf); absent: one level, from the principal's own rows. */
   readonly setsOf?: (memberKeys: readonly string[], ctx: EvaluationContext) => Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;
   readonly onUnknownRole?: (assignment: Assignment) => void;
@@ -414,7 +414,7 @@ function after<T, U>(value: Maybe<T>, next: (value: T) => Maybe<U>): Maybe<U> {
 export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): RbacInput | Promise<RbacInput> {
   const subjects = sources.subjects ? sources.subjects.subjects(request.principal) : defaultSubjects(request.principal);
   const input = after(subjects, (subjects) =>
-    after(sources.load ? sources.load(subjects, ctx) : sources.assignments.forSubjects(subjects, ctx.now), (stored) =>
+    after(sources.load ? sources.load(subjects, ctx, request.fresh === true) : sources.assignments.forSubjects(subjects, ctx.now), (stored) =>
       after(resourcePath(request.resource, ctx), (path) =>
         extendInput(request, ctx, sources, 0, {
           request,

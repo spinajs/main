@@ -359,4 +359,16 @@ describe('authz-rbac model: AssignmentCache', () => {
       expect(await cache.read([alice], request())).to.deep.equal([]);
     });
   });
+
+  it('a fresh read goes to the store past the request memo and the entries, and refreshes both', async () => {
+    const { store, cache } = setup([row('a1', alice)]);
+    const ctx = request();
+    await cache.read([alice], ctx);
+    store.rows = [row('a2', alice)];
+    expect(ids(now(cache.read([alice], ctx)))).to.deep.equal(['a1']);
+    expect(ids(await cache.read([alice], ctx, { fresh: true }))).to.deep.equal(['a2']);
+    expect(store.calls).to.have.length(2);
+    expect(ids(now(cache.read([alice], ctx)))).to.deep.equal(['a2']);
+    expect(ids(now(cache.read([alice], request())))).to.deep.equal(['a2']);
+  });
 });
