@@ -50,6 +50,7 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 | `getUserMeta(user, key)` | The value; throws `MetadataNotPopulated` or `MetadataNotFound`. |
 | `sendUserEmail(user, template, model?)` | Queues a lifecycle mail; see [Lifecycle mails](05-lifecycle-mails.md). |
 | `roleList(role?)` | One name or a list, trimmed, blanks dropped, de-duplicated, order kept. |
+| `rootAuthzAdmin()` | The `AuthzAdmin` of the root container's `AuthzService`, the one `create()` grants roles through. |
 | `assertNoProtectedMetadata(metadata?)` | Throws `InvalidArgument` for a reserved key or a key containing `*` or `?`. |
 | `assertUserUnique(login?, email?, exceptUserId?)` | Throws `UserAlreadyExists` with `data.fields` (`['Login']`, `['Email']` or both) when another account, soft-deleted ones included, holds the value in any case or width variant. Also refuses reserved logins. |
 | `assertLoginNotReserved(login)` | Throws `InvalidArgument` on field `login` for a `__name__` login. |

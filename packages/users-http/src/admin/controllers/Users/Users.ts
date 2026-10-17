@@ -5,7 +5,7 @@ import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
+import { assertLoginNotReserved, assertUserUnique, create, deleteUser, roleList, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthzService, GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, Principal } from '@spinajs/authz';
 import { Access, CurrentPrincipal } from '@spinajs/authz-http';
@@ -115,24 +115,6 @@ export class CreateUserDto {
   constructor(data: Partial<CreateUserDto>) {
     Object.assign(this, data);
   }
-}
-
-/**
- * The roles a `Role` field denotes, whether it was sent as one name or a list.
- *
- * Shape normalisation only — every rejection lives in {@link ROLE_FIELD}. The
- * trim and the de-duplication are belt-and-braces for callers that reach the
- * handler without body validation ( tests, in-process calls ): the guard is
- * charged per entry, so a duplicate would be checked twice.
- */
-function roleList(role?: string | string[]): string[] {
-  if (role === undefined || role === null) {
-    return [];
-  }
-
-  const wanted = (Array.isArray(role) ? role : [role]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0);
-
-  return [...new Set(wanted)];
 }
 
 /**
