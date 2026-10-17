@@ -1,4 +1,3 @@
-import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -23,9 +22,6 @@ export class AuthnLoginController extends BaseController {
 
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
-
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
 
   /**
    * Login
@@ -96,7 +92,7 @@ export class AuthnLoginController extends BaseController {
     const principal = req.storage.AuthnPrincipal;
     if (principal?.authenticated === true) return new Ok(await answerFor(this.Container, 'whoami', principal), { Headers: [NO_STORE] });
     const session = req.storage.AuthnSession;
-    if (session?.handle.state === 'pending') return new Ok({ MfaRequired: await pendingSteps(this.Container, session, this.MfaPolicyService) }, { Headers: [NO_STORE] });
+    if (session?.handle.state === 'pending') return new Ok({ MfaRequired: await pendingSteps(this.Container, session) }, { Headers: [NO_STORE] });
     throw unauthenticated('this route needs an authenticated caller');
   }
 }

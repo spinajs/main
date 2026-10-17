@@ -325,15 +325,16 @@ describe('LocalPasswordPolicy config wiring', function () {
 
     class FlakyPolicy extends LocalPasswordPolicy {
       public attempts = 0;
-      protected createBlocklist(type: Parameters<LocalPasswordPolicy['createBlocklist']>[0]) {
+      protected createBlocklist() {
         if (++this.attempts === 1) {
           return Promise.reject(new Error('blocklist backend is down'));
         }
-        return super.createBlocklist(type);
+        return super.createBlocklist();
       }
     }
 
     const p = new FlakyPolicy();
+    (p as unknown as { Container: unknown }).Container = DI.RootContainer;
     p.resolve();
     let error: unknown;
     try {

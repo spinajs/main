@@ -1,4 +1,3 @@
-import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -24,9 +23,6 @@ const RECOVERY_STEP = 'recovery';
 export class AuthnMfaController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
-
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
 
   /**
    * Verify an MFA step
@@ -57,7 +53,7 @@ export class AuthnMfaController extends BaseController {
     if (code === null) return authnFailureResponse();
     let step = RECOVERY_STEP;
     if (!recovery) {
-      const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
+      const steps = await pendingSteps(this.Container, session);
       const asked = bodyField(req, 'step');
       const chosen = typeof asked === 'string' && steps.includes(asked) ? asked : steps[0];
       if (chosen === undefined) return authnFailureResponse();

@@ -1,8 +1,9 @@
 import { randomInt } from 'node:crypto';
 import AjvModule from 'ajv';
 import type { ValidateFunction } from 'ajv';
-import { Class, DI, Injectable, SyncService } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Autoinject, Container, Injectable, SyncService } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { Config, resolveNamedService } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
@@ -90,13 +91,14 @@ export class LocalPasswordPolicy extends SyncService {
   @Config('authn.local.generator')
   protected Generator: GeneratorConfig;
 
-  // A name read here and resolved below rather than @AutoinjectService, which logs a warning on every boot for the default null.
   @Config('authn.local.policy.blocklist')
   protected BlocklistName: string | null;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   private _settings?: PolicySettings;
-  private _blocklistType?: Class<PasswordBlocklist> | null;
-  private _blocklist?: Promise<PasswordBlocklist>;
+  private _blocklist?: Promise<PasswordBlocklist | null>;
 
   /** With `options` the configuration is not read at all, so a test can build one without a container. */
   constructor(protected readonly Options?: LocalPasswordPolicyOptions) {
@@ -106,7 +108,7 @@ export class LocalPasswordPolicy extends SyncService {
   /** Validates the bounds, the rule and the blocklist name, so a bad config fails at boot when resolved by DI. */
   public resolve(): void {
     void this.settings;
-    void this.blocklistType;
+    this.checkBlocklistName();
     super.resolve();
   }
 
@@ -182,36 +184,31 @@ export class LocalPasswordPolicy extends SyncService {
     if (this.Options) {
       return this.Options.blocklist ?? null;
     }
-    const type = this.blocklistType;
-    return type
-      ? (this._blocklist ??= this.createBlocklist(type).catch((err) => {
-          this._blocklist = undefined;
-          throw err;
-        }))
-      : null;
+    return (this._blocklist ??= this.createBlocklist().then(
+      (blocklist) => blocklist ?? null,
+      (err) => {
+        this._blocklist = undefined;
+        throw err;
+      },
+    ));
   }
 
-  protected createBlocklist(type: Class<PasswordBlocklist>): Promise<PasswordBlocklist> {
-    return Promise.resolve(DI.resolve(type));
+  protected createBlocklist(): Promise<PasswordBlocklist | undefined> {
+    return resolveNamedService(this.Container, 'authn.local.policy.blocklist', PasswordBlocklist, { optional: true });
   }
 
-  protected get blocklistType(): Class<PasswordBlocklist> | null {
+  /** resolveNamedService is async, so the name alone is checked at boot; the instance is resolved on the first check. */
+  private checkBlocklistName(): void {
     if (this.Options) {
-      return null;
+      return;
     }
-    if (this._blocklistType === undefined) {
-      const name = this.BlocklistName;
-      if (name === null || name === undefined || name === '') {
-        this._blocklistType = null;
-      } else {
-        const type = (DI.getRegisteredTypes(PasswordBlocklist) ?? []).find((t) => t.name === name);
-        if (!type) {
-          throw new InvalidOption(`authn.local.policy.blocklist names ${String(name)}, which is not registered as a PasswordBlocklist`);
-        }
-        this._blocklistType = type as Class<PasswordBlocklist>;
-      }
+    const name = this.BlocklistName;
+    if (name === null || name === undefined || name === '') {
+      return;
     }
-    return this._blocklistType;
+    if (!this.Container.getRegisteredNames(PasswordBlocklist).includes(name)) {
+      throw new InvalidOption(`authn.local.policy.blocklist names ${String(name)}, which is not registered as a PasswordBlocklist`);
+    }
   }
 
   protected get settings(): PolicySettings {

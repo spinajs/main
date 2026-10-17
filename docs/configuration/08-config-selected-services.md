@@ -108,7 +108,7 @@ export default {
 | Any service built by `@AutoinjectService` | your `Type`; implementations registered under it, usually `@NewInstance()` | none | every registration of `Type` | Register an implementation that takes the entry as its constructor argument. |
 | Config name of a registration | the class name, or a factory's function name | class name | named factory | `DI.register(namedFactory).as(Type)` where the function's `name` is the config name. |
 
-Known users in this monorepo: `@spinajs/email` (`email.connections`, `@AutoinjectService`), `@spinajs/queue` (`queue.connections`, `queue.retention`), `@spinajs/http-socket` (`http.socket.idempotency`), `@spinajs/authn` (`authn.strategies`, `authn.mfa.steps`, `authn.mfa.policy.service`, `authn.throttle.service`).
+Known users in this monorepo: `@spinajs/email` (`email.connections`, `@AutoinjectService`), `@spinajs/queue` (`queue.connections`, `queue.retention`), `@spinajs/http-socket` (`http.socket.idempotency`), `@spinajs/authn` (`authn.strategies`, `authn.mfa.steps`, `authn.mfa.policy.service`, `authn.throttle.service`), `@spinajs/authn-http` (`authn.mfa.policy.service`, with `resolveNamedService` on each request) and `@spinajs/authn-local` (`authn.local.policy.blocklist`, with `resolveNamedService` and `optional: true`).
 
 ### One service by name: custom implementation
 

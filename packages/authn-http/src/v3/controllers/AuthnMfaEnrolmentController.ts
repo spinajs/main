@@ -38,9 +38,6 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
-
   /**
    * MFA status
    * `{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not
@@ -52,7 +49,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   public async status(@Req() req: Request) {
     const session = activeSession(req);
     const steps = [];
-    for (const step of (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
+    for (const step of (await (await mfaPolicyOf(this.Container)).steps()).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
     return new Ok({ steps }, { Headers: [NO_STORE] });
   }
 
@@ -127,7 +124,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   }
 
   protected totp() {
-    return totpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService);
+    return totpServiceOf(this.Container, this.MfaEncryptionKey);
   }
 }
 
