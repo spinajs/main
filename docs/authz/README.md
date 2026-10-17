@@ -168,6 +168,7 @@ export default {
       'user:read': { fields: true },
       'users:update': { fields: true },
       'user:impersonate': {},
+      'users:delete': { consistency: 'fresh' },    // never answered from a cache
     },
     combine: {
       default: { algorithm: 'deny-overrides', models: ['rbac', 'abac'] },
@@ -197,6 +198,11 @@ export default {
 - The `authz` host does not read the 2.x `rbac.*` keys. By default boot fails with an error that names
   the keys and `spinajs-authz-convert`. With `authz.config.rejectLegacyKeys: false` it only warns.
 - Arrays from different config files are concatenated, so a package fragment adds roles and policies.
+- `consistency: 'fresh'` on a permission makes every check of it skip the decision caches (L1 and
+  L2) and the RBAC assignment cache, so an assignment revoked on another node is never honoured from
+  a cache. The answer is still stored for ordinary checks. One call can ask the same with
+  `authz().check({ ..., fresh: true })`. `AuthzAdmin` checks the actor's permission fresh.
+  Use it for deletes, sharing, payouts and admin actions; every fresh check reads the store.
 
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.
 
