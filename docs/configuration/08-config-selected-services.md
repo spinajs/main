@@ -41,7 +41,7 @@ An implementation's **name** is its class name, or the function name of a factor
 ### `@AutoinjectService`
 
 1. When the instance is built, the decorator reads `path` from the **resolved** configuration of the nearest container that registers one. Not resolved yet: `InvalidOperation`.
-2. The value becomes service requests: a string `'Name'` is `{ service: 'Name' }`; an object is `{ service: obj.service, options: obj }`; a list maps each object the same way. An empty value logs a warning and leaves the property `undefined`.
+2. The value becomes service requests: a string `'Name'` is `{ service: 'Name' }`; an object is `{ service: obj.service, options: obj }`; a list maps each object the same way. An empty value throws `InvalidOperation` naming `path`; with `{ optional: true }` it logs a warning and leaves the property `undefined`.
 3. DI takes the types registered for `Type` in the nearest container that has any, finds each by class name (`ServiceNotFound` when missing) and resolves it with `options` as the first constructor argument.
 4. A list is injected as a `Map` keyed by each instance's `ServiceName`, or its class name when `ServiceName` is empty.
 
@@ -70,7 +70,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `@AutoinjectNamedService(path, Type, options?)` | property | `default?: string \| Class<T> \| (registered: readonly string[]) => string \| undefined`; `is?: (instance) => boolean` | Injects the one `Type` named at `path`. Resolve becomes async. |
 | `@AutoinjectNamedServices(path, Type, options)` | property | `lineage: true`; `keyBy: string`, the entry and instance property used as the map key | Injects `Map<string, Type>` in list order. Resolve becomes async. |
-| `@AutoinjectService(path, Type?)` | property | none; `Type` defaults to the property's design type (pass it for maps and arrays) | Injects the instance named at `path`, built with the entry as its constructor options; a `Map` for a list. |
+| `@AutoinjectService(path, Type?, options?)` | property | `optional?: boolean`, tolerate an empty value; `Type` defaults to the property's design type (pass it for maps and arrays) | Injects the instance named at `path`, built with the entry as its constructor options; a `Map` for a list. |
 
 ## Configuration
 
