@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { KeyRecord } from '@spinajs/authn/contracts';
 import { generateKeyPair } from '@spinajs/authn-testing';
 import { thumbprint } from '../src/jwk/index.js';
+import { AuthnKey } from '../src/models/AuthnKey.js';
 import { OrmKeyStore } from '../src/registry/index.js';
 import { bootSqlite, clearKeys } from './db.js';
 
@@ -36,6 +37,26 @@ describe('OrmKeyStore', () => {
     assert.strictEqual((await withZone('Asia/Tokyo', () => store.get('k-1')))?.revokedAt?.getTime(), at.getTime());
     assert.strictEqual(await store.revoke({ type: 'service', id: 's' }, 'k-1', new Date()), 'already');
     assert.strictEqual(await store.revoke({ type: 'agent', id: 's' }, 'k-1', new Date()), 'none');
+  });
+
+  it('does not read an update without a row count as a revoke, so a racing revoke cannot publish twice', async () => {
+    const store = new OrmKeyStore();
+    const kp = generateKeyPair('ES256');
+    const owner = { type: 'service', id: 's' } as const;
+    await store.insert({ alg: 'ES256', jwk: kp.publicJwk, kid: 'k-4', owner, thumbprint: thumbprint(kp.publicJwk), createdAt: new Date() } as KeyRecord);
+    const update = AuthnKey.update;
+    // A driver that reports no RowsAffected.
+    AuthnKey.update = function (this: typeof AuthnKey, ...args: Parameters<typeof update>) {
+      const q = update.apply(this, args) as unknown as { execute(): Promise<unknown> };
+      const execute = q.execute.bind(q);
+      q.execute = () => execute().then(() => ({}));
+      return q;
+    } as typeof update;
+    try {
+      assert.strictEqual(await store.revoke(owner, 'k-4', new Date()), 'already');
+    } finally {
+      AuthnKey.update = update;
+    }
   });
 
   it('reports a duplicate kid or thumbprint', async () => {
