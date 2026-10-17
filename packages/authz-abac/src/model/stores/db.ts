@@ -8,6 +8,9 @@ import { loadPolicy } from '../policies.js';
 
 export const AUTHZ_POLICY_TABLE = 'authz_policy';
 
+/** The widths of the `authz_policy` text columns (design §9.1), as the migration creates them. */
+export const AUTHZ_POLICY_COLUMNS = Object.freeze({ id: 64, reason: 64, scope_type: 64, scope_id: 64, created_by: 100 });
+
 interface PolicyRow {
   id: string;
   effect: string;
@@ -62,7 +65,7 @@ export class DbPolicyStore extends PolicyStore {
   async put(policy: Omit<Policy, 'source'>, actor: PrincipalRef | undefined, tx: AuthzTx, now: Date = new Date()): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
     loadPolicy({ ...policy, source: 'db' }, 0, { source: 'db' }, (c, where) => parseCondition(c, { functions: { has: () => true }, where }));
     fits(policy);
-    if (actor && principalKey(actor).length > 100) throw new AuthzConfigError('DbPolicyStore: the actor key is longer than the created_by column (100)');
+    if (actor && principalKey(actor).length > AUTHZ_POLICY_COLUMNS.created_by) throw new AuthzConfigError(`DbPolicyStore: the actor key is longer than the created_by column (${AUTHZ_POLICY_COLUMNS.created_by})`);
     const driver = writeDriver(tx);
     await driver.del().from(AUTHZ_POLICY_TABLE).where('id', policy.id);
     await driver.insert().into(AUTHZ_POLICY_TABLE).values(policyToRow(policy, actor, now));
@@ -84,10 +87,10 @@ export class DbPolicyStore extends PolicyStore {
 }
 
 const COLUMN_LENGTHS: readonly [string, (p: Omit<Policy, 'source'>) => string | undefined, number][] = [
-  ['id', (p) => p.id, 64],
-  ['reason', (p) => p.reason, 64],
-  ['scope type', (p) => p.scope?.type, 64],
-  ['scope id', (p) => p.scope?.id, 64],
+  ['id', (p) => p.id, AUTHZ_POLICY_COLUMNS.id],
+  ['reason', (p) => p.reason, AUTHZ_POLICY_COLUMNS.reason],
+  ['scope type', (p) => p.scope?.type, AUTHZ_POLICY_COLUMNS.scope_type],
+  ['scope id', (p) => p.scope?.id, AUTHZ_POLICY_COLUMNS.scope_id],
 ];
 
 function fits(p: Omit<Policy, 'source'>): void {
@@ -98,7 +101,7 @@ function fits(p: Omit<Policy, 'source'>): void {
 }
 
 /** Any transaction on the driver passes; AuthzAdmin is the only caller that should open one for a store write. */
-function writeDriver(tx: AuthzTx): OrmDriver {
+export function writeDriver(tx: AuthzTx): OrmDriver {
   const driver = tx?.driver;
   if (!(driver instanceof OrmDriver)) throw new AuthzConfigError('DbPolicyStore: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
   if (driver.CurrentTransaction === undefined) throw new AuthzConfigError('DbPolicyStore: writes run only inside an AuthzAdmin transaction, and none is in scope');

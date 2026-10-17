@@ -1,8 +1,9 @@
 import { AuthzAdminFailure, AuthzAdminReader } from '@spinajs/authz';
 import type { AdminContext, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
+import { isPlainObject } from '@spinajs/util';
 
-import { isPlainObject, quote, sameScope, writableStore } from './common.js';
+import { quote, sameScope, writableStore } from './common.js';
 
 // AuthzAdmin passes a checked page; a direct caller gets the admin's default.
 function pageOf(q: AuthzAdminQuery): { limit: number; offset: number } {
