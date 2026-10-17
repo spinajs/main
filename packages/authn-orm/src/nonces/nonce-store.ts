@@ -1,9 +1,10 @@
 import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { everyNthCall, isUniqueViolation, OrmDriver, purgeBatch, rowsAffected } from '@spinajs/orm';
+import type { WhereBuilder } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
-import { checkedMs, checkedText, isDuplicate, rowsAffected, sqlTime } from '../support/sql.js';
+import { checkedMs, checkedText, sqlTime } from '../support/sql.js';
 
 const TABLE = 'authn_nonce';
 const KEY_MAX = 160;
@@ -31,11 +32,11 @@ export abstract class NonceStore {
 /** One process only. */
 export class MemoryNonceStore extends NonceStore {
   private readonly live = new Map<string, number>();
-  private claims = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'MemoryNonceStore');
-    if (++this.claims % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       for (const [k, until] of this.live) {
         if (until <= nowMs) this.live.delete(k);
       }
@@ -52,7 +53,7 @@ export class MemoryNonceStore extends NonceStore {
 @Injectable(NonceStore)
 export class DbNonceStore extends NonceStore {
   private readonly connection: StoreConnection;
-  private claims = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
   constructor(driver?: OrmDriver, options: StoreOptions = {}) {
@@ -63,7 +64,7 @@ export class DbNonceStore extends NonceStore {
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
     const { driver } = await this.connection.get();
-    if (++this.claims % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(now);
     }
 
@@ -74,7 +75,7 @@ export class DbNonceStore extends NonceStore {
         await driver.insert().into(TABLE).values({ k: key, expires_at: expires });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!isUniqueViolation(err)) throw err;
       }
       if (rowsAffected(await driver.update().in(TABLE).update({ expires_at: expires }).where('k', key).where('expires_at', '<=', t)) === 1) {
         return true;
@@ -89,9 +90,13 @@ export class DbNonceStore extends NonceStore {
   public async purge(now: Date = new Date()): Promise<number> {
     const t = sqlTime(checkedMs(now, 'DbNonceStore.purge: now'));
     const { driver } = await this.connection.get();
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
-    const keys = ((await driver.select().from(TABLE).select('k').where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)) as { k: string }[]).map((r) => r.k);
-    if (keys.length === 0) return 0;
-    return rowsAffected(await driver.del().from(TABLE).whereIn('k', keys).where('expires_at', '<=', t));
+    return purgeBatch(driver, {
+      table: TABLE,
+      key: 'k',
+      where: function (this: WhereBuilder<unknown>) {
+        this.where('expires_at', '<=', t);
+      },
+      limit: PURGE_BATCH,
+    });
   }
 }

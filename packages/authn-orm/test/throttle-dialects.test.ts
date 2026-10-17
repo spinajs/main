@@ -1,12 +1,11 @@
 /** Compiles the throttle's queries with the MySQL and MSSQL dialects, against fake drivers: no server needed. */
 import { DEFAULT_THROTTLE, FakeClock, pwKeys } from '@spinajs/authn-testing';
 import '@spinajs/log';
-import { OrmException, QueryContext } from '@spinajs/orm';
+import { driverDialect, OrmException, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 
 import { DbAuthnThrottle } from '../src/index.js';
-import { driverDialect } from '../src/support/sql.js';
 import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
 
 const NOW = new Date('2026-06-01T10:00:00.000Z');
@@ -21,7 +20,7 @@ const DIALECTS = [
     live: 'SELECT `k`,`attempts`,CAST(last_attempt_at AS CHAR) AS last_text,CAST(next_allowed_at AS CHAR) AS next_text FROM `authn_throttle` WHERE `k` IN (?) AND ( `last_attempt_at` > ? OR `next_allowed_at` > ? )',
     cas: 'UPDATE `authn_throttle` SET `attempts` = ?,`last_attempt_at` = ?,`next_allowed_at` = ?,`updated_at` = ? WHERE `k` = ? AND `attempts` = ? AND `next_allowed_at` <= ? AND `last_attempt_at` > ?',
     takeover: 'UPDATE `authn_throttle` SET `attempts` = ?,`last_attempt_at` = ?,`next_allowed_at` = ?,`updated_at` = ? WHERE `k` = ? AND `next_allowed_at` <= ? AND `last_attempt_at` <= ?',
-    purge: 'SELECT `k` FROM `authn_throttle` WHERE `last_attempt_at` <= ? AND `next_allowed_at` <= ? ORDER BY `k` ASC LIMIT ?',
+    purge: 'SELECT `k` FROM `authn_throttle` WHERE ( `last_attempt_at` <= ? AND `next_allowed_at` <= ? ) ORDER BY `k` ASC LIMIT ?',
     take: 'DELETE FROM `authn_throttle` WHERE `k` = ? AND `attempts` = ? AND ( `last_attempt_at` > ? OR `next_allowed_at` > ? )',
     lower: 'UPDATE `authn_throttle` SET `attempts` = ?,`next_allowed_at` = ?,`updated_at` = ? WHERE `k` = ? AND `attempts` = ? AND ( `last_attempt_at` > ? OR `next_allowed_at` > ? )',
     clear: 'DELETE FROM `authn_throttle` WHERE `k` = ?',
@@ -35,7 +34,7 @@ const DIALECTS = [
     live: 'SELECT [k],[attempts],CONVERT(varchar(23), last_attempt_at, 121) AS last_text,CONVERT(varchar(23), next_allowed_at, 121) AS next_text FROM [authn_throttle] WHERE [k] IN (?) AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
     cas: 'UPDATE [authn_throttle] SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [attempts] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] > ?',
     takeover: 'UPDATE [authn_throttle] SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] <= ?',
-    purge: 'SELECT [k] FROM [authn_throttle] WHERE [last_attempt_at] <= ? AND [next_allowed_at] <= ? ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
+    purge: 'SELECT [k] FROM [authn_throttle] WHERE ( [last_attempt_at] <= ? AND [next_allowed_at] <= ? ) ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     take: 'DELETE FROM [authn_throttle] WHERE [k] = ? AND [attempts] = ? AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
     lower: 'UPDATE [authn_throttle] SET [attempts] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [attempts] = ? AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
     clear: 'DELETE FROM [authn_throttle] WHERE [k] = ?',

@@ -3,15 +3,14 @@ import { randomUUID } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { OrmDriver, RawQuery } from '@spinajs/orm';
+import { isUniqueViolation, OrmDriver, RawQuery, rowsAffected } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import type { WhereBuilder } from '@spinajs/orm';
+import type { SqlDialect, WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
-import type { Dialect } from '../support/sql.js';
-import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
 const CODES = 'authn_recovery_code';
@@ -44,7 +43,7 @@ function lastStepOf(value: unknown): number | null {
  * `secret_enc = ?` where the plain comparison is wrong: `secret_enc` is TEXT, which SQL Server cannot compare with
  * `=`, and MySQL compares under a case-blind collation by default. Undefined: the plain comparison is exact.
  */
-function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
+function exactSecretEnc(dialect: SqlDialect, value: string): RawQuery | undefined {
   switch (dialect) {
     case 'mssql':
       return RawQuery.create('CAST([secret_enc] AS NVARCHAR(MAX)) = ?', [value]);
@@ -114,7 +113,7 @@ export class DbMfaStore {
           .values({ identity, step: name, ...fields });
         return;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!isUniqueViolation(err)) throw err;
       }
       if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name)) === 1) return;
     }
@@ -142,7 +141,7 @@ export class DbMfaStore {
           .values({ identity, step: name, ...fields });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!isUniqueViolation(err)) throw err;
       }
       if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')) === 1) return true;
       // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
