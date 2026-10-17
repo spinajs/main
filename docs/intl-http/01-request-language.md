@@ -149,8 +149,8 @@ DI.unregister(IntHttpMiddleware);
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the response helper signs the value without the `s:` prefix the cookie parser expects,
-// so `req.cookies.lang` holds "pl.<signature>" and fails validation with 400.
+// Don't: the cookie parser moves a signed cookie into `req.signedCookies`, which the middleware
+// does not read, so the language choice is ignored.
 return new Ok({ lang }, { Coockies: [{ Name: 'lang', Value: lang, Options: { signed: true } }] });
 
 // Do: store the language in a plain cookie. It is a preference, not a credential.
