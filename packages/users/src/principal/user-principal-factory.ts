@@ -1,7 +1,7 @@
 import { AuthzService, SYSTEM } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, Ceiling, IdentityRef, Principal } from '@spinajs/authn/contracts';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
@@ -38,6 +38,9 @@ export const IDENTITY_PRINCIPAL_SOURCE = 'identity';
  */
 @Injectable(PrincipalFactory)
 export class UserPrincipalFactory extends PrincipalFactory {
+  @Autoinject(PrincipalAttributeProvider)
+  protected Providers: PrincipalAttributeProvider[];
+
   /** authn's side: loads the user by Uuid through the application's user model. `source` is 'session' with a session handle, else 'token'. */
   public principalOf(id: IdentityRef, facts: AuthnFacts, extra: Extra): Promise<Principal>;
   /**
@@ -128,6 +131,7 @@ export class UserPrincipalFactory extends PrincipalFactory {
     }
 
     // The application's user model may be an @AccessResource: the lookup itself must not be scoped.
+    // Per call: resolving AuthzService boots its domain, which can reach this factory.
     const authz = (await DI.resolve(AuthzService)) as AuthzService;
     const user = await authz.runAs(SYSTEM, 'principal-factory', () => userModel().query().whereUuid(id.id).populate('Metadata').first());
 
@@ -146,7 +150,7 @@ export class UserPrincipalFactory extends PrincipalFactory {
     const attributes: Record<string, unknown> = { ...(asserted ?? {}) };
     const principal = (): Principal => ({ type: 'user', id: user.Uuid, authenticated: true, ...base, attributes: Object.freeze({ ...attributes }), identity: user });
 
-    for (const provider of await providers()) {
+    for (const provider of this.Providers) {
       Object.assign(attributes, await provider.attributes(user, principal()));
     }
 
@@ -166,12 +170,4 @@ function assertUsable(user: User): void {
   if (user.IsBanned) {
     throw new UserIsBanned(`User ${user.Uuid} is banned`, { user: user.Uuid });
   }
-}
-
-async function providers(): Promise<PrincipalAttributeProvider[]> {
-  if (!DI.RootContainer.hasRegistered(PrincipalAttributeProvider)) {
-    return [];
-  }
-
-  return (await DI.resolve(Array.ofType(PrincipalAttributeProvider))) as PrincipalAttributeProvider[];
 }

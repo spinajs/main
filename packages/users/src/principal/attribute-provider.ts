@@ -3,8 +3,9 @@ import type { User } from '../models/User.js';
 
 /**
  * Derives principal attributes from the user record (an app's `pool`, for example). Register one with
- * `@Injectable(PrincipalAttributeProvider)`; `UserPrincipalFactory` asks every registered provider, in
- * registration order. Keys a provider returns win over the attributes a strategy asserted
+ * `@Injectable(PrincipalAttributeProvider)`; `UserPrincipalFactory` captures the registered providers, in
+ * registration order, when it is built, so register them before boot. A provider resolves `AuthzService` per call,
+ * it does not inject it. Keys a provider returns win over the attributes a strategy asserted
  * (`StrategyOutcome.attributes`, design §18.3(e)) and over the keys of providers asked before it.
  */
 export abstract class PrincipalAttributeProvider {

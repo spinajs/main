@@ -170,8 +170,8 @@ describe('B25.authn and B24.roleSwitch over http on users hooks (C3b)', function
 
   before(async function () {
     this.timeout(120000);
-    await startUsersHttpApp();
-    undoPrincipals = useWorldIdPrincipals();
+    // Before the app builds: authn's services and controllers keep the PrincipalFactory injected at their build.
+    await startUsersHttpApp({ register: () => (undoPrincipals = useWorldIdPrincipals()) });
   });
 
   after(async function () {

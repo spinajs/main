@@ -2,7 +2,7 @@ import { GLOBAL } from '@spinajs/authz';
 import { ImpersonationGuard, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { Config } from '@spinajs/configuration';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
@@ -33,6 +33,9 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
   @Config(IMPERSONATION_PERMISSION_KEY, { defaultValue: DEFAULT_IMPERSONATION_PERMISSION })
   protected Permission: string;
 
+  @Autoinject(PrincipalFactory)
+  protected Principals: PrincipalFactory;
+
   constructor(private readonly opts: AuthzImpersonationGuardOptions = {}) {
     super();
   }
@@ -62,16 +65,12 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
     const sessionFacts: AuthnFacts = { ...actingFacts(facts), impersonator: { type: actor.type, id: actor.id } };
 
     try {
-      return await (await this.principals()).principalOf(target, sessionFacts, {});
+      return await (this.opts.principals ?? this.Principals).principalOf(target, sessionFacts, {});
     } catch (err) {
       if (err instanceof ResourceNotFound || err instanceof UserNotActive || err instanceof UserIsBanned) {
         return null;
       }
       throw err;
     }
-  }
-
-  private async principals(): Promise<PrincipalFactory> {
-    return this.opts.principals ?? ((await DI.resolve(PrincipalFactory)) as PrincipalFactory);
   }
 }

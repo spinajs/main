@@ -61,8 +61,8 @@ async function user(...roles: string[]): Promise<IdentityRef> {
   return ref;
 }
 
-function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS): Promise<Principal> {
-  return new UserPrincipalFactory().principalOf(ref, facts, {});
+async function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS): Promise<Principal> {
+  return (await DI.resolve(UserPrincipalFactory)).principalOf(ref, facts, {});
 }
 
 const FORBIDDEN = { ok: false, code: 'forbidden' };

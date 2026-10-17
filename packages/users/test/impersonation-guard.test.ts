@@ -72,14 +72,14 @@ async function user(...roles: string[]): Promise<IdentityRef> {
 }
 
 async function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS, ceiling?: Ceiling): Promise<Principal> {
-  return new UserPrincipalFactory().principalOf(ref, facts, ceiling ? { ceiling } : {});
+  return (await DI.resolve(UserPrincipalFactory)).principalOf(ref, facts, ceiling ? { ceiling } : {});
 }
 
 /** Records what the guard asks the PrincipalFactory for. */
 class RecordingFactory extends PrincipalFactory {
   public readonly calls: { id: IdentityRef; facts: AuthnFacts; extra: object; principal?: Principal }[] = [];
 
-  constructor(private readonly inner: PrincipalFactory = new UserPrincipalFactory()) {
+  constructor(private readonly inner: PrincipalFactory) {
     super();
   }
 
@@ -103,8 +103,8 @@ class OneUserFactory extends PrincipalFactory {
     super();
   }
 
-  public principalOf(_id: IdentityRef, facts: AuthnFacts): Promise<Principal> {
-    return new UserPrincipalFactory().principalOf(this.ref, facts, {});
+  public async principalOf(_id: IdentityRef, facts: AuthnFacts): Promise<Principal> {
+    return (await DI.resolve(UserPrincipalFactory)).principalOf(this.ref, facts, {});
   }
 }
 
@@ -133,7 +133,9 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
   beforeEach(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     await bootUsersDb(configure);
-    guard = new AuthzImpersonationGuard();
+    const resolved = await DI.resolve(ImpersonationGuard);
+    expect(resolved).to.be.instanceOf(AuthzImpersonationGuard);
+    guard = resolved as AuthzImpersonationGuard;
   });
 
   afterEach(() => {
@@ -163,7 +165,7 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
   });
 
   it('builds the target as the session will carry it: the actor’s authn facts and session, impersonator set, no ceiling', async () => {
-    const factory = new RecordingFactory();
+    const factory = new RecordingFactory(await DI.resolve(UserPrincipalFactory));
     const actorRef = await user('support');
     const actor = await signedIn(actorRef);
     const target = await user('member');

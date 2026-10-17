@@ -57,7 +57,7 @@ describe('UserPrincipalFactory: agent identities (A15)', function () {
   beforeEach(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     await bootUsersDb(configure);
-    factory = new UserPrincipalFactory();
+    factory = await DI.resolve(UserPrincipalFactory);
   });
 
   afterEach(() => {

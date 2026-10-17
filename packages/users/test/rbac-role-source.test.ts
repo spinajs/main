@@ -53,8 +53,8 @@ async function user(...roles: string[]): Promise<IdentityRef> {
   return ref;
 }
 
-function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS, ceiling?: Ceiling): Promise<Principal> {
-  return new UserPrincipalFactory().principalOf(ref, facts, ceiling ? { ceiling } : {});
+async function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS, ceiling?: Ceiling): Promise<Principal> {
+  return (await DI.resolve(UserPrincipalFactory)).principalOf(ref, facts, ceiling ? { ceiling } : {});
 }
 
 /** What authn-token's ownerHolds asks with: the owner alone, no authn facts. */

@@ -2,7 +2,7 @@ import { AuthzService, GLOBAL, SYSTEM, principalKey } from '@spinajs/authz';
 import type { Permission, Principal, PrincipalRef } from '@spinajs/authz';
 import { AccountStatusSource, AssignmentStore, guardSwitches } from '@spinajs/authz-rbac';
 import { Config } from '@spinajs/configuration';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
@@ -43,6 +43,9 @@ export class DefaultAccountGuard extends AccountGuard {
 
   @Logger('users-http')
   protected Log: Log;
+
+  @Autoinject(UserPrincipalFactory)
+  protected Users: UserPrincipalFactory;
 
   private warnedNoStatusSource = false;
 
@@ -209,8 +212,7 @@ export class DefaultAccountGuard extends AccountGuard {
   }
 
   protected async principalOf(user: User, roles?: readonly string[]): Promise<Principal> {
-    const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
-    return factory.principalOf(user, roles ? { ceiling: { roles: [...roles] } } : undefined);
+    return this.Users.principalOf(user, roles ? { ceiling: { roles: [...roles] } } : undefined);
   }
 
   /** User model reads must not be narrowed by the caller's row scoping. */

@@ -44,7 +44,7 @@ async function user(...roles: string[]): Promise<IdentityRef> {
   return ref;
 }
 
-const signedIn = (ref: IdentityRef): Promise<Principal> => new UserPrincipalFactory().principalOf(ref, FACTS, {});
+const signedIn = async (ref: IdentityRef): Promise<Principal> => (await DI.resolve(UserPrincipalFactory)).principalOf(ref, FACTS, {});
 
 const asJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 

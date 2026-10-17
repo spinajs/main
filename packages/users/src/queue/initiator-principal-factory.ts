@@ -3,7 +3,7 @@ import type { Initiator } from '@spinajs/authz-queue';
 import { UNATTENDED } from '@spinajs/authz';
 import type { Ceiling, Principal } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { _check_arg, _is_uuid, _trim } from '@spinajs/util';
 
 import { userModel } from '../model-token.js';
@@ -28,6 +28,12 @@ export const QUEUE_PRINCIPAL_SOURCE = 'queue';
 export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
   // Its one-time warning says users are not reloaded, which is untrue here.
   protected readonly stamped: InitiatorPrincipalFactory = new StampedInitiatorPrincipalFactory({ warn: false });
+
+  @Autoinject(PrincipalFactory)
+  protected Principals: PrincipalFactory;
+
+  @Autoinject(UserPrincipalFactory)
+  protected Users: UserPrincipalFactory;
 
   public async principalOf(initiator: Initiator): Promise<Principal> {
     const stamp = (initiator !== null && typeof initiator === 'object' ? initiator : {}) as { type?: unknown; id?: unknown; ceiling?: unknown };
@@ -61,8 +67,7 @@ export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
 
   /** The application's PrincipalFactory when it is a UserPrincipalFactory (a subclass, say), else users' own. */
   protected async users(): Promise<UserPrincipalFactory> {
-    const registered = await DI.resolve(PrincipalFactory);
-    return registered instanceof UserPrincipalFactory ? registered : ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory);
+    return this.Principals instanceof UserPrincipalFactory ? this.Principals : this.Users;
   }
 }
 

@@ -19,7 +19,7 @@ import type { AuthzCommand } from '@spinajs/authz';
 import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { AccessController, PrincipalMiddleware } from '@spinajs/authz-http';
 import { AuthnImpersonationService, FreshAuthCheck } from '@spinajs/authn';
-import { AuthnService, AuthnThrottle, MfaStep, PasswordCredentialStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnService, AuthnThrottle, ImpersonationGuard, MfaStep, PasswordCredentialStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { PasswordHasher } from '@spinajs/authn-local';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
@@ -166,6 +166,8 @@ export function resetAuthnCaseServices(): void {
   }
   DI.uncache(FreshAuthCheck);
   DI.uncache(AuthnImpersonationService);
+  for (const type of DI.getRegisteredTypes(ImpersonationGuard) ?? []) DI.uncache(type as Class<unknown>);
+  DI.uncache(ImpersonationGuard as unknown as Class<unknown>);
 }
 
 export const ROUTES: Partial<HttpRoutes> = {

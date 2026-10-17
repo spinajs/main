@@ -31,7 +31,7 @@ export interface AccessDomain {
 }
 
 export interface AuthzTargetGuardOptions {
-  /** For checkIdentity; default: the PrincipalFactory DI resolves when it is users' own, else a new one. */
+  /** For checkIdentity; default: the PrincipalFactory DI resolves when it is users' own, else the UserPrincipalFactory DI resolves. */
   readonly users?: UserPrincipalFactory;
 }
 
@@ -117,9 +117,10 @@ export class AuthzTargetGuard {
     if (this.opts.users) {
       return this.opts.users;
     }
-    // Sessions may come from another factory, but the target is a users identity either way.
+    // Sessions may come from another factory, but the target is a users identity either way. Looked up, not injected:
+    // the guards build this class with `new`. The fallback comes from DI so that it gets its attribute providers.
     const registered: unknown = await DI.resolve(PrincipalFactory);
-    return registered instanceof UserPrincipalFactory ? registered : new UserPrincipalFactory();
+    return registered instanceof UserPrincipalFactory ? registered : ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory);
   }
 }
 
