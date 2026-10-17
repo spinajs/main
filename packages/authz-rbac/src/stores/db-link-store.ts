@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzClock, AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, principalKey } from '@spinajs/authz';
 import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
@@ -8,9 +8,9 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 
 import { AdminLinkStore } from '../admin/ports.js';
 import { parsePrincipalKey, scopeFromColumns, scopeToColumns, toDate } from './columns.js';
-import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
-import { pageWindow } from './queries.js';
+import { withDbRbacStore } from './db-store.js';
+import { pageWindow, requireScopeNode } from './queries.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
 import { normaliseTags } from './tags.js';
 import { bumpVersion } from './version.js';
@@ -69,7 +69,7 @@ export interface LinkQuery {
 @PerChildInstance()
 @Injectable()
 @Inject(Container)
-export class DbLinkStore extends AdminLinkStore {
+export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
   readonly name: string = 'DbLinkStore';
 
   protected readonly maxListLimit: number = LINK_LIST_MAX_LIMIT;
@@ -219,15 +219,6 @@ export class DbLinkStore extends AdminLinkStore {
     return { items: (await rowsOf(query)).map(rowToLink), total };
   }
 
-  protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
-  }
-
-  /** The driver of `tx`, which must be a transaction on {@link connection}. */
-  protected async writeDriver(tx: AuthzTx, where: string): Promise<OrmDriver> {
-    return storeTransactionDriver(tx, await this.connection(), where);
-  }
-
   protected assignments(): DbAssignmentStore {
     return this.container.resolve(DbAssignmentStore);
   }
@@ -259,14 +250,6 @@ export class DbLinkStore extends AdminLinkStore {
 
     return secret;
   }
-
-  protected domain(): string {
-    return storeDomain(this.container);
-  }
-
-  protected now(): Date {
-    return this.container.hasRegistered(AuthzClock) ? this.container.resolve(AuthzClock).now() : new Date();
-  }
 }
 
 /** Any string of 1 to {@link LINK_TOKEN_MAX_LENGTH} characters; only the hash decides whether it is a link. */
@@ -277,12 +260,6 @@ function isLookupToken(token: unknown): token is string {
 /** The `token_hash` column of a link whose token is `token` (seed rows with it, never store the token). */
 export function linkTokenHash(secret: string, token: string): string {
   return `${HASH_VERSION}:${createHmac('sha256', secret).update(token, 'utf8').digest('hex')}`;
-}
-
-function requireScopeNode(scope: ResourceRef, where: string, rule: string): void {
-  if (scope?.type === GLOBAL.type || !scope?.id) {
-    throw new AuthzAdminFailure('wrong_scope_type', `${where}: ${rule}, not ${scope?.type === GLOBAL.type ? 'GLOBAL' : `the type-level ref ${scope?.type}`}`, 'scope');
-  }
 }
 
 function linkSubject(id: string): PrincipalRef {

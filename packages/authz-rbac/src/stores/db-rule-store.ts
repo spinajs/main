@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -8,8 +8,8 @@ import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
 import type { ScopeRefColumns } from './columns.js';
-import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { withDbRbacStore } from './db-store.js';
+import { isUniqueViolation, pageWindow, requireScopeNode, whereLive } from './queries.js';
 import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
 import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
 import { readVersion, bumpVersion } from './version.js';
@@ -51,7 +51,7 @@ type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: strin
 @PerChildInstance()
 @Injectable()
 @Inject(Container)
-export class DbRuleStore extends AdminRuleStore {
+export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   readonly name: string = 'DbRuleStore';
 
   protected readonly scopeBatch: number = SCOPE_BATCH;
@@ -157,9 +157,7 @@ export class DbRuleStore extends AdminRuleStore {
    * (`wrong_scope_type`).
    */
   async forgetScopeEntries(scope: ResourceRef, tx: AuthzTx): Promise<RuleForgetResult> {
-    if (scope.type === GLOBAL.type || !scope.id) {
-      throw new AuthzAdminFailure('wrong_scope_type', `${this.name}.forgetScope: only a scope node can be forgotten, not ${scope.type === GLOBAL.type ? 'GLOBAL' : `the type-level ref ${scope.type}`}`, 'scope');
-    }
+    requireScopeNode(scope, `${this.name}.forgetScope`, 'only a scope node can be forgotten');
 
     const driver = await this.writeDriver(tx, `${this.name}.forgetScope`);
     const columns = scopeToColumns(scope);
@@ -197,10 +195,6 @@ export class DbRuleStore extends AdminRuleStore {
     return this.select(q.scope, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
   }
 
-  protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
-  }
-
   /** Rules oldest first; `window` undefined reads every match in one rule query. */
   private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly RuleDef[]; total: number }> {
     const driver = await this.connection();
@@ -224,21 +218,8 @@ export class DbRuleStore extends AdminRuleStore {
     return { items: await this.rulesOf(driver, await rulesOf(query)), total };
   }
 
-  /** The driver of `tx`, which must be a transaction on {@link connection}. */
-  protected async writeDriver(tx: AuthzTx, where: string): Promise<OrmDriver> {
-    return storeTransactionDriver(tx, await this.connection(), where);
-  }
-
   protected existingRule(driver: OrmDriver, id: string): Promise<StoredRuleRow | undefined> {
     return ruleById(driver, id);
-  }
-
-  protected domain(): string {
-    return storeDomain(this.container);
-  }
-
-  protected now(): Date {
-    return this.container.hasRegistered(AuthzClock) ? this.container.resolve(AuthzClock).now() : new Date();
   }
 
   /** The rows as rules, with their subject rows loaded in batches. */

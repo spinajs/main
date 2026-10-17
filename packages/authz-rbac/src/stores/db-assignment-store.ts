@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -10,8 +10,8 @@ import type { AssignmentQuery, Page } from '../admin/ports.js';
 import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
 import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
-import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { withDbRbacStore } from './db-store.js';
+import { isUniqueViolation, pageWindow, requireScopeNode, whereLive } from './queries.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -48,7 +48,7 @@ const TAG_RETRIES = 5;
 @PerChildInstance()
 @Injectable()
 @Inject(Container)
-export class DbAssignmentStore extends AdminAssignmentStore {
+export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   readonly name: string = 'DbAssignmentStore';
 
   protected readonly subjectBatch: number = SUBJECT_BATCH;
@@ -185,9 +185,7 @@ export class DbAssignmentStore extends AdminAssignmentStore {
    * Returns them. GLOBAL and type-level refs are refused (`wrong_scope_type`).
    */
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]> {
-    if (scope.type === GLOBAL.type || !scope.id) {
-      throw new AuthzAdminFailure('wrong_scope_type', `${this.name}.forgetScope: only a scope node can be forgotten, not ${scope.type === GLOBAL.type ? 'GLOBAL' : `the type-level ref ${scope.type}`}`, 'scope');
-    }
+    requireScopeNode(scope, `${this.name}.forgetScope`, 'only a scope node can be forgotten');
 
     const driver = await this.writeDriver(tx, `${this.name}.forgetScope`);
     const columns = scopeToColumns(scope);
@@ -217,10 +215,6 @@ export class DbAssignmentStore extends AdminAssignmentStore {
   async find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }> {
     const { at, ...filter } = q;
     return this.select(filter, at, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
-  }
-
-  protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
   }
 
   /** Rows of these subject keys, in batches; `at` undefined keeps expired rows. */
@@ -262,22 +256,9 @@ export class DbAssignmentStore extends AdminAssignmentStore {
     return { items: (await rowsOf(query)).map(rowToAssignment), total };
   }
 
-  /** The driver of `tx`, which must be a transaction on {@link connection}. */
-  protected async writeDriver(tx: AuthzTx, where: string): Promise<OrmDriver> {
-    return storeTransactionDriver(tx, await this.connection(), where);
-  }
-
   protected async existingRow(driver: OrmDriver, key: Record<string, string>): Promise<AssignmentRow | undefined> {
     const [row] = await rowsOf(driver.select().from(AUTHZ_ASSIGNMENT_TABLE).where(key));
     return row;
-  }
-
-  protected domain(): string {
-    return storeDomain(this.container);
-  }
-
-  protected now(): Date {
-    return this.container.hasRegistered(AuthzClock) ? this.container.resolve(AuthzClock).now() : new Date();
   }
 
   /** Read-modify-write guarded by the old tags, so a concurrent change is retried instead of lost. */
