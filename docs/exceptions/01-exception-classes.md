@@ -63,7 +63,7 @@ The status column applies when `@spinajs/http` handles the error. "Unmapped" cla
 | `MethodNotImplemented` | A method is declared but not implemented. | 500 | `ServerError` |
 | `UnexpectedServerError` | A generic server failure. | 500 | `ServerError` |
 | `ResourceDuplicated` | A unique resource already exists, for example a unique constraint failed. | 409 | `Conflict` |
-| `JsonValidationFailed` | A JSON entity does not match its schema. | 500 | unmapped, `ServerError` |
+| `JsonValidationFailed` | A JSON entity does not match its schema. | 400 | `BadRequestResponse` |
 | `ExpectedResponseUnacceptable` | The client's `Accept` header asks for a format the server cannot produce. | 400 | `BadRequestResponse` |
 
 `@spinajs/http` also maps `ValidationFailed` from `@spinajs/validation` to 400 and its own `EntityTooLargeException` to 413. Those classes extend `Exception` but live in their packages.
@@ -83,7 +83,7 @@ The package registers nothing in DI and has no abstract classes or factories. It
 - `inner`, `fieldName` and `errorCode` are own enumerable properties. The `@spinajs/http` error handler spreads them into the JSON response body, in production too. An `inner` driver error can carry SQL text or connection details to the client.
 - `stack` is added to the response body only when `configuration.isProduction` is not `true`.
 - `instanceof` checks need a single installed copy of `@spinajs/exceptions`. Two copies give two `Forbidden` classes; the HTTP mapping still works, because it matches by class name.
-- `InvalidOperation`, `InvalidOption`, `NotSupported`, `ConnectionNotFound` and `JsonValidationFailed` answer HTTP 500 unless you map them. Thrown from a controller for a client mistake, they read as a server fault.
+- `InvalidOperation`, `InvalidOption`, `NotSupported` and `ConnectionNotFound` answer HTTP 500 unless you map them. Thrown from a controller for a client mistake, they read as a server fault.
 
 ## Best practices
 
