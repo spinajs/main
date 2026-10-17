@@ -1,4 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
+import { LinkResolver } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
@@ -8,16 +9,7 @@ import { PrincipalSource } from '../api.js';
 import type { LinksConfig } from '../http-config.js';
 import '../storage.js';
 
-/**
- * Opens a share link (design §6.1.6): the principal of the link a bearer token belongs to, with
- * `companion` (the request's own principal) speaking with it. An unknown, expired or revoked
- * token must yield a link principal that denies everything (`ceiling.resources: []`, reason
- * `link_invalid`), never null. authz-http cannot import the RBAC model that keeps links, so a
- * package or the app registers the implementation.
- */
-export abstract class LinkResolver {
-  abstract principal(token: string, companion?: Principal): Promise<Principal>;
-}
+export { LinkResolver };
 
 /** The link principal when no LinkResolver is registered: it denies every check. */
 export function deadLinkPrincipal(companion?: Principal): Principal {
@@ -58,7 +50,7 @@ export class LinkPrincipalSource extends PrincipalSource {
     }
 
     const companion = req.storage?.Principal;
-    // Per call: apps bind the resolver over registerRbac's service at the root domain's boot, after this source is built.
+    // Per call: registerRbac binds the resolver at the root domain's boot, after this source is built.
     if ((DI.getRegisteredTypes(LinkResolver) ?? []).length === 0) {
       if (!this.warned) this.Log.warn('a request carries a share link token, but no LinkResolver is registered; links deny everything');
       this.warned = true;

@@ -1091,7 +1091,8 @@ See section 5.2. In short: class and route `@Access` are ANDed (2.x let the rout
 `@Unscoped` keeps the principal and is audited once, `@UnfilteredInput(reason)` opts a route out of
 the field filter, and the `authz.http.*` keys are `services`, `links`, `explainRoute` and
 `access.domain`. The explain route exists only when enabled and never in production. A share link
-token opens a dead link (`link_invalid`) until the app registers a `LinkResolver`.
+token opens a dead link (`link_invalid`) until a `LinkResolver` is registered in the root container
+(`registerRbac(DI.RootContainer, …)` registers one).
 
 ### L8: orm-api removed
 
@@ -1320,9 +1321,9 @@ What an app sees:
   `ConfigRuleStore` in `authz.rbac.stores.rules` fail boot.
 - A rule's `expiresAt` is a `Date` (in a JS or TS config file) or a date-time string with a zone, such
   as `2027-01-01T00:00:00Z`. A string without a zone fails boot.
-- `registerRbac(container, configuration)` wires the stores, the model and `RbacService`; the app calls
-  it ([Wiring the models](./README.md#wiring-the-models)). Bind its `linkResolver` as authz-http's
-  `LinkResolver`, or share links open nothing.
+- `registerRbac(container, configuration)` wires the stores, the model, `RbacService` and the
+  `LinkResolver`; the app calls it ([Wiring the models](./README.md#wiring-the-models)). Share links
+  open only when it runs on the root container.
 - An expired link comes back with its `expiresAt`, and the ceiling denies it (`link_invalid`).
 
 ### L4 and L4b: ORM adapter, rules in SQL
