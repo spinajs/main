@@ -491,8 +491,14 @@ Rules that matter:
   delegation the models see the delegate as the principal and the agent as the actor.
 
 Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`) and
-`authz.abac.connection` (default `default`). Policy writes go through `AuthzAdmin` (`policy.put`,
-`policy.delete`). The app registers the model itself ([Wiring the models](#wiring-the-models)).
+`authz.abac.connection` (default `default`, looked up in the `Orm` of the domain's container). Policy
+writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
+([Wiring the models](#wiring-the-models)).
+
+A policy condition may call every `ConditionFunction` the domain's container sees: its own
+registrations and those of its ancestors, root included (`registeredFunctions(container)`). RBAC rule
+conditions are checked the same way. `ModelInitContext.container` is that container; a model resolves
+what it needs there, not in root DI.
 
 **Lists.** For a `list: true` permission the ABAC model decides its policies before the query, from
 the principal, the actor and the request env (MFA, time, IP): a permit that holds lists every row, a
