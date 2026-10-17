@@ -2,7 +2,7 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
-import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '@spinajs/http';
+import { HTTP_STATUS_CODE, ServerMiddleware, parseCookieHeader, parseOrigin, requestOrigin } from '@spinajs/http';
 import type { ProxyTrust, Request } from '@spinajs/http';
 import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -78,7 +78,8 @@ class RefusalWarnings {
 }
 
 function carriesCookie(header: string | undefined, names: readonly string[]): boolean {
-  return (header ?? '').split(';').some((pair) => names.includes(pair.split('=')[0].trim()));
+  const cookies = parseCookieHeader(header);
+  return names.some((name) => name in cookies);
 }
 
 /**

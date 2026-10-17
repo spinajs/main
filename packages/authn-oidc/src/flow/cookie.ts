@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { clearCookie, hostPrefixedCookie } from '@spinajs/http';
 import { _is_string, _max_length, _non_empty, _reg_match, _try_check_arg } from '@spinajs/util';
 
 import { checkedUrl, isPlainObject, isRelaxedEnv } from '../support.js';
@@ -144,16 +145,13 @@ export function flowCookieName(env: string | undefined): string {
   return isRelaxedEnv(env) ? OIDC_FLOW_COOKIE_BASE_NAME : `__Host-${OIDC_FLOW_COOKIE_BASE_NAME}`;
 }
 
-function options(env: string | undefined, maxAgeMs: number): Record<string, unknown> {
-  // Lax, not Strict: the callback is a cross-site top-level GET from the provider, which Strict would send without it.
-  // domain undefined overrides a domain from http.cookie.options, which a __Host- cookie must not carry.
-  return { httpOnly: true, secure: !isRelaxedEnv(env), sameSite: 'lax', path: '/', domain: undefined, maxAge: maxAgeMs, signed: false };
-}
+// Lax, not Strict: the callback is a cross-site top-level GET from the provider, which Strict would send without it.
+const FLOW_COOKIE_OPTIONS = { httpOnly: true, sameSite: 'lax', signed: false } as const;
 
 export function flowCookie(f: OidcFlow, env: string | undefined): FlowCookie {
-  return { Name: flowCookieName(env), Value: encodeFlow(f), Options: options(env, OIDC_FLOW_TTL_SECONDS * 1000) };
+  return hostPrefixedCookie(OIDC_FLOW_COOKIE_BASE_NAME, encodeFlow(f), { ...FLOW_COOKIE_OPTIONS, maxAge: OIDC_FLOW_TTL_SECONDS * 1000 }, env) as FlowCookie;
 }
 
 export function clearFlowCookie(env: string | undefined): FlowCookie {
-  return { Name: flowCookieName(env), Value: '', Options: options(env, 0) };
+  return clearCookie(hostPrefixedCookie(OIDC_FLOW_COOKIE_BASE_NAME, '', FLOW_COOKIE_OPTIONS, env)) as FlowCookie;
 }
