@@ -241,8 +241,17 @@ what each fix changes for an app.
   per-request strategies (tokens, keys) are listed: such an app must register a `SessionIssuer` too. Its
   dependencies are DI property decorators (`@Autoinject`, `@AutoinjectNamedService` with
   `MFA_POLICY_SERVICE` and `AUTHN_THROTTLE_SERVICE`, with `pickAuthnThrottle`), resolved together, so a container that registers
-  its own `Configuration` must resolve it before `AuthnService` (dependencies such as `StrategyRegistry`
+  its own `Configuration` must resolve it before resolving any authn service (dependencies such as `StrategyRegistry`
   read `@Config` while they resolve).
+- **Services and controllers in authn*, authz* and users* take dependencies through `@Autoinject` at build**: register
+  implementations before boot, a later one is not seen. A bad `authn.oidc` fails HTTP boot (`OidcController` builds
+  `OidcProviders`); a CLI command whose service can't build reports `Cannot resolve command`; `StrategyRegistry`
+  refuses a duplicate `authn.strategies` entry, and an unknown service is a `ServiceNotFound`.
+  PrincipalSource, RoleSource, PrincipalFactory, InitiatorPrincipalFactory and PrincipalAttributeProvider implementations are
+  built with their owner; resolve AuthzService per call, don't inject it.
+  Instances built with `new` no longer get their dependencies (for example `UserPrincipalFactory`, `AuthzImpersonationGuard`
+  without `opts.principals`, `FetchOidcHttpClient`, and `QueueChangeBus` subclasses), so build them through DI.
+  A StrategyRegistry entry whose name differs from the strategy's now reports `the service has name X; the entry must match it`.
 - **`SessionIssuer.revoke` and `SessionProvider.delete` resolve to a `boolean`**: true only for the call
   that ended the session, from one atomic store operation. A custom session store or issuer must return it.
   Impersonation start and stop keep their new session only when their own revoke ended the old one, so
