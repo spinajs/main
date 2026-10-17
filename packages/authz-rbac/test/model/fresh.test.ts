@@ -1,11 +1,11 @@
 import { FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { Assignment, DecisionRequest } from '@spinajs/authz';
-import { ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import type { Assignment, AssignmentSubject, DecisionRequest, ResourceRef } from '@spinajs/authz';
+import { FakeScopeResolver, ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
 import { MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '../../src/index.js';
-import type { RoleDef } from '../../src/index.js';
+import type { LadderDef, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -44,5 +44,48 @@ describe('authz-rbac model: fresh requests', () => {
     store.remove('v1');
     expect(await plan()).to.deep.equal(held);
     expect(await plan(true)).to.deep.equal({ kind: 'abstain' });
+  });
+
+  it('a fresh request needs IO even when the cache is warm, so the sync path cannot serve it', async () => {
+    const { model } = await setup([assignment('v1')]);
+    await model.evaluate(req(), fakeEvaluationContext({ now: NOW }));
+    expect(model.evaluate(req(), fakeEvaluationContext({ now: NOW }))).to.not.be.instanceOf(Promise);
+    expect(model.evaluate(req(true), fakeEvaluationContext({ now: NOW }))).to.be.instanceOf(Promise);
+  });
+
+  describe('through subject sets', () => {
+    const O1: ResourceRef = { type: 'org', id: 'o1' };
+    const P1: ResourceRef = { type: 'project', id: 'p1' };
+    const role = (name: string, grants: readonly string[], extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', ...extra, grants: grants.map((permission) => ({ permission })) });
+    const ladders: LadderDef[] = [{ name: 'org', roles: ['org.member'] }];
+    const roles = [role('org.member', [], { ladder: 'org', subjectSet: true }), role('viewer', ['doc:read'])];
+    const set: AssignmentSubject = { set: { role: 'org.member', scope: O1 } };
+    const rows: Assignment[] = [
+      { id: 'm1', subject: { type: 'user', id: 'alice' }, role: 'org.member', scope: O1, source: 'test' },
+      { id: 's1', subject: set, role: 'viewer', scope: P1, source: 'test' },
+    ];
+    const scopes = new FakeScopeResolver({ types: ['org', 'project'], nodes: [{ ref: O1 }, { ref: P1, parent: O1 }] });
+    const setReq = (fresh?: boolean): DecisionRequest => ({ principal: userPrincipal('alice'), permission: 'doc:read', resource: P1, ...(fresh ? { fresh } : {}) });
+    const ctx = () => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] });
+
+    async function setSetup() {
+      const registry = new PermissionRegistryImpl();
+      registry.register([{ name: 'doc:read', types: ['org', 'project'] }], 'test');
+      registry.freeze();
+      const store = new MemoryAssignmentStore(rows);
+      const model = new RbacModel({ roles: new MemoryRoleStore(roles, ladders), assignments: store, clock: new ManualClock(NOW), log: { warn: () => undefined } });
+      await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
+      return { model, store };
+    }
+
+    for (const gone of ['m1', 's1']) {
+      it(`a fresh request does not honour the removed ${gone === 'm1' ? 'membership' : 'set grant'} the cache still holds`, async () => {
+        const { model, store } = await setSetup();
+        expect((await model.evaluate(setReq(), ctx())).permitWhen).to.deep.equal(TRUE);
+        store.remove(gone);
+        expect((await model.evaluate(setReq(), ctx())).permitWhen).to.deep.equal(TRUE);
+        expect((await model.evaluate(setReq(true), ctx())).permitWhen).to.deep.equal(FALSE);
+      });
+    }
   });
 });

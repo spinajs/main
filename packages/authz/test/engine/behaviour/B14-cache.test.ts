@@ -823,6 +823,24 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       expect(m.calls[1].req.fresh).to.equal(true);
     });
 
+    it("a fresh check's nested ctx.check is fresh too and reads no L2", async () => {
+      const m = new StaticModel('m', {
+        vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+          if (req.principal.id === 'bob') return pass('m', TRUE);
+          const theirs = await ctx.check({ principal: bob, permission: 'doc:read', resource: req.resource, env: {} });
+          return pass('m', theirs.allowed ? TRUE : FALSE);
+        },
+      });
+      const { a } = setup([m]);
+      await a.check(read(alice, D1), fresh());
+      const inner = () => m.calls.filter((c) => c.req.principal.id === 'bob');
+      expect(inner()).to.have.length(1);
+      await a.check(read(alice, D1, { fresh: true }), fresh());
+      expect(inner()).to.have.length(2);
+      expect(inner()[1].req.fresh).to.equal(true);
+      expect(inner()[0].req.fresh).to.equal(undefined);
+    });
+
     it('refuses a fresh that is not a boolean', async () => {
       const { a } = setup([new StaticModel('m', { vote: permit() })]);
       let error: unknown;
