@@ -69,7 +69,7 @@ console.log(login === sameLogin, login === upload);
 - A singleton resolved through a child container is created and cached in the container that registered it (usually the root), with that container's dependencies. A class registered nowhere is cached where it is first resolved: when that is the root, children reuse it; when it is a child, a sibling child builds its own. Register app-wide singletons in the root (`DI.register(Pool).asSelf()`).
 - Options passed to `resolve()` are ignored when a cached instance is returned.
 - `@NewInstance()` and factory registrations are left out of `Array.ofType` results; see [Multiple implementations](06-multiple-implementations.md#important-behaviour).
-- A subclass with its own `@Inject` or `@Autoinject` gets the `Singleton` default, not the base class's lifetime. Repeat the lifetime decorator on the subclass.
+- A subclass inherits the base class's lifetime, also when it adds its own `@Inject` or `@Autoinject`. Decorate the subclass to give it another one.
 - `dispose()` only reaches cached instances; a `@NewInstance()` object is never disposed by the container. See [Service lifecycle](10-service-lifecycle.md).
 
 ## Best practices
