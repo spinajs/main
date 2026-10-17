@@ -84,6 +84,7 @@ Methods a subclass overrides:
 | `CreateDatabaseCompiler` | `MsSqlCreateDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `DropDatabaseCompiler` | `MsSqlDropDatabaseQueryCompiler` | `SqlDropDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
+| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `DatetimeValueConverter` | `MsSqlDatetimeValueConverter` | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
@@ -94,7 +95,7 @@ Tokens the driver leaves **unregistered**, each a place to add your own:
 
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
-| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `RecursiveQueryCompiler` | the feature throws a `TypeError` on first use | [Schema dialect](06-schema-dialect.md) |
+| `TableCloneQueryCompiler`, `RecursiveQueryCompiler` | the feature throws a `TypeError` on first use | [Schema dialect](06-schema-dialect.md) |
 | `TableHistoryQueryCompiler` | `trackHistory()` throws `MethodNotImplemented` in `MsSqlTableQueryCompiler` before it is resolved | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation
