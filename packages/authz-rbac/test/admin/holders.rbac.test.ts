@@ -42,6 +42,7 @@ const world: World = {
       assignment('a-bob-block', bob, 'blocked', P1),
       setAssignment,
       assignment('a-carol', carol, 'team.member', T1),
+      assignment('a-carol-direct', carol, 'viewer', P1),
       assignment('a-dave', dave, 'viewer', ref('project', 'p2')),
     ],
   },
@@ -70,7 +71,7 @@ describe('holders query on the RbacModel', function () {
     await harness.afterAll?.();
   });
   beforeEach(async () => {
-    session = await harness.setup(world, { id: 'B26', part: 'holders', case: 'holders', title: 'holders', facets: ['engine', 'admin', 'rbac'] });
+    session = await harness.setup(world, { id: 'B26', part: 'holders', case: 'holders', title: 'holders', facets: ['engine', 'admin', 'rbac', 'audit'] });
     admin = session.admin as AuthzAdmin;
     await seed();
   });
@@ -92,17 +93,38 @@ describe('holders query on the RbacModel', function () {
   it('lists the subjects whose roles on the path grant the permission, each verified by a check', async () => {
     const { items, total } = await holders();
     const byKey = Object.fromEntries((items as Holder[]).map((h) => [JSON.stringify(h.subject), h]));
-    expect(total).to.equal(3);
+    expect(total).to.equal(4);
     expect(byKey[subjectKey('alice')].via).to.deep.equal([{ role: 'viewer', scope: P1, assignment: 'a-alice' }]);
     expect(byKey[subjectKey('alice')].decision).to.deep.equal({ allowed: true, conditional: false });
     expect(byKey[subjectKey('bob')].decision).to.include({ allowed: false, reason: 'role_denied' });
     expect(byKey[JSON.stringify(TEAM_SET)].decision).to.equal(undefined);
   });
 
+  it('verifies without leaving an access-attempt trace: no deny audit for a listed holder', async () => {
+    const { items } = await holders();
+    expect((items as Holder[]).find((h) => JSON.stringify(h.subject) === subjectKey('bob'))?.decision?.allowed).to.equal(false);
+    const denials = session.audit!.entries.filter((e) => e.kind === 'deny');
+    expect(denials.filter((e) => (e as { principal?: { id?: string } }).principal?.id === 'bob')).to.deep.equal([]);
+  });
+
+  it('lists the holders of a permission granted at $global', async () => {
+    const { items, total } = await holders({}, GLOBAL, 'authz:holders.read');
+    expect(total).to.equal(1);
+    expect(JSON.stringify((items[0] as Holder).subject)).to.equal(subjectKey('root'));
+    expect((items[0] as Holder).decision?.allowed).to.equal(true);
+  });
+
+  it('merges a subject that holds directly and through a set into one entry with both via', async () => {
+    const { items } = await holders({ expandSets: true });
+    const found = (items as Holder[]).filter((h) => JSON.stringify(h.subject) === subjectKey('carol'));
+    expect(found).to.have.length(1);
+    expect(found[0].via.map((v) => v.set !== undefined)).to.have.members([true, false]);
+  });
+
   it('expands sets to their members', async () => {
     const { items } = await holders({ expandSets: true });
     const found = (items as Holder[]).find((h) => JSON.stringify(h.subject) === subjectKey('carol'));
-    expect(found?.via[0].set).to.deep.equal(TEAM_SET.set);
+    expect(found?.via.find((v) => v.set)?.set).to.deep.equal(TEAM_SET.set);
     expect(found?.decision?.allowed).to.equal(true);
   });
 
@@ -110,8 +132,8 @@ describe('holders query on the RbacModel', function () {
     const first = await holders({ page: { limit: 2, offset: 0 } });
     const second = await holders({ page: { limit: 2, offset: 2 } });
     expect(first.items).to.have.length(2);
-    expect(second.items).to.have.length(1);
-    expect(first.total).to.equal(3);
+    expect(second.items).to.have.length(2);
+    expect(first.total).to.equal(4);
     expect(await rejection(holders({}, D1, 'doc:read', alice))).to.equal('forbidden');
   });
 
@@ -119,5 +141,34 @@ describe('holders query on the RbacModel', function () {
     expect(await rejection(holders({}, D1, 'doc:nope'))).to.equal('invalid_query');
     expect(await rejection(holders({}, ref('doc', 'missing')))).to.equal('forbidden');
     expect(await rejection(holders({}, T1))).to.equal('invalid_query');
+  });
+});
+
+describe('holders query without a MembershipStore', function () {
+  this.timeout(30000);
+  const harness = rbacAdminHarness({});
+  let session: HarnessSession;
+
+  before(async () => {
+    await harness.beforeAll?.();
+  });
+  after(async () => {
+    await harness.afterAll?.();
+  });
+  beforeEach(async () => {
+    session = await harness.setup(world, { id: 'B26', part: 'holders', case: 'holders', title: 'holders', facets: ['engine', 'admin', 'rbac'] });
+  });
+  afterEach(async () => {
+    await session?.dispose();
+  });
+
+  it('refuses expandSets with invalid_query on expandSets', async () => {
+    try {
+      await (session.admin as AuthzAdmin).list(root, { kind: 'holders', scope: D1, permission: 'doc:read', expandSets: true });
+      expect.fail('resolved');
+    } catch (e) {
+      expect(e).to.be.instanceOf(AuthzAdminFailure);
+      expect(e).to.include({ code: 'invalid_query', field: 'expandSets' });
+    }
   });
 });

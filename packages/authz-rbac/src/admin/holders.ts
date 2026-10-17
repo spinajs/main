@@ -28,7 +28,7 @@ export interface HolderVia {
 export interface Holder {
   readonly subject: AssignmentSubject;
   readonly via: readonly HolderVia[];
-  /** A fresh check as this principal, built from its ref alone; absent for a set or a wildcard subject. */
+  /** An introspection check (never audited or cached) as this principal, built from its ref alone; absent for a set or a wildcard subject. */
   readonly decision?: { readonly allowed: boolean; readonly conditional: boolean; readonly reason?: string };
 }
 
@@ -50,10 +50,13 @@ export function grantingRoles(model: RbacModel, permission: Permission): Readonl
   return out;
 }
 
+const VERIFY_CHUNK = 16;
+
 export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{ items: readonly Holder[]; total: number }> {
   const model = ctx.authz.models().find((m): m is RbacModel => m instanceof RbacModel);
   if (!model) throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an RbacModel among the domain's models`);
   if (typeof ctx.authz.ancestors !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with ancestors()`);
+  if (typeof ctx.authz.inspect !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with inspect()`);
   const def = model.permissions().get(q.permission);
   if (def === undefined) throw new AuthzAdminFailure('invalid_query', `unknown permission ${JSON.stringify(q.permission)}`, 'permission');
   // ancestors() answers [ref, GLOBAL] for an unregistered type, so the type has to be vetted here.
@@ -92,13 +95,16 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
 
   const all = [...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, h]) => h);
   const page = all.slice(q.page.offset, q.page.offset + q.page.limit);
-  const items = await Promise.all(page.map(async (h) => Object.freeze({ subject: h.subject, via: Object.freeze([...h.via]), ...(await decisionOf(ctx.authz, h.subject, q)) })));
+  const items: Holder[] = [];
+  for (let i = 0; i < page.length; i += VERIFY_CHUNK) {
+    items.push(...(await Promise.all(page.slice(i, i + VERIFY_CHUNK).map(async (h) => Object.freeze({ subject: h.subject, via: Object.freeze([...h.via]), ...(await decisionOf(ctx.authz, h.subject, q)) })))));
+  }
   return { items: Object.freeze(items), total: all.length };
 }
 
 async function decisionOf(authz: AuthzService, subject: AssignmentSubject, q: HoldersQuery): Promise<Pick<Holder, 'decision'>> {
   if (isSetSubject(subject) || subject.id === '*') return {};
   const principal = Object.freeze({ type: subject.type, id: subject.id, authenticated: subject.type !== 'anonymous' && subject.type !== 'unattended', source: 'holders', attributes: Object.freeze({}) });
-  const d = await authz.check({ principal, permission: q.permission, resource: q.scope, fresh: true });
+  const d = await authz.inspect!({ principal, permission: q.permission, resource: q.scope });
   return { decision: Object.freeze({ allowed: d.allowed, conditional: d.allowed && d.residual?.op !== 'true', ...(d.reason ? { reason: d.reason.code } : {}) }) };
 }
