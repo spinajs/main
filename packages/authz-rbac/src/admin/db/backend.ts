@@ -5,6 +5,7 @@ import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
+import { KeyedMutex } from '@spinajs/util';
 
 import { ADMIN_CONNECTION_KEY } from '../../stores/context.js';
 
@@ -38,16 +39,7 @@ const length = (s: string): number => [...s].length;
  * second transaction opened while one is running would nest inside it. Batches are short and rare, so pooled
  * drivers queue too, which also keeps a waiting batch from holding a pool connection.
  */
-const queues = new WeakMap<OrmDriver, Promise<unknown>>();
-
-function serial<T>(driver: OrmDriver, fn: () => Promise<T>): Promise<T> {
-  const run = (queues.get(driver) ?? Promise.resolve()).then(fn);
-  queues.set(
-    driver,
-    run.catch(() => undefined),
-  );
-  return run;
-}
+const queues = new KeyedMutex<OrmDriver>();
 
 /** Domains whose authz_version row is known to exist, per connection. */
 const versionRows = new WeakMap<OrmDriver, Set<string>>();
@@ -145,7 +137,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     refuseNested(driver);
     // MySQL defaults to REPEATABLE READ, whose snapshot would hide what the batch before this one committed.
     const options: ITransactionOptions | undefined = driver.SupportedIsolationLevels.includes('READ COMMITTED') ? { isolation: 'READ COMMITTED' } : undefined;
-    return serial(driver, async () => {
+    return queues.runExclusive(driver, async () => {
       await this.ensureVersionRow(driver, domain);
       return driver.transaction(async (d) => {
         await this.lock(d, domain);
@@ -171,7 +163,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     const id = entryKey(domain, actorKey, key);
     const driver = await this.connection();
     refuseNested(driver);
-    return serial(driver, async () => {
+    return queues.runExclusive(driver, async () => {
       await readTable(driver, TABLE, IDEMPOTENCY_MIGRATION, async () => {
         await driver.del().from(TABLE).where('domain', domain).where('expires_at', '<=', now);
       });

@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef, ResourceType } from '@spinajs/authz';
+import { findCycle, reachable } from '@spinajs/util';
 
 import type { LadderDef, RoleDef } from '../contracts.js';
 
@@ -110,37 +111,9 @@ function roleEdges(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderD
   return edges;
 }
 
-// Iterative DFS: the graph comes from config, so its depth is not ours to bound.
 function refuseCycles(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<string, readonly OutEdge[]>): void {
-  const ON_PATH = 1;
-  const DONE = 2;
-  const state = new Map<string, number>();
-  for (const start of defs.keys()) {
-    if (state.has(start)) continue;
-    state.set(start, ON_PATH);
-    // `via` is the kind of the edge that led to `node`.
-    const path: { node: string; via: string; next: number }[] = [{ node: start, via: '', next: 0 }];
-    while (path.length) {
-      const top = path[path.length - 1];
-      const out = edges.get(top.node)!;
-      if (top.next === out.length) {
-        state.set(top.node, DONE);
-        path.pop();
-        continue;
-      }
-      const { to, via } = out[top.next++];
-      const seen = state.get(to);
-      if (seen === ON_PATH) {
-        const onCycle = path.slice(path.findIndex((f) => f.node === to));
-        const hops = [...onCycle.slice(1).map((f) => f.via), via];
-        throw new AuthzConfigError(describeCycle([...onCycle.map((f) => f.node), to], hops));
-      }
-      if (seen === undefined) {
-        state.set(to, ON_PATH);
-        path.push({ node: to, via, next: 0 });
-      }
-    }
-  }
+  const cycle = findCycle(defs.keys(), (name: string) => edges.get(name)!, (e: OutEdge) => e.to);
+  if (cycle !== undefined) throw new AuthzConfigError(describeCycle(cycle.nodes, cycle.edges.map((e) => e.via)));
 }
 
 const DENY_GRANT_KEYS = ['relation', 'on', 'fields', 'requiresTag', 'grantedAt'] as const;
@@ -182,16 +155,7 @@ function describeCycle(nodes: readonly string[], hops: readonly string[]): strin
 }
 
 function closureOf(name: string, edges: ReadonlyMap<string, readonly OutEdge[]>): string[] {
-  const closure = [name];
-  const seen = new Set(closure);
-  for (let i = 0; i < closure.length; i++) {
-    for (const { to } of edges.get(closure[i])!) {
-      if (seen.has(to)) continue;
-      seen.add(to);
-      closure.push(to);
-    }
-  }
-  return closure;
+  return reachable(name, (role: string) => edges.get(role)!, (e: OutEdge) => e.to);
 }
 
 function validateRole(def: unknown, index: number): asserts def is RoleDef {
