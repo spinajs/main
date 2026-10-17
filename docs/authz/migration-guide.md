@@ -670,7 +670,8 @@ you any more. At the top of the app's entry, before `Controllers` or `HttpServer
 - `import '@spinajs/authn-totp'` when you want TOTP and the `/user/mfa` routes: `authn-http` no
   longer loads it. Also `import '@spinajs/authn-totp/db'` for its store (section 9, N5).
 - `import '@spinajs/authz-orm'`, `'@spinajs/authz-queue'`, `'@spinajs/authz-fs'` and
-  `'@spinajs/authn-oidc'` when you use them. Installing alone adds nothing (authz-queue's `job:read`
+  `'@spinajs/authn-oidc'` when you use them, and `'@spinajs/authz-queue/jobs'` for the `job` resource
+  on `JobModel` (it needs `@spinajs/authz-orm`). Installing alone adds nothing (authz-queue's `job:read`
   grant included), except that `authn-oidc`'s config adds its controllers to the scan, so an installed
   `authn-oidc` mounts `/auth/oidc/*`; its strategies still need the import.
 - Wire the RBAC model (and ABAC, if you use it) as

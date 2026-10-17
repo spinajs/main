@@ -6,7 +6,8 @@ import { bindConfiguration, bootConfiguration, testHost, violationPaths } from '
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, QueueChangeBus, StampedInitiatorPrincipalFactory } from '../src/index.js';
+import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, QueueChangeBus, StampedInitiatorPrincipalFactory } from '../src/index.js';
+import { AuthzQueueTrackingHook } from '../src/job/index.js';
 
 describe('authz-queue configuration through @Config', () => {
   const children: IContainer[] = [];

@@ -395,9 +395,9 @@ Other routes in authz-http: `GET /user/access` (summary), `POST /user/access/che
 ## Other packages
 
 - **authz-queue**: `AuthzQueueHook` stamps `message.Initiator` (type, id, ceiling) on emit.
-  Handlers run as `UNATTENDED` unless `runAs` is `'initiator'` or `'system'`. `JobModel` is
-  registered as resource `job` with the initiator as owner, and every user gets `job:read` with
-  `relation: 'owner'`.
+  Handlers run as `UNATTENDED` unless `runAs` is `'initiator'` or `'system'`. The
+  `@spinajs/authz-queue/jobs` subpath registers `JobModel` as resource `job` with the initiator as
+  owner, and every user gets `job:read` with `relation: 'owner'`.
 - **Audit**: `DecisionAudit.record` takes kinds `deny`, `runAs`, `unscoped`, `explain`, `system`
   and `admin`. The default writes to the log (`host/audit.ts`); `authz-orm/src/audit/db-audit.ts`
   writes to `authz_audit`.

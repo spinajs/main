@@ -227,15 +227,13 @@ describe('UserPrincipalFactory', function () {
     let usersQueue: UsersQueue;
     let undo: () => void;
 
-    // authz-queue registers its hooks, bus and job resource on import; nothing outside this block may see them.
+    // authz-queue registers its hooks and bus on import; nothing outside this block may see them.
     before(async () => {
       const added = trackRegistrations([QueueMessageHook, QueueTrackingHook, ChangeBus, 'InitiatorPrincipalFactory', QueryMiddleware, ResourceAdapter, AuthzContributor, ConfigurationSource]);
       usersQueue = await import('../src/queue/index.js');
       authzQueue = await import('@spinajs/authz-queue');
       // The root domain of these tests has no queue to carry authz changes over.
       added.drop(ChangeBus);
-      // Its job:read grant names a permission the root domain here does not register.
-      added.drop(ConfigurationSource);
       undo = () => added.dropAll();
     });
 

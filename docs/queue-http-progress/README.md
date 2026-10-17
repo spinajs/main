@@ -14,7 +14,7 @@ The package needs:
 
 - `@spinajs/http`, with an authentication middleware that sets `req.storage.Principal`;
 - `@spinajs/queue` with job tracking, so `JobModel` rows exist in `queue_jobs`;
-- `@spinajs/authz-queue` imported by the app: it registers `JobModel` as the `job` resource and grants the `user` role `job:read` on the jobs it emitted.
+- `@spinajs/authz-queue/jobs` imported by the app: it registers `JobModel` as the `job` resource and grants the `user` role `job:read` on the jobs it emitted.
 
 Installing the package mounts the route: its config adds its `controllers` directory to `system.dirs.controllers`.
 

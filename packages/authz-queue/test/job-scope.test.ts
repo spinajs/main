@@ -14,6 +14,7 @@ import { AuthzConfigError, SYSTEM } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { JobModel } from '@spinajs/queue';
 
+import '../src/job/index.js';
 import { queueHarness } from './support/queue-harness.js';
 
 const { combine, permit, relation, staticModel } = fixtureDsl;
