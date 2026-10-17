@@ -398,7 +398,7 @@ failure they print one line and set the exit code to 1.
 | `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
 | `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
 | `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
-| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads it on `authz.rbac.connection` (else `default`), so map `DbDecisionAudit`'s `authz-audit` connection to the same database ([ORM](#orm-spinajsauthz-orm)). |
+| `authz:check-config [--explain-role <role>]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. The report of unattended queries is `authz:audit-unattended` in `@spinajs/authz-orm` ([ORM](#orm-spinajsauthz-orm)). |
 | `authz:membership-verify` | Recomputes `authz_subject_membership` from the assignments and reports missing, extra and changed rows; exit code 1 on any difference. |
 | `authz:membership-rebuild` | Rewrites `authz_subject_membership` from the assignments. |
 
@@ -621,6 +621,10 @@ export class Folder extends ModelBase {
   Register models before the authz domain boots.
 - `DbDecisionAudit` (`@spinajs/authz-orm/audit`) writes `authz_audit` on the connection named
   `authz-audit`; `DbScopeAttributeStore` keeps `authz_scope_attribute`.
+- `authz:audit-unattended` counts the `authz_audit` rows with the reason `unattended`, by resource
+  type, the most frequent first. It reads the table on the `authz-audit` connection, the one
+  `DbDecisionAudit` writes, and fails when the ORM has no such connection or the table does not
+  exist. It replaces `authz:check-config --unattended` (authz-rbac), which read `authz.rbac.connection`.
 
 Full reference: `packages/authz-orm/README.md`.
 
