@@ -42,7 +42,7 @@ When that configuration is not resolved yet, the read throws `InvalidOperation('
 | --- | --- | --- | --- | --- |
 | Config entry registry | `__configuration_property__` values in the root container, one `{ path, options }` per `@Config` | none | none | Listen with `DI.on('di.registered.__configuration_property__', handler)` and read the existing ones with `DI.get(Array.ofType('__configuration_property__'))`. `@spinajs/configuration-db-source` does this to persist and watch entries. |
 | Entry options | `IConfigEntryOptions` interface in `@spinajs/configuration-common` | `{ defaultValue, required }` | `expose`, `exposeOptions` (`@spinajs/configuration-db-source`) | Augment it with `declare module '@spinajs/configuration-common'`. |
-| Container key | `CONFIGURATION_CONTAINER_KEY` (`'__configurationContainer__'`), an instance property | set by DI | none | Define it on an instance built with `new` to make its `@Config` properties read another container. |
+| Container key | `CONFIGURATION_CONTAINER_KEY` (`'__configurationContainer__'`), an instance property | set by DI | none | Call `bindConfigurationContainer(instance, container)` on an instance built with `new` to make its `@Config` properties read another container. |
 
 ### Config entry registry: custom listener
 
@@ -81,14 +81,14 @@ console.log([...settings.entries()]);
 
 ### Container key: read another container
 
-An instance built with `new` reads the root configuration. Define `CONFIGURATION_CONTAINER_KEY` on it to read a child container's configuration instead; tests use this for objects they build by hand.
+An instance built with `new` reads the root configuration. `bindConfigurationContainer(instance, container)` defines `CONFIGURATION_CONTAINER_KEY` on it (not enumerable) so it reads a child container's configuration instead, and returns the instance; tests use this for objects they build by hand.
 
 ```ts sample
-import { DI, IContainer } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import {
+  bindConfigurationContainer,
   Config,
   Configuration,
-  CONFIGURATION_CONTAINER_KEY,
   ConfigurationSource,
   FrameworkConfiguration,
   StaticConfigurationSource,
@@ -99,18 +99,13 @@ class ReportJob {
   public BatchSize: number;
 }
 
-function readingFrom<T extends object>(instance: T, container: IContainer): T {
-  Object.defineProperty(instance, CONFIGURATION_CONTAINER_KEY, { value: container, configurable: true, writable: true });
-  return instance;
-}
-
 async function main() {
   const tenant = DI.child();
   tenant.register(StaticConfigurationSource({ reports: { batchSize: 500 } })).as(ConfigurationSource);
   tenant.register(class TenantConfiguration extends FrameworkConfiguration {}).as(Configuration);
   await tenant.resolve(Configuration);
 
-  const job = readingFrom(new ReportJob(), tenant);
+  const job = bindConfigurationContainer(new ReportJob(), tenant);
   console.log(job.BatchSize); // 500
 }
 

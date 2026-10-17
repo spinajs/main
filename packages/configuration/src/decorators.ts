@@ -7,6 +7,12 @@ import { InternalLogger } from '@spinajs/internal-logger';
 
 export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
 
+/** Makes the `@Config` properties of `instance`, built with `new` rather than by DI, read the Configuration of `container`. */
+export function bindConfigurationContainer<T extends object>(instance: T, container: IContainer): T {
+  Object.defineProperty(instance, CONFIGURATION_CONTAINER_KEY, { value: container, configurable: true, writable: true });
+  return instance;
+}
+
 /**
  * Reads the Configuration owned by the nearest container (self or ancestor) that registers one.
  * Never goes through `Container.get`'s parent walk: it matches by type name, so a same-named
@@ -263,6 +269,8 @@ export interface INamedServiceOptions<T> {
   default?: string | Class<T> | ((registered: readonly string[]) => string | undefined);
   /** Duck check of the resolved instance (instanceof fails across cjs/mjs copies). */
   is?: (instance: unknown) => boolean;
+  /** Undefined instead of InvalidOption when no name applies: the value is unset and there is no default, or the picker returns none. */
+  optional?: boolean;
 }
 
 /**
@@ -270,9 +278,11 @@ export interface INamedServiceOptions<T> {
  * that is unset. Looked up by registration name across the container lineage, nearest container first.
  * Not for classes the Configuration itself resolves (sources, protocols): it awaits that Configuration.
  *
- * @throws InvalidOption when the value is not a string, no name applies, the name is not registered, or `options.is` rejects the instance
+ * @throws InvalidOption when the value is not a string, no name applies (unless `options.optional`), the name is not registered, or `options.is` rejects the instance
  */
-export async function resolveNamedService<T>(container: IContainer, path: string, type: Class<T>, options: INamedServiceOptions<T> = {}): Promise<T> {
+export async function resolveNamedService<T>(container: IContainer, path: string, type: Class<T>, options: INamedServiceOptions<T> & { optional: true }): Promise<T | undefined>;
+export async function resolveNamedService<T>(container: IContainer, path: string, type: Class<T>, options?: INamedServiceOptions<T>): Promise<T>;
+export async function resolveNamedService<T>(container: IContainer, path: string, type: Class<T>, options: INamedServiceOptions<T> = {}): Promise<T | undefined> {
   const cfg = await resolveOwnConfiguration(container);
   if (!cfg) {
     throw new InvalidOperation(`Cannot resolve the service of ${path}: no container in the lineage registers a Configuration`);
@@ -287,8 +297,12 @@ export async function resolveNamedService<T>(container: IContainer, path: string
   let name = value === '' ? undefined : (value as string | null | undefined) ?? undefined;
   if (name === undefined) {
     const fallback = options.default;
-    if (fallback === undefined) throw new InvalidOption(`${path} is not set (registered: ${listed})`);
+    if (fallback === undefined) {
+      if (options.optional) return undefined;
+      throw new InvalidOption(`${path} is not set (registered: ${listed})`);
+    }
     name = typeof fallback === 'string' ? fallback : fallback.prototype instanceof type ? fallback.name : (fallback as (registered: readonly string[]) => string | undefined)(registered);
+    if (name === undefined && options.optional) return undefined;
     if (name === undefined) throw new InvalidOption(`${path} is not set and no ${type.name} is the default among those registered (${listed}); name one`);
   }
 
@@ -303,7 +317,8 @@ export async function resolveNamedService<T>(container: IContainer, path: string
 }
 
 /**
- * Injects {@link resolveNamedService} for `path` in the resolving container, when the instance is built.
+ * Injects {@link resolveNamedService} for `path` in the resolving container, when the instance is built. With
+ * `optional: true` an unset `path` injects undefined.
  *
  * @example
  * ```ts
