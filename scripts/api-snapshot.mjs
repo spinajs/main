@@ -608,12 +608,17 @@ function main(argv) {
   const [mode = '--update'] = argv;
   if (mode === '--update') {
     const { snapshots } = generateSnapshots();
+    const committed = readCommittedSnapshots();
     for (const [path, text] of snapshots) {
+      const have = committed.get(path);
+      if (have?.replace(/\r\n/g, '\n') === text) continue;
+      // Keep the checkout's line endings (CRLF under git autocrlf) so an update only touches changed snapshots.
+      const out = have?.includes('\r\n') ? text.replace(/\n/g, '\r\n') : text;
       mkdirSync(dirname(join(ROOT, path)), { recursive: true });
-      writeFileSync(join(ROOT, path), text);
+      writeFileSync(join(ROOT, path), out);
       console.log(`wrote ${path}`);
     }
-    for (const path of readCommittedSnapshots().keys()) {
+    for (const path of committed.keys()) {
       if (snapshots.has(path)) continue;
       rmSync(join(ROOT, path));
       console.log(`removed ${path} (no package in scripts/api-snapshot.json produces it)`);
