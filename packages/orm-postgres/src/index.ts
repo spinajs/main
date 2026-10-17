@@ -39,8 +39,13 @@ export function toPositionalParameters(stmt: string): string {
  */
 export function toDriverStatement(stmt: string, params?: unknown[]): string {
   const count = params?.length ?? 0;
+  if (count === 0) {
+    return stmt;
+  }
+
+  // Quoted literals / identifiers and the jsonb operators `?|` `?&` are text, not placeholders.
   let i = 0;
-  return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
+  return stmt.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"|\?&|\?\|(?!\|)|\?/g, (match) => (match === '?' && i < count ? `$${++i}` : match));
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
@@ -138,6 +143,11 @@ export class PostgresOrmDriver extends SqlDriver {
       } else {
         // Taking the client explicitly, instead of letting `Pool.query` do it out of
         // sight, is what makes `orm_pool_acquire_seconds` a real number instead of zero.
+        if (!this.Pool) {
+          // A failed reconnect leaves no pool; 08003 ( connection does not exist ) lets withReconnect retry.
+          throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
+        }
+
         const acquireStart = process.hrtime.bigint();
         const client = await this.Pool.connect();
         this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
@@ -259,6 +269,11 @@ export class PostgresOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     const pool = this.resolvedPoolOptions();
+
+    // A reconnect replaces the pool; the dead one still holds its sockets and timers.
+    const previous = this.Pool;
+    this.Pool = null as any;
+    await previous?.end().catch(() => undefined);
 
     this.Pool = new pg.Pool({
       host: this.Options.Host,
