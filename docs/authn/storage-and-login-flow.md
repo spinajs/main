@@ -144,8 +144,9 @@ the queue sink re-emits `UserLogged` and `UserLoginFailed`.
 
 Defaults to watch:
 
-- `authn.session.service` defaults to `MemorySessionStore` (`authn-session/src/config/session.ts:4`).
+- `authn.session.service` defaults to `MemorySessionStore` (`authn-session/src/config/session.ts:5`).
   Sessions are lost on restart and not shared between nodes until an app picks a persistent store.
+  The other `authn.session` values come from the schema defaults.
 - When `authn.throttle.service` is unset, the only registered non-memory throttle wins
   (`authn/src/service/default-authn-service.ts:134-137`). Without `authn-orm` that is the memory one.
 
@@ -274,6 +275,10 @@ period, window 1, 10 recovery codes. TOTP is off until the app adds the step to 
   idle deadline.
 - `rotate` and `elevate` re-key the row.
 - A 2.x uuid session id is found by its raw value once and migrated to the hashed key.
+- The issuer is `@PerChildInstance`: a child container gets its own, which reads that container's
+  `authn.session` (store, `pendingTtlSeconds`).
+- `MemorySessionStore` drops expired rows every 256 saves, so sessions that are never restored again
+  do not pile up.
 
 The cookie (`authn-session/src/cookie.ts`) is named `ssid`, or `__Host-ssid` when `hostPrefix` is
 `'auto'` outside development and test. It is httpOnly, Secure (auto), `SameSite=strict`, has no
