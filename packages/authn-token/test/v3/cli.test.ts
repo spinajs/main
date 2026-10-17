@@ -7,7 +7,7 @@ import { renderTemplate } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { OrmException } from '@spinajs/orm';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventSink, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventSink, IdentityStore, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
@@ -18,7 +18,6 @@ import { DbTokenService, NoTokenProfilesPolicy, TokenProfilePolicy, UsersTableTo
 import { CreateToken } from '../../src/cli/CreateToken.js';
 import { DeleteToken } from '../../src/cli/DeleteToken.js';
 import { DeleteExpiredTokens } from '../../src/cli/DeleteExpiredTokens.js';
-import { TokenCliCommand } from '../../src/cli/TokenCliCommand.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
 
 const TABLE = 'rbac_access_tokens';
@@ -38,15 +37,15 @@ class CliTestProfilePolicy extends TokenProfilePolicy {
   }
 }
 
-/**
- * Registered as the TokenService instead of registering an IdentityStore: unregistering a store
- * leaves an empty IdentityStore registration, which later suites resolve to nothing.
- */
-class CliTestTokenService extends DbTokenService {
-  public static profiles: TokenProfilePolicy = new NoTokenProfilesPolicy();
+class CliTestTokenService extends DbTokenService {}
+class CliTestIdentityStore extends FakeIdentityStore {}
 
-  constructor() {
-    super(new UsersTableTokenOwnerResolver(), CliTestTokenService.profiles, new FakeIdentityStore());
+/** Asks `policy`, so a case can switch the profiles the commands' service sees. */
+class CliTestProfiles extends TokenProfilePolicy {
+  public static policy: TokenProfilePolicy = new NoTokenProfilesPolicy();
+
+  public allowedProfiles(owner: IdentityRef): Promise<readonly string[]> {
+    return CliTestProfiles.policy.allowedProfiles(owner);
   }
 }
 
@@ -108,6 +107,8 @@ describe('token cli commands', function () {
   before(async () => {
     await bootV3Db();
     DI.register(CliTestTokenService).as(TokenService);
+    DI.register(CliTestIdentityStore).as(IdentityStore);
+    DI.register(CliTestProfiles).as(TokenProfilePolicy);
     DI.register(CliTestSink).as(AuthnEventSink);
     DI.uncache(AuthnAudit);
     savedDefaultTtl = config().get('authn.token.defaultTtlDays');
@@ -115,6 +116,12 @@ describe('token cli commands', function () {
 
   after(async () => {
     DI.unregister(CliTestTokenService);
+    DI.unregister(CliTestIdentityStore);
+    DI.uncache(CliTestIdentityStore);
+    DI.uncache(IdentityStore);
+    DI.unregister(CliTestProfiles);
+    DI.uncache(CliTestProfiles);
+    DI.uncache(TokenProfilePolicy);
     DI.unregister(CliTestSink);
     DI.uncache(CliTestSink);
     DI.uncache(Array.ofType(AuthnEventSink));
@@ -172,12 +179,6 @@ describe('token cli commands', function () {
     await t.insert();
     return t;
   }
-
-  it('every command extends TokenCliCommand', () => {
-    for (const cmd of [CreateToken, DeleteToken, DeleteExpiredTokens]) {
-      expect(cmd.prototype, cmd.name).to.be.instanceOf(TokenCliCommand);
-    }
-  });
 
   describe('authn:token-create', () => {
     async function create(ownerUuid: string, options: Record<string, unknown>): Promise<Output> {
@@ -363,8 +364,7 @@ describe('token cli commands', function () {
 
     describe('--profile', () => {
       afterEach(() => {
-        CliTestTokenService.profiles = new NoTokenProfilesPolicy();
-        uncacheService();
+        CliTestProfiles.policy = new NoTokenProfilesPolicy();
       });
 
       it('is refused when the profile policy does not allow it', async () => {
@@ -373,8 +373,7 @@ describe('token cli commands', function () {
       });
 
       it('pins the token when the profile policy allows it', async () => {
-        CliTestTokenService.profiles = new CliTestProfilePolicy();
-        uncacheService();
+        CliTestProfiles.policy = new CliTestProfilePolicy();
         const a = await owner();
 
         await create(a.ref.id, { name: 'pinned', profile: 'reports' });

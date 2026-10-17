@@ -342,6 +342,10 @@ export async function shutdownBehaviourApp(): Promise<void> {
   await uncacheCaseServices();
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
+  // authn-token's owner resolver holds the Orm it was built with.
+  const tokens = (await import(new URL('service/index.js', TOKEN_LIB).href)) as Record<'TokenOwnerResolver' | 'UsersTableTokenOwnerResolver', Class<unknown>>;
+  DI.uncache(tokens.UsersTableTokenOwnerResolver);
+  DI.uncache(tokens.TokenOwnerResolver);
   await stopApp();
   booted = false;
 }

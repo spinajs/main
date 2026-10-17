@@ -8,9 +8,10 @@ import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityS
 import { AuthnAudit } from '@spinajs/authn/audit';
 
 import '../../src/generator.js';
-import { DbTokenService, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
+import { DbTokenService, TokenProfilePolicy } from '../../src/service/index.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
+import { tokenServiceOver, tokenStrategyOver } from './services.js';
 
 const TABLE = 'rbac_access_tokens';
 const NOW = new Date('2026-10-03T10:00:00.000Z');
@@ -57,8 +58,8 @@ describe('agent tokens (A15)', function () {
   beforeEach(async () => {
     identities = new FakeIdentityStore();
     profiles = new AgentTestProfilePolicy();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([]));
-    strategy = new TokenStrategy(tokens);
+    tokens = await tokenServiceOver({ identities, profiles, auditor: AuthnAudit.over([]) });
+    strategy = tokenStrategyOver(tokens);
     await strategy.resolve();
   });
 
