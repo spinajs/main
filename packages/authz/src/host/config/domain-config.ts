@@ -6,6 +6,7 @@ export interface PermissionConfig {
   readonly description?: string;
   readonly fields?: boolean;
   readonly list?: boolean;
+  readonly consistency?: 'cached' | 'fresh';
   readonly types?: readonly string[];
   readonly implies?: readonly string[];
 }

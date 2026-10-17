@@ -12,6 +12,8 @@ export interface PermissionDef {
   readonly fields?: boolean; // grants/policies may carry field sets
   /** Usable with list helpers (`.accessible()`); boot rule 12 checks every model can plan it. */
   readonly list?: boolean;
+  /** 'fresh': every check of it skips the decision and model caches; default 'cached'. */
+  readonly consistency?: 'cached' | 'fresh';
   readonly description?: string;
   readonly source: string; // 'config' | 'adapter:orm' | 'model:rbac' ...
 }

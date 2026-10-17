@@ -49,6 +49,7 @@ const permissions = {
       description: { type: 'string' },
       fields: { type: 'boolean' },
       list: { type: 'boolean' },
+      consistency: { type: 'string', enum: ['cached', 'fresh'] },
       types: stringList,
       implies: stringList,
     },

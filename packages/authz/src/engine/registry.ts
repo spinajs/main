@@ -14,6 +14,7 @@ interface Entry {
   readonly implies: Permission[];
   fields?: boolean;
   list?: boolean;
+  consistency?: 'cached' | 'fresh';
   description?: string;
   readonly sources: string[];
   def: PermissionDef;
@@ -67,6 +68,9 @@ export class PermissionRegistryImpl extends PermissionRegistry {
       }
       if (n.list !== undefined) {
         existing.list = existing.list === true || n.list;
+      }
+      if (n.consistency !== undefined) {
+        existing.consistency = existing.consistency === 'fresh' ? 'fresh' : n.consistency;
       }
       if (!existing.description && n.description) {
         existing.description = n.description;
@@ -212,11 +216,14 @@ const normalize = (def: PermissionInput, source: string): Normalized => {
   if (def.list !== undefined && typeof def.list !== 'boolean') {
     throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: list must be a boolean`);
   }
+  if (def.consistency !== undefined && def.consistency !== 'cached' && def.consistency !== 'fresh') {
+    throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: consistency must be 'cached' or 'fresh'`);
+  }
   if (def.description !== undefined && typeof def.description !== 'string') {
     throw new AuthzConfigError(`Permission ${quote(name)} from source ${quote(source)}: description must be a string`);
   }
 
-  return { name, resource, action, types, implies, fields: def.fields, list: def.list, description: def.description };
+  return { name, resource, action, types, implies, fields: def.fields, list: def.list, consistency: def.consistency, description: def.description };
 };
 
 const toDef = (e: Omit<Entry, 'def'>): PermissionDef => {
@@ -229,6 +236,9 @@ const toDef = (e: Omit<Entry, 'def'>): PermissionDef => {
   }
   if (e.list !== undefined) {
     def.list = e.list;
+  }
+  if (e.consistency !== undefined) {
+    def.consistency = e.consistency;
   }
   if (e.description) {
     def.description = e.description;
