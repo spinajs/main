@@ -1,12 +1,13 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnResponseExtension, PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered, assertFreshAuth } from '../index.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
 import { isAuthnFailed, refused, unauthenticated } from '../../policies/v3/errors.js';
+import { FreshAuthVerifier } from '../../policies/v3/fresh-auth.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, onLiveSession } from '../routes.js';
@@ -23,11 +24,14 @@ const ROLE_CAP = 256;
 @BasePath('auth')
 @Policy(RoleSourceRegistered)
 export class AuthnActiveRoleController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
-
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
+
+  @Autoinject(FreshAuthVerifier)
+  protected FreshAuth!: FreshAuthVerifier;
+
+  @Autoinject(Array.ofType(AuthnResponseExtension), { lazy: true })
+  protected Extensions!: Lazy<AuthnResponseExtension[]>;
 
   @Autoinject(PrincipalFactory, { optional: true })
   protected Principals: PrincipalFactory | undefined;
@@ -64,7 +68,7 @@ export class AuthnActiveRoleController extends BaseController {
     // Anything but an explicit false asks for the password.
     if (entry.requirePassword !== false) {
       try {
-        await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
+        await this.FreshAuth.verify(req, undefined, bodyField(req, 'password', 'Password'));
       } catch (err) {
         if (isAuthnFailed(err)) return authnFailureResponse();
         throw err;
@@ -78,7 +82,7 @@ export class AuthnActiveRoleController extends BaseController {
     if (!now) throw unauthenticated('the session has ended');
     const factory = this.Principals!;
     const principal = await factory.principalOf(now.identity, now.facts, { ceiling: { roles: [role] } });
-    return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
+    return new Ok(await answerFor(this.Extensions, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
   }
 
   protected own(req: Request): Session {

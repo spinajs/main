@@ -1,6 +1,7 @@
 import type { IContainer } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
+import { FreshAuthVerifier } from '../../src/policies/v3/fresh-auth.js';
 import { FreshAuth, MfaSatisfied } from '../../src/v3/index.js';
 
 /** The probe controller's base path (support/AuthnPolicyProbeController). */
@@ -14,8 +15,8 @@ export function usePolicyContainer(container: IContainer | null): void {
 }
 
 export class SuiteFreshAuth extends FreshAuth {
-  public execute(req: Request, action: IRoute, instance: IController): Promise<void> {
-    if (suiteContainer) this.Container = suiteContainer;
+  public async execute(req: Request, action: IRoute, instance: IController): Promise<void> {
+    if (suiteContainer) this.Verifier = await suiteContainer.resolve(FreshAuthVerifier);
     return super.execute(req, action, instance);
   }
 }

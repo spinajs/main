@@ -1,4 +1,5 @@
-import { DI } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command } from '@spinajs/cli';
 
@@ -10,9 +11,12 @@ export class ExpirePasswords extends CliCommand {
   @Logger('authn-local')
   protected Log: Log;
 
+  // Lazy: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
+  @Autoinject(PasswordExpirationJob, { lazy: true })
+  protected Job!: Lazy<PasswordExpirationJob>;
+
   public async execute(): Promise<void> {
-    // Per call: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
-    const job = await DI.resolve(PasswordExpirationJob);
+    const job = await this.Job();
     const result = await job.run();
     if (result.idle === 'disabled') {
       this.Log.info('Password expiry is disabled (authn.local.expiration.enabled)');

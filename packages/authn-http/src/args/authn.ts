@@ -5,7 +5,7 @@ import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import type { AuthnIdentity } from '../api.js';
 
 // DI keys classes by name (N8a-D2), so these are named apart from any other route arg. @spinajs/http resolves a route
-// arg by this name from the root container; registerAuthnHttpV3 registers them there.
+// arg by this name from the root container, where loading the package registers them (registerAuthnHttpV3).
 
 /**
  * Resolves to the AuthnIdentity of req.storage.AuthnPrincipal, or null without a principal (a pending session gives null).

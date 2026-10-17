@@ -8,7 +8,7 @@ import { inspect } from 'node:util';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { BaseController, Controllers, HttpServer } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
 import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
@@ -17,6 +17,7 @@ import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
+import { AuthnPrincipalResolver } from '../../src/api.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { dropOwnCompiledDirs } from '../token-db-common.js';
 
@@ -142,7 +143,7 @@ async function wire(): Promise<void> {
   const { MfaStep } = await import('@spinajs/authn/contracts');
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
-  await registerAuthnHttpV3();
+  registerAuthnHttpV3();
 }
 
 /**
@@ -155,9 +156,14 @@ export async function switchHooksOn(): Promise<void> {
   hooksOn = true;
   bind(RoleSource, 'V3AppRoleSource', () => current.roles);
   bind(ImpersonationGuard, 'V3AppImpersonationGuard', () => current.guard);
-  // It reads the guard when it resolves, which a request with a session may have done already.
+  // It reads the guard when it resolves, which a request with a session may have done already. The session resolver
+  // (held by AuthnMiddleware) and the controllers keep the instance they resolved first, so they are rebuilt too.
   const { AuthnImpersonationService } = await import('@spinajs/authn');
   DI.uncache(AuthnImpersonationService);
+  for (const base of [AuthnPrincipalResolver, ServerMiddleware]) {
+    for (const type of DI.getRegisteredTypes(base as Class<unknown>) ?? []) DI.uncache(type as Class<unknown>);
+    DI.uncache(base as Class<unknown>);
+  }
   await rebuildServer();
 }
 

@@ -1,4 +1,3 @@
-import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -87,7 +86,6 @@ function carriesCookie(header: string | undefined, names: readonly string[]): bo
  * same-origin) is the app's own origin or in authn.http.csrf.allowedOrigins; else 403 before any controller (A22,
  * SR-12). Requests without the session cookie are not checked, login included.
  */
-@Injectable(ServerMiddleware)
 export class CsrfOriginGuard extends ServerMiddleware {
   @Config('authn.http.csrf.enabled')
   protected Enabled: boolean;

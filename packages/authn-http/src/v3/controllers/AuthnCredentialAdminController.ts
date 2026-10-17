@@ -1,9 +1,10 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import type { IContainer, Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Del, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { AuthnAudit } from '@spinajs/authn';
 import { CredentialAdminGuard, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
 
@@ -11,10 +12,11 @@ import { guardRefusal, invalidSendReset, sendResetOf, targetNotFound, targetOf }
 import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered, adminTotpServiceOf } from '../../admin/gate.js';
 import { PasswordServiceRegistered } from '../../password/gate.js';
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
+import { FreshAuthVerifier } from '../../policies/v3/fresh-auth.js';
 import { authenticatedPrincipal } from '../../policies/v3/principal.js';
 import { takeReauthPassword } from '../../token/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 
@@ -45,6 +47,16 @@ export class AuthnCredentialAdminController extends BaseController {
 
   @Autoinject(CredentialAdminGuard, { optional: true })
   protected Guard: CredentialAdminGuard | undefined;
+
+  // Lazy: apps that list no token strategy register no TokenService.
+  @Autoinject(TokenService, { lazy: true })
+  protected Tokens!: Lazy<TokenService>;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
+
+  @Autoinject(FreshAuthVerifier)
+  protected FreshAuth!: FreshAuthVerifier;
 
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
@@ -104,7 +116,7 @@ export class AuthnCredentialAdminController extends BaseController {
     if ('answer' in admitted) return admitted.answer;
     const revoked = await this.Sessions!.revokeAll(admitted.target, { includeImpersonations: true });
     // SessionIssuer audits nothing.
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
+    await publishAuthnEvent(this.Audit, req, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
   }
 
@@ -118,8 +130,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async tokens(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'tokens');
     if ('answer' in admitted) return admitted.answer;
-    // Per call: apps that list no token strategy register no TokenService.
-    const revoked = await (await this.Container.resolve(TokenService)).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
+    const revoked = await (await this.Tokens()).revokeAllFor(admitted.target, admitted.ctx, { actor: admitted.actor });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
   }
 
@@ -131,7 +142,7 @@ export class AuthnCredentialAdminController extends BaseController {
     try {
       // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
       // a password while a gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
+      await this.FreshAuth.verify(req, undefined, password);
     } catch (err) {
       // The thrown error's body carries a stack outside production; login's answer never does.
       if (isAuthnFailed(err)) return { answer: authnFailureResponse() };

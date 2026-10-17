@@ -1,8 +1,8 @@
-import { Autoinject, Container, NewInstance } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject, NewInstance, PerChildInstance } from '@spinajs/di';
+import type { IContainer, Lazy } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { FreshAuthCheck, isFresh } from '@spinajs/authn';
+import { AuthnAudit, FreshAuthCheck, isFresh } from '@spinajs/authn';
 import { AuthnService, IdentityStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef } from '@spinajs/authn/contracts';
 import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
@@ -18,11 +18,11 @@ export const REAUTH_PASSWORD_FIELD = 'reauthPassword';
 export const PASSWORD_HARD_CAP = 1024;
 
 /** The credentials to verify, or why there are none (an audit reason). */
-async function passwordCredentials(container: IContainer, identity: IdentityRef, password: string): Promise<Credentials | 'password_too_long' | 'no_login'> {
+async function passwordCredentials(identities: Lazy<IdentityStore>, identity: IdentityRef, password: string): Promise<Credentials | 'password_too_long' | 'no_login'> {
   if (password.length > PASSWORD_HARD_CAP) return 'password_too_long';
   // The principal carries no login. IdentityStore.findByLogin takes an email, so display's email is one; reauthenticate
   // still refuses a password whose identity is not the session's.
-  const { email } = await (await container.resolve(IdentityStore)).display(identity);
+  const { email } = await (await identities()).display(identity);
   return typeof email === 'string' && email !== '' ? { kind: 'password', login: email, password } : 'no_login';
 }
 
@@ -35,30 +35,50 @@ async function passwordCredentials(container: IContainer, identity: IdentityRef,
  * credentials it verified, or null when the session was fresh without them.
  */
 export async function assertFreshAuth(container: IContainer, req: Request, maxAgeSeconds?: number, password?: unknown): Promise<Credentials | null> {
-  const principal = authenticatedPrincipal(req);
-  const authn = principal.authn;
-  const session = req.storage.AuthnSession;
-  if (!authn || !isSessionPrincipal(principal) || session?.handle.state !== 'active') throw refused('session_required', 'fresh authentication needs a session');
-  if (authn.impersonator !== undefined) throw refused('impersonating', 'no fresh authentication while impersonating another user');
+  return (await container.resolve(FreshAuthVerifier)).verify(req, maxAgeSeconds, password);
+}
 
-  const check = await container.resolve(FreshAuthCheck);
-  const maxAge = maxAgeSeconds ?? check.maxAgeSeconds;
-  const ctx: AuthnContext = { ip: req.storage.ClientIp, userAgent: req.headers['user-agent'], now: new Date(), purpose: 'reauth', session: session.handle };
-  if (isFresh(authn, ctx.now, maxAge)) return null;
+/** assertFreshAuth for code that injects it, its collaborators resolved on first use in the container that built it. */
+@PerChildInstance()
+export class FreshAuthVerifier {
+  @Autoinject(FreshAuthCheck, { lazy: true })
+  protected Check!: Lazy<FreshAuthCheck>;
 
-  if (typeof password !== 'string' || password === '') throw refused('fresh_auth_required', 'this route needs a recent login or the password');
-  const credentials = await passwordCredentials(container, session.identity, password);
-  if (typeof credentials === 'string') {
-    // Core never sees these attempts, so it cannot audit them; no_login is a store defect that looks like a wrong password.
-    const { sessionHandle } = session.facts;
-    await publishAuthnEvent(container, req, { type: 'reauth', outcome: 'failure', reason: credentials, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
-    throw authnFailed();
+  @Autoinject(IdentityStore, { lazy: true })
+  protected Identities!: Lazy<IdentityStore>;
+
+  @Autoinject(AuthnService, { lazy: true })
+  protected Authn!: Lazy<AuthnService>;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
+
+  public async verify(req: Request, maxAgeSeconds?: number, password?: unknown): Promise<Credentials | null> {
+    const principal = authenticatedPrincipal(req);
+    const authn = principal.authn;
+    const session = req.storage.AuthnSession;
+    if (!authn || !isSessionPrincipal(principal) || session?.handle.state !== 'active') throw refused('session_required', 'fresh authentication needs a session');
+    if (authn.impersonator !== undefined) throw refused('impersonating', 'no fresh authentication while impersonating another user');
+
+    const check = await this.Check();
+    const maxAge = maxAgeSeconds ?? check.maxAgeSeconds;
+    const ctx: AuthnContext = { ip: req.storage.ClientIp, userAgent: req.headers['user-agent'], now: new Date(), purpose: 'reauth', session: session.handle };
+    if (isFresh(authn, ctx.now, maxAge)) return null;
+
+    if (typeof password !== 'string' || password === '') throw refused('fresh_auth_required', 'this route needs a recent login or the password');
+    const credentials = await passwordCredentials(this.Identities, session.identity, password);
+    if (typeof credentials === 'string') {
+      // Core never sees these attempts, so it cannot audit them; no_login is a store defect that looks like a wrong password.
+      const { sessionHandle } = session.facts;
+      await publishAuthnEvent(this.Audit, req, { type: 'reauth', outcome: 'failure', reason: credentials, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+      throw authnFailed();
+    }
+    // FreshAuthCheck.check passes a session that is fresh under its own, longer maxAge without verifying the password; a
+    // stricter route age therefore verifies through the core re-authentication itself.
+    const ok = maxAge >= check.maxAgeSeconds ? await check.check(session.handle, ctx, credentials) : await (await this.Authn()).reauthenticate(session.handle, credentials, ctx);
+    if (!ok) throw authnFailed();
+    return credentials;
   }
-  // FreshAuthCheck.check passes a session that is fresh under its own, longer maxAge without verifying the password; a
-  // stricter route age therefore verifies through the core re-authentication itself.
-  const ok = maxAge >= check.maxAgeSeconds ? await check.check(session.handle, ctx, credentials) : await (await container.resolve(AuthnService)).reauthenticate(session.handle, credentials, ctx);
-  if (!ok) throw authnFailed();
-  return credentials;
 }
 
 /**
@@ -69,8 +89,8 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
  */
 @NewInstance()
 export class FreshAuth extends BasePolicy {
-  @Autoinject(Container)
-  protected Container!: IContainer;
+  @Autoinject(FreshAuthVerifier)
+  protected Verifier!: FreshAuthVerifier;
 
   constructor(public readonly maxAgeSeconds?: number) {
     super();
@@ -96,6 +116,6 @@ export class FreshAuth extends BasePolicy {
         delete (req as { rawBody?: unknown }).rawBody;
       }
     }
-    await assertFreshAuth(this.Container, req, this.maxAgeSeconds, password);
+    await this.Verifier.verify(req, this.maxAgeSeconds, password);
   }
 }

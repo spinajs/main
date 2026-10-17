@@ -1,9 +1,11 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import type { IContainer, Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { AuthnAudit } from '@spinajs/authn';
+import { IdentityStore } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
 import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
@@ -34,6 +36,12 @@ import { contextOf } from '../routes.js';
 export class AuthnMfaEnrolmentController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
+
+  @Autoinject(IdentityStore, { lazy: true })
+  protected Identities!: Lazy<IdentityStore>;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
 
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
@@ -68,7 +76,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async begin(@Req() req: Request) {
     const session = ownSession(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const reauth = await reauthOf(this.Identities, this.Audit, req, session);
     if ('answer' in reauth) return reauth.answer;
     const result = await (await this.totp()).begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
@@ -101,7 +109,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async disable(@Req() req: Request) {
     const session = activeSession(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const reauth = await reauthOf(this.Identities, this.Audit, req, session);
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
@@ -119,7 +127,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async recoveryCodes(@Req() req: Request) {
     const session = activeSession(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const reauth = await reauthOf(this.Identities, this.Audit, req, session);
     if ('answer' in reauth) return reauth.answer;
     const result = await (await this.totp()).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });

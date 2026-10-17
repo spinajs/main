@@ -1,13 +1,14 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Del, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { AuthnImpersonationService } from '@spinajs/authn';
-import { SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnResponseExtension, PrincipalFactory, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Credentials } from '@spinajs/authn/contracts';
 
-import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied, assertFreshAuth } from '../index.js';
+import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied } from '../index.js';
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
+import { FreshAuthVerifier } from '../../policies/v3/fresh-auth.js';
 import { isSessionPrincipal } from '../../policies/v3/principal.js';
 import { narrowedBySwitch } from '../../resolvers/session.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
@@ -25,11 +26,21 @@ const TARGET_CAP = 256;
 @BasePath('auth')
 @Policy(ImpersonationGuardRegistered)
 export class AuthnImpersonationController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
-
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
+
+  // Lazy: apps that don't enable impersonation register none of its collaborators.
+  @Autoinject(AuthnImpersonationService, { lazy: true })
+  protected Impersonation!: Lazy<AuthnImpersonationService>;
+
+  @Autoinject(FreshAuthVerifier)
+  protected FreshAuth!: FreshAuthVerifier;
+
+  @Autoinject(PrincipalFactory, { lazy: true })
+  protected Principals!: Lazy<PrincipalFactory>;
+
+  @Autoinject(Array.ofType(AuthnResponseExtension), { lazy: true })
+  protected Extensions!: Lazy<AuthnResponseExtension[]>;
 
   /**
    * Impersonation state
@@ -70,14 +81,13 @@ export class AuthnImpersonationController extends BaseController {
 
     let reauth: Credentials | null;
     try {
-      reauth = await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
+      reauth = await this.FreshAuth.verify(req, undefined, bodyField(req, 'password', 'Password'));
     } catch (err) {
       if (isAuthnFailed(err)) return authnFailureResponse();
       throw err;
     }
 
-    // Per call: apps that don't enable impersonation register none of its collaborators.
-    const service = await this.Container.resolve(AuthnImpersonationService);
+    const service = await this.Impersonation();
     const ctx = contextOf(req, 'request', session.handle);
     // The service checks freshness again when authn.impersonation.requirePassword is on; a stale session passed above
     // only with the password, which it then needs too.
@@ -86,7 +96,7 @@ export class AuthnImpersonationController extends BaseController {
     await stampClient(this.Sessions, started.session, req);
     const principal = await service.principalOf(started.session, ctx);
     if (!principal) return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
-    return new Ok(await answerFor(this.Container, 'impersonation', principal), { Coockies: [authnSessionCookie(this._cfg, started.session)], Headers: [NO_STORE] });
+    return new Ok(await answerFor(this.Extensions, 'impersonation', principal), { Coockies: [authnSessionCookie(this._cfg, started.session)], Headers: [NO_STORE] });
   }
 
   /**
@@ -102,8 +112,7 @@ export class AuthnImpersonationController extends BaseController {
     if (!req.storage.AuthnPrincipal?.authn?.impersonator || session?.handle.state !== 'active') {
       return new BadRequestResponse({ error: 'not_impersonating', message: 'no impersonation is active' });
     }
-    // Per call: apps that don't enable impersonation register none of its collaborators.
-    const service = await this.Container.resolve(AuthnImpersonationService);
+    const service = await this.Impersonation();
     const ctx = contextOf(req, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);
     const sessions = this.Sessions;
@@ -116,7 +125,7 @@ export class AuthnImpersonationController extends BaseController {
     }
     await stampClient(sessions, back, req);
     // stop gave the actor its role switch back; answer with the principal the next request resolves to.
-    const narrowed = await narrowedBySwitch(this.Container, restored, own);
-    return new Ok(await answerFor(this.Container, 'impersonation', narrowed), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });
+    const narrowed = await narrowedBySwitch(this.Principals, restored, own);
+    return new Ok(await answerFor(this.Extensions, 'impersonation', narrowed), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });
   }
 }

@@ -1,5 +1,5 @@
-import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject, PerChildInstance } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { AuthnImpersonationService, activeRoleCeiling } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, IdentityStatus, Principal, Session } from '@spinajs/authn/contracts';
@@ -15,10 +15,10 @@ const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
 
 /** `principal` of `session`, narrowed by the session's role switch (D14): the principal every request on it resolves to. */
-export async function narrowedBySwitch(container: IContainer, session: Pick<Session, 'identity' | 'facts' | 'activeRole'>, principal: Principal): Promise<Principal> {
+export async function narrowedBySwitch(principals: Lazy<PrincipalFactory>, session: Pick<Session, 'identity' | 'facts' | 'activeRole'>, principal: Principal): Promise<Principal> {
   const ceiling = activeRoleCeiling(session);
   if (!ceiling) return principal;
-  const factory = await container.resolve(PrincipalFactory);
+  const factory = await principals();
   return factory.principalOf(session.identity, session.facts, { ceiling });
 }
 
@@ -31,8 +31,16 @@ export async function narrowedBySwitch(container: IContainer, session: Pick<Sess
 export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 100;
 
-  @Autoinject(Container)
-  protected Container!: IContainer;
+  // Lazy: an eager AuthnImpersonationService needs its own optional collaborators, missing in apps that don't enable it.
+  @Autoinject(AuthnImpersonationService, { lazy: true })
+  protected Impersonation!: Lazy<AuthnImpersonationService>;
+
+  // Lazy: apps may not register an IdentityStore.
+  @Autoinject(IdentityStore, { lazy: true })
+  protected Identities!: Lazy<IdentityStore>;
+
+  @Autoinject(PrincipalFactory, { lazy: true })
+  protected Principals!: Lazy<PrincipalFactory>;
 
   public async resolve(req: Request, _credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined> {
     const session = req.storage.AuthnSession;
@@ -44,21 +52,19 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   public async principalOfSession(session: Session, ctx: AuthnContext): Promise<Principal | null> {
     if (session.handle.state !== 'active') return null;
 
-    // Per call: an eager AuthnImpersonationService needs its own optional collaborators, missing in apps that don't enable it.
-    const impersonation = await this.Container.resolve(AuthnImpersonationService);
+    const impersonation = await this.Impersonation();
     const principal = await impersonation.principalOf(session.handle, ctx);
     if (!principal) {
       await this.endRefused(session, impersonation);
       return null;
     }
 
-    return narrowedBySwitch(this.Container, session, principal);
+    return narrowedBySwitch(this.Principals, session, principal);
   }
 
   /** authn-http cannot see the users lifecycle actions, so a refused status found here ends the identity's sessions (N8a-D4). */
   protected async endRefused(session: Session, impersonation: AuthnImpersonationService): Promise<void> {
-    // Per call: apps may not register an IdentityStore.
-    const identities = await this.Container.resolve(IdentityStore);
+    const identities = await this.Identities();
     const subjects: IdentityRef[] = [session.identity, ...(session.facts.impersonator ? [session.facts.impersonator] : [])];
     for (const subject of subjects) {
       if (VOUCHED_TYPES.has(subject.type)) continue;

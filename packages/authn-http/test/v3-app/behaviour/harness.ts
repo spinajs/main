@@ -31,6 +31,7 @@ import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource,
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HarnessFactory, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
 
 import { AuthnPrincipalResolver } from '../../../src/api.js';
+import { FreshAuthVerifier } from '../../../src/policies/v3/fresh-auth.js';
 import { AUTHN_PROBE_PATH, resetAuthnProbeHits } from '../../v3/probe.js';
 import { PORT, bind, bootApp, releaseHttpServer, startServer, stopApp, switchHooksOn, useFakes } from '../app.js';
 import type { AppFakes } from '../app.js';
@@ -243,7 +244,7 @@ async function uncacheCaseServices(): Promise<void> {
     for (const type of DI.getRegisteredTypes(base as Class<unknown>) ?? []) DI.uncache(type as Class<unknown>);
     DI.uncache(base as Class<unknown>);
   }
-  for (const type of [authn.StrategyRegistry, authn.AuthnAudit, authn.FreshAuthCheck, authn.AuthnImpersonationService, authn.AccountLinkService]) DI.uncache(type as Class<unknown>);
+  for (const type of [authn.StrategyRegistry, authn.AuthnAudit, authn.FreshAuthCheck, authn.AuthnImpersonationService, authn.AccountLinkService, FreshAuthVerifier]) DI.uncache(type as Class<unknown>);
 }
 
 function freshFakes(): CaseFakes {

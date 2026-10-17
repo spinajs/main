@@ -1,7 +1,8 @@
-import type { IContainer } from '@spinajs/di';
+import type { IContainer, Lazy } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Request } from '@spinajs/http';
 import { mfaEnrolmentRefusal } from '@spinajs/authn';
+import type { AuthnAudit } from '@spinajs/authn';
 import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
@@ -52,12 +53,12 @@ export async function stampClient(sessions: SessionIssuer, handle: SessionHandle
  * Audits the end of `session` by this request: `type` for the session, plus `impersonation.end` with `reason` when it
  * was an impersonation, which AuthnImpersonationService audits only for its own stop and expiry (A20).
  */
-export async function auditEnded(container: IContainer, req: Request, session: Session, type: 'logout' | 'session.revoke', reason: string): Promise<void> {
+export async function auditEnded(audit: Lazy<AuthnAudit>, req: Request, session: Session, type: 'logout' | 'session.revoke', reason: string): Promise<void> {
   const { sessionHandle, impersonator } = session.facts;
   const about = { identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) };
   const actor = impersonator ? { actor: { type: impersonator.type, id: impersonator.id } } : {};
-  await publishAuthnEvent(container, req, { type, outcome: 'success', reason, ...about, ...actor });
-  if (impersonator) await publishAuthnEvent(container, req, { type: 'impersonation.end', outcome: 'success', reason, ...about, ...actor });
+  await publishAuthnEvent(audit, req, { type, outcome: 'success', reason, ...about, ...actor });
+  if (impersonator) await publishAuthnEvent(audit, req, { type: 'impersonation.end', outcome: 'success', reason, ...about, ...actor });
 }
 
 /**
@@ -92,11 +93,10 @@ export function summaryOf(p: Principal): Record<string, unknown> {
 }
 
 /** The principal summary, then each registered AuthnResponseExtension in turn (D26: users adds `Access`). */
-export async function answerFor(container: IContainer, kind: AnswerKind, principal: Principal, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+export async function answerFor(extensions: Lazy<AuthnResponseExtension[]>, kind: AnswerKind, principal: Principal, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = { ...summaryOf(principal), ...extra };
-  const extensions = (await container.resolve(Array.ofType(AuthnResponseExtension))) as AuthnResponseExtension[];
   // A resolve of the abstract base itself would leave an instance of it in the list; it extends nothing.
-  for (const ext of extensions.filter((e) => e?.constructor !== AuthnResponseExtension && typeof e?.extend === 'function')) await ext.extend(kind, principal, body);
+  for (const ext of (await extensions()).filter((e) => e?.constructor !== AuthnResponseExtension && typeof e?.extend === 'function')) await ext.extend(kind, principal, body);
   return body;
 }
 
