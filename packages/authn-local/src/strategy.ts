@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Autoinject, Injectable } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, errorClassOf } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
@@ -127,7 +127,7 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
       await (await this.passwords()).set(id, fresh, verified);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
-      this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'Could not store the rehashed password of ${identityType} ${identityId}: ${errorName}');
+      this.log().warn({ identityType: id.type, identityId: id.id, errorName: errorClassOf(err) }, 'Could not store the rehashed password of ${identityType} ${identityId}: ${errorName}');
     }
   }
 

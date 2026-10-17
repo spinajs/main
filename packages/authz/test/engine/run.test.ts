@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { settleWithin } from '../../src/engine/run.js';
-import { describeError } from '../../src/engine/vote.js';
+import { describeError } from '@spinajs/exceptions';
 
 const expect = chai.expect;
 

@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance, ResolveType, Service, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
+import { errorMessage } from '@spinajs/exceptions';
 
 import { AccessDenied, AuthzConfigError } from '../contracts/errors.js';
 import { AuthorizationModel, Combinator, NativeFilter } from '../contracts/model.js';
@@ -83,7 +84,6 @@ const q = (v: unknown): string => {
     return Object.prototype.toString.call(v);
   }
 };
-const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const typeName = (t: unknown): string => (typeof t === 'function' && typeof t.name === 'string' ? t.name : '');
 function deepFreeze<T>(value: T): T {
@@ -304,7 +304,7 @@ export class DefaultAuthzService extends AuthzService {
   private bootError(e: unknown): AuthzConfigError {
     const name = this.name;
     if (e instanceof AuthzConfigError && (name === undefined || e.message.includes(q(name)))) return e;
-    return new AuthzConfigError(`Authz ${name === undefined ? 'service' : `domain ${q(name)}`} failed to boot: ${describeError(e)}`, { cause: e });
+    return new AuthzConfigError(`Authz ${name === undefined ? 'service' : `domain ${q(name)}`} failed to boot: ${errorMessage(e)}`, { cause: e });
   }
 
   /**
@@ -409,7 +409,7 @@ export class DefaultAuthzService extends AuthzService {
       try {
         return fn();
       } catch (e) {
-        throw new AuthzConfigError(`${where}: ${what}: ${describeError(e)}`, { cause: e });
+        throw new AuthzConfigError(`${where}: ${what}: ${errorMessage(e)}`, { cause: e });
       }
     };
 
@@ -442,7 +442,7 @@ export class DefaultAuthzService extends AuthzService {
       try {
         out = await contributor.contribute(name);
       } catch (e) {
-        throw new AuthzConfigError(`${where}: contributor ${q(contributorName(contributor))} failed: ${describeError(e)}`, { cause: e });
+        throw new AuthzConfigError(`${where}: contributor ${q(contributorName(contributor))} failed: ${errorMessage(e)}`, { cause: e });
       }
       if (!isObject(out)) throw new AuthzConfigError(`${where}: contributor ${q(contributorName(contributor))} returned ${q(out)} instead of an object`);
       contributions.push(out as AuthzContribution);
@@ -553,12 +553,12 @@ export class DefaultAuthzService extends AuthzService {
       try {
         record = await existing;
       } catch (e) {
-        throw new AuthzConfigError(`${where}: model ${q(model.name)} failed to init in another domain: ${describeError(e)}`, { cause: e });
+        throw new AuthzConfigError(`${where}: model ${q(model.name)} failed to init in another domain: ${errorMessage(e)}`, { cause: e });
       }
       try {
         for (const defs of record.permissions) register(defs, source);
       } catch (e) {
-        throw new AuthzConfigError(`${where}: permissions of model ${q(model.name)}: ${describeError(e)}`, { cause: e });
+        throw new AuthzConfigError(`${where}: permissions of model ${q(model.name)}: ${errorMessage(e)}`, { cause: e });
       }
       return record;
     }
@@ -604,7 +604,7 @@ export class DefaultAuthzService extends AuthzService {
       return await run;
     } catch (e) {
       if (inits.get(model) === run) inits.delete(model);
-      throw new AuthzConfigError(`${where}: model ${q(model.name)} failed to init: ${describeError(e)}`, { cause: e });
+      throw new AuthzConfigError(`${where}: model ${q(model.name)} failed to init: ${errorMessage(e)}`, { cause: e });
     }
   }
 
