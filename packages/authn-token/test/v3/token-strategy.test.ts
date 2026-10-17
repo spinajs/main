@@ -3,9 +3,10 @@ import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { DateTime } from 'luxon';
 
 import '../../src/generator.js';
@@ -73,6 +74,7 @@ describe('TokenStrategy', function () {
   let identities: FakeIdentityStore;
   let profiles: StrategyTestProfilePolicy;
   let tokens: SpyTokenService;
+  let events: StrategyTestSink;
   let strategy: TokenStrategy;
   const savedConfig = new Map<string, unknown>();
 
@@ -93,7 +95,8 @@ describe('TokenStrategy', function () {
   beforeEach(async () => {
     identities = new FakeIdentityStore();
     profiles = new StrategyTestProfilePolicy();
-    tokens = new SpyTokenService(new UsersTableTokenOwnerResolver(), profiles, identities);
+    events = new StrategyTestSink();
+    tokens = new SpyTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([events]));
     strategy = new TokenStrategy(tokens);
     await strategy.resolve();
   });
@@ -488,25 +491,20 @@ describe('TokenStrategy', function () {
   });
 
   describe('side effects', () => {
-    let sink: StrategyTestSink;
     let sessions: StrategyTestSessions;
 
     before(() => {
-      DI.register(StrategyTestSink).as(AuthnEventSink);
       DI.register(StrategyTestSessions).as(SessionIssuer);
     });
 
     after(() => {
-      DI.unregister(StrategyTestSink);
       DI.unregister(StrategyTestSessions);
-      DI.uncache(StrategyTestSink);
       DI.uncache(StrategyTestSessions);
       DI.uncache(SessionIssuer);
-      DI.uncache(Array.ofType(AuthnEventSink));
     });
 
     it('verify publishes no event and issues no session', async () => {
-      sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof StrategyTestSink) as StrategyTestSink;
+      const sink = events;
       sessions = DI.resolve(SessionIssuer) as StrategyTestSessions;
       const a = await owner();
       const t = await mint(a);
@@ -537,7 +535,7 @@ describe('DbTokenService.touch', function () {
 
   it('writes LastUsedAt and LastUsedIp only when the stored stamp is absent or older than the interval', async () => {
     const identities = new FakeIdentityStore();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new StrategyTestProfilePolicy(), identities);
+    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new StrategyTestProfilePolicy(), identities, AuthnAudit.over([]));
     const a = identities.add({ login: randomUUID() });
     await insertUserRow(a.id);
     const t = (await tokens.create(a, { name: 'touch', kind: 'pat', expiresAt: at(DAY) }, ctx())) as Ok;

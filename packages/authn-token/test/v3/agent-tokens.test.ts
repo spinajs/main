@@ -5,6 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { AuthnContext, IdentityRef, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 
 import '../../src/generator.js';
 import { DbTokenService, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
@@ -56,7 +57,7 @@ describe('agent tokens (A15)', function () {
   beforeEach(async () => {
     identities = new FakeIdentityStore();
     profiles = new AgentTestProfilePolicy();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities);
+    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities, AuthnAudit.over([]));
     strategy = new TokenStrategy(tokens);
     await strategy.resolve();
   });
