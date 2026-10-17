@@ -102,6 +102,7 @@ describe('ABAC policy commands through AuthzAdmin', function () {
       expect(await refused(put(policy('p1', { scope: { type: 'project', id: '' } })))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.scope' });
       expect(await refused(put(policy('p1', { fields: { hide: ['email'] } })))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.fields' });
       expect(await refused(put({ ...policy('p1'), colour: 'red' } as never))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.colour' });
+      expect(await refused(put({ ...policy('p1'), 'col"our': 'red' } as never))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.col"our' });
       expect(await refused(put({ ...policy('p1'), source: 'db' } as never))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'policy.source' });
       expect(await snapshot(d.store)).to.deep.equal({});
     });

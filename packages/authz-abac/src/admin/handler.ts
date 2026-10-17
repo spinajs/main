@@ -1,26 +1,23 @@
 import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, GLOBAL, UnknownPermission, assertAdminPermission, memoryTx, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, Policy, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
+import { deepFreeze, isPlainObject } from '@spinajs/util';
 
-import { DbPolicyStore, policyTags } from '../model/stores/db.js';
-import { abacModels, actorRef, byId, deepFreeze, invalid, isPlainObject, policiesInTx, policyChanged, quote, readId, sameScope, scopeOf, writableStore } from './common.js';
+import { InvalidPolicy } from '../model/policies.js';
+import { AUTHZ_POLICY_COLUMNS, DbPolicyStore, policyTags } from '../model/stores/db.js';
+import { abacModels, actorRef, byId, invalid, policiesInTx, policyChanged, quote, readId, sameScope, scopeOf, writableStore } from './common.js';
 import type { WritablePolicyStore } from './common.js';
 
 type PolicyInput = Omit<Policy, 'source'>;
 type Applied = { id?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] };
 
 const MANAGE: Permission = 'authz:policies.manage';
-const POLICY_KEYS = new Set(['id', 'effect', 'permissions', 'resourceTypes', 'principalTypes', 'actorTypes', 'scope', 'when', 'fields', 'reason', 'priority', 'expiresAt']);
-// The authz_policy column widths DbPolicyStore enforces (design §9.1), and created_by.
-const MAX_ID = 64;
-const MAX_TEXT = 64;
-const MAX_ACTOR = 100;
 
 /** The shape a command must have before the model looks at it; returns a detached copy without undefined keys. */
 function readPolicy(v: unknown, ctx: AdminContext): PolicyInput {
   if (!isPlainObject(v)) throw invalid('policy', 'policy must be an object');
   const id = readId(v.id, 'policy.id');
-  if (id.length > MAX_ID) throw invalid('policy.id', `policy.id is longer than ${MAX_ID} characters`);
+  if (id.length > AUTHZ_POLICY_COLUMNS.id) throw invalid('policy.id', `policy.id is longer than ${AUTHZ_POLICY_COLUMNS.id} characters`);
   if (v.effect !== 'permit' && v.effect !== 'deny') throw invalid('policy.effect', `policy.effect must be 'permit' or 'deny'`);
   if (!Array.isArray(v.permissions) || v.permissions.length === 0) throw invalid('policy.permissions', 'policy.permissions must be a non-empty list');
   if (v.source !== undefined) throw invalid('policy.source', 'policy.source is set by the store');
@@ -41,22 +38,6 @@ function normalised(p: PolicyInput): PolicyInput {
   return scope.type === GLOBAL.type ? rest : { ...rest, scope };
 }
 
-/** The command field an AbacModel error names (its messages read `abac policy "<id>"[ when]: <text>`). */
-function fieldOf(message: string, id: string): string | undefined {
-  const head = `abac policy ${JSON.stringify(id)}`;
-  if (!message.startsWith(head)) return undefined;
-  const rest = message.slice(head.length);
-  if (rest.startsWith(' when')) return 'policy.when';
-  const text = rest.replace(/^: /, '');
-  const unknownKey = /^unknown key "([^"]+)"/.exec(text);
-  if (unknownKey) return `policy.${unknownKey[1]}`;
-  if (/permission/.test(text)) return 'policy.permissions';
-  if (/^the id /.test(text)) return 'policy.id';
-  if (/^a \$global scope/.test(text)) return 'policy.scope';
-  const key = /^(\w+)/.exec(text)?.[1];
-  return key !== undefined && POLICY_KEYS.has(key) ? `policy.${key}` : undefined;
-}
-
 /** What the model would refuse at load: a stored policy it cannot load makes every reload of it fail. */
 function validateWith(models: readonly { validate(p: PolicyInput, source: string): void }[], p: PolicyInput, source: string): void {
   for (const m of models) {
@@ -64,7 +45,7 @@ function validateWith(models: readonly { validate(p: PolicyInput, source: string
       m.validate(p, source);
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
-      const field = fieldOf(e.message, p.id);
+      const field = e instanceof InvalidPolicy && e.field !== undefined ? `policy.${e.field}` : undefined;
       if (e instanceof UnknownPermission) throw new AuthzAdminFailure('unknown_permission', e.message, field ?? 'policy.permissions', { cause: e });
       if (field === 'policy.when') throw new AuthzAdminFailure('rule_not_compilable', e.message, field, { cause: e });
       throw new AuthzAdminFailure('invalid_command', e.message, field, { cause: e });
@@ -74,14 +55,14 @@ function validateWith(models: readonly { validate(p: PolicyInput, source: string
 
 /** DbPolicyStore refuses these inside the transaction; refusing them here makes them a command error. */
 function fitsColumns(p: PolicyInput, ctx: AdminContext): void {
-  const texts: [string, string | undefined][] = [
-    ['policy.reason', p.reason],
-    ['policy.scope', p.scope?.type],
-    ['policy.scope', p.scope?.id ?? undefined],
+  const texts: [string, string | undefined, number][] = [
+    ['policy.reason', p.reason, AUTHZ_POLICY_COLUMNS.reason],
+    ['policy.scope', p.scope?.type, AUTHZ_POLICY_COLUMNS.scope_type],
+    ['policy.scope', p.scope?.id ?? undefined, AUTHZ_POLICY_COLUMNS.scope_id],
   ];
-  for (const [field, v] of texts) if (typeof v === 'string' && v.length > MAX_TEXT) throw invalid(field, `${field} is longer than ${MAX_TEXT} characters (the authz_policy column)`);
+  for (const [field, v, max] of texts) if (typeof v === 'string' && v.length > max) throw invalid(field, `${field} is longer than ${max} characters (the authz_policy column)`);
   const actor = principalKey(actorRef(ctx));
-  if (actor.length > MAX_ACTOR) throw invalid(undefined, `the actor key ${quote(actor.slice(0, 40))}... is longer than the created_by column (${MAX_ACTOR})`);
+  if (actor.length > AUTHZ_POLICY_COLUMNS.created_by) throw invalid(undefined, `the actor key ${quote(actor.slice(0, 40))}... is longer than the created_by column (${AUTHZ_POLICY_COLUMNS.created_by})`);
 }
 
 /**
@@ -128,6 +109,7 @@ export class AbacPolicyHandler extends AuthzWriteHandler {
     if (store instanceof DbPolicyStore) {
       ({ tags } = await store.put(p, actorRef(ctx), tx, ctx.now));
     } else {
+      // Memory rows are shared with readers and the model, so a caller must not change one behind the store's version.
       store.put(deepFreeze({ ...p, source: store.name }));
       undo!.onRollback(() => (before ? store.put(before) : store.delete(p.id)));
       tags = policyTags(p.id);

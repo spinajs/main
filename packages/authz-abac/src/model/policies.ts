@@ -1,5 +1,6 @@
 import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob, normalizeFieldGlobs } from '@spinajs/authz';
 import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, Policy, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
+import { isPlainObject } from '@spinajs/util';
 
 export const DEFAULT_POLICY_PRIORITY = 500;
 
@@ -19,43 +20,52 @@ export interface LoadedPolicy {
 
 const POLICY_KEYS = new Set(['id', 'effect', 'permissions', 'resourceTypes', 'principalTypes', 'actorTypes', 'scope', 'when', 'fields', 'reason', 'priority', 'expiresAt', 'source']);
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** An AuthzConfigError about one policy; `field` is the policy key at fault, when one is. */
+export class InvalidPolicy extends AuthzConfigError {
+  constructor(
+    message: string,
+    readonly field?: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
 
 /**
  * Checks one policy as a store or config gives it and returns a frozen copy (an ISO `expiresAt`
  * becomes a Date). `parse` validates `when` (unknown functions included); errors are
- * AuthzConfigError naming the policy.
+ * InvalidPolicy naming the policy and the key at fault.
  */
 export function loadPolicy(raw: unknown, order: number, defaults: { readonly source: string }, parse: (c: Condition, where: string) => ParsedCondition): LoadedPolicy {
-  const id = isObject(raw) && typeof raw.id === 'string' && raw.id !== '' ? raw.id : undefined;
+  const id = isPlainObject(raw) && typeof raw.id === 'string' && raw.id !== '' ? raw.id : undefined;
   const where = `abac policy ${id === undefined ? `#${order}` : JSON.stringify(id)}`;
-  const fail = (text: string): never => {
-    throw new AuthzConfigError(`${where}: ${text}`);
+  const fail = (field: string | undefined, text: string): never => {
+    throw new InvalidPolicy(`${where}: ${text}`, field);
   };
-  if (!isObject(raw)) return fail('is not an object');
-  if (id === undefined) fail('needs a non-empty string id');
-  for (const k of Object.keys(raw)) if (!POLICY_KEYS.has(k) && raw[k] !== undefined) fail(`unknown key ${JSON.stringify(k)}`);
-  if (raw.effect !== 'permit' && raw.effect !== 'deny') fail(`effect must be 'permit' or 'deny'`);
+  if (!isPlainObject(raw)) return fail(undefined, 'is not an object');
+  if (id === undefined) fail('id', 'needs a non-empty string id');
+  for (const k of Object.keys(raw)) if (!POLICY_KEYS.has(k) && raw[k] !== undefined) fail(k, `unknown key ${JSON.stringify(k)}`);
+  if (raw.effect !== 'permit' && raw.effect !== 'deny') fail('effect', `effect must be 'permit' or 'deny'`);
 
   const permissions = raw.permissions;
-  if (!Array.isArray(permissions) || permissions.length === 0) fail('permissions must be a non-empty list');
-  for (const p of permissions as unknown[]) if (!isPermissionGlob(p)) fail(`${JSON.stringify(p)} is not a permission or a permission glob`);
+  if (!Array.isArray(permissions) || permissions.length === 0) fail('permissions', 'permissions must be a non-empty list');
+  for (const p of permissions as unknown[]) if (!isPermissionGlob(p)) fail('permissions', `${JSON.stringify(p)} is not a permission or a permission glob`);
 
   const typeList = (key: 'resourceTypes' | 'principalTypes' | 'actorTypes'): ReadonlySet<string> | undefined => {
     const v = raw[key];
     if (v === undefined) return undefined;
-    if (!Array.isArray(v) || v.length === 0 || v.some((t) => typeof t !== 'string' || t === '')) fail(`${key} must be a non-empty list of type names`);
+    if (!Array.isArray(v) || v.length === 0 || v.some((t) => typeof t !== 'string' || t === '')) fail(key, `${key} must be a non-empty list of type names`);
     return new Set(v as string[]);
   };
 
   let scope: ResourceRef | undefined;
   if (raw.scope !== undefined) {
     const s = raw.scope;
-    if (!isObject(s) || typeof s.type !== 'string' || s.type === '' || (s.id !== undefined && s.id !== null && typeof s.id !== 'string')) fail('scope must be a resource ref { type, id? }');
+    if (!isPlainObject(s) || typeof s.type !== 'string' || s.type === '' || (s.id !== undefined && s.id !== null && typeof s.id !== 'string')) fail('scope', 'scope must be a resource ref { type, id? }');
     const sr0 = s as { type: string; id?: unknown };
     // The DB stores "no id" as '', so an empty id would come back as any node of the type.
-    if (sr0.id === '') fail('scope id must not be empty');
-    if (sr0.type === GLOBAL.type && sr0.id !== undefined && sr0.id !== null) fail('a $global scope has no id');
+    if (sr0.id === '') fail('scope', 'scope id must not be empty');
+    if (sr0.type === GLOBAL.type && sr0.id !== undefined && sr0.id !== null) fail('scope', 'a $global scope has no id');
     const sr = s as { type: string; id?: string | null };
     scope = Object.freeze(sr.id === undefined || sr.id === null ? { type: sr.type } : { type: sr.type, id: sr.id });
   }
@@ -63,39 +73,45 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
   let fields: FieldSet | undefined;
   if (raw.fields !== undefined) {
     const f = raw.fields;
-    if (!isObject(f) || Object.keys(f).some((k) => k !== 'read' && k !== 'write' && k !== 'hide')) fail('fields takes read, write and hide lists');
+    if (!isPlainObject(f) || Object.keys(f).some((k) => k !== 'read' && k !== 'write' && k !== 'hide')) fail('fields', 'fields takes read, write and hide lists');
     const out: Record<string, readonly string[]> = {};
     for (const k of ['read', 'write', 'hide'] as const) {
       const list = (f as Record<string, unknown>)[k];
       if (list === undefined) continue;
-      if (!Array.isArray(list) || list.some((x) => !isFieldGlob(x))) fail(`fields.${k} must be a list of field globs ('name', 'a.*', '*', '!salary')`);
+      if (!Array.isArray(list) || list.some((x) => !isFieldGlob(x))) fail('fields', `fields.${k} must be a list of field globs ('name', 'a.*', '*', '!salary')`);
       try {
         normalizeFieldGlobs(list as string[]);
       } catch (e) {
-        fail(`fields.${k}: ${e instanceof Error ? e.message : String(e)}`);
+        fail('fields', `fields.${k}: ${e instanceof Error ? e.message : String(e)}`);
       }
       out[k] = Object.freeze([...(list as string[])]);
     }
     fields = Object.freeze(out) as FieldSet;
     // A permit gives read/write field sets and a deny hides: anything else would be dropped silently.
-    if (raw.effect === 'permit' && out.hide) fail('fields.hide belongs on a deny policy');
-    if (raw.effect === 'deny' && (out.read || out.write)) fail('fields.read and fields.write belong on a permit policy');
+    if (raw.effect === 'permit' && out.hide) fail('fields', 'fields.hide belongs on a deny policy');
+    if (raw.effect === 'deny' && (out.read || out.write)) fail('fields', 'fields.read and fields.write belong on a permit policy');
   }
 
-  if (raw.reason !== undefined && (typeof raw.reason !== 'string' || raw.reason === '')) fail('reason must be a non-empty string');
+  if (raw.reason !== undefined && (typeof raw.reason !== 'string' || raw.reason === '')) fail('reason', 'reason must be a non-empty string');
   // The DB column is a 32-bit int.
-  if (raw.priority !== undefined && (!Number.isInteger(raw.priority) || (raw.priority as number) < -(2 ** 31) || (raw.priority as number) >= 2 ** 31)) fail('priority must be a 32-bit integer');
-  if (raw.source !== undefined && typeof raw.source !== 'string') fail('source must be a string');
+  if (raw.priority !== undefined && (!Number.isInteger(raw.priority) || (raw.priority as number) < -(2 ** 31) || (raw.priority as number) >= 2 ** 31)) fail('priority', 'priority must be a 32-bit integer');
+  if (raw.source !== undefined && typeof raw.source !== 'string') fail('source', 'source must be a string');
 
   let expiresAt: Date | undefined;
   if (raw.expiresAt !== undefined && raw.expiresAt !== null) {
     const e = raw.expiresAt;
     const t = e instanceof Date ? e.getTime() : typeof e === 'string' ? Date.parse(e) : NaN;
-    if (Number.isNaN(t)) fail('expiresAt must be a Date, an ISO string or null');
+    if (Number.isNaN(t)) fail('expiresAt', 'expiresAt must be a Date, an ISO string or null');
     expiresAt = new Date(t);
   }
 
-  const when = raw.when === undefined ? undefined : parse(raw.when as Condition, `${where} when`);
+  let when: ParsedCondition | undefined;
+  try {
+    when = raw.when === undefined ? undefined : parse(raw.when as Condition, `${where} when`);
+  } catch (e) {
+    if (e instanceof AuthzConfigError) throw new InvalidPolicy(e.message, 'when', { cause: e });
+    throw e;
+  }
   const policy: Policy = Object.freeze({
     id: id!,
     effect: raw.effect as Policy['effect'],
@@ -136,7 +152,7 @@ export class PolicyIndex {
   constructor(readonly policies: readonly LoadedPolicy[], registry: PermissionRegistry) {
     const ids = new Set<string>();
     for (const p of policies) {
-      if (ids.has(p.policy.id)) throw new AuthzConfigError(`${p.where}: the id is used twice`);
+      if (ids.has(p.policy.id)) throw new InvalidPolicy(`${p.where}: the id is used twice`, 'id');
       ids.add(p.policy.id);
       const names = new Set<Permission>();
       for (const glob of p.policy.permissions) {

@@ -5,7 +5,7 @@ import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionReque
 
 import { PolicyStore } from '../contracts.js';
 import { notListFilterable, rowDependence } from './list.js';
-import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
+import { InvalidPolicy, PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
 import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
@@ -360,7 +360,7 @@ export class AbacModel extends AuthorizationModel {
     if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
     const p = loadPolicy({ ...policy, source }, 0, { source }, (c, where) => this.parser.parse(c, where));
     const holder = this.storeOf.get(p.policy.id);
-    if (holder !== undefined && holder !== source) throw new AuthzConfigError(`${p.where}: the id is already used by a policy from store ${JSON.stringify(holder)}`);
+    if (holder !== undefined && holder !== source) throw new InvalidPolicy(`${p.where}: the id is already used by a policy from store ${JSON.stringify(holder)}`, 'id');
     new PolicyIndex([p], this.registry);
   }
 
