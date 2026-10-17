@@ -1,4 +1,5 @@
 import type { Log } from '@spinajs/log';
+import { checkSameOrigin } from '@spinajs/http';
 import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
 import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, IdentityLinkStore, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
@@ -23,6 +24,8 @@ export interface OidcRequest {
   readonly ctx: AuthnContext;
   /** The session the request restored (authn-http's AuthnSession), pending included; link routes need an active one. */
   readonly session?: SessionHandle | null;
+  /** The Origin request header, when sent. */
+  readonly originHeader?: string;
   /** The Sec-Fetch-Site request header, when the browser sent one. */
   readonly fetchSite?: string;
 }
@@ -149,7 +152,7 @@ export class OidcLogin {
     if (!strategy || !this.d.linker) return { ...NOT_FOUND, cookies: [] };
     const session = req.session;
     if (!session || session.state !== 'active') return this.failure(req);
-    if (req.fetchSite !== undefined && req.fetchSite !== 'same-origin' && req.fetchSite !== 'none') return this.failure(req);
+    if (!checkSameOrigin({ origin: req.originHeader, 'sec-fetch-site': req.fetchSite }, req.origin, { missingOrigin: 'unless-cross-site' }).allowed) return this.failure(req);
     try {
       const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, mode: 'link', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };

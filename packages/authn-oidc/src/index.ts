@@ -17,4 +17,3 @@ export * from './login.js';
 export * from './links.js';
 export * from './providers.js';
 export * from './bootstrap.js';
-export * from './origin.js';

@@ -73,7 +73,7 @@ Provider keys:
 | `preset` | One of the presets below. A preset fills the issuer or the endpoints. Each preset takes only its own extra keys. |
 | `clientId`, `clientSecret` | Required. `clientSecret` is `{ secret }`, a secret reference. |
 | `tokenEndpointAuth` | `client_secret_basic` (default; GitHub's preset uses `client_secret_post`) or `client_secret_post`. |
-| `redirectUri` | Absolute, and registered exactly at the provider. Default: the callback route on the request's origin, resolved through `authn.http.trustProxy`, else `http.trustProxy`. |
+| `redirectUri` | Absolute, and registered exactly at the provider. Default: the callback route on the request's origin (`requestOrigin` of `@spinajs/http`), under the proxy trust `RealIp` stored for the request (`requestProxyTrust`): `http.trustProxy`, or the deprecated `authn.http.trustProxy` while it is set. |
 | `scopes` | Default: the preset's, else `['openid', 'email', 'profile']`. `openid` is added for an OIDC provider when you leave it out. |
 | `claims` | Maps `subject` (default `sub`; GitHub `id`), `email`, `emailVerified`, `name` and `groups`. A path or a list of keys for a nested claim; `null` means not mapped (not allowed for `subject`). |
 | `algorithms` | Allowed ID token algorithms. Default: all asymmetric ones (`OIDC_SIGNING_ALGORITHMS`). |
@@ -119,7 +119,7 @@ The controller has the fixed prefix `auth/oidc`. It does not follow `authn.http.
 |---|---|
 | `GET /auth/oidc/:provider` | Starts a login. Optional `?returnTo=/path`. Sets the flow cookie and answers 302 to the provider. |
 | `GET /auth/oidc/:provider/callback` | Finishes a login or a link flow. |
-| `POST /auth/oidc/:provider/link` | Starts linking for the current session. Needs an active session and a same-origin request (`Sec-Fetch-Site` `same-origin` or `none`). It is a `POST` with the session cookie, so `authn-http`'s CSRF origin guard (A22) checks it before the route runs: a cross-site start could link another site's account to this identity. The route also refuses a `Sec-Fetch-Site` value other than `same-origin` or `none`. |
+| `POST /auth/oidc/:provider/link` | Starts linking for the current session. Needs an active session and a same-origin request, by `checkSameOrigin` of `@spinajs/http` with `missingOrigin: 'unless-cross-site'`: an `Origin` header must be the app's own origin; without one, `Sec-Fetch-Site` `cross-site` and `same-site` are refused. It is a `POST` with the session cookie, so `authn-http`'s CSRF origin guard (A22) checks it before the route runs: a cross-site start could link another site's account to this identity. The route checks the origin itself as well. |
 | `DELETE /auth/oidc/:provider/link` | Removes the identity's link to this provider. `?subject=` names one when the identity holds several. 204 on success, 401 without a session, 404 when nothing is linked, 409 when several subjects match and none is named, 403 when the core refuses (the last usable credential). |
 
 **Answers.** Every failure is the login failure: 401 with the `E_AUTH_FAILED` body of the login route,
@@ -237,14 +237,15 @@ request. A message names the provider and the key, never a value. Boot refuses:
 
 It only warns when a provider's `linking.<key>` is on and `authn.linking.<key>` is off. The
 controller also warns once, on the first request, when the default redirect URI has an `http` origin
-outside development and test (behind a TLS proxy, set `authn.http.trustProxy` or the provider's
-`redirectUri`).
+outside development and test (behind a TLS proxy, set `http.trustProxy` or the provider's
+`redirectUri`). The package no longer exports its own `requestOrigin` and `OriginFacts`; use
+`requestOrigin(req, requestProxyTrust(req))` from `@spinajs/http`.
 
 ## Wiring and open items
 
 - `authn-http` puts `req.storage.AuthnSession` (link routes) and `req.storage.ClientIp` (the `ip`
   throttle key) in place, and restores the session from the cookie that the OIDC controller sets
-  after a login, so import `@spinajs/authn-http` as well.
+  after a login, so import `@spinajs/authn-http` as well (`@spinajs/authn-oidc` does not depend on it).
 - Open: a run against a real Keycloak (`issuer`, `clientId`, `clientSecret`, and the redirect URI
   `<origin>/auth/oidc/<name>/callback` registered exactly), and a check of the success page in a
   browser (lane IC2).
