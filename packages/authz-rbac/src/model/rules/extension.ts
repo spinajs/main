@@ -1,6 +1,5 @@
-import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, registeredFunctions, resourceKey } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
-import { DI } from '@spinajs/di';
 
 import type { RuleStore } from '../../contracts.js';
 import type { RbacExtension, RbacExtensionFactory, RbacInput, RbacSources } from '../evaluate.js';
@@ -63,7 +62,7 @@ export class RulesExtension implements RbacExtension {
 
   async init(ctx: ModelInitContext): Promise<void> {
     this.registry = ctx.permissions;
-    if (this.config || this.db) this.parser = new DefaultConditionCompiler(await registeredFunctions());
+    if (this.config || this.db) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
   }
 
   compile(graph: RoleGraph, grants: GrantIndex, registry: PermissionRegistry): void {
@@ -341,9 +340,4 @@ function dig(value: unknown, path: readonly string[]): unknown {
     at = (at as Record<string, unknown>)[key];
   }
   return at;
-}
-
-async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
-  const list = (await DI.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
-  return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
 }
