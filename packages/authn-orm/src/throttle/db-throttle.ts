@@ -11,6 +11,7 @@ import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
+import { deepFreeze, isNonEmptyString } from '@spinajs/util';
 import type { ThrottleStore } from '@spinajs/util';
 
 import { checkedMs } from '../support/sql.js';
@@ -102,7 +103,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   public async checkConfiguration(booting: AuthnConfigSource): Promise<void> {
     // A @Config read needs the container's Configuration resolved.
     if (this.fromConfiguration) await (this.options.container ?? DI.RootContainer).resolve(Configuration);
-    if (isSecret(this.hashSecret())) return;
+    if (isNonEmptyString(this.hashSecret())) return;
     const env = authnAppEnv(booting);
     if (!isLenientAuthnEnv(env)) {
       throw new InvalidOption(`DbAuthnThrottle: authn.audit.hashKey.secret is not set; outside development and test (env ${JSON.stringify(env ?? 'unset')}) the throttle rows must be keyed with a secret of the app`);
@@ -183,7 +184,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
-      if (!isSecret(secret)) {
+      if (!isNonEmptyString(secret)) {
         warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances', () => this.Log);
       }
     }
@@ -216,13 +217,6 @@ function warnOnce(message: string, getLog: () => Log): void {
   console.warn(message);
 }
 
-function deepFreeze<T extends object>(o: T): T {
-  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
-  return Object.freeze(o);
-}
-
-const isSecret = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-
 function hashKeyOf(secret: unknown): Buffer {
-  return isSecret(secret) ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32));
+  return isNonEmptyString(secret) ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32));
 }

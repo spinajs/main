@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmDriver, RawQuery } from '@spinajs/orm';
 import type { IUpdateResult } from '@spinajs/orm';
-import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
+import { _check_arg, _is_string, _non_empty, truncate } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
 import { fromUtcColumn } from '../models/utc.js';
@@ -117,7 +117,5 @@ export function checkedText(value: unknown, max: number, label: string, allowEmp
 /** @internal Cuts to `max` code points, so no surrogate pair is split. */
 export function cutText(value: string | undefined | null, max: number): string | null {
   if (value === undefined || value === null) return null;
-  const s = String(value);
-  if (s.length <= max) return s;
-  return [...s].slice(0, max).join('');
+  return truncate(String(value), max, '', { codePoints: true });
 }

@@ -4,7 +4,7 @@ import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configur
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 
-import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { _is_object, _is_string, _non_empty, _try_check_arg, asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
@@ -62,15 +62,7 @@ interface Keyed {
   of(s: AuthenticationStrategy): readonly ThrottleKey[];
 }
 
-const dedupe = (keys: readonly ThrottleKey[]): ThrottleKey[] => {
-  const seen = new Set<string>();
-  return keys.filter((k) => {
-    const id = `${k.kind}\u0000${k.value}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-};
+const dedupe = (keys: ThrottleKey[]): ThrottleKey[] => uniqueBy(keys, (k) => `${k.kind}\u0000${k.value}`);
 
 /** A strategy may answer these; anything else breaks the contract (D5). */
 const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked']);
@@ -79,10 +71,7 @@ const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature
 
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
-// ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
-const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
-
-const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && foldAscii(stored) === foldAscii(verified);
+const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 /** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);

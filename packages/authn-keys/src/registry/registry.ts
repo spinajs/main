@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
-import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
+import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -17,8 +17,6 @@ const MAX_NAME = 128;
 const TOUCH_INTERVAL_MS = 60_000;
 const MAX_CREATED_BY = 100;
 const CEILING_KEYS = ['roles', 'permissions', 'resources', 'expiresAt', 'reason'];
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const nonEmpty = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 

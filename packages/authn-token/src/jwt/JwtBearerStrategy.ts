@@ -6,7 +6,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { _is_string, _max_length, _reg_match, _try_check_arg } from '@spinajs/util';
+import { _is_string, _max_length, _reg_match, _try_check_arg, isPlainObject, toEpochMs } from '@spinajs/util';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, ExternalSubject, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { createLocalJWKSet, createRemoteJWKSet, customFetch, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
@@ -64,7 +64,6 @@ const JWKS_TIMEOUT_MS = 5_000;
 const ALGORITHM_CURVES: Readonly<Record<string, string>> = { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521', EdDSA: 'Ed25519' };
 const MIN_RSA_BITS = 2048;
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null)?.code;
 
 function isLoopback(hostname: string): boolean {
@@ -271,8 +270,8 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
 
     try {
       // Checked here so the strategy fails closed whatever the jose version does with an invalid currentDate.
-      const now: number = Date.prototype.getTime.call(ctx.now);
-      if (!Number.isFinite(now)) {
+      const now = toEpochMs(ctx.now);
+      if (now === undefined) {
         return { ok: false, reason: 'invalid_credentials' };
       }
 

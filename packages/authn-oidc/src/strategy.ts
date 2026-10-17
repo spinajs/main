@@ -1,4 +1,5 @@
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
+import { asciiLower } from '@spinajs/util';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityLinkStore, IdentityStore, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import type { OidcExternalSubject, OidcStrategyName } from './contracts.js';
@@ -22,8 +23,6 @@ export interface OidcStrategyDeps {
   /** The global authn.linking switches the core applies (default off). */
   readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
 }
-
-const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
 const QUERY_KEYS = ['code', 'state', 'iss', 'error'] as const;
 
@@ -151,7 +150,7 @@ export class OidcStrategy extends AuthenticationStrategy {
     if (!identities) return false;
     const id = await identities.findByLogin(email);
     const stored = id ? (await identities.display(id))?.email : undefined;
-    return typeof stored === 'string' && stored.length > 0 && foldAscii(stored) === foldAscii(email);
+    return typeof stored === 'string' && stored.length > 0 && asciiLower(stored) === asciiLower(email);
   }
 
 }

@@ -3,11 +3,11 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
-import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
+import { _is_string, _max_length, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { decodeB64url } from '../jwk/base64url.js';
 import { KEY_ALGORITHMS } from '../jwk/keys.js';
 import { dummyVerify } from '../jwk/signature.js';
-import { isJsonObject, parseStrictJson } from '../jws/json.js';
+import { parseStrictJson } from '../jws/json.js';
 import { KeyNonceStore, nonceKey } from '../nonce/store.js';
 import { keysOptionsOf } from '../options/options.js';
 import type { KeysConfig, KeysOptions } from '../options/options.js';
@@ -25,8 +25,8 @@ function headerOf(jws: unknown): { kid: string | null; alg: KeyAlgorithm } {
   const text = typeof jws === 'string' && jws.length <= MAX_CREDENTIAL_LENGTH ? jws.slice(0, jws.indexOf('.')) : '';
   const bytes = decodeB64url(text);
   const h = bytes ? parseStrictJson(bytes) : undefined;
-  const alg = isJsonObject(h) && KEY_ALGORITHMS.includes(h.alg as KeyAlgorithm) ? (h.alg as KeyAlgorithm) : 'EdDSA';
-  return { kid: isJsonObject(h) && typeof h.kid === 'string' ? h.kid : null, alg };
+  const alg = isPlainObject(h) && KEY_ALGORITHMS.includes(h.alg as KeyAlgorithm) ? (h.alg as KeyAlgorithm) : 'EdDSA';
+  return { kid: isPlainObject(h) && typeof h.kid === 'string' ? h.kid : null, alg };
 }
 
 /**

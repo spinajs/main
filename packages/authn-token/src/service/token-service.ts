@@ -3,7 +3,7 @@ import { Config, service } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
@@ -33,17 +33,8 @@ const INVALID_SCOPE: Refusal = Object.freeze({ ok: false, code: 'invalid_scope' 
 const INVALID_EXPIRY: Refusal = Object.freeze({ ok: false, code: 'invalid_expiry' });
 const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-
-/** The time value of a real Date, read without calling anything an override could replace; NaN otherwise. */
-function instant(v: unknown): number {
-  try {
-    return Date.prototype.getTime.call(v);
-  } catch {
-    return Number.NaN;
-  }
-}
+/** NaN for anything but a valid Date. */
+const instant = (v: unknown): number => toEpochMs(v) ?? Number.NaN;
 
 function toDate(v: unknown): Date | null {
   const d = DateTime.isDateTime(v) ? v.toJSDate() : v instanceof Date ? v : null;
@@ -70,7 +61,7 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   if (scope === undefined) {
     return undefined;
   }
-  if (!isRecord(scope)) {
+  if (!isPlainObject(scope)) {
     return null;
   }
 
@@ -91,7 +82,7 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
     }
     const resources: ResourceRef[] = [];
     for (const r of entries as unknown[]) {
-      if (!isRecord(r) || !isNonEmptyString(r.type) || (r.id !== undefined && typeof r.id !== 'string')) {
+      if (!isPlainObject(r) || !isNonEmptyString(r.type) || (r.id !== undefined && typeof r.id !== 'string')) {
         return null;
       }
       resources.push(r.id === undefined ? { type: r.type } : { type: r.type, id: r.id });
@@ -119,12 +110,12 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
   if (stored === null || stored === undefined) {
     return agent ? null : undefined;
   }
-  if (!isRecord(stored) || (agent ? stored.agent !== true : stored.agent !== undefined && stored.agent !== false)) {
+  if (!isPlainObject(stored) || (agent ? stored.agent !== true : stored.agent !== undefined && stored.agent !== false)) {
     return null;
   }
   // parseScope drops unknown keys; on the read path an unknown key (a typo, a ceiling field such as roles) must not
   // turn into "no limits".
-  if (!onlyKeys(stored, SCOPE_KEYS) || (Array.isArray(stored.resources) && !stored.resources.every((r) => isRecord(r) && onlyKeys(r, RESOURCE_KEYS)))) {
+  if (!onlyKeys(stored, SCOPE_KEYS) || (Array.isArray(stored.resources) && !stored.resources.every((r) => isPlainObject(r) && onlyKeys(r, RESOURCE_KEYS)))) {
     return null;
   }
   return parseScope(stored, agent);
@@ -176,7 +167,7 @@ export class DbTokenService extends TokenService {
     const now = this.nowOf(ctx);
 
     // Callers can bypass the types, so every field is checked as unknown.
-    const raw: Record<string, unknown> = isRecord(opts) ? opts : {};
+    const raw: Record<string, unknown> = isPlainObject(opts) ? opts : {};
     const [knownKind, kind] = _try_check_arg(_is_string(_contains(TOKEN_KINDS)))(raw.kind, 'kind');
     if (!knownKind) {
       return INVALID_SCOPE;
@@ -184,10 +175,10 @@ export class DbTokenService extends TokenService {
 
     const agent = kind === 'agent';
     if (agent) {
-      if (!isRecord(raw.scope) || raw.scope.agent !== true || raw.roles !== undefined || raw.profile !== undefined) {
+      if (!isPlainObject(raw.scope) || raw.scope.agent !== true || raw.roles !== undefined || raw.profile !== undefined) {
         return INVALID_SCOPE;
       }
-    } else if (isRecord(raw.scope) && raw.scope.agent === true) {
+    } else if (isPlainObject(raw.scope) && raw.scope.agent === true) {
       return INVALID_SCOPE;
     }
 
@@ -353,8 +344,8 @@ export class DbTokenService extends TokenService {
       .asRaw<Array<{ Id: number }>>();
 
     let count = 0;
-    for (let i = 0; i < doomed.length; i += DELETE_BATCH) {
-      count += this.affected(await AccessToken.destroy(doomed.slice(i, i + DELETE_BATCH).map((t) => t.Id)));
+    for (const batch of chunk(doomed, DELETE_BATCH)) {
+      count += this.affected(await AccessToken.destroy(batch.map((t) => t.Id)));
     }
     return count;
   }

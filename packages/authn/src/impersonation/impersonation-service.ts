@@ -1,7 +1,7 @@
 import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isFiniteNumber, isNonEmptyString, isPlainObject, isValidDate } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
@@ -49,11 +49,9 @@ const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
 const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
 
-const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
-
 // The schema is the gate; the checks below hold for values set at runtime that never went through it: a switch is off
 // only when false, and a limit that is not a finite positive number ends the session instead of never ending it.
-const positive = (v: unknown): v is number => Number.isFinite(v) && (v as number) > 0;
+const positive = (v: unknown): v is number => isFiniteNumber(v) && v > 0;
 
 /** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
@@ -252,7 +250,7 @@ export class AuthnImpersonationService extends AsyncService {
    */
   private block(stored: Session, ctx: AuthnContext): Block | null {
     const authenticated = stored.facts.authenticatedAt;
-    if (!validDate(authenticated)) return null;
+    if (!isValidDate(authenticated)) return null;
     const block = stored.impersonation;
     if (block === undefined) return { startedAt: authenticated };
     if (block === null) return null;
@@ -268,7 +266,7 @@ export class AuthnImpersonationService extends AsyncService {
   private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
     const at = facts.authenticatedAt;
     const max = this.MaxLifetimeMinutes;
-    return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds;
+    return !isValidDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= TimeSpan.fromMinutes(max).totalMilliseconds;
   }
 
   /** Why the guard, or its absence, refuses `actor`, narrowed by its role switch, impersonating `target` now; null when it consents. */

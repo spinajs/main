@@ -1,6 +1,7 @@
 import { createHash, createPublicKey } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import type { Ed25519PublicJwk, KeyAlgorithm, KeyMaterial, P256PublicJwk, PublicJwk } from '@spinajs/authn/contracts';
+import { isPlainObject } from '@spinajs/util';
 import { decodeB64url } from './base64url.js';
 import { isCanonicalPoint, isSmallOrder } from './ed25519.js';
 
@@ -11,8 +12,6 @@ const KID = /^[A-Za-z0-9._-]{1,64}$/;
 export function isValidKid(kid: unknown): kid is string {
   return typeof kid === 'string' && KID.test(kid);
 }
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const has32Bytes = (v: unknown): v is string => decodeB64url(v)?.length === 32;
 

@@ -1,6 +1,7 @@
 import { BadRequestResponse, Conflict, NotFound, Ok } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import type { Credentials, KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk, Session } from '@spinajs/authn/contracts';
+import { isPlainObject } from '@spinajs/util';
 
 import { tooManyRequests } from '../password/fields.js';
 import type { TooManyRequestsResponse } from '../password/fields.js';
@@ -23,8 +24,6 @@ const CHALLENGE_ID_CAP = 600;
 /** Ed25519 and P-256 (IEEE P1363) signatures are 64 bytes, 86 characters of base64url. */
 const SIGNATURE_CAP = 128;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export const kidOf = (value: unknown): string | null => (typeof value === 'string' && KID.test(value) ? value : null);
 

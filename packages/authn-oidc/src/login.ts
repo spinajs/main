@@ -1,5 +1,5 @@
 import type { Log } from '@spinajs/log';
-import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
+import { _is_string, _max_length, _try_check_arg, escapeHtml } from '@spinajs/util';
 import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, IdentityLinkStore, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
@@ -39,8 +39,6 @@ export interface OidcAnswer {
   /** Lower-case names, e.g. retry-after of a throttled login (A02). */
   readonly headers?: Readonly<Record<string, string>>;
 }
-
-const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /**
  * A page that moves the browser on to an app path. The callback arrives by a cross-site navigation, and browsers keep
