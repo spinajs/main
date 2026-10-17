@@ -174,8 +174,8 @@ function removeKey(c: Configuration, path: string): void {
 
 /**
  * Sets the case's keys (over the harness strategy list and the design §22.5 session expiry) and returns what undoes
- * it; undo removes what did not exist before. An env is named through APP_ENV as well, because the configuration
- * counts 'development' as a fallback unless some env source names it.
+ * it; undo removes what did not exist before. An env is named through NamedEnv as well, because the configuration
+ * counts 'development' as a fallback unless some env source named it at load.
  */
 function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, strategies: readonly StrategyEntry[] = STRATEGIES): () => void {
   const c = config();
@@ -184,7 +184,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
     saved.push({ path, value: c.get(path), missing: missingPrefix(c, path) });
     c.set(path, value);
   };
-  const savedAppEnv = process.env.APP_ENV;
+  const savedNamedEnv = c.NamedEnv;
   try {
     set('authn.strategies', strategies);
     set('authn.session.expiration.ttl', 30);
@@ -195,7 +195,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
     }
     if (overrides.env !== undefined) {
       set(ENV_PATH, overrides.env);
-      process.env.APP_ENV = overrides.env;
+      c.NamedEnv = overrides.env;
     }
   } catch (e) {
     undo();
@@ -206,8 +206,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
       if (missing === undefined) c.set(path, value);
       else removeKey(c, missing);
     }
-    if (savedAppEnv === undefined) delete process.env.APP_ENV;
-    else process.env.APP_ENV = savedAppEnv;
+    c.NamedEnv = savedNamedEnv;
   }
   return undo;
 }
