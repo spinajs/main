@@ -46,7 +46,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `ClientIp` in `@spinajs/authn-http` (reads `authn.http.trustProxy`, falls back to `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
+| `RealIp` | `ServerMiddleware` list, Order 1, singleton | `RealIp` | `ClientIp` in `@spinajs/authn-http`, registered in its place (honours the deprecated `authn.http.trustProxy` while it is set, else `http.trustProxy`) | Subclass and `DI.register(Mine).as(RealIp)` before `HttpServer` resolves. Override `proxyTrust()` to take the trust from another setting; it then applies to `realIp` and `req.storage.proxyTrust` alike. |
 | `parseTrustProxy(value, key)` | exported function | | | Returns a `ProxyTrust`: `{ hops }` or `{ list: BlockList }`. Throws `InvalidOption` naming `key`. |
 | `parseTrustProxyOverride(override, overrideKey, shared)` | exported function | | | `override` when it is not `null` or `undefined`, else `shared` (`http.trustProxy`). Throws `InvalidOption` naming the key whose value is bad. |
 | `requestProxyTrust(req)` | exported function | | | The trust RealIp stored for this request; no proxy (`{ hops: 0 }`) when RealIp did not run. |
@@ -154,4 +154,4 @@ console.log(
 - [Throttling](18-throttling.md): counts per client address.
 - [Request storage and tracing](19-request-storage-and-tracing.md): `req.storage` and the access log.
 - [Same-origin guard](22-same-origin-guard.md): compares `Origin` with `requestOrigin()` under the stored trust.
-- `@spinajs/authn-http`: `ClientIp` and the CSRF origin check built on these functions.
+- `@spinajs/authn-http`: `ClientIp`, a `RealIp` subclass, and `CsrfOriginGuard`, a `SameOriginGuard` subclass.

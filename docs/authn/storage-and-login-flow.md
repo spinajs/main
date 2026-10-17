@@ -168,8 +168,8 @@ Every request passes these server middlewares, in order:
 
 | Order | Middleware | Job |
 |---|---|---|
-| 1 | `ClientIp` (`authn-http/src/middleware/client-ip.ts`) | Sets `req.storage.ClientIp` from the trusted proxy chain |
-| 4 | `CsrfOriginGuard` (`authn-http/src/middleware/csrf.ts`) | Checks `Origin` or `Sec-Fetch-Site` on unsafe methods that carry the session cookie |
+| 1 | `ClientIp` (`authn-http/src/middleware/client-ip.ts`) | Replaces http's `RealIp`: sets `req.storage.ClientIp`, `realIp` and `proxyTrust` from the trusted proxy chain |
+| 4 | `CsrfOriginGuard` (`authn-http/src/middleware/csrf.ts`) | http's `SameOriginGuard` for unsafe methods that carry the session cookie: checks `Origin` or `Sec-Fetch-Site`, answers 403 `E_CSRF_ORIGIN` |
 | 5 | `AuthnMiddleware` (`authn-http/src/middleware/authn.ts`) | Resolves `req.storage.AuthnPrincipal` |
 | 10 | `PrincipalMiddleware` (`authz-http/src/principals/middleware.ts`) | Builds `req.storage.Principal` for authz |
 

@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { BaseController } from '@spinajs/http';
-import { Controllers, ServerMiddleware } from '@spinajs/http';
+import { Controllers, RealIp, ServerMiddleware } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import { MemorySessionStore, SessionProvider } from '@spinajs/authn-session';
 
@@ -42,7 +42,8 @@ export const ACCOUNT_ROUTES_V3 = [
 export function routeTableSuite(): void {
   it('the wiring is the N8c one: AuthnMiddleware without the 2.x middlewares, and authn-session the only session store', async () => {
     const names = (DI.getRegisteredTypes(ServerMiddleware) ?? []).map((t) => t.name);
-    expect(names).to.include.members(['ClientIp', 'CsrfOriginGuard', 'AuthnMiddleware']);
+    expect(names).to.include.members(['RealIp', 'CsrfOriginGuard', 'AuthnMiddleware']);
+    expect(DI.getRegisteredTypes(RealIp)?.map((t) => t.name)).to.include('ClientIp');
     expect(names).to.not.include.members(['RbacMiddleware', 'TokenAuthMiddleware', 'LegacyStorageBridge']);
     expect(DI.getRegisteredTypes(SessionProvider)).to.deep.eq([MemorySessionStore]);
     const issuer = (await DI.resolve(SessionIssuer)) as unknown as { Store: unknown };

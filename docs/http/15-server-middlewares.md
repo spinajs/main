@@ -31,7 +31,7 @@ A `ServerMiddleware` adds Express handlers to the whole server: one that runs be
 
 The request storage, request id and timing middlewares are on [Request storage and tracing](19-request-storage-and-tracing.md). Middlewares with the same `Order` run in registration order.
 
-Middlewares from other packages, for orientation: `ClientIp`, `CsrfOriginGuard`, `AuthnMiddleware` (`@spinajs/authn-http`), `PrincipalMiddleware`, `AccessEpochMiddleware` (`@spinajs/authz-http`), `IntHttpMiddleware` (`@spinajs/intl-http`), `TelemetryMiddleware` (`@spinajs/telemetry`).
+Middlewares from other packages, for orientation: `ClientIp` (replaces `RealIp`), `CsrfOriginGuard` (a `SameOriginGuard`), `AuthnMiddleware` (`@spinajs/authn-http`), `PrincipalMiddleware`, `AccessEpochMiddleware` (`@spinajs/authz-http`), `IntHttpMiddleware` (`@spinajs/intl-http`), `TelemetryMiddleware` (`@spinajs/telemetry`).
 
 ## Configuration
 

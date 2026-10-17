@@ -1,44 +1,37 @@
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { ServerMiddleware, parseTrustProxy, trustedClientAddress } from '@spinajs/http';
+import { RealIp, parseTrustProxyOverride } from '@spinajs/http';
 import type { ProxyTrust, Request } from '@spinajs/http';
+import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
 /**
- * authn.http.trustProxy, else http.trustProxy (only when the former is null or absent). The schemas judge the types;
- * `parseTrustProxy` compiles the setting and throws, naming the key, for an entry that is no address or CIDR.
+ * Replaces http's RealIp (Order 1): `req.storage.realIp`, `req.storage.proxyTrust` and `req.storage.ClientIp` all follow
+ * the deprecated `authn.http.trustProxy` when it is set, else `http.trustProxy` (A05).
  */
-export function proxyTrustOf(own: unknown, shared: unknown): ProxyTrust {
-  return own === null || own === undefined ? parseTrustProxy(shared, 'http.trustProxy') : parseTrustProxy(own, 'authn.http.trustProxy');
-}
-
-/**
- * Order 1. Writes req.storage.ClientIp: the socket address, or the client address behind trusted proxy hops only
- * (authn.http.trustProxy, else http.trustProxy; none ⇒ the socket address) (A05).
- */
-@Injectable(ServerMiddleware)
-export class ClientIp extends ServerMiddleware {
+@Injectable(RealIp)
+export class ClientIp extends RealIp {
   @Config('authn.http.trustProxy')
   protected OwnTrust: unknown;
 
-  @Config('http.trustProxy')
-  protected SharedTrust: unknown;
+  @Logger('authn-http')
+  protected Log!: Log;
 
-  constructor() {
-    super();
-    this.Order = 1;
+  protected proxyTrust(): ProxyTrust {
+    const trust = parseTrustProxyOverride(this.OwnTrust, 'authn.http.trustProxy', this.TrustProxy);
+    if (this.OwnTrust !== null && this.OwnTrust !== undefined) {
+      this.Log?.warn('authn.http.trustProxy is deprecated and will be removed: move its value to http.trustProxy');
+    }
+    return trust;
   }
 
-  public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      req.storage.ClientIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
-      next();
-    };
-  }
-
-  public after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
-    return null;
+  public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
+    const resolve = super.before();
+    return (req: Request, res: express.Response, next: express.NextFunction) =>
+      resolve(req, res, (err?: unknown) => {
+        req.storage.ClientIp = req.storage.realIp;
+        next(err);
+      });
   }
 }

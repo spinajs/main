@@ -170,9 +170,10 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     it('A22 a longer listed origin is another origin', async () => expectRefused(await send('POST', { Origin: `${PARTNER}.evil.example.net` })));
     it('A22 another scheme is another origin', async () => expectRefused(await send('POST', { Origin: 'https://localhost:8889' })));
 
-    it('A22 an origin that only differs in case or adds a path is not the serialized origin', async () => {
-      expectRefused(await send('POST', { Origin: 'HTTPS://partner.example.org' }));
-      expectRefused(await send('POST', { Origin: `${PARTNER}/` }));
+    it('A22 Origin is compared as a normalised origin, as listed origins are', async () => {
+      expectPass(await send('POST', { Origin: 'HTTPS://partner.example.org' }));
+      expectPass(await send('POST', { Origin: `${PARTNER}/` }));
+      expectRefused(await send('POST', { Origin: `${PARTNER}/path` }));
     });
 
     it('A22 Origin wins over fetch metadata', async () => expectRefused(await send('POST', { Origin: EVIL, 'Sec-Fetch-Site': 'same-origin' })));
@@ -291,8 +292,18 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': ['https://partner.example.org:99999'] }).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
 
-    it('a bad trust setting fails when the middleware is built, naming the key', () => {
-      expect(() => unitGuard({ 'authn.http.trustProxy': 'nope' }).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
+    it('takes the own origin under the trust RealIp stored for the request', () => {
+      const guard = unitGuard({});
+      Object.defineProperty(guard, 'Log', { value: { warn: () => undefined } });
+      const handler = guard.before()!;
+      const forwarded = { cookie: 'ssid=x', host: 'internal:3000', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'app.example.test', origin: 'https://app.example.test' };
+      const passes = (storage: Record<string, unknown>) => {
+        const next = sinon.spy();
+        handler({ ...fakeReq('POST', forwarded, { remoteAddress: '10.0.0.5' }), storage }, fakeRes() as any, next);
+        return next.calledOnce;
+      };
+      expect(passes({}), 'no stored trust').to.eq(false);
+      expect(passes({ proxyTrust: parseTrustProxy(['10.0.0.0/8'], 'http.trustProxy') }), 'trusted peer').to.eq(true);
     });
 
     it('is off only for enabled: false', () => {
