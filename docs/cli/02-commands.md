@@ -146,7 +146,7 @@ export class TenantSuspendCommand extends TenantCommand {
 }
 ```
 
-Keep each command in its own file: discovery takes one class per file ([Command discovery](05-command-discovery.md#important-behaviour)). The sample shows them together for brevity.
+Discovery finds every exported command of a file ([Command discovery](05-command-discovery.md#important-behaviour)), so the two commands can share one file. Keep `TenantCommand` outside the scanned directory: an undecorated `CliCommand` subclass there is skipped with the `not marked as command` warning.
 
 ### `CliCommand`: replace a shipped command's behaviour
 

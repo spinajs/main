@@ -6,16 +6,16 @@ The package ships a config file that adds its compiled `cli` directory to `syste
 
 1. `@spinajs/configuration` loads `node_modules/@spinajs/orm-cli/lib/<mjs|cjs>/config/orm-cli.js` with every other `@spinajs/*` config file.
 2. Its default export appends two directories to `system.dirs.cli`; arrays merge by concatenation, so the entries of `@spinajs/cli` and your application stay.
-3. `Cli.resolve()` lists every file in those directories and takes the **first exported name** of each file as its command class. See [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md).
-4. `Cli` reads the `@Command` and `@Option` metadata of that class and builds the commander command. It resolves the class from DI only when the command is invoked.
+3. `Cli.resolve()` lists every exported class of every file in those directories and keeps the ones decorated with `@Command`. See [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md).
+4. `Cli` reads the `@Command` and `@Option` metadata of each kept class and builds the commander command. It resolves the class from DI only when the command is invoked.
 
-| File | First export (ESM, alphabetical) | Command |
+| File | Command class | Command |
 | --- | --- | --- |
 | `cli/MigrateUp.js` | `MigrateUpCommand` | `migrate-up` |
 | `cli/MigrateDown.js` | `MigrateDownCommand` | `migrate-down` |
 | `cli/MigrateStatus.js` | `MigrateStatusCommand` | `migrate-status` |
 | `cli/MigrateResolve.js` | `MigrateResolveCommand` | `migrate-resolve` |
-| `cli/MigrateCreate.js` | `MigrateCreateCommand` | `migrate-create` |
+| `cli/MigrateCreate.js` | `MigrateCreateCommand`, next to its constants and helpers | `migrate-create` |
 
 ## Configuration
 
@@ -85,7 +85,7 @@ void main();
 ## Best practices
 
 - Run `spinajs configuration:dump -p system.dirs.cli` when a command is missing; it prints the directories actually scanned.
-- Keep one exported class per command file in your own command directories, as `MigrateUp.ts` does here.
+- Keep shared base classes of your commands outside your command directories; an undecorated `CliCommand` subclass there is skipped with a warning.
 
 ## Patterns and antipatterns
 
@@ -93,12 +93,11 @@ void main();
 // Don't: expect a side-effect import to add the commands to the bin; discovery ignores '__cli_command__'
 import '@spinajs/orm-cli';
 
-// Do: rely on the shipped system.dirs.cli entry, or list a directory with a re-export file
-export { MigrateCreateCommand } from '@spinajs/orm-cli';
+// Do: rely on the shipped system.dirs.cli entry
 ```
 
 ## Related
 
-- [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md): the scanning rules, including "one command per file".
+- [`@spinajs/cli`: command discovery](../cli/05-command-discovery.md): the scanning rules.
 - [`@spinajs/cli`: running the CLI](../cli/01-running-the-cli.md): boot order and exit codes of the bin.
 - [Customizing commands](08-customizing-commands.md): replacing a shipped command or adding your own.
