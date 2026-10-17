@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Registration.** The bin's `src/args.ts` runs `DI.register(factory).as('__cli_argv_provider__')` when `cli.js` imports it. It is not part of the package entry (`@spinajs/cli`), so a program that imports only `@spinajs/cli` has no provider.
-2. **Resolution.** After building the command tree, `Cli.resolve()` calls `DI.resolve<string[]>('__cli_argv_provider__')`. A factory registration is called on every resolve, and the last registration under the token wins.
+2. **Resolution.** After building the command tree, `Cli.resolve()` calls `DI.resolve<string[]>('__cli_argv_provider__')`. A factory registration is called on every resolve, and the last registration under the token wins. With no registration, `Cli` uses `process.argv` through the default filter.
 3. **Default filter.** The default factory copies `process.argv` and removes `--app`, `--env`, `--apppath` together with their value (`--env production`), and the single-token forms (`--env=production`).
 4. **Empty check.** When the array has no entries after the first two (`node` and the script), `Cli` prints the program help and returns.
 5. **Parse.** Otherwise `program.parseAsync(argv)` parses it with commander's default `{ from: 'node' }`: the first two entries are skipped.
@@ -23,7 +23,7 @@ The returned array must keep the Node layout: two leading entries (any strings),
 Register a factory when you run `Cli` yourself. Two common reasons:
 
 - **Tests.** Run one command with fixed arguments, as `packages/cli/test/cli.test.ts` does.
-- **Custom entry points.** Your own bin needs the same framework-option filter as `spinajs`, or extra options of its own to strip.
+- **Custom entry points.** Your own bin has extra options of its own to strip.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -59,7 +59,7 @@ export async function main(): Promise<void> {
 
 ## Important behaviour
 
-- Without a registered provider, `DI.resolve('__cli_argv_provider__')` returns `null` and `Cli.resolve()` fails with a `TypeError` on `argv.slice`. Register a provider in every entry point other than the `spinajs` bin.
+- Without a registered provider, `Cli` parses `process.argv` minus `--app`, `--env` and `--apppath`, as the `spinajs` bin does. Register a provider only to parse something else.
 - The provider runs after the tree is built and after every command file is imported. A command file can therefore register a provider at import time and override the default; avoid that, it changes argv for every command.
 - The default filter removes the token after `--app`, `--env` or `--apppath` even when it looks like another option: `spinajs --env --help` drops `--help`.
 - `Cli` is a singleton. Resolving it a second time in the same container returns the cached instance without parsing again; tests call `DI.clearCache()` between runs.
