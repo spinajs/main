@@ -10,6 +10,8 @@ export interface TokenRoleExtensionDeps {
   readonly rules?: TokenRoleRules | (() => Promise<TokenRoleRules>);
 }
 
+const NO_CONFIGURATION: Pick<Configuration, 'get'> = { get: <T>(_path: string | string[], dflt?: T) => dflt as T };
+
 const TOKEN_ROLE_EXTENSION = Symbol('tokenRoleExtension');
 
 /** Whether `e` came from {@link tokenRoleExtension}; RbacModel keeps exactly one of them, last. */
@@ -29,7 +31,11 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
     async init(ctx) {
       if (deps.rules instanceof TokenRoleRules) rules = deps.rules;
       else if (deps.rules) rules = await deps.rules();
-      else rules = await loadTokenRoleRules((await ctx.container.resolve(Configuration)) as Configuration, ctx.container);
+      else {
+        // The host resolves Configuration before any model init; outside it a model init must not start loading one.
+        const configuration = ctx.container.isResolved(Configuration) ? ((await ctx.container.resolve(Configuration)) as Configuration) : NO_CONFIGURATION;
+        rules = await loadTokenRoleRules(configuration, ctx.container);
+      }
     },
     // Synchronous and without ctx: RbacModel.heldNow runs it with a context that throws.
     gather(request: DecisionRequest, _ctx: EvaluationContext, input: RbacInput): Partial<RbacInput> {
