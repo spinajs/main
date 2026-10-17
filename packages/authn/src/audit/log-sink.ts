@@ -1,14 +1,13 @@
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { Injectable, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
+import { processSecret } from '@spinajs/util/crypto';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuditConfig } from './config.js';
-
-let processKey: Buffer | undefined;
 
 // SR-19: a value holding `@` may be an email and is never written.
 const noEmail = (v: unknown): unknown => (typeof v === 'string' && v.includes('@') ? '?' : v);
@@ -43,7 +42,7 @@ export class LogAuthnAuditSink extends AuthnEventSink {
 
   private get key(): Buffer {
     const secret = this.config.hashKey?.secret;
-    return (this.keyBuffer ??= secret ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32)));
+    return (this.keyBuffer ??= secret ? Buffer.from(secret, 'utf8') : processSecret());
   }
 
   async publish(e: AuthnEvent): Promise<void> {

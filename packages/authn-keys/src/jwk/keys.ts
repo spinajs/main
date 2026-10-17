@@ -1,6 +1,7 @@
-import { createHash, createPublicKey } from 'node:crypto';
+import { createPublicKey } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import type { Ed25519PublicJwk, KeyAlgorithm, KeyMaterial, P256PublicJwk, PublicJwk } from '@spinajs/authn/contracts';
+import { sha256 } from '@spinajs/util/crypto';
 import { decodeB64url } from './base64url.js';
 import { isCanonicalPoint, isSmallOrder } from './ed25519.js';
 
@@ -53,7 +54,7 @@ export function checkPublicJwk(input: unknown, allowed: readonly KeyAlgorithm[] 
 /** RFC 7638: the required members only, in lexicographic order, no whitespace; SHA-256, base64url. */
 export function thumbprint(jwk: PublicJwk): string {
   const json = jwk.kty === 'OKP' ? JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x }) : JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
-  return createHash('sha256').update(json, 'utf8').digest('base64url');
+  return sha256(json, 'base64url');
 }
 
 const CACHE_LIMIT = 1024;

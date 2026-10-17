@@ -68,6 +68,15 @@ describe('authn-oidc flow', () => {
       }
     });
 
+    it('refuses a cookie that is not the canonical base64url of its bytes', () => {
+      const value = encodeFlow(login());
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+      // The JSON ends with "}", so bumping the last character changes only unused bits (or adds a dangling one).
+      const alias = value.length % 4 === 0 ? `${value}A` : value.slice(0, -1) + alphabet[alphabet.indexOf(value.at(-1)!) + 1];
+      expect(Buffer.from(alias, 'base64url')).to.deep.eq(Buffer.from(value, 'base64url'));
+      expect(decodeFlow(alias)).to.eq(null);
+    });
+
     it('is HttpOnly, SameSite=Lax, Path=/, with __Host- and Secure outside development and test', () => {
       const f = login();
       const prod = flowCookie(f, 'production');

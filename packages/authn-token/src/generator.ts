@@ -1,6 +1,7 @@
-import { randomBytes, createHash } from 'crypto';
+import { createHash } from 'crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { randomToken } from '@spinajs/util/crypto';
 import '@spinajs/authn/register-schema';
 
 import { AccessTokenGenerationProvider, IGeneratedToken } from './generation.js';
@@ -33,7 +34,7 @@ export class SecureRandomTokenProvider extends AccessTokenGenerationProvider {
 
   public async generate(): Promise<IGeneratedToken> {
     checkTokenSize(this.Prefix, this.Length);
-    const plaintext = `${this.Prefix}${randomBytes(this.Length).toString('base64url')}`;
+    const plaintext = `${this.Prefix}${randomToken(this.Length)}`;
     return { Plaintext: plaintext, Hash: this.hash(plaintext) };
   }
 

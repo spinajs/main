@@ -1,9 +1,8 @@
-import { createHash } from 'node:crypto';
-
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmDriver, RawQuery } from '@spinajs/orm';
 import type { IUpdateResult } from '@spinajs/orm';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
+import { sha256 } from '@spinajs/util/crypto';
 import { DateTime } from 'luxon';
 
 import { fromUtcColumn } from '../models/utc.js';
@@ -102,7 +101,7 @@ export function isDuplicate(err: unknown): boolean {
 }
 
 /** @internal Hex SHA-256 of the UTF-8 bytes. */
-export const sha256hex = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
+export const sha256hex = (value: string): string => sha256(value);
 
 /** @internal A string of at most `max` characters (code points), or `InvalidArgument`; never truncated. */
 export function checkedText(value: unknown, max: number, label: string, allowEmpty = false): string {

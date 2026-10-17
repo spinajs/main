@@ -1,5 +1,5 @@
-import { timingSafeEqual } from 'node:crypto';
 import { _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { timingSafeEqualStr } from '@spinajs/util/crypto';
 
 import type { OidcExternalSubject } from './contracts.js';
 import type { OidcProviderOptions } from './options/options.js';
@@ -35,12 +35,6 @@ export interface OidcCallbackQuery {
 }
 
 const MAX_CODE_LENGTH = 4096;
-
-const sameText = (a: string, b: string): boolean => {
-  const x = Buffer.from(a, 'utf8');
-  const y = Buffer.from(b, 'utf8');
-  return x.length === y.length && timingSafeEqual(x, y);
-};
 
 /**
  * One configured provider at run time. It keeps one discovery and one JWKS cache for the life of the process, so their
@@ -108,7 +102,7 @@ export class OidcProvider {
     if (flow.p !== this.name) refuse('the flow belongs to another provider');
     if (!flowIsLive(flow, now)) refuse('the flow expired');
     const secrets = flowSecrets(flow);
-    if (typeof query.state !== 'string' || !sameText(query.state, secrets.state)) refuse('state');
+    if (typeof query.state !== 'string' || !timingSafeEqualStr(query.state, secrets.state)) refuse('state');
     const claim = stateClaim(flow, secrets.state);
     if (!(await this.states.claim(claim.key, claim.expiresAt, now))) refuse('state already used');
     if (query.error !== undefined) refuse('the provider answered an error');

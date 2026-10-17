@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -6,6 +5,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { taggedHash } from '@spinajs/util/crypto';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
 import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
@@ -16,7 +16,7 @@ import type { ISocketHandshake, ISocketRevalidation, SocketRevalidationResult } 
 import { SessionPrincipalResolver } from '../resolvers/session.js';
 
 // AuthnMiddleware's: sha256 of a raw session id is its storage key, which must not reach a log.
-const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
+const logHash = (value: string): string => taggedHash('authn-http:log', value, 16);
 
 /**
  * The browser session cookie as a socket principal: AuthnMiddleware's restore and SessionPrincipalResolver for a handshake.
