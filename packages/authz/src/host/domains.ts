@@ -4,11 +4,21 @@ import { Config } from '@spinajs/configuration';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import { AuthzDomains, AuthzService, DOMAIN_NAME_PATTERN, ROOT_DOMAIN } from '../contracts/service.js';
-import type { DomainIdentity } from '../contracts/service.js';
+import type { ChangeBus, DecisionAudit, DomainIdentity } from '../contracts/service.js';
 import { engineLog, thrownError } from './log.js';
 import { configAt } from './config/domain-config.js';
+import type { DomainConfig } from './config/domain-config.js';
+import type { AuthzClock } from './clock.js';
 
 const DOMAIN_NAME = new RegExp(DOMAIN_NAME_PATTERN);
+
+/** What a domain's AuthzService picked and merged at boot; the host hands it to attach(). */
+export interface DomainBoot {
+  readonly config: DomainConfig;
+  readonly audit: DecisionAudit | undefined;
+  readonly bus: ChangeBus | undefined;
+  readonly clock: AuthzClock;
+}
 
 interface DomainRecord {
   readonly name: string;
@@ -18,6 +28,7 @@ interface DomainRecord {
   /** Services booting for this domain or attached to it; all are disposed with the domain. */
   readonly services: Set<AuthzService>;
   service?: AuthzService;
+  boot?: DomainBoot;
 }
 
 const q = (v: unknown): string => {
@@ -145,10 +156,11 @@ export class DefaultAuthzDomains extends AuthzDomains {
     return false;
   }
 
-  attach(name: string, service: AuthzService): boolean {
+  attach(name: string, service: AuthzService, boot?: DomainBoot): boolean {
     const record = this.records.get(name);
     if (!record?.services.has(service)) return false;
     record.service = service;
+    record.boot = boot === undefined ? undefined : Object.freeze({ ...boot });
     return true;
   }
 
@@ -156,11 +168,41 @@ export class DefaultAuthzDomains extends AuthzDomains {
     const record = this.records.get(name);
     if (!record) return;
     record.services.delete(service);
-    if (record.service === service) record.service = undefined;
+    if (record.service === service) {
+      record.service = undefined;
+      record.boot = undefined;
+    }
+  }
+
+  /** The configuration of the domain merged over its lineage, as its service booted with it (frozen). */
+  config(name: string): DomainConfig {
+    return this.booted(name).config;
+  }
+
+  /** The DecisionAudit the domain's service picked at boot (authz.audit.service, else the last registered); undefined when none. */
+  audit(name: string): DecisionAudit | undefined {
+    return this.booted(name).audit;
+  }
+
+  /** The ChangeBus the domain's service picked at boot (authz.bus.service, else the last registered); undefined when none. */
+  bus(name: string): ChangeBus | undefined {
+    return this.booted(name).bus;
+  }
+
+  /** The AuthzClock the domain's service booted with: the domain's own registration, else SystemClock. */
+  clock(name: string): AuthzClock {
+    return this.booted(name).clock;
   }
 
   resolved(name: string): AuthzService | undefined {
     return this.records.get(name)?.service;
+  }
+
+  private booted(name: string): DomainBoot {
+    const record = this.records.get(name);
+    if (!record) throw new AuthzConfigError(`Authz domain ${q(name)} does not exist (live domains: ${this.names().join(', ')})`);
+    if (!record.boot) throw new AuthzConfigError(`Authz domain ${q(name)} has no booted AuthzService; await AuthzDomains.service(${q(name)}) first`);
+    return record.boot;
   }
 
   private forget(name: string, container: IContainer): void {
