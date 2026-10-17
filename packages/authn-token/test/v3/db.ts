@@ -5,6 +5,7 @@ import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { IdentityStore, RoleSource } from '@spinajs/authn/contracts';
 
+import { TokenOwnerResolver, UsersTableTokenOwnerResolver } from '../../src/service/owner-resolver.js';
 import { dir, dropOwnCompiledDirs, registerAuthnSchema } from '../db-common.js';
 
 const CONNECTION = 'sqlite';
@@ -55,6 +56,9 @@ function uncacheOwn(): void {
   DI.uncache(V3DbConfiguration);
   DI.uncache('orm-driver-sqlite');
   DI.uncache(SqliteOrmDriver);
+  // The owner resolver holds the Orm it was built with.
+  DI.uncache(UsersTableTokenOwnerResolver);
+  DI.uncache(TokenOwnerResolver);
 }
 
 // An earlier suite may leave a RoleSource or IdentityStore registered; the 3.0
