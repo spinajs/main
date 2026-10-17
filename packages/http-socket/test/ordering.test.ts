@@ -189,6 +189,15 @@ describe('socket ordered commands', function () {
     expect(ordDone).to.deep.equal(['A', 'B']);
   });
 
+  it('fails a command that arrives with a deadline of 0 or below without running it', async () => {
+    const s = await connectAs('ord-expired');
+
+    expect(errorOf(await command(s, 'ord.conn', { tag: 'Z', ms: 0 }, { deadline: 0 })).code).to.equal('deadline_exceeded');
+    expect(errorOf(await command(s, 'ord.conn', { tag: 'N', ms: 0 }, { deadline: -5 })).code).to.equal('deadline_exceeded');
+    await delay(50);
+    expect(ordDone).to.deep.equal([]);
+  });
+
   it('skips a queued command whose deadline passed while it waited', async () => {
     const s = await connectAs('ord-late');
     const a = command(s, 'ord.conn', { tag: 'A', ms: 150 });

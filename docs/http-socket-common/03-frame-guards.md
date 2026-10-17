@@ -87,7 +87,7 @@ export function relay(client: RelaySocket, upstream: RelaySocket, allow: (comman
 
 - `isCommandRequest()` and `isEventFrame()` do not require a `payload` field.
 - `isCommandRequest()` accepts `after` without `idempotencyKey`. The server refuses that combination with `invalid_argument`.
-- `isCommandRequest()` accepts any finite `deadline`, including `0` and negatives; the server ignores those.
+- `isCommandRequest()` accepts any finite `deadline`, including `0` and negatives; the server answers those `deadline_exceeded` at once.
 - Integer checks accept values above `Number.MAX_SAFE_INTEGER` (e.g. `1e300`). Bound `credits` yourself; the server uses its `maxCredits` limit.
 - `isChunk()` accepts a chunk without `data`: an `undefined` stream item travels that way.
 - `isSocketError()` does not check `details`; it is `unknown`.
