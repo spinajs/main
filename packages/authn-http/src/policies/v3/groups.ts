@@ -2,7 +2,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { ImpersonationGuard, RoleSource } from '@spinajs/authn/contracts';
+import { ImpersonationGuard, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 
 import { notFound } from './errors.js';
 
@@ -44,8 +44,13 @@ export function serviceRegistered(service: Class<unknown>, message: string): new
   return ServiceRegistered;
 }
 
-/** 404 while no RoleSource is registered: the role switch routes are off. */
-export class RoleSourceRegistered extends serviceRegistered(RoleSource, 'role switch is off: no RoleSource is registered') {}
+/** 404 while no RoleSource or no PrincipalFactory is registered: the role switch routes are off. */
+export class RoleSourceRegistered extends serviceRegistered(RoleSource, 'role switch is off: no RoleSource is registered') {
+  public async execute(req: Request, action: IRoute, instance: IController): Promise<void> {
+    await super.execute(req, action, instance);
+    this.require(PrincipalFactory, 'role switch is off: no PrincipalFactory is registered');
+  }
+}
 
 /** 404 while no ImpersonationGuard is registered: the impersonation routes are off. */
 export class ImpersonationGuardRegistered extends serviceRegistered(ImpersonationGuard, 'impersonation is off: no ImpersonationGuard is registered') {}

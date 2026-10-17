@@ -17,9 +17,9 @@ const ROLE_CAP = 256;
 
 /**
  * The role switch (A26, D14): a session narrows its principal to one role it holds, as `ceiling.roles`. Off (404)
- * while no RoleSource is registered. A role the RoleSource marks `requirePassword` needs fresh authentication: a login
- * within authn.freshAuth.maxAgeSeconds, or the password in the body, verified through the throttled re-authentication
- * (A13, SR-20). The switch rotates the session id, then stores the role (N2).
+ * while no RoleSource or no PrincipalFactory is registered. A role the RoleSource marks `requirePassword` needs fresh
+ * authentication: a login within authn.freshAuth.maxAgeSeconds, or the password in the body, verified through the
+ * throttled re-authentication (A13, SR-20). The switch rotates the session id, then stores the role (N2).
  * @tags Authentication
  */
 @BasePath('auth')
