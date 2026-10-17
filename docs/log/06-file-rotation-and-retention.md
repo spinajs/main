@@ -216,9 +216,9 @@ DI.register(NotifyingLogArchiveService).as(LogArchiveService);
 - Strategies are matched by **class name**, so minifying or renaming a class breaks the config value.
 - Without `@NewInstance()`, a strategy is a singleton: two file targets share one schedule, and the second `start()` stops the first.
 - An exception from `start()` (eg. `CronLogArchiveStrategy` without `rotate`) or an unknown strategy name fails the target's init: the target never writes. The error goes to the `LogFileTarget` logger.
-- `SizeLogArchiveStrategy`'s interval and `CronLogArchiveStrategy`'s job are **not** `unref()`'d: a process with a file target does not exit on its own until the target is disposed.
+- `SizeLogArchiveStrategy`'s interval and `CronLogArchiveStrategy`'s job are `unref()`'d: they never keep the process alive.
 - Retention sees only files starting with `archived_` in the archive directory, so it never touches the active log or other files in a shared directory.
-- `ctx.activePath` is computed once, at init. With a date-based `path`, the size strategy keeps checking the first file.
+- `ctx.activePath` is recomputed on every read, so with a date-based `path` the strategies see the current file.
 - When the active file does not exist, `rotate()` moves nothing, but the retention strategies still run.
 
 ## Best practices

@@ -1,5 +1,6 @@
 import { ILogEntry, ILogFilterOptions, LogFilter } from "@spinajs/log-common";
 import { Injectable, NewInstance } from "@spinajs/di";
+import { InvalidOption } from "@spinajs/exceptions";
 
 /**
  * Options for {@link RateLimitFilter}.
@@ -40,6 +41,13 @@ export class RateLimitFilter extends LogFilter {
     this.limit = options?.limit ?? 0;
     this.intervalMs = (options?.intervalSeconds ?? 0) * 1000;
     this.keyField = options?.key;
+
+    if (typeof options?.limit !== "number" || !(options.limit >= 0)) {
+      throw new InvalidOption(`RateLimitFilter requires a non-negative 'limit', got ${String(options?.limit)}`);
+    }
+    if (!(this.intervalMs > 0)) {
+      throw new InvalidOption(`RateLimitFilter requires a positive 'intervalSeconds', got ${String(options?.intervalSeconds)}`);
+    }
   }
 
   protected keyOf(entry: ILogEntry): string {
@@ -52,13 +60,12 @@ export class RateLimitFilter extends LogFilter {
   public apply(entry: ILogEntry): ILogEntry | null {
     const now = this.now();
     const key = this.keyOf(entry);
-    const record = this.windows.get(key);
+    let record = this.windows.get(key);
 
     if (!record || now - record.windowStart >= this.intervalMs) {
-      // fresh window - start counting from this entry
-      this.windows.set(key, { count: 1, windowStart: now });
+      record = { count: 0, windowStart: now };
+      this.windows.set(key, record);
       this.prune(now);
-      return entry;
     }
 
     if (record.count < this.limit) {
