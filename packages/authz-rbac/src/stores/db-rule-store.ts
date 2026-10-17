@@ -262,7 +262,7 @@ export class DbRuleStore extends AdminRuleStore {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-export function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
+function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
   const def = JSON.parse(String(row.definition)) as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));

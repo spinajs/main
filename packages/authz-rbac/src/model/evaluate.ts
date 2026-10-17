@@ -205,7 +205,7 @@ const grant: RbacStep = (s) => {
 };
 
 /** The rows a passing grant permits: the AND of its conditions; a grant with none permits every row. */
-export function grantResidual(grant: CompiledGrant, at: PatternContext): ResourceFilter {
+function grantResidual(grant: CompiledGrant, at: PatternContext): ResourceFilter {
   return and(relationResidual(grant), grant.patterns ? patternsFilter(grant.patterns, at) : TRUE);
 }
 
@@ -503,7 +503,7 @@ export function resourcePath(resource: ResourceRef, ctx: EvaluationContext): rea
 }
 
 /** The principal and its companions, each once. */
-export function defaultSubjects(principal: Principal): readonly AssignmentSubject[] {
+function defaultSubjects(principal: Principal): readonly AssignmentSubject[] {
   const out = new Map<string, PrincipalRef>();
   for (const p of [principal, ...(principal.companions ?? [])]) {
     const ref = { type: p.type, id: p.id };
