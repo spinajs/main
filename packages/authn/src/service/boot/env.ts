@@ -1,12 +1,13 @@
 import { DI } from '@spinajs/di';
+import { checkConfigurationValue } from '@spinajs/configuration';
 import { normalizeEnvironment } from '@spinajs/configuration-common';
-import { InvalidOption } from '@spinajs/exceptions';
+import { deepFreeze } from '@spinajs/util';
 
-import { THROTTLE_FLOWS } from '../../contracts/throttle.js';
 import type { ThrottleParams } from '../../contracts/throttle.js';
+import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
+import type { ThrottleConfig } from '../../throttle/params.js';
 
-// TODO: manual checking or env related stuff - should be removed
-// manual checks - to schema validation or extend validation functions, env fallbacks etc - move into config file it should be explicit in config, not assumed by internal code
+// TODO: env fallbacks - move into config file, it should be explicit in config, not assumed by internal code
 
 /**
  * `http.cookie.secret` as `@spinajs/http` ships it: public, so anyone can sign cookies with it. The same value as
@@ -53,39 +54,20 @@ export function authnEnvFellBack(config: AuthnConfigSource & { readonly Env?: un
   return resolvedAppEnv(config) === 'development' && ![config.Env, registered?.APP_ENV, process.env.APP_ENV, process.env.NODE_ENV].includes('development');
 }
 
-const atLeast = (v: unknown, min: number): boolean => Number.isInteger(v) && (v as number) >= min;
-
-const refuse = (path: string, rule: string): never => {
-  throw new InvalidOption(`authn.throttle.${path} ${rule}`);
-};
-
-function checkBackoff(p: unknown, at: string): void {
-  if (typeof p !== 'object' || p === null) refuse(at, 'must be { free, baseDelayMs, maxDelayMs }');
-  const b = p as Record<string, unknown>;
-  for (const [key, min] of [['free', 0], ['baseDelayMs', 0], ['maxDelayMs', 1]] as const) {
-    if (!atLeast(b[key], min)) refuse(`${at}.${key}`, `must be an integer of at least ${min}`);
-  }
-}
+// Without its `default`: Ajv's strict mode refuses one at the schema root.
+const { default: _default, ...throttleSchema } = AUTHN_CONFIGURATION_SCHEMA.properties.throttle;
+const THROTTLE_SCHEMA = { ...throttleSchema, $configurationModule: 'authn.throttle' };
 
 /**
- * The schema's throttle ranges, for limits that never went through it (constructor params, a runtime
- * Configuration.set before the first use): a NaN delay, a zero maxDelayMs or a zero resetAfterSeconds switches the
- * backoff off. Throws InvalidOption naming the key.
+ * Params given to a throttle directly, which never pass through Configuration: checked against the `authn.throttle`
+ * schema and returned as a frozen copy with its defaults. Throws InvalidConfiguration naming the key.
  */
-export function checkThrottleParams(params: ThrottleParams): void {
-  const flows = params as unknown as Record<string, unknown> | null | undefined;
-  for (const flow of THROTTLE_FLOWS) {
-    const f = flows?.[flow];
-    if (typeof f !== 'object' || f === null) refuse(flow, 'must be an object');
-    const { account, ip } = f as Record<string, unknown>;
-    checkBackoff(account, `${flow}.account`);
-    if (ip !== undefined) checkBackoff(ip, `${flow}.ip`);
-  }
-  if (params.global !== undefined && params.global !== null) checkBackoff(params.global, 'global');
-  if (!atLeast(params.resetAfterSeconds, 1)) refuse('resetAfterSeconds', 'must be an integer of at least 1');
+export function checkedThrottleParams(params: ThrottleParams): ThrottleParams {
+  const { service: _service, maxRows: _maxRows, memory: _memory, ...checked } = checkConfigurationValue(THROTTLE_SCHEMA, params as ThrottleConfig);
+  return deepFreeze(checked);
 }
 
-/** A NaN or infinite row cap never fills, so the memory throttle would grow without bound. */
-export function checkThrottleMaxRows(maxRows: unknown): void {
-  if (!atLeast(maxRows, 1)) refuse('maxRows', 'must be a positive integer');
+/** A row cap given to a MemoryAuthnThrottle directly, checked against `authn.throttle.maxRows`. */
+export function checkedThrottleMaxRows(maxRows: number): number {
+  return checkConfigurationValue(THROTTLE_SCHEMA, { maxRows } as ThrottleConfig).maxRows!;
 }

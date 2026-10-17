@@ -9,7 +9,7 @@ import type { KeyedBackoffOptions, ThrottleStore } from '@spinajs/util';
 
 import { AuthnThrottle, THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
 import type { BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
-import { checkThrottleMaxRows, checkThrottleParams } from '../service/boot/env.js';
+import { checkedThrottleMaxRows, checkedThrottleParams } from '../service/boot/env.js';
 import { FlowLimiter } from './flow-limiter.js';
 import { DEFAULT_MEMORY_THROTTLE, DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
 import type { MemoryThrottleConfig, ThrottleConfig } from './params.js';
@@ -50,12 +50,14 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   private memoryStore: MemoryThrottleStore | undefined;
   private readonly secret = randomBytes(32);
   private loaded: Loaded | undefined;
+  private readonly explicit: ThrottleParams | undefined;
+  private readonly explicitMaxRows: number | undefined;
 
-  /** DI passes nothing and the limits come from `authn.throttle`; tests pass complete, trusted params. */
-  constructor(private readonly explicit?: ThrottleParams, private readonly options: MemoryThrottleOptions = {}) {
+  /** DI passes nothing and the limits come from `authn.throttle`; tests pass params, checked against its schema. */
+  constructor(explicit?: ThrottleParams, options: MemoryThrottleOptions = {}) {
     super();
-    if (explicit) checkThrottleParams(explicit);
-    if (options.maxRows !== undefined) checkThrottleMaxRows(options.maxRows);
+    this.explicit = explicit && checkedThrottleParams(explicit);
+    this.explicitMaxRows = options.maxRows === undefined ? undefined : checkedThrottleMaxRows(options.maxRows);
   }
 
   public get params(): ThrottleParams {
@@ -67,7 +69,7 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   }
 
   public get maxRows(): number {
-    return this.options.maxRows ?? (this.explicit ? undefined : this.configured.maxRows) ?? DEFAULT_THROTTLE_MAX_ROWS;
+    return this.explicitMaxRows ?? (this.explicit ? undefined : this.configured.maxRows) ?? DEFAULT_THROTTLE_MAX_ROWS;
   }
 
   private get memory(): MemoryThrottleConfig {
@@ -79,8 +81,6 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
     if (!this.loaded) {
       if (!this.Throttle) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
       const { service: _service, maxRows, memory, ...params } = structuredClone(this.Throttle);
-      checkThrottleParams(params);
-      if (maxRows !== undefined) checkThrottleMaxRows(maxRows);
       this.loaded = { params: deepFreeze(params), maxRows, memory: deepFreeze({ ...DEFAULT_MEMORY_THROTTLE, ...memory }) };
     }
     return this.loaded;

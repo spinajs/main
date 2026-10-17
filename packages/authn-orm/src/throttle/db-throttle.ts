@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS } from '@spinajs/authn/contracts';
-import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { authnAppEnv, checkedThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
@@ -56,7 +56,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Logger('authn-orm')
   protected Log: Log;
 
-  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
+  /** Params given to the constructor, checked and completed by the schema, or the §22.5 defaults when there is a driver and no container to read them from. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
   private readonly fromConfiguration: boolean;
@@ -71,7 +71,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
    */
   constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
-    if (params) checkThrottleParams(params);
+    params &&= checkedThrottleParams(params);
     if (options.container) {
       // An instance built with `new` has no injected container, so @Config would read the root Configuration.
       Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
@@ -166,7 +166,6 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private snapshotConfigured(): ThrottleParams {
     if (!this.ConfiguredParams) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
     const { service: _service, maxRows: _maxRows, memory: _memory, ...params } = structuredClone(this.ConfiguredParams) as ThrottleParams & { service?: string; maxRows?: number; memory?: unknown };
-    checkThrottleParams(params);
     return deepFreeze(params);
   }
 

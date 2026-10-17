@@ -5,6 +5,7 @@ import { AUTHN_CONFIGURATION_SCHEMA, AuthnService, AuthnThrottle, IdentityStore,
 import { DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, backoffDelayMs } from '@spinajs/authn/contracts';
 import type { ThrottleKey } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, MemorySessionIssuer, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -64,7 +65,8 @@ describe('DbAuthnThrottle configuration', () => {
 
   it('takes explicit params as given, without a container', () => {
     const throttle = new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE_PARAMS);
-    expect(throttle.params).to.eq(DEFAULT_THROTTLE_PARAMS);
+    expect(throttle.params).to.deep.eq(DEFAULT_THROTTLE_PARAMS);
+    expect(Object.isFrozen(throttle.params.login.account)).to.eq(true);
   });
 
   it('refuses explicit params outside the schema ranges, in every flow, naming the key', () => {
@@ -72,20 +74,18 @@ describe('DbAuthnThrottle configuration', () => {
       for (const [key, value] of [['free', -1], ['baseDelayMs', Number.NaN], ['maxDelayMs', 0]] as const) {
         const params = clone(DEFAULT_THROTTLE_PARAMS) as unknown as Record<string, Record<string, Record<string, unknown>>>;
         params[flow].account[key] = value;
-        expect(() => new DbAuthnThrottle({} as OrmDriver, params as never), `${flow}.${key}`).to.throw(InvalidOption, `authn.throttle.${flow}.account.${key}`);
+        expect(() => new DbAuthnThrottle({} as OrmDriver, params as never), `${flow}.${key}`).to.throw(InvalidConfiguration, `authn.throttle.${flow}.account.${key}`);
       }
     }
-    expect(() => new DbAuthnThrottle({} as OrmDriver, { ...DEFAULT_THROTTLE_PARAMS, resetAfterSeconds: 0 })).to.throw(InvalidOption, 'authn.throttle.resetAfterSeconds');
+    expect(() => new DbAuthnThrottle({} as OrmDriver, { ...DEFAULT_THROTTLE_PARAMS, resetAfterSeconds: 0 })).to.throw(InvalidConfiguration, 'authn.throttle.resetAfterSeconds');
   });
 
-  it('refuses limits set past the schema before init', async () => {
+  it('cannot get limits outside the schema set at runtime: Configuration.set refuses them and init reads the stored ones', async () => {
     const { child, configuration } = await boot(SCHEMAS, {});
-    configuration.set('authn.throttle.reset.ip.maxDelayMs', 0);
+    expect(() => configuration.set('authn.throttle.reset.ip.maxDelayMs', 0)).to.throw(InvalidConfiguration, 'authn.throttle.reset.ip.maxDelayMs');
     const throttle = new DbAuthnThrottle({} as OrmDriver, undefined, { container: child });
-    let error: unknown;
-    await throttle.init().catch((e: unknown) => (error = e));
-    expect(error).to.be.instanceOf(InvalidOption);
-    expect(String(error)).to.contain('authn.throttle.reset.ip.maxDelayMs');
+    await throttle.init();
+    expect(throttle.params.reset.ip).to.deep.eq(DEFAULT_THROTTLE_PARAMS.reset.ip);
   });
 
   it("keys rows with authn.audit.hashKey.secret from the container's configuration", async () => {

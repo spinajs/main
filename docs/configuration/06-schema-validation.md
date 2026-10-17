@@ -49,6 +49,18 @@ After boot, every change to the tree is checked against the schemas of the modul
 
 A path that no schema covers is written unchecked. Nothing is checked during `resolve()` before the boot check, nor while `load()` rebuilds the tree; it checks the finished tree once.
 
+### Values that bypass the configuration
+
+`checkConfigurationValue(schema, value)` checks an object the way a module is checked, for values that reach code without a `Configuration` (options passed to a constructor, for example). It works on a copy with the same validator options, returns the copy with defaults and coercion applied, and throws `InvalidConfiguration` with `violations` under `schema.$configurationModule`. To check part of a module, pass its fragment with its own `$configurationModule` and without a root `default` (Ajv's strict mode refuses one):
+
+```ts
+const RETRY = { $configurationModule: 'mailer.retry', type: 'object', properties: { count: { type: 'integer', minimum: 0, default: 3 } } };
+
+checkConfigurationValue(RETRY, {});              // { count: 3 }
+checkConfigurationValue(RETRY, { count: '5' });  // { count: 5 }
+checkConfigurationValue(RETRY, { count: -1 });   // throws: mailer.retry.count must be >= 0
+```
+
 ## Configuration
 
 A schema is a JSON Schema (draft-07, as Ajv 8 reads it) with one extra keyword:

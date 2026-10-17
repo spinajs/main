@@ -695,9 +695,10 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.tokenStrategy.verifyCalls).to.have.length(0);
     });
 
-    it('a malformed publicOrigin set at runtime fails only signed requests, not anonymous ones', async () => {
+    it('a publicOrigin past the schema pattern but not an origin, set at runtime, fails only signed requests, not anonymous ones', async () => {
       const config = DI.get(Configuration)!;
-      config.set('authn.http.publicOrigin', 'not an origin');
+      // The pattern does not bound the port; publicOriginOf refuses it.
+      config.set('authn.http.publicOrigin', 'https://app.example.com:70000');
       try {
         expect((await probe()).status).to.eq(200);
         const sig = `sig=:${randomBytes(8).toString('base64')}:`;

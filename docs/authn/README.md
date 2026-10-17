@@ -479,6 +479,11 @@ authn: {
 }
 ```
 
+A value outside the schema fails boot, and `Configuration.set` refuses it at runtime with `InvalidConfiguration`.
+Params passed straight to a constructor (`new MemoryAuthnThrottle(params, { maxRows })`,
+`new DbAuthnThrottle(driver, params)`) are checked against the same `authn.throttle` schema: a missing key gets
+its default, and a bad value throws `InvalidConfiguration` naming the key.
+
 Set `http.trustProxy` (a hop count, or addresses and CIDRs) when the app runs behind a proxy.
 `authn-http`'s `ClientIp` writes `req.storage.ClientIp` from the proxy chain (`authn.http.trustProxy`,
 else `http.trustProxy`); a client-set `X-Forwarded-For` without a trusted hop is ignored.
