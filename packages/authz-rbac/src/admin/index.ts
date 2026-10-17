@@ -4,6 +4,8 @@ export * from './assignments.js';
 export * from './links.js';
 export * from './rules.js';
 export * from './readers.js';
+export { grantingRoles, listHolders } from './holders.js';
+export type { Holder, HolderVia, HoldersQuery } from './holders.js';
 export * from './forgetter.js';
 export * from './membership.js';
 export * from './facts.js';
