@@ -1,6 +1,6 @@
 # Injection decorators
 
-Decorators declare what a class needs; the container supplies it when it builds the class. `@Inject` feeds constructor arguments, `@Autoinject` fills properties, and `@LazyInject` resolves on property access.
+Decorators declare what a class needs; the container supplies it when it builds the class. `@Inject` feeds constructor arguments, `@Autoinject` fills properties (with `{ lazy: true }`, a function that resolves on its first call), and `@LazyInject` resolves on property access.
 
 ## How it works
 
@@ -20,6 +20,7 @@ Decorators declare what a class needs; the container supplies it when it builds 
 | `@Autoinject()` | property | none | Resolves the property's declared type (`design:type`) |
 | `@Autoinject(type)` | property | A class, or `Array.chainOf(T)` | Resolves `type` instead of the declared type. On an array or `Map` property, a class means `Array.ofType(type)` |
 | `@Autoinject(type?, options)` / `@Autoinject(options)` | property | `IAutoinjectOptions` (below) | As above, with options |
+| `@Autoinject(type, { lazy: true, ... })` | property | A class, `Array.ofType(T)` or `Array.chainOf(T)`, plus `IAutoinjectOptions` | Assigns a `Lazy<T>` (`() => Promise<T>`) that resolves `type` on its first call; see [Lazy injection](#lazy-injection) |
 | `@LazyInject(type?)` | property | A class or a string key; omitted: the declared type | Replaces the property with a getter that resolves on every read |
 
 ### `IAutoinjectOptions`
@@ -30,12 +31,29 @@ Decorators declare what a class needs; the container supplies it when it builds 
 | `options` | `any` | none | Passed to the resolved class's constructor as its first extra argument |
 | `check` | `boolean` | `false` | Resolve as `resolve(type, [options], true)`: fail when nothing is registered, instead of building the type itself |
 | `optional` | `boolean` | `false` | Resolve as `resolveOptional(type)`: `undefined` when nothing is registered |
+| `lazy` | `boolean` | `false` | Assign a `Lazy<T>` instead of the instance; needs an explicit `type` |
 
 `@Autoinject` throws at class definition when:
 
 - `check` and `optional` are both set (`'check and optional exclude each other'`);
 - `check` or `optional` is set on an array or `Map` property, or with `Array.chainOf` (`'check and optional take a single class'`);
-- `Array.chainOf(T)` is given for a property that is not an array or `Map`.
+- `Array.chainOf(T)` is given for a property that is not an array or `Map`;
+- `lazy` is set without a class, `Array.ofType(T)` or `Array.chainOf(T)` (`'lazy needs an explicit type'`);
+- `Array.ofType(T)` is given without `lazy` (`'Array.ofType(T) needs { lazy: true }'`).
+
+### Lazy injection
+
+`@Autoinject(type, { lazy: true })` defers the resolve until the owner first needs the dependency. Use it when building the dependency together with the owner is too early: it builds its own collaborators that the app may not register, or it would form a cycle with the owner.
+
+1. While the owner is built, the property gets a `Lazy<T>` bound to the container that built the owner, the same container an eager `@Autoinject` resolves in (the child for a `@PerChildInstance()` owner built there, the root for a root singleton reached through a child).
+2. The first call resolves `type` there with the same rules as the eager form: `check`, `optional`, `options` and `mapFunc` keep their meaning. The call always returns a promise, also for a `SyncService` or a plain class; an `AsyncService` is awaited.
+3. The promise is kept per owner instance: every later call, concurrent ones included, gets the same value without resolving again.
+4. A rejected resolve, or one that throws, is not kept. The next call resolves again.
+
+On a lazy property `design:type` is `Function`, so the container cannot tell an array from a single class: pass `Array.ofType(T)` for the nearest list or `Array.chainOf(T)` for the whole lineage, typed `Lazy<T[]>`, or `Lazy<Map<string, T>>` with `mapFunc`.
+
+- A lazy `optional` that found nothing keeps `undefined`; a registration made later is not seen by that owner.
+- `@LazyInject` is a different mechanism: a synchronous getter that resolves from the root container on every read. Prefer the lazy `@Autoinject` in new code.
 
 ## Services and extension points
 
@@ -97,6 +115,28 @@ class TenantReport {
 class TenantReport {
   @Autoinject()
   protected Settings: TenantSettings;
+}
+```
+
+```ts
+// Don't: look the service up on every call to keep it from being built with the owner
+class SessionResolver {
+  @Autoinject(Container)
+  protected Container: IContainer;
+
+  public async principalOf(session: Session) {
+    return (await this.Container.resolve(ImpersonationService)).principalOf(session);
+  }
+}
+
+// Do: a lazy inject resolves in the same container, once, on first use
+class SessionResolver {
+  @Autoinject(ImpersonationService, { lazy: true })
+  protected Impersonation: Lazy<ImpersonationService>;
+
+  public async principalOf(session: Session) {
+    return (await this.Impersonation()).principalOf(session);
+  }
 }
 ```
 
@@ -190,6 +230,54 @@ async function main() {
     // Type PaymentGateway is not registered at container
     console.error((err as Error).message);
   }
+}
+
+void main();
+```
+
+### Resolve an optional, async collaborator on first use
+
+```ts sample
+import { AsyncService, Autoinject, DI, Lazy, PerChildInstance } from '@spinajs/di';
+
+abstract class AuditSink {
+  public abstract write(event: string): Promise<void>;
+}
+
+class DbAuditSink extends AsyncService implements AuditSink {
+  public readonly events: string[] = [];
+
+  public async resolve() {
+    // open the connection here
+    await super.resolve();
+  }
+
+  public async write(event: string) {
+    this.events.push(event);
+  }
+}
+
+@PerChildInstance()
+class LoginHandler {
+  // not built with the handler; undefined when the app registers no sink
+  @Autoinject(AuditSink, { lazy: true, optional: true })
+  protected Audit: Lazy<AuditSink | undefined>;
+
+  public async login(user: string) {
+    await (await this.Audit())?.write(`login ${user}`);
+  }
+}
+
+async function main() {
+  const request = DI.child();
+  request.register(DbAuditSink).as(AuditSink);
+
+  const handler = request.resolve(LoginHandler);
+  await handler.login('alice');
+
+  const sink = (await request.resolve(DbAuditSink)) as DbAuditSink;
+  console.log(sink.events);
+  // [ 'login alice' ]
 }
 
 void main();
