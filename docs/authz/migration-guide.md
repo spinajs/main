@@ -1384,7 +1384,11 @@ The config, permissions, owners, signed URLs and the `fs` domain are in `package
 - Import the package before `fsService` resolves, and take providers after it resolved: until then
   `fsService` publishes the raw providers.
 - Owners live in the table `fs_object` (`OrmFileMetadataStore`, migration
-  `AuthzFsObject_2026_10_01_00_00_00`, connection `authz.fsMetadata.connection`).
+  `AuthzFsObject_2026_10_01_00_00_00`), on the connection named `authz-fs` (`FS_METADATA_CONNECTION`). Map
+  it to a real connection with `db.Aliases: { 'authz-fs': 'default' }`. The key `authz.fsMetadata.connection`
+  and the schema `AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA` are gone: move its value to that alias. Without the
+  alias the migration is skipped with a warning and `OrmFileMetadataStore` throws `AuthzConfigError` on first
+  use.
 
 ### K1, K1b and A4: canvas conformance, ABAC scope leaves
 

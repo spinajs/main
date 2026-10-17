@@ -7,6 +7,7 @@ import type { FileMeta } from '../src/index.js';
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { FILE_PROVIDER_INSTANCES } from '@spinajs/fs';
 import type { IProviderConfiguration, fs } from '@spinajs/fs';
 
 const expect = chai.expect;
@@ -47,13 +48,13 @@ describe('authz-fs fromFsPath', () => {
   const extract = (req: unknown, fsName = 'uploads', param = 'path') => fromFsPath(fsName, param)(req);
 
   const published = (provider: object, run: () => void): void => {
-    const hadMap = DI.RootContainer.Cache.has('__file_provider_instance__');
-    DI.register(provider).asMapValue('__file_provider_instance__', 'uploads');
+    const hadMap = DI.RootContainer.Cache.has(FILE_PROVIDER_INSTANCES);
+    DI.register(provider).asMapValue(FILE_PROVIDER_INSTANCES, 'uploads');
     try {
       run();
     } finally {
-      (DI.get('__file_provider_instance__') as Map<string, unknown>).delete('uploads');
-      if (!hadMap) DI.uncache('__file_provider_instance__');
+      (DI.get(FILE_PROVIDER_INSTANCES) as Map<string, unknown>).delete('uploads');
+      if (!hadMap) DI.uncache(FILE_PROVIDER_INSTANCES);
     }
   };
 

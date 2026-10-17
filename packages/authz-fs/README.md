@@ -35,18 +35,18 @@ returns the raw provider. An entry must state a valid `mode`, and an unknown key
 | `list` | `dir` | `dir`: `list` needs `fs:list` on the directory. `each`: each entry also needs `fs:stat`; `enforce` drops the others, `audit` keeps them and warns. |
 | `signedUrl.defaultTtlSeconds` | 900 | Lifetime of a signed URL when the caller asks none. |
 | `signedUrl.maxTtlSeconds` | none | Cap on any signed URL lifetime. |
-| `metadata` | none | Class name of the `FileMetadataStore` that holds owners. |
+| `metadata` | none | Name of the `FileMetadataStore` that holds owners (see [Owners and metadata](#owners-and-metadata)). |
 | `stampOwner` | `false` | Record the first writer as the owner; needs `metadata`. |
-| `resolver` | every `FsPathResolver` whose `fs` matches | Class name of the resolver that gives a path its domain parents (fs-inherit). |
+| `resolver` | every `FsPathResolver` whose `fs` matches | Name of the resolver that gives a path its domain parents (fs-inherit), looked up as `metadata` is. |
 | `inherit` | none | `fs:<op>` → action on the domain parent (fs-inherit). |
 | `policies` | none | ABAC policies of the filesystem (fs-abac). |
 
 `inherit` or `policies` on a filesystem checked in `root` is an `AuthzConfigError` (decorator, and every domain
 boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
 
-Other keys: `authz.fsMetadata.connection` (ORM connection of `OrmFileMetadataStore` and its migration, default
-`default`; not under `authz.fs`, which is keyed by filesystem name) and
-`authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`).
+Other key: `authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`).
+`OrmFileMetadataStore` and its migration use the ORM connection `authz-fs` (`FS_METADATA_CONNECTION`); map it
+to a real connection with `db.Aliases: { 'authz-fs': 'default' }`.
 
 Every permission the effective operation table of a filesystem names (its `operations` and `inherit` keys
 included) is declared to the boot of its domain, so an unregistered one fails that boot.
@@ -243,8 +243,11 @@ path does not match. The guard still checks the `dir` ref when the handler calls
 
 ## Owners and metadata
 
-`metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among the
-stores registered under `FileMetadataStore` (`AuthzConfigError` when none has that name). `stampOwner: true`
+`metadata` names a `FileMetadataStore`; the guard and the `owner` relation pick it among the stores registered
+under `FileMetadataStore` (`AuthzConfigError` when none has that name). A class goes by its class name and a
+factory by its function name (`Object.defineProperty(factory, 'name', { value: 'ArchiveStore' })`); only that
+store is built. An anonymous factory has no name, so it goes by the class of the store it returns, and every
+registered store is built to find it. `stampOwner: true`
 records who wrote a file:
 
 ```ts
@@ -296,7 +299,7 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 Stores:
 
 - `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`), one row per
-  filesystem and normalised path, on the connection `authz.fsMetadata.connection`. `delete` removes one row;
+  filesystem and normalised path, on the connection `authz-fs` (`db.Aliases`, or the `connection` option). `delete` removes one row;
   `deleteTree` and `move` take the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~`
   and `[` escaped). Paths are matched exactly in code and rows changed by their stored key. The migration gives
   the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key

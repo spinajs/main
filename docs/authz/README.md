@@ -646,6 +646,8 @@ Full reference: `packages/authz-orm/README.md`.
 - A path is the resource `{ type: 'file' | 'dir', id: '<fs name>:<path>' }`; its ancestors are the
   parent directories, then `{ type: 'fs', id: <fs name> }`.
 - Import the package before `fsService` resolves, and take providers after it resolved.
+- `OrmFileMetadataStore` and its `fs_object` migration use the ORM connection `authz-fs`: map it with
+  `db.Aliases: { 'authz-fs': 'default' }`. It replaces the removed key `authz.fsMetadata.connection`.
 - Owners (`metadata`, `stampOwner`), signed URLs, uploads, `fromFsPath`, the `fs` domain with
   `fs-inherit` and `fs-abac`: `packages/authz-fs/README.md`. authz-fs builds the `fs-abac` model itself, in
   the filesystem's own domain and only when that filesystem has `policies`; list it in that domain's

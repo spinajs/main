@@ -7,6 +7,7 @@ import { testHost, userPrincipal, runAdapterConformance } from '@spinajs/authz-t
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { FILE_PROVIDER_INSTANCES } from '@spinajs/fs';
 
 import { FS_PERMISSIONS, FileMetadataStore, FsPathResolver, FsResourceAdapter, fsRowOf } from '../src/index.js';
 import { configuredChild } from './helpers.js';
@@ -81,7 +82,7 @@ describe('authz-fs FsResourceAdapter', () => {
 
     it("makes an absolute path relative to the provider's Options.basePath", () => {
       child = DI.child();
-      child.register({ Name: 'uploads', Options: { name: 'uploads', basePath: '/data/up' } }).asMapValue('__file_provider_instance__', 'uploads');
+      child.register({ Name: 'uploads', Options: { name: 'uploads', basePath: '/data/up' } }).asMapValue(FILE_PROVIDER_INSTANCES, 'uploads');
       const a = new FsResourceAdapter(child);
       expect(a.refOf({ fs: 'uploads', path: '/data/up/a/b.txt' })).to.deep.equal({ type: 'file', id: 'uploads:a/b.txt' });
       expect(a.refOf({ fs: 'uploads', path: '/data/up' })).to.deep.equal({ type: 'fs', id: 'uploads' });

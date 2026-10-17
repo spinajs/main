@@ -2,7 +2,6 @@ import { PERMISSION_PATTERN } from '@spinajs/authz';
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
-import { FS_METADATA_DEFAULT_CONNECTION } from '../metadata/connection.js';
 import { FS_RESOURCE_TYPES } from '../refs/index.js';
 
 const name = { type: 'string', minLength: 1 };
@@ -55,22 +54,11 @@ export const AUTHZ_FS_CONFIGURATION_SCHEMA = {
   additionalProperties: entry,
 };
 
-export const AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA = {
-  $id: 'spinajs/authz-fs-metadata.configuration.schema.json',
-  // Not under authz.fs: that section is keyed by filesystem name.
-  $configurationModule: 'authz.fsMetadata',
-  description: 'File metadata store configuration (authz.fsMetadata.*)',
-  type: 'object',
-  properties: { connection: { ...name, default: FS_METADATA_DEFAULT_CONNECTION } },
-};
-
 registerConfigurationSchemaAtImport(AUTHZ_FS_CONFIGURATION_SCHEMA);
-registerConfigurationSchemaAtImport(AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA);
 
 @Injectable(Bootstrapper)
 export class AuthzFsConfigBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerConfigurationSchema(AUTHZ_FS_CONFIGURATION_SCHEMA);
-    registerConfigurationSchema(AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA);
   }
 }

@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { AUTHZ_FS_CONFIGURATION_SCHEMA, AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA, fsAccessConfig, parseFsAccessConfig } from '../src/index.js';
+import { AUTHZ_FS_CONFIGURATION_SCHEMA, fsAccessConfig, parseFsAccessConfig } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 
 const expect = chai.expect;
@@ -165,7 +165,7 @@ describe('authz-fs config: fsAccessConfig', () => {
   });
 });
 
-describe('authz-fs config: the authz.fs and authz.fsMetadata schemas', () => {
+describe('authz-fs config: the authz.fs schema', () => {
   const children: IContainer[] = [];
 
   afterEach(async () => {
@@ -173,7 +173,7 @@ describe('authz-fs config: the authz.fs and authz.fsMetadata schemas', () => {
   });
 
   async function boot(authz: Record<string, unknown>): Promise<Configuration> {
-    const booted = await bootConfiguration({ authz }, [AUTHZ_FS_CONFIGURATION_SCHEMA, AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA]);
+    const booted = await bootConfiguration({ authz }, [AUTHZ_FS_CONFIGURATION_SCHEMA]);
     children.push(booted.child);
     return booted.configuration;
   }
@@ -197,10 +197,9 @@ describe('authz-fs config: the authz.fs and authz.fsMetadata schemas', () => {
     expect((await boot({ fs: { uploads: ENTRY } })).get('authz.fs.uploads')).to.deep.equal(ENTRY);
   });
 
-  it('an unset authz.fs has no entries; authz.fsMetadata.connection defaults to the default connection', async () => {
+  it('an unset authz.fs has no entries', async () => {
     const configuration = await boot({});
     expect(configuration.get('authz.fs')).to.deep.equal({});
-    expect(configuration.get('authz.fsMetadata.connection')).to.equal('default');
   });
 
   it('refuses an authz.fs that is not an object', async () => {

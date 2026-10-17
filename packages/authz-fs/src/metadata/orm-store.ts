@@ -8,7 +8,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { FileMetadataStore } from '../api.js';
 import type { FileMeta } from '../api.js';
 import { normalizeFsPath } from '../refs/index.js';
-import { FS_METADATA_CONNECTION_KEY, fsMetadataConnection } from './connection.js';
+import { FS_METADATA_CONNECTION } from './connection.js';
 import { checkFileMeta, checkFsName } from './meta.js';
 
 const TABLE = 'fs_object';
@@ -26,7 +26,7 @@ interface Row {
 }
 
 export interface OrmFileMetadataStoreOptions {
-  /** The ORM connection; default: config authz.fsMetadata.connection, else the ORM default connection. */
+  /** The ORM connection; default FS_METADATA_CONNECTION, where the migration creates the table. */
   readonly connection?: string;
   /** Where Configuration and Orm are resolved; default the DI root. */
   readonly container?: IContainer;
@@ -126,10 +126,13 @@ export class OrmFileMetadataStore extends FileMetadataStore {
 
   private async driver(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
-    const name = this.opts.connection ?? fsMetadataConnection(container);
+    const name = this.opts.connection ?? FS_METADATA_CONNECTION;
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`OrmFileMetadataStore: ${FS_METADATA_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
+    if (!driver) {
+      const hint = name === FS_METADATA_CONNECTION ? `; map it to a connection with db.Aliases: { '${FS_METADATA_CONNECTION}': '<connection>' }` : '';
+      throw new AuthzConfigError(`OrmFileMetadataStore: the ORM has no connection ${JSON.stringify(name)}${hint} (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
+    }
     return driver;
   }
 }

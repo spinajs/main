@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsNative, fsService, fsTemp, getFs } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsNative, fsService, fsTemp, getFs } from '@spinajs/fs';
 import type { IProviderConfiguration } from '@spinajs/fs';
 import { S3BucketSigner, fsS3 } from '@spinajs/fs-s3';
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
@@ -80,13 +80,12 @@ class RecordingFsDecorator extends FsDecorator {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const PROVIDER_MAP = '__file_provider_instance__';
 const PROVIDER_FACTORY = '__file_provider__';
 /** fsS3 downloads (read, append, zip, unzip) through the provider of this name (`@FileSystem('fs-temp-s3')`). */
 const S3_TEMP = 'fs-temp-s3';
 
 function publishedProviders(): Map<string, fs> | undefined {
-  const map: unknown = DI.RootContainer.Cache.has(PROVIDER_MAP) ? DI.get(PROVIDER_MAP) : undefined;
+  const map: unknown = DI.RootContainer.Cache.has(FILE_PROVIDER_INSTANCES) ? DI.get(FILE_PROVIDER_INSTANCES) : undefined;
   return map instanceof Map ? (map as Map<string, fs>) : undefined;
 }
 
@@ -213,7 +212,7 @@ class RootChanges {
     const created = [AuthzFsDecorator, ...implementations(FileHasher), ...implementations(FileInfoService), ...implementations(FileMetadataStore)];
     this.undo.push(() => {
       for (const type of created) if (!cachedBefore.has(type.name)) root.uncache(type);
-      if (!cachedBefore.has(PROVIDER_MAP)) root.uncache(PROVIDER_MAP);
+      if (!cachedBefore.has(FILE_PROVIDER_INSTANCES)) root.uncache(FILE_PROVIDER_INSTANCES);
     });
   }
 

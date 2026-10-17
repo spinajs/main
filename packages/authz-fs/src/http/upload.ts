@@ -3,11 +3,12 @@ import type { Principal } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { publishedFs } from '@spinajs/fs';
 import { FileUploadMiddleware } from '@spinajs/http';
 import type { IUploadOptions, IUploadedFile } from '@spinajs/http';
 
 import { fsAccessConfig } from '../access-config/index.js';
-import { basePathOf, decideFs, domainService, publishedFs, refOf } from '../guard/shared.js';
+import { basePathOf, decideFs, domainService, refOf } from '../guard/shared.js';
 import type { FsGuardLog, FsGuardService } from '../guard/shared.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
 
@@ -46,7 +47,7 @@ export class AuthzUploadMiddleware extends FileUploadMiddleware {
     const config = fsAccessConfig(fsName, container);
     if (config.mode === 'off') return file;
 
-    const provider = publishedFs(container, fsName) ?? (file.Provider?.Name === fsName ? file.Provider : undefined);
+    const provider = publishedFs(fsName, container) ?? (file.Provider?.Name === fsName ? file.Provider : undefined);
     const path = normalizeFsPath(file.BaseName, basePathOf(provider));
     if (path === '') throw new InvalidArgument(`upload ${JSON.stringify(file.Name)} has no file name to write to`, 'BaseName');
 

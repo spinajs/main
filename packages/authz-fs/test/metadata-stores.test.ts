@@ -9,7 +9,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { fsNative } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsNative } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { fsS3 } from '@spinajs/fs-s3';
 import { Orm, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthzFsObject_2026_10_01_00_00_00, FileMetadataStore, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
+import { AuthzFsObject_2026_10_01_00_00_00, FS_METADATA_CONNECTION, FileMetadataStore, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
 import type { FileMeta } from '../src/index.js';
 import { FakeConfiguration, configuredChild } from './helpers.js';
 import { installQuietLog } from './support/log.js';
@@ -215,7 +215,7 @@ function ormSuite(kind: DbKind): void {
       DI.register(FakeConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
-      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')] });
+      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')], Aliases: { [FS_METADATA_CONNECTION]: main.Name } });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       if (kind !== 'sqlite') await new AuthzFsObject_2026_10_01_00_00_00().up(db);
@@ -234,7 +234,6 @@ function ormSuite(kind: DbKind): void {
     });
 
     beforeEach(() => {
-      config.set(['authz', 'fsMetadata'], undefined);
       config.set(['authz', 'fs'], undefined);
     });
 
@@ -255,10 +254,10 @@ function ormSuite(kind: DbKind): void {
       expect(info.filter((c) => c.PrimaryKey).map((c) => c.Name)).to.have.members(['fs', 'path']);
     });
 
-    it('the migration runs on the connection the store uses, authz.fsMetadata.connection (review M3)', () => {
-      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal('default');
-      config.set(['authz', 'fsMetadata', 'connection'], 'other');
-      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal('other');
+    it('the migration runs on the connection the store uses, the authz-fs alias (review M3)', () => {
+      expect(FS_METADATA_CONNECTION).to.equal('authz-fs');
+      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal(FS_METADATA_CONNECTION);
+      expect(orm!.Connections.get(FS_METADATA_CONNECTION)).to.equal(db);
     });
 
     it('keeps case variants of a path apart: Report.pdf and report.pdf are two files (review C2)', async () => {
@@ -322,20 +321,27 @@ function ormSuite(kind: DbKind): void {
       store.checkMeta('uploads', 'long/a', FULL);
     });
 
-    it('uses the connection authz.fsMetadata.connection names, else the default one', async function () {
+    it('uses the connection the authz-fs alias maps, else the one its options name', async function () {
       sqliteOnly(this);
       const other = orm!.Connections.get('other')!;
       await new AuthzFsObject_2026_10_01_00_00_00().up(other);
-      config.set(['authz', 'fsMetadata', 'connection'], 'other');
-      await store.set('uploads', 'conn/a.txt', { owner: BOB });
+      await new OrmFileMetadataStore({ connection: 'other' }).set('uploads', 'conn/a.txt', { owner: BOB });
       expect(((await other.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(1);
       expect(((await db.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(0);
-      expect(await new OrmFileMetadataStore({ connection: 'default' }).get('uploads', 'conn/a.txt')).to.equal(null);
+      expect(await store.get('uploads', 'conn/a.txt')).to.equal(null);
 
-      config.set(['authz', 'fsMetadata', 'connection'], 'nope');
-      const e = await rejection(store.get('uploads', 'conn/a.txt'));
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e.message).to.contain('authz.fsMetadata.connection');
+      const aliased = orm!.Connections.get(FS_METADATA_CONNECTION)!;
+      orm!.Connections.delete(FS_METADATA_CONNECTION);
+      try {
+        const unmapped = await rejection(store.get('uploads', 'conn/a.txt'));
+        expect(unmapped).to.be.instanceOf(AuthzConfigError);
+        expect(unmapped.message).to.contain("db.Aliases: { 'authz-fs': '<connection>' }");
+        const named = await rejection(new OrmFileMetadataStore({ connection: 'nope' }).get('uploads', 'conn/a.txt'));
+        expect(named).to.be.instanceOf(AuthzConfigError);
+        expect(named.message).to.contain('"nope"').and.not.contain('db.Aliases');
+      } finally {
+        orm!.Connections.set(FS_METADATA_CONNECTION, aliased);
+      }
     });
 
     it('on a case-insensitive table matches rows exactly in code and refuses to merge case variants (review C2)', async function () {
@@ -412,8 +418,8 @@ describe('authz-fs S3ObjectMetadataStore (provider surface)', () => {
     child = await configuredChild(undefined);
     a = new FakeS3Provider('s3a');
     b = new FakeS3Provider('s3b');
-    child.register(a).asMapValue('__file_provider_instance__', 's3a');
-    child.register(b).asMapValue('__file_provider_instance__', 's3b');
+    child.register(a).asMapValue(FILE_PROVIDER_INSTANCES, 's3a');
+    child.register(b).asMapValue(FILE_PROVIDER_INSTANCES, 's3b');
   });
 
   afterEach(async () => {
@@ -489,12 +495,12 @@ describe('authz-fs S3ObjectMetadataStore (provider surface)', () => {
     raw.objects.set('a.txt', { 'authz-meta': encodeURIComponent(JSON.stringify({ owner: ALICE })) });
     const denyAll = async (): Promise<Decision> => ({ allowed: false, residual: { op: 'false' } }) as unknown as Decision;
     const guarded = guardFs(raw as unknown as fs, 's3g', { config: parseFsAccessConfig('s3g', { mode: 'enforce' }), container: child, service: async () => ({ check: denyAll, assert: denyAll }), principal: () => userPrincipal('mallory') });
-    child.register(guarded).asMapValue('__file_provider_instance__', 's3g');
+    child.register(guarded).asMapValue(FILE_PROVIDER_INSTANCES, 's3g');
     expect(await new S3ObjectMetadataStore({ container: child }).get('s3g', 'a.txt')).to.deep.equal({ owner: ALICE });
   });
 
   it('refuses a filesystem that is not published or has no S3 metadata methods', async () => {
-    child.register({ Name: 'plain', read: async () => '' }).asMapValue('__file_provider_instance__', 'plain');
+    child.register({ Name: 'plain', read: async () => '' }).asMapValue(FILE_PROVIDER_INSTANCES, 'plain');
     const store = new S3ObjectMetadataStore({ container: child });
     const missing = await rejection(store.get('nope', 'a.txt'));
     expect(missing).to.be.instanceOf(AuthzConfigError);
@@ -527,7 +533,7 @@ describe('authz-fs S3ObjectMetadataStore on S3 (localstack)', function () {
     for (const name of ['s3a', 's3b']) {
       const raw = await s3(name);
       providers.set(name, raw);
-      child.register(raw).asMapValue('__file_provider_instance__', name);
+      child.register(raw).asMapValue(FILE_PROVIDER_INSTANCES, name);
     }
   });
 

@@ -1,7 +1,6 @@
 import { AccessDenied, AuthzClock, AuthzDomains, DEFAULT_DENY_PRIORITY, FALSE, principalKey, resourceKey } from '@spinajs/authz';
 import type { CheckInput, Decision, HostLog, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
-import type { fs } from '@spinajs/fs';
 
 import type { FsAccessMode } from '../access-config/index.js';
 import { ensureFsDomain } from '../domain/index.js';
@@ -79,11 +78,4 @@ export const refOf = (fsName: string, normalised: string, kind: FsPathKind): Res
 export function basePathOf(raw: unknown): string | undefined {
   const basePath: unknown = (raw as { Options?: { basePath?: unknown } } | null | undefined)?.Options?.basePath;
   return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
-}
-
-/** The provider fsService published under `name` in `container`, guarded or raw. */
-export function publishedFs(container: IContainer, name: string): fs | undefined {
-  const published: unknown = container.get('__file_provider_instance__');
-  const provider: unknown = published instanceof Map ? published.get(name) : undefined;
-  return provider !== null && typeof provider === 'object' ? (provider as fs) : undefined;
 }

@@ -1,7 +1,8 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import { DI, Injectable } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { publishedFs } from '@spinajs/fs';
 
 import { FileMetadataStore } from '../api.js';
 import type { FileMeta } from '../api.js';
@@ -21,7 +22,7 @@ export interface S3MetadataProvider {
 }
 
 export interface S3ObjectMetadataStoreOptions {
-  /** Where the published providers (`__file_provider_instance__`) are looked up; default the DI root. */
+  /** Where the published providers (`FILE_PROVIDER_INSTANCES`) are looked up; default the DI root. */
   readonly container?: IContainer;
 }
 
@@ -104,8 +105,7 @@ export class S3ObjectMetadataStore extends FileMetadataStore {
 
   private provider(fsName: string): S3MetadataProvider {
     checkFsName(fsName);
-    const published: unknown = (this.opts.container ?? DI.RootContainer).get('__file_provider_instance__');
-    const found = published instanceof Map ? (published.get(fsName) as unknown) : undefined;
+    const found: unknown = publishedFs(fsName, this.opts.container);
     if (found === undefined || found === null) throw new AuthzConfigError(`S3ObjectMetadataStore: no filesystem named ${JSON.stringify(fsName)} is published`);
     const raw = rawFsOf(found) as Partial<S3MetadataProvider>;
     if (typeof raw.getMetadata !== 'function' || typeof raw.setMetadata !== 'function') {

@@ -5,23 +5,24 @@ import type { IContainer } from '@spinajs/di';
 
 import { FsPathResolver } from '../api.js';
 import { fsAccessConfig } from '../access-config/index.js';
+import { resolveByName } from '../named.js';
 
 /**
  * Domain parents of a path, nearest first, without repeats. They come from the FsPathResolver that
- * `authz.fs.<fsName>.resolver` names by class name, or, without that key, from every registered resolver whose
+ * `authz.fs.<fsName>.resolver` names (see resolveByName), or, without that key, from every registered resolver whose
  * `fs` matches the name, in registration order. A resolver answering null adds nothing. `path` must be the
  * normalised path (normalizeFsPath): resolvers match it as given.
  */
 export async function resolveFsParents(fsName: string, path: string, container: IContainer = DI.RootContainer): Promise<readonly ResourceRef[]> {
   const named = fsAccessConfig(fsName, container).resolver;
-  const registered = ((await container.resolve(Array.ofType(FsPathResolver))) ?? []) as FsPathResolver[];
 
   let resolvers: FsPathResolver[];
   if (named !== undefined) {
-    const resolver = registered.find((r) => r.constructor.name === named);
+    const resolver = await resolveByName(container, FsPathResolver, named);
     if (!resolver) throw new AuthzConfigError(`authz.fs.${fsName}.resolver names ${JSON.stringify(named)}, which is not a registered FsPathResolver`);
     resolvers = [resolver];
   } else {
+    const registered = ((await container.resolve(Array.ofType(FsPathResolver))) ?? []) as FsPathResolver[];
     resolvers = registered.filter((r) => servesFs(r.fs, fsName));
   }
 

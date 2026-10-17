@@ -93,4 +93,29 @@ describe('authz-fs owner relation (D10)', () => {
     expect(await fileMetadataStore('unconfigured', child)).to.equal(undefined);
     expect(await fileMetadataStore('broken', child).catch((e: unknown) => e)).to.be.instanceOf(AuthzConfigError);
   });
+
+  it('fileMetadataStore resolves a store registered under a name without building the others, and lists every name it knows', async () => {
+    let built = 0;
+    class CountedStore extends MemoryFileMetadataStore {
+      constructor() {
+        super();
+        built++;
+      }
+    }
+    const archive = new MemoryFileMetadataStore();
+    const scope = await configuredChild({ archive: { mode: 'enforce', metadata: 'ArchiveStore' }, broken: { mode: 'enforce', metadata: 'NoSuchStore' } });
+    try {
+      scope.register(CountedStore).as(FileMetadataStore);
+      scope.register(Object.defineProperty(() => archive, 'name', { value: 'ArchiveStore' })).as(FileMetadataStore);
+      scope.register(testHost.instance(store)).as(FileMetadataStore);
+
+      expect(await fileMetadataStore('archive', scope)).to.equal(archive);
+      expect(built).to.equal(0);
+      const e = (await fileMetadataStore('broken', scope).catch((err: unknown) => err)) as Error;
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(e.message).to.contain('CountedStore').and.contain('ArchiveStore').and.contain('MemoryFileMetadataStore');
+    } finally {
+      await scope.dispose();
+    }
+  });
 });

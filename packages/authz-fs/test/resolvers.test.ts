@@ -109,6 +109,23 @@ describe('authz-fs resolveFsParents', () => {
     expect(await resolveFsParents('invoices', '', child)).to.deep.equal([{ type: 'project', id: 'invoices' }]);
   });
 
+  it('resolves only the named resolver: a class or a named factory by its name, an anonymous factory by its class', async () => {
+    let built = 0;
+    class CountedResolver extends ProjectResolver {
+      constructor() {
+        super();
+        built++;
+      }
+    }
+    child = await withResolvers({ uploads: { mode: 'enforce', resolver: 'TasksFactory' }, invoices: { mode: 'audit', resolver: 'OtherFsResolver' } }, [CountedResolver]);
+    child.register(Object.defineProperty(() => new TaskAttachmentPathResolver(), 'name', { value: 'TasksFactory' })).as(FsPathResolver);
+    child.register([() => new OtherFsResolver()][0]).as(FsPathResolver);
+
+    expect(await resolveFsParents('uploads', 'tasks/7', child)).to.deep.equal([task('7')]);
+    expect(built).to.equal(0);
+    expect(await resolveFsParents('invoices', '', child)).to.deep.equal([{ type: 'customer', id: 'c1' }]);
+  });
+
   it('refuses a resolver name no registered FsPathResolver has', async () => {
     child = await withResolvers({ uploads: { mode: 'enforce', resolver: 'MissingResolver' } }, [TaskAttachmentPathResolver]);
     const error = await failure(resolveFsParents('uploads', 'a', child));
