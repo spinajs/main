@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Configuration } from '@spinajs/configuration';
+import { appEnvOf } from '@spinajs/authn-session';
 
-import { appEnvOf } from '../src/providers.js';
 import { readOidcOptions } from './support/oidc-config.js';
 import { FetchOidcHttpClient } from '../src/http/client.js';
 import { flowCookie } from '../src/flow/cookie.js';
@@ -62,11 +62,9 @@ describe('authn-oidc without any app env (SR-16)', () => {
     after(async () => close());
 
     class ClientOver extends FetchOidcHttpClient {
-      constructor(private readonly config: Configuration) {
+      constructor(config: Configuration) {
         super();
-      }
-      protected configuration(): Configuration {
-        return this.config;
+        this.Configuration = config;
       }
     }
 
