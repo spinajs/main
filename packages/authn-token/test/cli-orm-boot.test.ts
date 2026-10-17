@@ -5,12 +5,22 @@ import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { TokenService } from '@spinajs/authn/contracts';
+import { FakeIdentityStore } from '@spinajs/authn-testing';
 
 import { V3DbConfiguration, shutdownV3Db } from './v3/db.js';
 import { CreateToken } from '../src/cli/CreateToken.js';
 import { DeleteToken } from '../src/cli/DeleteToken.js';
 import { DeleteExpiredTokens } from '../src/cli/DeleteExpiredTokens.js';
 import type { TokenCliCommand } from '../src/cli/TokenCliCommand.js';
+import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../src/service/index.js';
+
+/** The commands inject the TokenService, and DbTokenService refuses to build without an IdentityStore. */
+class OrmBootTokenService extends DbTokenService {
+  constructor() {
+    super(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), new FakeIdentityStore());
+  }
+}
 
 // v3/cli.test.ts resolves the Orm itself; the cli does not, so this one must not.
 describe('token cli commands boot the Orm', function () {
@@ -35,10 +45,14 @@ describe('token cli commands boot the Orm', function () {
 
         DI.register(V3DbConfiguration).as(Configuration);
         DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+        DI.register(OrmBootTokenService).as(TokenService);
         await DI.resolve(Configuration);
       });
 
       after(async () => {
+        DI.unregister(OrmBootTokenService);
+        DI.uncache(OrmBootTokenService);
+        DI.uncache(TokenService);
         DI.uncache(command);
         await shutdownV3Db();
       });

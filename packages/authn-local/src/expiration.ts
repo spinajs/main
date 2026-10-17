@@ -1,4 +1,4 @@
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -52,6 +52,15 @@ export class PasswordExpirationJob {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(PasswordAgeSource, { optional: true })
+  protected Ages: PasswordAgeSource | undefined;
+
+  @Autoinject(PasswordCredentialStore)
+  protected Passwords: PasswordCredentialStore;
+
+  @Autoinject(PasswordService)
+  protected Service: PasswordService;
+
   constructor(protected readonly Deps?: PasswordExpirationJobDeps) {}
 
   public async run(now: Date = new Date()): Promise<PasswordExpirationResult> {
@@ -96,15 +105,15 @@ export class PasswordExpirationJob {
     if (this.Deps) {
       return this.Deps.ages;
     }
-    return DI.check(PasswordAgeSource) ? await DI.resolve(PasswordAgeSource) : null;
+    return this.Ages ?? null;
   }
 
   protected async passwords(): Promise<PasswordCredentialStore> {
-    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
+    return this.Deps?.passwords ?? this.Passwords;
   }
 
   protected async service(): Promise<PasswordService> {
-    return this.Deps ? this.Deps.service : await DI.resolve(PasswordService);
+    return this.Deps?.service ?? this.Service;
   }
 
   protected log(): AuditLog {

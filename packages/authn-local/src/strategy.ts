@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
@@ -50,6 +50,20 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(PasswordHasher)
+  protected Hasher: PasswordHasher;
+
+  // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; injecting the
+  // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
+  @Autoinject(LocalPasswordPolicy)
+  protected Policy: LocalPasswordPolicy;
+
+  @Autoinject(IdentityStore)
+  protected Identities: IdentityStore;
+
+  @Autoinject(PasswordCredentialStore)
+  protected Passwords: PasswordCredentialStore;
+
   private _hasher?: PasswordHasher;
 
   /** With `deps` nothing is taken from the container, so a test can build one without it. */
@@ -57,17 +71,14 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     super();
   }
 
-  /** Resolves the hasher, which makes its dummy hash, at boot (D4). */
+  /** The injected hasher made its dummy hash at boot (D4). */
   public async resolve(): Promise<void> {
     if (this.Deps) {
       // A hasher handed in by a test is not resolved by DI.
       this._hasher = this.Deps.hasher;
       await this._hasher.resolve();
     } else {
-      this._hasher = await DI.resolve(PasswordHasher);
-      // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; resolving the
-      // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
-      await DI.resolve(LocalPasswordPolicy);
+      this._hasher = this.Hasher;
     }
     await super.resolve();
   }
@@ -126,11 +137,11 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   }
 
   protected async identities(): Promise<IdentityStore> {
-    return this.Deps ? this.Deps.identities : await DI.resolve(IdentityStore);
+    return this.Deps?.identities ?? this.Identities;
   }
 
   protected async passwords(): Promise<PasswordCredentialStore> {
-    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
+    return this.Deps?.passwords ?? this.Passwords;
   }
 
   protected log(): LocalPasswordStrategyLog {

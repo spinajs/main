@@ -322,7 +322,7 @@ describe('v3 store: DbMfaSecretStore', () => {
     assert.ok((await DI.resolve(MfaSecretStore)) instanceof DbMfaSecretStore);
   });
 
-  it('resolves DbMfaStore from DI on first use', async () => {
+  it('injects the DbMfaStore registered in DI', async () => {
     const driver = db.driver;
     class TestDbMfaStore extends DbMfaStore {
       constructor() {
@@ -333,7 +333,7 @@ describe('v3 store: DbMfaSecretStore', () => {
     DI.clearCache();
     try {
       await clearMfaTables(driver);
-      const store = new DbMfaSecretStore();
+      const store = await DI.resolve(DbMfaSecretStore);
       assert.strictEqual(await store.put(ALICE, 'totp', 'v1.a.b.c', 'kid'), true);
       assert.deepStrictEqual(await rawQuery(driver, 'SELECT identity, secret_enc FROM authn_mfa'), [{ identity: identityKey(ALICE), secret_enc: 'v1.a.b.c' }]);
     } finally {

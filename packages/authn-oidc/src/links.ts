@@ -26,6 +26,7 @@ export class CoreOidcAccountLinks extends OidcAccountLinks {
     super();
   }
 
+  // Per call: AccountLinkService needs IdentityStore, which apps may not register.
   public async link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext, reauth?: Credentials): Promise<OidcLinkResult> {
     return (await this.container.resolve(AccountLinkService)).link(session, external, ctx, reauth);
   }

@@ -1,6 +1,6 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DbMfaStore } from '@spinajs/authn-orm';
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { MfaSecretStore } from './store.js';
 import type { MfaRecord } from './store.js';
@@ -12,15 +12,16 @@ import type { MfaRecord } from './store.js';
 @Singleton()
 @Injectable(MfaSecretStore)
 export class DbMfaSecretStore extends MfaSecretStore {
-  private resolved: DbMfaStore | undefined;
+  @Autoinject(DbMfaStore)
+  protected DbMfaStore: DbMfaStore;
 
-  /** DI passes nothing: `DbMfaStore` is resolved from DI on first use. */
+  /** DI passes nothing and injects `DbMfaStore`. */
   constructor(private readonly db?: DbMfaStore) {
     super();
   }
 
   private store(): DbMfaStore {
-    return (this.resolved ??= this.db ?? DI.resolve(DbMfaStore));
+    return this.db ?? this.DbMfaStore;
   }
 
   async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {

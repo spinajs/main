@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, Command } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 
@@ -21,9 +21,12 @@ export class DeleteToken extends TokenCliCommand {
   @Logger('authn-token')
   protected Log: Log;
 
+  @Autoinject(TokenService)
+  protected Tokens: TokenService;
+
   public async execute(uuid: string): Promise<void> {
     try {
-      const tokens = await DI.resolve(TokenService);
+      const tokens = this.Tokens;
       if (!revokesById(tokens)) {
         throw new Error(`${tokens.constructor.name} cannot revoke a token by id`);
       }

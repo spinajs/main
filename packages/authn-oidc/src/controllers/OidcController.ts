@@ -1,5 +1,5 @@
 import type * as express from 'express';
-import { DI } from '@spinajs/di';
+import { Autoinject, DI } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -74,6 +74,18 @@ export class OidcController extends BaseController {
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
 
+  @Autoinject(OidcProviders)
+  protected Providers: OidcProviders;
+
+  @Autoinject(SessionIssuer)
+  protected Sessions: SessionIssuer;
+
+  @Autoinject(OidcAccountLinks, { optional: true })
+  protected Linker: OidcAccountLinks | undefined;
+
+  @Autoinject(IdentityLinkStore, { optional: true })
+  protected Links: IdentityLinkStore | undefined;
+
   @Get(':provider')
   public async begin(@Param() provider: string, @Req() req: Request) {
     const login = await this.login();
@@ -133,20 +145,21 @@ export class OidcController extends BaseController {
 
   protected async login(): Promise<OidcLogin> {
     if (this.flow) return this.flow;
-    const providers = await DI.resolve(OidcProviders);
+    const providers = this.Providers;
     this.env = providers.env;
     this.trusted = this.peerTrust();
     const cookieConfig = this.SessionCookie;
     this.flow = new OidcLogin({
       strategies: providers.strategies(),
+      // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
       service: await DI.resolve(AuthnService),
-      sessions: await DI.resolve(SessionIssuer),
+      sessions: this.Sessions,
       redirects: providers.options.redirects,
       env: providers.env,
       sessionCookie: (h) => sessionCookie(h.id, cookieConfig, undefined, providers.env),
       callbackPath: (p) => `/${ROUTE_PREFIX}/${encodeURIComponent(p)}/callback`,
-      linker: DI.RootContainer.hasRegistered(OidcAccountLinks) ? await DI.resolve(OidcAccountLinks) : null,
-      links: DI.RootContainer.hasRegistered(IdentityLinkStore) ? await DI.resolve(IdentityLinkStore) : null,
+      linker: this.Linker ?? null,
+      links: this.Links ?? null,
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)), error: (...args: unknown[]) => this.Log?.error(...(args as Parameters<Log['error']>)) },
     });
     return this.flow;

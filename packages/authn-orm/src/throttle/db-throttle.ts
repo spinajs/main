@@ -9,7 +9,7 @@ import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/con
 import '@spinajs/authn/register-schema';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { Log } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ThrottleStore } from '@spinajs/util';
 
@@ -52,6 +52,9 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
 
   @Config('authn.audit.hashKey.secret')
   protected ConfiguredHashSecret: string | null | undefined;
+
+  @Logger('authn-orm')
+  protected Log: Log;
 
   /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
   private readonly fixedParams: ThrottleParams | undefined;
@@ -181,7 +184,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
       if (!isSecret(secret)) {
-        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
+        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances', () => this.Log);
       }
     }
     if (!this.driver) {
@@ -201,16 +204,14 @@ function checkKey(key: ThrottleKey): void {
 
 let warned = false;
 
-function warnOnce(message: string): void {
+function warnOnce(message: string, getLog: () => Log): void {
   if (warned) return;
   warned = true;
   try {
-    if (DI.check(Log)) {
-      (DI.resolve(Log, ['authn-orm']) as Log).warn(message);
-      return;
-    }
+    getLog().warn(message);
+    return;
   } catch {
-    // no usable Log: fall back to the console
+    // the logger getter resolves lazily and can fail without a registered Log: fall back to the console
   }
   console.warn(message);
 }

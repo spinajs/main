@@ -539,7 +539,7 @@ describe('LocalPasswordStrategy DI wiring', function () {
     DI.uncache(MemoryPasswordCredentialStore);
   });
 
-  it('resolves the hasher at boot and the stores lazily from the container', async () => {
+  it('resolves the hasher at boot and takes the stores from the container', async () => {
     const strategy = await DI.resolve(LocalPasswordStrategy);
     const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
     expect(hasher.limiter.max).to.equal(2);

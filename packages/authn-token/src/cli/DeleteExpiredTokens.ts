@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { Command } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
 
 import { TokenCliCommand } from './TokenCliCommand.js';
@@ -17,9 +17,12 @@ export class DeleteExpiredTokens extends TokenCliCommand {
   @Logger('authn-token')
   protected Log: Log;
 
+  @Autoinject(TokenService)
+  protected Tokens: TokenService;
+
   public async execute(): Promise<void> {
     try {
-      const tokens = await DI.resolve(TokenService);
+      const tokens = this.Tokens;
       if (!sweepsExpired(tokens)) {
         throw new Error(`${tokens.constructor.name} cannot delete expired tokens`);
       }

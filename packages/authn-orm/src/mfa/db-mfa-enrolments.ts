@@ -1,6 +1,6 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { MfaEnrolments } from '@spinajs/authn/mfa-enrolments';
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, Singleton } from '@spinajs/di';
 
 import { DbMfaStore } from './db-mfa-store.js';
 
@@ -8,15 +8,16 @@ import { DbMfaStore } from './db-mfa-store.js';
 @Singleton()
 @Injectable(MfaEnrolments)
 export class DbMfaEnrolments extends MfaEnrolments {
-  private resolved: DbMfaStore | undefined;
+  @Autoinject(DbMfaStore)
+  protected DbMfaStore: DbMfaStore;
 
-  /** DI passes nothing: `DbMfaStore` is resolved from DI on first use. */
+  /** DI passes nothing and injects `DbMfaStore`. */
   constructor(private readonly db?: DbMfaStore) {
     super();
   }
 
   private store(): DbMfaStore {
-    return (this.resolved ??= this.db ?? DI.resolve(DbMfaStore));
+    return this.db ?? this.DbMfaStore;
   }
 
   public stepsOf(id: IdentityRef): Promise<readonly string[]> {

@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Readable } from 'node:stream';
-import { AsyncService, Autoinject, DI } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, NewInstance } from '@spinajs/di';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from '@spinajs/cli';
 import type { IArgument, ICommand, IOption } from '@spinajs/cli';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -134,6 +134,7 @@ describe('authn-local cli commands', function () {
   });
 
   describe('authn:password (D17)', () => {
+    @NewInstance()
     class ScriptedSetUserPassword extends SetUserPassword {
       public readonly printed: string[] = [];
       public readonly prompted: string[] = [];
@@ -162,6 +163,11 @@ describe('authn-local cli commands', function () {
       protected prompt(text: string): void {
         this.prompted.push(text);
       }
+    }
+
+    /** Built by DI, so its stores and service are injected as the cli injects them. */
+    async function scripted(stdin: readonly (string | Buffer)[], tty = false): Promise<ScriptedSetUserPassword> {
+      return await DI.resolve(ScriptedSetUserPassword, [stdin, tty]);
     }
 
     async function seed(login: string) {
@@ -197,7 +203,7 @@ describe('authn-local cli commands', function () {
     it('sets the first stdin line, untrimmed, through PasswordService.set with the cli actor', async () => {
       const x = await seed('frank@example.com');
       const events = x.sink.ofType('password.change').length;
-      const command = new ScriptedSetUserPassword(['  Typed-', 'Password-9 \r\nsecond line\n']);
+      const command = await scripted(['  Typed-', 'Password-9 \r\nsecond line\n']);
       await command.execute('frank@example.com', {});
 
       const stored = await x.passwords.get(x.id);
@@ -216,7 +222,7 @@ describe('authn-local cli commands', function () {
 
     it('prompts on stderr when stdin is a terminal', async () => {
       const x = await seed('jill@example.com');
-      const command = new ScriptedSetUserPassword(['Typed-Password-8\n'], true);
+      const command = await scripted(['Typed-Password-8\n'], true);
       await command.execute('jill@example.com', {});
       expect(command.prompted).to.have.length(1);
       expect(command.prompted[0]).to.contain('--generate');
@@ -226,13 +232,13 @@ describe('authn-local cli commands', function () {
     it('decodes a character split across stdin chunks', async () => {
       const x = await seed('gina@example.com');
       const bytes = Buffer.from('Zażółć-Gęślą-1\n', 'utf8');
-      await new ScriptedSetUserPassword([bytes.subarray(0, 3), bytes.subarray(3)]).execute('gina@example.com', {});
+      await (await scripted([bytes.subarray(0, 3), bytes.subarray(3)])).execute('gina@example.com', {});
       expect(await x.hasher.verify(await x.passwords.get(x.id), 'Zażółć-Gęślą-1')).to.equal(true);
     });
 
     it('with --generate prints a generated password once, which passes check and verifies, and never logs it', async () => {
       const x = await seed('hank@example.com');
-      const command = new ScriptedSetUserPassword(['ignored-Stdin-1\n']);
+      const command = await scripted(['ignored-Stdin-1\n']);
       await command.execute('hank@example.com', { generate: true });
 
       expect(command.printed).to.have.length(1);
@@ -250,7 +256,7 @@ describe('authn-local cli commands', function () {
     it('a policy violation fails the command, leaves the stored hash unchanged and never echoes the password', async () => {
       const x = await seed('ivy@example.com');
       const writes = x.passwords.writes.length;
-      const command = new ScriptedSetUserPassword(['Short-7\n']);
+      const command = await scripted(['Short-7\n']);
       const error = await rejection(() => command.execute('ivy@example.com', {}));
       expect(error).to.be.instanceOf(InvalidArgument);
       expect(error.message).to.contain('too_short');
@@ -289,7 +295,7 @@ describe('authn-local cli commands', function () {
       DI.register(BootingIdentityStore).as(IdentityStore);
       DI.uncache(IdentityStore);
       try {
-        const command = new ScriptedSetUserPassword(['Typed-Password-7\n']);
+        const command = await scripted(['Typed-Password-7\n']);
         await command.execute('kate@example.com', {});
 
         expect(order).to.deep.equal(['lookup after boot']);
@@ -314,7 +320,7 @@ describe('authn-local cli commands', function () {
         calls++;
         return original.apply(service, args);
       };
-      const command = new ScriptedSetUserPassword(['Valid-Password-5\n']);
+      const command = await scripted(['Valid-Password-5\n']);
       let error: Error;
       try {
         error = await rejection(() => command.execute('nobody@example.com', {}));

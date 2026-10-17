@@ -576,4 +576,19 @@ describe('v3 step: TotpMfaStep through DI', () => {
     clock.tick(30 * SECOND);
     assert.strictEqual(await step.verify(ALICE, totp(p.secret, clock.now(), p)), true);
   });
+
+  it('refuses to work when no store is registered', async () => {
+    DI.unregister(MemoryMfaSecretStore);
+    DI.unregister(DbMfaSecretStore);
+    DI.clearCache();
+    try {
+      const steps = await DI.resolve(Array.ofType(MfaStep));
+      const step = steps.find((s) => s.name === 'totp') as TotpMfaStep;
+      await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOperation && /MfaSecretStore/.test(e.message) && e.message.includes('@spinajs/authn-totp/db'));
+    } finally {
+      DI.register(MemoryMfaSecretStore).as(MfaSecretStore);
+      DI.register(DbMfaSecretStore).as(MfaSecretStore);
+      DI.clearCache();
+    }
+  });
 });

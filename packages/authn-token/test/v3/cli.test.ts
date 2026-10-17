@@ -95,9 +95,13 @@ describe('token cli commands', function () {
   let savedExitCode: typeof process.exitCode;
   const config = () => DI.get(Configuration)!;
 
+  // The commands hold the service they were built with.
   function uncacheService(): void {
     DI.uncache(TokenService);
     DI.uncache(CliTestTokenService);
+    DI.uncache(CreateToken);
+    DI.uncache(DeleteToken);
+    DI.uncache(DeleteExpiredTokens);
   }
 
   before(async () => {

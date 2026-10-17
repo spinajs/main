@@ -1,4 +1,4 @@
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { appEnvOf } from '@spinajs/authn-session';
 
@@ -31,13 +31,16 @@ export const OIDC_HTTP_MAX_BODY_BYTES = 1024 * 1024;
  */
 @Injectable(OidcHttpClient)
 export class FetchOidcHttpClient extends OidcHttpClient {
+  @Autoinject(Configuration, { optional: true })
+  protected Configuration: Configuration | undefined;
+
   /** @param relaxed - allow http; default: from the app env as authn-session reads it (none set: production) */
   constructor(protected readonly relaxed?: boolean) {
     super();
   }
 
   protected configuration(): Configuration | undefined {
-    return DI.get(Configuration) ?? undefined;
+    return this.Configuration;
   }
 
   protected allowsHttp(): boolean {

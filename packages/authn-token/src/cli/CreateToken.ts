@@ -2,7 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Argument, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { TokenCreateOptions, TokenKind } from '@spinajs/authn/contracts';
@@ -49,6 +49,9 @@ export class CreateToken extends TokenCliCommand {
   @Config('authn.token.defaultTtlDays')
   protected DefaultTtlDays: number;
 
+  @Autoinject(TokenService)
+  protected Tokens: TokenService;
+
   public async execute(ownerUuid: string, options: ICreateTokenOptions): Promise<void> {
     try {
       const now = new Date();
@@ -80,8 +83,7 @@ export class CreateToken extends TokenCliCommand {
         ...(options.profile !== undefined ? { profile: options.profile } : {}),
       };
 
-      const tokens = await DI.resolve(TokenService);
-      const result = await tokens.create({ type: 'user', id: ownerUuid }, opts, { now, purpose: 'request' });
+      const result = await this.Tokens.create({ type: 'user', id: ownerUuid }, opts, { now, purpose: 'request' });
       if (!result.ok) {
         this.fail('Token not created: ${code}', { code: result.code });
         return;

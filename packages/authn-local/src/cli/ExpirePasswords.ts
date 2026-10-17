@@ -11,6 +11,7 @@ export class ExpirePasswords extends CliCommand {
   protected Log: Log;
 
   public async execute(): Promise<void> {
+    // Per call: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
     const job = await DI.resolve(PasswordExpirationJob);
     const result = await job.run();
     if (result.idle === 'disabled') {

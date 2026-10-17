@@ -47,6 +47,7 @@ export class SetUserPassword extends CliCommand {
   protected Log: Log;
 
   public async execute(login: string, options: SetUserPasswordOptions): Promise<void> {
+    // Per call: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
     const store = await DI.resolve(IdentityStore);
     const id = await store.findByLogin(login);
     if (!id) {

@@ -1,7 +1,7 @@
 import * as OTPAuth from 'otpauth';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { IdentityStore, MfaStep } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -10,7 +10,6 @@ import type { MfaEncryptionKeyOptions, MfaKeyRing } from '../cipher/key-ring.js'
 import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
 import { identityKey } from '../store/identity.js';
-import { registered } from '../support/registered.js';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from './errors.js';
 import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
 import type { TotpOptions } from './options.js';
@@ -18,7 +17,7 @@ import type { TotpOptions } from './options.js';
 /** RFC 4226 recommends at least 160 bits. */
 const SECRET_BYTES = 20;
 
-/** Left out, a dependency is resolved from DI on first use; `identities: null` means none. */
+/** Left out, a dependency comes from DI; `identities: null` means none. */
 export interface TotpMfaStepDeps {
   readonly store?: MfaSecretStore;
   readonly keys?: MfaKeyRing;
@@ -49,6 +48,12 @@ export class TotpMfaStep extends MfaStep {
 
   @Config('authn.mfa.encryptionKey')
   protected EncryptionKey: MfaEncryptionKeyOptions | undefined;
+
+  @Autoinject(MfaSecretStore, { optional: true })
+  protected MfaSecretStore: MfaSecretStore | undefined;
+
+  @Autoinject(IdentityStore, { optional: true })
+  protected IdentityStore: IdentityStore | undefined;
 
   constructor(private readonly deps: TotpMfaStepDeps = {}) {
     super();
@@ -203,14 +208,14 @@ export class TotpMfaStep extends MfaStep {
     if (this.resolved) {
       return this.resolved;
     }
-    const store = this.deps.store ?? (registered(MfaSecretStore) ? await DI.resolve(MfaSecretStore) : null);
+    const store = this.deps.store ?? this.MfaSecretStore;
     if (!store) {
       throw new InvalidOperation('TotpMfaStep: no MfaSecretStore is registered; import "@spinajs/authn-totp/db" (DbMfaSecretStore) or register another MfaSecretStore');
     }
     const keys = this.deps.keys ?? mfaKeyRingFrom(this.EncryptionKey);
     const options = this.deps.options ?? this.TotpConfig;
     assertTotpRange(options);
-    const identities = this.deps.identities !== undefined ? this.deps.identities : registered(IdentityStore) ? await DI.resolve(IdentityStore) : null;
+    const identities = this.deps.identities !== undefined ? this.deps.identities : (this.IdentityStore ?? null);
     this.resolved = { store, keys, options, identities };
     return this.resolved;
   }

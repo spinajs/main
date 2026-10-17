@@ -26,9 +26,9 @@ const APP_PROCESS = `
   const { AuthnService, SessionIssuer } = await import('@spinajs/authn/contracts');
   DI.register(() => ({})).as(AuthnService);
   DI.register(() => ({})).as(SessionIssuer);
-  const controller = new OidcController();
   const req = { get: () => undefined, socket: { remoteAddress: '127.0.0.1' }, query: {}, cookies: {} };
   try {
+    const controller = await DI.resolve(OidcController);
     const response = await controller.begin('corp', req);
     const { OidcProviders } = await import('./lib/mjs/providers.js');
     const providers = await DI.resolve(OidcProviders);
