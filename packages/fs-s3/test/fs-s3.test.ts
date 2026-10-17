@@ -7,11 +7,13 @@ import { Configuration } from '@spinajs/configuration';
 import { fs, FsBootsrapper, fsService } from '@spinajs/fs';
 import './../src/index.js';
 import '@spinajs/templates-pug';
-import { TestConfiguration } from './common.js';
+import { dir, TestConfiguration } from './common.js';
 import { fsS3 } from './../src/index.js';
 import { existsSync, statSync } from 'fs';
 import { extname } from 'path';
 import { expect } from 'chai';
+import { PutObjectCommand, S3Client, S3ServiceException } from '@aws-sdk/client-s3';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['aws']);
@@ -266,5 +268,28 @@ describe('fs s3 basic tests', function () {
     const second = await s3.stat('version-change/f.txt');
 
     expect(first.Version).to.not.eq(second.Version);
+  });
+});
+
+describe('fs s3 exclusive upload', function () {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('sends IfNoneMatch and maps the precondition failure to ResourceDuplicated', async () => {
+    const client = new S3Client({ region: 'us-west-1', credentials: { accessKeyId: 'test', secretAccessKey: 'test' } });
+    const sent: PutObjectCommand[] = [];
+    sinon.stub(client, 'send').callsFake(async (command: unknown) => {
+      sent.push(command as PutObjectCommand);
+      throw new S3ServiceException({ name: 'PreconditionFailed', $fault: 'client', $metadata: { httpStatusCode: 412 } });
+    });
+    sinon.stub(fs.prototype, 'hash').resolves('h');
+
+    const s3 = new fsS3({ name: 's3-exclusive', bucket: 'b' } as never);
+    Object.defineProperty(s3, 'S3', { value: client });
+    Object.defineProperty(s3, 'Logger', { value: { warn: () => undefined } });
+
+    await expect(s3.upload(dir('files/sample.mjml'), 'taken.mjml', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    expect(sent[0].input).to.include({ Key: 'taken.mjml', IfNoneMatch: '*' });
   });
 });

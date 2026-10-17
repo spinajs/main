@@ -3,7 +3,7 @@ import { DI, Injectable, PerInstanceCheck, ResolveException } from '@spinajs/di'
 import { Log, Logger } from '@spinajs/log-common';
 import { WriteStream } from 'fs';
 import { PassThrough } from 'stream';
-import { fs, IFsTempOptions, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsTempOptions, IFsUploadOptions, IStat, IZipResult } from './interfaces.js';
 import { MaxAgeTempCleanupStrategy, TempCleanupStrategy } from './temp-cleanup-strategy.js';
 import { getFs } from './helpers.js';
 
@@ -108,8 +108,8 @@ export class fsTemp extends fs {
     return this.Provider.download(path);
   }
 
-  public upload(srcPath: string, destPath?: string): Promise<void> {
-    return this.Provider.upload(srcPath, destPath);
+  public upload(srcPath: string, destPath?: string, options?: IFsUploadOptions): Promise<void> {
+    return this.Provider.upload(srcPath, destPath, options);
   }
 
   public async hash(path: string, algo?: string): Promise<string> {
