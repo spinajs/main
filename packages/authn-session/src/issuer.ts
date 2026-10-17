@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { randomToken, sha256 } from '@spinajs/util/crypto';
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -49,7 +49,7 @@ interface StoredFacts {
   authenticatedAt: number;
 }
 
-const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
+const sha256hex = (s: string) => sha256(s);
 
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
 
@@ -122,7 +122,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       data.set(PENDING_KEY, { steps: [...opts!.pending!.steps] });
     }
 
-    const rawId = randomBytes(16).toString('base64url');
+    const rawId = randomToken(16);
     await this.Store.save(
       new UserSession({
         SessionId: storageKeyOf(rawId),
@@ -399,7 +399,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
    * elevations of one session exactly one succeeds.
    */
   protected async moveTo(session: ISession, data: Map<string, unknown>, over: Partial<ISession>): Promise<SessionHandle> {
-    const rawId = randomBytes(16).toString('base64url');
+    const rawId = randomToken(16);
     const moved = new UserSession({
       SessionId: storageKeyOf(rawId),
       Subject: session.Subject,

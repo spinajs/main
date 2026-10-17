@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -6,6 +6,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 import { OrmDriver } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { randomToken } from '@spinajs/util/crypto';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
@@ -46,7 +47,7 @@ export class DbSecretStore extends SecretStore {
     const { driver } = await this.connection.get();
     await this.purgeNowAndThen(nowMs);
 
-    const raw = randomBytes(32).toString('base64url');
+    const raw = randomToken(32);
     await driver.del().from(TABLE).where('identity', key).where('purpose', purpose);
     await driver
       .insert()

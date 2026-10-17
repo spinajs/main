@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
 import { AsyncService, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { randomToken } from '@spinajs/util/crypto';
 import '@spinajs/authn/register-schema';
 
 import { ConcurrencyLimiter } from './limiter.js';
@@ -145,7 +145,7 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   /** Same parameters and pepper as a real hash, so a verify against it costs the same; made once, at boot when resolved by DI. */
   protected dummy(): Promise<string> {
-    return (this._dummy ??= this.hash(randomBytes(32).toString('base64url')).catch((err) => {
+    return (this._dummy ??= this.hash(randomToken(32)).catch((err) => {
       this._dummy = undefined;
       throw err;
     }));

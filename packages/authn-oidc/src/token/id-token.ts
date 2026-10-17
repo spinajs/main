@@ -1,5 +1,6 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { compactVerify, decodeProtectedHeader } from 'jose';
+import { timingSafeEqualStr } from '@spinajs/util/crypto';
 
 import type { OidcSigningAlgorithm } from '../contracts.js';
 import type { OidcJwks } from '../jwks.js';
@@ -33,12 +34,6 @@ export function atHashOf(accessToken: string, alg: OidcSigningAlgorithm): string
   const digest = createHash(atHashAlgorithm(alg)).update(accessToken, 'ascii').digest();
   return digest.subarray(0, digest.length / 2).toString('base64url');
 }
-
-const sameText = (a: string, b: string): boolean => {
-  const x = Buffer.from(a, 'utf8');
-  const y = Buffer.from(b, 'utf8');
-  return x.length === y.length && timingSafeEqual(x, y);
-};
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -84,9 +79,9 @@ export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenR
   if (!finite(c.iat) || c.iat > now + skew) refuse('iat');
   if (c.nbf !== undefined && (!finite(c.nbf) || c.nbf > now + skew)) refuse('nbf');
 
-  if (typeof c.nonce !== 'string' || !sameText(c.nonce, r.nonce)) refuse('nonce');
+  if (typeof c.nonce !== 'string' || !timingSafeEqualStr(c.nonce, r.nonce)) refuse('nonce');
   if (typeof c.sub !== 'string' || c.sub.length === 0 || c.sub.length > MAX_SUBJECT) refuse('sub');
-  if (c.at_hash !== undefined && (typeof c.at_hash !== 'string' || !sameText(c.at_hash, atHashOf(r.accessToken, alg as OidcSigningAlgorithm)))) refuse('at_hash');
+  if (c.at_hash !== undefined && (typeof c.at_hash !== 'string' || !timingSafeEqualStr(c.at_hash, atHashOf(r.accessToken, alg as OidcSigningAlgorithm)))) refuse('at_hash');
 
   return Object.freeze({ ...c });
 }

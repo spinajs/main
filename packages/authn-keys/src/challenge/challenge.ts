@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import type { KeyAlgorithm, KeyChallenge, KeyMaterial } from '@spinajs/authn/contracts';
 import { _between, _custom, _is_string, _try_check_arg } from '@spinajs/util';
+import { randomToken } from '@spinajs/util/crypto';
 import { decodeB64url, encodeB64url } from '../jwk/base64url.js';
 import { signRaw, verifySignature } from '../jwk/signature.js';
 
@@ -16,7 +16,7 @@ const RID = /^[A-Za-z0-9_-]{16}$/;
 const MAX_NONCE_LENGTH = 512;
 const NONCE = /^[A-Za-z0-9_-]{22,512}$/;
 
-export const newChallengeRid = (): string => randomBytes(RID_BYTES).toString('base64url');
+export const newChallengeRid = (): string => randomToken(RID_BYTES);
 
 /**
  * `<rid>.<nonce>`. SecretStore keeps only a hash of the nonce and redeems by the raw value, and the credentials carry

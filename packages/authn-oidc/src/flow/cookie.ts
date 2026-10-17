@@ -1,5 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { _is_string, _max_length, _non_empty, _reg_match, _try_check_arg } from '@spinajs/util';
+import { decodeB64url, encodeB64url, randomToken, sha256 } from '@spinajs/util/crypto';
 
 import { checkedUrl, isPlainObject, isRelaxedEnv } from '../support.js';
 import { OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from '../options/schema.js';
@@ -47,9 +48,9 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const PRINTABLE_ASCII = /^[\x21-\x7e]*$/;
 const PROVIDER_NAME = new RegExp(OIDC_PROVIDER_NAME_PATTERN);
 
-const b64urlSha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('base64url');
+const b64urlSha256 = (s: string): string => sha256(s, 'base64url');
 
-export const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+export const sha256hex = (s: string): string => sha256(s);
 
 /** What a link flow stores of the session that started it: never the session store's own key (the plain SHA-256). */
 export const sessionBindingOf = (rawSessionId: string): string => sha256hex(`spinajs-oidc:session\0${rawSessionId}`);
@@ -72,7 +73,7 @@ export function newFlow(input: { provider: string; redirectUri: string; returnTo
   return Object.freeze({
     v: 1,
     p: input.provider,
-    s: randomBytes(SEED_BYTES).toString('base64url'),
+    s: randomToken(SEED_BYTES),
     t: Math.floor(input.now.getTime() / 1000),
     r: input.mode === 'login' ? appPathOrNull(input.returnTo) : null,
     u: input.redirectUri,
@@ -91,7 +92,7 @@ export function flowSecrets(f: OidcFlow): OidcFlowSecrets {
   });
 }
 
-export const encodeFlow = (f: OidcFlow): string => Buffer.from(canonical(f), 'utf8').toString('base64url');
+export const encodeFlow = (f: OidcFlow): string => encodeB64url(canonical(f));
 
 /** The flow in a cookie value, or null for anything malformed. */
 export function decodeFlow(value: unknown): OidcFlow | null {
@@ -99,9 +100,13 @@ export function decodeFlow(value: unknown): OidcFlow | null {
   if (!wellFormed) {
     return null;
   }
+  const bytes = decodeB64url(encoded);
+  if (!bytes) {
+    return null;
+  }
   let f: unknown;
   try {
-    f = JSON.parse(Buffer.from(encoded as string, 'base64url').toString('utf8'));
+    f = JSON.parse(bytes.toString('utf8'));
   } catch {
     return null;
   }

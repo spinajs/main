@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
+import { sha256 } from '@spinajs/util/crypto';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -62,7 +62,7 @@ export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedA
  * A login challenge is stored for the key it names; a name that is not a kid still gets a challenge of the same shape
  * (A02), stored under a digest so anonymous input never becomes a long identity id.
  */
-export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : createHash('sha256').update(kid, 'utf8').digest('hex') });
+export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : sha256(kid) });
 
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
 @Injectable(KeyRegistry)
