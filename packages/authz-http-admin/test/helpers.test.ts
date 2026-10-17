@@ -141,7 +141,7 @@ describe('query parsing', () => {
       includeExpired: true,
       page: { limit: 10, offset: 20 },
     });
-    expect(readAssignmentsQuery({ includeExpired: 'false', limit: '5' })).to.deep.equal({ kind: 'assignments', includeExpired: false, page: { limit: 5 } });
+    expect(readAssignmentsQuery({ includeExpired: 'false', limit: '5' })).to.deep.equal({ kind: 'assignments', includeExpired: false, page: { limit: 5, offset: 0 } });
   });
 
   it('refuses malformed values with the field they came in', () => {
@@ -150,6 +150,7 @@ describe('query parsing', () => {
       [{ limit: 'ten' }, 'limit'],
       [{ offset: '-1' }, 'offset'],
       [{ limit: '1.5' }, 'limit'],
+      [{ limit: '0' }, 'limit'],
       [{ role: ['a', 'b'] }, 'role'],
       [{ scope: { type: 'x' } }, 'scope'],
     ];
@@ -161,8 +162,9 @@ describe('query parsing', () => {
   });
 
   it('reads the scope and page of rules and policies', () => {
-    expect(readPageQuery('rules', { scope: 'project:p1', offset: '3' })).to.deep.equal({ kind: 'rules', scope: { type: 'project', id: 'p1' }, page: { offset: 3 } });
+    expect(readPageQuery('rules', { scope: 'project:p1', offset: '3' })).to.deep.equal({ kind: 'rules', scope: { type: 'project', id: 'p1' }, page: { limit: 50, offset: 3 } });
     expect(readPageQuery('policies', {})).to.deep.equal({ kind: 'policies' });
+    expect(readPageQuery('links', { limit: '1000' })).to.deep.equal({ kind: 'links', page: { limit: 500, offset: 0 } });
   });
 
   it('reads the options of a single-command route from the query string', () => {
