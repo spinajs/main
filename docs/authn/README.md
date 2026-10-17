@@ -322,7 +322,8 @@ listed could not be removed:
 The import loads `authn-orm`, with its migrations and stores. The data migration moves 2.x TOTP
 secrets into `authn_mfa` and deletes the 2.x `2fa:*`, `user:2fa:*`, `user:login:*` and
 `user:pwd_reset:*` metadata, so import it only after the app has left the 2.x login. The root entry
-of the package loads none of this: it takes only the cipher from `@spinajs/authn-orm/cipher`.
+of the package loads none of this: it takes only the cipher from `@spinajs/authn-orm/cipher` and
+`identityKey` from `@spinajs/authn-orm/identity`, two side-effect-free subpaths.
 
 How the step behaves:
 
