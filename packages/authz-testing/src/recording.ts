@@ -39,24 +39,4 @@ export class RecordingChangeBus extends ChangeBus {
   }
 }
 
-export class ManualClock {
-  private ms: number;
-
-  constructor(start: Date = new Date(0)) {
-    this.ms = start.getTime();
-  }
-
-  now(): Date {
-    return new Date(this.ms);
-  }
-
-  advance(ms: number): this {
-    this.ms += ms;
-    return this;
-  }
-
-  set(at: Date): this {
-    this.ms = at.getTime();
-    return this;
-  }
-}
+export { ManualClock } from '@spinajs/util';
