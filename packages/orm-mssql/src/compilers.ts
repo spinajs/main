@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder } from '@spinajs/orm-sql';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder, AlterColumnQueryBuilder, AlterColumnQueryCompiler, ColumnAlterationType } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 /**
@@ -387,5 +387,85 @@ export class MsSqlCreateViewCompiler extends SqlCreateViewQueryCompiler {
     }
 
     return option === true ? 'WITH CHECK OPTION' : this.unsupported(`WITH ${option} CHECK OPTION`);
+  }
+}
+
+/**
+ * T-SQL renames a table or a column with `sp_rename`, a complete statement that needs the
+ * table's qualified name, which the column compiler never sees - so renames are written here.
+ */
+@NewInstance()
+@Inject(Container)
+export class MsSqlAlterTableQueryCompiler extends SqlAlterTableQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public compile(): ICompilerOutput[] {
+    const alter = this._table();
+    const outputs: ICompilerOutput[] = this.builder.DroppedColumns.map((c) => ({ bindings: [], expression: `${alter} DROP COLUMN ${this.Quoter.quote(c)}` }));
+
+    for (const column of this.builder.Columns as AlterColumnQueryBuilder[]) {
+      if (column.AlterType === ColumnAlterationType.Rename) {
+        outputs.push(this._rename(`${this._objectName()}.${this.Quoter.quote(column.OldName)}`, column.Name, 'COLUMN'));
+        continue;
+      }
+
+      const output = this.container.resolve<AlterColumnQueryCompiler>(AlterColumnQueryCompiler, [column]).compile();
+      if ((output.expression ?? '').trim().length !== 0) {
+        outputs.push({ bindings: output.bindings, expression: `${alter} ${output.expression}` });
+      }
+    }
+
+    // last, so every statement above still finds the table under its current name
+    if (this.builder.NewTableName) {
+      outputs.push(this._rename(this._objectName(), this.builder.NewTableName));
+    }
+
+    return outputs;
+  }
+
+  /** sp_rename takes `schema.table`; a database prefix goes on the procedure instead. */
+  protected _objectName(): string {
+    const schema = this.builder.Driver.Options.Options?.Schema;
+    return `${schema ? `${this.Quoter.quote(schema)}.` : ''}${this.Quoter.quote(this.builder.Table)}`;
+  }
+
+  /** The new name is taken literally - brackets in it would become part of the name. */
+  protected _rename(objectName: string, newName: string, type?: string): ICompilerOutput {
+    const procedure = this.builder.Database ? `${this.Quoter.quote(this.builder.Database)}.sys.sp_rename` : 'sp_rename';
+
+    return {
+      bindings: [],
+      expression: `EXEC ${procedure} N'${escapeTsqlLiteral(objectName)}', N'${escapeTsqlLiteral(newName)}'${type ? `, N'${type}'` : ''}`,
+    };
+  }
+}
+
+/**
+ * `ADD` takes no COLUMN keyword and no AFTER. `ALTER COLUMN` restates only type, collation and
+ * nullability: defaults, identity and keys are constraints T-SQL changes with their own statements.
+ */
+@NewInstance()
+@Inject(Container)
+export class MsSqlAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+  protected _add(definition: string): string | null {
+    if (this.builder.AfterColumn) {
+      throw new NotSupported('mssql cannot place a column AFTER another, it is always appended');
+    }
+
+    return `ADD ${definition}${this.builder.PrimaryKey ? ' PRIMARY KEY' : ''}`;
+  }
+
+  protected _modify(definition: string): string | null {
+    if (this.builder.Default || this.builder.AutoIncrement || this.builder.PrimaryKey || this.builder.Unique) {
+      throw new NotSupported('mssql ALTER COLUMN changes only type, collation and nullability; alter defaults, identity and keys as constraints with raw statements');
+    }
+
+    // explicit NULL, otherwise the session's ANSI_NULL_DFLT setting decides
+    return `ALTER COLUMN ${definition}${this.builder.NotNull ? '' : ' NULL'}`;
+  }
+
+  protected _rename(): string | null {
+    throw new NotSupported('mssql renames a column with sp_rename, which only MsSqlAlterTableQueryCompiler can write');
   }
 }

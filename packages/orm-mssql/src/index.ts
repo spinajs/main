@@ -1,11 +1,11 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder, AlterTableQueryCompiler, AlterColumnQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
 import { SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlDefaultValueBuilder } from './compilers.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlDefaultValueBuilder, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 
@@ -239,11 +239,13 @@ export class MsSqlOrmDriver extends SqlDriver {
     // Brackets, not the backticks this driver used to inherit from the shared layer.
     this.Container.register(BracketIdentifierQuoter).as(IdentifierQuoter);
 
+    this.Container.register(MsSqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
+    this.Container.register(MsSqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+
     // `TRUNCATE TABLE` is valid T-SQL, so the shared compiler is claimed explicitly.
-    // `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE` and
-    // `WITH RECURSIVE` are NOT T-SQL and are left unregistered: the container then
-    // instantiates the abstract base, so those features throw a TypeError instead of
-    // reaching SQL Server as MySQL syntax.
+    // `CREATE TABLE ... LIKE` and `WITH RECURSIVE` are NOT T-SQL and are left
+    // unregistered: the container then instantiates the abstract base, so those
+    // features throw a TypeError instead of reaching SQL Server as MySQL syntax.
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
 
     // No native scheduler in this engine, and nothing is simulated in its place.

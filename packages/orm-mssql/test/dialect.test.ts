@@ -45,12 +45,11 @@ describe('mssql dialect', function () {
   });
 
   /**
-   * `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE` and
-   * `WITH RECURSIVE` are not T-SQL. This driver registers none of them, so they fail
-   * instead of reaching SQL Server as MySQL syntax.
+   * `CREATE TABLE ... LIKE` and `WITH RECURSIVE` are not T-SQL. This driver registers
+   * neither, so they fail instead of reaching SQL Server as MySQL syntax.
    */
   it('leaves the abstractions it has no T-SQL for unregistered', () => {
-    for (const abstraction of ['AlterColumnQueryCompiler', 'AlterTableQueryCompiler', 'TableCloneQueryCompiler', 'RecursiveQueryCompiler']) {
+    for (const abstraction of ['TableCloneQueryCompiler', 'RecursiveQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must not be inherited from the MySQL-flavoured base`).to.eq(false);
     }
   });
@@ -224,6 +223,37 @@ describe('mssql statements', function () {
     expect(() => sql(schema().createTable('t', (t) => t.int('Id')).temporary())).to.throw(NotSupported);
     expect(() => sql(schema().createTable('t', (t) => t.int('Id')).trackHistory())).to.throw(MethodNotImplemented);
     expect(() => sql(schema().createTable('t', (t) => t.string('Name').charset('utf8')))).to.throw(NotSupported);
+  });
+
+  it('alters a table in T-SQL', () => {
+    const out = schema()
+      .alterTable('users', (t) => {
+        t.string('Email', 64).notNull();
+        t.string('SessionId', 64).notNull().modify();
+        t.int('UserId').modify();
+        t.string('Old').rename("N'ew");
+        t.dropColumn('Gone');
+        t.rename('people');
+      })
+      .toDB()
+      .map((o) => o.expression);
+
+    expect(out).to.deep.eq([
+      'ALTER TABLE [users] DROP COLUMN [Gone]',
+      'ALTER TABLE [users] ADD [Email] VARCHAR(64) NOT NULL',
+      'ALTER TABLE [users] ALTER COLUMN [SessionId] VARCHAR(64) NOT NULL',
+      'ALTER TABLE [users] ALTER COLUMN [UserId] INT NULL',
+      "EXEC sp_rename N'[users].[Old]', N'N''ew', N'COLUMN'",
+      "EXEC sp_rename N'[users]', N'people'",
+    ]);
+
+    const other = schema().alterTable('users', (t) => t.rename('people')).database('other');
+    expect(other.toDB()[0].expression).to.eq("EXEC [other].sys.sp_rename N'[users]', N'people'");
+  });
+
+  it('refuses column alterations it has no T-SQL for', () => {
+    expect(() => schema().alterTable('t', (t) => t.int('A').after('B')).toDB()).to.throw(NotSupported);
+    expect(() => schema().alterTable('t', (t) => t.int('A').modify().default().value(1)).toDB()).to.throw(NotSupported);
   });
 
   it('writes a DateTime in UTC and keeps a string', () => {
