@@ -26,7 +26,7 @@ Both throw `Forbidden` when the request carries no allowed `@Access` decision (`
 
 | Member | Signature | Result and errors |
 | --- | --- | --- |
-| `list` | `list(scope, pagination?, order?, filter?)` | Entries the caller may read, reserved keys left out. `limit` defaults to `DEFAULT_PAGE_SIZE` (`10`); `order.column` other than `Id`, `Key`, `Type` throws `InvalidArgument` (`400`). |
+| `list` | `list(scope, pagination?, order?, filter?)` | Entries the caller may read, reserved keys left out. `limit` defaults to `DEFAULT_PAGE_SIZE` (`10`) and is capped at orm-http's `MAX_PAGE_LIMIT` (`500`); `order.column` other than `Id`, `Key`, `Type` throws `InvalidArgument` (`400`). |
 | `getByKey` | `getByKey(scope, key): Promise<UserMetadataBase>` | One entry. `404` when absent or reserved, `403` when not admitted for `user.metadata:read`. |
 | `upsert` | `upsert(scope, dto: UserMetadataDto): Promise<void>` | Insert, or update an existing key. `400` for a reserved key; `403` without `update` on each stored twin or `create` on the new entry. |
 | `update` | `update(scope, idOrKey, dto): Promise<void>` | Update the entry addressed by `Id` (digits) or `Key`. `404` absent or reserved; `400` for a reserved new key; `403` without `update` on the stored and on the resulting entry. |

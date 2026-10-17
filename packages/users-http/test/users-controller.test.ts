@@ -8,6 +8,7 @@ import { Configuration } from '@spinajs/configuration';
 import { SortOrder } from '@spinajs/orm';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { FreshAuth } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
@@ -130,6 +131,16 @@ describe('Admin user controllers', function () {
 
       expect(page0).to.have.lengthOf(4);
       expect(page1, 'second page of a 4 row table with the default size of 10 is empty').to.have.lengthOf(0);
+    });
+
+    it('treats limit 0 as the default page size', async () => {
+      const page0 = await body<any[]>(await usersController.list(await admin(), new PaginationDTO({ page: 0, limit: 0 } as any)));
+
+      expect(page0).to.have.lengthOf(4);
+    });
+
+    it('rejects a fractional page', async () => {
+      await expect(usersController.list(await admin(), new PaginationDTO({ page: 0.5, limit: 2 } as any))).to.be.rejectedWith(InvalidArgument);
     });
 
     it('orders by the requested column', async () => {
