@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import { CliCommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
@@ -21,7 +21,7 @@ export abstract class AuthzOrmCliCommand extends CliCommand {
     const cls = classesOf(type)[0];
     if (cls) return driverOf(cls);
     const d = (await this.orm()).Connections.get('default');
-    if (!d) throw new Error('authz:ancestors: the ORM has no default connection');
+    if (!d) throw new AuthzConfigError('authz:ancestors: the ORM has no default connection');
     return d;
   }
 

@@ -1,5 +1,6 @@
-import { engineLog, GLOBAL } from '@spinajs/authz';
+import { AuthzConfigError, engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
@@ -58,7 +59,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       if (idColumn) {
         await this.assertCopied(connection, idColumn, roleColumn);
       } else if (filled) {
-        throw new Error(`${NAME}: cannot check the ${USERS_TABLE}.${roleColumn} copy: table ${USERS_TABLE} has no column ${configured.idColumn} (${USER_ROLES_ID_COLUMN_KEY}); its columns are ${names.join(', ')}; nothing was changed`);
+        throw new AuthzConfigError(`${NAME}: cannot check the ${USERS_TABLE}.${roleColumn} copy: table ${USERS_TABLE} has no column ${configured.idColumn} (${USER_ROLES_ID_COLUMN_KEY}); its columns are ${names.join(', ')}; nothing was changed`);
       }
 
       // the ORM's dropColumn() emits the name unquoted, which Postgres folds to lower case
@@ -177,12 +178,12 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
 
     // a keyset walk over tied ids skips rows; the copy skipped the same ones, so their pairs look complete
     if (!unique) {
-      throw new Error(`${NAME}: cannot check the ${USERS_TABLE}.${roleColumn} copy: the walk by ${USERS_TABLE}.${idColumn} read ${visited} of ${total} rows, so ${USERS_TABLE}.${idColumn} (${USER_ROLES_ID_COLUMN_KEY}) is not unique; nothing was changed. Point ${USER_ROLES_ID_COLUMN_KEY} at a unique column, then run ${RESOLVE} and migrate again`);
+      throw new AuthzConfigError(`${NAME}: cannot check the ${USERS_TABLE}.${roleColumn} copy: the walk by ${USERS_TABLE}.${idColumn} read ${visited} of ${total} rows, so ${USERS_TABLE}.${idColumn} (${USER_ROLES_ID_COLUMN_KEY}) is not unique; nothing was changed. Point ${USER_ROLES_ID_COLUMN_KEY} at a unique column, then run ${RESOLVE} and migrate again`);
     }
 
     if (count > 0) {
       const more = count > missing.length ? ', …' : '';
-      throw new Error(`${NAME}: the ${USERS_TABLE}.${roleColumn} copy is incomplete: ${count} user/role pair(s) have no live $global assignment (${missing.join(', ')}${more}); nothing was changed. Grant the missing roles through AuthzAdmin.assign or authz:assign (this also renews an expired grant), or remove them from ${USERS_TABLE}.${roleColumn} if they were revoked on purpose; if every user is listed, check ${USER_ROLES_ID_COLUMN_KEY} and ${USER_ROLES_ROLE_COLUMN_KEY}. Then run ${RESOLVE} and migrate again`);
+      throw new InvalidOperation(`${NAME}: the ${USERS_TABLE}.${roleColumn} copy is incomplete: ${count} user/role pair(s) have no live $global assignment (${missing.join(', ')}${more}); nothing was changed. Grant the missing roles through AuthzAdmin.assign or authz:assign (this also renews an expired grant), or remove them from ${USERS_TABLE}.${roleColumn} if they were revoked on purpose; if every user is listed, check ${USER_ROLES_ID_COLUMN_KEY} and ${USER_ROLES_ROLE_COLUMN_KEY}. Then run ${RESOLVE} and migrate again`);
     }
   }
 

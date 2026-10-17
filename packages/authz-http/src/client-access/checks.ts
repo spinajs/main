@@ -1,4 +1,4 @@
-import { GLOBAL, compileFieldGlobs, isPermission } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, compileFieldGlobs, isPermission } from '@spinajs/authz';
 import type { AuthzService, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { Log } from '@spinajs/log';
 
@@ -77,7 +77,7 @@ export async function answerClientChecks(service: AuthzService, principal: Princ
 
   const pending = parsed.flatMap((p, i) => (typeof p === 'string' ? [] : [{ i, check: p }]));
   const decisions = pending.length === 0 ? [] : await service.checkAll(principal, pending.map(({ check }) => ({ permission: check.permission, resource: check.resource })));
-  if (decisions.length !== pending.length) throw new Error(`checkAll answered ${decisions.length} decisions for ${pending.length} requests`);
+  if (decisions.length !== pending.length) throw new AuthzConfigError(`checkAll answered ${decisions.length} decisions for ${pending.length} requests`);
   pending.forEach(({ i, check }, k) => {
     [results[i], reasons[i]] = verdict(decisions[k], check, opts.authz);
   });
