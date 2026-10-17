@@ -15,7 +15,7 @@ The package ships a config file that adds its compiled `cli` directory to `syste
 | `cli/MigrateDown.js` | `MigrateDownCommand` | `migrate-down` |
 | `cli/MigrateStatus.js` | `MigrateStatusCommand` | `migrate-status` |
 | `cli/MigrateResolve.js` | `MigrateResolveCommand` | `migrate-resolve` |
-| `cli/MigrateCreate.js` | `CONNECTION_NAME_REGEXP` | none, skipped |
+| `cli/MigrateCreate.js` | `MigrateCreateCommand` | `migrate-create` |
 
 ## Configuration
 
@@ -47,19 +47,6 @@ export default {
 | --- | --- | --- | --- | --- |
 | Command directory | Config key `system.dirs.cli`, read once per `Cli` instance | The two paths above | Your own directories, appended by your config | Append a directory that holds your own command files; this package's entries stay, because arrays concatenate |
 | `'__cli_command__'` | String token; `@Command` registers each of the five classes under it when the module is evaluated | the five command classes | none | Read-only. `Cli` does not use it, so importing `@spinajs/orm-cli` does not by itself add commands to the bin |
-
-### `migrate-create` is not discovered
-
-Under ESM, `Object.keys()` of the `MigrateCreate.js` module lists exports alphabetically, so the first one is `CONNECTION_NAME_REGEXP`. `Cli` logs `Command CONNECTION_NAME_REGEXP is not marked as command` and skips the file, and `spinajs migrate-create` is an unknown command.
-
-Re-export the class from a file of its own in a directory your application lists in `system.dirs.cli`:
-
-```ts sample
-// src/cli/MigrateCreate.ts of your application; its only export is the command.
-export { MigrateCreateCommand } from '@spinajs/orm-cli';
-```
-
-The command keeps its name, options and behaviour. The class can also be called directly, without the bin.
 
 ### Run the commands without the bin
 
