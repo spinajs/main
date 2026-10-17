@@ -4,8 +4,11 @@ import { crossSiteRefusal, isAllowedOrigin } from '../src/origin.js';
 
 describe('origin guard', () => {
   describe('isAllowedOrigin', () => {
-    it('admits a request without an Origin ( not a browser )', () => {
+    it('admits a request without an Origin ( not a browser ), unless fetch metadata says cross-site', () => {
       expect(isAllowedOrigin({ host: 'app.example' }, [])).to.be.true;
+      expect(isAllowedOrigin({ host: 'app.example', 'sec-fetch-site': 'same-origin' }, [])).to.be.true;
+      expect(isAllowedOrigin({ host: 'app.example', 'sec-fetch-site': 'cross-site' }, [])).to.be.false;
+      expect(isAllowedOrigin({ host: 'app.example', 'sec-fetch-site': 'same-site' }, [])).to.be.false;
     });
 
     it('compares scheme, host and port, with the host lowercased and default ports dropped', () => {
@@ -27,8 +30,10 @@ describe('origin guard', () => {
       expect(isAllowedOrigin({ origin: 'http://app.example', host: 'user@app.example' }, [])).to.be.false;
     });
 
-    it('admits exactly listed origins, never null or a wildcard', () => {
+    it('admits listed origins, compared as normalised origins, never null or a wildcard', () => {
       expect(isAllowedOrigin({ origin: 'https://other.example', host: 'app.example' }, ['https://other.example'])).to.be.true;
+      expect(isAllowedOrigin({ origin: 'https://other.example', host: 'app.example' }, ['HTTPS://Other.Example:443/'])).to.be.true;
+      expect(isAllowedOrigin({ origin: 'https://other.example.evil', host: 'app.example' }, ['https://other.example'])).to.be.false;
       expect(isAllowedOrigin({ origin: 'null', host: 'app.example' }, ['null'])).to.be.false;
       expect(isAllowedOrigin({ origin: '*', host: 'app.example' }, ['*'])).to.be.false;
     });

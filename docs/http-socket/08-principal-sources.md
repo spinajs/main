@@ -6,7 +6,7 @@ A socket handshake is turned into an authz-v3 `Principal` by the registered `Soc
 
 1. engine.io's `allowRequest` runs `crossSiteRefusal()` on every transport request, before a session opens:
    - a JSONP polling request (query parameter `j`) is refused;
-   - a request without `Origin` whose `Sec-Fetch-Site` is `cross-site` or `same-site` is refused.
+   - a request without `Origin` whose `Sec-Fetch-Site` is `cross-site` or `same-site` is refused (the `unless-cross-site` rule of `checkSameOrigin` in `@spinajs/http`).
 2. The handshake middleware runs `isAllowedOrigin()` first, so no source reads the credentials of a hijacked cross-site socket. A refusal answers `forbidden`.
 3. `toHandshake()` builds the `ISocketHandshake`: `auth`, `headers`, raw `cookies`, the client `address`, `peerAddress`, `url`, `query`, `secure`, `issuedAt`.
 4. After the protocol and `clientId` checks, `SocketServer.identify()` sorts the sources by ascending `order` and calls `authenticate(handshake)` on each:
@@ -18,29 +18,29 @@ A socket handshake is turned into an authz-v3 `Principal` by the registered `Soc
 
 ### Origins
 
-`isAllowedOrigin(headers, origins, secure)` admits:
+`isAllowedOrigin(headers, origins, secure)` decides with `checkSameOrigin` of `@spinajs/http` (`missingOrigin: 'unless-cross-site'`) and admits:
 
-- a request without `Origin` (not a browser; `crossSiteRefusal` closes the browser cases);
+- a request without `Origin` (not a browser), unless `Sec-Fetch-Site` is `cross-site` or `same-site`;
 - a same-origin page: scheme, host and port equal to the request's `Host`. Behind a TLS-terminating proxy that keeps `Host`, an `https` page reaching a plain `http` server is admitted; never the reverse;
-- an origin listed exactly in `http.socket.cors.origins`.
+- an origin listed in `http.socket.cors.origins`, both compared as normalised origins (case, default port and a trailing slash do not matter).
 
-It refuses `Origin: null` and `Origin: *` always. CORS does not cover a WebSocket upgrade, and a browser sends the user's cookies with a socket opened from any site, so this check is the only cross-site guard.
+It refuses `Origin: null` and `Origin: *` always; such list entries never match. The own origin comes from `Host` only, never from `X-Forwarded-Host`. CORS does not cover a WebSocket upgrade, and a browser sends the user's cookies with a socket opened from any site, so this check is the only cross-site guard.
 
 ### Client address
 
 `handshake.address` is the socket's peer, or, behind trusted proxy hops, the `X-Forwarded-For` entry they vouch for. `handshake.peerAddress` is always the raw TCP peer.
 
-- The trust comes from `authn.http.trustProxy`, else `http.trustProxy` when the former is `null` or absent (authn-http's `ClientIp` rule), parsed by `parseTrustProxy()`. An entry that is no address or CIDR throws `InvalidOption` when `SocketServer` resolves.
+- The trust comes from `http.trustProxy`, or from the deprecated `authn.http.trustProxy` while it is set (authn-http's `ClientIp` rule), parsed by `parseTrustProxy()`. An entry that is no address or CIDR throws `InvalidOption` when `SocketServer` resolves.
 - Addresses are normalized even without a trust setting: trimmed, `::ffff:a.b.c.d` as plain IPv4.
-- Socket `realIp` (in the call store) and policy `ip` use this address. They differ from http's `req.storage.realIp`, which reads `http.trustProxy` only, when the two settings differ.
+- Socket `realIp` (in the call store) and policy `ip` use this address. With `@spinajs/authn-http` loaded, http's `req.storage.realIp` follows the same rule (its `ClientIp` replaces `RealIp`); without it, http reads `http.trustProxy` only.
 
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.socket.auth.required` | boolean | `false` | `true`, `false` | Refuse handshakes no source resolves, instead of running them as `UNATTENDED` |
-| `http.socket.cors.origins` | string[] | `[]` | exact origins, no wildcards | Other origins allowed to open a socket |
-| `authn.http.trustProxy` | hops, list or `null` | `null` | see `@spinajs/http` `TrustProxySetting` | Trusted proxies for the client address; wins over `http.trustProxy` |
+| `http.socket.cors.origins` | string[] | `[]` | origins, no wildcards | Other origins allowed to open a socket |
+| `authn.http.trustProxy` | hops, list or `null` | `null` | see `@spinajs/http` `TrustProxySetting` | Deprecated: move the value to `http.trustProxy`. While set, it wins over `http.trustProxy` |
 | `http.trustProxy` | hops, list or `null` | `null` | same | Used when `authn.http.trustProxy` is `null` or absent |
 
 ```ts
