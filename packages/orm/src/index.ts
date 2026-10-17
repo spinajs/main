@@ -39,6 +39,7 @@ export * from './driver.js';
 export * from './quoting.js';
 export * from './wrappers.js';
 export * from './helpers.js';
+export * from './sql-helpers.js';
 export * from './fp.js';
 export * from './bootstrap.js';
 export * from './metadata.js';
