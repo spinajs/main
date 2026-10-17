@@ -161,6 +161,8 @@ export class RbacModel extends AuthorizationModel {
   /** Design §6.2: the gathered input of the type-level request `{ type }`, through `cap`, as a list plan (rbacListPlan). */
   async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
     await this.freshRoles();
+    const supported = this.listSupport(req.permission, req.type, { relation: ctx.relation.bind(ctx) });
+    if (supported !== true) throw new Error(supported.reason);
     const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}), ...(req.fresh === true ? { fresh: true } : {}) };
     await this.refuseListRules(req.permission.name, req.type, ctx.now);
     const read = await readRbacInput(request, ctx, this.sources());

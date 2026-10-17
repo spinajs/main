@@ -33,10 +33,11 @@ Each entry is a column name, or `{ column, typeColumn? }`.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `RelationResolver` (`type`, `relation`, `holds`, `listable?`) | `DI.register(...).as(RelationResolver)` | one `listable` resolver per declared column relation (`@spinajs/authz-orm`) | your own resolver | Set `listable` only if `.accessible()` can render the relation; otherwise the permission cannot be `list: true`. |
+| `RelationResolver` (`type`, `relation`, `holds`, `listable?`) | `DI.register(...).as(RelationResolver)` | one `listable` resolver per declared column relation (`@spinajs/authz-orm`) | your own resolver | Set `listable` only if `.accessible()` can render the relation; otherwise the permission cannot be `list: true`. Only the ORM adapter's `relation.column` compiler renders `listable` resolvers, so a custom resolver must not set it unless an adapter renders its relation. |
 
 ## Important behaviour
 
+- A relation grant is decided only against the loaded row: a check on a bare `{ type, id }` without the row is conditional (`allowed` with a residual). Pass the row, use `subject: 'load'` on `@Access`, or `assert(me, perm, row)`.
 - Without `typeColumn`, the column holds `user` ids and matches `user` principals only.
 - With `typeColumn`, the principal's type must equal that column and the id must equal the main column.
 - A grant whose relation has only a custom, non-listable `RelationResolver` still works for single
@@ -84,7 +85,10 @@ export default {
 ### A model you do not own, with a typed column
 
 ```ts sample
+import { ModelBase } from '@spinajs/orm';
 import { registerAccessResource } from '@spinajs/authz-orm';
+
+class JobModel extends ModelBase {}
 
 // the reviewer can be any principal type: both columns must match
 registerAccessResource(JobModel, 'job', {

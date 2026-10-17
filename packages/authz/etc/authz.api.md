@@ -77,7 +77,7 @@ export declare abstract class RelationResolver {
     abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
 export interface RelationResolver {
-    /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. */
+    /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. Only the ORM adapter's `relation.column` compiler renders it: a custom resolver must not set it unless an adapter renders its relation. */
     readonly listable?: boolean;
 }
 /** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */

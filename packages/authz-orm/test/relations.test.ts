@@ -42,4 +42,20 @@ describe('ormRelations', function () {
     expect(await resolver!.holds(userPrincipal('alice'), { type: 'task', id: 'a' })).to.equal(true);
     expect(await resolver!.holds(userPrincipal('bob'), { type: 'task', id: 'a' })).to.equal(false);
   });
+
+  it('a typed relation holds only when the type column matches too', async () => {
+    await db.define({
+      name: 'Review',
+      columns: { reviewer_id: 'TEXT', reviewer_type: 'TEXT' },
+      rows: [{ id: 'r1', reviewer_id: 'bot', reviewer_type: 'agent' }],
+      decorate: (cls, proto) => {
+        AccessResource('review')(cls);
+        Relation('reviewer', { typeColumn: 'reviewer_type' })(proto, 'reviewer_id');
+      },
+    });
+    const resolver = ormRelations().find((r) => r.type === 'review' && r.relation === 'reviewer')!;
+    const ref = { type: 'review', id: 'r1' };
+    expect(await resolver.holds({ type: 'agent', id: 'bot' } as never, ref)).to.equal(true);
+    expect(await resolver.holds(userPrincipal('bot'), ref)).to.equal(false);
+  });
 });

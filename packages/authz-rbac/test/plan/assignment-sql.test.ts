@@ -74,7 +74,7 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
     });
 
     it('a column relation other than owner ANDs the role with its own column', () => {
-      const assigned = args({ subjects: ['user:*', 'user:alice'], roles: [{ role: 'worker', relation: 'assignee' }] });
+      const assigned = rbacPlanArgs(parseRbacPlanArgs({ subjects: ['user:*', 'user:alice'], membership: false, memberKeys: [], roles: [{ role: 'worker', relation: 'assignee' }], global: false }));
       const sqlOf = rbacAssignmentSql(assigned, row('postgres', (name) => (name === 'assignee' ? { column: 'assignee_id' } : undefined)));
       expect(sqlOf.sql).to.contain('(authz_s.role = ? AND t.assignee_id IN (?))');
       expect(sqlOf.bindings).to.include.members(['worker', 'alice']);

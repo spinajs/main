@@ -225,7 +225,7 @@ function readAdapter(adapter: unknown, index: number, out: AdapterView[], add: A
   }
   const compiles: unknown = adapter.compiles;
   const relations: unknown = adapter.relations;
-  out.push({ kind, types, compiles: compiles === undefined ? undefined : listOf(compiles as unknown[]), relations: typeof relations === 'function' ? () => relations.call(adapter) : undefined });
+  out.push({ kind, types, compiles: compiles === undefined ? undefined : listOf(compiles as unknown[]), relations: typeof relations === 'function' ? once(() => relations.call(adapter)) : undefined });
 }
 
 /** Reports combine problems and returns a config compileRoutes accepts, or undefined when the shape is too broken to route. */
@@ -317,7 +317,23 @@ function checkRoutes(table: RouteTable, caps: ReadonlyMap<AuthorizationModel, Mo
   }
 }
 
-/** The resolvers rule 8 indexes, by type and name; an adapter that throws from relations() adds none (rule 8 reports it). */
+/** Calls `fn` once; later calls return or rethrow the first outcome, so each adapter's relations() runs once per validation. */
+function once(fn: () => unknown): () => unknown {
+  let outcome: { value: unknown } | { error: unknown } | undefined;
+  return () => {
+    if (outcome === undefined) {
+      try {
+        outcome = { value: fn() };
+      } catch (error) {
+        outcome = { error };
+      }
+    }
+    if ('error' in outcome) throw outcome.error;
+    return outcome.value;
+  };
+}
+
+/** The resolvers the relation check indexes, by type and name; an adapter that throws from relations() adds none (that check reports it). */
 function relationLookup(relations: readonly RelationResolver[], adapters: readonly AdapterView[]): ListSupportContext {
   const byKey = new Map<string, RelationResolver>();
   const index = (r: unknown) => {
@@ -328,7 +344,7 @@ function relationLookup(relations: readonly RelationResolver[], adapters: readon
     try {
       if (adapter.relations) listOf(adapter.relations() as unknown[]).forEach(index);
     } catch {
-      // rule 8 reports it
+      // reported by the relation check
     }
   }
   return { relation: (type, name) => byKey.get(relationKey(type, name)) };

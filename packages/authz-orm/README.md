@@ -44,9 +44,11 @@ export class Folder extends ModelBase {
 // a model your package does not own
 registerAccessResource(DbConfig, 'configuration');
 // the initiator can be any principal type: the owner holds when type and id both match
-registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
-// named column relations of a model you do not own: a column name, or { column, typeColumn }
-registerAccessResource(JobModel, 'job', { relations: { reviewer: { column: 'ReviewerId', typeColumn: 'ReviewerType' } } });
+// named column relations: a column name, or { column, typeColumn }; one call carries all options
+registerAccessResource(JobModel, 'job', {
+  owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' },
+  relations: { reviewer: { column: 'ReviewerId', typeColumn: 'ReviewerType' } },
+});
 ```
 
 - `@Parent(type)` names the parent's resource type; the column holds the parent's id. Int and uuid

@@ -40,7 +40,7 @@ export abstract class RelationResolver {
 
 // Merged into the class so it emits no field: a subclass may declare it with a field initialiser or a getter.
 export interface RelationResolver {
-  /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. */
+  /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. Only the ORM adapter's `relation.column` compiler renders it: a custom resolver must not set it unless an adapter renders its relation. */
   readonly listable?: boolean;
 }
 
