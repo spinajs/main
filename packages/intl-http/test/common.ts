@@ -31,8 +31,12 @@ export function dir(path: string) {
 }
 
 export class TestConfiguration extends FrameworkConfiguration {
-  protected onLoad() {
-    return {
+  // Replaces rather than merges: every @spinajs package in node_modules ships a config, and
+  // merging would scan all their controllers too.
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    this.Config = {
       system: {
         dirs: {
           locales: [dir('./../src/locales'), dir('./locales')],
@@ -47,6 +51,16 @@ export class TestConfiguration extends FrameworkConfiguration {
             service: 'fsNative',
             name: '__fs_http_templates__',
             basePath: dir('./views'),
+          },
+          {
+            service: 'fsNative',
+            name: '__fs_http_response_templates__',
+            basePath: resolve(normalize(join(process.cwd(), '..', 'http', 'src', 'views', 'responses'))),
+          },
+          {
+            service: 'fsNative',
+            name: '__fs_controller_cache__',
+            basePath: join(process.cwd(), '__cache__', '__controllers__'),
           },
         ],
       },
@@ -71,7 +85,8 @@ export class TestConfiguration extends FrameworkConfiguration {
       http: {
         port: 8888,
         middlewares: [
-          helmet(),
+          // ts-node 10 type-checks imports in CJS mode, so helmet's default import is its namespace
+          (helmet as any)(),
           express.json({
             limit: '5mb',
           }),
