@@ -45,9 +45,9 @@ export class SessionIssuerRegistered extends BasePolicy {
 }
 
 /** authn-totp's TotpService while the MFA enrolment routes are on (`totpServiceOf`); else 404 `not_found` naming this route. */
-export async function adminTotpServiceOf(container: IContainer, encryptionKey: string | null | undefined, policyService: string): Promise<TotpService> {
+export async function adminTotpServiceOf(container: IContainer, encryptionKey: string | null | undefined): Promise<TotpService> {
   try {
-    return await totpServiceOf(container, encryptionKey, policyService);
+    return await totpServiceOf(container, encryptionKey);
   } catch (err) {
     if (err instanceof ResourceNotFound) throw notFound('not_found', 'the admin MFA reset route is off');
     throw err;
@@ -62,14 +62,11 @@ export class AdminMfaResetOn extends BasePolicy {
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
-
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    await adminTotpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService);
+    await adminTotpServiceOf(this.Container, this.MfaEncryptionKey);
   }
 }

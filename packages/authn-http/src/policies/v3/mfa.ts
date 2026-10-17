@@ -1,22 +1,21 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { resolveNamedService } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { InvalidOption } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { mfaEnrolmentRefusal } from '@spinajs/authn';
+import { MFA_POLICY_SERVICE, mfaEnrolmentRefusal } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
 import { authenticatedPrincipal } from './principal.js';
 
-/** The policy DefaultAuthnService asks at login: the registration named `name` (authn.mfa.policy.service) nearest to `container`. */
-export async function mfaPolicyOf(container: IContainer, name: string): Promise<MfaPolicy> {
-  if (!container.getRegisteredNames(MfaPolicy).includes(name)) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
-  const policy = (await container.resolveNamed(MfaPolicy, name)) as MfaPolicy | null | undefined;
-  if (typeof policy?.required !== 'function' || typeof policy?.steps !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required() or steps())`);
-  return policy;
+/**
+ * The policy DefaultAuthnService asks at login: the MfaPolicy authn.mfa.policy.service names in `container`'s
+ * configuration. Resolved per call rather than injected, so the routes follow a configuration that changes after boot.
+ */
+export function mfaPolicyOf(container: IContainer): Promise<MfaPolicy> {
+  return resolveNamedService(container, 'authn.mfa.policy.service', MfaPolicy, MFA_POLICY_SERVICE);
 }
 
 /**
@@ -28,9 +27,6 @@ export class MfaSatisfied extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Config('authn.mfa.policy.service')
-  protected PolicyService: string;
-
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
@@ -40,7 +36,7 @@ export class MfaSatisfied extends BasePolicy {
     const authn = principal.authn;
     if (authn?.assurance === 'aal2') return;
     if (!authn) throw refused('mfa_required', 'this route needs a second factor');
-    const policy = await mfaPolicyOf(this.Container, this.PolicyService);
+    const policy = await mfaPolicyOf(this.Container);
     let steps: readonly string[];
     try {
       steps = await policy.required({ type: principal.type, id: principal.id }, { method: authn.method, strategy: authn.strategy });
@@ -63,9 +59,6 @@ export class PendingMfaEnrolment extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Config('authn.mfa.policy.service')
-  protected PolicyService: string;
-
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
@@ -74,7 +67,7 @@ export class PendingMfaEnrolment extends BasePolicy {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a session');
     if (session.handle.state !== 'pending') throw refused('enrolment_closed', 'only a pending session forced to enrol passes here');
-    const policy = await mfaPolicyOf(this.Container, this.PolicyService);
+    const policy = await mfaPolicyOf(this.Container);
     const steps = [...(await policy.steps()).values()];
     if (steps.length === 0) throw refused('enrolment_closed', 'no MFA step is configured');
     for (const step of steps) {

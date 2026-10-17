@@ -7,9 +7,9 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { SESSION_PENDING_STEPS_KEY } from '@spinajs/authn-session';
 
 import '../../src/api.js';
-import { MfaSatisfied, mfaPolicyOf } from '../../src/policies/v3/mfa.js';
+import { mfaPolicyOf } from '../../src/policies/v3/mfa.js';
 import { pendingSteps } from '../../src/v3/routes.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
+import { boot, disposeBooted, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 
@@ -18,7 +18,7 @@ const named = { CustomPolicy: () => policy }.CustomPolicy;
 
 const session = (stored?: unknown) => new Session({ handle: { id: 'x', state: 'pending' }, identity: { type: 'user', id: 'u1' }, facts: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(0) }, data: [[SESSION_PENDING_STEPS_KEY, stored]] });
 
-describe('authn.mfa.policy.service through @Config', () => {
+describe('authn.mfa.policy.service through resolveNamedService', () => {
   afterEach(disposeBooted);
 
   it('defaults to DefaultMfaPolicy and names an empty service', async () => {
@@ -27,62 +27,46 @@ describe('authn.mfa.policy.service through @Config', () => {
     expect(await violationsOf(SCHEMAS, { authn: { mfa: { policy: { service: '' } } } })).to.include('authn.mfa.policy.service');
   });
 
-  it('MfaSatisfied reads the configured name from its container', async () => {
+  it('mfaPolicyOf resolves the registration the configuration of its container names', async () => {
     const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'CustomPolicy' } } } });
-    expect((readingFrom(new MfaSatisfied(), child) as unknown as { PolicyService: string }).PolicyService).to.eq('CustomPolicy');
-    const { child: other } = await boot(SCHEMAS, {});
-    expect((readingFrom(new MfaSatisfied(), other) as unknown as { PolicyService: string }).PolicyService).to.eq('DefaultMfaPolicy');
+    child.register(named).as(MfaPolicy as never);
+    expect(await mfaPolicyOf(child)).to.eq(policy);
   });
 
-  it('mfaPolicyOf finds the registration by the name it is given, with no fallback of its own', async () => {
-    const { child } = await boot(SCHEMAS, {});
+  it('mfaPolicyOf and pendingSteps refuse a name that is not registered, naming the key and the name', async () => {
+    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'Missing' } } } });
     child.register(named).as(MfaPolicy as never);
-    expect(await mfaPolicyOf(child, 'CustomPolicy')).to.eq(policy);
-    let error: unknown;
-    try {
-      await mfaPolicyOf(child, 'Missing');
-    } catch (e) {
-      error = e;
-    }
-    expect(error).to.be.instanceOf(InvalidOption);
-    expect(String(error)).to.contain('no MfaPolicy is registered');
-  });
-
-  it('mfaPolicyOf and pendingSteps refuse a name that came past the schema unset or empty', async () => {
-    const { child } = await boot(SCHEMAS, {});
-    child.register(named).as(MfaPolicy as never);
-    for (const name of [undefined, '']) {
-      for (const ask of [() => mfaPolicyOf(child, name as unknown as string), () => pendingSteps(child, session(undefined), name as unknown as string)]) {
-        let error: unknown;
-        try {
-          await ask();
-        } catch (e) {
-          error = e;
-        }
-        expect(error, String(name)).to.be.instanceOf(InvalidOption);
+    for (const ask of [() => mfaPolicyOf(child), () => pendingSteps(child, session(undefined))]) {
+      let error: unknown;
+      try {
+        await ask();
+      } catch (e) {
+        error = e;
       }
+      expect(error).to.be.instanceOf(InvalidOption);
+      expect(String(error)).to.contain('authn.mfa.policy.service "Missing": no MfaPolicy is registered');
     }
   });
 
-  it('pendingSteps asks the named policy unless the session stored its steps', async () => {
-    const { child } = await boot(SCHEMAS, {});
+  it('pendingSteps asks the configured policy unless the session stored its steps', async () => {
+    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'CustomPolicy' } } } });
     child.register(named).as(MfaPolicy as never);
-    expect(await pendingSteps(child, session(undefined), 'CustomPolicy')).to.deep.eq(['totp']);
-    expect(await pendingSteps(child, session(['recovery']), 'CustomPolicy')).to.deep.eq(['recovery']);
+    expect(await pendingSteps(child, session(undefined))).to.deep.eq(['totp']);
+    expect(await pendingSteps(child, session(['recovery']))).to.deep.eq(['recovery']);
   });
 
   it('pendingSteps answers no step when the policy refuses the identity over its stored enrolments; another error still throws', async () => {
-    const { child } = await boot(SCHEMAS, {});
+    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'RefusingPolicy' } } } });
     let failure: Error = new MfaStepNotListed(['totp']);
     const refusing = { required: async () => Promise.reject(failure), steps: async () => new Map() };
     child.register({ RefusingPolicy: () => refusing }.RefusingPolicy).as(MfaPolicy as never);
-    expect(await pendingSteps(child, session(undefined), 'RefusingPolicy')).to.deep.eq([]);
+    expect(await pendingSteps(child, session(undefined))).to.deep.eq([]);
     failure = new MfaEnrolmentMismatch(['totp']);
-    expect(await pendingSteps(child, session([]), 'RefusingPolicy')).to.deep.eq([]);
+    expect(await pendingSteps(child, session([]))).to.deep.eq([]);
     failure = new RangeError('mfa store down');
     let error: unknown;
     try {
-      await pendingSteps(child, session(undefined), 'RefusingPolicy');
+      await pendingSteps(child, session(undefined));
     } catch (e) {
       error = e;
     }
