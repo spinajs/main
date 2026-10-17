@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
+import { AuthzAdminFailure, GLOBAL, PermissionRegistryImpl, readScope } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, EvaluationContext, ResourceRef } from '@spinajs/authz';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
@@ -6,7 +6,7 @@ import 'mocha';
 
 import { MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacSubjectResolver } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
-import { readScope, readSubject } from '../../src/admin/common.js';
+import { readSubject } from '../../src/admin/fields.js';
 
 const expect = chai.expect;
 

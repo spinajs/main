@@ -1,13 +1,15 @@
-import { AuthzAdminFailure, AuthzWriteHandler, assertAdminPermission, BUILTIN_CONDITION_FUNCTIONS, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, BUILTIN_CONDITION_FUNCTIONS, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer, assertAdminPermission, invalid, readExpiry, readId, readPrincipal, readScope } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, ParsedCondition, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { RuleDef } from '../contracts.js';
 import { isRuleValueRef, ruleConditionFault, ruleShapeFault } from '../model/rules/compile.js';
 import type { RuleFault } from '../model/rules/compile.js';
-import { actorRef, checkPermissionName, event, invalid, isPlainObject, quote, readExpiry, readId, readPrincipal, readScope, readSubject, roleIndex, ruleStore } from './common.js';
+import { actorRef, event, isPlainObject, quote, ruleStore } from './common.js';
+import { checkPermissionName, readSubject } from './fields.js';
+import { roleIndex } from './role-index.js';
 import { checkCondition } from './conditions.js';
-import type { RoleIndex } from './common.js';
+import type { RoleIndex } from './role-index.js';
 import { sameRef } from './rows.js';
 
 type Rule = Omit<RuleDef, 'source'>;

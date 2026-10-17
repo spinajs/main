@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 
 import { DbAuthzAdminBackend } from '../admin/db/backend.js';
-import { loadRoleIndex } from '../admin/common.js';
+import { loadRoleIndex } from '../admin/role-index.js';
 import { AdminAssignmentStore, AdminMembershipStore } from '../admin/ports.js';
 import { readMaxSetDepth } from '../membership/closure.js';
 import type { MembershipRow } from '../membership/closure.js';

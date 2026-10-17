@@ -1,4 +1,4 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, optionalAdminService, principalKey, readExpiry, readId, readPrincipal, readScope, requireAdminService, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
@@ -9,8 +9,10 @@ import { computeClosures, readMaxSetDepth } from '../membership/closure.js';
 import { parseSetKey } from '../model/sets/keys.js';
 import { subjectKeyOf } from '../stores/columns.js';
 import { AccountStatusSource } from './ports.js';
-import { LINK_TYPE, assignmentStore, deniesPermission, grantClosure, grantingPermissions, grantsPermission, honoured, isDenyRoleDef, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, optionalStore, plannedRemovals, quote, rankOf, readExpiry, readId, readPrincipal, readScope, roleClosure, roleIndex, setRolesOf, surelyGrantsPermission } from './common.js';
-import type { RoleIndex } from './common.js';
+import { LINK_TYPE, assignmentStore, isLinkSubject, isPlainObject, linkStore, quote } from './common.js';
+import { deniesPermission, grantClosure, grantingPermissions, grantsPermission, honoured, isDenyRoleDef, ladderAppliesAt, rankOf, roleClosure, roleIndex, setRolesOf, surelyGrantsPermission } from './role-index.js';
+import { linkGrants, plannedRemovals } from './removals.js';
+import type { RoleIndex } from './role-index.js';
 import { RbacAdminFacts } from './facts.js';
 import { membershipEdges } from './membership.js';
 import { isLive, isSetSubject } from './rows.js';
@@ -576,7 +578,7 @@ export class DefaultAdminGuard extends AdminGuard {
   /** The sets and every set they belong to (MembershipStore.setsOf); without a MembershipStore sets are one level deep. */
   private async setsAbove(call: Call, sets: ReadonlyMap<string, SetOf>): Promise<SetOf[]> {
     const out = new Map(sets);
-    const memberships = sets.size > 0 ? await optionalStore(call.ctx, MembershipStore) : undefined;
+    const memberships = sets.size > 0 ? await optionalAdminService(call.ctx, MembershipStore) : undefined;
     if (memberships) {
       for (const { setKey } of await memberships.setsOf([...sets.keys()], call.ctx.now)) {
         const set = parseSetKey(setKey);
@@ -597,7 +599,7 @@ export class DefaultAdminGuard extends AdminGuard {
   }
 
   private async keepsMember(call: Call, set: SetOf, gone: ReadonlySet<string>): Promise<boolean> {
-    const memberships = await optionalStore(call.ctx, MembershipStore);
+    const memberships = await optionalAdminService(call.ctx, MembershipStore);
     if (!memberships) return (await this.setMembers(call, set.set)).some((m) => !gone.has(m.id) && isAccount(m.subject));
     const setKey = subjectKeyOf(set);
     const accounts = (await memberships.membersOf(setKey, call.ctx.now)).filter(isAccountKey);
@@ -613,10 +615,8 @@ export class DefaultAdminGuard extends AdminGuard {
     return accounts.some((k) => (after.get(k) ?? []).some((r) => r.setKey === setKey));
   }
 
-  private async facts(ctx: AdminContext): Promise<RbacAdminFacts> {
-    const container = adminContainer(ctx);
-    if (!container.hasRegistered(RbacAdminFacts)) throw new AuthzConfigError(`Authz domain ${quote(ctx.domain)}: no RbacAdminFacts is registered; DefaultAdminGuard needs one`);
-    return (await container.resolve(RbacAdminFacts)) as RbacAdminFacts;
+  private facts(ctx: AdminContext): Promise<RbacAdminFacts> {
+    return requireAdminService(ctx, RbacAdminFacts, 'DefaultAdminGuard');
   }
 }
 
