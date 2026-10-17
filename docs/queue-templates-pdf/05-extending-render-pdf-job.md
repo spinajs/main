@@ -31,7 +31,7 @@ Subclass `RenderPdfJob` to change what every render does without touching caller
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| The job class | `RenderPdfJob`; resolved per delivery; singleton unless the registered class is `@NewInstance()` | `RenderPdfJob` | Your subclass | Replace: `DI.register(MyJob).as(RenderPdfJob)` before `consume()`. Run beside it: own `@Job()` class, `consume(MyJob)`, `MyJob.emit()` |
+| The job class | `RenderPdfJob`; resolved per delivery; `@NewInstance()`, a subclass needs its own `@NewInstance()` | `RenderPdfJob` | Your subclass | Replace: `DI.register(MyJob).as(RenderPdfJob)` before `consume()`. Run beside it: own `@Job()` class, `consume(MyJob)`, `MyJob.emit()` |
 
 ### Add defaults to every request
 
@@ -143,7 +143,7 @@ async function renderContract(contractNo: string): Promise<string | undefined> {
 
 ## Important behaviour
 
-- `RenderPdfJob` has no lifetime decorator, so `DI.resolve(RenderPdfJob)` returns one cached instance for every delivery. `hydrate()` only assigns the fields present in the message: a field the next message omits (`template`, `config`, `assetBasePath`, `timeoutMs`) keeps the previous job's value, and two deliveries handled at the same time share one object. Put `@NewInstance()` on your subclass.
+- `RenderPdfJob` is `@NewInstance()`, so every delivery gets its own object. `hydrate()` only assigns the fields present in the message, so a subclass registered without `@NewInstance()` becomes a singleton and keeps the previous job's `template`, `config`, `assetBasePath` and `timeoutMs`. Put `@NewInstance()` on your subclass.
 - Repeat `@NewInstance()` on every subclass: a subclass with its own `@Autoinject` or `@Inject` gets the singleton default, not its parent's lifetime.
 - `scheduleRenderPdf()` always emits `RenderPdfJob`. A subclass under its own name needs `MySubclass.emit()`; a message named `ContractPdfJob` is never handled by `consume(RenderPdfJob)`.
 - Register the replacement before `consume()`. A registration added later applies from the next delivery, since the class is resolved per delivery.
