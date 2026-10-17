@@ -178,7 +178,8 @@ Requests without the session cookie, including the login itself, skip the CSRF o
 ## Local password login
 
 `POST /auth/login`, handled by
-[`AuthnLoginController.login`](../../packages/authn-http/src/v3/controllers/AuthnLoginController.ts#L35-L62).
+[`AuthnLoginController.login`](../../packages/authn-http/src/v3/controllers/AuthnLoginController.ts#L38-L44) through
+[`completeLogin`](../../packages/authn-http/src/v3/routes.ts#L54-L76), which `POST /auth/keys/login` shares.
 
 ```mermaid
 sequenceDiagram
@@ -282,7 +283,7 @@ public default outside development and test.
 
 ## Authenticating later requests
 
-`AuthnMiddleware.authenticate` (`authn-http/src/middleware/authn.ts:120-135`):
+`AuthnMiddleware.authenticate` (`authn-http/src/middleware/authn.ts:121-136`):
 
 1. Unsigns the cookie and calls `SessionIssuer.restore(rawId)`. The result goes to
    `req.storage.AuthnSession`.
