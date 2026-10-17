@@ -51,7 +51,7 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 
 `PostgresTableAliasCompiler` writes a table as `"table"` or `"table" as "alias"`, with no database prefix. A PostgreSQL connection is bound to one database, and the prefix position names a schema, so unqualified names resolve through `search_path`.
 
-The shared `SqlJoinStatement` is not replaced. A join it builds from a `joinTable` or a model prefixes both tables with `Options.Database`: `LEFT JOIN "shop"."addresses" as "addresses"`. PostgreSQL reads `"shop"` as a schema. See [Important behaviour](#important-behaviour).
+`PostgresJoinStatement` replaces the shared `SqlJoinStatement`. A join from a `joinTable` or a model qualifies both tables with `Options.Schema` when it is set (`LEFT JOIN "app"."addresses" as "addresses"`), and otherwise writes them bare (`LEFT JOIN "addresses" as "addresses"`). It never uses `Options.Database`, which PostgreSQL would read as a schema.
 
 ### Response types
 
@@ -79,7 +79,8 @@ On the request side these stay numbers; only response schemas change.
 | Table reference compiler | `TableAliasCompiler`, `@NewInstance()`, resolved by every compiler that writes a table name | `PostgresTableAliasCompiler` | `SqlTableAliasCompiler` (database prefix) | Implement `compile(builder, tbl?)`. |
 | Insert response mapper | `ServerResponseMapper`, registered as a class in the driver container, resolved by the model layer after an insert | `PostgresServerResponseMapper` | | Subclass and override `read(data, pkNames?)`; register in a driver subclass. |
 | Response type overrides | `ResponseSchemaTypes`, public readonly field of the driver | `decimal`, `numeric`, `bigint` → `string` | | Redeclare the field in a driver subclass. |
-| Date wrappers | `DateWrapper`, `DateTimeWrapper` (registered by `SqlDriver`) | `SqlDateWrapper` (`DATE(col)`), `SqlDateTimeWrapper` (`DATETIME(col)`) | | Register a PostgreSQL wrapper in a driver subclass. See the [example](#compare-the-time-part-with-a-postgresql-datetime-wrapper). |
+| Join statement | `JoinStatement`, `@NewInstance()`, resolved per join | `PostgresJoinStatement` (schema or no prefix) | `SqlJoinStatement` (database prefix) | Subclass and override `tableQualifier(driver)`. |
+| Date wrappers | `DateWrapper` (registered by `SqlDriver`), `DateTimeWrapper` | `SqlDateWrapper` (`DATE(col)`), `PostgresDateTimeWrapper` (`CAST(col AS TIMESTAMP)`) | `SqlDateTimeWrapper` (`DATETIME(col)`) | Subclass, implement `wrap()`, register in a driver subclass. See the [example](#compare-with-a-time-zone-aware-datetime-wrapper). |
 
 ### `PostgresServerResponseMapper`: custom implementation
 
@@ -133,8 +134,8 @@ export class BigintKeysPostgresDriver extends PostgresOrmDriver {
 - `orIgnore()` without a conflict target skips a row that violates any unique constraint, primary key included.
 - `onDuplicate().update([...])` takes either column names or `RawQuery` entries, not a mix. A `RawQuery` entry is copied into `DO UPDATE SET` verbatim; quote identifiers yourself.
 - An insert whose columns include a `RawQuery` column is written with backticks by the shared `SqlInsertQueryCompiler.columns()`, which PostgreSQL rejects.
-- Joins built by `SqlJoinStatement` from a table name or model qualify both tables with `Options.Database`, which PostgreSQL reads as a schema. Unless a schema of that name exists, the join fails with `relation "<db>.<table>" does not exist`. Workaround: create a schema named like the database and set `Options.Schema` to the same name, so the qualified and the unqualified spelling are the same table. A join built from a raw query (`options.query`) is not prefixed.
-- `Wrapper.DateTime()` renders `DATETIME("col")`, which PostgreSQL does not have. `Wrapper.Date()` renders `DATE("col")`, which PostgreSQL accepts as a cast.
+- Joins from a table name or model qualify both tables with `Options.Schema` when it is set, and are unqualified otherwise. The `FROM` table is always unqualified and resolves through `search_path`, which `connect()` sets to the same schema. A join built from a raw query (`options.query`) is not prefixed.
+- `Wrapper.DateTime()` renders `CAST("col" AS TIMESTAMP)`. `Wrapper.Date()` renders `DATE("col")`, which PostgreSQL accepts as a cast.
 - `IN SET` conditions (`whereInSet`) use the shared, portable `LIKE` statement, matching the comma-joined `TEXT` that `SET` columns are stored as.
 
 ## Best practices
@@ -203,30 +204,29 @@ export async function openTicket(subject: string): Promise<{ id: number; created
 }
 ```
 
-### Compare the time part with a PostgreSQL datetime wrapper
+### Compare with a time zone aware datetime wrapper
 
-`Wrapper.DateTime()` resolves `DateTimeWrapper` from the connection's container. Register a wrapper that casts to `TIMESTAMP` instead of calling `DATETIME()`.
+`Wrapper.DateTime()` resolves `DateTimeWrapper` from the connection's container. The driver registers `PostgresDateTimeWrapper`, which casts to `TIMESTAMP`. Register a subclass to cast to `TIMESTAMPTZ` instead.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { DateTimeWrapper } from '@spinajs/orm';
-import { SqlDateTimeWrapper } from '@spinajs/orm-sql';
-import { PostgresOrmDriver } from '@spinajs/orm-postgres';
+import { PostgresDateTimeWrapper, PostgresOrmDriver } from '@spinajs/orm-postgres';
 
 @NewInstance()
-export class PostgresDateTimeWrapper extends SqlDateTimeWrapper {
+export class TimestampTzWrapper extends PostgresDateTimeWrapper {
   public wrap(): string {
     const column = this._tableAlias ? `${this.Quoter.quote(this._tableAlias)}.${this.Quoter.quote(this._value as string)}` : this.Quoter.quote(this._value as string);
-    return `CAST(${column} AS TIMESTAMP)`;
+    return `CAST(${column} AS TIMESTAMPTZ)`;
   }
 }
 
 @Injectable('orm-driver-postgres')
 @NewInstance()
-export class DateTimePostgresDriver extends PostgresOrmDriver {
+export class TimestampTzPostgresDriver extends PostgresOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(PostgresDateTimeWrapper).as(DateTimeWrapper);
+    this.Container.register(TimestampTzWrapper).as(DateTimeWrapper);
   }
 }
 ```
@@ -235,6 +235,6 @@ export class DateTimePostgresDriver extends PostgresOrmDriver {
 
 - [Query builder](../orm/05-query-builder.md): the builder API these SQL spellings come from.
 - [Query compilers](../orm-sql/02-query-compilers.md): the shared compilers this driver extends or claims.
-- [Statements](../orm-sql/03-statements.md): `SqlJoinStatement`, the date wrappers and the other statements inherited unchanged.
+- [Statements](../orm-sql/03-statements.md): `SqlJoinStatement`, the date wrappers and the other statements this driver inherits or extends.
 - [JSON Schema](../orm/11-json-schema.md): where `ResponseSchemaTypes` is read.
 - [Customizing dialect compilers](07-customizing-dialect-compilers.md): replace any compiler on this page.
