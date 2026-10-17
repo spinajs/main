@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. `connectNotes(url, path, token, options)` creates `new SocketClient({ url, path, clientId: 'notes-<token>', auth: () => ({ token }), io: { transports: ['websocket'] }, ...options })`.
+1. `connectNotes(url, path, token, options)` creates `new SocketClient({ url, path, clientId: 'notes-<random uuid>', auth: () => ({ token }), io: { transports: ['websocket'] }, ...options })`.
 2. The `auth` provider runs on every connect, so a reconnect sends the token again.
 3. It returns `client.typed(notesContract)`, a `NotesClient` (`TypedSocketClient<NotesContract>`): `command`, `stream`, `on`, `once` and `off` check names and payloads at compile time.
 4. The client connects on its own. Use `whenOffline: 'wait'` on the first command, or wait for the `state` event to report `'online'`.
@@ -54,7 +54,7 @@ currentToken = 'bob-token';
 
 ## Important behaviour
 
-- `clientId` defaults to `notes-<token>`, so the demo token appears in the client id the server keeps for the connection, its ordered queues and its idempotency records. Real apps pass a stable, non-secret id per install.
+- `clientId` defaults to `notes-<random uuid>`, so no credential ends up in the id the server keeps for the connection, its ordered queues and its idempotency records. The id changes on every call; real apps pass a stable, non-secret id per install.
 - `io.transports` is `['websocket']`: no HTTP long-polling fallback. A proxy that blocks WebSocket upgrades blocks the client.
 - `toBytes(data)` returns `data` when it is already a `Uint8Array` (a Node `Buffer`), and wraps an `ArrayBuffer` otherwise; it does not copy.
 - `close()` returns `void` on the typed client; `main.ts` awaits it, which has no effect.
@@ -68,10 +68,10 @@ currentToken = 'bob-token';
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a credential inside clientId travels to every place the server keeps the id
+// Default: a random clientId, the credential stays in auth only
 connectNotes(url, path, token);
 
-// Do: keep the credential in auth only
+// A stable id per install
 connectNotes(url, path, token, { clientId: installId });
 ```
 
