@@ -1,5 +1,6 @@
 import { AuthzConfigError, GLOBAL, resourceKey, subtractFieldGlobs } from '@spinajs/authz';
 import type { EvaluationContext, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { isStringArray, toEpochMs } from '@spinajs/util';
 
 import type { LinkStore } from '../contracts.js';
 
@@ -165,7 +166,7 @@ export class RbacService {
     const c = ceiling as { permissions?: unknown; resources?: unknown; expiresAt?: unknown };
     let permissions: Set<string> | undefined;
     if (c.permissions != null) {
-      if (!Array.isArray(c.permissions) || !c.permissions.every((g) => typeof g === 'string')) throw bad('permissions');
+      if (!isStringArray(c.permissions)) throw bad('permissions');
       const registry = this.model.permissions();
       permissions = new Set(c.permissions.flatMap((glob: string) => registry.match(glob).map((d) => d.name)));
     }
@@ -258,11 +259,7 @@ interface CeilingLimit {
 }
 
 function expiryOf(value: unknown): number {
-  try {
-    return Date.prototype.getTime.call(value);
-  } catch {
-    return NaN;
-  }
+  return toEpochMs(value) ?? NaN;
 }
 
 function grantCovers(h: CompiledGrant, w: CompiledGrant): boolean {

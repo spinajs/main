@@ -1,5 +1,6 @@
 import { AuthzConfigError, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { FieldSet } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 /** A grant's field set as the vote reads it: both lists normalised, `hide` already subtracted. */
 export interface FieldGlobs {
@@ -28,7 +29,7 @@ export function compileFieldSet(fields: FieldSet, where: string): FieldGlobs {
   const list = (name: 'read' | 'write' | 'hide'): readonly string[] | undefined => {
     const v: unknown = fields[name];
     if (v === undefined) return undefined;
-    if (!Array.isArray(v) || !v.every((g) => typeof g === 'string')) throw fail(`fields.${name} must be an array of field globs`);
+    if (!isStringArray(v)) throw fail(`fields.${name} must be an array of field globs`);
     return v as string[];
   };
   const read = list('read');

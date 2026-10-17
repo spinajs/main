@@ -5,6 +5,7 @@ import type { AccessPlan, ModelListPlan, PlanTerm } from '../contracts/plan.js';
 import type { ResourceRef } from '../contracts/principal.js';
 import { VoteFault, budget, copyData, deepFreeze, validDate } from './vote.js';
 import type { Budget } from './vote.js';
+import { isObject } from './internal/util.js';
 
 /** Values copied from one model's plan: an RBAC term carries up to authz.rbac.maxPlanSubjects keys. */
 const MAX_PLAN_VALUES = 100_000;
@@ -20,8 +21,6 @@ export const ALL_PLAN: AccessPlan = Object.freeze({ kind: 'filter', permit: 'all
 export const NO_ACCESS: DenyReason = Object.freeze({ code: 'no_access' });
 export const CEILING_DENIAL: DenyReason = Object.freeze({ code: 'ceiling', priority: 200 });
 const ABSTAIN: ModelListPlan = Object.freeze({ kind: 'abstain' });
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 export function nonePlan(reason: DenyReason): AccessPlan {
   return deepFreeze({ kind: 'none', reason: { ...reason } });

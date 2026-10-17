@@ -1,5 +1,6 @@
 import { Singleton } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
+import { sortedUnique } from '@spinajs/util';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { ResourceRef } from '../contracts/principal.js';
@@ -8,6 +9,7 @@ import { AccessPushTransport, ChangeAudience } from '../contracts/service.js';
 import type { AccessChangedEvent, AuthzChange, ChangeBus } from '../contracts/service.js';
 import { engineLog, thrownError } from './log.js';
 import type { HostLog } from './log.js';
+import { isObject } from '../engine/internal/util.js';
 
 /** The event name every push transport sends an AccessChangedEvent under (design §10.4). */
 export const AUTHZ_CHANGED_EVENT = 'authz.changed';
@@ -16,7 +18,6 @@ type Audience = { readonly principals: readonly string[] | '*'; readonly objects
 
 const EVERYONE: Audience = Object.freeze({ principals: '*' });
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const nameOf = (v: unknown): string => {
   try {
     if (isObject(v) && typeof v.name === 'string') return v.name;
@@ -96,7 +97,7 @@ export class AccessChangeRouter {
         }
       }),
     );
-    const principals: readonly string[] | '*' = answers.some((a) => a.principals === '*') ? '*' : Object.freeze([...new Set(answers.flatMap((a) => a.principals as readonly string[]))].sort());
+    const principals: readonly string[] | '*' = answers.some((a) => a.principals === '*') ? '*' : Object.freeze(sortedUnique(answers.flatMap((a) => a.principals as readonly string[])));
     if (!answers.every((a) => a.objects !== undefined)) return { principals };
     const objects = new Map<string, ResourceRef>();
     for (const a of answers) for (const o of a.objects!) objects.set(resourceKey(o), o);

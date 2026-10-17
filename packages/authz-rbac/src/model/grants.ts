@@ -1,5 +1,6 @@
 import { AuthzConfigError, UnknownPermission, parsePermission } from '@spinajs/authz';
 import type { FieldSet, Permission, PermissionDef, PermissionRegistry, ResourceType } from '@spinajs/authz';
+import { compareStrings, sortedUnique } from '@spinajs/util';
 
 import type { GrantDef, ResourcePattern, RoleDef } from '../contracts.js';
 import { compilePattern } from './patterns.js';
@@ -92,7 +93,7 @@ export function compileGrants(graph: RoleGraph, registry: PermissionRegistry): G
         else merged.set(permission, [...list]);
       }
     }
-    const permissions = [...merged.keys()].sort(compareCodePoints);
+    const permissions = [...merged.keys()].sort(compareStrings);
     const grants = new Map<Permission, readonly CompiledGrant[]>();
     for (const p of permissions) {
       grants.set(p, Object.freeze(merged.get(p)!));
@@ -105,7 +106,7 @@ export function compileGrants(graph: RoleGraph, registry: PermissionRegistry): G
   const denied = new Set<Permission>();
   for (const name of graph.names) {
     if (graph.get(name)!.def.deny !== true) continue;
-    const list = [...new Set(graph.get(name)!.closure.flatMap((r) => ownDenied.get(r) ?? []))].sort(compareCodePoints);
+    const list = sortedUnique(graph.get(name)!.closure.flatMap((r) => ownDenied.get(r) ?? []));
     denials.set(name, Object.freeze(list));
     for (const p of list) denied.add(p);
   }
@@ -202,7 +203,7 @@ function matchGrant(grant: GrantDef, registry: PermissionRegistry, at: string): 
       if (!def) throw new UnknownPermission(`${at} grants unknown permission '${name}'`);
       return [def];
     }
-    return [...registry.match(name)].sort((a, b) => compareCodePoints(a.name, b.name));
+    return [...registry.match(name)].sort((a, b) => compareStrings(a.name, b.name));
   } catch (err) {
     if (err instanceof UnknownPermission) throw err;
     if (err instanceof AuthzConfigError) throw new AuthzConfigError(`${at}: ${err.message}`, { cause: err });
@@ -230,6 +231,3 @@ function compileOn(grant: GrantDef, role: RoleDef): readonly CompiledPattern[] |
 }
 
 const grantWhere = (grant: GrantDef, role: RoleDef): string => `rbac role '${role.name}' grant '${grant.permission}' (source: ${role.source})`;
-
-// Ordinal order (names are ASCII); localeCompare would depend on the host locale.
-const compareCodePoints = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

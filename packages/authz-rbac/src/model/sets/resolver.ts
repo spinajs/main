@@ -1,5 +1,6 @@
 import { engineLog } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
+import { compareStrings } from '@spinajs/util';
 
 import { SubjectResolver } from '../../contracts.js';
 import { expiryTime, subjectKey } from '../assignments.js';
@@ -86,7 +87,7 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
         out.set(key, entry);
       }
     }
-    return new Map([...out].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    return new Map([...out].sort(([a], [b]) => compareStrings(a, b)));
   }
 }
 

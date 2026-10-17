@@ -1,3 +1,4 @@
+import { deepFreeze, isPlainObject } from '@spinajs/util';
 import { DEFAULT_COMBINE } from '../../engine/routes.js';
 import type { CombineConfig } from '../../engine/routes.js';
 import { AUTHZ_DEFAULTS } from './defaults.js';
@@ -25,30 +26,20 @@ export interface DomainConfig {
   readonly principals: { readonly anonymousEnabled: boolean };
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 /** The value at `path` in `tree`, by own properties only: a domain named 'constructor' must not resolve through the prototype. */
 export function configAt(tree: unknown, path: readonly string[]): unknown {
   let cur = tree;
   for (const seg of path) {
-    if (!isObject(cur) || !Object.hasOwn(cur, seg)) return undefined;
+    if (!isPlainObject(cur) || !Object.hasOwn(cur, seg)) return undefined;
     cur = cur[seg];
   }
   return cur;
 }
 
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const k of Object.keys(value)) deepFreeze((value as Record<string, unknown>)[k]);
-  }
-  return value;
-}
-
 // Copies plain data so the result never aliases the configuration objects.
 function clone<T>(value: T): T {
   if (Array.isArray(value)) return value.map(clone) as unknown as T;
-  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clone(v)])) as T;
+  if (isPlainObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clone(v)])) as T;
   return value;
 }
 

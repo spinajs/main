@@ -12,8 +12,8 @@ import { AuthzClock } from '../host/clock.js';
 import { adminActor, adminContainer } from './context.js';
 import type { AdminCallContext } from './context.js';
 import { ScopeForgetter, WritableScopeAttributeStore } from './ports.js';
+import { isObject } from '../engine/internal/util.js';
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const name = (v: unknown): string => (isObject(v) && typeof v.constructor === 'function' ? v.constructor.name : String(v));
 
 function nodeOf(scope: unknown): ResourceRef {

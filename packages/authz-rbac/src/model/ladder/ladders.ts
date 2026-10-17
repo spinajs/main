@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { Permission, ResourceType } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import type { LadderDef, RoleDef } from '../../contracts.js';
 import type { CompiledGrant, GrantIndex } from '../grants.js';
@@ -122,15 +123,13 @@ function validateLadder(def: unknown, index: number, known: readonly CompiledLad
   const at = `rbac ladder '${d.name}'`;
   if (known.some((l) => l.name === d.name)) throw new AuthzConfigError(`${at} is defined twice`);
   const roles = d.roles;
-  if (!isNameList(roles) || roles.length === 0) throw new AuthzConfigError(`${at}: roles must be a non-empty array of role names, weakest first`);
+  if (!isStringArray(roles, { nonEmpty: true }) || roles.length === 0) throw new AuthzConfigError(`${at}: roles must be a non-empty array of role names, weakest first`);
   const twice = roles.find((r, i) => roles.indexOf(r) !== i);
   if (twice !== undefined) throw new AuthzConfigError(`${at} lists role '${twice}' twice`);
-  if (d.resourceTypes !== undefined && !(isNameList(d.resourceTypes) && d.resourceTypes.length > 0)) throw new AuthzConfigError(`${at}: resourceTypes must be a non-empty array of resource types; leave it out to apply the ladder's grants everywhere`);
+  if (d.resourceTypes !== undefined && !(isStringArray(d.resourceTypes, { nonEmpty: true }) && d.resourceTypes.length > 0)) throw new AuthzConfigError(`${at}: resourceTypes must be a non-empty array of resource types; leave it out to apply the ladder's grants everywhere`);
   return Object.freeze({
     name: d.name,
     roles: Object.freeze([...roles]),
     ...(d.resourceTypes ? { resourceTypes: new Set(d.resourceTypes) as ReadonlySet<ResourceType> } : {}),
   });
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');

@@ -1,7 +1,6 @@
+import { isPlainObject as isRecord } from '@spinajs/util';
 /** Date, time (seconds and fraction optional) and `Z` or an offset: the only strings read as a Date. */
 export const ISO_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-](\d{2}):(\d{2}))$/;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // Date rolls 2027-02-30 over to 2 March instead of refusing it.
 function realFields(m: RegExpExecArray): boolean {

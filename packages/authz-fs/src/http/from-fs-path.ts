@@ -1,7 +1,7 @@
 import type { ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
+import { _check_arg, _is_string, _non_empty, _reg_match, isStringArray } from '@spinajs/util';
 
 import { basePathOf, publishedFs, refOf } from '../guard/shared.js';
 import { normalizeFsPath } from '../refs/index.js';
@@ -29,7 +29,7 @@ export function fromFsPath(fsName: string, param: string): (req: unknown) => Res
 
 function pathOf(value: unknown, param: string, fsName: string): string {
   if (typeof value === 'string') return value;
-  if (Array.isArray(value) && value.length > 0 && value.every((s) => typeof s === 'string')) {
+  if (isStringArray(value) && value.length > 0) {
     // A segment such as '..' is refused even where the joined path would stay inside the filesystem.
     for (const segment of value as string[]) if (segment === '' || segment.includes('/') || normalizeFsPath(segment) !== segment) throw new InvalidArgument(`url parameter ${param} has the segment ${JSON.stringify(segment)}`, param);
     return value.join('/');

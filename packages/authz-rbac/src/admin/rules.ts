@@ -1,6 +1,7 @@
 import { AuthzAdminFailure, AuthzWriteHandler, assertAdminPermission, BUILTIN_CONDITION_FUNCTIONS, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, ParsedCondition, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
+import { isStringArray } from '@spinajs/util';
 
 import type { RuleDef } from '../contracts.js';
 import { isRuleValueRef, ruleConditionFault, ruleShapeFault } from '../model/rules/compile.js';
@@ -59,7 +60,7 @@ function roleField(rule: Record<string, unknown>, key: 'minRole' | 'maxRole'): s
 }
 
 function stringList(v: unknown, field: string): void {
-  if (v !== undefined && (!Array.isArray(v) || !v.every((s) => typeof s === 'string' && s !== ''))) throw invalid(field, `${field} must be a list of non-empty strings`);
+  if (v !== undefined && !isStringArray(v, { nonEmpty: true })) throw invalid(field, `${field} must be a list of non-empty strings`);
 }
 
 function roleOnLadder(roles: RoleIndex, role: string, ladder: string | undefined, field: string): void {

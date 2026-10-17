@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import { isThenable } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -582,8 +583,6 @@ function cacheConfig(ctx: ModelInitContext): { ttlMs: number; maxEntries: number
   if (!Number.isFinite(check)) throw new AuthzConfigError('authz.rbac.cache.rolesCheckSeconds must be a finite number of seconds');
   return { ttlMs: ttl * 1000, maxEntries: max, rolesCheckMs: check * 1000 };
 }
-
-const isThenable = (v: unknown): v is PromiseLike<unknown> => typeof (v as { then?: unknown } | null | undefined)?.then === 'function';
 
 /** The permission of the requests that only read which roles hold (steps 1–3 never read it). */
 const ROLES_PROBE: Permission = 'rbac:roles';

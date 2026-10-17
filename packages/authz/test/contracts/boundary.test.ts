@@ -10,7 +10,7 @@ const expect = chai.expect;
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONTRACTS_DIR = join(PKG_ROOT, 'src', 'contracts');
 const CONDITIONS_CONTRACTS = join(PKG_ROOT, 'src', 'conditions', 'contracts.ts');
-const ALLOWED_PACKAGES = ['@spinajs/authn/contracts', '@spinajs/di', '@spinajs/exceptions'];
+const ALLOWED_PACKAGES = ['@spinajs/authn/contracts', '@spinajs/di', '@spinajs/exceptions', '@spinajs/util'];
 
 function listTs(dir: string): string[] {
   const out: string[] = [];

@@ -1,6 +1,7 @@
 import { adminContainer, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzTx } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { sortedUnique } from '@spinajs/util';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { computeClosures, readMaxSetDepth } from '../membership/closure.js';
@@ -64,7 +65,7 @@ export async function refreshMemberships(ctx: AdminContext, tx: AuthzTx, touched
   const roles = await roleIndex(ctx);
   const assignments = await assignmentStore(ctx);
   const keys = [...new Set(touched.map(subjectKeyOf))];
-  const affected = [...new Set([...keys, ...(await memberships.allMembersOf(keys))])].sort();
+  const affected = sortedUnique([...keys, ...(await memberships.allMembersOf(keys))]);
   const before = await memberships.rowsOf(affected);
   const after = await computeClosures(affected, async (k) => membershipEdges(roles, await assignments.forSubjectKeys(k, ctx.now)), await maxSetDepth(ctx));
   for (const k of affected) await memberships.replace(k, after.get(k) ?? [], tx);

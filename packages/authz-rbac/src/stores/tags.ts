@@ -1,4 +1,5 @@
 import { AuthzAdminFailure } from '@spinajs/authz';
+import { sortedUnique } from '@spinajs/util';
 
 const SEPARATOR = ',';
 
@@ -16,7 +17,7 @@ export function normaliseTags(tags: readonly string[] | undefined | null): strin
     }
   }
 
-  return `${SEPARATOR}${[...new Set(tags)].sort().join(SEPARATOR)}${SEPARATOR}`;
+  return `${SEPARATOR}${sortedUnique(tags).join(SEPARATOR)}${SEPARATOR}`;
 }
 
 /** The stored text back as a sorted list; `''` (or null) is `[]`. */

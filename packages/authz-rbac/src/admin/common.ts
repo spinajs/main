@@ -1,6 +1,7 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, PermissionRegistry, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PermissionDef, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class, IContainer } from '@spinajs/di';
+import { isPlainObject as isObject } from '@spinajs/util';
 
 import { RoleStore } from '../contracts.js';
 import { RbacModel } from '../model/model.js';
@@ -8,7 +9,6 @@ import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../contr
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 import { copyPrincipalRef, copyRef, isSetSubject, normaliseTags } from './rows.js';
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
 // ---- stores ----

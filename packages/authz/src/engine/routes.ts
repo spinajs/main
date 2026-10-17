@@ -1,3 +1,4 @@
+import { quote } from '@spinajs/util';
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { AuthorizationModel, RoutePlan } from '../contracts/model.js';
 import type { Permission, PermissionDef, PermissionRegistry } from '../contracts/permission.js';
@@ -170,13 +171,5 @@ const applies = (model: AuthorizationModel, def: PermissionDef, type: ResourceTy
     return model.applies(def, type) === true;
   } catch (cause) {
     throw new AuthzConfigError(`${where}: model ${quote(model.name)} threw from applies() for permission ${quote(def.name)} on type ${quote(type)}`, { cause });
-  }
-};
-
-const quote = (value: unknown): string => {
-  try {
-    return typeof value === 'string' ? JSON.stringify(value) : String(value);
-  } catch {
-    return Object.prototype.toString.call(value);
   }
 };

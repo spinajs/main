@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { principalKey } from '@spinajs/authz';
 import type { Ceiling, Decision, Permission, Principal, PrincipalRef, PrincipalType, ResourceRef, ResourceType } from '@spinajs/authz';
+import { isPlainObject as isObject } from '@spinajs/util';
 
 import type { FakeRow } from '../fakes/index.js';
 import { agentPrincipal } from '../principals.js';
@@ -399,8 +400,6 @@ const short = (v: unknown): string => {
   }
   return s.length > 300 ? `${s.slice(0, 299)}…` : s;
 };
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * `expected` is a pattern: an object matches when each of its keys matches; an array matches when each

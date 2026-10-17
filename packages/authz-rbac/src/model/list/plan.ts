@@ -1,5 +1,6 @@
 import { GLOBAL, resourceKey } from '@spinajs/authz';
 import type { AssignmentSubject, ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import { compareStrings, sortedUnique, unique } from '@spinajs/util';
 
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from '../../plan/args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from '../../plan/args.js';
@@ -24,8 +25,6 @@ export interface RelationPlanArgs {
 
 type Holders = Pick<RbacAssignmentPlanArgs, 'subjects' | 'membership' | 'memberKeys'>;
 
-const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const unique = (list: readonly string[]): string[] => [...new Set(list)];
 const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.type === GLOBAL.type || (l.scope.type === type && l.scope.id == null);
 
 /**
@@ -103,10 +102,10 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
   }
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
-  const denyRoles = unique(denying.map((l) => l.role)).sort(byCodePoint);
+  const denyRoles = sortedUnique(denying.map((l) => l.role));
   const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true, opts), roles: denyRoles.map((role) => ({ role })), global: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
-  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(byCodePoint).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
+  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
 }
 

@@ -1,5 +1,6 @@
 import { DEFAULT_DENY_PRIORITY, TRUE, and } from '@spinajs/authz';
 import type { DenyReason, ResourceFilter, ResourceType } from '@spinajs/authz';
+import { compareStrings } from '@spinajs/util';
 
 import type { LiveAssignment, RbacState, RbacStep } from '../evaluate.js';
 import type { CompiledGrant } from '../grants.js';
@@ -121,5 +122,5 @@ function bound(s: RbacState, read: readonly LiveAssignment[]): void {
 // compareDenyReasons is a total order, so the reported reason never depends on this order; the sort keeps `reasons` itself stable.
 function pushCanonical(s: RbacState, reasons: readonly DenyReason[]): void {
   const unique = new Map(reasons.map((r) => [JSON.stringify(r), r]));
-  s.reasons.push(...[...unique].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, r]) => r));
+  s.reasons.push(...[...unique].sort(([a], [b]) => compareStrings(a, b)).map(([, r]) => r));
 }

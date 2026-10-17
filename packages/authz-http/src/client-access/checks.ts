@@ -1,6 +1,7 @@
 import { GLOBAL, compileFieldGlobs, isPermission } from '@spinajs/authz';
 import type { AuthzService, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { Log } from '@spinajs/log';
+import { isPlainObject as isRecord } from '@spinajs/util';
 
 import { decisionFields } from '../fields.js';
 
@@ -31,7 +32,6 @@ export interface ClientCheckOptions {
   readonly log: Log;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
 const isCaller = (subject: unknown, principal: Principal): boolean => isRecord(subject) && subject.type === principal.type && subject.id === principal.id && subject.relation === undefined;

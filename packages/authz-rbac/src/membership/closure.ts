@@ -1,4 +1,5 @@
 import { AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
+import { compareStrings } from '@spinajs/util';
 
 /** One live assignment that makes `memberKey` a direct member of `setKey`. */
 export interface MembershipEdge {
@@ -39,7 +40,7 @@ export function latestPerSet(rows: readonly Pick<MembershipRow, 'setKey' | 'expi
     if (until > (latest.get(r.setKey) ?? Number.NEGATIVE_INFINITY)) latest.set(r.setKey, until);
   }
   return [...latest]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => compareStrings(a, b))
     .map(([setKey, until]) => (until === NEVER ? { setKey } : { setKey, expiresAt: new Date(until) }));
 }
 
@@ -99,7 +100,7 @@ export async function computeClosures(memberKeys: readonly string[], edgesFrom: 
       }
     }
     const rows = [...depths.get(member)!]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(([a], [b]) => compareStrings(a, b))
       .map(([setKey, depth]): MembershipRow => {
         const until = best.get(setKey)!;
         return { memberKey: member, setKey, depth, expiresAt: until === NEVER ? null : new Date(until) };

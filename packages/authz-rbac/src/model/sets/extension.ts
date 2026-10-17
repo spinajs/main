@@ -1,4 +1,5 @@
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext } from '@spinajs/authz';
+import { isThenable } from '@spinajs/util';
 
 import { subjectKey } from '../assignments.js';
 import { withinCeiling } from '../ceiling.js';
@@ -92,5 +93,3 @@ export function usableVia<T extends { readonly role: string; readonly expiresAt?
   const now = s.input.now.getTime();
   return via.filter((m) => (ignoreCeiling || withinCeiling(s, m.role)) && (m.expiresAt === undefined || m.expiresAt.getTime() > now));
 }
-
-const isThenable = <T>(v: Maybe<T>): v is PromiseLike<T> => typeof (v as { then?: unknown } | null)?.then === 'function';

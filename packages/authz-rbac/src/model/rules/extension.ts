@@ -1,6 +1,7 @@
 import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, resourceKey } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import { compareStrings, toArray } from '@spinajs/util';
 
 import type { RuleStore } from '../../contracts.js';
 import type { RbacExtension, RbacExtensionFactory, RbacInput, RbacSources } from '../evaluate.js';
@@ -32,7 +33,7 @@ export interface RuleStoreParts {
 
 /** @throws AuthzConfigError for two in-memory stores or two others (design §8.5: ConfigRuleStore and DbRuleStore) */
 export function ruleStoreParts(rules: RuleStore | readonly RuleStore[] | undefined): RuleStoreParts {
-  const list: readonly RuleStore[] = rules === undefined ? [] : Array.isArray(rules) ? (rules as readonly RuleStore[]) : [rules as RuleStore];
+  const list: readonly RuleStore[] = toArray(rules as RuleStore | RuleStore[]);
   const config = list.filter(isSyncRuleStore);
   const db = list.filter((s) => !isSyncRuleStore(s));
   if (config.length > 1 || db.length > 1) throw new AuthzConfigError(`rbac: the rule stores are one in memory and one other at most (ConfigRuleStore, DbRuleStore), not ${list.map((s) => s.name).join(', ')}`);
@@ -153,7 +154,7 @@ export class RulesExtension implements RbacExtension {
     const uncacheable = () => {
       cacheable = false;
     };
-    const sorted = [...defs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const sorted = [...defs].sort((a, b) => compareStrings(a.id, b.id));
     for (const def of sorted) {
       if (!live(def)) continue;
       const rule = this.rule(def, input.roles, input.ladders);

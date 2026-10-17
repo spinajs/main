@@ -2,6 +2,7 @@ import { ChangeAudience, principalKey } from '@spinajs/authz';
 import type { AuthzChange, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { compareStrings } from '@spinajs/util';
 
 import { MembershipStore } from '../contracts.js';
 import { parsePrincipalSubjectKey, parseSetKey } from '../model/sets/keys.js';
@@ -33,7 +34,7 @@ export class RbacChangeAudience extends ChangeAudience {
       if (keys === '*') return EVERYONE;
       for (const k of keys) out.add(k);
     }
-    return Object.freeze({ principals: Object.freeze([...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) });
+    return Object.freeze({ principals: Object.freeze([...out].sort(compareStrings)) });
   }
 
   private async principalsOf(tag: string, at: Date): Promise<readonly string[] | '*'> {

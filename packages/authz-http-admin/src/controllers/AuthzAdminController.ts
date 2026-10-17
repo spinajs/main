@@ -4,6 +4,7 @@ import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Prin
 import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
 import { IsAuthenticated } from '@spinajs/authz-http';
+import { isPlainObject as isRecord } from '@spinajs/util';
 
 import '../schemas/provider.js';
 import { decodeCommand, decodeCommands } from '../routes/decode.js';
@@ -11,8 +12,6 @@ import { domainAdmin } from '../routes/domain.js';
 import { readAssignmentsQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
 import type { QueryInput } from '../routes/query.js';
 import { adminErrorStatus, resultsStatus } from '../routes/status.js';
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const PATCH_KEYS = ['tags', 'addTags', 'removeTags', 'expiresAt'] as const;
 const PATCH_KINDS = { tags: 'assignment.setTags', addTags: 'assignment.addTags', removeTags: 'assignment.removeTags' } as const;

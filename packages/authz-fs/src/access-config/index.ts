@@ -3,6 +3,7 @@ import type { Permission, Policy, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { isPlainObject as isRecord } from '@spinajs/util';
 
 import { FS_RESOURCE_TYPES, parseFsRef } from '../refs/index.js';
 
@@ -139,8 +140,6 @@ const fsOnly = ({ permissions, resourceTypes }: Record<string, unknown>): boolea
   permissions.length > 0 &&
   permissions.every((p) => typeof p === 'string' && p.startsWith('fs:')) &&
   (resourceTypes === undefined || (Array.isArray(resourceTypes) && resourceTypes.every((t) => FS_TYPES.includes(t))));
-
-const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const show = (value: unknown): string => {
   try {

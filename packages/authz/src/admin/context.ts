@@ -3,6 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import type { AdminContext } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { Principal } from '../contracts/principal.js';
+import { isObject } from '../engine/internal/util.js';
 
 /**
  * What DefaultAuthzAdmin passes as AdminContext; handlers, guards and validators may read the extra fields.
@@ -14,8 +15,6 @@ export interface AdminCallContext extends AdminContext {
   readonly container: IContainer;
   readonly dryRun: boolean;
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 function callContext(ctx: AdminContext, what: string): AdminCallContext {
   const c = ctx as unknown as Record<string, unknown> | undefined;

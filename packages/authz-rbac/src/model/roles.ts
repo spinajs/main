@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef, ResourceType } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import type { LadderDef, RoleDef } from '../contracts.js';
 
@@ -200,14 +201,12 @@ function validateRole(def: unknown, index: number): asserts def is RoleDef {
   if (typeof d.name !== 'string' || d.name === '') throw new AuthzConfigError(`RBAC role #${index} has no name`);
   if (typeof d.source !== 'string') throw new AuthzConfigError(`Role '${d.name}': source must be a string`);
   const at = `Role '${d.name}' (source: ${d.source})`;
-  if (!isNameList(d.extends)) throw new AuthzConfigError(`${at}: extends must be an array of role names`);
+  if (!isStringArray(d.extends, { nonEmpty: true })) throw new AuthzConfigError(`${at}: extends must be an array of role names`);
   if (!Array.isArray(d.grants)) throw new AuthzConfigError(`${at}: grants must be an array`);
   if (d.assignable !== undefined && typeof d.assignable !== 'boolean') throw new AuthzConfigError(`${at}: assignable must be true or false`);
-  if (d.scopeTypes !== undefined && !(isNameList(d.scopeTypes) && d.scopeTypes.length > 0)) throw new AuthzConfigError(`${at}: scopeTypes must be a non-empty array of resource types; leave it out to allow every scope type`);
+  if (d.scopeTypes !== undefined && !(isStringArray(d.scopeTypes, { nonEmpty: true }) && d.scopeTypes.length > 0)) throw new AuthzConfigError(`${at}: scopeTypes must be a non-empty array of resource types; leave it out to allow every scope type`);
   if (d.deny !== undefined && typeof d.deny !== 'boolean') throw new AuthzConfigError(`${at}: deny must be true or false`);
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
 
 // Stores hand out their own arrays and may change them later; the graph and the grant index must not change with them.
 function frozenCopy<T>(value: T): T {
