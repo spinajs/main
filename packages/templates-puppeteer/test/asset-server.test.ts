@@ -64,6 +64,18 @@ describe('LocalAssetServer', () => {
     }
   });
 
+  it('reads the last range when config merging appended an app range to the shipped one', async () => {
+    const server = new LocalAssetServer(log, () => [3000, 4000, 8171, 8180]);
+    const s = await server.serve(process.cwd());
+    try {
+      const port = (s.address() as AddressInfo).port;
+      expect(port).to.be.gte(8171);
+      expect(port).to.be.lte(8180);
+    } finally {
+      await server.close(s);
+    }
+  });
+
   it('close() resolves and stops serving', async () => {
     const server = new LocalAssetServer(log, () => undefined);
     const s = await server.serve(process.cwd());
