@@ -1,17 +1,17 @@
 # Task locking
 
-With `taskStacking: false`, `@Task()` takes a named mutex before each run and skips the run when the mutex is held. The lock goes through the `Mutex` DI service from `@spinajs/threading`, so the backend, and with it how strict the guard is, is yours to choose.
+With `taskStacking: false`, the default, `@Task()` takes a named mutex before each run and skips the run when the mutex is held. The lock goes through the `Mutex` DI service from `@spinajs/threading`, so the backend, and with it how strict the guard is, is yours to choose.
 
-The package registers no `Mutex`. Register one before the first task with `taskStacking: false` runs.
+The package registers no `Mutex`. Register one before the first task without `taskStacking: true` runs.
 
 ## How it works
 
 1. The `@Task()` wrapper reads `opts.taskStacking`. With `true` it skips locking and goes on to the run.
-2. With `false` it calls `mutex_acquire({ Name: 'task-<taskName>' })`. It passes **no** `Tenant`, so the backend picks the owner; `OrmMutex` uses `app.name`.
+2. Otherwise it calls `mutex_acquire({ Name: 'task-<taskName>', Tenant })`, where `Tenant` is generated for this run: a random 32-character hex string. No two runs share a tenant, so a lock held by one run is never re-acquired by another, in the same process or in another one.
 3. `mutex_acquire()` calls `DI.resolve(Mutex).acquire(options)` on the root container.
 4. `Locked: false`: the wrapper logs `Cannot acquire mutex for task ..., already locked !` at `warn` and returns `undefined`. The `__tasks` row is not touched.
 5. `Locked: true`: the run goes ahead (see [Task decorator](01-task-decorator.md#how-it-works)).
-6. After the run, the wrapper calls `mutex_release()`. In the current source that call throws before it reaches the `Mutex`, so **the lock is never released** (see [Important behaviour](#important-behaviour)).
+6. After the run, the wrapper calls `mutex_release()` with the same name and tenant, then updates the `__tasks` row and writes the history row.
 
 ```mermaid
 sequenceDiagram
@@ -28,7 +28,7 @@ sequenceDiagram
 
 ## Configuration
 
-`@Task()` has one locking option, `taskStacking`, on the decorator (see [Task decorator](01-task-decorator.md#decorators)). The backend reads its own keys; for `OrmMutex` these are `app.name` (the default tenant) and `threading.mutex.checkInterval`, see [Database mutex](../orm-threading/01-database-mutex.md#configuration).
+`@Task()` has one locking option, `taskStacking`, on the decorator (see [Task decorator](01-task-decorator.md#decorators)). The backend reads its own keys; for `OrmMutex` these are `app.name` (the default tenant, not used for task locks because the wrapper always passes one) and `threading.mutex.checkInterval`, see [Database mutex](../orm-threading/01-database-mutex.md#configuration).
 
 ## Services and extension points
 
@@ -36,18 +36,17 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `Mutex` | `Mutex` abstract class from `@spinajs/threading`; singleton by default; resolved by type through `mutex_acquire()` / `mutex_release()` on every task call | none: unregistered, the call fails with `TypeError: ... acquire is not a function`, logged as `Cannot start task` and rethrown | `OrmMutex` and its subclasses (`@spinajs/orm-threading`); an in-memory or lease-based `Mutex` (below) | `DI.register(MyMutex).as(Mutex)` in startup code, before the first task call. The last registration wins. Extend by subclassing `OrmMutex` and overriding `acquire()`; see [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md). |
 
-### What each backend guards against today
+### What each backend guards against
 
-The lock is never released (see below), and the wrapper never passes a tenant. That decides what each backend does for tasks:
+Every run locks with its own tenant and releases the lock when it finishes. The backends differ in how they handle two runs that try to lock at the same instant, and a run that never releases because its process died:
 
-| Backend | Same process, overlapping calls | Two processes of one app | Second run of the task later |
-| --- | --- | --- | --- |
-| `OrmMutex` | both run: the same tenant (`app.name`) re-acquires | both run, same tenant | runs |
-| `OrmMutex` subclass with a per-process tenant | both run | the first process to run the task keeps the lock forever; the others are always skipped | runs only in that first process |
-| Any non-reentrant mutex without expiry | second is skipped | second is skipped | **never runs again** |
-| A lease mutex (lock expires after a TTL) | second is skipped while the lease lasts | second is skipped while the lease lasts | runs once the lease has expired |
+| Backend | Overlapping runs | Lock left by a process that died mid-run |
+| --- | --- | --- |
+| `OrmMutex` | the later run is skipped; two runs that read the free lock at the same instant can both take it, because the read and the update are separate queries | stays held; the task is skipped until the `__mutex__` row is unlocked by hand |
+| Any atomic mutex without expiry (`AtomicOrmMutex`) | the later run is skipped | stays held, as above |
+| A lease mutex (lock expires after a TTL) | the later run is skipped while the lease lasts | taken over once the lease has expired |
 
-A lease is the only backend that gives a useful guard while the release step is broken, and it keeps working once release is fixed.
+A lease is the only backend that recovers from a run that never finished.
 
 ### `Mutex`: a lease for task locks, stored in the database
 
@@ -197,12 +196,12 @@ export class CacheTasks {
 
 ## Important behaviour
 
-- **The lock is never released.** The wrapper calls `mutex_release()` with an undefined variable, which throws `ReferenceError` before the call; see [Task decorator](01-task-decorator.md#important-behaviour). Choose a backend from the table above with this in mind.
-- **No tenant is passed.** Each backend falls back to its own default owner; for `OrmMutex` that is `app.name`, shared by every process of the app.
+- **Each run is its own tenant.** The tenant is random per run, so the backend's default owner (`app.name` for `OrmMutex`) never applies to task locks, and only the run that took a lock releases it.
+- **A lock left by a dead process is not released.** Nothing else knows the run's tenant. Use a lease backend, or unlock the `task-<name>` row by hand.
 - **A skipped run is silent to the caller.** It resolves with `undefined`; only the `warn` log line records it. No `TaskFailed` event is sent and no history row is written.
-- **`taskStacking: true` still calls `mutex_release()`.** It fails the same way, but resolves no `Mutex`, so no backend is needed for stacking tasks.
-- **The lock name is `task-` plus the trimmed task name.** `OrmMutex` stores names in a `VARCHAR(32)` column, so keep task names under 27 characters with that backend.
-- **Missing backend fails at call time.** Nothing checks for a `Mutex` at startup; the first task call with `taskStacking: false` rejects.
+- **`taskStacking: true` never touches the `Mutex`.** No backend is needed for stacking tasks.
+- **The lock name is `task-` plus the trimmed task name.** `OrmMutex` stores names in a `VARCHAR(32)` column, so keep task names under 27 characters with that backend. The generated tenant is exactly 32 characters, the size of its `Tenant` column.
+- **Missing backend fails at call time.** Nothing checks for a `Mutex` at startup; the first task call without `taskStacking: true` rejects.
 
 ## Best practices
 
@@ -214,26 +213,11 @@ export class CacheTasks {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a non-reentrant mutex without expiry; the task runs once and is skipped forever after
+// Don't: a mutex without expiry; a run killed mid-way leaves the task skipped forever after
 DI.register(AtomicNonReentrantMutex).as(Mutex);
 
 // Do: a lease, so a lock left behind expires
 DI.register(TaskLeaseMutex).as(Mutex);
-```
-
-```ts
-// Don't: expect taskStacking: false to stop overlapping runs with the stock OrmMutex; every caller is the same tenant
-DI.register(OrmMutex).as(Mutex);
-
-// Do: guard the critical part yourself, with your own tenant, and release it
-const lock = { Name: 'payout-run', Tenant: `payouts-${process.pid}` };
-if ((await mutex_acquire(lock)).Locked) {
-  try {
-    await runPayouts();
-  } finally {
-    await mutex_release(lock);
-  }
-}
 ```
 
 ## Related
