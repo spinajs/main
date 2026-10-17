@@ -73,8 +73,10 @@ export function grantingRolesAt(model: RbacModel, permission: Permission): { rea
 function mayGrantAt(roles: RoleIndex, permissions: readonly Permission[], row: Assignment, scope: ResourceRef, path: readonly ResourceRef[]): boolean {
   if (!honoured(roles, row)) return false;
   const here = resourceKey(row.scope) === resourceKey(scope);
-  const entries = heldRoles(roles, row.role, here);
-  return roleClosure(roles, row.role, here ? 'same-scope' : 'all').defs.some((d) => {
+  const closure = roleClosure(roles, row.role, here ? 'same-scope' : 'all').defs;
+  // The model gives each role of the row's closure its own entry at the row's scope, so any of them can supply the rank.
+  const entries = closure.map((e) => e.name);
+  return closure.some((d) => {
     if (d.deny === true) return false;
     const ladder = roles.ladderOf(d.name);
     if (ladder !== undefined && !ladderAppliesAt(roles, ladder, scope)) return false;
@@ -82,26 +84,11 @@ function mayGrantAt(roles: RoleIndex, permissions: readonly Permission[], row: A
       if (!permissions.some((p) => compilePermissionGlob(g.permission)(p))) return false;
       if (g.grantedAt !== undefined) {
         if (!g.grantedAt.includes(row.scope.type)) return false;
-        // The model gives each implied role its own entry at the row's scope, so any of them can supply the rank.
         if (ladder !== undefined && !entries.some((e) => roles.ladderOf(e) === ladder && rankOf(roles, ladder, e) >= rankOf(roles, ladder, d.name))) return false;
       }
       return g.on === undefined || g.on.some((p) => patternMayAdmit(p, scope, path));
     });
   });
-}
-
-/** The role and what it reaches through implies and extends (not through ladder rank): the roles a row may be counted as. */
-function heldRoles(roles: RoleIndex, role: string, here: boolean): readonly string[] {
-  const seen = new Set<string>();
-  const visit = (name: string): void => {
-    if (seen.has(name)) return;
-    seen.add(name);
-    const def = roles.roles.get(name);
-    for (const e of def?.extends ?? []) visit(e);
-    for (const i of def?.implies ?? []) if (!here || i.at === 'self-and-descendants') visit(i.role);
-  };
-  visit(role);
-  return [...seen];
 }
 
 function patternMayAdmit(pattern: ResourcePattern, scope: ResourceRef, path: readonly ResourceRef[]): boolean {

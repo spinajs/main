@@ -301,6 +301,70 @@ describe('holders query: an implied ladder role supplies the rank of a grantedAt
   });
 });
 
+const pq = [
+  { ...role('pviewer', [{ permission: 'doc:read', grantedAt: ['project'] }]), ladder: 'proj' },
+  { ...role('peditor', []), ladder: 'proj' },
+];
+const qViewerEditor = [
+  { ...role('qviewer', [{ permission: 'doc:read', grantedAt: ['project'] }]), ladder: 'q' },
+  { ...role('qeditor', []), ladder: 'q' },
+];
+const agreement: Record<string, { ladders: object[]; roles: object[]; row: string }> = {
+  impliedLadderRole: { ladders: [{ name: 'proj', roles: ['pviewer', 'peditor'] }], roles: [...pq, role('lead', [], { implies: [{ role: 'peditor', at: 'self-and-descendants' }] })], row: 'lead' },
+  lowerLadderImplies: {
+    ladders: [{ name: 'proj', roles: ['pmember', 'powner'] }, { name: 'q', roles: ['qviewer', 'qeditor'] }],
+    roles: [{ ...role('pmember', [], { implies: [{ role: 'qeditor', at: 'self-and-descendants' }] }), ladder: 'proj' }, { ...role('powner', []), ladder: 'proj' }, ...qViewerEditor],
+    row: 'powner',
+  },
+  extendsThenImplies: { ladders: [{ name: 'q', roles: ['qviewer', 'qeditor'] }], roles: [role('base', [], { implies: [{ role: 'qeditor', at: 'self-and-descendants' }] }), role('custom', [], { extends: ['base'] }), ...qViewerEditor], row: 'custom' },
+  impliedTags: { ladders: [], roles: [role('lead', [], { implies: [{ role: 'tv', at: 'self-and-descendants', tags: ['vip'] }] }), role('tv', [{ permission: 'doc:read', requiresTag: 'vip' }])], row: 'lead' },
+  impliedGrantedAt: { ladders: [], roles: [role('lead', [], { implies: [{ role: 'pv', at: 'descendants' }] }), role('pv', [{ permission: 'doc:read', grantedAt: ['project'] }])], row: 'lead' },
+  impliedLadderTypes: {
+    ladders: [{ name: 'q', roles: ['qviewer', 'qeditor'], resourceTypes: ['doc'] }],
+    roles: [role('lead', [], { implies: [{ role: 'qeditor', at: 'descendants' }] }), { ...role('qviewer', ['doc:read']), ladder: 'q' }, { ...role('qeditor', []), ladder: 'q' }],
+    row: 'lead',
+  },
+};
+
+describe('holders query: every principal that check() allows is listed', function () {
+  this.timeout(30000);
+  for (const [name, sc] of Object.entries(agreement)) {
+    const harness = rbacAdminHarness({});
+    const scWorld: World = {
+      now: world.now,
+      permissions: [
+        { name: 'doc:read', types: ['doc', 'project'] },
+        { name: 'authz:holders.read', types: ['doc', 'project', '$global'] },
+      ],
+      principals: people,
+      scopes: [{ nodes: [{ ref: P1 }, { ref: D1, parent: P1 }] }],
+      combine: fixtureDsl.combine('deny-overrides', 'rbac'),
+      rbac: { ladders: sc.ladders, roles: [...sc.roles, role('auditor', ['authz:holders.read'])], assignments: [assignment('g-root', root, 'auditor', GLOBAL), assignment('g-alice', alice, sc.row, P1)] },
+    } as World;
+    let session: HarnessSession;
+    describe(name, () => {
+      before(async () => {
+        await harness.beforeAll?.();
+      });
+      after(async () => {
+        await harness.afterAll?.();
+      });
+      beforeEach(async () => {
+        session = await harness.setup(scWorld, { id: 'B26', part: 'holders', case: name, title: name, facets: ['engine', 'admin', 'rbac'] });
+      });
+      afterEach(async () => {
+        await session?.dispose();
+      });
+      it('lists alice when check() allows her', async () => {
+        const allowed = (await session.authz!.check({ principal: alice, permission: 'doc:read', resource: D1 })).allowed;
+        const { items } = await (session.admin as AuthzAdmin).list(root, { kind: 'holders', scope: D1, permission: 'doc:read' });
+        const listed = (items as Holder[]).some((h) => JSON.stringify(h.subject) === subjectKey('alice'));
+        if (allowed) expect(listed, 'allowed by check, missing from holders').to.equal(true);
+      });
+    });
+  }
+});
+
 describe('holders query without a MembershipStore', function () {
   this.timeout(30000);
   const harness = rbacAdminHarness({});
