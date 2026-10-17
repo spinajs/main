@@ -8,8 +8,17 @@ export class Exception extends Error {
    * @param message - error message
    * @param inner - inner exception ( eg. original couse of error )
    */
-  constructor(message?: string, public inner?: Error | unknown) {
+  public inner?: Error | unknown;
+
+  constructor(message?: string, inner?: Error | unknown) {
     super(message);
+
+    // Non-enumerable, so spreading the error (e.g. into an HTTP body) does not leak name or cause details.
+    Object.defineProperty(this, 'name', { value: new.target.name, enumerable: false, writable: true, configurable: true });
+    Object.defineProperty(this, 'inner', { value: inner, enumerable: false, writable: true, configurable: true });
+    if (inner !== undefined) {
+      Object.defineProperty(this, 'cause', { value: inner, enumerable: false, writable: true, configurable: true });
+    }
   }
 }
 
