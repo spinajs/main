@@ -20,7 +20,7 @@ const alice = userPrincipal('alice');
 const ALICE = ['user:*', 'user:alice'];
 
 const role = (name: string, grants: readonly (string | GrantDef)[] = [], extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', ...extra, grants: grants.map((g) => (typeof g === 'string' ? { permission: g } : g)) });
-const ROLES = [role('viewer', ['doc:read']), role('editor', ['doc:read']), role('pm', [{ permission: 'doc:read', grantedAt: ['project'] }]), role('billing', [{ permission: 'doc:read', requiresTag: 'paid' }]), role('member', [{ permission: 'doc:read', relation: 'owner' }]), role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }), role('org.member', [], { subjectSet: true }), { ...role('blocked', ['doc:read']), deny: true }];
+const ROLES = [role('viewer', ['doc:read']), role('editor', ['doc:read']), role('pm', [{ permission: 'doc:read', grantedAt: ['project'] }]), role('billing', [{ permission: 'doc:read', requiresTag: 'paid' }]), role('member', [{ permission: 'doc:read', relation: 'owner' }]), role('worker', [{ permission: 'doc:read', relation: 'assignee' }]), role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }), role('org.member', [], { subjectSet: true }), { ...role('blocked', ['doc:read']), deny: true }];
 const row = (id: string, roleName: string, scope: ResourceRef = GLOBAL, extra: Partial<Assignment> = {}, subject: AssignmentSubject = { type: 'user', id: 'alice' }): Assignment => ({ id, subject, role: roleName, scope, source: 'test', ...extra });
 
 class Closure extends MembershipStore {
@@ -94,6 +94,11 @@ describe('authz-rbac listPlan (design §6.2)', () => {
     expect(await plan([row('m', 'member')])).to.deep.equal({ kind: 'terms', permit: [{ op: 'relation.owner', args: { principals: [{ type: 'user', id: 'alice' }] } }], deny: [] });
     expect(await plan([row('m', 'member', P1)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'member', relation: 'owner' }])], deny: [] });
     expect(await plan([row('m', 'member', P1), row('v', 'viewer', P2)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'member', relation: 'owner' }, { role: 'viewer' }])], deny: [] });
+  });
+
+  it('a column relation from a $global role is a relation.column term; from a scoped one a role entry with relation', async () => {
+    expect(await plan([row('w', 'worker')])).to.deep.equal({ kind: 'terms', permit: [{ op: 'relation.column', args: { relation: 'assignee', principals: [{ type: 'user', id: 'alice' }] } }], deny: [] });
+    expect(await plan([row('w', 'worker', P1)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'worker', relation: 'assignee' }])], deny: [] });
   });
 
   it('a DB rule store without a matching rule does not block the list', async () => {
