@@ -6,7 +6,7 @@ Register several implementations of one abstract service, then let a config valu
 
 | You need | Use | Config value | Injected |
 | --- | --- | --- | --- |
-| One implementation, picked by name, with a default | `@AutoinjectNamedService(path, Type, { default, is })` | `'StripeGateway'` | the instance |
+| One implementation, picked by name, with a default | `@AutoinjectNamedService(path, Type, { default, is, optional })` | `'StripeGateway'` | the instance |
 | An ordered list of implementations, keyed | `@AutoinjectNamedServices(path, Type, { lineage: true, keyBy })` | `[{ name: 'sms', service: 'SmsChannel' }, ...]` | `Map<key, instance>` |
 | Implementations built with per-entry options (connections) | `@AutoinjectService(path, Type)` | `'Name'`, `{ service: 'Name', ...options }` or a list of those | the instance, or `Map<ServiceName, instance>` for a list |
 | The same, from a function | `resolveNamedService()`, `resolveNamedServices()`, `service()`, `_service()` | as above | a promise of the above |
@@ -24,7 +24,7 @@ An implementation's **name** is its class name, or the function name of a factor
    - a string: that name;
    - a subclass of `Type`: its class name;
    - any other function: a picker, called with the registered names, that returns a name or `undefined`.
-   No default, or a picker that returns `undefined`, throws `InvalidOption`.
+   No default, or a picker that returns `undefined`, throws `InvalidOption`; with `optional: true` it gives `undefined` instead (the decorator injects `undefined`). An unknown name still throws.
 5. `container.getRegisteredNames(Type)` lists the names registered across the lineage. A name not in it throws `InvalidOption('<path> "<name>": no <Type> is registered under that name (registered: ...)')`.
 6. `container.resolveNamed(Type, name)` resolves the registration nearest to the container; its lifetime applies.
 7. `options.is(instance)`, when given, must return `true`, or `InvalidOption('<path> "<name>" is not an <Type>')` is thrown.
