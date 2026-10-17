@@ -18,7 +18,6 @@ import type { Decision } from '../contracts/decision.js';
 import type { AccessPlan } from '../contracts/plan.js';
 import { ConditionCompiler } from '../conditions/contracts.js';
 import { Authorizer } from '../engine/authorizer.js';
-import type { EngineLog } from '../engine/authorizer.js';
 import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
@@ -31,6 +30,7 @@ import type { AuthzContribution } from './contributor.js';
 import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
+import type { AuthzLog } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
 import { AccessChangeRouter } from './push.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
@@ -112,7 +112,7 @@ export class DefaultAuthzService extends AuthzService {
   private bootSubscription: (() => void) | undefined;
   /** Tags of the changes published while booting, applied once the boot ends. */
   private buffered: (readonly string[])[] | undefined;
-  private readonly log: EngineLog = engineLog('authz');
+  private readonly log: AuthzLog = engineLog('authz');
 
   /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
   @Config('authz')

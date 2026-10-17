@@ -1,4 +1,3 @@
-import type { Log } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -24,6 +23,7 @@ import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceili
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
+import type { AuthzLog } from '../host/log.js';
 import type { VoteTruths } from './reasons.js';
 import { cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { mergeAttributes, schemaIndex } from './attributes.js';
@@ -57,8 +57,6 @@ const MAX_PRELOADED = 10_000;
 let generations = 0;
 const nextGeneration = (): number => ++generations;
 
-export type EngineLog = Pick<Log, 'error' | 'warn' | 'debug'>;
-
 export interface AuthorizerOptions {
   readonly domain: string;
   readonly models: readonly AuthorizationModel[];
@@ -78,7 +76,7 @@ export interface AuthorizerOptions {
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
   readonly clock?: () => Date;
-  readonly log?: EngineLog;
+  readonly log?: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   readonly config?: {
     readonly modelTimeoutMs?: number;
     readonly maxDelegation?: number;
@@ -271,7 +269,7 @@ const GLOBAL_TYPE: ResourceType = '$global';
 const CORE = 'core';
 const ENGINE_FAULT: DenyReason = Object.freeze({ code: 'model_error' });
 const DELEGATE_PRIORITY = 200;
-const NO_LOG: EngineLog = Object.freeze({ error() {}, warn() {}, debug() {} });
+const NO_LOG: Pick<AuthzLog, 'error' | 'warn' | 'debug'> = Object.freeze({ error() {}, warn() {}, debug() {} });
 const NO_FIELDS: Fields = Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) });
 const NO_ROLES: Readonly<Record<string, string>> = Object.freeze({});
 const GLOBAL_ANCESTORS: readonly ResourceRef[] = Object.freeze([GLOBAL]);
@@ -321,7 +319,7 @@ export class Authorizer {
   private readonly attributeStore: ScopeAttributeStore | undefined;
   private readonly conditions: ConditionCompiler;
   private readonly clock: () => Date;
-  private readonly log: EngineLog;
+  private readonly log: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   private readonly auditSink: DecisionAudit | undefined;
   private readonly config: EngineConfig;
   private readonly allFields: Fields;
@@ -2057,7 +2055,7 @@ export class Authorizer {
     return now;
   }
 
-  private logAt(level: keyof EngineLog, fields: Record<string, unknown>, template: string): void {
+  private logAt(level: 'error' | 'warn' | 'debug', fields: Record<string, unknown>, template: string): void {
     try {
       this.log[level]({ domain: this.domain, ...fields }, template);
     } catch {
