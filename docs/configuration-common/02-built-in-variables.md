@@ -5,7 +5,7 @@ The package ships sixteen `ConfigVariable` classes. Each is registered in DI whe
 ## How it works
 
 1. Importing `@spinajs/configuration-common` runs `@Injectable(ConfigVariable)` on each class below. That registers the class under the `ConfigVariable` token and under itself, in the root container.
-2. The first `format()` call resolves them all with `DI.resolve(Array.ofType(ConfigVariable))` and indexes them by `Name`.
+2. `format()` resolves them all with `DI.resolve(Array.ofType(ConfigVariable))` and indexes them by `Name`.
 3. For `${name:option}`, `format()` calls `variable.Value(option)`; for `${name}`, `variable.Value(null)`.
 
 ## Catalog
@@ -55,8 +55,7 @@ All built-in classes are exported, so you can subclass one (`class IsoDateTime e
 ## Important behaviour
 
 - **Values are computed per placeholder.** `${uuid}-${uuid}` gives two different UUIDs; `${timestamp}` twice in one layout can differ by a millisecond.
-- **`${date}` and `${time}` take no constructor format.** `DateLogVariable` and `TimeLogVariable` accept a `format` constructor argument but ignore it; only the placeholder option changes the format.
-- **`luxon` is an undeclared dependency.** `variables-common.ts` imports `luxon`, but `package.json` lists only `@spinajs/di`. In this monorepo it is hoisted from the root; a standalone install must add `luxon` itself.
+- **`DateLogVariable` and `TimeLogVariable` take a constructor default.** `new DateLogVariable('yyyy-MM-dd')` uses that format when no option is given; DI creates the registered instances without one, so `${date}` and `${time}` keep the defaults above.
 - **Node variables read the live process.** `${env:NAME}` reads `process.env` on each call, not the `process.env` section of the loaded configuration.
 
 ## Best practices
