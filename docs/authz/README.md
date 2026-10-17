@@ -391,7 +391,10 @@ database is recreated, not upgraded. The `users.Role` copy and drop are two more
 in [the migration guide](./migration-guide.md#7-data-migration).
 
 **CLI.** `@spinajs/authz-rbac` ships six commands. They run as `SYSTEM` with the reason `cli`. On
-failure they print one line and set the exit code to 1.
+failure they print one line and set the exit code to 1. The commands of `@spinajs/authz-rbac` and
+`@spinajs/authz-orm` extend `AuthzCliBase` (`@spinajs/authz/cli`), which resolves what a command needs
+from the command's DI container when the command runs, so a failing authz boot is reported as one
+line.
 
 | Command | Does |
 |---|---|

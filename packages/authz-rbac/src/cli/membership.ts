@@ -1,6 +1,5 @@
 import type { AuthzAdminBackend } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 
 import { DbAuthzAdminBackend } from '../admin/db/backend.js';
@@ -14,7 +13,7 @@ import type { RbacStoreKind } from '../stores/defaults.js';
 import { CliUsageError } from './args.js';
 import { AuthzCliCommand } from './base.js';
 
-/** What the membership commands work on; tests set it, the CLI resolves it from the root container. */
+/** What the membership commands work on; tests set it, the CLI resolves it from the command's container. */
 export interface MembershipCliContext extends Omit<MembershipSources, 'now'> {
   readonly backend: AuthzAdminBackend;
 }
@@ -28,19 +27,19 @@ export abstract class MembershipCliCommand extends AuthzCliCommand {
   /** Call it inside `command()`: booting AuthzService registers the RBAC stores in the root container. */
   protected async membership(): Promise<MembershipCliContext> {
     if (this.Membership) return this.Membership;
-    const root = DI.RootContainer;
-    const configuration = await DI.resolve(Configuration);
+    const container = this.Container;
+    const configuration = (await container.resolve(Configuration)) as Configuration;
     const store = async <T>(token: Class<T>, kind: RbacStoreKind): Promise<T> => {
-      if (root.hasRegistered(token)) return (await root.resolve(token)) as T;
+      if (container.hasRegistered(token)) return (await container.resolve(token)) as T;
       const [name] = rbacStoreNames(configuration, kind);
-      if (name === undefined || !root.hasRegistered(name)) throw new CliUsageError(`no ${token.name} (authz.rbac.stores.${kind}): the membership commands need the RBAC DB stores`);
-      return (await DI.resolve(name)) as T;
+      if (name === undefined || !container.hasRegistered(name)) throw new CliUsageError(`no ${token.name} (authz.rbac.stores.${kind}): the membership commands need the RBAC DB stores`);
+      return (await container.resolve(name)) as T;
     };
     return {
-      roles: await loadRoleIndex(root, 'authz:membership'),
+      roles: await loadRoleIndex(container, 'authz:membership'),
       assignments: await store(AdminAssignmentStore, 'assignments'),
       memberships: await store(AdminMembershipStore, 'membership'),
-      backend: new DbAuthzAdminBackend(),
+      backend: (await container.resolve(DbAuthzAdminBackend)) as DbAuthzAdminBackend,
       maxDepth: readMaxSetDepth(configuration.get(['authz', 'rbac', 'maxSetDepth'])),
     };
   }

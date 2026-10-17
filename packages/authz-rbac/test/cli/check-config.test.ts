@@ -41,6 +41,7 @@ class ObjectConfiguration extends Configuration {
 function command(rbac: unknown): { cmd: CheckConfigCommand; calls: ReturnType<typeof fakeAuthz>['runAs'] } {
   const f = fakeAuthz();
   const cmd = new CheckConfigCommand();
+  cmd.Container = DI.RootContainer;
   cmd.Authz = f.service;
   cmd.Roles = new ConfigRoleStore(new ObjectConfiguration({ authz: { rbac } }));
   return { cmd, calls: f.runAs };
