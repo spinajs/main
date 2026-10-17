@@ -47,7 +47,7 @@ An implementation's **name** is its class name, or the function name of a factor
 
 ### `service()` and `_service()`
 
-`service(path, Type, options?)` reads `cfg(path).service` from the root configuration, finds the registered type of that class name in the root container and resolves it. Resolution errors are wrapped in `ResolveException('Cannot resolve service from <path>: ...')`. `_service()` returns `() => service(...)`.
+`service(path, Type, options?)` reads the service name at `path` (`'Name'` or `{ service: 'Name' }`) from the root configuration, finds the registered type of that class name in the root container and resolves it. Resolution errors are wrapped in `ResolveException('Cannot resolve service from <path>: ...')`. `_service()` returns `() => service(...)`.
 
 ```mermaid
 sequenceDiagram
@@ -316,7 +316,7 @@ A factory is called on every resolve and its result is not cached.
 - Names match `name` exactly and are case-sensitive. A minifier that renames classes breaks config names; register named factories in bundled builds.
 - `@AutoinjectNamedServices` passes nothing from the entry to the instance; the instance reads its own settings (with `@Config`). `@AutoinjectService` passes the whole entry, `service` key included.
 - `@AutoinjectNamedServices` checks `instance[keyBy] === entry[keyBy]`. A typo in config fails at resolve with both names in the message.
-- `service()` expects an object `{ service: 'Name' }` at `path`; a plain string is not accepted. It looks in the root container only.
+- `service()` accepts `'Name'` or `{ service: 'Name' }` at `path`. It looks in the root container only.
 - An unknown name fails when the owning class is resolved, not at boot. Resolve such classes in a `Bootstrapper` or at startup to fail early.
 
 ## Best practices
