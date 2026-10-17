@@ -20,7 +20,7 @@ describe('LogAuthnAuditSink hashIdentifiers set past the schema', function () {
     for (const c of children.splice(0)) await c.dispose();
   });
 
-  it('hashes the identifiers for any value but false', async () => {
+  it('keeps hashing the identifiers: a set of anything but a boolean is refused, and unset is the default true', async () => {
     for (const value of [undefined, null, 0, '', 'false']) {
       TestLog.clear();
       const child = DI.RootContainer.child();
@@ -30,7 +30,9 @@ describe('LogAuthnAuditSink hashIdentifiers set past the schema', function () {
       const configuration = await child.resolve(Configuration);
       const sink = await child.resolve(LogAuthnAuditSink);
 
-      configuration.set('authn.audit.hashIdentifiers', value);
+      if (value === undefined) configuration.set('authn.audit.hashIdentifiers', value);
+      else expect(() => configuration.set('authn.audit.hashIdentifiers', value), String(value)).to.throw(InvalidConfiguration, 'authn.audit.hashIdentifiers');
+      expect(configuration.get('authn.audit.hashIdentifiers'), String(value)).to.eq(true);
       await sink.publish({ type: 'login', outcome: 'success', at: new Date(), identity: { type: 'user', id: 'u-42' }, ip: '198.51.100.23' });
       const [line] = TestLog.of('authn-audit').map((e) => e.message);
       expect(line, String(value)).to.match(/^authn audit login success /);

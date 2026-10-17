@@ -1,6 +1,6 @@
 import { FakeClock, runAuthnBehaviour } from '@spinajs/authn-testing';
 import type { Harness, LegacyUser, SecretRowView } from '@spinajs/authn-testing';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
@@ -452,7 +452,11 @@ for (const kind of DB_KINDS) {
         await seedLegacy(db, USERS);
         const before = await snapshot(db);
 
-        for (const secret of [null, '', 'not-a-key', randomBytes(16).toString('hex')]) {
+        for (const secret of ['', 'not-a-key', randomBytes(16).toString('hex')]) {
+          await expect(setKey(db, secret), secret).to.be.rejectedWith(InvalidConfiguration, 'authn.mfa.encryptionKey.secret');
+        }
+        // Passes the schema pattern; the cipher refuses the non-zero unused bits of its last character.
+        for (const secret of [null, 'A'.repeat(42) + 'B']) {
           await setKey(db, secret);
           const err = await run(db).then(
             () => undefined,

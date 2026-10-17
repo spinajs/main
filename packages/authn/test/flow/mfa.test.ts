@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
+import { InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { ConfiguredMfaPolicy, DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource } from '../../src/index.js';
@@ -143,25 +144,26 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.match(violations[0].message, /uniqueItemProperties/);
     });
 
-    it('refuses an identical entry listed twice that comes past the schema (Configuration.set)', async () => {
+    it('refuses an identical entry listed twice set at runtime: Configuration.set throws and a new policy reads the stored list', async () => {
       const p = await boot();
-      p.configuration.set('authn.mfa.steps', [
+      const twice = [
         { name: 'fake', service: KIT_MFA_STEP },
         { name: 'fake', service: KIT_MFA_STEP },
-      ]);
+      ];
+      assert.throws(() => p.configuration.set('authn.mfa.steps', twice), (e: Error) => e instanceof InvalidConfiguration && e.violations.some((v) => v.path === 'authn.mfa.steps'));
       const fresh = p.child.child();
       try {
-        await assert.rejects(fresh.resolve(DefaultMfaPolicy), (e: Error) => e instanceof InvalidOption && e.message === 'authn.mfa.steps lists name "fake" twice');
+        assert.deepStrictEqual([...(await (await fresh.resolve(DefaultMfaPolicy)).steps()).keys()], ['fake']);
       } finally {
         await fresh.dispose();
       }
     });
 
     it('lists the steps once per policy: a later Configuration.set changes neither its steps nor what it requires', async () => {
-      const p = await boot({ mfa: { policy: { force: true } } });
+      const p = await boot({ mfa: { policy: { force: true } }, extra: [new FakeMfaStep({ name: 'second' })] });
       const policy = await policyOf(p);
       const listed = await policy.steps();
-      p.configuration.set('authn.mfa.steps', []);
+      p.configuration.set('authn.mfa.steps', [{ name: 'second', service: 'Step_second' }]);
       assert.strictEqual(await policy.steps(), listed);
       assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), ['fake']);
     });
