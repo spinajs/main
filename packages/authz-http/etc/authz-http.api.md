@@ -11,6 +11,7 @@ import type { Permission, Principal, ResourceRef, ResourceType } from "@spinajs/
 import type { Class } from "@spinajs/di";
 import type { BasePolicy, Request } from "@spinajs/http";
 import type { ModelBase } from "@spinajs/orm";
+/** Built with `PrincipalMiddleware`, before the root authz boot: a source resolves `AuthzService` per call, it does not inject it. */
 export declare abstract class PrincipalSource {
     abstract readonly name: string;
     abstract readonly order: number;
