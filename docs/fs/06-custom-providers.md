@@ -252,6 +252,7 @@ export async function seedTestFiles(): Promise<string[]> {
 - Subclass `fsNative` instead of `fs` when files live on local disk: you keep the sandbox, zip and stream handling.
 - Override `hash()` and `metadata()` when `resolvePath()` cannot return a local path.
 - Make `upload()` accept directories if callers will `copy()` directories into your provider from `fsNative`.
+- Honour `upload(src, dest, { exclusive: true })`: throw `ResourceDuplicated` when `dest` exists, atomically if the backend can create-if-absent. Callers such as `@spinajs/configuration-http` rely on it to not overwrite a file.
 
 ## Patterns and antipatterns
 

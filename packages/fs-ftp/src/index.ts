@@ -3,9 +3,10 @@ import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem, FileInfoService } from '@spinajs/fs';
 import { Client } from 'basic-ftp';
 import path from 'path';
-import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { PassThrough, Readable } from 'stream';
+import type { IFsUploadOptions } from '@spinajs/fs';
 
 interface IFtpConfig {
   host: string;
@@ -188,12 +189,17 @@ export class fsFTP extends fs {
     await this.FtpClient.appendFrom(Readable.from(data, { encoding }), path.basename(dstPath));
   }
 
-  public async upload(srcPath: string, destPath?: string) {
-    await this._restoreRootDir();
-    
+  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
     if (!destPath) {
       destPath = path.basename(srcPath);
     }
+
+    // FTP has no create-if-absent: another client can still create the file between this check and the upload
+    if (options?.exclusive && (await this.exists(destPath))) {
+      throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${destPath} already exists`);
+    }
+
+    await this._restoreRootDir();
     
     await this._ensureDir(destPath!);
 

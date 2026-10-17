@@ -1,10 +1,10 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
-import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile } from 'node:fs/promises';
+import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile, copyFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsLocalOptions, IFsUploadOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
@@ -90,7 +90,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return p;
   }
 
-  public async upload(srcPath: string, destPath?: string) {
+  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
@@ -98,9 +98,18 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     const dPath = this.resolvePath(destPath ?? basename(srcPath));
 
     try {
-      // cp creates missing destination parent directories itself
-      await cp(srcPath, dPath, { force: true, recursive: true });
+      if (options?.exclusive) {
+        // cp() stats the target before copying, so two exclusive uploads could both pass; COPYFILE_EXCL is atomic
+        await mkdir(dirname(dPath), { recursive: true });
+        await copyFile(srcPath, dPath, constants.COPYFILE_EXCL);
+      } else {
+        // cp creates missing destination parent directories itself
+        await cp(srcPath, dPath, { force: true, recursive: true });
+      }
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${dPath} already exists`, err);
+      }
       throw new IOFail(`Cannot upload ${srcPath} to ${dPath}`, err);
     }
   }

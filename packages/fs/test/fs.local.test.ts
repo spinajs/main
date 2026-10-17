@@ -9,7 +9,7 @@ import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
 import { expect } from 'chai';
 import { extname, isAbsolute, join } from 'path';
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
 
@@ -138,6 +138,17 @@ describe('fs local tests', function () {
 
     expect(exists).to.be.true;
     expect(isDir).to.be.true;
+  });
+
+  it('exclusive upload creates missing dirs and refuses an existing target', async () => {
+    const _f = new fsNative({ name: 'exclusive', service: 'fsNative', basePath: dir('./files') });
+    await _f.resolve();
+    await _f.upload(_f.resolvePath('test.txt'), 'new_dir/test.txt', { exclusive: true });
+    await _f.write('new_dir/other.txt', 'other');
+
+    await expect(_f.upload(_f.resolvePath('test.txt'), 'new_dir/other.txt', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    expect(await _f.read('new_dir/test.txt', 'utf-8')).to.eq('hello world');
+    expect(await _f.read('new_dir/other.txt', 'utf-8')).to.eq('other');
   });
 
   it('Should delete dir', async () => {
