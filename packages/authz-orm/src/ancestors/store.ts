@@ -5,17 +5,11 @@ import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { idLookup, idText, tableOf } from '../ids.js';
 import { classesOf, entryOf } from '../registry.js';
 import type { Link } from './closure.js';
-import { groupIds, whereRefs } from './read.js';
+import { groupIds, splitGroups, whereRefs } from './read.js';
 import { AUTHZ_RESOURCE_ANCESTOR_TABLE, ID_CHUNK, ROW_CHUNK, chunks } from './table.js';
 import type { AncestorRow } from './table.js';
 
 type Where = IWhereBuilder<unknown>;
-
-function splitGroups(refs: readonly ResourceRef[]): Map<string, string[]>[] {
-  const out: Map<string, string[]>[] = [];
-  for (const [type, ids] of groupIds(refs)) for (const part of chunks(ids, ID_CHUNK)) out.push(new Map([[type, part]]));
-  return out;
-}
 
 /** Every resource the table lists below one of `refs`, once. */
 export async function readDescendants(driver: OrmDriver, refs: readonly ResourceRef[]): Promise<ResourceRef[]> {

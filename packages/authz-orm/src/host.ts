@@ -4,15 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI, ResolveType, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
-const ROOT = 'root';
-
 type AuditRecord = Parameters<DecisionAudit['record']>[0];
-
-/** `authz.orm.domain`: the domain whose service plans lists and whose stores a delete cleans; default root. */
-export function ormDomain(): string {
-  const v = DI.get(Configuration)?.get<unknown>(['authz', 'orm', 'domain']);
-  return typeof v === 'string' && v !== '' ? v : ROOT;
-}
 
 function hostDomains(): DefaultAuthzDomains | undefined {
   const d: unknown = DI.get(AuthzDomains);

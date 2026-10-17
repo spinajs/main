@@ -1,16 +1,9 @@
-import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import type { IBuilderMiddleware, ModelBase } from '@spinajs/orm';
 import type { Permission } from '@spinajs/authz';
 
 export const ACCESS_FIELD = '$access';
 
 export const accessColumn = (i: number): string => `__authz_access_${i}`;
-
-export function accessField(): string {
-  const v = DI.get(Configuration)?.get<unknown>(['authz', 'orm', 'accessField']);
-  return typeof v === 'string' && v !== '' ? v : ACCESS_FIELD;
-}
 
 const truthy = (v: unknown): boolean => v === 1 || v === true || v === '1' || v === 1n;
 

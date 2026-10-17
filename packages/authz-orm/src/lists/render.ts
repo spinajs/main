@@ -1,8 +1,6 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { AccessPlan, DenyReason, PlanTerm, PlanTermSql, ResourceRef, SqlFragment, SqlRowContext } from '@spinajs/authz';
 
-import { planTermCompilers } from './terms.js';
-
 export type Rendered = { readonly kind: 'all' } | { readonly kind: 'none'; readonly reason: DenyReason } | { readonly kind: 'sql'; readonly sql: string; readonly bindings: readonly unknown[] };
 
 const NOTHING: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
@@ -41,7 +39,7 @@ export function withinSql(within: readonly ResourceRef[], row: SqlRowContext): S
 }
 
 /** Design §6.2 over opaque terms: (permit OR …) AND NOT (deny OR …) AND within. */
-export function renderPlan(plan: AccessPlan, row: SqlRowContext, compilers: ReadonlyMap<string, PlanTermSql> = planTermCompilers()): Rendered {
+export function renderPlan(plan: AccessPlan, row: SqlRowContext, compilers: ReadonlyMap<string, PlanTermSql>): Rendered {
   if (plan.kind === 'none') return { kind: 'none', reason: plan.reason };
   if (plan.kind !== 'filter') throw new AuthzConfigError(`authz-orm: unknown access plan kind ${JSON.stringify((plan as { kind?: unknown }).kind)}`);
   const parts: SqlFragment[] = [];

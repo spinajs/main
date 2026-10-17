@@ -6,7 +6,8 @@ import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
 import { marksOf, setMarks } from '../src/marker.js';
-import { auditUnscoped, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
+import { AccessListMiddleware, AncestorMiddleware } from '../src/index.js';
+import { auditUnscoped, domainContainer, storageUnscoped } from '../src/host.js';
 
 const expect = chai.expect;
 const tick = () => new Promise((r) => setImmediate(r));
@@ -26,10 +27,13 @@ describe('authz-orm host helpers', function () {
     await testHost.resetHost();
   });
 
-  it('ormDomain reads authz.orm.domain, default root', () => {
-    expect(ormDomain()).to.equal('root');
-    testHost.config().set(['authz', 'orm', 'domain'], 'app');
-    expect(ormDomain()).to.equal('app');
+  it('the middlewares read authz.orm.domain, accessField and authz.admin.backend, with the schema defaults', () => {
+    const list = new AccessListMiddleware() as unknown as { Domain: string; AccessField: string };
+    const ancestors = new AncestorMiddleware() as unknown as { Domain: string; AdminBackend: string };
+    expect([list.Domain, list.AccessField, ancestors.Domain, ancestors.AdminBackend]).to.deep.equal(['root', '$access', 'root', 'MemoryAuthzAdminBackend']);
+    testHost.config().set(['authz', 'orm'], { domain: 'app', accessField: 'can' });
+    testHost.config().set(['authz', 'admin', 'backend'], 'DbAuthzAdminBackend');
+    expect([list.Domain, list.AccessField, ancestors.Domain, ancestors.AdminBackend]).to.deep.equal(['app', 'can', 'app', 'DbAuthzAdminBackend']);
   });
 
   it('domainContainer falls back to the DI root before the host created the domain', () => {

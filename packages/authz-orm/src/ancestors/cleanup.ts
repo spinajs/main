@@ -1,22 +1,15 @@
 import { AuthzAdminBackend, AuthzConfigError, ChangeBus, SYSTEM, forgetScopesInTx } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
-import { DI, ResolveType, isFactory } from '@spinajs/di';
+import { ResolveType, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { domainContainer, ormDomain, recordAudit } from '../host.js';
+import { domainContainer, recordAudit } from '../host.js';
 import { afterCommit } from './commit.js';
 
 const SYSTEM_REF = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
 export const RESOURCE_DELETED = 'resource-deleted';
 const DELETED = Object.freeze({ actor: SYSTEM, reason: RESOURCE_DELETED });
-
-/** The name `authz.admin.backend` gives; the default is the admin's (packages/authz/src/admin/config.ts:17). */
-export function adminBackendName(): string {
-  const v = DI.get(Configuration)?.get<unknown>(['authz', 'admin', 'backend']);
-  return typeof v === 'string' && v !== '' ? v : 'MemoryAuthzAdminBackend';
-}
 
 // As DefaultAuthzAdmin.named (admin.ts:431-441): the class of that name registered for AuthzAdminBackend.
 async function adminBackend(container: IContainer, name: string): Promise<AuthzAdminBackend> {
@@ -42,11 +35,9 @@ function publishAndAudit(domain: string, container: IContainer, deleted: readonl
  * statement's transaction (H22's one framework-owned exception) and bump authz_version themselves; any other
  * backend cannot join an ORM transaction, so its forget runs after the commit in its own, best effort.
  */
-export async function cleanupDeleted(driver: OrmDriver, deleted: readonly ResourceRef[]): Promise<void> {
+export async function cleanupDeleted(driver: OrmDriver, deleted: readonly ResourceRef[], domain: string, backendName: string): Promise<void> {
   if (deleted.length === 0) return;
-  const domain = ormDomain();
   const container = domainContainer(domain);
-  const backendName = adminBackendName();
   if (backendName === 'DbAuthzAdminBackend') {
     const { tags } = await forgetScopesInTx(container, deleted, { driver }, DELETED);
     await afterCommit(driver, 'publishing the change', () => publishAndAudit(domain, container, deleted, tags));
