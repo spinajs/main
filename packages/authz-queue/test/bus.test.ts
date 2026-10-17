@@ -2,21 +2,21 @@ import 'mocha';
 
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import type { Class } from '@spinajs/di';
+import { Configuration, ConfigurationSource, FrameworkConfiguration, JsFileSource } from '@spinajs/configuration';
+import type { IConfigLike } from '@spinajs/configuration';
 import type { AuthzChange } from '@spinajs/authz';
-import { testHost } from '@spinajs/authz-testing';
-import type { QueueService } from '@spinajs/queue';
 
-import { AuthzChangeEvent, QueueChangeBus, reviveChange } from '../src/index.js';
+import { AuthzBusRouteSource, AuthzChangeEvent, reviveChange } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './support/memory-client.js';
 import { NodeBus, PeerQueueService } from './support/nodes.js';
 
 let seq = 0;
 
-async function node(broker: string, configuration?: Configuration) {
+async function node(broker: string) {
   const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
   await client.resolve();
-  const bus = new NodeBus(new PeerQueueService(client), configuration);
+  const bus = new NodeBus(new PeerQueueService(client));
   const heard: AuthzChange[] = [];
   bus.subscribe((c) => heard.push(c));
   await bus.ready();
@@ -42,8 +42,8 @@ describe('QueueChangeBus', () => {
     MemoryBroker.drop(broker);
   });
 
-  const start = async (configuration?: Configuration) => {
-    const n = await node(broker, configuration);
+  const start = async () => {
+    const n = await node(broker);
     nodes.push(n);
     return n;
   };
@@ -116,66 +116,79 @@ describe('QueueChangeBus', () => {
     );
     expect(a.heard).to.have.length(1);
   });
+});
 
-  describe('route', () => {
-    it('routes the change events to authz.bus.topic unless the app routed them', async () => {
-      await testHost.installHost();
-      try {
-        const cfg = DI.get(Configuration)!;
-        cfg.set(['authz', 'bus', 'topic'], '/topic/authz');
-        cfg.set(['queue', 'routing'], {});
-        const n = await start(cfg);
-        await n.bus.publish(change());
-        expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/authz' });
+describe('AuthzBusRouteSource', () => {
+  const ROUTE = ['queue', 'routing', 'AuthzChangeEvent'];
 
-        cfg.set(['queue', 'routing', 'AuthzChangeEvent'], { channel: '/topic/mine' });
-        const m = await start(cfg);
-        await m.bus.publish(change());
-        expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/mine' });
-      } finally {
-        await testHost.uninstallHost();
+  /** The Configuration of a fresh child that loads `app` from a file-ordered source, then the route source, by Order. */
+  async function boot(app: Record<string, unknown>) {
+    const json = JSON.stringify(app);
+    class AppSource extends ConfigurationSource {
+      public get Order(): number {
+        return new JsFileSource().Order;
       }
-    });
+      public Load(): Promise<IConfigLike> {
+        return Promise.resolve(JSON.parse(json) as IConfigLike);
+      }
+    }
+    const child = DI.RootContainer.child();
+    child
+      .register(
+        class RoutedConfiguration extends FrameworkConfiguration {
+          protected loadSources(): void {
+            this.Sources = [new AuthzBusRouteSource(), new AppSource()].sort((a, b) => a.Order - b.Order);
+          }
+        } as unknown as Class<Configuration>,
+      )
+      .as(Configuration);
+    try {
+      return { child, configuration: (await child.resolve(Configuration)) as Configuration };
+    } catch (e) {
+      await child.dispose();
+      throw e;
+    }
+  }
 
-    it('never routes to a topic set at runtime that is empty or not a string', async () => {
-      await testHost.installHost();
-      try {
-        const cfg = DI.get(Configuration)!;
-        for (const topic of ['', 5, {}]) {
-          cfg.set(['authz', 'bus', 'topic'], topic);
-          cfg.set(['queue', 'routing'], {});
-          const n = await start(cfg);
-          await n.bus.publish(change());
-          expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent']), JSON.stringify(topic)).to.equal(undefined);
-        }
-      } finally {
-        await testHost.uninstallHost();
-      }
-    });
+  const load = (values: Record<string, unknown>) =>
+    new AuthzBusRouteSource().Load({
+      get: (path: string[]) => path.reduce<unknown>((v, k) => (v !== null && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined), values),
+    } as unknown as Configuration);
 
-    it('a bus DI builds routes through the Configuration DI injected', async () => {
-      const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
-      await client.resolve();
-      class DiBus extends QueueChangeBus {
-        protected async queueService(): Promise<QueueService> {
-          return new PeerQueueService(client);
-        }
-      }
-      const cfg = await testHost.installHost();
-      try {
-        cfg.set(['authz', 'bus', 'topic'], '/topic/authz');
-        cfg.set(['queue', 'routing'], {});
-        const bus = (await DI.resolve(DiBus)) as DiBus;
-        expect((bus as unknown as { Configuration: unknown }).Configuration).to.equal(cfg);
-        await bus.publish(change());
-        expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/authz' });
-        await bus.dispose();
-      } finally {
-        DI.uncache(DiBus);
-        await client.dispose();
-        await testHost.uninstallHost();
-      }
-    });
+  it('comes with the import and loads after the file sources', () => {
+    expect(DI.RootContainer.getRegisteredTypes(ConfigurationSource)).to.include(AuthzBusRouteSource);
+    expect(new AuthzBusRouteSource().Order).to.be.greaterThan(new JsFileSource().Order);
+  });
+
+  it('routes the change events to authz.bus.topic, next to the routes of the app', async () => {
+    const { child, configuration } = await boot({ authz: { bus: { topic: '/topic/authz' } }, queue: { routing: { Other: { channel: '/topic/other' } } } });
+    try {
+      expect(configuration.get(ROUTE)).to.deep.equal({ channel: '/topic/authz' });
+      expect(configuration.get(['queue', 'routing', 'Other'])).to.deep.equal({ channel: '/topic/other' });
+    } finally {
+      await child.dispose();
+    }
+  });
+
+  it('keeps the route the app gave', async () => {
+    const { child, configuration } = await boot({ authz: { bus: { topic: '/topic/authz' } }, queue: { routing: { AuthzChangeEvent: { channel: '/topic/mine' } } } });
+    try {
+      expect(configuration.get(ROUTE)).to.deep.equal({ channel: '/topic/mine' });
+    } finally {
+      await child.dispose();
+    }
+  });
+
+  it('adds nothing without a topic, or for one that is empty or not a string', async () => {
+    const { child, configuration } = await boot({});
+    try {
+      expect(configuration.get(ROUTE)).to.equal(undefined);
+    } finally {
+      await child.dispose();
+    }
+    for (const topic of ['', 5, {}]) {
+      expect(await load({ authz: { bus: { topic } } }), JSON.stringify(topic)).to.deep.equal({});
+    }
   });
 });
 
