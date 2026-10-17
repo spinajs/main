@@ -1,8 +1,5 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { appEnvOf } from '@spinajs/authn-session';
-
-import { isRelaxedEnv } from '../support.js';
+import { Configuration, explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration';
 
 export type OidcHttpHeaders = Readonly<Record<string, string>>;
 
@@ -34,7 +31,7 @@ export class FetchOidcHttpClient extends OidcHttpClient {
   @Autoinject(Configuration, { optional: true })
   protected Configuration: Configuration | undefined;
 
-  /** @param relaxed - allow http; default: from the app env as authn-session reads it (none set: production) */
+  /** @param relaxed - allow http; default: from the app env (none named: production) */
   constructor(protected readonly relaxed?: boolean) {
     super();
   }
@@ -45,7 +42,7 @@ export class FetchOidcHttpClient extends OidcHttpClient {
 
   protected allowsHttp(): boolean {
     const config = this.configuration();
-    return this.relaxed ?? (config ? isRelaxedEnv(appEnvOf(config)) : false);
+    return this.relaxed ?? (config ? isDevOrTestEnv(explicitAppEnv(config)) : false);
   }
 
   public async getJson(url: string, headers: OidcHttpHeaders = {}): Promise<OidcHttpResponse> {

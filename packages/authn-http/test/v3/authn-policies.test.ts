@@ -8,7 +8,7 @@ import * as cs from 'cookie-signature';
 import { DateTime } from 'luxon';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, explicitAppEnv } from '@spinajs/configuration';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -17,7 +17,7 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
-import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { DefaultSessionIssuer, MemorySessionStore, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
@@ -213,7 +213,7 @@ describe('3.0 authn policies and route args', function () {
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);
     usePolicyContainer(s.child);
-    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), appEnvOf(config));
+    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), explicitAppEnv(config));
     await startServer();
   });
 

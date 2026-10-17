@@ -9,7 +9,7 @@ import * as cs from 'cookie-signature';
 import { DateTime } from 'luxon';
 import { Bootstrapper, DI, NewInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration, explicitAppEnv } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -18,7 +18,7 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, Session, SessionIssuer } from '@spinajs/authn';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SignedRequest, StrategyOutcome } from '@spinajs/authn';
-import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, sessionCookieName } from '@spinajs/authn-session';
 import type { ISession, ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrincipalFactory, RecordingThrottle } from '@spinajs/authn-testing';
 
@@ -222,7 +222,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);
-    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), appEnvOf(config));
+    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), explicitAppEnv(config));
     await startServer();
   });
 

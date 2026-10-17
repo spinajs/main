@@ -1,5 +1,5 @@
-import { DI } from '@spinajs/di';
-import { normalizeEnvironment } from '@spinajs/configuration-common';
+import { explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration-common';
+import type { AppEnvSource } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { THROTTLE_FLOWS } from '../../contracts/throttle.js';
@@ -18,39 +18,20 @@ export const AUTHN_PUBLIC_COOKIE_SECRET = '1234adreewD';
 export const AUTHN_ENV_FALLBACK_WARNING = 'No app env is set (--env, APP_ENV or NODE_ENV): the configuration fell back to "development", but authn treats the deployment as production and its secret checks are strict; name the env';
 
 /** What the boot checks read; `Configuration` is one. */
-export interface AuthnConfigSource {
-  get<T>(path: string | string[]): T;
-}
+export type AuthnConfigSource = AppEnvSource;
 
-function resolvedAppEnv(config: AuthnConfigSource): string | undefined {
-  const env = config.get<unknown>('process.env.APP_ENV');
-  return typeof env === 'string' ? env : undefined;
-}
+/** @deprecated Use `explicitAppEnv` of `@spinajs/configuration`. */
+export const authnAppEnv: (config: AuthnConfigSource) => string | undefined = explicitAppEnv;
 
-/**
- * The app env as the configuration resolved it from `--env`, APP_ENV or NODE_ENV; undefined when none was set and the
- * configuration fell back to development (SR-16), so authn treats such a deployment as production.
- */
-export function authnAppEnv(config: AuthnConfigSource): string | undefined {
-  return authnEnvFellBack(config) ? undefined : resolvedAppEnv(config);
-}
-
-/** Only development and test relax the secret checks; any other env, an absent one included, is strict (as authn-session). */
-export function isLenientAuthnEnv(env: string | undefined): boolean {
-  const normalized = normalizeEnvironment(env);
-  return normalized === 'dev' || normalized === 'test';
-}
+/** @deprecated Use `isDevOrTestEnv` of `@spinajs/configuration`. */
+export const isLenientAuthnEnv: (env: string | undefined) => boolean = isDevOrTestEnv;
 
 /**
- * True when the configuration resolved development and no env source names development (SR-16): authnAppEnv then
- * answers undefined and authn treats the deployment as production. The sources are those Configuration.load reads:
- * its own `Env` (`--env` or APP_ENV), the APP_ENV of a DI-registered `process.env`, and NODE_ENV. A source set to
- * another env after the configuration loaded relaxes nothing, nor does development named only in a config file.
+ * True when the configuration resolved development that no env source named (SR-16): `explicitAppEnv` then answers
+ * undefined and authn treats the deployment as production.
  */
-export function authnEnvFellBack(config: AuthnConfigSource & { readonly Env?: unknown }): boolean {
-  // Configuration.load reads the root container's 'process.env', so this does too.
-  const registered = DI.get<NodeJS.ProcessEnv>('process.env');
-  return resolvedAppEnv(config) === 'development' && ![config.Env, registered?.APP_ENV, process.env.APP_ENV, process.env.NODE_ENV].includes('development');
+export function authnEnvFellBack(config: AuthnConfigSource): boolean {
+  return config.get<unknown>('process.env.APP_ENV') === 'development' && explicitAppEnv(config) === undefined;
 }
 
 const atLeast = (v: unknown, min: number): boolean => Number.isInteger(v) && (v as number) >= min;
