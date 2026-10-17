@@ -783,4 +783,55 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       ]);
     });
   });
+
+  describe('fresh checks', () => {
+    it('a fresh check skips the L2, runs the models and stores its answer', async () => {
+      const m = new StaticModel('m', { vote: permit() });
+      const { a, cache } = setup([m]);
+      await a.check(read(alice, D1), fresh());
+      await a.check(read(alice, D1, { fresh: true }), fresh());
+      expect(m.calls).to.have.length(2);
+      expect(cache.sets).to.have.length(2);
+      await a.check(read(alice, D1), fresh());
+      expect(m.calls).to.have.length(2);
+    });
+
+    it('a fresh check skips the L1 of its own request', async () => {
+      const m = new StaticModel('m', { vote: permit() });
+      const { a } = setup([m], { l2: false });
+      const scope = fresh();
+      await a.check(read(alice, D1), scope);
+      await a.check(read(alice, D1, { fresh: true }), scope);
+      expect(m.calls).to.have.length(2);
+    });
+
+    it('a permission declared consistency fresh never reads a cache', async () => {
+      const m = new StaticModel('m', { vote: permit() });
+      const strict = registryOf([{ name: 'doc:read', types: ['doc'], consistency: 'fresh' }, { name: 'doc:write', types: ['doc'] }, { name: 'folder:read', types: ['folder'] }]);
+      const { a } = setup([m], { registry: strict });
+      await a.check(read(alice, D1), fresh());
+      await a.check(read(alice, D1), fresh());
+      expect(m.calls).to.have.length(2);
+    });
+
+    it('models see fresh on the request only for fresh checks', async () => {
+      const m = new StaticModel('m', { vote: permit() });
+      const { a } = setup([m], { l2: false });
+      await a.check(read(alice, D1), fresh());
+      await a.check(read(alice, D1, { fresh: true }), fresh());
+      expect(m.calls[0].req.fresh).to.equal(undefined);
+      expect(m.calls[1].req.fresh).to.equal(true);
+    });
+
+    it('refuses a fresh that is not a boolean', async () => {
+      const { a } = setup([new StaticModel('m', { vote: permit() })]);
+      let error: unknown;
+      try {
+        await a.check(read(alice, D1, { fresh: 'yes' as never }), fresh());
+      } catch (e) {
+        error = e;
+      }
+      expect(String(error)).to.match(/fresh must be a boolean/);
+    });
+  });
 });

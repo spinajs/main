@@ -128,6 +128,8 @@ interface Run {
   readonly quiet?: boolean;
   /** covers() on the holder: no cache reads, since a cached decision has no `firmFields`; stores as usual. */
   readonly firm?: boolean;
+  /** A fresh check: no cache reads anywhere in the call tree; stores as usual. */
+  readonly fresh?: boolean;
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
@@ -1082,6 +1084,8 @@ export class Authorizer {
     const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
 
     const def = this.requirePermission(input.permission);
+    if (input.fresh !== undefined && typeof input.fresh !== 'boolean') throw new AuthzConfigError(`${this.where}: fresh must be a boolean`);
+    if (input.fresh === true || def.consistency === 'fresh') run = { ...run, fresh: true };
     const { ref, subject } = resolved ?? (yield* this.resolveResource(input.resource, input.subject, def));
     this.refuseLateType(ref.type);
     if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
@@ -1133,7 +1137,7 @@ export class Authorizer {
     if (actor !== undefined) principals.push(actor);
     if (delegation.actor !== undefined) principals.push(delegation.actor);
     const tags = once(() => this.tagsOf(plan.models, principals, ref, ancestors, run));
-    if (key !== undefined && run.firm !== true) {
+    if (key !== undefined && run.firm !== true && run.fresh !== true) {
       const hit = this.cached(key, run, def, ref, requester, parties.ref);
       if (hit) return hit;
     }
@@ -1154,7 +1158,7 @@ export class Authorizer {
     core('route', `${plan.algorithm} over ${models.length} model(s)`, { models: models.map((m) => m.name) });
     const host = this.hostFor(run);
     const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, steps, contextCacheKey(m.name, parties.cacheId)));
-    const request = () => this.request(parties, def, ref, subject, input.env, run.instant, explain);
+    const request = () => this.request(parties, def, ref, subject, input.env, run.instant, explain, run.fresh === true);
     const label = `${def.name} on ${resourceKey(ref)}`;
     const binder = this.refBinder(parties, env, ancestors, run);
     const voteLoads = { degraded: false };
@@ -1846,10 +1850,11 @@ export class Authorizer {
 
   // ---- context services ----
 
-  private request(parties: Parties, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, instant: Date, explain: boolean): DecisionRequest {
+  private request(parties: Parties, def: PermissionDef, ref: ResourceRef, subject: unknown, env: unknown, instant: Date, explain: boolean, fresh: boolean): DecisionRequest {
     const req: { -readonly [K in keyof DecisionRequest]: DecisionRequest[K] } = { principal: parties.principal, permission: def.name, resource: ref, env: this.envOf(env, instant), explain };
     if (parties.actor) req.actor = parties.actor;
     if (subject !== undefined) req.subject = subject;
+    if (fresh) req.fresh = true;
     return Object.freeze(req);
   }
 

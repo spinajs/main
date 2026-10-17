@@ -408,6 +408,8 @@ export interface DecisionRequest {
     readonly subject?: unknown;
     readonly env?: Readonly<Record<string, unknown>>;
     readonly explain?: boolean;
+    /** Read no cache that may predate this call (decision caches, model caches); the answer is still stored. */
+    readonly fresh?: boolean;
 }
 export interface FieldSet {
     readonly read?: readonly string[];
