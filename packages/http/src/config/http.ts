@@ -1,6 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
-import { configuredCookieParser } from '../cookie.js';
+import { HTTP_PUBLIC_COOKIE_SECRET, configuredCookieParser } from '../cookie.js';
 import compression from 'compression';
 import { join, normalize, resolve } from 'path';
 import os from 'os';
@@ -65,7 +65,7 @@ const http = {
      * only as trustworthy as the key that signs them.
      */
     cookie: {
-      secret: '1234adreewD',
+      secret: HTTP_PUBLIC_COOKIE_SECRET,
       options: {
         maxAge: 900000,
         httpOnly: true,
