@@ -3,9 +3,8 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, NotFound, Ok, Param, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import type { Session } from '@spinajs/authn/contracts';
 
-import { refused } from '../../policies/v3/errors.js';
+import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { publishAuthnEvent } from '../routes.js';
@@ -34,7 +33,7 @@ export class AuthnSessionsController extends BaseController {
    */
   @Get('sessions')
   public async list(@Req() req: Request) {
-    const session = this.own(req);
+    const session = activeSessionOf(req);
     const rows = await this.Sessions.list(session.identity, { current: session.handle });
     const entries = [...rows]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -56,7 +55,7 @@ export class AuthnSessionsController extends BaseController {
    */
   @Del('sessions/:handle')
   public async revoke(@Req() req: Request, @Param() handle: string) {
-    const session = this.own(req);
+    const session = activeSessionOf(req);
     const ended = typeof handle === 'string' && (await this.Sessions.revokeHandle(session.identity, handle));
     if (!ended) return new NotFound({ error: 'session_not_found', message: 'No such session' });
     await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
@@ -71,15 +70,9 @@ export class AuthnSessionsController extends BaseController {
    */
   @Del('sessions')
   public async revokeOthers(@Req() req: Request) {
-    const session = this.own(req);
+    const session = activeSessionOf(req);
     const revoked = await this.Sessions.revokeAll(session.identity, { except: session.handle });
     await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
     return new Ok({ Revoked: revoked }, { Headers: [NO_STORE] });
-  }
-
-  protected own(req: Request): Session {
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
-    return session;
   }
 }

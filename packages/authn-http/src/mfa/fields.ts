@@ -1,11 +1,9 @@
 import type { IContainer } from '@spinajs/di';
 import { Conflict, ForbiddenResponse, Unauthorized } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
-import { IdentityStore } from '@spinajs/authn/contracts';
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 
-import { publishAuthnEvent } from '../policies/v3/audit.js';
-import { PASSWORD_HARD_CAP, REAUTH_PASSWORD_FIELD } from '../policies/v3/fresh-auth.js';
+import { PASSWORD_HARD_CAP, reauthCredentials, takeReauthPassword } from '../policies/v3/fresh-auth.js';
 import { NO_STORE, authnFailureResponse } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
@@ -22,24 +20,12 @@ export const codeField = (req: Request): string | null => boundedString(bodyFiel
  * verifies the credentials only when an active session is not fresh: one check, counted in the reauth throttle.
  */
 export async function reauthOf(container: IContainer, req: Request, session: Session): Promise<{ credentials?: Credentials } | { answer: Response }> {
-  const password = bodyField(req, REAUTH_PASSWORD_FIELD);
-  if (password !== undefined) {
-    delete (req.body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
-    delete (req as { rawBody?: unknown }).rawBody;
-  }
+  const password = takeReauthPassword(req);
   if (typeof password !== 'string' || password === '') return {};
-  let reason = 'password_too_long';
-  if (password.length <= PASSWORD_HARD_CAP) {
-    if (session.handle.state !== 'active') return {};
-    // As assertFreshAuth: IdentityStore.findByLogin takes an email, so display's email names the identity.
-    const { email } = await (await container.resolve(IdentityStore)).display(session.identity);
-    if (typeof email === 'string' && email !== '') return { credentials: { kind: 'password', login: email, password } };
-    reason = 'no_login';
-  }
-  // Core never sees these attempts, so it cannot audit them.
-  const { sessionHandle } = session.facts;
-  await publishAuthnEvent(container, req, { type: 'reauth', outcome: 'failure', reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
-  return { answer: authnFailureResponse() };
+  // An over-long password is a failed attempt even for a pending session.
+  if (password.length <= PASSWORD_HARD_CAP && session.handle.state !== 'active') return {};
+  const credentials = await reauthCredentials(container, req, session, password);
+  return credentials ? { credentials } : { answer: authnFailureResponse() };
 }
 
 export type TotpRefusal = 'no_session' | 'not_fresh' | 'enrolled' | 'not_begun' | 'not_enrolled' | 'invalid_code' | 'throttled';
