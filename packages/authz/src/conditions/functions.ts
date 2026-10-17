@@ -1,5 +1,6 @@
 import { BlockList, isIP } from 'node:net';
 import { DI } from '@spinajs/di';
+import { BoundedMap } from '@spinajs/util';
 
 import { ConditionFunction } from './contracts.js';
 import { AuthzConfigError } from '../contracts/errors.js';
@@ -51,25 +52,6 @@ function only(args: Readonly<Record<string, unknown>>, keys: readonly string[], 
   for (const k of Object.keys(args)) if (!keys.includes(k)) throw new AuthzConfigError(`${where}: ${name} takes ${keys.join(', ')}, not ${JSON.stringify(k)}`);
 }
 
-/** A FIFO-bounded map: entries computed from request data must not grow without limit. */
-class Bounded<V> {
-  private readonly map = new Map<string, V>();
-  constructor(private readonly max: number) {}
-  get(k: string): V | undefined {
-    return this.map.get(k);
-  }
-  has(k: string): boolean {
-    return this.map.has(k);
-  }
-  set(k: string, v: V): void {
-    if (!this.map.has(k) && this.map.size >= this.max) this.map.delete(this.map.keys().next().value!);
-    this.map.set(k, v);
-  }
-  get size(): number {
-    return this.map.size;
-  }
-}
-
 // ---- time.between ----
 
 const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -79,8 +61,8 @@ const minutesOf = (hhmm: string): number => {
 };
 // Intl takes any casing, aliases and offsets of a zone, and tz may come from a ref, so the raw
 // spellings are bounded and share one formatter per canonical zone.
-const bySpelling = new Bounded<Intl.DateTimeFormat | null>(256);
-const byZone = new Bounded<Intl.DateTimeFormat>(1024);
+const bySpelling = new BoundedMap<string, Intl.DateTimeFormat | null>(256);
+const byZone = new BoundedMap<string, Intl.DateTimeFormat>(1024);
 
 function formatter(tz: string): Intl.DateTimeFormat | null {
   const hit = bySpelling.get(tz);
@@ -140,7 +122,7 @@ export class TimeBetween extends KleeneConditionFunction {
 // ---- ip.in ----
 
 const MAX_CACHED_RANGES = 1024;
-const lists = new Bounded<BlockList | null>(256);
+const lists = new BoundedMap<string, BlockList | null>(256);
 
 function toBigInt(address: string, version: 4 | 6): bigint {
   if (version === 4) return address.split('.').reduce((n, part) => (n << 8n) | BigInt(Number(part)), 0n);

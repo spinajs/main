@@ -1,5 +1,7 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import { memoizeAsync } from '@spinajs/util';
+import type { PromiseMap } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -360,13 +362,7 @@ export class RbacModel extends AuthorizationModel {
   /** One store read per request and member key list; the assignment cache is the cross-request cache. */
   private setsOf(memberKeys: readonly string[], ctx: EvaluationContext): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> {
     const key = `${SETS_MEMO}${ctx.now.getTime()}:${JSON.stringify([...memberKeys].sort())}`;
-    let read = ctx.cache.get(key) as Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> | undefined;
-    if (!read) {
-      read = this.opts.membership!.setsOf(memberKeys, ctx.now);
-      ctx.cache.set(key, read);
-      read.catch(() => ctx.cache.delete(key));
-    }
-    return read;
+    return memoizeAsync(ctx.cache as PromiseMap<string, readonly { readonly setKey: string; readonly expiresAt?: Date }[]>, key, () => this.opts.membership!.setsOf(memberKeys, ctx.now));
   }
 
   /**
