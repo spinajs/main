@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import type { IContainer } from '@spinajs/di';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 
 import authnLocal from '../src/config/authn-local.js';
@@ -13,6 +14,8 @@ const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 // authn.local has no schema default of its own: an app that installs authn-local names it.
 const LOCAL = { authn: { local: {} } };
 const bad = (local: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { local } });
+/** `readingFrom` plus the container LocalPasswordPolicy looks its blocklist up in. */
+const withContainer = (policy: LocalPasswordPolicy, container: IContainer) => Object.defineProperty(readingFrom(policy, container), 'Container', { value: container });
 
 describe('authn.local through the schema', function () {
   this.timeout(30000);
@@ -94,7 +97,7 @@ describe('authn.local through the schema', function () {
   describe('through @Config', () => {
     it('LocalPasswordPolicy reads its bounds and rule from the booted configuration', async () => {
       const { child } = await boot(SCHEMAS, { authn: { local: { policy: { minLength: 10, maxLength: 20, rule: { type: 'string', pattern: '[0-9]' }, description: 'needs a digit' } } } });
-      const policy = readingFrom(new LocalPasswordPolicy(), child);
+      const policy = withContainer(new LocalPasswordPolicy(), child);
       policy.resolve();
       expect(policy.policy()).to.deep.include({ minLength: 10, maxLength: 20, pattern: '[0-9]', description: 'needs a digit' });
       expect(await policy.check('abcdefghij')).to.deep.eq(['rule']);
@@ -105,7 +108,7 @@ describe('authn.local through the schema', function () {
       const compile = await boot(SCHEMAS, { authn: { local: { policy: { rule: { type: 'no-such-type' } } } } });
       expect(() => readingFrom(new LocalPasswordPolicy(), compile.child).resolve()).to.throw(/does not compile/);
       const blocklist = await boot(SCHEMAS, { authn: { local: { policy: { blocklist: 'NoSuchBlocklist' } } } });
-      expect(() => readingFrom(new LocalPasswordPolicy(), blocklist.child).resolve()).to.throw(/not registered as a PasswordBlocklist/);
+      expect(() => withContainer(new LocalPasswordPolicy(), blocklist.child).resolve()).to.throw(/not registered as a PasswordBlocklist/);
     });
 
     it('LocalPasswordPolicy generates within the policy bounds and refuses a generator outside them', async () => {
