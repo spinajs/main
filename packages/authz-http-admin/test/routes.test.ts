@@ -9,6 +9,7 @@ import type { BehaviourHarness, BehaviourId, HarnessSession, World } from '@spin
 import { IsAuthenticated } from '@spinajs/authz-http';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
+import { RbacAdminReader } from '../../authz-rbac/src/index.js';
 import { FrameworkLogger } from '@spinajs/log';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
@@ -27,7 +28,7 @@ const G1 = ref('group', 'g1');
 
 const TYPES = ['org', 'project', 'file', 'group'];
 const MANAGE = ['authz:assignments.manage', 'authz:links.manage', 'authz:rules.manage', 'authz:policies.manage', 'authz:scope.manage'];
-const READ = ['authz:assignments.read', 'authz:links.read', 'authz:rules.read', 'authz:policies.read', 'authz:attributes.read'];
+const READ = ['authz:assignments.read', 'authz:links.read', 'authz:rules.read', 'authz:policies.read', 'authz:attributes.read', 'authz:holders.read'];
 
 const alice = userPrincipal('alice');
 const bob = userPrincipal('bob');
@@ -186,7 +187,7 @@ describe('authz-http-admin routes', function () {
 
     it('applies IsAuthenticated to the whole controller', () => {
       expect(descriptor.Policies.flat().map((p) => p.Type)).to.deep.equal([IsAuthenticated]);
-      expect(routes).to.have.length(18);
+      expect(routes).to.have.length(19);
     });
 
     it('refuses a request without a principal with 401 on every route', async () => {
@@ -321,6 +322,44 @@ describe('authz-http-admin routes', function () {
         expect(res.status, bad).to.equal(400);
         expect(res.body.results[0].error).to.deep.include({ code: 'invalid_command', field: 'expiresAt' });
       }
+    });
+  });
+
+  describe('holders', () => {
+    it('passes the query to the reader and answers its page', async () => {
+      // The harness model is not an RbacModel, so the reader is stubbed: this tests the route, not the RBAC answer.
+      const seen: AuthzAdminQuery[] = [];
+      const original = RbacAdminReader.prototype.list;
+      RbacAdminReader.prototype.list = async function (q: AuthzAdminQuery) {
+        if (q.kind !== 'holders') return original.apply(this, arguments as never);
+        seen.push(q);
+        return { items: [{ subject: { type: 'user', id: 'root' }, via: [] }], total: 1 };
+      } as typeof original;
+      try {
+        const res = await call('GET', '/authz/holders?scope=project:p1&permission=file:edit&expandSets=true&limit=10&offset=0');
+        expect(res.status, JSON.stringify(res.body)).to.equal(200);
+        expect(res.body).to.deep.equal({ items: [{ subject: { type: 'user', id: 'root' }, via: [] }], total: 1 });
+        expect(seen).to.deep.equal([{ kind: 'holders', scope: P1, permission: 'file:edit', expandSets: true, page: { limit: 10, offset: 0 } }]);
+      } finally {
+        RbacAdminReader.prototype.list = original;
+      }
+    });
+
+    it('answers 400 invalid_query for a missing or malformed parameter', async () => {
+      for (const [q, field] of [
+        ['scope=project:p1', 'permission'],
+        ['permission=file:read', 'scope'],
+        ['scope=project:p1&permission=file:read&expandSets=1', 'expandSets'],
+        ['scope=project:p1&permission=file:read&limit=x', 'limit'],
+      ]) {
+        const res = await call('GET', `/authz/holders?${q}`);
+        expect(res.status, q).to.equal(400);
+        expect(res.body.error, q).to.deep.include({ code: 'invalid_query', field });
+      }
+    });
+
+    it('answers 403 when the principal may not read holders', async () => {
+      expect((await call('GET', '/authz/holders?scope=project:p1&permission=file:read', carol)).status).to.equal(403);
     });
   });
 

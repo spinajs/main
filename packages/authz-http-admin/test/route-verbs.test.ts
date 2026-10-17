@@ -6,7 +6,7 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, RouteType } from '
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
 
 describe('AuthzAdmin routes: http verbs', () => {
-  const READ_ONLY_ROUTES = ['listAssignments', 'listLinks', 'listRules', 'listPolicies', 'attributes'];
+  const READ_ONLY_ROUTES = ['listAssignments', 'listHolders', 'listLinks', 'listRules', 'listPolicies', 'attributes'];
 
   const routes = () => [...(Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, new AuthzAdminController()) as IControllerDescriptor).Routes.values()];
 
