@@ -23,7 +23,7 @@ type Rows = readonly Assignment[];
 interface Call {
   readonly keys: readonly string[];
   readonly at: Date;
-  resolve(): void;
+  resolve(answer?: Assignment[]): void;
   reject(e: Error): void;
 }
 
@@ -40,10 +40,10 @@ class ScriptedStore extends AssignmentStore {
 
   forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<Rows> {
     const keys = subjects.map(subjectKey);
-    // Read when the call settles, so a test can change the rows while a load is in flight.
+    // Read when the call settles, so a test can change the rows while a load is in flight; `resolve(rows)` answers with a snapshot instead.
     const answer = () => [...this.rows.filter((a) => keys.includes(subjectKey(a.subject)) && isLive(a, at)), ...this.extra];
     return new Promise<Rows>((resolve, reject) => {
-      const call: Call = { keys, at, resolve: () => resolve(answer()), reject };
+      const call: Call = { keys, at, resolve: (snapshot) => resolve(snapshot ?? answer()), reject };
       this.calls.push(call);
       if (!this.manual) call.resolve();
     });
@@ -369,6 +369,22 @@ describe('authz-rbac model: AssignmentCache', () => {
     expect(ids(await cache.read([alice], ctx, { fresh: true }))).to.deep.equal(['a2']);
     expect(store.calls).to.have.length(2);
     expect(ids(now(cache.read([alice], ctx)))).to.deep.equal(['a2']);
+    expect(ids(now(cache.read([alice], request())))).to.deep.equal(['a2']);
+  });
+
+  it('a slower load that started before a fresh one never overwrites its rows', async () => {
+    const { store, cache } = setup([row('a1', alice)]);
+    store.manual = true;
+    const older = cache.read([alice], request());
+    store.rows = [row('a2', alice)];
+    const fresher = cache.read([alice], request(), { fresh: true });
+    await settle();
+    expect(store.calls).to.have.length(2);
+    store.calls[1].resolve();
+    expect(ids(await fresher)).to.deep.equal(['a2']);
+    store.calls[0].resolve([row('a1', alice)]); // the older read saw the store before the change
+    await older;
+    await settle();
     expect(ids(now(cache.read([alice], request())))).to.deep.equal(['a2']);
   });
 });

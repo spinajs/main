@@ -22,6 +22,8 @@ export interface AssignmentCacheOptions {
 
 interface Entry {
   readonly rows: Rows;
+  /** Order of the load that stored it; an older load never replaces it. */
+  readonly started: number;
   /** The `at` the store answered for. */
   readonly at: number;
   /** Clock time the entry stops serving. */
@@ -59,6 +61,7 @@ const SET_PREFIX = '%set:';
  */
 export class AssignmentCache {
   private generation = 0;
+  private loads = 0;
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Pending>();
 
@@ -67,6 +70,7 @@ export class AssignmentCache {
   /**
    * The assignments of `subjects` live at ctx.now (and possibly some that expired since), in subject
    * order: the rows themselves when the request or the cache holds every subject, else a promise.
+   * `opts.fresh` skips the request memo and every cached copy; the rows it reads refresh both.
    * @throws (rejects) when the store fails or returns a row whose subject cannot be read
    */
   read(subjects: readonly AssignmentSubject[], ctx: EvaluationContext, opts: { readonly fresh?: boolean } = {}): Rows | Promise<Rows> {
@@ -169,6 +173,7 @@ export class AssignmentCache {
   /** One store read for `keys`; its rows are stored only if no invalidate came since it started. */
   private fetch(keys: readonly string[], subjects: ReadonlyMap<string, AssignmentSubject>, at: Date): Map<string, Promise<Rows>> {
     const generation = this.generation;
+    const started = ++this.loads;
     const until = this.opts.clock.now().getTime() + this.opts.ttlMs;
     const mine = new Map<string, Promise<Rows>>();
     const settle = () => {
@@ -187,7 +192,7 @@ export class AssignmentCache {
         for (const row of rows.map(frozenData)) buckets.get(subjectKey(row.subject))?.push(row);
         const out = new Map<string, Rows>([...buckets].map(([k, list]) => [k, Object.freeze(list)]));
         settle();
-        if (this.generation === generation) for (const [key, list] of out) this.keep(key, { rows: list, at: at.getTime(), until });
+        if (this.generation === generation) for (const [key, list] of out) this.keep(key, { rows: list, started, at: at.getTime(), until });
         return out;
       });
     batch.catch(settle);
@@ -201,6 +206,7 @@ export class AssignmentCache {
 
   private keep(key: string, entry: Entry): void {
     if (this.opts.ttlMs <= 0 || this.opts.maxEntries <= 0) return;
+    if ((this.entries.get(key)?.started ?? 0) > entry.started) return;
     this.entries.delete(key);
     this.entries.set(key, entry);
     while (this.entries.size > this.opts.maxEntries) this.entries.delete(this.entries.keys().next().value!);
