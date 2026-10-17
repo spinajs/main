@@ -9,7 +9,7 @@ Docs describe what a package user can see, configure, extend and rely on, in its
 - Decorators: target (class, method, property, parameter), options, effect, order with other decorators.
 - Configuration: every key, its type, default, allowed values and effect.
 - Schema: tables, columns, indexes and models the feature reads or writes; migrations it ships.
-- DI surface: injectable services, default implementations, named services, classes a user overrides or extends, and how to register the replacement.
+- Extensibility, for every class a user can replace or extend: see [Extensibility](#extensibility).
 - Events, hooks and middleware a user subscribes to or plugs in.
 - HTTP surface: routes, status codes, request and response shapes.
 - Important behaviour: ordering, atomicity, caching, concurrency, security guarantees, failure modes, surprising defaults.
@@ -17,6 +17,19 @@ Docs describe what a package user can see, configure, extend and rely on, in its
 - Relations: packages, features and services this one depends on or feeds, and why.
 - Removed public API: delete its docs.
 - Breaking change: a "Migration" note with before and after code.
+
+## Extensibility
+
+Find every extension point in the package: classes decorated `@Injectable`, `@Singleton`, `@NewInstance` or `@PerChildInstance`; `DI.register(...)` calls in the package (often in a bootstrapper or `resolve()`); abstract classes; factories and factory functions; named services resolved by config; interfaces with more than one implementation; `declare module` augmentations other packages make.
+
+For each one, document:
+
+- How it is registered: the DI token, lifetime (singleton, new instance, per child), and where the registration happens.
+- How it is resolved: by type, by name from config, as a list (`Array.ofType`), lazily or at boot.
+- The default implementation and the shipped alternatives.
+- How to replace it: `DI.register(MyImpl).as(Base)`, a named registration, a config key, or a subclass. Say when the replacement must be registered (before or after which bootstrap step).
+- How to extend it instead of replacing it: which methods are meant to be overridden, which hooks exist.
+- A complete example of a custom implementation, registered and used.
 
 ## Skip
 

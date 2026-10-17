@@ -36,11 +36,15 @@ sequenceDiagram
 
 ## Services and extension points
 
-| Service | Role | Default implementation | How to override |
-| --- | --- | --- | --- |
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
 
-```ts
-<override example: subclass and DI registration>
+### <Service>: custom implementation
+
+<When you would replace it, which methods to override, when to register.>
+
+```ts sample
+<complete custom implementation, its DI registration, and its use>
 ```
 
 ## Important behaviour

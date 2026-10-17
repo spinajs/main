@@ -23,7 +23,7 @@ Plain, direct, scannable. A reader finds the answer in seconds.
 
 - Configuration: `| Key | Type | Default | Allowed values | Meaning |`, full dotted key path (`authn.session.ttl`).
 - Decorators: `| Decorator | Target | Options | Effect |`.
-- Services: `| Service | Role | Default implementation | How to override |`.
+- Services: `| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |`.
 - Schema: one table per DB table, `| Column | Type | Meaning |`.
 
 ## Code

@@ -1,46 +1,4 @@
 #!/bin/sh
-# For a commit touching packages/*/src, starts a background headless Claude Code run of
-# the update-docs skill (.claude/skills/update-docs). Doc edits stay uncommitted for review;
-# run output is appended to <git-dir>/docs-hook.log.
-#   DOCS_HOOK_SKIP=1 git commit ...   skip it for one commit
-#   CLAUDE_BIN=/path/to/claude        use a specific CLI binary
-
-docs_sync() {
-  [ -n "$DOCS_HOOK" ] && return 0
-  [ "${DOCS_HOOK_SKIP:-0}" = "1" ] && return 0
-
-  git_dir=$(git rev-parse --git-dir)
-  # A rebase or cherry-pick replays many commits; each would start its own run.
-  [ -d "$git_dir/rebase-merge" ] && return 0
-  [ -d "$git_dir/rebase-apply" ] && return 0
-  [ -f "$git_dir/MERGE_HEAD" ] && return 0
-  [ -f "$git_dir/CHERRY_PICK_HEAD" ] && return 0
-  [ -f "$git_dir/REVERT_HEAD" ] && return 0
-
-  git diff-tree --no-commit-id --name-only -r HEAD -- 'packages/*/src/' | grep -q . || return 0
-
-  claude=${CLAUDE_BIN:-$(command -v claude)}
-  # The VS Code extension ships the CLI without putting it on PATH.
-  [ -z "$claude" ] && claude=$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude* 2>/dev/null | sort -V | tail -n 1)
-  if [ -z "$claude" ]; then
-    echo "docs hook: claude CLI not found, install it or set CLAUDE_BIN" >&2
-    return 0
-  fi
-
-  sha=$(git rev-parse --short HEAD)
-  log="$git_dir/docs-hook.log"
-  echo "docs hook: updating docs for $sha in background, log: $log" >&2
-  echo "=== $(date '+%Y-%m-%d %H:%M:%S') $sha" >> "$log"
-
-  # Double fork with every stream redirected, so git returns without waiting for the run.
-  ( DOCS_HOOK=1 "$claude" -p "/update-docs $sha" \
-      --permission-mode acceptEdits \
-      --allowedTools "Skill,Read,Edit,Write,Glob,Grep,Bash(git show:*),Bash(git diff:*),Bash(git log:*),Bash(graphify:*)" \
-      < /dev/null >> "$log" 2>&1 & )
-}
-
-docs_sync
-
 . "$(dirname "$0")/graphify-refresh.sh"
 graphify_refresh commit
 
