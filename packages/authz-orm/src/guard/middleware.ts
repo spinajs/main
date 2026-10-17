@@ -1,5 +1,6 @@
 import { AuthzConfigError, SYSTEM, currentPrincipal } from '@spinajs/authz';
-import { Injectable } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { DI, Injectable } from '@spinajs/di';
 import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereStatement, extractModelDescriptor } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
 
@@ -8,6 +9,7 @@ import { marksOf } from '../marker.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
 import { guardMode } from './env.js';
+import type { GuardMode } from './env.js';
 
 const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint';
 
@@ -60,11 +62,21 @@ export class AccessGuardMiddleware extends QueryMiddleware {
 
   private readonly sites = new WeakMap<object, string>();
   private readonly warned = new Set<string>();
+  private memo: { config: Configuration | undefined; env: unknown; mode: GuardMode } | undefined;
+
+  // Runs twice per select. Keyed rather than computed once: a root Configuration can be replaced, and its APP_ENV set,
+  // after this singleton was created (tests do both).
+  protected get mode(): GuardMode {
+    const config = DI.get(Configuration) as Configuration | undefined;
+    const env = config?.get<unknown>('process.env.APP_ENV');
+    if (!this.memo || this.memo.config !== config || this.memo.env !== env) this.memo = { config, env, mode: guardMode(config) };
+    return this.memo.mode;
+  }
 
   afterQueryCreation(query: QueryBuilder): void {
     if (!(query instanceof SelectQueryBuilder) || !entryOf(query.Model)) return;
     // The stack is only worth taking where a warning may need it.
-    if (guardMode() === 'warn') this.sites.set(query, callSite(new Error().stack));
+    if (this.mode === 'warn') this.sites.set(query, callSite(new Error().stack));
   }
 
   beforeQueryExecution(query: QueryBuilder): void {
@@ -75,7 +87,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
     if (marks?.accessible !== undefined || marks?.unscoped !== undefined) return;
     if (currentPrincipal() === SYSTEM || storageUnscoped() !== undefined) return;
     if (isSingleObjectLoad(query, entry)) return;
-    const mode = guardMode();
+    const mode = this.mode;
     if (mode === 'off') return;
     const message = `authz-orm: a select of ${nameOf(query.Model)} (@AccessResource '${entry.type}') runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`;
     if (mode === 'throw') throw new AuthzConfigError(message);
