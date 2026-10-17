@@ -94,7 +94,7 @@ These classes are public so tools and tests can inspect a container; the contain
 
 | Class | Useful members |
 | --- | --- |
-| `Registry` | `getTypes(key, parent = true)`, `getTypesChain(key)`, `hasRegistered(key, parent)`, `hasRegisteredType(key, type, parent)`, `ownsRegistration(key)` |
+| `Registry` | `getTypes(key, parent = true)`, `getTypesChain(key)`, `hasRegistered(key, parent)`, `hasRegisteredType(key, type, parent)`, `ownsRegistration(key)`, `unregister(key, implementation?)` |
 | `ContainerCache` | Iterable as `{ key, value }`; `has(key, parent?)`, `get(key, parent?)`, `getResolutionStats()` (`{ cacheSize, activeResolutions, resolutionKeys }`) |
 | `Binder` | The `IBind` implementation returned by `register()` |
 

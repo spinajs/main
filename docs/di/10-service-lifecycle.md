@@ -10,7 +10,7 @@ Base classes give a service hooks the container calls: `resolve()` after injecti
    - A `SyncService` gets `resolve()` called synchronously; the instance is returned at once.
    - An `AsyncService` gets `resolve()` called and awaited; the container returns a `Promise` that settles with the instance, or rejects with the error `resolve()` threw.
 4. **Cache.** A singleton-like instance is cached only after `resolve()` finishes, and concurrent resolves of it share one promise, so `resolve()` runs once per instance.
-5. **Dispose.** `container.dispose()` disposes every child container first, then calls `dispose()` on each cached value that is a `Service`, in cache order. Errors are collected and reported with one `console.warn`; `dispose()` itself does not reject. Then the cache is cleared and `di.dispose` is emitted.
+5. **Dispose.** `container.dispose()` disposes every child container first, then calls `dispose()` on each cached value that is a `Service`, in cache order. With `{ plainOwners: true }` (passed on to the children) it first calls `dispose()` once on each cached value that is not a `Service` but has one, eg. a model; the container itself is skipped. Errors are collected and reported with one `console.warn`; `dispose()` itself does not reject. Then the cache is cleared and `di.dispose` is emitted.
 
 ## API
 
@@ -20,7 +20,7 @@ Base classes give a service hooks the container calls: `resolve()` after injecti
 | `SyncService` (abstract) | `resolve(): void` | Sets `Resolved` to `true`. Override for synchronous setup |
 | `AsyncService` | `resolve(): Promise<void>` | Sets `Resolved` to `true`. Override for async setup: connections, file reads, remote config |
 | `Bootstrapper` (abstract) | `bootstrap(): Promise<void> \| void` | Startup hook. The container does **not** run it; the app entry does |
-| `DI.dispose()` / `container.dispose()` | `Promise<void>` | Dispose children and cached services, clear the cache |
+| `DI.dispose(options?)` / `container.dispose(options?)` | `Promise<void>` | Dispose children and cached services, clear the cache; `{ plainOwners: true }` also disposes cached non-`Service` instances |
 
 ## Services and extension points
 
