@@ -13,7 +13,8 @@ import { adminActor, adminContainer } from './context.js';
 
 /** Allowed and unconditional, else AuthzAdminFailure('forbidden'): a command or a read has no row to evaluate a residual against. */
 export async function requirePermitted(authz: AuthzService, actor: Principal, permission: Permission, resource: ResourceRef): Promise<void> {
-  const d = await authz.check({ principal: actor, permission, resource });
+  // Fresh, so a revoked admin role is not honoured from a decision cache.
+  const d = await authz.check({ principal: actor, permission, resource, fresh: true });
   if (!d.allowed || d.residual?.op !== 'true') {
     const why = d.allowed ? 'only conditionally' : d.reason?.code ?? 'denied';
     throw new AuthzAdminFailure('forbidden', `${principalKey(actor)} may not ${permission} on ${resourceKey(resource)} (${why})`);
