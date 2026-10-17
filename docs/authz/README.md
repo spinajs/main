@@ -200,9 +200,13 @@ export default {
 - Arrays from different config files are concatenated, so a package fragment adds roles and policies.
 - `consistency: 'fresh'` on a permission makes every check of it skip the decision caches (L1 and
   L2) and the RBAC assignment cache, so an assignment revoked on another node is never honoured from
-  a cache. The answer is still stored for ordinary checks. One call can ask the same with
-  `authz().check({ ..., fresh: true })`. `AuthzAdmin` checks the actor's permission fresh.
-  Use it for deletes, sharing, payouts and admin actions; every fresh check reads the store.
+  a cache. Role definitions and rules may still come from the model's snapshots until the change bus
+  delivers a change. The answer is still stored for ordinary checks. One call can ask the same with
+  `authz().check({ ..., fresh: true })`. Access plans of a fresh `list: true` permission skip the
+  plan cache and read assignments fresh too. `filterNow` (the sync path) answers `undefined`
+  for a fresh permission on the RBAC model, whose fresh read is IO; use `filter`. `AuthzAdmin` checks the actor's permission fresh, and so does
+  its escalation guard when it reads the actor's rank. Use it for deletes, sharing, payouts and admin
+  actions; every fresh check reads the store.
 
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.
 

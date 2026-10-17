@@ -408,7 +408,7 @@ export interface DecisionRequest {
     readonly subject?: unknown;
     readonly env?: Readonly<Record<string, unknown>>;
     readonly explain?: boolean;
-    /** Read no cache that may predate this call (decision caches, model caches); the answer is still stored. */
+    /** Skip the decision caches and the models' assignment caches for this call; the answer is still stored. */
     readonly fresh?: boolean;
 }
 export interface FieldSet {
@@ -759,7 +759,7 @@ export interface PermissionDef {
     readonly fields?: boolean;
     /** Usable with list helpers (`.accessible()`); boot rule 12 checks every model can plan it. */
     readonly list?: boolean;
-    /** 'fresh': every check of it skips the decision and model caches; default 'cached'. */
+    /** 'fresh': every check of it skips the decision caches and the models' assignment caches; default 'cached'. */
     readonly consistency?: "cached" | "fresh";
     readonly description?: string;
     readonly source: string;
