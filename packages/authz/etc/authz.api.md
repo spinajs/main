@@ -840,6 +840,8 @@ export interface ListPlanRequest {
     readonly type: ResourceType;
     /** Request env, built like check() builds it (`now` always present). */
     readonly env?: Readonly<Record<string, unknown>>;
+    /** Set for a consistency `fresh` permission, as `DecisionRequest.fresh`. */
+    readonly fresh?: boolean;
 }
 /** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
 export interface SqlRowContext {

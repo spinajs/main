@@ -161,7 +161,7 @@ export class RbacModel extends AuthorizationModel {
   /** Design §6.2: the gathered input of the type-level request `{ type }`, through `cap`, as a list plan (rbacListPlan). */
   async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
     await this.freshRoles();
-    const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}) };
+    const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}), ...(req.fresh === true ? { fresh: true } : {}) };
     await this.refuseListRules(req.permission.name, req.type, ctx.now);
     const read = await readRbacInput(request, ctx, this.sources());
     // Every stored rule was checked above (lane decision 12); the DB store's marker is not a rule.

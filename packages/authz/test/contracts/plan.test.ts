@@ -156,7 +156,7 @@ describe('list plan contracts', () => {
       >
     >();
     yes<Equal<ListSupport, true | { readonly reason: string }>>();
-    yes<Equal<ListPlanRequest, { readonly principal: Principal; readonly actor?: Principal; readonly permission: PermissionDef; readonly type: ResourceType; readonly env?: Readonly<Record<string, unknown>> }>>();
+    yes<Equal<ListPlanRequest, { readonly principal: Principal; readonly actor?: Principal; readonly permission: PermissionDef; readonly type: ResourceType; readonly env?: Readonly<Record<string, unknown>>; readonly fresh?: boolean }>>();
     yes<Equal<SqlRowContext, { readonly type: ResourceType; readonly rowId: string; readonly rowColumn: (column: string) => string; readonly ancestorTable: string; readonly relation: (name: 'owner' | 'self') => { readonly column: string; readonly typeColumn?: string } | undefined; readonly now: Date; readonly dialect: 'sqlite' | 'postgres' | 'mysql' | 'mssql' }>>();
     yes<Equal<SqlFragment, { readonly sql: string; readonly bindings: readonly unknown[] }>>();
     yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan'>, { listSupport?: (permission: PermissionDef, type: ResourceType) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan> }>>();

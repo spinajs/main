@@ -17,12 +17,12 @@ const req = (fresh?: boolean): DecisionRequest => ({ principal: userPrincipal('a
 
 async function setup(rows: readonly Assignment[]) {
   const registry = new PermissionRegistryImpl();
-  registry.register([{ name: 'doc:read', types: ['doc'] }], 'test');
+  registry.register([{ name: 'doc:read', types: ['doc'], list: true }], 'test');
   registry.freeze();
   const store = new MemoryAssignmentStore(rows);
   const model = new RbacModel({ roles: new MemoryRoleStore([VIEWER]), assignments: store, clock: new ManualClock(NOW), log: { warn: () => undefined } });
   await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
-  return { model, store };
+  return { model, store, registry };
 }
 
 describe('authz-rbac model: fresh requests', () => {
@@ -33,5 +33,16 @@ describe('authz-rbac model: fresh requests', () => {
     expect((await model.evaluate(req(), fakeEvaluationContext({ now: NOW }))).permitWhen).to.deep.equal(TRUE);
     expect((await model.evaluate(req(true), fakeEvaluationContext({ now: NOW }))).permitWhen).to.deep.equal(FALSE);
     expect((await model.evaluate(req(), fakeEvaluationContext({ now: NOW }))).permitWhen).to.deep.equal(FALSE);
+  });
+
+  it('a fresh list plan does not honour an assignment the cache still holds', async () => {
+    const { model, store, registry } = await setup([assignment('v1')]);
+    model.grantIndex();
+    const plan = (fresh?: boolean) => model.listPlan({ principal: userPrincipal('alice'), permission: registry.require('doc:read'), type: 'doc', env: { now: NOW }, ...(fresh ? { fresh } : {}) }, fakeEvaluationContext({ now: NOW }));
+    const held = await plan();
+    expect(held.kind).to.equal('all');
+    store.remove('v1');
+    expect(await plan()).to.deep.equal(held);
+    expect(await plan(true)).to.deep.equal({ kind: 'abstain' });
   });
 });

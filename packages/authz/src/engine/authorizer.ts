@@ -466,7 +466,7 @@ export class Authorizer {
     if (delegation.intersect !== undefined) return nonePlan({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey });
     // Env facts are not in the key, so a call with a caller env is never memoised.
     const key = env === undefined ? this.planKey(gate.principal, def, type, run) : undefined;
-    const hit = key === undefined ? undefined : this.cachedPlan(key, run);
+    const hit = key === undefined || def.consistency === 'fresh' ? undefined : this.cachedPlan(key, run);
     if (hit) return hit;
     const built = await this.buildPlan(delegation, def, type, this.envOf(env, run.instant), run);
     if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
@@ -962,7 +962,8 @@ export class Authorizer {
     const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
     if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
     const runAs = d.principal;
-    const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env } : { principal: runAs, actor: d.actor, permission: def, type, env });
+    const fresh = def.consistency === 'fresh' ? { fresh: true } : {};
+    const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
     const label = `${def.name} on ${quote(type)}`;

@@ -243,9 +243,21 @@ describe('Authorizer.accessPlan', () => {
       expect(m.planCalls).to.have.length(2);
       await a.accessPlan(alice, 'doc:read', 'doc', undefined, { cache: new Map() });
       expect(m.planCalls).to.have.length(3);
+      expect(m.planCalls[0].req.fresh).to.equal(undefined);
       a.invalidate(['*']);
       await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
       expect(m.planCalls).to.have.length(4);
+    });
+
+    it('a plan of a consistency fresh permission is rebuilt each call and its model is told fresh', async () => {
+      const strict = registryOf([{ name: 'doc:read', types: ['doc'], list: true, consistency: 'fresh' }]);
+      const m = planner('m', { kind: 'all' });
+      const a = make([m], { registry: strict });
+      const scope = { cache: new Map<string, unknown>() };
+      await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
+      await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
+      expect(m.planCalls).to.have.length(2);
+      expect(m.planCalls.map((c) => c.req.fresh)).to.deep.equal([true, true]);
     });
 
     it('a faulted plan is not memoised', async () => {
