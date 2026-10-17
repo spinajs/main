@@ -23,7 +23,7 @@ export function isTokenRoleExtension(e: unknown): boolean {
 }
 
 /**
- * Applies `authz.token` to principals that authenticated with a token (B24, B07, design §18.3(g)):
+ * Applies `authz.token` to principals that authenticated with a token:
  * their roles become `ceiling.roles` (or every role, without one) cut by the excluded roles and the
  * TokenRolePolicy, and only assignments of those roles count. The roles come from the owner's own
  * assignments, so a token is never above its owner and a role the owner lacks grants nothing.
@@ -50,7 +50,7 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
       const profile: unknown = principal.attributes?.profile;
       const allowed = rules.allowedRoles(principal, tokenRoles ?? input.roles.names, typeof profile === 'string' ? profile : undefined);
       const keep = new Set(allowed);
-      // Narrowed ceiling.roles holds implied contributions to the same rule as assignments (D19).
+      // Narrowed ceiling.roles holds implied contributions to the same rule as assignments.
       const narrowed: Principal = Object.freeze({ ...principal, ceiling: Object.freeze({ ...(principal.ceiling ?? {}), roles: Object.freeze(allowed) }) });
       return { assignments: input.assignments.filter((a) => keep.has(a.role)), request: { ...input.request, principal: narrowed } };
     },

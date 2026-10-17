@@ -58,7 +58,7 @@ function contains(dialect: SqlRowContext['dialect'], haystack: SqlFragment, need
   }
 }
 
-/** design §6.2 `<holder>`: the subject keys, or with `membership` also the live sets of `memberKeys`. */
+/** The holder test: the subject keys, or with `membership` also the live sets of `memberKeys`. */
 function holder(alias: string, args: RbacAssignmentPlanArgs, now: unknown): SqlFragment {
   const key = raw(`${alias}.subject_key`);
   const own = args.subjects.length > 0 ? sql`${key} IN (${args.subjects})` : undefined;
@@ -92,7 +92,7 @@ function relationSql(row: SqlRowContext, name: 'owner' | 'self', principals: rea
       principals.map((p) => sql`(${typeColumn} = ${p.type} AND ${column} = ${p.id})`),
     )})`;
   }
-  // Without a type column the relation names user principals only (overview, ResourceEntry.owner).
+  // Without a type column the relation names user principals only (ResourceEntry.owner).
   const ids = [...new Set(principals.filter((p) => p.type === 'user').map((p) => p.id))];
   return ids.length === 0 ? undefined : sql`${column} IN (${ids})`;
 }
@@ -116,14 +116,14 @@ function roleClause(alias: string, roles: readonly RbacPlanRole[], branch: 'dire
   return parts.length === 0 ? undefined : sql`(${join(' OR ', parts)})`;
 }
 
-/** The deny form of design §6.2 (one sub-query); positive here, the plan's consumer negates deny terms. */
+/** The deny form (one sub-query); positive here, the plan's consumer negates deny terms. */
 function denyShape(args: RbacAssignmentPlanArgs, row: SqlRowContext, now: unknown): SqlFragment {
   const id = raw(row.rowId);
   const roles = [...new Set(args.roles.map((r) => r.role))];
   return sql`EXISTS (SELECT 1 FROM ${raw(AUTHZ_ASSIGNMENT_TABLE)} authz_d WHERE ${holder('authz_d', args, now)} AND authz_d.role IN (${roles}) AND ${live('authz_d', now)} AND ((authz_d.scope_type = ${row.type} AND authz_d.scope_id = ${id}) OR EXISTS (SELECT 1 FROM ${raw(row.ancestorTable)} authz_a WHERE authz_a.resource_type = ${row.type} AND authz_a.resource_id = ${id} AND authz_a.ancestor_type = authz_d.scope_type AND authz_a.ancestor_id = authz_d.scope_id) OR authz_d.scope_type = ${GLOBAL_TYPE}))`;
 }
 
-/** The row matches args (lane L8 decision 6): a live assignment of one of the roles, held by the holders, at the row, an ancestor or (global) $global. */
+/** The row matches args: a live assignment of one of the roles, held by the holders, at the row, an ancestor or (global) $global. */
 export function rbacAssignmentSql(args: RbacAssignmentPlanArgs, row: SqlRowContext): SqlFragment {
   if (args.roles.length === 0 || (args.subjects.length === 0 && !(args.membership && args.memberKeys.length > 0))) return FALSE_SQL;
   const now = nowOf(row);

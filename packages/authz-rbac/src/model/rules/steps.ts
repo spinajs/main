@@ -20,7 +20,7 @@ export interface ActiveRule {
   readonly maxRank?: number | null;
   /** threshold: the role `minRole` resolves to. */
   readonly minRole?: string;
-  /** The rule reads a scope attribute of a node the path lacks: its step throws this (B39) where the rule could act, else skips it. */
+  /** The rule reads a scope attribute of a node the path lacks: its step throws this where the rule could act, else skips it. */
   readonly indeterminate?: string;
 }
 
@@ -72,7 +72,7 @@ function rankSelects(s: RbacState, rule: CompiledRule): boolean {
 }
 
 /**
- * Step 2 (B35). A restrict rule at node n drops every live assignment made strictly above n, unless
+ * Step 2. A restrict rule at node n drops every live assignment made strictly above n, unless
  * its subject is in `allow` or the contribution carries bypass 'restrict'. Its `subjects.rank`
  * reads the ranks right after collect. On a type-level request the path holds no node of a row,
  * so restrict rules there change nothing; rules elsewhere make the vote fail closed.
@@ -109,7 +109,7 @@ function reachedRank(s: RbacState, role: string, ladder: string): number | undef
 export const subjectTypeOf = (subject: LiveAssignment['assignment']['subject']): string => ('set' in subject ? subject.set.scope.type : subject.type);
 
 /**
- * Step 3 (B35). Every matching cap clamps the rank of the assignments it selects on its ladder to
+ * Step 3. Every matching cap clamps the rank of the assignments it selects on its ladder to
  * `maxRole` (so the lowest cap wins), drops them for `maxRole: null`, and empties their tags for
  * `stripTags`; bypass 'cap' skips it. `subjects.rank` reads the ranks after restrict and before any
  * cap, so caps do not depend on each other's order. An implied contribution without bypass 'cap'
@@ -168,12 +168,12 @@ export const applyCaps: RbacStep = (s) => {
 };
 
 /**
- * Step 8 (B35, B36). A matching threshold denies where the deciding rank is below `minRole`: the
+ * Step 8. A matching threshold denies where the deciding rank is below `minRole`: the
  * rank on `ladder` at the nearest `at` node; else on the ladder of `ladder` (or of `minRole`) the
  * provenance rank when every grant of the permission on that ladder has `grantedAt`, else the
  * effective rank. The entry's `when` is the rows where the rule holds and no assignment meets the
  * rank, so a type-level vote lists exactly what a check allows. Entries are pushed in a canonical
- * order (D17).
+ * order.
  */
 export const applyThresholds: RbacStep = (s) => {
   const out: { when: ResourceFilter; reason: DenyReason }[] = [];
@@ -181,7 +181,7 @@ export const applyThresholds: RbacStep = (s) => {
   for (const a of rulesOf(s, 'threshold')) {
     const def = a.rule.def;
     if (!a.rule.permissions!.has(s.permission) || s.ruleSubjects.get(a.rule) === false) continue;
-    // An undecided threshold whose rank is met cannot deny; otherwise it could, and the vote fails (B39).
+    // An undecided threshold whose rank is met cannot deny; otherwise it could, and the vote fails.
     const min = a.minRole ?? (typeof def.minRole === 'string' ? def.minRole : undefined);
     if (min === undefined) throw new Error(a.indeterminate);
     const ladder = def.ladder !== undefined ? ladders?.ladders.find((l) => l.name === def.ladder) : ladders?.ladderOf(min);

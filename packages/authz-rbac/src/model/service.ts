@@ -30,7 +30,7 @@ export interface RoleHolding {
 }
 
 /**
- * RBAC introspection for consumers (design §6.1.5): the AdminGuard (covers, rolesOf), the role
+ * RBAC introspection for consumers: the AdminGuard (covers, rolesOf), the role
  * switch (rolesOf with `ceiling: false`), effective-role helpers. Built over one RbacModel; not a DI
  * singleton (wiring is the host's).
  */
@@ -187,7 +187,7 @@ export class RbacService {
    * The roles `principal` holds at `at` (default GLOBAL): the live assignments on the path of `at`,
    * steps 1–3 applied and unknown roles dropped. By default after the principal's `ceiling.roles`,
    * as decisions and Vote.roles see them; `ceiling: false` gives the assigned roles, which a role
-   * switch (A26, RoleSource) must offer. At a type-level `at` only GLOBAL and bare-type assignments
+   * switch (RoleSource) must offer. At a type-level `at` only GLOBAL and bare-type assignments
    * hold. A concrete `at` reads its ancestors from `ctx`, else from the `ancestors` option.
    * @throws (rejects) AuthzConfigError for a concrete `at` with neither; rejects when a store fails
    */
@@ -199,10 +199,10 @@ export class RbacService {
   }
 
   /**
-   * The principal of share link `id` (design §6.1.6, B38): type `link`, its ceiling the link's scope
+   * The principal of share link `id`: type `link`, its ceiling the link's scope
    * and expiry (reason `link_invalid`), its attributes the link's, `companion` joined as a subject
    * when nothing it carries would be lost (see linkCompanion). An unknown or revoked id gives
-   * `ceiling.resources: []`, so every check denies `link_invalid` (B42).
+   * `ceiling.resources: []`, so every check denies `link_invalid`.
    * @throws AuthzConfigError when no LinkStore is configured
    */
   async linkPrincipal(id: string, companion?: Principal): Promise<Principal> {

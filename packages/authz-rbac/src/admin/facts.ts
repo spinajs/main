@@ -4,7 +4,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 import { grantClosure, grantedPermissions, ladderAppliesAt, permissionRegistry, rankOf, roleClosure, roleIndex } from './common.js';
 
-/** What DefaultAdminGuard needs to know about the actor; L1's RbacService is expected to back it exactly (hand-off). */
+/** What DefaultAdminGuard needs to know about the actor. */
 export abstract class RbacAdminFacts {
   /** The actor holds every permission `role` grants (closure) at `scope`, unconditionally. */
   abstract covers(actor: Principal, role: string, scope: ResourceRef, ctx: AdminContext): Promise<boolean>;
@@ -43,7 +43,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
       const mine = await own.get(ladder)!;
       return mine !== undefined && rankOf(roles, ladder, name) >= 0 && rankOf(roles, ladder, mine) >= rankOf(roles, ladder, name);
     };
-    // A `descendants` implied role is not held at the scope, but checks reach no lower; L1 judges it exactly.
+    // A `descendants` implied role is not held at the scope, but checks reach no lower.
     const { defs, unknown, bypass } = await grantClosure(roles, role, holds);
     if (unknown.length > 0 || bypass) return false;
     // Per permission: the field sets its grants give; undefined = a grant without fields. An absent read or write
@@ -88,7 +88,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
   }
 
   /**
-   * Decision.roles is filled for every outcome (D-F5-8), so a check of any permission of the ladder answers;
+   * Decision.roles is filled for every outcome, so a check of any permission of the ladder answers;
    * a glob grant offers the registered permissions it matches.
    */
   async effectiveRole(actor: Principal, ladder: string, scope: ResourceRef, ctx: AdminContext): Promise<string | undefined> {

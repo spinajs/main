@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { Orm, OrmDriver } from '@spinajs/orm';
 
-/** Config key naming the ORM connection of the authz-rbac tables (D-L2-2); absent means {@link ADMIN_CONNECTION_KEY}. */
+/** Config key naming the ORM connection of the authz-rbac tables; absent means {@link ADMIN_CONNECTION_KEY}. */
 export const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
 
 /** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
@@ -13,7 +13,7 @@ export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
 const ROOT_DOMAIN = 'root';
 
 /**
- * The driver of an `AuthzAdmin` transaction (D-L2-1). Stores write only inside one (design §9.2),
+ * The driver of an `AuthzAdmin` transaction. Stores write only inside one,
  * so anything else is a programming error.
  */
 export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
@@ -29,7 +29,7 @@ export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
 
 /**
  * Like {@link transactionDriver}, and the transaction must run on `store`, the connection the store
- * reads (D-L2-2): a write on another connection would land where the model never looks.
+ * reads: a write on another connection would land where the model never looks.
  */
 export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: string): OrmDriver {
   const driver = transactionDriver(tx, where);

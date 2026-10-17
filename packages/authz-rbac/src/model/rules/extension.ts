@@ -30,7 +30,7 @@ export interface RuleStoreParts {
   readonly db?: RuleStore;
 }
 
-/** @throws AuthzConfigError for two in-memory stores or two others (design §8.5: ConfigRuleStore and DbRuleStore) */
+/** @throws AuthzConfigError for two in-memory stores or two others (ConfigRuleStore and DbRuleStore) */
 export function ruleStoreParts(rules: RuleStore | readonly RuleStore[] | undefined): RuleStoreParts {
   const list: readonly RuleStore[] = rules === undefined ? [] : Array.isArray(rules) ? (rules as readonly RuleStore[]) : [rules as RuleStore];
   const config = list.filter(isSyncRuleStore);
@@ -40,9 +40,9 @@ export function ruleStoreParts(rules: RuleStore | readonly RuleStore[] | undefin
 }
 
 /**
- * RBAC rules (design §5.8, §6.1.2 steps 2, 3, 8) from the model's rule stores: the in-memory part
+ * RBAC rules (steps 2, 3 and 8) from the model's rule stores: the in-memory part
  * (`config`) and the other part (`db`), both on every check. In-memory rules are checked when the
- * grants compile (rule 9) and give boot refs (rules 7 and 10); DB rules are read per path. Every
+ * grants compile (boot rule 9) and give boot refs (boot rules 7 and 10); DB rules are read per path. Every
  * rule's request-level parts (`when`, `subjects` but rank, `resource`, refs) are decided while
  * gathering, so the steps stay synchronous.
  */
@@ -167,7 +167,7 @@ export class RulesExtension implements RbacExtension {
       }
       const absent = types.find((t) => t !== GLOBAL.type && !nodeOfType(input.path, t));
       if (absent !== undefined) {
-        // A check on $global has no node of any type: a rule about orgs says nothing there. Elsewhere the rule is undecided (B39); its step fails only where the rule could act.
+        // A check on $global has no node of any type: a rule about orgs says nothing there. Elsewhere the rule is undecided; its step fails only where the rule could act.
         if (request.resource.type === GLOBAL.type) continue;
         pending.push(Object.freeze({ rule, when: TRUE, resource: TRUE, indeterminate: `${rule.where}: it reads scope.${absent}.*, but ${resourceKey(request.resource)} has no ${absent} ancestor (B39: indeterminate)` }));
         continue;
@@ -238,7 +238,7 @@ function activeRule(rule: CompiledRule, request: DecisionRequest, ctx: Evaluatio
   const def = rule.def;
   const narrowing = def.kind !== 'threshold';
   /*
-   * Conditions are three-valued (§5.9, RFC L3-1): UNKNOWN never turns into access. A restrict or cap
+   * Conditions are three-valued: UNKNOWN never turns into access. A restrict or cap
    * whose condition is UNKNOWN applies, since it only narrows; a threshold keeps the condition in
    * its deny entry, where the engine binds UNKNOWN by polarity (it denies).
    */
@@ -254,7 +254,7 @@ function activeRule(rule: CompiledRule, request: DecisionRequest, ctx: Evaluatio
   const conditions: Maybe<ResourceFilter>[] = [condition(rule.subjectsWhen, def.subjects?.when), condition(rule.when, def.when), condition(rule.resource, def.resource)];
   const withRefs = ([who, when, resource]: ResourceFilter[]): Maybe<ActiveRule | undefined> => {
     const holds = and(who, when);
-    // A rule whose condition is a definite false cannot act: its refs are not read (B39 only where a rule could act).
+    // A rule whose condition is a definite false cannot act, so its refs are not read and cannot make it indeterminate.
     if (holds.op === 'false') return undefined;
     const refs: Maybe<unknown>[] = [def.kind === 'cap' ? maxRank(rule, request, ctx, input, uncacheable) : undefined, def.kind === 'threshold' ? roleName(rule, def.minRole!, request, ctx, input, uncacheable) : undefined];
     const build = ([max, min]: unknown[]): ActiveRule | undefined => {
@@ -299,7 +299,7 @@ function roleName(rule: CompiledRule, min: string | { readonly ref: string }, re
 
 /**
  * A `{ ref }` value: `scope.<type>.<path>` from the attributes of the nearest node of that type,
- * `principal.*`, `actor.*` or `env.*` from the request. A missing value is indeterminate (B39). A
+ * `principal.*`, `actor.*` or `env.*` from the request. A missing value is indeterminate. A
  * value the decision cache key does not hold makes the vote uncacheable.
  */
 function resolveRef(ref: string, rule: CompiledRule, request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, uncacheable: () => void): Maybe<unknown> {

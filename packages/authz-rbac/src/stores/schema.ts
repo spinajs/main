@@ -95,13 +95,13 @@ const ruleCommon = {
   source: { type: 'string' },
 };
 
-// One key set per kind (design §5.8).
+// One key set per kind.
 const ruleOf = (kind: string, properties: Record<string, unknown>, extra: Record<string, unknown>) => ({
   if: { properties: { kind: { const: kind } } },
   then: { ...closed({ ...ruleCommon, ...properties }), ...extra },
 });
 
-/** A config RuleDef (design §5.8), the former RULE_SCHEMA of ConfigRuleStore. */
+/** A config RuleDef, the former RULE_SCHEMA of ConfigRuleStore. */
 const rule = {
   type: 'object',
   properties: { id: name, kind: { type: 'string', enum: RULE_KINDS }, scope: ruleScope },
@@ -175,7 +175,7 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: LINK_SECRET_MIN_LENGTH } } },
     connection: name,
-    // Levels a membership walk may climb (design §4.3); a deeper nesting is refused when written (set_too_deep).
+    // Levels a membership walk may climb; a deeper nesting is refused when written (set_too_deep).
     maxSetDepth: { type: 'integer', minimum: 1, maximum: 64, default: DEFAULT_MAX_SET_DEPTH },
   },
 };

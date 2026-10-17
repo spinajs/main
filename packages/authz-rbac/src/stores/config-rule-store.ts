@@ -52,7 +52,7 @@ function floor(r: Raw, scope: unknown, at: string): void {
 }
 
 /**
- * Rules as frozen RuleDefs: a rule without a scope applies at GLOBAL (design §5.8; §8.5 writes none), `source` is
+ * Rules as frozen RuleDefs: a rule without a scope applies at GLOBAL, `source` is
  * filled and an ISO `expiresAt` becomes a Date. AUTHZ_RBAC_CONFIGURATION_SCHEMA checks the shape of
  * `authz.rbac.rules`; the RBAC model checks ladders, roles, permissions and conditions when it compiles them.
  * @throws AuthzConfigError for a rule the schema would refuse that would read as broader access, or an `expiresAt`
@@ -80,7 +80,7 @@ function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
 }
 
 /**
- * Rules from config (design §8.2 `authz.rbac.rules`) through @Config, or from a list or a Configuration given to the
+ * Rules from config (`authz.rbac.rules`) through @Config, or from a list or a Configuration given to the
  * constructor (tests, a host that builds the model itself). Registered by its class name; `registerRbacStores` binds
  * it to `RuleStore` when `authz.rbac.stores.rules` names it (the default).
  */

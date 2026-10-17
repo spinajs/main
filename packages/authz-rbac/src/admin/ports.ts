@@ -63,7 +63,7 @@ export abstract class AccountStatusSource {
   abstract inService(refs: readonly PrincipalRef[]): Promise<ReadonlyMap<string, boolean>>;
 }
 
-/** The closure table AuthzAdmin maintains (design §4.3); `replace` runs inside the batch transaction. */
+/** The closure table AuthzAdmin maintains; `replace` runs inside the batch transaction. */
 export abstract class AdminMembershipStore extends MembershipStore {
   abstract readonly name: string;
   /** The stored rows of these members, expired ones too. */

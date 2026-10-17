@@ -7,7 +7,7 @@ import { underTerm } from '../rows.js';
 import { reachableGrants } from './steps.js';
 
 /*
- * Steps 6 and 7 of design §6.1.2 (B34): a grant's `requiresTag` and `grantedAt`. Each check gives
+ * Steps 6 and 7: a grant's `requiresTag` and `grantedAt`. Each check gives
  * the rows where it holds: TRUE when a live assignment meets it (every row), else the rows below the
  * scoped assignments that meet it (type-level requests only), else FALSE. FALSE refuses the
  * candidate; a row term narrows it (`candidate.rows`). Either way the check's reason is pushed, so
@@ -55,7 +55,7 @@ export function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
   return { rows, read: [...read, ...scoped], reason: { code: 'role_too_low', ladder: ladder!.name, role: ladder!.roles[at], needed: grant.role, priority: PROVENANCE_RANK_PRIORITY } };
 }
 
-/** role_too_low on the provenance rank (design §6.1.2 step 7); DEFAULT_DENY_PRIORITY keys its 410 by code. */
+/** role_too_low on the provenance rank (step 7); DEFAULT_DENY_PRIORITY keys its 410 by code. */
 export const PROVENANCE_RANK_PRIORITY = 440;
 
 /**
