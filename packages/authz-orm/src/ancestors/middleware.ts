@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
+import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, UpdateQueryBuilder } from '@spinajs/orm';
 import type { QueryBuilder } from '@spinajs/orm';
@@ -7,6 +8,7 @@ import type { QueryBuilder } from '@spinajs/orm';
 import { ormLog } from '../host.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ModelClass, ResourceEntry } from '../registry.js';
+import { ORM_DOMAIN_DEFAULT } from '../schema.js';
 import { cleanupDeleted } from './cleanup.js';
 import { rebuildFrom, removeNodes } from './rebuild.js';
 import { insertedRefs, stillThere, targetRefs } from './targets.js';
@@ -39,6 +41,13 @@ function workOf(query: QueryBuilder): Work | undefined {
 @Injectable(QueryMiddleware)
 export class AncestorMiddleware extends QueryMiddleware {
   public order = 90;
+
+  @Config('authz.orm.domain', { defaultValue: ORM_DOMAIN_DEFAULT })
+  protected Domain: string;
+
+  // The authz admin's default backend.
+  @Config('authz.admin.backend', { defaultValue: 'MemoryAuthzAdminBackend' })
+  protected AdminBackend: string;
 
   private readonly targets = new WeakMap<object, ResourceRef[]>();
   private readonly warned = new WeakSet<ModelClass>();
@@ -78,7 +87,7 @@ export class AncestorMiddleware extends QueryMiddleware {
     const left = await stillThere(driver, work.model, work.entry, refs);
     const deleted = refs.filter((r) => !left.has(String(r.id)));
     await removeNodes(driver, deleted);
-    await cleanupDeleted(driver, deleted);
+    await cleanupDeleted(driver, deleted, this.Domain, this.AdminBackend);
   }
 
   private warnUnknownIds(work: Work): void {

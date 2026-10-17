@@ -10,7 +10,7 @@ import type { ModelBase, QueryBuilder } from '@spinajs/orm';
 
 import { AccessResource, Owner, Parent } from '../../src/index.js';
 import { entryOf } from '../../src/registry.js';
-import { renderPlan, rowContext } from '../../src/lists/index.js';
+import { planTermCompilers, renderPlan, rowContext } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
@@ -21,6 +21,7 @@ const expect = chai.expect;
 const flag = (f: string): PlanTerm => ({ op: 'test.flag', args: { flag: f } });
 const owner = (...ids: string[]): PlanTerm => ({ op: 'relation.owner', args: { principals: ids.map((id) => ({ type: 'user', id })) } });
 const filter = (p: Partial<Extract<AccessPlan, { kind: 'filter' }>>): AccessPlan => ({ kind: 'filter', permit: 'all', deny: [], ...p });
+const compilers = () => planTermCompilers(DI.resolve(Array.ofType(PlanTermSql)) as PlanTermSql[]);
 
 const ROWS = [
   { id: 1, flag: 'green', owner: 'alice', project_id: 'p1' },
@@ -83,7 +84,7 @@ describe('renderPlan', function () {
       async function ids(plan: AccessPlan): Promise<number[] | 'all' | 'none'> {
         const query = Task.query();
         const row = rowContext(query, entryOf(Task)!, new Date());
-        const r = renderPlan(plan, row);
+        const r = renderPlan(plan, row, compilers());
         if (r.kind !== 'sql') return r.kind;
         const rows = (await db
           .driver(dialect)
@@ -126,7 +127,7 @@ describe('renderPlan', function () {
       it('the sql is self-contained when AND-ed after another predicate', async () => {
         const row = rowContext(Task.query(), entryOf(Task)!, new Date());
         for (const plan of [filter({ permit: [flag('green'), flag('red')] }), filter({ permit: [owner('alice', 'bob')] })]) {
-          const r = renderPlan(plan, row);
+          const r = renderPlan(plan, row, compilers());
           if (r.kind !== 'sql') throw new Error(`expected sql, got ${r.kind}`);
           const rows = await db
             .driver(dialect)
@@ -144,8 +145,8 @@ describe('renderPlan', function () {
 
       it('refuses an op without a compiler and a malformed compiler answer', async () => {
         const row = rowContext(Task.query(), entryOf(Task)!, new Date());
-        expect(() => renderPlan(filter({ permit: [{ op: 'nope', args: {} }] }), row)).to.throw(AuthzConfigError, /no PlanTermSql renders op "nope"/);
-        expect(() => renderPlan(filter({ permit: [{ op: 'test.broken', args: {} }] }), row)).to.throw(AuthzConfigError, /BrokenSql/);
+        expect(() => renderPlan(filter({ permit: [{ op: 'nope', args: {} }] }), row, compilers())).to.throw(AuthzConfigError, /no PlanTermSql renders op "nope"/);
+        expect(() => renderPlan(filter({ permit: [{ op: 'test.broken', args: {} }] }), row, compilers())).to.throw(AuthzConfigError, /BrokenSql/);
       });
 
       it('the row context quotes the ancestor table and casts the id', () => {

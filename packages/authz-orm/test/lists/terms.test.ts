@@ -26,6 +26,7 @@ const row = (over: Partial<SqlRowContext> = {}, relations: { owner?: Rel; self?:
   ...over,
 });
 const p = (type: string, id: string) => ({ type, id });
+const registered = () => DI.resolve(Array.ofType(PlanTermSql)) as PlanTermSql[];
 
 class FlagA extends PlanTermSql {
   readonly op = 'test.flag';
@@ -68,7 +69,7 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
   it('lists the registered compilers by op, relation.owner and relation.self built in', () => {
     const undo = testHost.registerInRoot(PlanTermSql, FlagA);
     try {
-      const map = planTermCompilers();
+      const map = planTermCompilers(registered());
       expect(map.get('relation.owner')).to.be.instanceOf(RelationOwnerSql);
       expect(map.get('relation.self')).to.be.instanceOf(RelationSelfSql);
       expect(map.get('test.flag')).to.be.instanceOf(FlagA);
@@ -80,7 +81,7 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
   it('refuses two compilers for one op', () => {
     const undo = [testHost.registerInRoot(PlanTermSql, FlagA), testHost.registerInRoot(PlanTermSql, FlagB)];
     try {
-      expect(() => planTermCompilers()).to.throw(AuthzConfigError, /two PlanTermSql compilers for op "test\.flag" \(FlagA, FlagB\)/);
+      expect(() => planTermCompilers(registered())).to.throw(AuthzConfigError, /two PlanTermSql compilers for op "test\.flag" \(FlagA, FlagB\)/);
     } finally {
       undo.forEach((u) => u());
     }

@@ -1,19 +1,23 @@
-import { AccessDenied, AuthzClock, FALSE, authz, currentPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthzClock, FALSE, PlanTermSql, authz, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType, SqlFragment } from '@spinajs/authz';
-import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Autoinject, Container, Injectable } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { QueryMiddleware, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
-import { auditUnscoped, domainContainer, ormDomain } from '../host.js';
+import { auditUnscoped, domainContainer } from '../host.js';
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import { entryOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
-import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
+import { ORM_DOMAIN_DEFAULT } from '../schema.js';
+import { ACCESS_FIELD, AccessFieldMiddleware, accessColumn } from './access-field.js';
 import { rowContext } from './context.js';
 import { quoterOf } from './dialect.js';
 import { renderPlan, withinSql } from './render.js';
 import type { Rendered } from './render.js';
+import { planTermCompilers } from './terms.js';
 
 type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
@@ -56,12 +60,23 @@ export interface ListRun {
   readonly entry: ResourceEntry;
   readonly marks: AccessMarks;
   readonly now: Date;
+  readonly compilers: ReadonlyMap<string, PlanTermSql>;
 }
 
 /** Plans `.accessible()` / `.withAccess()` at execution, for the principal the query runs as. */
 @Injectable(QueryMiddleware)
 export class AccessListMiddleware extends QueryMiddleware {
   public order = 100;
+
+  @Config('authz.orm.domain', { defaultValue: ORM_DOMAIN_DEFAULT })
+  protected Domain: string;
+
+  @Config('authz.orm.accessField', { defaultValue: ACCESS_FIELD })
+  protected AccessField: string;
+
+  // PlanTermSql is looked up per query, not injected: the ORM builds this middleware at its first query, and a compiler registered later must count.
+  @Autoinject(Container)
+  protected Container: IContainer;
 
   afterQueryCreation(_query: QueryBuilder): void {}
 
@@ -70,15 +85,16 @@ export class AccessListMiddleware extends QueryMiddleware {
     if (marks === undefined) return;
     const entry = entryOf(query.Model);
     if (!entry) return;
-    const domain = ormDomain();
+    const domain = this.Domain;
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);
     if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined) return;
-    const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: await nowOf(domain) };
+    const compilers = planTermCompilers(this.Container.resolve(Array.ofType(PlanTermSql)) as PlanTermSql[]);
+    const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: await nowOf(domain), compilers };
     const row = rowContext(query, entry, run.now);
     const filters: SqlFragment[] = [];
     if (marks.accessible !== undefined) {
-      const rendered = renderPlan(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row);
+      const rendered = renderPlan(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row, compilers);
       if (rendered.kind === 'none') {
         if (marks.onNone !== 'empty') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, rendered.reason));
         filters.push(NO_ROW);
@@ -95,10 +111,10 @@ export class AccessListMiddleware extends QueryMiddleware {
     const q = quoterOf(query.Driver);
     if (query.getColumns().length === 0) query.select('*');
     for (const [i, permission] of permissions.entries()) {
-      const r = renderPlan(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
+      const r = renderPlan(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row, run.compilers);
       const expr = r.kind === 'none' ? { sql: '0', bindings: [] as unknown[] } : r.kind === 'all' ? { sql: '1', bindings: [] as unknown[] } : { sql: `CASE WHEN ${r.sql} THEN 1 ELSE 0 END`, bindings: [...r.bindings] };
       query.select(RawQuery.create(`${expr.sql} AS ${q(accessColumn(i))}`, expr.bindings));
     }
-    query.middleware(new AccessFieldMiddleware(permissions, accessField()));
+    query.middleware(new AccessFieldMiddleware(permissions, this.AccessField));
   }
 }

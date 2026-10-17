@@ -36,7 +36,8 @@ export function whereRefs(q: Where, typeColumn: string, idColumn: string, groups
 
 export const byDepth = (a: AncestorRow, b: AncestorRow): number => a.depth - b.depth || (a.ancestor_type < b.ancestor_type ? -1 : a.ancestor_type > b.ancestor_type ? 1 : 0) || (a.ancestor_id < b.ancestor_id ? -1 : a.ancestor_id > b.ancestor_id ? 1 : 0);
 
-function split(refs: readonly ResourceRef[]): Map<string, string[]>[] {
+/** The refs' ids by type, cut into groups of one type and at most ID_CHUNK ids. */
+export function splitGroups(refs: readonly ResourceRef[]): Map<string, string[]>[] {
   const out: Map<string, string[]>[] = [];
   for (const [type, ids] of groupIds(refs)) for (const part of chunks(ids, ID_CHUNK)) out.push(new Map([[type, part]]));
   return out;
@@ -45,7 +46,7 @@ function split(refs: readonly ResourceRef[]): Map<string, string[]>[] {
 /** The table rows of each ref (as resource), by resourceKey, nearest first. */
 export async function readAncestors(driver: OrmDriver, refs: readonly ResourceRef[]): Promise<Map<string, AncestorRow[]>> {
   const out = new Map<string, AncestorRow[]>();
-  for (const groups of split(refs)) {
+  for (const groups of splitGroups(refs)) {
     const q = driver
       .select()
       .from(AUTHZ_RESOURCE_ANCESTOR_TABLE)

@@ -1,6 +1,10 @@
 import { registerConfigurationSchema, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { Bootstrapper, Injectable } from '@spinajs/di';
 
+import { ACCESS_FIELD } from './lists/access-field.js';
+
+export const ORM_DOMAIN_DEFAULT = 'root';
+
 export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-orm.configuration.schema.json',
   $configurationModule: 'authz.orm',
@@ -8,9 +12,9 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     // The authz domain whose service plans lists and whose stores a delete cleans up.
-    domain: { type: 'string', minLength: 1, default: 'root' },
+    domain: { type: 'string', minLength: 1, default: ORM_DOMAIN_DEFAULT },
     // The model property that carries `.withAccess()` answers (design §10.3).
-    accessField: { type: 'string', minLength: 1, default: '$access' },
+    accessField: { type: 'string', minLength: 1, default: ACCESS_FIELD },
   },
 };
 
