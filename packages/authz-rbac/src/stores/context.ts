@@ -5,7 +5,7 @@ import type { IContainer } from '@spinajs/di';
 import { Orm, OrmDriver } from '@spinajs/orm';
 
 /** Config key naming the ORM connection of the authz-rbac tables (D-L2-2); absent means {@link ADMIN_CONNECTION_KEY}. */
-export const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
+const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
 
 /** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
 export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
@@ -67,13 +67,16 @@ export async function storeConnection(container: IContainer): Promise<OrmDriver>
   const rbac = configuration?.get<string>(RBAC_CONNECTION_KEY);
   const admin = rbac === undefined ? configuration?.get<string>(ADMIN_CONNECTION_KEY) : undefined;
   const key = rbac !== undefined ? RBAC_CONNECTION_KEY : admin !== undefined ? ADMIN_CONNECTION_KEY : 'the ORM default connection';
-  const name = rbac ?? admin ?? 'default';
-  const orm = await container.resolve(Orm);
+  return rbacConnection(container, rbac ?? admin ?? 'default', key);
+}
+
+/**
+ * The ORM connection `name` of the Orm `container` resolves; `source` (the config key that named it) leads the error.
+ * @throws AuthzConfigError when the ORM has no such connection
+ */
+export async function rbacConnection(container: IContainer, name: string, source: string): Promise<OrmDriver> {
+  const orm = (await container.resolve(Orm)) as Orm;
   const driver = orm.Connections.get(name);
-
-  if (!driver) {
-    throw new AuthzConfigError(`${key}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ')})`);
-  }
-
+  if (!driver) throw new AuthzConfigError(`${source}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
   return driver;
 }
