@@ -198,6 +198,11 @@ function pkOf(model: ModelClass): string {
   return name;
 }
 
+/** The `@Relation` columns named `name`; inherited Object.prototype members never count. */
+export function namedRelation(entry: ResourceEntry, name: string): OwnerColumns | undefined {
+  return entry.relations !== undefined && Object.hasOwn(entry.relations, name) ? entry.relations[name] : undefined;
+}
+
 /** The entry of `model` or of its nearest registered ancestor; property metadata merges over the whole chain of `model`. */
 export function entryOf(model: unknown): ResourceEntry | undefined {
   if (typeof model !== 'function') return undefined;
@@ -225,7 +230,7 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
     if (m === undefined) continue;
     if (m.owner !== undefined) owner = m.owner;
     if (m.self !== undefined) self = m.self;
-    for (const [n, c] of m.relations ?? []) relations.set(n, c);
+    for (const [n, cols] of m.relations ?? []) relations.set(n, cols);
     for (const p of m.parents) {
       const i = parents.findIndex((x) => x.property === p.property);
       if (i === -1) parents.push(p);
