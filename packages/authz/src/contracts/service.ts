@@ -23,6 +23,8 @@ export abstract class AuthzService extends AsyncService {
   abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined; // undefined => a model needs IO
   abstract explain(req: CheckInput): Promise<Decision>; // trace on, all models evaluated
   abstract summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary>;
+  /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. Optional: test doubles may leave it out. */
+  ancestors?(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
   /** Holder's combined permission set at `at` (all models, incl. ABAC) strictly contains target's; impersonation rule (B26). */
   abstract covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean>;
   abstract preload(principal: Principal): Promise<void>;

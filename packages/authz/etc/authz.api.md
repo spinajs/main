@@ -256,6 +256,15 @@ export type AuthzAdminQuery = {
 } | {
     readonly kind: "attributes";
     readonly scope: ResourceRef;
+} | {
+    readonly kind: "holders";
+    readonly scope: ResourceRef;
+    readonly permission: Permission;
+    readonly expandSets?: boolean;
+    readonly page?: {
+        limit: number;
+        offset: number;
+    };
 };
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export declare abstract class AuthzWriteHandler {
@@ -926,6 +935,8 @@ export declare abstract class AuthzService extends AsyncService {
     abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined;
     abstract explain(req: CheckInput): Promise<Decision>;
     abstract summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary>;
+    /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. Optional: test doubles may leave it out. */
+    ancestors?(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
     /** Holder's combined permission set at `at` (all models, incl. ABAC) strictly contains target's; impersonation rule (B26). */
     abstract covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean>;
     abstract preload(principal: Principal): Promise<void>;

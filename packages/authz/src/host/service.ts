@@ -220,6 +220,10 @@ export class DefaultAuthzService extends AuthzService {
     return this.state().authorizer.summary(principal, at, requestScope());
   }
 
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    return this.state().authorizer.ancestors(ref, requestScope());
+  }
+
   async covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean> {
     return this.state().authorizer.covers(holder, target, at, requestScope());
   }

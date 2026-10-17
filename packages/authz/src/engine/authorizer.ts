@@ -544,6 +544,13 @@ export class Authorizer {
    * engine fault leaves its permission out, and so does every check left
    * when the call's deadline (DEADLINE_FACTOR × modelTimeoutMs) passes.
    */
+  /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. */
+  async ancestors(ref: ResourceRef, scope?: RequestScope): Promise<readonly ResourceRef[] | null> {
+    const r = this.requireRef(ref);
+    this.refuseLateType(r.type);
+    return await this.ancestorsOf(r, scope?.cache ?? new Map<string, unknown>());
+  }
+
   async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
     const ref = this.requireRef(at);
     this.refuseLateType(ref.type);
