@@ -440,6 +440,10 @@ The key routes are on while a `KeyRegistry` is registered and `authn.keys.assert
 JWT by the JWS header `typ` (`authn.keys.assertion.typ`). Revoking a key does not end the sessions it
 logged in.
 
+After a successful verification the key strategies call `KeyRegistry.touch(kid, at)` when the registry
+implements it (it is optional on the contract) to record the key's last use. `DefaultKeyRegistry` writes
+at most once a minute per key. A failed write is logged and never fails the login.
+
 ## Throttling
 
 Key kinds, flow rules, `authn.throttle.memory.*`, DI and writing a store are in

@@ -2,13 +2,16 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { DI } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnThrottle, JwsVerifier, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spinajs/authn/contracts';
 import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/challenge/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
 import { DefaultKeyRegistry, KeyStore, MemoryKeyStore } from '../src/registry/index.js';
+import { StrictJwsVerifier } from '../src/jws/index.js';
+import { KeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
+import { HttpSignatureStrategy, JwsAssertionStrategy } from '../src/strategies/index.js';
 
 const ALICE: KeyOwner & { type: 'user' } = { type: 'user', id: 'alice' };
 const BOB: KeyOwner & { type: 'user' } = { type: 'user', id: 'bob' };
@@ -21,7 +24,7 @@ function world(options = keysOptionsFor({ assertion: { audience: AUD } })) {
   const clock = new FakeClock();
   const secrets = new MemorySecretStore();
   const events = new RecordingEventSink();
-  const registry = new DefaultKeyRegistry(new MemoryKeyStore(), secrets, new FakeBackoffThrottle(throttleParams()), AuthnAudit.over([events]), options);
+  const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets, throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([events]), options });
   const ctx = (): AuthnContext => clock.ctx();
   const challenge = async (owner = ALICE): Promise<KeyChallenge> => {
     const r = await registry.challenge({ purpose: 'register', owner }, ctx());
@@ -192,7 +195,7 @@ describe('DefaultKeyRegistry', () => {
         return 'abc:def:ghi-jkl-mno-pqr-stu';
       }
     }
-    const registry = new DefaultKeyRegistry(new MemoryKeyStore(), new ColonSecrets(), new FakeBackoffThrottle(throttleParams()), undefined, keysOptionsFor({ assertion: { audience: AUD } }));
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new ColonSecrets(), throttle: new FakeBackoffThrottle(throttleParams()), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     await assert.rejects(registry.challenge({ purpose: 'login', kid: 'k' }, new FakeClock().ctx()), /base64url/);
   });
 
@@ -229,7 +232,7 @@ describe('DefaultKeyRegistry', () => {
       }
     }
     const events = new RecordingEventSink();
-    const registry = new DefaultKeyRegistry(new MemoryKeyStore(), new MemorySecretStore(), new FakeBackoffThrottle(throttleParams()), AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { sinkTimeoutMs: 20 }), keysOptionsFor({ assertion: { audience: AUD } }));
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { sinkTimeoutMs: 20 }), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const ctx = new FakeClock().ctx();
     const started = Date.now();
     const r = await registry.register({ owner: SVC, actor: ADMIN, jwk: generateKeyPair('EdDSA').publicJwk }, ctx);
@@ -243,7 +246,27 @@ describe('DefaultKeyRegistry', () => {
     );
   });
 
-  it('resolves from DI with its dependencies registered', async () => {
+  it('remembers the last stamp of a bounded number of keys, forgetting the least recently stamped first', async () => {
+    const writes: string[] = [];
+    class CountingStore extends MemoryKeyStore {
+      async touch(kid: string, at: Date): Promise<void> {
+        writes.push(kid);
+        await super.touch(kid, at);
+      }
+    }
+    class TwoStamps extends DefaultKeyRegistry {
+      protected override readonly maxStamped = 2;
+    }
+    const registry = new TwoStamps({ store: new CountingStore() });
+    const at = new Date(1_800_000_000_000);
+    for (const kid of ['a', 'b', 'a', 'c', 'b', 'a']) {
+      await registry.touch(kid, at);
+    }
+    assert.deepStrictEqual(writes, ['a', 'b', 'c', 'a'], 'a is forgotten when c comes, b when a comes back');
+    assert.strictEqual((registry as unknown as { stamped: Map<string, number> }).stamped.size, 2);
+  });
+
+  it('resolves from DI with its dependencies registered, and the key strategies resolve over it', async () => {
     class TestThrottle extends FakeBackoffThrottle {
       constructor() {
         super(throttleParams());
@@ -256,8 +279,13 @@ describe('DefaultKeyRegistry', () => {
         SpySink.last = this;
       }
     }
-    const types = [MemoryKeyStore, MemorySecretStore, TestThrottle, SpySink];
+    // The audience check of resolve() is not under test; the root Configuration here has none.
+    class UncheckedAssertion extends JwsAssertionStrategy {
+      public async resolve(): Promise<void> {}
+    }
+    const types = [MemoryKeyStore, MemorySecretStore, TestThrottle, SpySink, MemoryKeyNonceStore, UncheckedAssertion];
     DI.register(MemoryKeyStore).as(KeyStore);
+    DI.register(MemoryKeyNonceStore).as(KeyNonceStore);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(TestThrottle).as(AuthnThrottle);
     DI.register(SpySink).as(AuthnEventSink);
@@ -268,8 +296,17 @@ describe('DefaultKeyRegistry', () => {
       const r = await registry.register({ owner: SVC, actor: ADMIN, jwk: generateKeyPair('EdDSA').publicJwk }, new FakeClock().ctx());
       assert.ok(r.ok);
       assert.strictEqual(SpySink.last?.all().length, 1, 'the registered sink got the event');
+
+      type Wired = { registry: KeyRegistry; nonces: KeyNonceStore; verifier?: JwsVerifier };
+      const httpsig = (await DI.resolve(HttpSignatureStrategy)) as unknown as Wired;
+      const assertion = (await DI.resolve(UncheckedAssertion)) as unknown as Wired;
+      assert.strictEqual(httpsig.registry, registry);
+      assert.strictEqual(assertion.registry, registry);
+      assert.ok(httpsig.nonces instanceof MemoryKeyNonceStore);
+      assert.strictEqual(assertion.nonces, httpsig.nonces);
+      assert.ok(assertion.verifier instanceof StrictJwsVerifier);
     } finally {
-      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventSink, AuthnAudit, ...types] as unknown as (new () => unknown)[]) {
+      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventSink, AuthnAudit, KeyNonceStore, HttpSignatureStrategy, ...types] as unknown as (new () => unknown)[]) {
         DI.uncache(t);
       }
       for (const t of types) {
