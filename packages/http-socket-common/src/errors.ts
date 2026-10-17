@@ -70,7 +70,13 @@ export function isSocketError(value: unknown): value is SocketError {
   }
 
   const v = value as Record<string, unknown>;
-  return isErrorCode(v.code) && typeof v.message === 'string' && typeof v.retryable === 'boolean';
+  return (
+    isErrorCode(v.code) &&
+    typeof v.message === 'string' &&
+    typeof v.retryable === 'boolean' &&
+    (v.retryAfterMs === undefined || (typeof v.retryAfterMs === 'number' && Number.isFinite(v.retryAfterMs))) &&
+    (v.errorId === undefined || typeof v.errorId === 'string')
+  );
 }
 
 export interface SocketExceptionOptions {
