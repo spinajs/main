@@ -131,6 +131,18 @@ Other methods: `checkMany`, `checkAll`, `filter` and `filterNow` (the type-level
 `filterNow` is sync, after `preload`), `explain` (adds a trace), `summary`, `covers(holder, target)`
 (the impersonation rule, B26) and `admin()`.
 
+**Errors.** These extend `@spinajs/exceptions` classes, so `@spinajs/http` maps them by class:
+
+| Error | Base | HTTP | Thrown for |
+| --- | --- | --- | --- |
+| `AccessDenied` | `Forbidden` | 403 | a denied `assert`; carries the `decision`, which stays out of the error body |
+| `Unauthenticated` | `AuthenticationFailed` | 401 | an anonymous request on a route `@Access` guards (authz-http) |
+| `AuthzConfigError`, `UnknownPermission` | `InvalidOption` | 500 | a misconfigured domain, model or decorator, and a call the API refuses (malformed check input, `runAs` without a reason) |
+| `AuthzAdminFailure` | `Exception` | 500 unless the adapter answers it (authz-http-admin does, by `code`) | a refused admin command; carries `code` and `field` |
+
+`AuthzConfigError` and `AuthzAdminFailure` take the standard `{ cause }` option. The cause stays
+non-enumerable and `inner` stays unset, so it never reaches an HTTP error body.
+
 **`covers` and `summary` (E1).** Both count what each model lists in its `summarize` answer, so a
 scoped, bare-type or pattern-limited grant counts too (RFC L1-3).
 
