@@ -360,7 +360,8 @@ There are no per-row ACL rows. Access to one resource comes from:
 - A fresh check (`DecisionRequest.fresh`, or a permission with `consistency: 'fresh'`) reads neither
   L1 nor L2 and passes `fresh` to the models; `RbacModel` then reads assignments from the store past
   its request memo and `AssignmentCache` (`authz-rbac/src/model/cache.ts`), and the rows it reads
-  refresh both.
+  refresh both. An access plan of a `consistency: 'fresh'` permission skips the L1 plan memo, sets
+  `ListPlanRequest.fresh` for `listPlan`, and runs the models' nested checks fresh.
 
 ## Admin writes
 
