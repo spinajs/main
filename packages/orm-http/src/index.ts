@@ -13,6 +13,7 @@ export * from './extension.js';
 export * from './route-arg.js';
 export * from './builders.js';
 export * from './dto.js';
+export * from './paging.js';
 export * from './dto-relation.js';
 export * from './response-methods/OrmNotFound.js';
 import * as express from 'express';
