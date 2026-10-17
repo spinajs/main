@@ -91,7 +91,7 @@ Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` (not exported) | | Extend `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
+| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` | | Extend `MySqlCreateViewCompiler`, or `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
 | Column compiler | `ColumnQueryCompiler`; constructor `(builder: ColumnQueryBuilder)` | `SqlColumnQueryCompiler` | | Extend `SqlColumnQueryCompiler`, override `compile()`; register `.as(ColumnQueryCompiler)`. `SqlTableQueryCompiler` resolves it once per column. |
 | Alter compilers | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | | Extend; `SqlAlterColumnQueryCompiler` has one hook per alteration type. See [Query compilers](../orm-sql/02-query-compilers.md). |
 | Default values | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | Extend and override `date()` / `dateTime()`; register `.as(DefaultValueBuilder)`. |
