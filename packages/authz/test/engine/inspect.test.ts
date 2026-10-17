@@ -4,6 +4,7 @@ import 'mocha';
 import { Authorizer } from '../../src/engine/authorizer.js';
 import type { RequestScope } from '../../src/engine/authorizer.js';
 import { LruDecisionCache } from '../../src/engine/cache.js';
+import { AuthzConfigError } from '../../src/index.js';
 import type { Decision } from '../../src/index.js';
 import { FakeAdapter, FakeRow, RecordingAudit, StaticModel, deny, fakeClock, permit, principal, registryOf } from './fakes.js';
 
@@ -37,6 +38,17 @@ const setup = (vote: Partial<import('../../src/index.js').Vote>) => {
 };
 
 describe('inspect: an introspection check that is not an access attempt', () => {
+  it('refuses a fresh or explain flag that is not a boolean instead of overwriting it', async () => {
+    const { a } = setup(permit());
+    for (const flag of ['fresh', 'explain']) {
+      const e = await a.inspect({ principal: alice, permission: 'doc:read', resource: D1, [flag]: 'yes' } as never, scope()).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(e, flag).to.be.instanceOf(AuthzConfigError);
+    }
+  });
+
   it('records no audit entry for a denial, where check does', async () => {
     const { a, audit } = setup(deny());
     await a.check({ principal: alice, permission: 'doc:read', resource: D1 }, scope());

@@ -122,6 +122,11 @@ describe('Authorizer: a resource type registered after the Authorizer was built'
       );
     });
 
+    it('ancestors of a late type throws the late-type error', async () => {
+      const a = setup();
+      expectLate(await rejection(a.ancestors({ type: 'invoice', id: 'i1' })));
+    });
+
     it('a permission no late adapter lists stays the plain UnknownPermission', async () => {
       const a = setup();
       const e = await rejection(a.check({ principal: alice, permission: 'nope:read', resource: invoice }));

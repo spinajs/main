@@ -431,6 +431,7 @@ export class Authorizer {
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
   async inspect(input: CheckInput, scope?: RequestScope): Promise<Decision> {
     if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
+    for (const flag of ['fresh', 'explain'] as const) if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new AuthzConfigError(`${this.where}: ${flag} must be a boolean`);
     const run: Run = { ...this.newRun(false, scope), bypass: true, quiet: true };
     return (await runAsync(this.pipeline({ ...input, explain: false, fresh: true }, run))).decision;
   }
