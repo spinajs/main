@@ -1,6 +1,6 @@
 import { Command, Option } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Autoinject, DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -52,7 +52,9 @@ export class CheckConfigCommand extends AuthzCliCommand {
   public Roles?: RoleStore;
   public Rbac?: RbacGrants;
   public Orm?: Orm;
-  public Configuration?: Configuration;
+
+  @Autoinject(Configuration)
+  public Configuration: Configuration;
 
   public async execute(options: CheckConfigOptions = {}): Promise<void> {
     await this.command(
@@ -81,14 +83,10 @@ export class CheckConfigCommand extends AuthzCliCommand {
     const root = DI.RootContainer;
     if (root.hasRegistered(RoleStore)) return (await root.resolve(Array.chainOf(RoleStore))) as RoleStore[];
 
-    const names = rbacStoreNames(await this.configuration(), 'roles');
+    const names = rbacStoreNames(this.Configuration, 'roles');
     const missing = names.filter((n) => !root.hasRegistered(n));
     if (missing.length > 0) throw new CliUsageError(`no role store registered under ${missing.join(', ')} (authz.rbac.stores.roles): is @spinajs/authz-rbac loaded?`);
     return Promise.all(names.map((n) => DI.resolve<RoleStore>(n)));
-  }
-
-  private async configuration(): Promise<Configuration> {
-    return (this.Configuration ??= await DI.resolve(Configuration));
   }
 
   private async explainRole(role: string, known: ReadonlyArray<{ name: string }>): Promise<void> {
@@ -105,7 +103,7 @@ export class CheckConfigCommand extends AuthzCliCommand {
 
   private async unattended(): Promise<void> {
     const orm = (this.Orm ??= await DI.resolve(Orm));
-    const connection = (await this.configuration()).get<string | undefined>('authz.rbac.connection', undefined);
+    const connection = this.Configuration.get<string | undefined>('authz.rbac.connection', undefined);
     const driver: OrmDriver | undefined = orm.Connections.get(connection ?? 'default');
     if (!driver) throw new CliUsageError(`no ORM connection ${JSON.stringify(connection ?? 'default')}`);
     if (!(await driver.schema().tableExists(AUDIT_TABLE))) throw new CliUsageError(`the ${AUDIT_TABLE} table does not exist: DbDecisionAudit (authz-orm) is not enabled`);

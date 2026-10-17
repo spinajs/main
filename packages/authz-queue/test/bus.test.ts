@@ -5,17 +5,18 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { AuthzChange } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
+import type { QueueService } from '@spinajs/queue';
 
-import { AuthzChangeEvent, reviveChange } from '../src/index.js';
+import { AuthzChangeEvent, QueueChangeBus, reviveChange } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './support/memory-client.js';
 import { NodeBus, PeerQueueService } from './support/nodes.js';
 
 let seq = 0;
 
-async function node(broker: string) {
+async function node(broker: string, configuration?: Configuration) {
   const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
   await client.resolve();
-  const bus = new NodeBus(new PeerQueueService(client));
+  const bus = new NodeBus(new PeerQueueService(client), configuration);
   const heard: AuthzChange[] = [];
   bus.subscribe((c) => heard.push(c));
   await bus.ready();
@@ -41,8 +42,8 @@ describe('QueueChangeBus', () => {
     MemoryBroker.drop(broker);
   });
 
-  const start = async () => {
-    const n = await node(broker);
+  const start = async (configuration?: Configuration) => {
+    const n = await node(broker, configuration);
     nodes.push(n);
     return n;
   };
@@ -123,12 +124,12 @@ describe('QueueChangeBus', () => {
         const cfg = DI.get(Configuration)!;
         cfg.set(['authz', 'bus', 'topic'], '/topic/authz');
         cfg.set(['queue', 'routing'], {});
-        const n = await start();
+        const n = await start(cfg);
         await n.bus.publish(change());
         expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/authz' });
 
         cfg.set(['queue', 'routing', 'AuthzChangeEvent'], { channel: '/topic/mine' });
-        const m = await start();
+        const m = await start(cfg);
         await m.bus.publish(change());
         expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/mine' });
       } finally {
@@ -143,11 +144,35 @@ describe('QueueChangeBus', () => {
         for (const topic of ['', 5, {}]) {
           cfg.set(['authz', 'bus', 'topic'], topic);
           cfg.set(['queue', 'routing'], {});
-          const n = await start();
+          const n = await start(cfg);
           await n.bus.publish(change());
           expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent']), JSON.stringify(topic)).to.equal(undefined);
         }
       } finally {
+        await testHost.uninstallHost();
+      }
+    });
+
+    it('a bus DI builds routes through the Configuration DI injected', async () => {
+      const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
+      await client.resolve();
+      class DiBus extends QueueChangeBus {
+        protected async queueService(): Promise<QueueService> {
+          return new PeerQueueService(client);
+        }
+      }
+      const cfg = await testHost.installHost();
+      try {
+        cfg.set(['authz', 'bus', 'topic'], '/topic/authz');
+        cfg.set(['queue', 'routing'], {});
+        const bus = (await DI.resolve(DiBus)) as DiBus;
+        expect((bus as unknown as { Configuration: unknown }).Configuration).to.equal(cfg);
+        await bus.publish(change());
+        expect(cfg.get(['queue', 'routing', 'AuthzChangeEvent'])).to.deep.equal({ channel: '/topic/authz' });
+        await bus.dispose();
+      } finally {
+        DI.uncache(DiBus);
+        await client.dispose();
         await testHost.uninstallHost();
       }
     });

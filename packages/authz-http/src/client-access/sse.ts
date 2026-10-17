@@ -1,4 +1,4 @@
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AUTHZ_CHANGED_EVENT, AccessPushTransport, principalKey } from '@spinajs/authz';
 import type { AccessChangedEvent, Principal, PrincipalRef } from '@spinajs/authz';
@@ -113,6 +113,7 @@ export class SseAccessPushTransport extends AccessPushTransport {
   public async sessionEnded(identity: PrincipalRef, session?: string): Promise<void> {
     if (session !== undefined) for (const s of this.sessionStreams(identity)) if (s.session === session) this.end(s);
     const rest = this.sessionStreams(identity);
+    // Per call: authz boot builds this transport, sse in use or not, and must not build the issuer's session provider then.
     if (rest.length === 0 || !DI.check(SessionIssuer)) return;
     const live = new Set((await ((await DI.resolve(SessionIssuer)) as SessionIssuer).list({ type: identity.type, id: identity.id })).map((r) => r.handle));
     for (const s of rest) if (!live.has(s.session!)) this.end(s);
@@ -174,10 +175,13 @@ const IMPERSONATION: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['imp
 /** Ends a session's event streams when authn reports the session's end (logout, revoke, impersonation start and end). */
 @Injectable(AuthnEventSink)
 export class SseSessionEndSink extends AuthnEventSink {
+  @Autoinject(SseAccessPushTransport)
+  protected Transport: SseAccessPushTransport;
+
   public async publish(e: AuthnEvent): Promise<void> {
     const ends = SESSION_ENDS.has(e.type);
     if (e.outcome !== 'success' || !e.identity || (!ends && !IMPERSONATION.has(e.type))) return;
-    const transport = (await DI.resolve(SseAccessPushTransport)) as SseAccessPushTransport;
+    const transport = this.Transport;
     if (ends) await transport.sessionEnded(e.identity, e.session);
     else await Promise.all([e.identity, ...(e.actor ? [e.actor] : [])].map((who) => transport.sessionEnded(who)));
   }

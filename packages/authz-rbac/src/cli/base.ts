@@ -8,8 +8,8 @@ import { DI } from '@spinajs/di';
 import '../admin/index.js';
 
 /**
- * The CLI boots only the command it runs, so collaborators are resolved when the command needs them (a
- * failing AuthzService boot then becomes a message, not a failed command construction). Tests set the fields.
+ * The CLI boots only the command it runs, so collaborators that can fail to boot (Configuration aside) are resolved
+ * when the command needs them (a failing AuthzService boot then becomes a message, not a failed command construction). Tests set the fields.
  */
 export abstract class AuthzCliCommand extends CliCommand {
   public Authz?: AuthzService;

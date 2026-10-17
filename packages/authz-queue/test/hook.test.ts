@@ -64,6 +64,12 @@ const run = async (hook: TestHook, m: IQueueMessage) => {
   return hook.ranAs[hook.ranAs.length - 1];
 };
 
+/** A fresh hook built by DI, as the queue builds it, so it gets the InitiatorPrincipalFactory registered now. */
+const built = async (): Promise<TestHook> => {
+  DI.uncache(TestHook);
+  return (await DI.resolve(TestHook)) as TestHook;
+};
+
 describe('AuthzQueueHook.beforeEmit', () => {
   it('stamps the ambient principal', async () => {
     const hook = new TestHook();
@@ -142,7 +148,7 @@ describe('AuthzQueueHook.aroundHandle', () => {
   });
 
   it("runAs 'initiator' rebuilds the principal and revives the ceiling's date after JSON", async () => {
-    const hook = new TestHook();
+    const hook = await built();
     const expiresAt = new Date('2031-01-02T03:04:05.000Z');
     const wire = JSON.parse(JSON.stringify({ type: 'user', id: 'alice', ceiling: { permissions: ['file:read'], expiresAt } }));
 
@@ -155,13 +161,13 @@ describe('AuthzQueueHook.aroundHandle', () => {
   });
 
   it("runAs 'initiator' of an initiator the stamp says is unattended runs unattended", async () => {
-    const hook = new TestHook();
+    const hook = await built();
     const ran = await run(hook, messageOf(AsInitiator, { type: 'unattended', id: 'unattended' }));
     expect(ran.principal).to.equal(UNATTENDED);
   });
 
   it('a malformed Initiator runs unattended', async () => {
-    const hook = new TestHook();
+    const hook = await built();
     for (const bad of ['alice', 7, { type: 'user' }, { id: 'a' }, { type: '', id: 'a' }, { type: 'user', id: 'a', ceiling: 'x' }, { type: 'user', id: 'a', ceiling: { roles: 'admin' } }, { type: 'user', id: 'a', ceiling: { expiresAt: 'soon' } }]) {
       const ran = await run(hook, messageOf(AsInitiator, bad));
       expect(ran.principal, JSON.stringify(bad)).to.equal(UNATTENDED);
@@ -186,13 +192,14 @@ describe('AuthzQueueHook.aroundHandle', () => {
     DI.register(Reloading).as(InitiatorPrincipalFactory);
     DI.uncache(InitiatorPrincipalFactory);
     try {
-      const hook = new TestHook();
+      const hook = await built();
       const ran = await run(hook, messageOf(AsInitiator, { type: 'user', id: 'alice' }));
       expect(ran.principal.attributes).to.deep.equal({ dept: 'support' });
     } finally {
       DI.unregister(Reloading);
       DI.uncache(InitiatorPrincipalFactory);
       DI.uncache(Reloading);
+      DI.uncache(TestHook);
     }
   });
 });

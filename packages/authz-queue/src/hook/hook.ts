@@ -1,4 +1,4 @@
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
@@ -22,6 +22,9 @@ export class AuthzQueueHook extends QueueMessageHook {
   /** The authz domain whose principal is stamped and whose `runAs` the handler uses. */
   @Config('authz.queue.domain')
   protected Domain: string;
+
+  @Autoinject(InitiatorPrincipalFactory)
+  protected Initiators: InitiatorPrincipalFactory;
 
   async beforeEmit(message: IQueueMessage): Promise<void> {
     // Whatever the caller put there is dropped: only the ambient principal may be named.
@@ -58,8 +61,7 @@ export class AuthzQueueHook extends QueueMessageHook {
   }
 
   protected async initiator(initiator: Initiator): Promise<Principal> {
-    const factory = await DI.resolve(InitiatorPrincipalFactory);
-    return factory.principalOf(initiator);
+    return this.Initiators.principalOf(initiator);
   }
 
   protected async service(): Promise<AuthzService> {

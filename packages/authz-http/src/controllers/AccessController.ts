@@ -2,7 +2,7 @@ import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Req } from '@spi
 import type { Request } from '@spinajs/http';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { DI } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { _check_arg, _is_array, _max_length } from '@spinajs/util';
 
 import { domainService } from '../domains.js';
@@ -22,6 +22,9 @@ export class AccessController extends BaseController {
 
   @Logger('authz-http')
   protected Log: Log;
+
+  @Autoinject(SseAccessPushTransport)
+  protected Transport: SseAccessPushTransport;
 
   @Get('/')
   @Policy(HasPrincipal)
@@ -43,7 +46,6 @@ export class AccessController extends BaseController {
   @Get('events')
   @Policy(IsAuthenticated)
   public async events(@Req() req: Request) {
-    const transport = (await DI.resolve(SseAccessPushTransport)) as SseAccessPushTransport;
-    return new AccessEventStream(transport, req.storage.Principal!);
+    return new AccessEventStream(this.Transport, req.storage.Principal!);
   }
 }

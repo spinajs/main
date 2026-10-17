@@ -1,13 +1,15 @@
+import type { Configuration } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import type { IQueueMessage, QueueMessage as QueueMessageBase } from '@spinajs/queue';
 
 import { QueueChangeBus } from '../../src/index.js';
 import type { MemoryQueueClient } from './memory-client.js';
 
-/** The bus of a node; `ready()` resolves once it listens on the queue. */
+/** The bus of a node; `ready()` resolves once it listens on the queue. Built with `new`, so it gets the Configuration DI would inject. */
 export class NodeBus extends QueueChangeBus {
-  constructor(private readonly service?: QueueService) {
+  constructor(private readonly service?: QueueService, configuration?: Configuration) {
     super();
+    this.Configuration = configuration;
   }
 
   ready(): Promise<unknown> {

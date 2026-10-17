@@ -1,4 +1,4 @@
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
@@ -39,6 +39,9 @@ export class PrincipalMiddleware extends ServerMiddleware {
   @Config('authz.principals.anonymous.enabled', { defaultValue: true })
   protected AnonymousEnabled: boolean;
 
+  @Autoinject(PrincipalSource)
+  protected Sources: PrincipalSource[];
+
   private authz: Promise<AuthzService> | undefined;
 
   constructor() {
@@ -50,6 +53,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
     // The http server resolves its middlewares before the controllers register, and the root
     // boot checks the @Access permissions of the registered controllers (B02): boot once it listens.
     await super.resolve();
+    this.Sources = [...this.Sources].sort((a, b) => a.order - b.order);
     DI.RootContainer.once('http.server.listening', this.onListening);
   }
 
@@ -101,7 +105,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
    * companion (left in req.storage.Principal for the link source to read).
    */
   protected async authenticate(req: Request): Promise<Principal | null> {
-    const sources = await this.sources();
+    const sources = this.Sources;
     let principal: Principal | null = null;
 
     for (const source of sources.filter((s) => !(s instanceof LinkPrincipalSource))) {
@@ -128,10 +132,5 @@ export class PrincipalMiddleware extends ServerMiddleware {
       throw new AuthzConfigError(`principal source ${source.name} returned a ${principal.type} principal`);
     }
     return principal;
-  }
-
-  protected async sources(): Promise<PrincipalSource[]> {
-    const sources = (await DI.resolve(Array.ofType(PrincipalSource))) as PrincipalSource[];
-    return [...sources].sort((a, b) => a.order - b.order);
   }
 }

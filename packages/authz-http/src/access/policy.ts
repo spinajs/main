@@ -130,6 +130,7 @@ export class AccessPolicy extends BasePolicy {
    * reach the engine, which would read its default field values as the row.
    */
   protected async refOf(domain: string, instance: object): Promise<ResourceRef> {
+    // Not injected: @spinajs/telemetry builds this policy with `new`.
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
     const adapters = [...(await domains.container(domain).resolve(Array.chainOf(ResourceAdapter)))] as ResourceAdapter[];
     const adapter = adapters.find((a) => a.accepts(instance));

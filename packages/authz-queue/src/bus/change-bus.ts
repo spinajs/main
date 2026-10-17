@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { ChangeBus, engineLog, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
@@ -63,6 +63,9 @@ export class QueueChangeBus extends ChangeBus {
   @Config('authz.bus.topic')
   protected Topic: string | undefined;
 
+  @Autoinject(Configuration, { optional: true })
+  protected Configuration: Configuration | undefined;
+
   async publish(change: AuthzChange): Promise<void> {
     this.deliver(change);
     const queue = await this.start();
@@ -114,7 +117,7 @@ export class QueueChangeBus extends ChangeBus {
     if (started) await (await started.catch(() => undefined))?.stopConsuming(AuthzChangeEvent);
   }
 
-  /** The node's QueueService, with the change listener attached once. */
+  /** Resolved per start, not injected: a queue that cannot start yet must not fail the bus, which retries. */
   protected async queueService(): Promise<QueueService> {
     return DI.resolve(QueueService);
   }
@@ -147,7 +150,7 @@ export class QueueChangeBus extends ChangeBus {
 
   /** `authz.bus.topic` becomes the channel of `AuthzChangeEvent` unless `queue.routing` already routes it. */
   private route(): void {
-    const cfg = DI.get(Configuration);
+    const cfg = this.Configuration;
     if (!cfg || cfg.get<unknown>(['queue', 'routing', AuthzChangeEvent.name]) !== undefined) return;
     const topic = this.Topic;
     if (typeof topic !== 'string' || topic === '') return;

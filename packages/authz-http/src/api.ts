@@ -8,6 +8,7 @@ function notImplemented(name: string, ..._args: unknown[]): Error {
   return new Error(`@spinajs/authz-http: ${name} is not implemented yet`);
 }
 
+/** Built with `PrincipalMiddleware`, before the root authz boot: a source resolves `AuthzService` per call, it does not inject it. */
 export abstract class PrincipalSource {
   abstract readonly name: string;
   abstract readonly order: number; // lower first; first non-null wins
