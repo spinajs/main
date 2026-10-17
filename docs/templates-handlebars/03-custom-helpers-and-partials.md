@@ -22,7 +22,7 @@ The package does **not** load helpers or partials from directories; register the
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `templates.handlebars.knownHelpers` | `Record<string, boolean>` | unset | helper names | Helpers the compiler may call without a runtime lookup |
-| `templates.handlebars.knownHelpersOnly` | `boolean` | unset | `true`, `false` | `true` makes a template that calls a helper missing from `knownHelpers` throw on its first render |
+| `templates.handlebars.knownHelpersOnly` | `boolean` | unset | `true`, `false` | `true` makes a template that calls a helper missing from `knownHelpers` fail to compile with `IOFail` |
 
 ```ts
 // config/templates.ts
@@ -95,22 +95,6 @@ Handlebars.registerHelper('currency', myCurrency);
 ```
 
 ## Examples
-
-### Translate a phrase with placeholders
-
-The built-in `__` takes one argument. This helper passes the rest to `util.format` placeholders.
-
-```ts sample
-import Handlebars from 'handlebars';
-import { __translate } from '@spinajs/intl';
-import '@spinajs/templates-handlebars';
-
-// {{t "Hello %s, you have %d new orders" user.name count}}
-Handlebars.registerHelper('t', (phrase: string, ...rest: unknown[]) => {
-  const options = rest.pop() as Handlebars.HelperOptions;
-  return __translate(options.data.root.lang)(phrase, ...rest);
-});
-```
 
 ### Format dates in the render language
 
