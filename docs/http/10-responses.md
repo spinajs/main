@@ -35,7 +35,7 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `Ok` | 200 | `ok.pug` | | |
 | `Created` | 201 | `created.pug` | | |
 | `NoContent` | 204 | `noContent.pug` | | Pass `null`: `new NoContent(null)`. |
-| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest` | |
+| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest`, `JsonValidationFailed` | |
 | `ValidationError` | 400 | `validationError.pug` | `ValidationFailed` (`@spinajs/validation`) | |
 | `Unauthorized` | 401 | `unauthorized.pug` | `AuthenticationFailed` | |
 | `ForbiddenResponse` | 403 | `forbidden.pug` | `Forbidden` | |
