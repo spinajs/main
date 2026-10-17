@@ -1,7 +1,8 @@
+import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
-import { Controllers } from '@spinajs/http';
+import { Controllers, HttpServer } from '@spinajs/http';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
@@ -22,8 +23,17 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
+// http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
+export function appPort(): number {
+  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  if (!address) throw new Error('no http server listening: start HttpServer first');
+  return address.port;
+}
+
+export const appOrigin = (): string => `http://localhost:${appPort()}`;
+
 export function req() {
-  return chai.request('http://localhost:8888/');
+  return chai.request(`${appOrigin()}/`);
 }
 
 export function dir(path: string) {
@@ -69,7 +79,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
-        port: 8888,
+        port: 0,
         middlewares: [
           helmet(),
           express.json({
