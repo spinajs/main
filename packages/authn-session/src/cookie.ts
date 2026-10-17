@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon';
 import { AUTHN_PUBLIC_COOKIE_SECRET } from '@spinajs/authn/env';
-import { explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration-common';
-import type { Configuration } from '@spinajs/configuration-common';
+import { isDevOrTestEnv } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 import type { ISession } from './contracts.js';
 
@@ -58,9 +57,6 @@ function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): b
   }
   return flag !== false && flag !== 'false';
 }
-
-/** @deprecated Use `explicitAppEnv` of `@spinajs/configuration`. */
-export const appEnvOf: (config: Configuration) => string | undefined = explicitAppEnv;
 
 /**
  * Throws when the cookie signing secret is missing, or is the public default

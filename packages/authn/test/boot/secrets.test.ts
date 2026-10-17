@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, authnEnvFellBack, authnSecretFindings, isLenientAuthnEnv } from '../../src/index.js';
+import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnEnvFellBack, authnSecretFindings } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
 import { secretStoringSteps } from '../../src/service/boot/secrets.js';
 import { buildCore } from '../behaviour/harness.js';
@@ -81,11 +81,6 @@ describe('authn boot: app env', () => {
   it('is lenient only in development and test (any spelling the configuration accepts)', () => {
     for (const env of ['development', 'dev', 'test']) expect(isDevOrTestEnv(env), env).to.eq(true);
     for (const env of ['production', 'prod', 'staging', 'qa', 'Development', 'TEST', '', undefined]) expect(isDevOrTestEnv(env), String(env)).to.eq(false);
-  });
-
-  it('keeps authnAppEnv and isLenientAuthnEnv as the configuration helpers', () => {
-    expect(authnAppEnv).to.eq(explicitAppEnv);
-    expect(isLenientAuthnEnv).to.eq(isDevOrTestEnv);
   });
 
   it('mirrors the public cookie secret of @spinajs/http', () => {

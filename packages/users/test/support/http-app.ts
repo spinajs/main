@@ -9,7 +9,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, explicitAppEnv } from '@spinajs/configuration';
 import { fsService } from '@spinajs/fs';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -22,7 +22,7 @@ import { AuthnImpersonationService, FreshAuthCheck } from '@spinajs/authn';
 import { AuthnService, AuthnThrottle, ImpersonationGuard, MfaStep, PasswordCredentialStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { PasswordHasher } from '@spinajs/authn-local';
-import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import type { HttpPort, HttpRequest, HttpResponse, HttpRoutes } from '@spinajs/authn-testing';
@@ -256,7 +256,7 @@ function send(port: number, req: HttpRequest): Promise<HttpResponse> {
 
 function sessionCookie(): string {
   const cfg = testHost.config();
-  return sessionCookieName(cfg.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, appEnvOf(cfg));
+  return sessionCookieName(cfg.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, explicitAppEnv(cfg));
 }
 
 function handle(port: number): UsersHttpApp {
