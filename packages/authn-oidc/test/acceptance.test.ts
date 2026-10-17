@@ -165,7 +165,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
 
       // What the app's boot does: bootstrappers, then the core lists 'oidc:corp' among authn.strategies (N1's registry
       // instantiates the registered factory of that name).
-      await new OidcBootstrapper().bootstrap();
+      await (await DI.resolve(OidcBootstrapper)).bootstrap();
       const factory = (DI.getRegisteredTypes(AuthenticationStrategy) ?? []).find((t) => (t as { name?: string }).name === 'oidc:corp') as unknown as (c: IContainer) => Promise<AuthenticationStrategy>;
       expect(factory, 'the bootstrapper registers the oidc:corp strategy service').to.be.a('function');
       const strategy = await factory(DI.RootContainer);
