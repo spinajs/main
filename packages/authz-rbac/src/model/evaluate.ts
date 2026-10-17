@@ -435,12 +435,6 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
 
 const withConfig = (stored: readonly Assignment[], config: readonly Assignment[]) => ({ assignments: [...stored, ...config], ...(config.length > 0 ? { config } : {}) });
 
-/** Merges the extensions' `gather` results into `input`, in list order; synchronous while each gather is. */
-export function extendRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, input: RbacInput): RbacInput | Promise<RbacInput> {
-  const out = extendInput(request, ctx, sources, 0, input);
-  return isThenable(out) ? Promise.resolve(out) : out;
-}
-
 function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
   const extensions = sources.extensions ?? [];
   if (from === 0) input = { ...input, ...rbacTables(extensions, input.roles, input.grants) };
@@ -452,7 +446,7 @@ function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: 
   return input;
 }
 
-/** Tables compiled from the role graph, which RbacService reads too; one source each. */
+/** Tables compiled from the role graph, which RbacModel reads too; one source each. */
 export interface RbacTables {
   readonly ladders?: LadderIndex;
   readonly implies?: ImpliesIndex;
@@ -476,7 +470,7 @@ export function rbacTables(extensions: readonly RbacExtension[], graph: RoleGrap
   return out as RbacTables;
 }
 
-// A table set by a gather would reach the votes but not RbacService.covers, which reads rbacTables.
+// A table set by a gather would reach the votes but not RbacModel's summaries and list plans, which read rbacTables.
 function tableFree(part: Partial<RbacInput> | undefined): Partial<RbacInput> | undefined {
   const key = part ? TABLE_KEYS.find((k) => k in part) : undefined;
   if (key) throw new Error(`rbac: an extension's gather set '${key}'; give it through RbacExtension.tables`);

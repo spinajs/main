@@ -1,6 +1,6 @@
 import { AuthzConfigError, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
 import type { Assignment, PermissionInput, ResourceRef } from '@spinajs/authz';
-import { FakeScopeResolver, ManualClock, agentPrincipal, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
+import { FakeScopeResolver, ManualClock, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -66,68 +66,6 @@ describe('authz-rbac model: RbacService', () => {
     it('gives nothing for an unknown role', async () => {
       const { service } = await setup();
       expect(service.grantsOf('ghost')).to.deep.equal([]);
-    });
-  });
-
-  describe('covers (role names)', () => {
-    const cases: [string, readonly string[], readonly string[], boolean][] = [
-      ['a superset covers', ['all'], ['writer'], true],
-      ['an equal set covers (not strict: the AdminGuard may hand out its own role)', ['writer'], ['writer'], true],
-      ['extends counts: writer holds reader', ['writer'], ['reader'], true],
-      ['a missing permission is refused', ['reader'], ['writer'], false],
-      ['an unconditional grant covers a conditional one', ['writer'], ['ownerWriter'], true],
-      ['a conditional grant does not cover an unconditional one', ['reader', 'ownerWriter'], ['writer'], false],
-      ['the same relation covers', ['ownerWriter'], ['ownerWriter'], true],
-      ['more relations (an OR) cover fewer', ['eitherWriter'], ['ownerWriter'], true],
-      ['fewer relations do not cover more', ['ownerWriter'], ['eitherWriter'], false],
-      ['a field superset covers', ['contacts'], ['names'], true],
-      ['a field subset is refused', ['names'], ['contacts'], false],
-      ['a grant without fields covers every field set', ['users'], ['contacts'], true],
-      ['fields do not cover all fields', ['contacts'], ['users'], false],
-      ['the same pattern covers', ['home2'], ['home'], true],
-      ['another pattern does not', ['tmp'], ['home'], false],
-      ['no pattern covers any pattern', ['dirs'], ['home'], true],
-      ['a pattern does not cover no pattern', ['home'], ['dirs'], false],
-      ['a tag requirement does not cover a grant without one', ['tagged'], ['deleter'], false],
-      ['a grant without a tag requirement covers one with it', ['deleter'], ['tagged'], true],
-      ['an unknown wanted role is refused', ['all'], ['ghost'], false],
-      ['unknown holder roles grant nothing', ['ghost'], ['reader'], false],
-      ['nothing wanted is covered', [], [], true],
-    ];
-    for (const [title, holder, wanted, expected] of cases) {
-      it(title, async () => {
-        const { service } = await setup();
-        expect(service.covers(holder, wanted)).to.equal(expected);
-      });
-    }
-  });
-
-  describe('covers (a principal)', () => {
-    it('throws when the principal was not preloaded, never guesses', async () => {
-      const { service } = await setup([assignment('a1', alice, 'all')]);
-      expect(() => service.covers(alice, ['reader'])).to.throw(AuthzConfigError, 'preload');
-    });
-
-    it('reads the preloaded assignments at GLOBAL and at `at` itself, live at the model clock, after the ceiling', async () => {
-      const { model, service, clock } = await setup([assignment('a1', alice, 'reader'), assignment('a2', alice, 'all', P1), assignment('a3', alice, 'writer', GLOBAL, { expiresAt: new Date(NOW.getTime() + HOUR) })], { cache: { assignmentsTtlSeconds: 7200 } });
-      await model.preload(alice, ctx());
-      expect(service.covers(alice, ['writer'])).to.equal(true);
-      expect(service.covers(alice, ['deleter'])).to.equal(false);
-      expect(service.covers(alice, ['deleter'], P1)).to.equal(true);
-      // An assignment at an ancestor of `at` is not read here: covers stays synchronous (see rolesOf).
-      expect(service.covers(alice, ['deleter'], f1)).to.equal(false);
-      clock.advance(HOUR);
-      expect(service.covers(alice, ['writer'])).to.equal(false);
-      const narrowed = withCeiling(alice, { roles: ['reader'] });
-      await model.preload(narrowed, ctx());
-      expect(service.covers(narrowed, ['deleter'], P1)).to.equal(false);
-    });
-
-    it('throws while the roles are stale', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all')]);
-      await model.preload(alice, ctx());
-      model.invalidate(['role:all']);
-      expect(() => service.covers(alice, ['reader'])).to.throw(AuthzConfigError, 'stale');
     });
   });
 
@@ -258,81 +196,6 @@ describe('authz-rbac model: RbacService', () => {
         expect(await covered('caller', 'target')).to.equal(false);
         expect(await covered('root', 'target')).to.equal(true);
       });
-    });
-  });
-
-  describe('covers and the ceiling', () => {
-    const ttl = { cache: { assignmentsTtlSeconds: 7200 } };
-
-    it('refuses wanted grants outside ceiling.permissions (globs expanded); the role-name overload ignores ceilings', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all')]);
-      const token = withCeiling(alice, { permissions: ['doc:read'] });
-      await model.preload(token, ctx());
-      expect(service.covers(token, ['reader'])).to.equal(true);
-      expect(service.covers(token, ['writer'])).to.equal(false);
-      expect(service.covers(withCeiling(alice, { permissions: ['doc:*'] }), ['writer'])).to.equal(true);
-      expect(service.covers(withCeiling(alice, { permissions: [] }), ['reader'])).to.equal(false);
-      expect(service.covers(['all'], ['writer'])).to.equal(true);
-    });
-
-    it('refuses everything wanted past ceiling.expiresAt', async () => {
-      const { model, service, clock } = await setup([assignment('a1', alice, 'all')], ttl);
-      const token = withCeiling(alice, { expiresAt: new Date(NOW.getTime() + HOUR) });
-      await model.preload(token, ctx());
-      expect(service.covers(token, ['reader'])).to.equal(true);
-      clock.advance(HOUR);
-      expect(service.covers(token, ['reader'])).to.equal(false);
-    });
-
-    it('ceiling.resources: covers needs `at` (or GLOBAL) listed by key, coversAt reads the path', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all')]);
-      const scoped = withCeiling(alice, { resources: [P1] });
-      await model.preload(scoped, ctx());
-      expect(service.covers(scoped, ['reader'], P1)).to.equal(true);
-      expect(() => service.covers(scoped, ['reader'], f1)).to.throw(AuthzConfigError, 'coversAt');
-      expect(await service.coversAt(scoped, ['reader'], f1, ctx())).to.equal(true);
-      expect(await service.coversAt(scoped, ['reader'], P2, ctx())).to.equal(false);
-      expect(service.covers(withCeiling(alice, { resources: [GLOBAL] }), ['reader'], f1)).to.equal(true);
-    });
-
-    it('refuses an agent: the guard must pass the principal the models run with', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all')]);
-      await model.preload(alice, ctx());
-      const bot = agentPrincipal('bot', alice);
-      expect(() => service.covers(bot, ['reader'])).to.throw(AuthzConfigError, 'on behalf');
-      const err = await service.coversAt(bot, ['reader'], P1, ctx()).then(
-        () => undefined,
-        (e: Error) => e,
-      );
-      expect(err).to.be.instanceOf(AuthzConfigError);
-    });
-  });
-
-  describe('coversAt', () => {
-    it('counts assignments at ancestors of `at`, which covers does not read', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all', O1)]);
-      await model.preload(alice, ctx());
-      expect(service.covers(alice, ['deleter'], f1)).to.equal(false);
-      expect(await service.coversAt(alice, ['deleter'], f1, ctx())).to.equal(true);
-      expect(await service.coversAt(alice, ['deleter'], P2, ctx())).to.equal(true);
-      expect(await service.coversAt(bob, ['deleter'], f1, ctx())).to.equal(false);
-    });
-
-    it('applies ceiling.roles and ceiling.permissions', async () => {
-      const { service } = await setup([assignment('a1', alice, 'all', O1), assignment('a2', alice, 'reader', O1)]);
-      expect(await service.coversAt(withCeiling(alice, { roles: ['reader'] }), ['deleter'], f1, ctx())).to.equal(false);
-      expect(await service.coversAt(withCeiling(alice, { permissions: ['doc:read'] }), ['writer'], f1, ctx())).to.equal(false);
-      expect(await service.coversAt(withCeiling(alice, { permissions: ['doc:read'] }), ['reader'], f1, ctx())).to.equal(true);
-    });
-  });
-
-  describe('covers reads the request snapshot', () => {
-    it('with a TTL of 0 covers works in the preloaded request and throws without it', async () => {
-      const { model, service } = await setup([assignment('a1', alice, 'all')], { cache: { assignmentsTtlSeconds: 0 } });
-      const c = ctx();
-      await model.preload(alice, c);
-      expect(service.covers(alice, ['reader'], undefined, c)).to.equal(true);
-      expect(() => service.covers(alice, ['reader'])).to.throw(AuthzConfigError, 'not preloaded');
     });
   });
 });

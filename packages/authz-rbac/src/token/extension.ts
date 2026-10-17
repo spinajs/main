@@ -40,7 +40,6 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
         rules = domain ? await loadTokenRoleRules(await configurationOf(domain), domain) : await loadTokenRoleRules(DI.get(Configuration) ?? NO_CONFIGURATION, DI.RootContainer);
       }
     },
-    // Synchronous and without ctx: RbacModel.heldNow runs it with a context that throws.
     gather(request: DecisionRequest, _ctx: EvaluationContext, input: RbacInput): Partial<RbacInput> {
       if (!rules) throw new Error('rbac: the token role rules are used before the model init ran');
       // Under inherit delegation the models run as the delegate and the agent is the actor.

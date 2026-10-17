@@ -90,7 +90,7 @@ export class RulesExtension implements RbacExtension {
   dbRulesOn(path: readonly ResourceRef[], at: Date, ctx: EvaluationContext): Promise<readonly RuleDef[]> {
     const db = this.db;
     if (!db) return Promise.resolve([]);
-    const cache = requestCache(ctx);
+    const cache: Map<string, unknown> | undefined = ctx.cache;
     // Keyed by store identity: two stores may share a name (a subclass keeps its parent's).
     let byStore = cache?.get(DB_RULES_KEY) as WeakMap<RuleStore, Map<string, Promise<readonly RuleDef[]>>> | undefined;
     if (cache && !byStore) cache.set(DB_RULES_KEY, (byStore = new WeakMap()));
@@ -186,15 +186,6 @@ const DB_RULES_KEY = 'rbac:db-rules';
 /** The row-dependent entry `activate` adds for a rule store it cannot read whole from a type-level path. */
 export const dbRulesMarker = (store: string): string => `* (${store})`;
 export const isDbRulesMarker = (id: string): boolean => id.startsWith('* (') && id.endsWith(')');
-
-// RbacModel.heldNow passes a context that throws on every access.
-function requestCache(ctx: EvaluationContext): Map<string, unknown> | undefined {
-  try {
-    return ctx.cache;
-  } catch {
-    return undefined;
-  }
-}
 
 /** The scope types a rule's conditions and refs read. */
 function readsScopeTypes(rule: CompiledRule): string[] {
