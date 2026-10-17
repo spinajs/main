@@ -33,10 +33,9 @@ import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor, HttpSignatureExtra
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
-import { COOKIE_SECRET, TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
+import { COOKIE_SECRET, TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
 const PUBLIC_ORIGIN = 'https://api.example.test';
-const APP_ORIGIN = 'http://localhost:8889';
 
 class AuthnMiddlewareConfiguration extends TestConfiguration {
   protected onLoad(): unknown {
@@ -202,7 +201,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
     await DI.resolve(Controllers);
-    await (await DI.resolve(HttpServer)).start();
+    await startHttpServer();
   }
 
   before(async () => {
@@ -681,7 +680,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       const token = `spt_${randomBytes(12).toString('base64url')}`;
       s.tokens.set(token, { ok: true, identity: alice, method: 'token' });
       const body = await new Promise<{ status: number; body: { principal: unknown } }>((done, fail) => {
-        const r = http.request({ host: 'localhost', port: 8889, method: 'GET', path: `http://localhost:8889/${AUTHN_PROBE_PATH}`, headers: { ...sigHeaders(sig), Authorization: `Bearer ${token}`, Accept: 'application/json' } }, (res) => {
+        const r = http.request({ host: 'localhost', port: appPort(), method: 'GET', path: `${appOrigin()}/${AUTHN_PROBE_PATH}`, headers: { ...sigHeaders(sig), Authorization: `Bearer ${token}`, Accept: 'application/json' } }, (res) => {
           let text = '';
           res.on('data', (c) => (text += c));
           res.on('end', () => done({ status: res.statusCode ?? 0, body: JSON.parse(text) }));
@@ -714,7 +713,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       const refused = await probe({ Cookie: cookieOf(h.id), Origin: 'https://evil.example.net' }, { method: 'POST', body: {} });
       expect(refused.status).to.eq(403);
       expect(refused.ran).to.eq(false);
-      const own = await probe({ Cookie: cookieOf(h.id), Origin: APP_ORIGIN }, { method: 'POST', body: {} });
+      const own = await probe({ Cookie: cookieOf(h.id), Origin: appOrigin() }, { method: 'POST', body: {} });
       expect(own.body.principal?.id).to.eq(alice.id);
     });
   });

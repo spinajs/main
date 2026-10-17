@@ -29,7 +29,7 @@ import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdA
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
-import { APP_ORIGIN, COOKIE_SECRET, TestConfiguration, req as http, restoreHttpErrorMap } from '../token-common.js';
+import { COOKIE_SECRET, TestConfiguration, appOrigin, req as http, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
 const { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy, PendingMfaEnrolment } = v3;
 
@@ -192,7 +192,7 @@ describe('3.0 authn policies and route args', function () {
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
     await DI.resolve(Controllers);
-    await (await DI.resolve(HttpServer)).start();
+    await startHttpServer();
   }
 
   before(async () => {
@@ -662,7 +662,7 @@ describe('3.0 authn policies and route args', function () {
       return call;
     };
     const post = async (path: string, headers: Record<string, string>, body: object = {}) => {
-      let call = http().post(`${POLICY_PROBE_PATH}/${path}`).set('Accept', 'application/json').set('Origin', APP_ORIGIN);
+      let call = http().post(`${POLICY_PROBE_PATH}/${path}`).set('Accept', 'application/json').set('Origin', appOrigin());
       for (const [k, v] of Object.entries(headers)) call = call.set(k, v);
       return call.send(body);
     };
