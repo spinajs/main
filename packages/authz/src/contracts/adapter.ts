@@ -38,6 +38,12 @@ export abstract class RelationResolver {
   abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
 
+// Merged into the class so it emits no field: a subclass may declare it with a field initialiser or a getter.
+export interface RelationResolver {
+  /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. */
+  readonly listable?: boolean;
+}
+
 /** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
   readonly scopeType: ResourceType;

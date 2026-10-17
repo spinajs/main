@@ -976,7 +976,7 @@ export class Authorizer {
   private async modelPlan(model: AuthorizationModel, req: ListPlanRequest, ctx: ModelContext, label: string): Promise<PlanAnswer & { readonly faulted: boolean }> {
     let support: unknown;
     try {
-      support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type) : undefined;
+      support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type, { relation: (type, name) => this.relation(type, name) }) : undefined;
     } catch (e) {
       throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} threw from listSupport() for ${label}: ${describeError(e)}`, { cause: e });
     }

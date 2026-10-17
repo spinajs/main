@@ -76,6 +76,10 @@ export declare abstract class RelationResolver {
     abstract readonly relation: string;
     abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
+export interface RelationResolver {
+    /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. */
+    readonly listable?: boolean;
+}
 /** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
     readonly scopeType: ResourceType;
@@ -663,7 +667,7 @@ import type { Permission, PermissionDef, PermissionRegistry } from "./permission
 import type { FilterOp, ResourceFilter } from "./filter.js";
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from "./decision.js";
 import type { RelationResolver } from "./adapter.js";
-import type { ListPlanRequest, ListSupport, ModelListPlan } from "./plan.js";
+import type { ListPlanRequest, ListSupport, ListSupportContext, ModelListPlan } from "./plan.js";
 import type { ConditionCompiler } from "../conditions/contracts.js";
 export declare abstract class NativeFilter {
     abstract readonly op: `native:${string}`;
@@ -712,7 +716,7 @@ export declare abstract class AuthorizationModel {
     preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
     summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
     /** List support for `permission` on `type`; absent means the model cannot plan lists. */
-    listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
+    listSupport?(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport;
     /** The list plan; called only when listSupport answered true. */
     listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
     invalidate?(tags: readonly string[]): void;
@@ -794,6 +798,7 @@ const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 ```ts
 import type { Principal, ResourceRef, ResourceType } from "./principal.js";
 import type { PermissionDef } from "./permission.js";
+import type { RelationResolver } from "./adapter.js";
 import type { DenyReason } from "./decision.js";
 /** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
 export interface PlanTerm {
@@ -829,6 +834,10 @@ export type AccessPlan = {
     readonly validUntil?: Date;
 };
 /** Why a model cannot plan a permission on a type, or true. */
+/** What listSupport may consult besides the permission and type. */
+export interface ListSupportContext {
+    relation(type: ResourceType, name: string): RelationResolver | undefined;
+}
 export type ListSupport = true | {
     readonly reason: string;
 };
@@ -849,8 +858,8 @@ export interface SqlRowContext {
     readonly rowId: string;
     readonly rowColumn: (column: string) => string;
     readonly ancestorTable: string;
-    /** Columns of the row's `owner`/`self` relation, when the resource declares one. */
-    readonly relation: (name: "owner" | "self") => {
+    /** Columns of the row's relation `name` (owner, self, or a named column relation), when the resource declares one. */
+    readonly relation: (name: string) => {
         readonly column: string;
         readonly typeColumn?: string;
     } | undefined;

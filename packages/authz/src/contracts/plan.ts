@@ -1,6 +1,7 @@
 import type { Principal, ResourceRef, ResourceType } from './principal.js';
 import type { PermissionDef } from './permission.js';
 import type { DenyReason } from './decision.js';
+import type { RelationResolver } from './adapter.js';
 
 /** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
 export interface PlanTerm {
@@ -30,6 +31,11 @@ export type AccessPlan =
 /** Why a model cannot plan a permission on a type, or true. */
 export type ListSupport = true | { readonly reason: string };
 
+/** What listSupport may consult besides the permission and type. */
+export interface ListSupportContext {
+  relation(type: ResourceType, name: string): RelationResolver | undefined;
+}
+
 export interface ListPlanRequest {
   readonly principal: Principal;
   /** The acting principal under `inherit` delegation, as `DecisionRequest.actor`. */
@@ -48,8 +54,8 @@ export interface SqlRowContext {
   readonly rowId: string;
   readonly rowColumn: (column: string) => string;
   readonly ancestorTable: string;
-  /** Columns of the row's `owner`/`self` relation, when the resource declares one. */
-  readonly relation: (name: 'owner' | 'self') => { readonly column: string; readonly typeColumn?: string } | undefined;
+  /** Columns of the row's relation `name` (owner, self, or a named column relation), when the resource declares one. */
+  readonly relation: (name: string) => { readonly column: string; readonly typeColumn?: string } | undefined;
   readonly now: Date;
   readonly dialect: 'sqlite' | 'postgres' | 'mysql' | 'mssql';
 }
