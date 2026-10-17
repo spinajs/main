@@ -11,3 +11,5 @@ export * from "./process.js";
 export * from "./timespan.js";
 export * from "./resilience/index.js";
 export * from "./object.js";
+export * from "./date.js";
+export * from "./maybe.js";

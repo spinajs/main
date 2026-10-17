@@ -20,7 +20,7 @@ export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayIte
  * @example
  * chunk([1, 2, 3, 4, 5], 2); // [[1, 2], [3, 4], [5]]
  */
-export const chunk = <T>(arr: T[], size: number): T[][] => {
+export const chunk = <T>(arr: readonly T[], size: number): T[][] => {
   if (size < 1) {
     throw new Error('chunk size must be >= 1');
   }
@@ -87,4 +87,19 @@ export const groupBy = <T, K>(arr: T[], keyFn: (item: T, index: number) => K): M
     }
   });
   return out;
+};
+
+const natural = (a: unknown, b: unknown): number => ((a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0);
+
+/**
+ * Sorts a copy of `items` and drops every element that compares equal ( `0` ) to its predecessor.
+ * The default order is `<` / `>`, which is UTF-16 code-unit order for strings; pass
+ * `compareCodePoints` for code-point order.
+ *
+ * @example
+ * sortedUnique(['b', 'a', 'b']); // ['a', 'b']
+ */
+export const sortedUnique = <T>(items: Iterable<T>, compare: (a: T, b: T) => number = natural): T[] => {
+  const sorted = Array.from(items).sort(compare);
+  return sorted.filter((item, i) => i === 0 || compare(sorted[i - 1], item) !== 0);
 };
