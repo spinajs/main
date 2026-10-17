@@ -14,6 +14,7 @@ import {
   HedgingException,
   CircuitBreakerManualControl,
   TimeSpan,
+  concurrencyLimiterStrategy,
 } from '../src/index.js';
 
 chai.use(chaiAsPromised);
@@ -450,6 +451,41 @@ describe('resilience - edge cases', () => {
     it('accepts a bare number as the permit limit', async () => {
       const pipeline = new ResiliencePipelineBuilder<string>().addConcurrencyLimiter(2).build();
       expect(await pipeline.execute(() => Promise.resolve('ok'))).to.eq('ok');
+    });
+
+    it('counts active, queued, peak and runs', async () => {
+      const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 2, QueueLimit: Infinity });
+      const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+      const gates: (() => void)[] = [];
+      const runs = [1, 2, 3, 4, 5].map((i) => pipeline.execute(() => new Promise<string>((r) => gates.push(() => r(`r${i}`)))));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(limiter.stats.active).to.eq(2);
+      expect(limiter.stats.queued).to.eq(3);
+      expect(limiter.stats.runs).to.eq(2);
+
+      while (gates.length || limiter.stats.active) {
+        gates.shift()?.();
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(await Promise.all(runs)).to.deep.eq(['r1', 'r2', 'r3', 'r4', 'r5']);
+      expect(limiter.stats.peak).to.eq(2);
+      expect(limiter.stats.runs).to.eq(5);
+      expect(limiter.stats.active).to.eq(0);
+      expect(limiter.stats.queued).to.eq(0);
+    });
+
+    it('does not count a rejected execution as a run', async () => {
+      const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 1 });
+      const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+      let release!: () => void;
+      const first = pipeline.execute(() => new Promise<string>((r) => (release = () => r('ok'))));
+      await expect(pipeline.execute(() => Promise.resolve('x'))).to.be.rejectedWith(RateLimiterRejectedException);
+      release();
+      await first;
+      expect(limiter.stats.runs).to.eq(1);
+      expect(limiter.stats.peak).to.eq(1);
     });
   });
 
