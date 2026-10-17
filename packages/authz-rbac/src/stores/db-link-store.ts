@@ -3,6 +3,7 @@ import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { rowsAffected } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
@@ -326,8 +327,4 @@ function notFound(id: string): AuthzAdminFailure {
 
 async function rowsOf(query: PromiseLike<unknown>): Promise<LinkRow[]> {
   return (await query) as LinkRow[];
-}
-
-function rowsAffected(result: unknown): number {
-  return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
 }

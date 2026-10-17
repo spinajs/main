@@ -68,6 +68,26 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       expect(out.bindings).to.deep.equal(['user:alice', 'user:alice', NOW, 'blocked', NOW, 'task', 'task', '$global']);
     });
 
+    it('renders plain, typed-relation, tag and scope-type roles with membership to the exact SQL', () => {
+      const mixed = args({
+        subjects: ['user:alice', 'team:t1#member', 'group:g'],
+        membership: true,
+        memberKeys: ['user:alice', 'user:bob'],
+        roles: [{ role: 'viewer' }, { role: 'editor' }, { role: 'lead', descendantsOnly: true }, { role: 'pm', scopeTypes: ['project', 'org'] }, { role: 'paid', tag: 'gold' }, { role: 'own', relation: 'owner' }],
+      });
+      const out = rbacAssignmentSql(mixed, row('mssql', () => ({ column: 'owner_id', typeColumn: 'owner_type' })));
+      const holder = `(authz_s.subject_key IN (?, ?, ?) OR authz_s.subject_key IN (SELECT authz_m.set_key FROM authz_subject_membership authz_m WHERE authz_m.member_key IN (?, ?) AND ${LIVE('authz_m')}))`;
+      const owner = '((t.owner_type = ? AND t.owner_id = ?) OR (t.owner_type = ? AND t.owner_id = ?) OR (t.owner_type = ? AND t.owner_id = ?))';
+      const qualified = `(authz_s.role = ? AND ${owner}) OR (authz_s.role = ? AND CHARINDEX(?, authz_s.tags) > 0) OR (authz_s.role = ? AND authz_s.scope_type IN (?, ?))`;
+      expect(out.sql).to.equal(
+        `(EXISTS (SELECT 1 FROM authz_assignment authz_s WHERE authz_s.scope_type = ? AND authz_s.scope_id = CAST(t.id AS TEXT) AND ${holder} AND ${LIVE('authz_s')} AND (authz_s.role IN (?, ?) OR ${qualified}))` +
+          ` OR EXISTS (SELECT 1 FROM authz_resource_ancestor authz_a JOIN authz_assignment authz_s ON authz_s.scope_type = authz_a.ancestor_type AND authz_s.scope_id = authz_a.ancestor_id WHERE authz_a.resource_type = ? AND authz_a.resource_id = CAST(t.id AS TEXT) AND ${holder} AND ${LIVE('authz_s')} AND (authz_s.role IN (?, ?, ?) OR ${qualified})))`,
+      );
+      const holderBindings = ['group:g', 'team:t1#member', 'user:alice', 'user:alice', 'user:bob', NOW, NOW];
+      const qualifiedBindings = ['own', 'group', 'g', 'user', 'alice', 'user', 'bob', 'paid', ',gold,', 'pm', 'org', 'project'];
+      expect(out.bindings).to.deep.equal(['task', ...holderBindings, 'editor', 'viewer', ...qualifiedBindings, 'task', ...holderBindings, 'editor', 'lead', 'viewer', ...qualifiedBindings]);
+    });
+
     it('no role or no subject is FALSE', () => {
       expect(rbacAssignmentSql(args({ roles: [] }), row()).sql).to.equal('(1 = 0)');
       expect(rbacAssignmentSql(args({ subjects: [] }), row()).sql).to.equal('(1 = 0)');

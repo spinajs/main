@@ -72,7 +72,3 @@ export async function hasUsers(connection: OrmDriver): Promise<boolean> {
 export function inTransaction(connection: OrmDriver, body: () => Promise<void>): Promise<void> {
   return connection.CurrentTransaction !== undefined ? body() : connection.transaction(body);
 }
-
-export function rowsAffected(result: unknown): number {
-  return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
-}
