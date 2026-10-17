@@ -73,7 +73,7 @@ export function grantingRolesAt(model: RbacModel, permission: Permission): { rea
 function mayGrantAt(roles: RoleIndex, permissions: readonly Permission[], row: Assignment, scope: ResourceRef, path: readonly ResourceRef[]): boolean {
   if (!honoured(roles, row)) return false;
   const here = resourceKey(row.scope) === resourceKey(scope);
-  const rowLadder = roles.ladderOf(row.role);
+  const entries = heldRoles(roles, row.role, here);
   return roleClosure(roles, row.role, here ? 'same-scope' : 'all').defs.some((d) => {
     if (d.deny === true) return false;
     const ladder = roles.ladderOf(d.name);
@@ -82,11 +82,26 @@ function mayGrantAt(roles: RoleIndex, permissions: readonly Permission[], row: A
       if (!permissions.some((p) => compilePermissionGlob(g.permission)(p))) return false;
       if (g.grantedAt !== undefined) {
         if (!g.grantedAt.includes(row.scope.type)) return false;
-        if (ladder !== undefined && !(rowLadder === ladder && rankOf(roles, ladder, row.role) >= rankOf(roles, ladder, d.name))) return false;
+        // The model gives each implied role its own entry at the row's scope, so any of them can supply the rank.
+        if (ladder !== undefined && !entries.some((e) => roles.ladderOf(e) === ladder && rankOf(roles, ladder, e) >= rankOf(roles, ladder, d.name))) return false;
       }
       return g.on === undefined || g.on.some((p) => patternMayAdmit(p, scope, path));
     });
   });
+}
+
+/** The role and what it reaches through implies and extends (not through ladder rank): the roles a row may be counted as. */
+function heldRoles(roles: RoleIndex, role: string, here: boolean): readonly string[] {
+  const seen = new Set<string>();
+  const visit = (name: string): void => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const def = roles.roles.get(name);
+    for (const e of def?.extends ?? []) visit(e);
+    for (const i of def?.implies ?? []) if (!here || i.at === 'self-and-descendants') visit(i.role);
+  };
+  visit(role);
+  return [...seen];
 }
 
 function patternMayAdmit(pattern: ResourcePattern, scope: ResourceRef, path: readonly ResourceRef[]): boolean {
@@ -94,12 +109,13 @@ function patternMayAdmit(pattern: ResourcePattern, scope: ResourceRef, path: rea
   // A {principal.*} template is substituted per principal; only the type of a glob is known here.
   if (p.id?.some((part) => typeof part !== 'string')) return !p.glob || p.type === scope.type;
   const principal = { type: 'user', id: '', authenticated: true, source: 'holders', attributes: {} };
-  return patternFilter(p, { resource: scope, path, principal }).op === 'true';
+  return patternFilter(p, { resource: scope, path, principal }).op !== 'false';
 }
 
 const VERIFY_CHUNK = 16;
 const MEMBERS_CONCURRENCY = 8;
-/** A page verifies each of its principals with one fresh inspect, so a page is capped. */
+const READ_CONCURRENCY = 8;
+/** A page verifies each of its principals with one fresh inspect, so a larger page is refused. */
 export const MAX_HOLDERS_PAGE = 100;
 
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -121,6 +137,7 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
   if (!model) throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an RbacModel among the domain's models`);
   if (typeof ctx.authz.ancestors !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with ancestors()`);
   if (typeof ctx.authz.inspect !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with inspect()`);
+  if (q.page.limit > MAX_HOLDERS_PAGE) throw new AuthzAdminFailure('invalid_query', `page.limit must be at most ${MAX_HOLDERS_PAGE}`, 'page.limit');
   const def = model.permissions().get(q.permission);
   if (def === undefined) throw new AuthzAdminFailure('invalid_query', `unknown permission ${JSON.stringify(q.permission)}`, 'permission');
   // ancestors() answers [ref, GLOBAL] for an unregistered type, so the type has to be vetted here.
@@ -141,7 +158,7 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
   };
   for (const [i, scope] of path.entries()) {
     const qualifying = i === 0 ? roleSets.self : roleSets.ancestors;
-    const reads = await Promise.all([...qualifying].map((role) => store.find({ scope, role, at: ctx.now })));
+    const reads = await mapLimit([...qualifying], READ_CONCURRENCY, (role) => store.find({ scope, role, at: ctx.now }));
     for (const { items } of reads) for (const a of items) if (mayGrantAt(roles, permissions, a, q.scope, path)) add(a.subject, { role: a.role, scope: a.scope, assignment: a.id });
   }
 
@@ -163,7 +180,7 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
   }
 
   const all = [...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, h]) => h);
-  const page = all.slice(q.page.offset, q.page.offset + Math.min(q.page.limit, MAX_HOLDERS_PAGE));
+  const page = all.slice(q.page.offset, q.page.offset + q.page.limit);
   const items: Holder[] = [];
   for (let i = 0; i < page.length; i += VERIFY_CHUNK) {
     items.push(...(await Promise.all(page.slice(i, i + VERIFY_CHUNK).map(async (h) => Object.freeze({ subject: h.subject, via: Object.freeze([...h.via]), ...(await decisionOf(ctx.authz, h.subject, q)) })))));

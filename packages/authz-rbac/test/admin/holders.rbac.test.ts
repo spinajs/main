@@ -244,6 +244,63 @@ describe('holders query: assignments that cannot give the permission here are no
   });
 });
 
+const ladderWorld: World = {
+  now: world.now,
+  permissions: [
+    { name: 'doc:read', types: ['doc', 'project'] },
+    { name: 'authz:holders.read', types: ['doc', 'project', '$global'] },
+  ],
+  principals: people,
+  scopes: [{ nodes: [{ ref: P1 }, { ref: D1, parent: P1 }] }],
+  combine: fixtureDsl.combine('deny-overrides', 'rbac'),
+  rbac: {
+    ladders: [{ name: 'proj', roles: ['pviewer', 'peditor'] }],
+    roles: [
+      { ...role('pviewer', [{ permission: 'doc:read', grantedAt: ['project'] }]), ladder: 'proj' },
+      { ...role('peditor', []), ladder: 'proj' },
+      role('lead', [], { implies: [{ role: 'peditor', at: 'self-and-descendants' }] }),
+      role('auditor', ['authz:holders.read']),
+    ],
+    assignments: [assignment('l-root', root, 'auditor', GLOBAL), assignment('l-alice', alice, 'lead', P1)],
+  },
+};
+
+describe('holders query: an implied ladder role supplies the rank of a grantedAt grant', function () {
+  this.timeout(30000);
+  const harness = rbacAdminHarness({});
+  let session: HarnessSession;
+
+  before(async () => {
+    await harness.beforeAll?.();
+  });
+  after(async () => {
+    await harness.afterAll?.();
+  });
+  beforeEach(async () => {
+    session = await harness.setup(ladderWorld, { id: 'B26', part: 'holders', case: 'holders-ladder', title: 'holders-ladder', facets: ['engine', 'admin', 'rbac', 'audit'] });
+  });
+  afterEach(async () => {
+    await session?.dispose();
+  });
+
+  it('lists the holder the engine allows', async () => {
+    const { items } = await (session.admin as AuthzAdmin).list(root, { kind: 'holders', scope: D1, permission: 'doc:read' });
+    const alice1 = (items as Holder[]).find((h) => JSON.stringify(h.subject) === subjectKey('alice'));
+    expect(alice1?.via.map((v) => v.assignment)).to.deep.equal(['l-alice']);
+    expect(alice1?.decision?.allowed).to.equal(true);
+  });
+
+  it('refuses a page limit above 100 instead of capping it', async () => {
+    try {
+      await (session.admin as AuthzAdmin).list(root, { kind: 'holders', scope: D1, permission: 'doc:read', page: { limit: 101, offset: 0 } });
+      expect.fail('resolved');
+    } catch (e) {
+      expect(e).to.be.instanceOf(AuthzAdminFailure);
+      expect(e).to.include({ code: 'invalid_query', field: 'page.limit' });
+    }
+  });
+});
+
 describe('holders query without a MembershipStore', function () {
   this.timeout(30000);
   const harness = rbacAdminHarness({});

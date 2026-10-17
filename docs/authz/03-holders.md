@@ -29,7 +29,7 @@ admin.list(actor, { kind: 'holders', scope, permission, expandSets?, page? })
 7. With `expandSets: true`, each subject set is expanded with `MembershipStore.membersOf` (the
    transitive closure, 8 calls at a time). Every member gets the set's `via` entries, plus `set`. Users who
    are members only through `groupPrincipal` or companions are not expanded.
-8. Holders are sorted by subject key and paged. The page limit is capped at 100.
+8. Holders are sorted by subject key and paged. A limit above 100 is refused with `invalid_query`.
 9. Each principal on the page gets a `decision` from `authz().inspect()`, 16 at a time.
 
 ## Query and result
@@ -39,7 +39,7 @@ admin.list(actor, { kind: 'holders', scope, permission, expandSets?, page? })
 | `scope` | `ResourceRef` | The resource to inspect. |
 | `permission` | `Permission` | The permission whose holders are listed. |
 | `expandSets` | `boolean` | List members of subject sets. Needs a `MembershipStore`, else `invalid_query`. |
-| `page` | `{ limit, offset }` | Page of the sorted list. The limit is capped at 100. |
+| `page` | `{ limit, offset }` | Page of the sorted list. A limit above 100 is refused with `invalid_query` on `page.limit`. |
 
 `list` answers `{ items, total }`. Each item is a holder:
 
