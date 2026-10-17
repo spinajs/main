@@ -1,4 +1,5 @@
 import type { KeyAlgorithm } from '@spinajs/authn/contracts';
+import { InvalidOption } from '@spinajs/exceptions';
 
 /** `authn.keys` as the schema validates and defaults it. */
 export interface KeysConfig {
@@ -46,7 +47,7 @@ function checkRanges(config: KeysConfig): void {
   for (const [block, key, min, max] of RANGES) {
     const value: unknown = (config[block] as unknown as Record<string, unknown> | undefined)?.[key];
     if (!(Number.isInteger(value) && (value as number) >= min && (value as number) <= max)) {
-      throw new Error(`authn.keys.${block}.${key} must be an integer from ${min} to ${max}`);
+      throw new InvalidOption(`authn.keys.${block}.${key} must be an integer from ${min} to ${max}`);
     }
   }
 }

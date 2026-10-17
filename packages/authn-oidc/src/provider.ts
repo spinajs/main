@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 
 import type { OidcExternalSubject } from './contracts.js';
 import type { OidcProviderOptions } from './options/options.js';
@@ -103,7 +104,7 @@ export class OidcProvider {
    */
   public async complete(flow: OidcFlow, query: OidcCallbackQuery, now: Date): Promise<OidcExternalSubject> {
     const refuse = (what: string): never => {
-      throw new Error(`authn-oidc: callback refused: ${what}`);
+      throw new AuthenticationFailed(`authn-oidc: callback refused: ${what}`);
     };
     if (flow.p !== this.name) refuse('the flow belongs to another provider');
     if (!flowIsLive(flow, now)) refuse('the flow expired');

@@ -2,6 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { TokenCliCommand } from './TokenCliCommand.js';
 
@@ -24,7 +25,7 @@ export class DeleteExpiredTokens extends TokenCliCommand {
     try {
       const tokens = this.Tokens;
       if (!sweepsExpired(tokens)) {
-        throw new Error(`${tokens.constructor.name} cannot delete expired tokens`);
+        throw new InvalidOperation(`${tokens.constructor.name} cannot delete expired tokens`);
       }
 
       const count = await tokens.deleteExpired(new Date());

@@ -240,6 +240,15 @@ controller also warns once, on the first request, when the default redirect URI 
 outside development and test (behind a TLS proxy, set `authn.http.trustProxy` or the provider's
 `redirectUri`).
 
+## Errors
+
+The package throws `@spinajs/exceptions` classes, never a plain `Error`. A refused callback, ID token,
+token key or link callback, and a login without a usable subject, throw `AuthenticationFailed`. A
+provider that answers badly (HTTP status, content type, size, discovery document, JWKS, token or
+userinfo response) or failed recently throws `UnexpectedServerError`. A bad call argument (an unknown
+provider name, a non-finite time, a URL the client refuses to fetch) throws `InvalidArgument`. The
+login and link routes catch them and give the same opaque failure answer.
+
 ## Wiring and open items
 
 - `authn-http` puts `req.storage.AuthnSession` (link routes) and `req.storage.ClientIp` (the `ip`

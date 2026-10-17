@@ -1,3 +1,4 @@
+import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 import type { OidcHttpClient } from './http/client.js';
 import { checkedUrl, isPlainObject } from './support.js';
 
@@ -36,7 +37,7 @@ export class OidcDiscovery {
 
   public async metadata(now: number = Date.now()): Promise<OidcProviderMetadata> {
     if (!Number.isFinite(now)) {
-      throw new Error('authn-oidc: discovery needs a finite time');
+      throw new InvalidArgument('authn-oidc: discovery needs a finite time');
     }
     if (this.document && now < this.fetchedAt + DISCOVERY_MAX_AGE_MS) {
       return this.document;
@@ -46,7 +47,7 @@ export class OidcDiscovery {
     }
     if (this.failedAt !== undefined && now < this.failedAt + DISCOVERY_RETRY_MS) {
       if (this.document) return this.document;
-      throw new Error(`authn-oidc: discovery of ${this.issuer} failed recently`);
+      throw new UnexpectedServerError(`authn-oidc: discovery of ${this.issuer} failed recently`);
     }
     this.inflight = this.fetch().then(
       (doc) => {
@@ -71,14 +72,14 @@ export class OidcDiscovery {
   protected async fetch(): Promise<OidcProviderMetadata> {
     const { status, json } = await this.http.getJson(discoveryUrlOf(this.issuer));
     if (status !== 200 || !isPlainObject(json)) {
-      throw new Error(`authn-oidc: discovery of ${this.issuer} answered HTTP ${status} without a JSON object`);
+      throw new UnexpectedServerError(`authn-oidc: discovery of ${this.issuer} answered HTTP ${status} without a JSON object`);
     }
     return this.validate(json);
   }
 
   protected validate(d: Record<string, unknown>): OidcProviderMetadata {
     const bad = (what: string): never => {
-      throw new Error(`authn-oidc: the discovery document of ${this.issuer} ${what}`);
+      throw new UnexpectedServerError(`authn-oidc: the discovery document of ${this.issuer} ${what}`);
     };
     if (d.issuer !== this.issuer) {
       bad('names another issuer');

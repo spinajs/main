@@ -1,6 +1,7 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { appEnvOf } from '@spinajs/authn-session';
+import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 
 import { isRelaxedEnv } from '../support.js';
 
@@ -63,23 +64,23 @@ export class FetchOidcHttpClient extends OidcHttpClient {
   protected async send(url: string, init: RequestInit): Promise<OidcHttpResponse> {
     const protocol = new URL(url).protocol;
     if (protocol !== 'https:' && !(protocol === 'http:' && this.allowsHttp())) {
-      throw new Error(`authn-oidc: refused to fetch a ${protocol} URL`);
+      throw new InvalidArgument(`authn-oidc: refused to fetch a ${protocol} URL`);
     }
     const response = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(OIDC_HTTP_TIMEOUT_MS) });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
-      throw new Error(`authn-oidc: the provider answered a redirect (HTTP ${response.status})`);
+      throw new UnexpectedServerError(`authn-oidc: the provider answered a redirect (HTTP ${response.status})`);
     }
     if (!/^application\/([a-z0-9.+-]+\+)?json\s*(;|$)/i.test(response.headers.get('content-type') ?? '')) {
       await response.body?.cancel();
-      throw new Error(`authn-oidc: the provider answered HTTP ${response.status} without a JSON content type`);
+      throw new UnexpectedServerError(`authn-oidc: the provider answered HTTP ${response.status} without a JSON content type`);
     }
     const text = await this.readCapped(response);
     let json: unknown;
     try {
       json = JSON.parse(text);
     } catch {
-      throw new Error(`authn-oidc: the provider answered HTTP ${response.status} without a JSON body`);
+      throw new UnexpectedServerError(`authn-oidc: the provider answered HTTP ${response.status} without a JSON body`);
     }
     return { status: response.status, json };
   }
@@ -97,7 +98,7 @@ export class FetchOidcHttpClient extends OidcHttpClient {
       size += value.byteLength;
       if (size > OIDC_HTTP_MAX_BODY_BYTES) {
         await reader.cancel();
-        throw new Error('authn-oidc: the provider answer is too large');
+        throw new UnexpectedServerError('authn-oidc: the provider answer is too large');
       }
       chunks.push(value);
     }

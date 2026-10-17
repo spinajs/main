@@ -3,6 +3,7 @@ import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { KeyRegistration } from '@spinajs/authn/contracts';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { CLI_ACTOR, cliContext, ownerArg, readPublicJwk } from './common.js';
 
 interface AddKeyOptions {
@@ -32,12 +33,12 @@ export class AddKey extends CliCommand {
   public async execute(ownerType: string, ownerId: string, options: AddKeyOptions): Promise<void> {
     const owner = ownerArg(ownerType, ownerId);
     if (owner.type === 'user') {
-      throw new Error('a user registers a key with a proof of possession, through POST /user/keys');
+      throw new InvalidArgument('a user registers a key with a proof of possession, through POST /user/keys');
     }
     const expiresAt = options.expires === undefined ? undefined : new Date(options.expires);
     // Without a zone, Date reads the time as local, which differs per host.
     if (expiresAt !== undefined && (Number.isNaN(expiresAt.getTime()) || !/T.*(Z|[+-]\d{2}:?\d{2})$/i.test(options.expires!))) {
-      throw new Error(`--expires is not an ISO 8601 instant with Z or an offset: ${options.expires}`);
+      throw new InvalidArgument(`--expires is not an ISO 8601 instant with Z or an offset: ${options.expires}`);
     }
     const reg = {
       owner,
@@ -49,7 +50,7 @@ export class AddKey extends CliCommand {
     } as KeyRegistration;
     const r = await this.Registry.register(reg, cliContext());
     if (!r.ok) {
-      throw new Error(`key not registered: ${r.code}`);
+      throw new InvalidArgument(`key not registered: ${r.code}`);
     }
     this.Log.success({ kid: r.key.kid, alg: r.key.alg, thumbprint: r.key.thumbprint }, 'Key registered: kid ${kid}, ${alg}, thumbprint ${thumbprint}');
   }

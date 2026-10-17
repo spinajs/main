@@ -3,6 +3,7 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { InvalidOption } from '@spinajs/exceptions';
 import { challengeSecretPurpose, challengeSigningInput, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { decodeB64url } from '../jwk/base64url.js';
 import { dummyVerify } from '../jwk/signature.js';
@@ -34,7 +35,7 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
   protected get audience(): string {
     const audience = keysOptionsOf(this.Options ?? this.KeysConfig).challenge.audience;
     if (audience === null) {
-      throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
+      throw new InvalidOption('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
     }
     return audience;
   }

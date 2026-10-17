@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
@@ -375,14 +375,14 @@ describe('DbTokenService', function () {
       expect(longest.record.name).to.have.length(128);
     });
 
-    it('throws a plain Error for an owner without a users row, or of another type', async () => {
+    it('throws InvalidOperation for an owner without a users row, or of another type', async () => {
       const ghost = identities.add({ login: 'ghost' });
       const service = identities.add({ login: 'svc', type: 'service' });
       const before = await count();
 
       for (const o of [ghost, service]) {
         const err = await create(o, { name: 'x', kind: 'pat', expiresAt: at(DAY) }).catch((e: unknown) => e);
-        expect(err).to.be.instanceOf(Error);
+        expect(err).to.be.instanceOf(InvalidOperation);
         expect(err).to.not.be.instanceOf(InvalidArgument);
       }
       expect(await count()).to.equal(before);
@@ -515,12 +515,12 @@ describe('DbTokenService', function () {
       }
     });
 
-    it('create throws a plain Error and stores nothing', async () => {
+    it('create throws InvalidOperation and stores nothing', async () => {
       const a = await owner();
       for (const [label, now] of bad) {
         const before = await count();
         const err = await create(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, badCtx(now)).catch((e: unknown) => e);
-        expect(err, label).to.be.instanceOf(Error);
+        expect(err, label).to.be.instanceOf(InvalidOperation);
         expect(err, label).to.not.be.instanceOf(InvalidArgument);
         expect(await count(), `${label}: nothing stored`).to.equal(before);
       }
@@ -899,11 +899,11 @@ describe('DbTokenService', function () {
       bare.register(IdentityStore).as(IdentityStore);
       bare.register(DbTokenService).as(TokenService);
       try {
-        expect(() => bare.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+        expect(() => bare.resolve(TokenService)).to.throw(InvalidOperation, /IdentityStore/);
       } finally {
         await bare.dispose();
       }
-      expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(Error, /IdentityStore/);
+      expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(InvalidOperation, /IdentityStore/);
     });
 
     it('resolves as the TokenService with the default resolver, profile policy and the registered IdentityStore', async () => {

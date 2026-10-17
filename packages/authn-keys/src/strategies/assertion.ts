@@ -4,6 +4,7 @@ import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
+import { InvalidOption } from '@spinajs/exceptions';
 import { decodeB64url } from '../jwk/base64url.js';
 import { KEY_ALGORITHMS } from '../jwk/keys.js';
 import { dummyVerify } from '../jwk/signature.js';
@@ -55,7 +56,7 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
   protected get audience(): string {
     const audience = this.options.assertion.audience;
     if (audience === null) {
-      throw new Error('authn.keys.assertion.audience must be set to accept JWS assertions');
+      throw new InvalidOption('authn.keys.assertion.audience must be set to accept JWS assertions');
     }
     return audience;
   }

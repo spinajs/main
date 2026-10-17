@@ -3,6 +3,7 @@ import { Argument, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { TokenCliCommand } from './TokenCliCommand.js';
 
@@ -28,7 +29,7 @@ export class DeleteToken extends TokenCliCommand {
     try {
       const tokens = this.Tokens;
       if (!revokesById(tokens)) {
-        throw new Error(`${tokens.constructor.name} cannot revoke a token by id`);
+        throw new InvalidOperation(`${tokens.constructor.name} cannot revoke a token by id`);
       }
 
       if (await tokens.revokeById(uuid, { now: new Date(), purpose: 'request' }, { actor: CLI_ACTOR })) {

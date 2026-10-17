@@ -2,6 +2,7 @@ import { createPublicKey } from 'node:crypto';
 import type { JsonWebKey as NodeJwk } from 'node:crypto';
 import { importJWK } from 'jose';
 import type { JWK } from 'jose';
+import { AuthenticationFailed, InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 
 import { OIDC_SIGNING_ALGORITHMS } from './contracts.js';
 import type { OidcSigningAlgorithm } from './contracts.js';
@@ -78,13 +79,13 @@ export class OidcJwks {
   public async key(header: { readonly alg: string; readonly kid?: string }, now: number = Date.now()): Promise<CryptoKey> {
     const alg = header.alg;
     if (!isAlgorithm(alg)) {
-      throw new Error('authn-oidc: the token algorithm is not allowed');
+      throw new AuthenticationFailed('authn-oidc: the token algorithm is not allowed');
     }
     if (!Number.isFinite(now)) {
-      throw new Error('authn-oidc: the JWKS needs a finite time');
+      throw new InvalidArgument('authn-oidc: the JWKS needs a finite time');
     }
     if (header.kid !== undefined && typeof header.kid !== 'string') {
-      throw new Error('authn-oidc: the token kid is not a string');
+      throw new AuthenticationFailed('authn-oidc: the token kid is not a string');
     }
     const kid = header.kid;
 
@@ -95,7 +96,7 @@ export class OidcJwks {
       found = this.find(alg, kid);
     }
     if (found === 'missing' || found === 'refused') {
-      throw new Error('authn-oidc: no key of the provider fits the token');
+      throw new AuthenticationFailed('authn-oidc: no key of the provider fits the token');
     }
     const index = this.entries!.indexOf(found);
     const cacheKey = `${index}|${alg}`;
@@ -132,7 +133,7 @@ export class OidcJwks {
     if (!wanted && this.entries) return;
     if (now < this.attemptedAt + JWKS_REFRESH_MS) {
       if (this.entries) return;
-      throw new Error('authn-oidc: the JWKS fetch failed recently');
+      throw new UnexpectedServerError('authn-oidc: the JWKS fetch failed recently');
     }
     this.attemptedAt = now;
     this.inflight = this.fetch(now).then(
@@ -155,11 +156,11 @@ export class OidcJwks {
   protected async fetch(now: number): Promise<readonly Entry[]> {
     const uri = typeof this.uri === 'string' ? this.uri : await this.uri(now);
     if (!checkedUrl(uri, { relaxed: this.relaxed, query: true })) {
-      throw new Error(`authn-oidc: the JWKS URI must be an absolute ${this.relaxed ? 'http or https' : 'https'} URL`);
+      throw new UnexpectedServerError(`authn-oidc: the JWKS URI must be an absolute ${this.relaxed ? 'http or https' : 'https'} URL`);
     }
     const { status, json } = await this.http.getJson(uri);
     if (status !== 200 || !isPlainObject(json) || !Array.isArray(json.keys)) {
-      throw new Error(`authn-oidc: the JWKS answered HTTP ${status} without a key set`);
+      throw new UnexpectedServerError(`authn-oidc: the JWKS answered HTTP ${status} without a key set`);
     }
     const entries: Entry[] = [];
     for (const k of json.keys) {

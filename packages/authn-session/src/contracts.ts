@@ -3,6 +3,7 @@ import { AutoinjectService } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 export interface ISession {
   /**
@@ -83,7 +84,7 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
 
   protected applyInitialExpiration(s: ISession): void {
     if (s.State === 'pending') {
-      throw new Error('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
+      throw new InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
     }
     s.Expiration = this.Expiration.initial(s);
   }

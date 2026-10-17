@@ -3,6 +3,7 @@ import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Orm } from '@spinajs/orm';
 import { Log, Logger } from '@spinajs/log';
 import { IdentityStore } from '@spinajs/authn/contracts';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TotpService } from '../service/totp-service.js';
 import { CLI_ACTOR, cliContext } from './common.js';
 
@@ -25,11 +26,11 @@ export class MfaReset extends CliCommand {
 
   public async execute(login: string): Promise<void> {
     if (typeof this.Identities?.findByLogin !== 'function') {
-      throw new Error('authn:mfa-reset needs a registered IdentityStore');
+      throw new InvalidOperation('authn:mfa-reset needs a registered IdentityStore');
     }
     const id = await this.Identities.findByLogin(login);
     if (!id) {
-      throw new Error(`no account with login ${login}`);
+      throw new InvalidArgument(`no account with login ${login}`);
     }
     const { reset } = await this.Totp.adminReset(CLI_ACTOR, id, cliContext());
     this.Log.success({ login }, reset ? 'MFA reset for ${login}' : 'No MFA enrolment for ${login}');

@@ -5,6 +5,7 @@ import '@spinajs/authn/register-schema';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
+import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -27,7 +28,7 @@ function ownerOf(v: unknown): KeyOwner {
   const [typeOk, type] = _try_check_arg(_is_string(_contains(OWNER_TYPES)))(o.type, 'owner.type');
   const [idOk, id] = _try_check_arg(_is_string(_between(1, MAX_OWNER_ID)))(o.id, 'owner.id');
   if (!typeOk || !idOk) {
-    throw new TypeError('a key owner is a user, a service or an agent with an id of 1-64 characters');
+    throw new InvalidArgument('a key owner is a user, a service or an agent with an id of 1-64 characters');
   }
   return Object.freeze({ type: type as KeyOwner['type'], id: id as string });
 }
@@ -136,7 +137,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
     } else {
       const actor = principalRefOf(r.actor);
       if (!actor) {
-        throw new TypeError('a service or agent key is registered by an actor (admin route or CLI)');
+        throw new InvalidArgument('a service or agent key is registered by an actor (admin route or CLI)');
       }
       createdBy = actor;
     }
@@ -197,7 +198,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
     if (r.purpose === 'register') {
       const owner = ownerOf(r.owner);
       if (owner.type !== 'user') {
-        throw new TypeError('register challenges are issued to users; services and agents register without a proof');
+        throw new InvalidArgument('register challenges are issued to users; services and agents register without a proof');
       }
       identity = owner;
     } else if (r.purpose === 'login' && typeof r.kid === 'string') {
@@ -209,16 +210,16 @@ export class DefaultKeyRegistry extends KeyRegistry {
       }
       identity = loginChallengeIdentity(r.kid);
     } else {
-      throw new TypeError('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
+      throw new InvalidArgument('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
     }
     const { ttlSeconds: ttl, audience } = this.options.challenge;
     if (audience === null) {
-      throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set to issue key challenges');
+      throw new InvalidOption('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set to issue key challenges');
     }
     const rid = newChallengeRid();
     const nonce = await this.secrets.issue(identity, challengeSecretPurpose(rid), ttl);
     if (!isChallengeNonce(nonce)) {
-      throw new Error('the SecretStore must issue base64url secrets of at least 128 bits for key challenges');
+      throw new UnexpectedServerError('the SecretStore must issue base64url secrets of at least 128 bits for key challenges');
     }
     return { ok: true, challenge: Object.freeze({ id: challengeId(rid, nonce), nonce, expiresAt: new Date(ctx.now.getTime() + ttl * 1000) }) };
   }

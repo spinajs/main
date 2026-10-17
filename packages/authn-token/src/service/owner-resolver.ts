@@ -2,6 +2,7 @@ import { Injectable } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AccessToken } from '../models/AccessToken.js';
 
@@ -37,7 +38,7 @@ export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
   protected connection(): OrmDriver {
     const driver = AccessToken.getModelDescriptor().Driver;
     if (!driver) {
-      throw new Error('The AccessToken model has no database connection; is the orm resolved?');
+      throw new InvalidOperation('The AccessToken model has no database connection; is the orm resolved?');
     }
     return driver;
   }

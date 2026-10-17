@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash } from 'crypto';
 import { DI } from '@spinajs/di';
+import { InvalidOption } from '@spinajs/exceptions';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { AccessTokenGenerationProvider } from '../src/generation.js';
@@ -56,7 +57,7 @@ describe('SecureRandomTokenProvider', () => {
       const err = await p.generate().catch((e: unknown) => e);
       expect(err, `prefix ${String(prefix)}, length ${String(length)}`).to.be.instanceOf(Error);
       if (typeof prefix === 'string') {
-        expect((err as Error).constructor).to.equal(Error);
+        expect((err as Error).constructor).to.equal(InvalidOption);
         expect((err as Error).message).to.match(/authn\.token\.length|authn\.token\.prefix and/);
       }
     }

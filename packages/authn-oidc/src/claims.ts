@@ -1,3 +1,4 @@
+import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { OidcClaimPath, OidcClaimsMapping, OidcExternalSubject, OidcStrategyName } from './contracts.js';
 import { isPlainObject } from './support.js';
 
@@ -39,7 +40,7 @@ function groupsOf(v: unknown): readonly string[] | undefined {
 export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping, raw: Readonly<Record<string, unknown>>, sources: readonly Readonly<Record<string, unknown>>[] = [raw]): OidcExternalSubject {
   const subject = subjectOf(readClaim(raw, mapping.subject));
   if (subject === null) {
-    throw new Error('authn-oidc: the login carries no usable subject');
+    throw new AuthenticationFailed('authn-oidc: the login carries no usable subject');
   }
   // The email and its verified flag come from the same document, so one source's flag never vouches for another's address.
   const emailSource = mapping.email === null ? undefined : sources.find((s) => typeof readClaim(s, mapping.email!) === 'string');
