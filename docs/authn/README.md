@@ -204,6 +204,10 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
   password is stored as the marker `!expired`, and the old password no longer logs in.
 - **CLI:** `authn:password <login>` (the password from `--generate` or standard input, never from an
   argument) and `authn:password-expire`.
+- **DI:** `LocalPasswordService` and the CLI commands take their collaborators from the container that
+  resolves them. `SecretStore`, `PasswordMailer` and `TokenService` are optional; reset and invite
+  without a `SecretStore` throw `InvalidOperation`. The throttle keys of `LocalPasswordStrategy` are the
+  `account` key only; the core adds `account-ip` itself.
 
 ### Token and JWT
 
@@ -623,7 +627,7 @@ export default {
 | Key | Package that reads it | Notes |
 |---|---|---|
 | `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
-| `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. |
+| `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. Classes built with `deps` or `options` instead of the configuration fall back to `AUTHN_LOCAL_DEFAULTS`, which reads the schema defaults. |
 | `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). |
 | `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |

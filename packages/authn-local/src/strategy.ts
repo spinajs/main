@@ -53,8 +53,8 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   @Autoinject(PasswordHasher)
   protected Hasher: PasswordHasher;
 
-  // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; injecting the
-  // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
+  // Boot resolves the strategies (authn.strategies) but not PasswordService; injecting the policy here makes a bad
+  // authn.local.policy fail at boot instead of on the first password change.
   @Autoinject(LocalPasswordPolicy)
   protected Policy: LocalPasswordPolicy;
 
@@ -83,16 +83,13 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     await super.resolve();
   }
 
-  public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
+  /** The account key only: the core builds the `account-ip` key itself and drops one a strategy sends. */
+  public throttleKeys(c: Credentials, _ctx: AuthnContext): readonly ThrottleKey[] {
     const login = c !== null && typeof c === 'object' && c.kind === 'password' ? (c as { login: unknown }).login : undefined;
     if (typeof login !== 'string') {
       return [];
     }
-    const account = normalizeLogin(login);
-    return [
-      { kind: 'account', value: account },
-      { kind: 'account-ip', value: `${account}|${ctx.ip ?? ''}` },
-    ];
+    return [{ kind: 'account', value: normalizeLogin(login) }];
   }
 
   public async verify(c: Credentials, _ctx: AuthnContext): Promise<StrategyOutcome> {
