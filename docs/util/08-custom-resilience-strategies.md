@@ -215,7 +215,7 @@ gateway.charge('A-1', 1999).then(console.log, console.error);
 - A strategy factory called once and added to two pipelines shares its closure state; called twice, it creates two independent states.
 - `_delay` with a signal that is already aborted rejects at once; with no signal it cannot be cancelled.
 - `_linkSignal` adds a listener to the parent signal; skip `dispose()` and a long-lived parent signal keeps every child controller alive.
-- `_capture` turns a thrown `undefined` into `{ Error: undefined }`: predicates read it as a success and `_unwrap` returns `undefined`, so `throw undefined` resolves through every built-in strategy.
+- `_capture` turns a thrown `undefined` into `{ Error: Error('Operation threw undefined') }`, so predicates still see a failure.
 - Returning without calling `next` short-circuits every inner strategy, including timeouts and retries.
 
 ## Best practices

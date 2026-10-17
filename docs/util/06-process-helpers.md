@@ -28,7 +28,7 @@ Process-level helpers: promise-based waiting, graceful shutdown handlers, and ty
 | --- | --- | --- |
 | `envString(name, default?)` | `default` or `undefined` | The raw value, `''` included |
 | `envRequired(name)` | Throws `InvalidArgument` (`ENV_MISSING`) | The value; `''` throws `ENV_MISSING` too |
-| `envInt(name, default?)` | `default` or `undefined` | `Number(raw)` when it is an integer, otherwise `InvalidArgument` (`ENV_TYPE_MISMATCH`) |
+| `envInt(name, default?)` | `default` or `undefined` | `Number(raw)` when it is an integer, otherwise `InvalidArgument` (`ENV_TYPE_MISMATCH`); `''` is treated as unset |
 | `envBool(name, default?)` | `default` or `undefined` | `true` for `true`, `1`, `yes`, `on`; `false` for `false`, `0`, `no`, `off`, `''` (trimmed, case-insensitive); anything else throws `InvalidArgument` (`ENV_TYPE_MISMATCH`) |
 
 ## Services and extension points
@@ -74,9 +74,9 @@ stopFromHealthCheck().then(() => removeFlush(), console.error);
 - A signal always ends with `process.exit(0)`, even when a handler failed.
 - The signal listeners use `process.once`: a second `SIGINT` while handlers run is not caught and Node.js ends the process at once.
 - Handlers added after `runShutdown` started are not run; call `clearShutdownHandlers()` first to run again.
-- A handler with no `name` uses `handler.name`. An inline arrow function has the name `''`, so its errors are reported with an empty name, not `anonymous`. Pass `{ name }`.
+- A handler with no `name` uses `handler.name`, or `anonymous` when that is empty, as it is for an inline arrow function. Pass `{ name }`.
 - `withTimeout` does not cancel anything. For cancellation pass an `AbortSignal` to the operation, or use the [timeout strategy](07-resilience-pipeline.md#timeout).
-- `envInt` uses `Number()`: `'0x10'` is `16`, `'1e3'` is `1000`, and an empty string is `0`.
+- `envInt` uses `Number()`: `'0x10'` is `16` and `'1e3'` is `1000`. An empty or blank value counts as unset and returns `default`.
 - `sleep('abc')` throws synchronously: the string is parsed before the promise is created.
 
 ## Best practices

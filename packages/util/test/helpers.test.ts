@@ -47,6 +47,9 @@ describe('helpers', () => {
       expect(toArray([1, 2])).to.deep.eq([1, 2]);
       expect(toArray(null as any)).to.deep.eq([]);
       expect(toArray(undefined as any)).to.deep.eq([]);
+      expect(toArray(0)).to.deep.eq([0]);
+      expect(toArray('')).to.deep.eq(['']);
+      expect(toArray(false)).to.deep.eq([false]);
     });
 
     it('chunk splits into groups of size', () => {
@@ -205,6 +208,17 @@ describe('helpers', () => {
       expect(init()).to.eq(1);
       expect(init()).to.eq(1);
       expect(calls).to.eq(1);
+    });
+
+    it('once runs the fn again after a throwing call', () => {
+      let calls = 0;
+      const init = once(() => {
+        if (++calls === 1) throw new Error('boom');
+        return calls;
+      });
+      expect(() => init()).to.throw('boom');
+      expect(init()).to.eq(2);
+      expect(init()).to.eq(2);
     });
 
     it('memoize caches by argument (default key)', () => {
