@@ -4,9 +4,10 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { MfaEnrolmentService } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
-import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
+import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal } from '../../mfa/index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
@@ -14,11 +15,11 @@ import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 /**
- * The owner's TOTP enrolment over authn-totp's TotpService (design §22.8, §22.11; A09, A10, A13). Off (404) unless
- * login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep (that class, not a subclass),
- * authn.mfa.encryptionKey is set and the TotpService of authn-totp is registered (`totpServiceOf`; the DI name
- * `TotpService` is taken). Every route acts on the identity of the caller's own session: a token or key caller gets
- * 403 `session_required`, an impersonation 403 `impersonating` (a factor enrolled there would lock the owner out).
+ * The owner's TOTP enrolment over the MfaEnrolmentService, authn-totp's TotpService (design §22.8, §22.11; A09, A10,
+ * A13). Off (404) unless one is registered and login asks for its step (`mfaEnrolmentOn`: authn.mfa.steps lists
+ * authn-totp's TotpMfaStep, that class, not a subclass, and authn.mfa.encryptionKey is set). Every route acts on the
+ * identity of the caller's own session: a token or key caller gets 403 `session_required`, an impersonation 403
+ * `impersonating` (a factor enrolled there would lock the owner out).
  * Begin and confirm also take a pending session that the MFA policy forces to enrol, while its identity is enrolled in
  * no step; every other route needs a full login.
  *
@@ -35,8 +36,8 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
-  @Config('authn.mfa.encryptionKey.secret')
-  protected MfaEncryptionKey: string | null | undefined;
+  @Autoinject(MfaEnrolmentService, { optional: true })
+  protected MfaEnrolment: MfaEnrolmentService | undefined;
 
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
@@ -70,7 +71,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await (await this.totp()).begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
@@ -87,7 +88,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await (await this.totp()).confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
+    const result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
@@ -105,7 +106,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await (await this.totp()).disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -121,13 +122,9 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = activeSession(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await (await this.totp()).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
-  }
-
-  protected totp() {
-    return totpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService);
   }
 }
 

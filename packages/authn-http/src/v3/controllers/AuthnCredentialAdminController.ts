@@ -1,14 +1,13 @@
-import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { CredentialAdminGuard, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { CredentialAdminGuard, MfaEnrolmentService, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
 
 import { guardRefusal, invalidSendReset, sendResetOf, targetNotFound, targetOf } from '../../admin/fields.js';
-import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered, adminTotpServiceOf } from '../../admin/gate.js';
+import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../admin/gate.js';
 import { PasswordServiceRegistered } from '../../password/gate.js';
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
 import { authenticatedPrincipal } from '../../policies/v3/principal.js';
@@ -46,11 +45,8 @@ export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(CredentialAdminGuard, { optional: true })
   protected Guard: CredentialAdminGuard | undefined;
 
-  @Config('authn.mfa.encryptionKey.secret')
-  protected MfaEncryptionKey: string | null | undefined;
-
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
+  @Autoinject(MfaEnrolmentService, { optional: true })
+  protected MfaEnrolment: MfaEnrolmentService | undefined;
 
   /**
    * Reset a user's password
@@ -88,7 +84,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async mfaReset(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'mfa-reset');
     if ('answer' in admitted) return admitted.answer;
-    const { reset } = await (await adminTotpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService)).adminReset(admitted.actor, admitted.target, admitted.ctx);
+    const { reset } = await this.MfaEnrolment!.adminReset(admitted.actor, admitted.target, admitted.ctx);
     return new Ok({ reset }, { Headers: [NO_STORE] });
   }
 

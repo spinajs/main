@@ -1,7 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
+import { MfaEnrolmentService } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { FakeMfaStep } from '@spinajs/authn-testing';
+import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import authnTotp from '../../src/config/authn-totp.js';
@@ -108,6 +111,22 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
       expect(await service.need('maxAgeSeconds')).to.eq(120);
       const seam = readingFrom(new TotpService({ maxAgeSeconds: 5 }), child) as unknown as { need(key: string): Promise<unknown> };
       expect(await seam.need('maxAgeSeconds')).to.eq(5);
+    });
+
+    it('TotpService, the registered MfaEnrolmentService, is enabled while the steps list TotpMfaStep itself and an encryption key is set', async () => {
+      expect(DI.getRegisteredTypes(MfaEnrolmentService)).to.include(TotpService);
+      const step = new TotpMfaStep({ store: new MemoryMfaSecretStore(), identities: null });
+      const subclass = new (class SpecTotpMfaStep extends TotpMfaStep {})({ store: new MemoryMfaSecretStore(), identities: null });
+      const other = new FakeMfaStep({ name: 'totp' });
+      const keyed = readingFrom(new TotpService(), (await boot(SCHEMAS, { authn: { mfa: { encryptionKey: { secret: KEY } } } })).child);
+      expect(keyed).to.be.instanceOf(MfaEnrolmentService);
+      expect(keyed.enabled([other, step]), 'listed').to.eq(true);
+      expect(keyed.enabled(new Map([['totp', step]]).values()), 'an iterator').to.eq(true);
+      expect(keyed.enabled([]), 'no step').to.eq(false);
+      expect(keyed.enabled([other]), 'another step named totp').to.eq(false);
+      expect(keyed.enabled([subclass]), 'a subclass').to.eq(false);
+      const unkeyed = readingFrom(new TotpService(), (await boot(SCHEMAS, {})).child);
+      expect(unkeyed.enabled([step]), 'no key').to.eq(false);
     });
   });
 });
