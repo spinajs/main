@@ -13,6 +13,30 @@ The client is `@spinajs/http-socket-client` (browser and Node). Both speak the p
 
 A runnable server and client are in [`packages/http-socket-example`](../http-socket-example).
 
+## Documentation
+
+Full documentation lives in **[docs/http-socket/](../../docs/http-socket/README.md)**.
+
+| # | Page |
+|---|---|
+| 01 | [Socket server and HTTP host](../../docs/http-socket/01-socket-server.md) |
+| 02 | [Socket controllers](../../docs/http-socket/02-controllers.md) |
+| 03 | [Handler arguments](../../docs/http-socket/03-handler-arguments.md) |
+| 04 | [Command pipeline and custom stages](../../docs/http-socket/04-command-pipeline.md) |
+| 05 | [Error mapping](../../docs/http-socket/05-error-mapping.md) |
+| 06 | [Stream replies](../../docs/http-socket/06-stream-replies.md) |
+| 07 | [Rooms and server push](../../docs/http-socket/07-rooms-and-push.md) |
+| 08 | [Principal sources and handshake security](../../docs/http-socket/08-principal-sources.md) |
+| 09 | [Principal revalidation](../../docs/http-socket/09-revalidation.md) |
+| 10 | [Policies and `@SocketAccess`](../../docs/http-socket/10-policies-and-access.md) |
+| 11 | [Access change push](../../docs/http-socket/11-access-change-push.md) |
+| 12 | [Durable commands: idempotency and ordering](../../docs/http-socket/12-durable-commands.md) |
+| 13 | [Limits](../../docs/http-socket/13-limits.md) |
+| 14 | [Shutdown and connection recovery](../../docs/http-socket/14-shutdown-and-recovery.md) |
+| 15 | [Configuration](../../docs/http-socket/15-configuration.md) |
+| 16 | [Observability](../../docs/http-socket/16-observability.md) |
+| 17 | [Running several instances](../../docs/http-socket/17-several-instances.md) |
+
 ## Start the server
 
 By default, `SocketServer` attaches socket.io to the http server of `@spinajs/http` (`HttpServerHost`). Resolve it after `HttpServer` and before `start()`:

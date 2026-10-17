@@ -1,71 +1,74 @@
-# `@spinajs/orm` documentation
+# `@spinajs/orm`
 
-The ORM core: model metadata, query builders, relations, the unit of work, and the schema /
-migration layer. It contains no SQL — dialects live in [`@spinajs/orm-sql`](../orm-sql/)
-and the driver packages below it.
+The core ORM: models declared with decorators, a fluent query builder, relations, a unit of work with dirty tracking, transactions, a schema builder and migrations.
 
-## Reading order
+It contains **no SQL** and talks to no database on its own. Statements and compilers are abstract; a dialect driver (`@spinajs/orm-sqlite`, `@spinajs/orm-mysql`, `@spinajs/orm-mssql`, built on `@spinajs/orm-sql`) supplies them.
 
-Start at the top if the ORM is new to you. Each page stands alone once you have read
-[01-getting-started.md](01-getting-started.md).
+## Install
 
-| | Page | What it covers |
-| --- | --- | --- |
-| 01 | [Getting started](01-getting-started.md) | Install, configure a connection, define a model and a migration, run the first query |
-| 02 | [Configuration](02-configuration.md) | `db.Connections`, pools, resilience, migration options, aliases, discovery |
-| 03 | [Models and decorators](03-models-and-decorators.md) | Every decorator, the model descriptor, inheritance rules |
-| 04 | [Static model API](04-static-model-api.md) | `Model.where()`, `get`, `insert`, `count`, `destroy`, … — the whole static surface |
-| 05 | [Instance API](05-instance-api.md) | `insert`, `update`, `save`, `destroy`, dirty tracking, snapshots, dehydration |
-| 06 | [Query builder](06-query-builder.md) | Select / insert / update / delete builders, `where` family, joins, aggregates, raw SQL |
-| 07 | [Relations](07-relations.md) | `@BelongsTo`, `@HasMany`, `@HasManyToMany`, `@Recursive`, `@Query`, `@Virtual`, populate |
-| 08 | [Unit of work](08-unit-of-work.md) | What `save()` does: subject building, sorting, execution, orphan policy, identity map |
-| 09 | [Transactions](09-transactions.md) | `transaction()`, nesting via savepoints, isolation levels |
-| 10 | [Schema and migrations](10-schema-and-migrations.md) | The `orm.Migration` facade, batches, locking, failure recovery, and the complete schema builder surface |
-| 11 | [Converters and hydration](11-converters-and-hydration.md) | Value converters, hydrators, dehydrators, model↔SQL conversion |
-| 12 | [Architecture](12-architecture.md) | How a query becomes SQL, the DI registration map, middleware hooks |
-| 13 | [Observability](13-observability.md) | Metrics, connection state, retry and health checks, logging |
+```sh
+npm install @spinajs/orm @spinajs/orm-sqlite
+```
 
-## The shortest possible example
+Pick the driver package for your database.
+
+## Features
+
+| Feature | What it does |
+| --- | --- |
+| [Connections](01-connections.md) | Boots `Orm`, opens the configured connections and binds models to them |
+| [Models](02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving, hidden and historical columns |
+| [Model API](03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
+| [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
+| [Query builder](05-query-builder.md) | Builds select, insert, update and delete queries, and hooks query and model middleware |
+| [Scopes and builder extensions](16-scopes-and-builder-extensions.md) | Adds your own methods to query builders: per-model scopes, prototype extensions, builder subclasses |
+| [Relations](06-relations.md) | Declares belongs-to, one-to-many and many-to-many relations, populates them and queries by them |
+| [Unit of work](07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
+| [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels |
+| [Schema builder](09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
+| [Migrations](10-migrations.md) | Discovers, orders, locks and runs migrations, per environment |
+| [JSON schema](11-json-schema.md) | Builds a JSON schema from a model for validation |
+| [Architecture](12-architecture.md) | How a query becomes SQL, and the extension points a dialect driver implements |
+| [Observability and resilience](13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |
+| [Discrimination maps](14-discrimination-maps.md) | Hydrates rows of one table into different model subclasses by a discriminator column |
+| [Metadata models](15-metadata-models.md) | Key-value metadata attached to a model through a relation |
+
+## Quick start
 
 ```ts sample
-import { Connection, Model, ModelBase, Primary, CreatedAt } from '@spinajs/orm';
+import { Connection, CreatedAt, Model, ModelBase, Primary } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-@Connection('default')
-@Model('users')
-export class User extends ModelBase<User> {
+@Connection('sqlite')
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> {
   @Primary()
   public Id: number;
 
-  public Email: string;
+  public Number: string;
+
+  public Status: string;
 
   @CreatedAt()
   public CreatedAt: DateTime;
 }
 
-export async function example() {
-  const user = await User.getOrCreate(null, { Email: 'someone@example.com' });
-  const active = await User.where('Email', 'like', '%@example.com').orderByDescending('CreatedAt').take(10);
-
-  return { user, active };
+export async function latestUnpaidInvoices(): Promise<Invoice[]> {
+  return await Invoice.where('Status', 'unpaid').orderByDescending('CreatedAt').take(50);
 }
 ```
 
+Boot `Orm` and configure the `sqlite` connection first: see [Connections](01-connections.md).
+
 ## Related packages
 
-- [`@spinajs/orm-sql`](../orm-sql/) — the shared SQL statement and compiler layer
-- [`@spinajs/orm-sqlite`](../orm-sqlite/), [`@spinajs/orm-mysql`](../orm-mysql/),
-  [`@spinajs/orm-mssql`](../orm-mssql/) — dialect drivers
-- [`@spinajs/orm-cli`](../../packages/orm-cli/README.md) — `migrate-up` / `migrate-down` / `migrate-status`
-  / `migrate-resolve` / `migrate-create` over the `orm.Migration` facade
-- [`@spinajs/orm-http`](../orm-http/) — exposing models over HTTP
-
-## Verifying the samples
-
-Every fenced block marked ` ```ts sample ` in these files is extracted and type-checked
-against the built packages:
-
-```bash
-npm run build        # packages resolve to each other's lib/ output
-npm run docs:check
-```
+- [`@spinajs/orm-sql`](../orm-sql/README.md): dialect-neutral SQL statements, compilers and the `SqlDriver` base class.
+  - [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md): write a driver package for another database.
+  - [Extending an existing dialect](../orm-sql/08-extending-an-existing-dialect.md): change one compiler or statement of a shipped driver.
+  - [Injecting your own builders](../orm-sql/09-injecting-your-own-builders.md): replace query builders through DI.
+  - [Query compilers](../orm-sql/02-query-compilers.md): how builders become SQL, and custom compilers.
+  - [Statements](../orm-sql/03-statements.md): the SQL fragments builders collect, and custom statements.
+- [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): SQLite driver.
+- [`@spinajs/orm-mysql`](../orm-mysql/README.md): MySQL driver.
+- [`@spinajs/orm-mssql`](../orm-mssql/README.md): Microsoft SQL Server driver.
+- [`@spinajs/orm-http`](../orm-http/README.md): loads models from request arguments, declarative filtering and DTO fields resolved to entities.

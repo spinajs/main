@@ -38,8 +38,27 @@ SpinaJS's DI + middleware conventions. It provides:
 The registry is **isolated** (not `prom-client`'s global default), so multiple
 SpinaJS apps in one process — and repeated init in tests — stay independent.
 
+## Documentation
+
+Full documentation lives in **[docs/telemetry/](../../docs/telemetry/README.md)**; it takes precedence over the overview below.
+
+| # | Page |
+| --- | --- |
+| 01 | [Setup and configuration](../../docs/telemetry/01-setup-and-configuration.md) |
+| 02 | [Prometheus registry](../../docs/telemetry/02-prometheus-registry.md) |
+| 03 | [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md) |
+| 04 | [Customizing the request middleware](../../docs/telemetry/04-customizing-the-request-middleware.md) |
+| 05 | [Request statistics](../../docs/telemetry/05-request-statistics.md) |
+| 06 | [Perf bridge](../../docs/telemetry/06-perf-bridge.md) |
+| 07 | [Custom perf sinks](../../docs/telemetry/07-custom-perf-sinks.md) |
+| 08 | [Health and readiness](../../docs/telemetry/08-health-and-readiness.md) |
+| 09 | [Endpoints and OpenAPI](../../docs/telemetry/09-endpoints-and-openapi.md) |
+| 10 | [Endpoint access](../../docs/telemetry/10-endpoint-access.md) |
+| 11 | [Custom access policies](../../docs/telemetry/11-custom-access-policies.md) |
+| 12 | [Scrape token](../../docs/telemetry/12-scrape-token.md) |
+
 > Replacing `@spinajs/metrics`? Read
-> [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md)
+> [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md)
 > first — the http metric series are renamed **and** their unit changed from
 > seconds to milliseconds, which takes dashboards down silently.
 
@@ -554,4 +573,4 @@ all — use the `telemetry.prefix` / `telemetry.buckets` config keys.
   see [Cardinality](#cardinality) for the unmatched-path case, which is the one
   that bites without you doing anything wrong.
 - **Migrating from `@spinajs/metrics`?** See
-  [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md).
+  [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md).

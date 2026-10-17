@@ -7,6 +7,18 @@ All heavy, crash-prone work — Chromium, template compilation, upload — runs 
 forked worker. The job in the queue consumer only supervises it, so a hung or
 crashing render can never take down the worker, and memory is reclaimed per render.
 
+## Documentation
+
+Full documentation: [docs/queue-templates-pdf](../../docs/queue-templates-pdf/README.md).
+
+- [Scheduling render jobs](../../docs/queue-templates-pdf/01-scheduling-render-jobs.md)
+- [Job supervision](../../docs/queue-templates-pdf/02-job-supervision.md)
+- [Render worker](../../docs/queue-templates-pdf/03-render-worker.md)
+- [Progress reporting](../../docs/queue-templates-pdf/04-progress-reporting.md)
+- [Extending `RenderPdfJob`](../../docs/queue-templates-pdf/05-extending-render-pdf-job.md)
+- [Custom worker entry](../../docs/queue-templates-pdf/06-custom-worker-entry.md)
+- [Worker services](../../docs/queue-templates-pdf/07-worker-services.md)
+
 ## Installation
 
 ```bash

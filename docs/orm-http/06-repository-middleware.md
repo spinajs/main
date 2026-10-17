@@ -1,36 +1,30 @@
-# Repository middleware and responses
+# Repository middleware
 
-## `RepositoryMiddleware` — currently unreachable
+`RepositoryMiddleware` is an abstract set of CRUD lifecycle hooks. It is **not reachable** from the package: nothing exports it and nothing calls its hooks. To run code around every query, use the ORM's `QueryMiddleware`, shown below.
 
-> **Read this before designing around it.** The class exists in
-> [`src/middleware.ts`](../../packages/orm-http/src/middleware.ts), but:
->
-> - `src/index.ts` does not re-export it (it re-exports `interfaces`, `model`, `decorators`,
->   `extension`, `route-arg`, `builders`, `dto`, `dto-relation` and
->   `response-methods/OrmNotFound` — not `middleware.js`);
-> - `package.json` declares `"exports": { "." : ... }` only, so a deep import such as
->   `@spinajs/orm-http/lib/mjs/middleware.js` does not resolve either;
-> - nothing in this repository invokes its hooks.
->
-> It is dead code today. Reaching it requires adding `export * from './middleware.js';` to
-> `src/index.ts` first. For interception that actually fires, use `QueryMiddleware` — see below.
+## How it works
 
-### The intended shape
+`RepositoryMiddleware` (`src/middleware.ts`) is an abstract `AsyncService`. Every hook has an empty default, so a subclass overrides only what it needs.
 
-An abstract `AsyncService` whose methods all have empty defaults, so a subclass overrides only
-what it needs. Three families of hook:
+1. `src/index.ts` does not re-export `middleware.js`.
+2. `package.json` `exports` maps only `"."`, so a deep import such as `@spinajs/orm-http/lib/mjs/middleware.js` does not resolve.
+3. No code in the repository resolves `RepositoryMiddleware` or calls its hooks.
 
-**`...Start` — before anything runs.** Async; throw to abort.
+Reaching it requires adding `export * from './middleware.js';` to `src/index.ts`, and a controller that resolves `Array.ofType(RepositoryMiddleware)` and calls the hooks.
+
+### The hooks
+
+`...Start`: before anything runs. Async; a throw aborts.
 
 | Hook | Arguments |
 | --- | --- |
-| `onGetMiddlewareStart(resource, req)` | Resource identifier and request. |
-| `onGetAllMiddlewareStart(req)` | |
-| `onInsertMiddlewareStart(data, req)` | The incoming `JsonApiIncomingObject`. |
-| `onUpdateMiddlewareStart(resource, data, req)` | |
-| `onDeleteMiddlewareStart(resource, req)` | |
+| `onGetMiddlewareStart(resource, req)` | Resource identifier, request |
+| `onGetAllMiddlewareStart(req)` | Request |
+| `onInsertMiddlewareStart(data, req)` | `JsonApiIncomingObject`, request |
+| `onUpdateMiddlewareStart(resource, data, req)` | Resource, `JsonApiIncomingObject`, request |
+| `onDeleteMiddlewareStart(resource, req)` | Resource, request |
 
-**`...Query` — amend the query.** Synchronous, receiving the builder before it executes.
+`...Query`: amend the builder before it runs. Synchronous.
 
 | Hook | Builder |
 | --- | --- |
@@ -40,125 +34,19 @@ what it needs. Three families of hook:
 | `onUpdateMiddlewareQuery(resource, query, model, req)` | `UpdateQueryBuilder` |
 | `onDeleteMiddlewareQuery(query, model, req)` | `DeleteQueryBuilder` |
 
-**`...Result` — reshape the response.** Synchronous, returning the payload.
+`...Result`: reshape the response. Synchronous; returns the payload.
 
 | Hook | Returns |
 | --- | --- |
-| `onGetMiddlewareResult(jsonData, req)` | The payload. |
-| `onGetAllMiddlewareResult(jsonData, req)` | |
-| `onInsertMiddlewareResult(jsonData, req)` | |
-| `onUpdateMiddlewareResult(jsonData, req)` | |
-| `onDeleteMiddlewareResult(req)` | Nothing. |
+| `onGetMiddlewareResult(jsonData, req)` | The payload |
+| `onGetAllMiddlewareResult(jsonData, req)` | The payload |
+| `onInsertMiddlewareResult(jsonData, req)` | The payload |
+| `onUpdateMiddlewareResult(jsonData, req)` | The payload |
+| `onDeleteMiddlewareResult(req)` | Nothing |
 
-Were it exported, a subclass would look like this — and a controller would have to resolve
-`Array.ofType(RepositoryMiddleware)` and call the hooks itself, since nothing does it for you:
+### `JsonApiIncomingObject`
 
-```ts
-@Injectable(RepositoryMiddleware)
-export class TenantScopeMiddleware extends RepositoryMiddleware {
-  public onGetAllMiddlewareQuery(query: SelectQueryBuilder<any>, _model: Constructor<ModelBase>, req: express.Request): void {
-    const tenantId = (req as any).Tenant?.Id;
-    if (tenantId !== undefined) {
-      query.andWhere('TenantId', tenantId);
-    }
-  }
-}
-```
-
-## `QueryMiddleware` — the mechanism that works
-
-Registered through DI in the core, and invoked by **every** builder on every connection, whatever
-code path created it. This is what to reach for.
-
-```ts sample
-import { Injectable } from '@spinajs/di';
-import { QueryMiddleware, QueryBuilder, QueryContext, InsertQueryBuilder } from '@spinajs/orm';
-
-@Injectable(QueryMiddleware)
-export class TenantScope extends QueryMiddleware {
-  /**
-   * Runs from the builder's CONSTRUCTOR, for every builder type. The right place to
-   * ADD a constraint; the wrong place to read the payload, which does not exist yet.
-   */
-  public afterQueryCreation(query: QueryBuilder): void {
-    if (query.QueryContext === QueryContext.Select || query.QueryContext === QueryContext.Update || query.QueryContext === QueryContext.Delete) {
-      (query as any).where('TenantId', 7);
-    }
-  }
-
-  /**
-   * Runs once per builder immediately before execution, with the query fully
-   * assembled. The right place to inspect or rewrite what is about to be written.
-   */
-  public beforeQueryExecution(query: QueryBuilder): void {
-    if (query instanceof InsertQueryBuilder) {
-      query.forceColumn('TenantId', 7);
-    }
-  }
-}
-```
-
-The two hooks differ in what the query is guaranteed to contain, and that difference is
-load-bearing rather than stylistic. A value written at construction would be overwritten by the
-caller's own `values()` call; a constraint added just before execution is fine either way. Full
-discussion in [the core's query-builder docs](../orm/06-query-builder.md#middleware).
-
-A middleware that throws from either hook aborts the query.
-
-## `ModelMiddleware`
-
-The core also offers a model-lifecycle abstraction with `onInsert`, `onUpdate`, `onDelete` and
-`onSelect`. Register subclasses under the `ModelMiddleware` token. See
-[11-converters-and-hydration.md](../orm/11-converters-and-hydration.md).
-
-## `OrmNotFound`
-
-```ts
-@HandleException([OrmNotFoundException])
-@Injectable(Response)
-export class OrmNotFound extends Response {
-  protected _errorCode = HTTP_STATUS_CODE.NOT_FOUND;
-  protected _template = 'notFound.pug';
-}
-```
-
-This one *is* exported and registers itself when the package is imported. Any
-`OrmNotFoundException` escaping a route becomes a `404` rendered through `notFound.pug`.
-
-`@FromModel()` and `@Relation()` both raise `OrmNotFoundException` on a miss, so a missing row is
-a `404` with nothing to write. `firstOrFail()` raises the same exception, so a hand-written query
-behaves identically:
-
-```ts sample
-import { BaseController, BasePath, Get, Ok, Param } from '@spinajs/http';
-import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-
-@Connection('default')
-@Model('articles')
-export class Article extends ModelBase<Article> {
-  @Primary()
-  public Id: number;
-
-  public Slug: string;
-}
-
-@BasePath('articles')
-export class Controller extends BaseController {
-  @Get('by-slug/:slug')
-  public async bySlug(@Param() slug: string) {
-    // OrmNotFoundException -> 404. No try/catch needed.
-    const article = await Article.select().where('Slug', slug).firstOrFail();
-    return new Ok(article.dehydrate());
-  }
-}
-```
-
-Use `firstOrThrow(error)` when you want a different status or message; it accepts either an
-`Error` or a function receiving the compiled `ICompilerOutput`.
-
-## `JsonApiIncomingObject`
-
-The JSON:API request-body shape, `@Schema`-annotated against draft-07 and exported normally:
+The JSON:API request body the `...Start` hooks receive. It is exported and annotated with `@Schema('http://json-schema.org/draft-07/schema#')`. The package also ships `src/schemas/json-api.json`.
 
 ```ts
 export class JsonApiIncomingObject {
@@ -171,4 +59,53 @@ export class JsonApiIncomingObject {
 }
 ```
 
-The package also ships `src/schemas/json-api.json` for validating such bodies.
+## Services and extension points
+
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| CRUD hooks | none: `RepositoryMiddleware` is not exported or registered | none | none | Not usable from outside the package. |
+| Query hooks (ORM) | `QueryMiddleware` (list), singleton per class | none registered by this package | your subclasses | `@Injectable(QueryMiddleware)` on a subclass; every builder on every connection calls it. |
+| Model lifecycle hooks (ORM) | `ModelMiddleware` (list) | none registered by this package | your subclasses | `@Injectable(ModelMiddleware)` on a subclass; see [Query builder](../orm/05-query-builder.md). |
+
+### QueryMiddleware: scope every query to a tenant
+
+`QueryMiddleware` is invoked by every builder, whatever created it: `@FromModel()`, `@Relation()`, `.filter()` or your own code. That makes it the place for rules that must hold on every route.
+
+- `afterQueryCreation(query)` runs from the builder constructor, before the caller adds anything. Add constraints here.
+- `beforeQueryExecution(query)` runs once, right before execution, with the query fully built. Inspect or rewrite values here; a value set at construction would be overwritten by the caller's `values()`.
+- A throw from either hook aborts the query.
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { QueryMiddleware, QueryBuilder, QueryContext, InsertQueryBuilder } from '@spinajs/orm';
+
+@Injectable(QueryMiddleware)
+export class TenantScope extends QueryMiddleware {
+  public afterQueryCreation(query: QueryBuilder): void {
+    if (query.QueryContext === QueryContext.Select || query.QueryContext === QueryContext.Update || query.QueryContext === QueryContext.Delete) {
+      (query as any).where('TenantId', 7);
+    }
+  }
+
+  public beforeQueryExecution(query: QueryBuilder): void {
+    if (query instanceof InsertQueryBuilder) {
+      query.forceColumn('TenantId', 7);
+    }
+  }
+}
+```
+
+## Important behaviour
+
+- `RepositoryMiddleware` is dead code today. Do not design around it.
+- `QueryMiddleware` also runs for the lookups this package makes, so a tenant scope there turns another tenant's row into a `404` from `@FromModel()` and `@Relation()`.
+
+## Best practices
+
+- Put cross-cutting row rules (tenant, soft delete, ownership) in `QueryMiddleware`, not in each `@FromModel({ query })`.
+
+## Related
+
+- [`QueryMiddleware` hooks](../orm/05-query-builder.md#querymiddleware-hooks): the full contract and ordering.
+- [Route arguments](02-route-args.md): `@FromModel()` lookups pass through `QueryMiddleware`.
+- [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md): per-route-argument rules when `QueryMiddleware` is too broad.

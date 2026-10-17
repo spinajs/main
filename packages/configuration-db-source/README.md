@@ -5,6 +5,20 @@ database table and lets `@Config`-decorated values be **exposed** to the
 database so they can be administered at runtime — optionally **watched** for
 live updates without a restart.
 
+## Documentation
+
+Full documentation lives in [docs/configuration-db-source](../../docs/configuration-db-source/README.md):
+
+- [Database configuration source](../../docs/configuration-db-source/01-database-source.md)
+- [Exposing options](../../docs/configuration-db-source/02-exposing-options.md)
+- [Watching options](../../docs/configuration-db-source/03-watching-options.md)
+- [Entry types and the value converter](../../docs/configuration-db-source/04-entry-types-and-converter.md)
+- [File entries and validators](../../docs/configuration-db-source/05-file-entries-and-validators.md)
+- [Running under authz](../../docs/configuration-db-source/06-running-under-authz.md)
+- [Custom configuration source](../../docs/configuration-db-source/07-custom-configuration-source.md)
+- [Custom value converter](../../docs/configuration-db-source/08-custom-value-converter.md)
+- [Customizing the bootstrapper](../../docs/configuration-db-source/09-customizing-the-bootstrapper.md)
+
 ## Installation
 
 ```bash

@@ -112,3 +112,14 @@ aws: {
   parameterStore: { region: 'eu-central-1', cacheTtl: 0 },
 }
 ```
+
+## Documentation
+
+Full documentation lives in [`docs/configuration-aws-secretmanager-protocol/`](../../docs/configuration-aws-secretmanager-protocol/README.md):
+
+- [Secrets Manager protocol](../../docs/configuration-aws-secretmanager-protocol/01-secrets-manager-protocol.md)
+- [Parameter Store protocol](../../docs/configuration-aws-secretmanager-protocol/02-parameter-store-protocol.md)
+- [Fallbacks and failures](../../docs/configuration-aws-secretmanager-protocol/03-fallbacks-and-failures.md)
+- [Caching](../../docs/configuration-aws-secretmanager-protocol/04-caching.md)
+- [Replacing and extending the AWS protocols](../../docs/configuration-aws-secretmanager-protocol/05-replacing-and-extending-the-aws-protocols.md)
+- [Writing a custom protocol](../../docs/configuration-aws-secretmanager-protocol/06-writing-a-custom-protocol.md)

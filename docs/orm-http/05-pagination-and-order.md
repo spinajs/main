@@ -1,50 +1,140 @@
 # Pagination and ordering
 
-Two small schema-validated DTOs. They carry and validate the values; applying them to a query is
-left to you, because how a listing should page and sort is an application decision.
+`PaginationDTO` and `OrderDTO` are schema-validated DTOs for paging and sorting input. They carry and validate the values; applying them to a query is your code, because page size limits and sortable columns are application decisions.
 
-## `PaginationDTO`
+## How it works
 
-```ts
+1. A route argument typed `PaginationDTO` or `OrderDTO`, read with `@Query()`, takes `req.query[<argument name>]`: one JSON-encoded object per argument, `?pagination={"page":2,"limit":25}`.
+2. `RouteArgs.tryHydrateParam()` builds `new PaginationDTO(JSON.parse(value))` and validates it against the class `@Schema`.
+3. An absent argument is `undefined` and is not validated.
+4. The handler reads `limit`, `page`, `column`, `order` and builds the query.
+
+## Decorators
+
+`PaginationDTO` schema, `$id` `arrow.common.PaginationDTO`:
+
+| Field | Type | Constraint | Required |
+| --- | --- | --- | --- |
+| `limit` | `number` | `minimum: 0` | no |
+| `page` | `number` | `minimum: 0` | no |
+
+`OrderDTO` schema, `$id` `arrow.common.OrderDTO`:
+
+| Field | Type | Constraint | Required |
+| --- | --- | --- | --- |
+| `order` | `SortOrder` | `ASC`, `DESC`, `asc`, `desc` | no |
+| `column` | `string` | none | no |
+
+`ITransformOptions` is a type for handing paging metadata to a collection transformer:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `totalCount` | `number?` | Rows matching before paging. |
+| `currentPage` | `number?` | Zero-based page index. |
+| `perPage` | `number?` | Page size. |
+| `order` | `SortOrder?` | Sort direction. |
+| `orderBy` | `string?` | Sort column. |
+| `model` | `Class<ModelBase>` | The model class. |
+
+## Services and extension points
+
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| Paging input | none: a plain DTO class with `@Schema` | `PaginationDTO` | your subclass | Subclass it with a stricter `@Schema` (for example `maximum` on `limit`) and type the argument with the subclass. |
+| Sorting input | none: a plain DTO class with `@Schema` | `OrderDTO` | your subclass | Subclass it with an `enum` on `column` to whitelist sortable columns in the schema. |
+
+### PaginationDTO and OrderDTO: stricter subclasses
+
+Subclass when one endpoint needs limits the shared DTO does not have. The subclass `@Schema` is validated instead of the base one; the fields and constructor are inherited.
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { Schema } from '@spinajs/validation';
+import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
+import { OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> {
+  @Primary()
+  public Id: number;
+
+  public Number: string;
+
+  public IssuedAt: string;
+
+  public Total: number;
+}
+
+/** At most 100 invoices per page. */
 @Schema({
   type: 'object',
-  $id: 'arrow.common.PaginationDTO',
+  $id: 'app.InvoicePagination',
   properties: {
-    limit: { type: 'number', minimum: 0 },
+    limit: { type: 'number', minimum: 1, maximum: 100 },
     page: { type: 'number', minimum: 0 },
   },
 })
-export class PaginationDTO {
-  public limit: number;
-  public page: number;
-}
-```
+export class InvoicePagination extends PaginationDTO {}
 
-Both are non-negative numbers. Note the fields are `limit` and `page` — not `perPage` or
-`offset`.
-
-## `OrderDTO`
-
-```ts
+/** Only indexed columns are sortable; anything else answers 400. */
 @Schema({
   type: 'object',
-  $id: 'arrow.common.OrderDTO',
+  $id: 'app.InvoiceOrder',
   properties: {
     order: { type: 'string', enum: ['ASC', 'DESC', 'asc', 'desc'] },
-    column: { type: 'string' },
+    column: { type: 'string', enum: ['Id', 'IssuedAt', 'Total'] },
   },
 })
-export class OrderDTO {
-  public order: SortOrder;
-  public column: string;
+export class InvoiceOrder extends OrderDTO {}
+
+@BasePath('invoices')
+export class InvoiceController extends BaseController {
+  /** GET /invoices?pagination={"page":0,"limit":50}&order={"column":"IssuedAt","order":"DESC"} */
+  @Get()
+  public async list(@Query() pagination?: InvoicePagination, @Query() order?: InvoiceOrder) {
+    const limit = pagination?.limit ?? 25;
+    const page = pagination?.page ?? 0;
+
+    const rows = await Invoice.select()
+      .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
+      .take(limit)
+      .skip(page * limit);
+
+    return new Ok(rows.map((r) => r.dehydrate()));
+  }
 }
 ```
 
-Both cases are accepted for `order`. `column` is **not** constrained by the schema — validate it
-against a whitelist yourself before passing it to the query builder, or a client can sort by any
-column in the table.
+## Important behaviour
 
-## Using them
+- Each DTO is one query-string argument named after the handler parameter, JSON-encoded. `?page=2&limit=25` does **not** fill a `PaginationDTO` argument.
+- Both fields of each DTO are optional. A client may send `{}`, `{ "page": 2 }`, or nothing.
+- `limit: 0` passes the schema. Guard it before `take()`.
+- `OrderDTO.column` is not constrained. Without a whitelist a client can sort by any column of the table.
+- Pages are zero-based in every example here; nothing in the DTO enforces either base.
+
+## Best practices
+
+- Default `limit` and cap it, in code or in a subclass schema.
+- Whitelist `column` with an `enum` in a subclass schema, so a bad column answers `400` before your handler runs.
+- Count on a `clone()` of the builder taken before `take()` / `skip()`, so the total covers the whole filtered set.
+
+## Patterns and antipatterns
+
+```ts
+// Don't: OrderDTO.column goes straight into order(); any column is sortable
+query.order(sort.column, sort.order);
+
+// Do: whitelist the column
+if (sort?.column && SORTABLE.includes(sort.column)) {
+  query.order(sort.column, sort.order ?? SortOrder.ASC);
+}
+```
+
+## Examples
+
+### Page and sort a listing
 
 ```ts sample
 import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
@@ -66,15 +156,14 @@ const SORTABLE = ['Id', 'Title', 'Views'];
 
 @BasePath('articles')
 export class ArticleController extends BaseController {
-  /** GET /articles?page=0&limit=25&column=Title&order=ASC */
+  /** GET /articles?pagination={"page":0,"limit":25}&sort={"column":"Title","order":"ASC"} */
   @Get()
-  public async list(@Query() pagination: PaginationDTO, @Query() sort: OrderDTO) {
+  public async list(@Query() pagination?: PaginationDTO, @Query() sort?: OrderDTO) {
     const limit = pagination?.limit && pagination.limit > 0 ? pagination.limit : 25;
     const page = pagination?.page ?? 0;
 
     const query = Article.select().take(limit).skip(page * limit);
 
-    // `column` is unconstrained by the schema — whitelist it.
     if (sort?.column && SORTABLE.includes(sort.column)) {
       query.order(sort.column, sort.order ?? SortOrder.ASC);
     }
@@ -85,12 +174,9 @@ export class ArticleController extends BaseController {
 }
 ```
 
-## Counting for a paged response
+### Return a page with its total
 
-A builder executes at most once, so `clone()` before turning it into a count — otherwise the
-memoized result of the first execution comes back.
-
-`count()` also **clears the column list**, which is another reason to work on a clone.
+A builder runs once and memoises its result, and `count()` clears the column list, so count on a `clone()`. `clone()` copies `GROUP BY` too, so the total stays correct for grouped queries.
 
 ```ts sample
 import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
@@ -111,13 +197,13 @@ export class Article extends ModelBase<Article> {
 @BasePath('articles')
 export class PagedController extends BaseController {
   @Get()
-  public async list(@Query() pagination: PaginationDTO) {
+  public async list(@Query() pagination?: PaginationDTO) {
     const limit = pagination?.limit && pagination.limit > 0 ? pagination.limit : 25;
     const page = pagination?.page ?? 0;
 
     const base = Article.select().where('Published', true);
 
-    // Clone BEFORE paging, so the count reflects the whole filtered set.
+    // Clone BEFORE paging, so the count covers the whole filtered set.
     const total = await base.clone().selectCount();
     const rows = await base.take(limit).skip(page * limit);
 
@@ -131,13 +217,9 @@ export class PagedController extends BaseController {
 }
 ```
 
-`clone()` copies group-by statements too, which matters here — a cloned builder that silently
-lost its `GROUP BY` would report the wrong total.
+### Page with `Model.all()` when there are no conditions
 
-## `Model.all(page, perPage)`
-
-For a plain offset page with no extra conditions, the ORM's own static is shorter. Pages are
-zero-based, and paging is applied only when **both** arguments are valid.
+The ORM's `all(page, perPage)` pages are zero-based; paging applies only when both arguments are valid.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -156,10 +238,9 @@ export async function page(n: number) {
 }
 ```
 
-## Ordering across a relation
+### Sort by a column of a relation
 
-`order`, `orderBy` and `orderByDescending` accept a dotted path, which populates the relation and
-sorts inside it.
+`order`, `orderBy` and `orderByDescending` accept a dotted path: the relation is populated and sorted inside.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary, BelongsTo, SingleRelation } from '@spinajs/orm';
@@ -190,15 +271,8 @@ export async function byAuthorName() {
 }
 ```
 
-## `ITransformOptions`
+## Related
 
-A shape for handing paging metadata to a collection transformer.
-
-| Field | Meaning |
-| --- | --- |
-| `totalCount` | Rows matching before paging. |
-| `currentPage` | Zero-based page index. |
-| `perPage` | Page size. |
-| `order` | `SortOrder`. |
-| `orderBy` | Column name. |
-| `model` | The model class. |
+- [Filtering](03-filtering.md): filter the same listing with `@Filter()`.
+- [Query builder](../orm/05-query-builder.md): `take`, `skip`, `order`, `clone`, `selectCount`.
+- [Route arguments in http](../http/04-route-arguments.md): how `@Query()` reads and validates a DTO.

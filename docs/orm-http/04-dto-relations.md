@@ -1,54 +1,84 @@
 # DTO relations
 
-`@Relation` marks a DTO field as a **reference to a database entity**. On an incoming request the
-field's value is looked up, and the field is replaced with the resolved model instance — so the
-route body arrives with real entities rather than bare ids you then have to fetch.
+`@Relation()` marks a DTO field as a reference to a database row. On an incoming request the field's value (an id, a uuid) is looked up and replaced with the model instance, so the handler receives real entities. A missing row answers `404` before the handler runs.
 
-## Declaring one
+## How it works
 
-```ts sample
-import { Schema } from '@spinajs/validation';
-import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-import { Relation } from '@spinajs/orm-http';
+1. At decoration time `@Relation(() => Target, { by })` stores `{ field, target, by }` in an `IDtoRelations` descriptor on the DTO prototype, under `RELATION_SYMBOL`. The descriptor is inherited by subclasses (`getInheritedDescriptor`).
+2. It sets `custom:arg_hydrator` on the DTO class to `RelationResolverHydrator`, unless the class already has its own.
+3. At request time `@Body()` (or any route argument that hydrates) validates the body against the DTO's `@Schema`, then resolves `DI.resolve(RelationResolverHydrator)` and calls `hydrate(input, parameter)`.
+4. `RelationResolverHydrator.hydrate()` builds `new Dto(input)`. With no relation fields it returns the DTO.
+5. It throws `InvalidOperation` if the DTO class has no `@Schema` (checked once per class, memoised in a `WeakSet`).
+6. For each relation field, in parallel:
+   1. `undefined` or `null`: skipped.
+   2. A target with a composite primary key and no `by`: throws `InvalidOperation`.
+   3. `Target.where({ [by ?? primaryKey]: value }).firstOrThrow(new OrmNotFoundException("<Target> referenced by '<field>' not found"))`.
+   4. The field is overwritten with the model.
+7. The handler receives the DTO with resolved models.
 
-@Connection('default')
-@Model('users')
-export class User extends ModelBase<User> {
-  @Primary()
-  public Id: number;
+```mermaid
+sequenceDiagram
+  participant Arg as FromBody
+  participant Val as DataValidator
+  participant Hyd as RelationResolverHydrator
+  participant Model as Target model
+  Arg->>Val: validate(@Schema, body)
+  Arg->>Hyd: hydrate(body, parameter)
+  Hyd->>Hyd: new Dto(body), assert @Schema
+  par each @Relation field
+    Hyd->>Model: where({ by: value }).firstOrThrow()
+    Model-->>Hyd: model or OrmNotFoundException
+  end
+  Hyd-->>Arg: dto with models
+```
 
-  public Uuid: string;
+## Decorators
 
-  public Email: string;
+| Decorator | Target | Options | Effect |
+| --- | --- | --- | --- |
+| `@Relation(target, options?)` | DTO property | `target: () => typeof ModelBase` (a thunk, so no import cycle and no load-order issue); `options.by?: string`: lookup column, default the target's primary key | Replaces the incoming value with the matching row; `404` when absent. |
+
+## Services and extension points
+
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| DTO relation resolver | `custom:arg_hydrator` metadata → class `RelationResolverHydrator`, resolved with `DI.resolve(RelationResolverHydrator)`, singleton | `RelationResolverHydrator` | none shipped | `@Injectable(RelationResolverHydrator)` on a subclass replaces it for every DTO; see [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md#relationresolverhydrator-reject-archived-references). |
+| Relation metadata | `RELATION_SYMBOL` = `Symbol.for('orm-http:relations')` on the DTO prototype, value `IDtoRelations` | written by `@Relation` | none | Read it from your own tooling; it is a global symbol so `@spinajs/http-swagger` reads it without importing this package. |
+
+## Important behaviour
+
+- A DTO with `@Relation` must have a `@Schema`. Resolution skips absent fields, so only the schema can make a reference required.
+- `@Hydrator(X)` on a DTO class that uses `@Relation` is ignored: property decorators run before class decorators, so `@Relation` has already set `RelationResolverHydrator` when `@Hydrator` checks for an existing one. Replace the resolver through DI instead.
+- Lookups run in parallel, one query per relation field. The first miss rejects with `OrmNotFoundException` (`404`).
+- A missing `@Schema` and a composite key without `by` throw `InvalidOperation`, which answers `500`: both are developer errors.
+- The lookup is `Target.where(...)`, so query scopes and soft-delete rules of `Target` apply as for any query.
+
+## Best practices
+
+- Type the field as `string | User` (incoming id, delivered model) when other code reads the DTO before hydration; type it `User` when only the handler reads it.
+- Use `by: 'Uuid'` for public identifiers instead of exposing numeric ids.
+- Put `required` in the `@Schema`, not in code: a required reference is rejected with `400` before any query runs.
+
+## Patterns and antipatterns
+
+```ts
+// Don't: look the author up by hand; duplicated 404 handling, and no schema-level `required`
+@Post()
+public async create(@Body() dto: { Name: string; author: string }) {
+  const author = await User.where({ Uuid: dto.author }).firstOrFail();
+  return new Ok({ AuthorId: author.Id });
 }
 
-@Schema({
-  type: 'object',
-  $id: 'app.CampaignDTO',
-  properties: {
-    Name: { type: 'string' },
-    author: { type: 'string' },
-  },
-})
-export class CampaignDTO {
-  public Name?: string;
-
-  /** Incoming: a Uuid string. Delivered to the route: a User instance. */
-  @Relation(() => User, { by: 'Uuid' })
-  public author?: string | User;
-
-  constructor(data: Partial<CampaignDTO>) {
-    Object.assign(this, data);
-  }
+// Do: the DTO resolves it and the schema decides whether it is required
+@Post()
+public async create(@Body() dto: CreateCampaign) {
+  return new Ok({ AuthorId: dto.author.Id });
 }
 ```
 
-The target is a **thunk** — `() => User`, not `User` — so the DTO can reference a model without
-an import cycle and without needing the class to exist at decoration time.
+## Examples
 
-`IRelationOptions.by` names the column to look up on. It defaults to the target's primary key.
-
-## Using it
+### Create a campaign for an author identified by uuid
 
 ```ts sample
 import { BaseController, BasePath, Post, Ok, Body } from '@spinajs/http';
@@ -77,6 +107,7 @@ export class User extends ModelBase<User> {
 export class CreateCampaign {
   public Name: string;
 
+  /** Incoming: a Uuid string. Delivered to the handler: a User row. */
   @Relation(() => User, { by: 'Uuid' })
   public author: User;
 
@@ -87,12 +118,7 @@ export class CreateCampaign {
 
 @BasePath('campaigns')
 export class CampaignController extends BaseController {
-  /**
-   * POST /campaigns  { "Name": "Spring", "author": "3f2a..." }
-   *
-   * `dto.author` is already a User row — no lookup here, and a bad Uuid
-   * became a 404 before this method ran.
-   */
+  /** POST /campaigns { "Name": "Spring", "author": "3f2a..." }; an unknown uuid answers 404. */
   @Post()
   public create(@Body() dto: CreateCampaign) {
     return new Ok({ Name: dto.Name, AuthorId: dto.author.Id });
@@ -100,49 +126,7 @@ export class CampaignController extends BaseController {
 }
 ```
 
-## How resolution works
-
-`RelationResolverHydrator` is registered as the DTO's `custom:arg_hydrator` by the decorator
-itself — **unless one is already set**, so an explicit `@Hydrator(...)` on the class wins.
-
-For each declared relation field, in parallel:
-
-1. `undefined` or `null` → skipped. An optional field is simply absent; a *required* one was
-   already rejected upstream by `@Schema` validation.
-2. Otherwise `target.where({ [by]: value }).firstOrThrow(new OrmNotFoundException(...))`.
-3. The field is overwritten with the resolved model.
-
-A miss produces `OrmNotFoundException` with the message
-`<Model> referenced by '<field>' not found`, which `OrmNotFound` renders as `404`.
-
-## `@Schema` is mandatory
-
-A DTO using `@Relation` **must** declare a `@Schema`, enforced once per class at first hydration:
-
-```
-DTO X uses @Relation but has no @Schema. All DTOs with @Relation must declare a @Schema.
-```
-
-The reason is the null-skipping rule above: resolution treats an absent field as optional, so
-required-ness has to be expressed — and enforced — by the schema. Without one, a missing required
-reference would slip through as `undefined`.
-
-The check result is memoised in a `WeakSet`, so it costs nothing after the first request.
-
-## Composite keys
-
-A DTO relation field carries one value, so a target with a composite primary key must name a
-single lookup column via `by`:
-
-```
-model X has a composite primary key (A, B); set `by` on the relation to select a single lookup column
-```
-
-## Inheritance
-
-Relation descriptors are stored through `getInheritedDescriptor`, so a subclass inherits its
-parent's `@Relation` fields. The documented pattern is to inherit the relations and ship a
-stricter schema:
+### Reuse relations with a stricter schema
 
 ```ts sample
 import { Schema } from '@spinajs/validation';
@@ -170,14 +154,14 @@ export class CampaignDTO {
   public Name?: string;
 
   @Relation(() => User, { by: 'Uuid' })
-  public author?: User;
+  public author?: string | User;
 
   constructor(data: Partial<CampaignDTO>) {
     Object.assign(this, data);
   }
 }
 
-/** Same relation, inherited; only the schema changes. */
+/** Inherits the `author` relation; only the schema changes. */
 @Schema({
   type: 'object',
   $id: 'app.CampaignStrict',
@@ -190,11 +174,9 @@ export class CampaignDTO {
 export class StrictCampaignDTO extends CampaignDTO {}
 ```
 
-## Storing a resolved relation on a model
+### Store a resolved relation on a model
 
-The ORM's `DbPropertyHydrator` translates a `ModelBase` arriving on a foreign-key column into its
-primary key, and `OneToOneRelationHydrator` accepts a model instance under a relation name. So a
-resolved DTO relation can be handed straight to `hydrate`:
+The ORM's `DbPropertyHydrator` turns a `ModelBase` on a foreign-key column into its primary key, and a relation accepts a model with `attach()`.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary, BelongsTo, SingleRelation } from '@spinajs/orm';
@@ -225,7 +207,7 @@ export class Campaign extends ModelBase<Campaign> {
 export async function persist(name: string, author: User) {
   const campaign = new Campaign({ Name: name });
 
-  // Either works: the FK column receives the model's key,
+  // Either the foreign-key column receives the model's key,
   campaign.hydrate({ author_id: author } as unknown as Partial<Campaign>);
   // or the relation receives the model itself.
   campaign.Author.attach(author);
@@ -235,27 +217,23 @@ export async function persist(name: string, author: User) {
 }
 ```
 
-## The metadata key
-
-Descriptors live on the DTO prototype under `Symbol.for('orm-http:relations')`, exported as
-`RELATION_SYMBOL`. It is a **global** symbol deliberately, so `@spinajs/http-swagger` can read it
-to document the endpoint without importing this package.
+### Read the relation metadata of a DTO
 
 ```ts sample
-import { RELATION_SYMBOL, IDtoRelations } from '@spinajs/orm-http';
 import 'reflect-metadata';
+import { RELATION_SYMBOL, IDtoRelations, IDtoRelationDescriptor } from '@spinajs/orm-http';
 
-export function relationsOf(ctor: any): IDtoRelations | undefined {
-  return Reflect.getMetadata(RELATION_SYMBOL, ctor.prototype) as IDtoRelations | undefined;
+/** Lists `{ field, target, by }` for every @Relation field, inherited ones included. */
+export function relationsOf(ctor: { prototype: object }): IDtoRelationDescriptor[] {
+  const descriptor = Reflect.getMetadata(RELATION_SYMBOL, ctor.prototype) as IDtoRelations | undefined;
+  return descriptor ? [...descriptor.Relations.values()] : [];
 }
 ```
 
-Each entry is an `IDtoRelationDescriptor`: `{ field, target, by? }`.
+## Related
 
-## When to use which
-
-| Situation | Approach |
-| --- | --- |
-| A route parameter identifying the resource | `@FromModel()` |
-| A body field referencing another entity | `@Relation()` on the DTO |
-| A body that *is* the entity | `@AsModel()` or `@Body()` typed as the model |
+- [Route arguments](02-route-args.md): `@FromModel()` for an id in the url rather than in the body.
+- [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md): replace `RelationResolverHydrator`.
+- [Not-found response](09-not-found-response.md): the `404` a missing reference produces.
+- [Converters and hydration](../orm/04-converters-and-hydration.md): how a model on a foreign-key column is stored.
+- [Parameters and request bodies](../http-swagger/03-parameters-and-request-bodies.md): `@Relation` fields in the OpenAPI document.

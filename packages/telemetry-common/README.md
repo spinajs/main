@@ -20,3 +20,11 @@ working and both packages share ONE `Metrics` class identity — which matters, 
 the singleton by that identity and a second copy would mean a second, separate registry.
 
 Same pattern as `@spinajs/configuration-common` and `@spinajs/log-common`.
+
+## Documentation
+
+- [Package overview](../../docs/telemetry-common/README.md)
+- [Metrics service](../../docs/telemetry-common/01-metrics-service.md)
+- [Metric definitions](../../docs/telemetry-common/02-metric-definitions.md)
+- [Custom metrics service](../../docs/telemetry-common/03-custom-metrics-service.md)
+- [Registry access](../../docs/telemetry-common/04-registry-access.md)

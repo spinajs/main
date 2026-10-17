@@ -3,6 +3,9 @@
 HTTP API for user accounts: the signed-in user's profile (`GET /user`, on `@Access('user:read')`) and metadata routes (on `@Access('user.metadata:<action>')`), and an administrative API for
 listing and editing users, their roles, activation and bans.
 
+Documentation: [docs/users-http](../../docs/users-http/README.md), including how to replace the account guard, the
+metadata service, the controllers and the services this package resolves.
+
 Every route sits on `@Access(...)` from `@spinajs/authz-http`. The admin routes check `users:read`, `users:create`,
 `users:update` or `users:delete` on the `users` type, so an application grants them with ordinary role grants
 (users' `admin.users` role holds `users:*`):

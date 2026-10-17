@@ -10,6 +10,21 @@ HTTP server & controller framework for SpinaJS, built on top of Express.
 - Controller metadata cache with ahead-of-time CLI build (fast cold starts in docker)
 - Fail-fast startup: broken controllers throw typed exceptions instead of half-starting
 
+## Documentation
+
+Full documentation, one page per feature with its extension points: [docs/http](../../docs/http/README.md).
+
+| Topic | Page |
+| --- | --- |
+| Server, configuration, lifecycle | [HTTP server](../../docs/http/01-http-server.md) |
+| Controllers, routes, discovery | [Controllers and routing](../../docs/http/02-controllers-and-routing.md), [Controller discovery](../../docs/http/03-controller-discovery.md) |
+| Route arguments | [Route arguments](../../docs/http/04-route-arguments.md), [Custom route arguments](../../docs/http/05-custom-route-arguments.md), [Hydrators](../../docs/http/06-argument-hydrators.md), [Input filters](../../docs/http/07-argument-input-filters.md) |
+| Uploads | [File uploads](../../docs/http/08-file-uploads.md), [Upload middlewares and uploaders](../../docs/http/09-upload-middlewares-and-uploaders.md) |
+| Responses and errors | [Responses](../../docs/http/10-responses.md), [Error handling](../../docs/http/11-error-handling.md), [Data transformers](../../docs/http/12-data-transformers.md) |
+| Access and middlewares | [Policies](../../docs/http/13-policies.md), [Route middlewares](../../docs/http/14-route-middlewares.md), [Server middlewares](../../docs/http/15-server-middlewares.md) |
+| Shipped middlewares | [CORS](../../docs/http/16-cors.md), [Client IP](../../docs/http/17-client-ip-and-trust-proxy.md), [Throttling](../../docs/http/18-throttling.md), [Request storage and tracing](../../docs/http/19-request-storage-and-tracing.md), [Cookies](../../docs/http/20-cookies.md) |
+| Controller cache and CLI | [Controller cache and CLI](../../docs/http/21-controller-cache-and-cli.md) |
+
 ## Installation
 
 ```bash

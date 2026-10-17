@@ -8,6 +8,21 @@ lives in `@spinajs/orm`; what lives here is the argument handling, the operator-
 and the exit codes. The dependency runs one way only — `orm-cli` → `orm` — so the ORM stays
 usable, and testable, with no CLI in its dependency tree.
 
+## Documentation
+
+Full documentation lives in **[docs/](../../docs/orm-cli/README.md)**.
+
+| # | Page |
+| --- | --- |
+| 01 | [Applying migrations](../../docs/orm-cli/01-applying-migrations.md) |
+| 02 | [Rolling back migrations](../../docs/orm-cli/02-rolling-back-migrations.md) |
+| 03 | [Migration status](../../docs/orm-cli/03-migration-status.md) |
+| 04 | [Resolving failed migrations](../../docs/orm-cli/04-resolving-failed-migrations.md) |
+| 05 | [Scaffolding migrations](../../docs/orm-cli/05-scaffolding-migrations.md) |
+| 06 | [The CLI `Orm`](../../docs/orm-cli/06-cli-orm.md) |
+| 07 | [Command discovery](../../docs/orm-cli/07-command-discovery.md) |
+| 08 | [Customizing commands](../../docs/orm-cli/08-customizing-commands.md) |
+
 ## Install
 
 ```bash
@@ -148,8 +163,8 @@ process running it was killed before it could record either outcome. It carries 
 warning to `FAILED`: it blocks nothing, and the next `migrate-up` re-runs it from the top, whether
 or not anybody looked. Under the default `Transaction.Mode: None` that means non-idempotent data
 changes get applied twice, silently. The same two `migrate-resolve` invocations are printed for
-it. See "Interrupted runs" in
-[the ORM migration docs](../../docs/orm/10-schema-and-migrations.md#interrupted-runs).
+it. See "Migration states" in
+[the ORM migration docs](../../docs/orm/10-migrations.md#migration-states).
 
 `[checksum mismatch]` marks a migration whose source changed after it was applied. It is
 reported but does **not** on its own make the command exit non-zero — only pending and failed

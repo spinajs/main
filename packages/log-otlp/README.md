@@ -30,3 +30,14 @@ pipeline ( exponential backoff + jitter, retryable-only, honoring `Retry-After` 
   },
 }
 ```
+
+## Documentation
+
+Full documentation lives in [`docs/log-otlp/`](../../docs/log-otlp/README.md):
+
+- [OTLP log target](../../docs/log-otlp/01-otlp-log-target.md): configuration, flow and DI registration.
+- [OTLP log record mapping](../../docs/log-otlp/02-otlp-log-record-mapping.md): how entries become OTLP records.
+- [Delivery, retry and buffering](../../docs/log-otlp/03-delivery-retry-and-buffering.md): retry policy, requeue and drop.
+- [Drop hook and fallback targets](../../docs/log-otlp/04-drop-hook-and-fallback.md): `OnDropped` and `FallbackGroupTarget`.
+- [Extending the OTLP target](../../docs/log-otlp/05-extending-the-otlp-target.md): subclassing and replacing `OtlpLogTarget`.
+- [Building your own OTLP exporter](../../docs/log-otlp/06-building-your-own-otlp-exporter.md): reusing the mapping and retry helpers.

@@ -8,6 +8,18 @@ themselves are created by code that exposes config options (`expose: true`), so
 this API intentionally does **not** create or delete arbitrary entries — it only
 lets operators tune existing values.
 
+## Documentation
+
+Full documentation: [`docs/configuration-http`](../../docs/configuration-http/README.md).
+
+- [Configuration API](../../docs/configuration-http/01-configuration-api.md)
+- [Value validation](../../docs/configuration-http/02-value-validation.md)
+- [Value schemas](../../docs/configuration-http/03-value-schemas.md)
+- [Access control](../../docs/configuration-http/04-access-control.md)
+- [File uploads](../../docs/configuration-http/05-file-uploads.md)
+- [File validators](../../docs/configuration-http/06-file-validators.md)
+- [Customizing the upload service](../../docs/configuration-http/07-upload-service-customization.md)
+
 ## Endpoints
 
 | Method | Path                   | Permission             | Description                                     |

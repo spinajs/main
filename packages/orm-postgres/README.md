@@ -2,6 +2,18 @@
 
 PostgreSQL driver for the SpinaJS ORM.
 
+## Documentation
+
+Full documentation lives in [`docs/orm-postgres`](../../docs/orm-postgres/README.md):
+
+- [Connection and pooling](../../docs/orm-postgres/01-connection-and-pooling.md)
+- [Transactions](../../docs/orm-postgres/02-transactions.md)
+- [Queries and inserts](../../docs/orm-postgres/03-queries-and-inserts.md)
+- [Schema DDL and reflection](../../docs/orm-postgres/04-schema-ddl-and-reflection.md)
+- [Quoting and parameters](../../docs/orm-postgres/05-quoting-and-parameters.md)
+- [Extending the driver](../../docs/orm-postgres/06-extending-the-driver.md)
+- [Customizing dialect compilers](../../docs/orm-postgres/07-customizing-dialect-compilers.md)
+
 ## Usage
 
 ```ts

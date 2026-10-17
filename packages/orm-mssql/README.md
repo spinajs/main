@@ -20,7 +20,7 @@ message.
 
 The fix is a mapper reading the `SELECT SCOPE_IDENTITY() as ID` that `MsSqlInsertQueryCompiler`
 already appends to every insert, registered in `resolve()`. See
-[docs/README.md](../../docs/orm-mssql/README.md) for a working implementation.
+[Inserts and upserts](../../docs/orm-mssql/04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) for a working implementation.
 
 Until then, treat this driver as **read-capable only**. Selects, schema operations and
 transactions all work.
@@ -81,12 +81,18 @@ await DI.resolve(Orm);
 
 ## Documentation
 
-Full documentation lives in **[docs/](../../docs/orm-mssql/)**.
+Full documentation lives in **[docs/orm-mssql/](../../docs/orm-mssql/README.md)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](../../docs/orm-mssql/01-configuration.md) |
-| 02 | [Dialect notes](../../docs/orm-mssql/02-dialect-notes.md) |
+| 01 | [Connection and configuration](../../docs/orm-mssql/01-configuration.md) |
+| 02 | [Executing statements](../../docs/orm-mssql/02-executing-statements.md) |
+| 03 | [Transactions](../../docs/orm-mssql/03-transactions.md) |
+| 04 | [Inserts and upserts](../../docs/orm-mssql/04-inserts-and-upserts.md) |
+| 05 | [Query dialect](../../docs/orm-mssql/05-query-dialect.md) |
+| 06 | [Schema dialect](../../docs/orm-mssql/06-schema-dialect.md) |
+| 07 | [Value conversion](../../docs/orm-mssql/07-value-conversion.md) |
+| 08 | [Extending the driver](../../docs/orm-mssql/08-extending-the-driver.md) |
 
 ## Development
 

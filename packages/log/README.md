@@ -8,6 +8,31 @@ sinks (Grafana Loki, OTLP), composable wrapper targets, a filter pipeline,
 ambient request-scoped context with trace correlation, and runtime level
 control.
 
+## Documentation
+
+Full documentation lives in **[docs/log/](../../docs/log/README.md)**; it takes precedence over the overview below.
+
+| # | Page |
+| --- | --- |
+| 01 | [Logging API](../../docs/log/01-logging-api.md) |
+| 02 | [Configuration and rules](../../docs/log/02-configuration-and-rules.md) |
+| 03 | [Layouts](../../docs/log/03-layouts.md) |
+| 04 | [Console, JSON and memory targets](../../docs/log/04-console-json-memory-targets.md) |
+| 05 | [File target](../../docs/log/05-file-target.md) |
+| 06 | [File rotation and retention](../../docs/log/06-file-rotation-and-retention.md) |
+| 07 | [Wrapper targets](../../docs/log/07-wrapper-targets.md) |
+| 08 | [Custom targets](../../docs/log/08-custom-targets.md) |
+| 09 | [Filters](../../docs/log/09-filters.md) |
+| 10 | [Custom filters](../../docs/log/10-custom-filters.md) |
+| 11 | [Structured logging and serializers](../../docs/log/11-structured-logging-and-serializers.md) |
+| 12 | [Async context and tracing](../../docs/log/12-async-context-and-tracing.md) |
+| 13 | [Runtime targets and levels](../../docs/log/13-runtime-targets-and-levels.md) |
+| 14 | [Bootstrap, flushing and shutdown](../../docs/log/14-bootstrap-flushing-and-shutdown.md) |
+| 15 | [Performance measurement](../../docs/log/15-performance-measurement.md) |
+| 16 | [Custom perf sinks](../../docs/log/16-custom-perf-sinks.md) |
+| 17 | [Replacing the logger](../../docs/log/17-replacing-the-logger.md) |
+| 18 | [Browser build](../../docs/log/18-browser-build.md) |
+
 ## Table of contents
 
 - [Which package do I import?](#which-package-do-i-import)

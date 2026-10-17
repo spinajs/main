@@ -8,6 +8,18 @@ framework (logging, file paths, messages) to expand `${...}` variables.
 
 This package has no runtime dependency beyond `@spinajs/di`.
 
+## Documentation
+
+Full documentation lives in [docs/configuration-common](../../docs/configuration-common/README.md):
+
+- [Templating with `format()`](../../docs/configuration-common/01-templating.md)
+- [Built-in variables](../../docs/configuration-common/02-built-in-variables.md)
+- [Custom variables](../../docs/configuration-common/03-custom-variables.md)
+- [The `Configuration` service](../../docs/configuration-common/04-configuration-service.md)
+- [Configuration sources](../../docs/configuration-common/05-configuration-sources.md)
+- [Config var protocols](../../docs/configuration-common/06-config-var-protocols.md)
+- [Environment names](../../docs/configuration-common/07-environment-names.md)
+
 ## Installation
 
 ```bash

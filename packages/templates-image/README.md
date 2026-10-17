@@ -2,6 +2,14 @@
 
 Template renderer for generating images using Puppeteer.
 
+## Documentation
+
+- [Package overview](../../docs/templates-image/README.md)
+- [Image renderer](../../docs/templates-image/01-image-renderer.md)
+- [Configuration](../../docs/templates-image/02-configuration.md)
+- [`render-image` command](../../docs/templates-image/03-render-image-command.md)
+- [Custom image renderers](../../docs/templates-image/04-custom-image-renderers.md)
+
 ## Installation
 
 ```bash

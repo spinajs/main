@@ -6,6 +6,20 @@ holds no logging implementation of its own; it defines the abstract types that
 implement. Depend on it when you write a **custom log target** or a **custom
 `Log` implementation**, and want to avoid a circular dependency on `@spinajs/log`.
 
+## Documentation
+
+Full documentation is in [`docs/log-common/`](../../docs/log-common/README.md):
+
+- [Logger contract](../../docs/log-common/01-logger-contract.md)
+- [Log levels](../../docs/log-common/02-log-levels.md)
+- [Log entries and message templates](../../docs/log-common/03-log-entries.md)
+- [Ambient log context](../../docs/log-common/04-ambient-log-context.md)
+- [Serializers](../../docs/log-common/05-serializers.md)
+- [Log targets](../../docs/log-common/06-log-targets.md)
+- [Log filters](../../docs/log-common/07-log-filters.md)
+- [Batch queue](../../docs/log-common/08-batch-queue.md)
+- [Perf instrumentation](../../docs/log-common/09-perf-instrumentation.md)
+
 ## What lives here
 
 | Export | Purpose |

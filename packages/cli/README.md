@@ -6,6 +6,18 @@ logging, configuration, intl) inside your command code.
 
 Built on top of [commander](https://github.com/tj/commander.js).
 
+## Documentation
+
+Full documentation lives in [docs/cli](../../docs/cli/README.md):
+
+- [Running the CLI](../../docs/cli/01-running-the-cli.md)
+- [Commands](../../docs/cli/02-commands.md)
+- [Arguments and options](../../docs/cli/03-arguments-and-options.md)
+- [Lifecycle hooks and commander access](../../docs/cli/04-lifecycle-hooks.md)
+- [Command discovery](../../docs/cli/05-command-discovery.md)
+- [Argv provider](../../docs/cli/06-argv-provider.md)
+- [`Cli` service](../../docs/cli/07-cli-service.md)
+
 ## Installation
 
 ```bash

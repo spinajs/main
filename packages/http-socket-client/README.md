@@ -4,6 +4,8 @@ Client for `@spinajs/http-socket`, for browsers and Node. It handles the connect
 
 A runnable server and client are in [`packages/http-socket-example`](../http-socket-example).
 
+Full documentation, including outbox stores and every extension point: [`docs/http-socket-client`](../../docs/http-socket-client/README.md).
+
 ## Connect
 
 ```ts

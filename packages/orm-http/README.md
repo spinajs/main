@@ -76,12 +76,16 @@ Full documentation lives in **[docs/](../../docs/orm-http/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Overview](../../docs/orm-http/01-overview.md) |
+| 01 | [Bootstrapping](../../docs/orm-http/01-bootstrapping.md) |
 | 02 | [Route arguments](../../docs/orm-http/02-route-args.md) |
 | 03 | [Filtering](../../docs/orm-http/03-filtering.md) |
 | 04 | [DTO relations](../../docs/orm-http/04-dto-relations.md) |
 | 05 | [Pagination and ordering](../../docs/orm-http/05-pagination-and-order.md) |
 | 06 | [Repository middleware](../../docs/orm-http/06-repository-middleware.md) |
+| 07 | [Custom filter columns](../../docs/orm-http/07-custom-filter-columns.md) |
+| 08 | [Custom route arguments and hydrators](../../docs/orm-http/08-custom-route-args-and-hydrators.md) |
+| 09 | [Not-found response](../../docs/orm-http/09-not-found-response.md) |
+| 10 | [Model statics and builder extension](../../docs/orm-http/10-model-statics-and-builder-extension.md) |
 
 ## Known issues
 

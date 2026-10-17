@@ -1,3 +1,17 @@
+# `@spinajs/di`
+
+## Documentation
+
+The full, current documentation is in [`docs/di`](../../docs/di/README.md):
+
+- [Registering services](../../docs/di/01-registering-services.md) and [resolving services](../../docs/di/02-resolving-services.md)
+- [Injection decorators](../../docs/di/03-injection-decorators.md) and [lifetimes](../../docs/di/04-lifetimes.md)
+- [Child containers](../../docs/di/05-child-containers.md), [multiple implementations](../../docs/di/06-multiple-implementations.md) and [named services](../../docs/di/07-named-services.md)
+- [Factories](../../docs/di/08-factories.md), [values and value maps](../../docs/di/09-values-and-value-maps.md) and the [service lifecycle](../../docs/di/10-service-lifecycle.md)
+- [Custom injection decorators](../../docs/di/11-custom-injection-decorators.md), [container events](../../docs/di/12-container-events.md), [module loading](../../docs/di/13-module-loading.md), [descriptor inheritance](../../docs/di/14-descriptor-inheritance.md) and [utilities](../../docs/di/15-utilities-and-types.md)
+
+The sections below predate those pages; where they disagree, the pages in `docs/di` are correct (eg. import from `@spinajs/di`, not `@spinajs/core`).
+
 #  Basics
 
 Dependency injection in SpinaJS is done by decorators - ES Next feature supported by Typescript. Lets go straight to example.

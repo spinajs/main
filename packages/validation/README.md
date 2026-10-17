@@ -4,6 +4,17 @@ JSON-schema validation for the SpinaJS framework, built on [AJV](https://ajv.js.
 `ajv-formats`, `ajv-keywords` and `ajv-merge-patch` pre-registered. Schemas can be attached to
 classes with the `@Schema` decorator or loaded automatically from the filesystem.
 
+Full documentation: [`docs/validation`](../../docs/validation/README.md).
+
+- [Validating data](../../docs/validation/01-validating-data.md)
+- [Validator options](../../docs/validation/02-validator-options.md)
+- [The `@Schema` decorator](../../docs/validation/03-schema-decorator.md)
+- [Runtime schemas](../../docs/validation/04-runtime-schemas.md)
+- [Schema sources](../../docs/validation/05-schema-sources.md)
+- [Schema providers](../../docs/validation/06-schema-providers.md)
+- [Validation errors](../../docs/validation/07-validation-errors.md)
+- [Customizing the validator](../../docs/validation/08-customizing-the-validator.md)
+
 ## Install
 
 ```bash

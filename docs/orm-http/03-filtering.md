@@ -1,170 +1,99 @@
 # Filtering
 
-A declarative filtering layer: the model declares which columns are filterable and with which
-operators, and the route argument validates an incoming filter against a JSON schema generated
-from those declarations. A client cannot filter on a column you did not open up, nor with an
-operator you did not allow.
+The model declares which columns a client may filter on and with which operators. `@Filter()` validates the incoming filter against a JSON schema built from those declarations, and `SelectQueryBuilder.filter()` turns it into one bracketed `WHERE` group. A client cannot filter on a column you did not open, or with an operator you did not allow.
 
-## Declaring filterable columns
+## How it works
 
-```ts sample
-import { Connection, Model, ModelBase, Primary, BelongsTo, SingleRelation } from '@spinajs/orm';
-import { Filterable } from '@spinajs/orm-http';
+Declaring:
 
-@Connection('default')
-@Model('authors')
-export class Author extends ModelBase<Author> {
-  @Primary()
-  public Id: number;
+1. `@Filterable(operators)` on a model property adds `{ operators, query }` to `IModelDescriptor.FilterableColumns` under the property name.
+2. When the property has no column descriptor, it adds a `Virtual`, nullable one, so the ORM accepts it in `where()`. The third argument sets the column's `Aggregate` flag.
+3. `@Filterable(OtherModel)` copies `OtherModel`'s filterable columns under `<property>.<column>`.
 
-  @Filterable(['eq', 'like'])
-  public Name: string;
-}
+Reading a request:
 
-@Connection('default')
-@Model('articles')
-export class Article extends ModelBase<Article> {
-  @Primary()
-  public Id: number;
+1. `@Filter(ModelOrColumns)` records a route parameter of type `'FilterModelRouteArg'`, resolved with `DI.resolve('FilterModelRouteArg')`.
+2. `FilterModelRouteArg.extract()` reads `req.query[<argument name>]`, then `req.body[<argument name>]`.
+3. It builds the schema per request: `Model.filterSchema()` for a model, `filterSchemaFor(columns)` for an inline column list.
+4. A string value is parsed with `JSON.parse`; invalid JSON throws `InvalidArgument` (`400`).
+5. `RouteArgs.tryHydrateParam()` runs input filters and validates the value against the schema. An absent filter is `undefined` and is not validated.
 
-  public author_id: number;
+Applying:
 
-  @Filterable(['eq', 'like', 'b-like', 'e-like'])
-  public Title: string;
+1. `query.filter(filters, op?, columns?)` returns the builder unchanged for `undefined`, `null` or `[]`.
+2. More than 100 top-level entries throw `Error`.
+3. `columns` defaults to the model's `filterColumns()`.
+4. Inside one `andWhere(function () { ... })` group, each entry is checked (object, `Column`, known `Operator`, filterable column, operator allowed) and applied with `andWhere` (op `and` or absent) or `orWhere` (op `or`).
+5. A nested group `{ op, filters }` becomes one bracketed condition with its own operator.
+6. A column with a custom `query` calls it instead of the built-in operator; see [Custom filter columns](07-custom-filter-columns.md).
 
-  @Filterable(['eq', 'gt', 'gte', 'lt', 'lte', 'between'])
-  public Views: number;
-
-  @Filterable(['isnull', 'notnull'])
-  public PublishedAt: string;
-
-  /**
-   * Passing a MODEL instead of an operator list imports that model's filterable
-   * columns under this property's name — `Author.Name` becomes filterable here.
-   */
-  @Filterable(Author)
-  @BelongsTo(Author, 'author_id', 'Id')
-  public Author: SingleRelation<Author>;
-}
+```mermaid
+sequenceDiagram
+  participant Http as extractRouteArgs
+  participant Arg as FilterModelRouteArg
+  participant Model
+  participant Val as DataValidator
+  participant Ctrl as Controller
+  participant QB as SelectQueryBuilder
+  Http->>Arg: extract(param, req)
+  Arg->>Model: filterSchema()
+  Arg->>Arg: JSON.parse(req.query[name])
+  Arg->>Val: validate(schema, filter)
+  Arg-->>Ctrl: IFilterRequest
+  Ctrl->>QB: filter(filters, op)
+  QB->>Model: filterColumns()
+  QB->>QB: andWhere(group of conditions)
 ```
 
-`@Filterable` also touches the column descriptor: it creates a `Virtual` column entry when the
-property has none, and sets `Aggregate` from the third argument.
+## Decorators
 
-```ts
-Filterable(
-  operatorsOrClass: FilterableOperators[] | Constructor<ModelBase>,
-  queryFunc?: (operator: FilterableOperators, value: any) => WhereFunction<unknown>,
-  isAggregate?: boolean,
-)
-```
+| Decorator | Target | Options | Effect |
+| --- | --- | --- | --- |
+| `@Filterable(operators, queryFunc?, isAggregate?)` | Model property | `operators: FilterableOperators[]`; `queryFunc`: custom SQL, or `null`; `isAggregate`: sets the column's `Aggregate` flag | Makes the column filterable with these operators. |
+| `@Filterable(Model)` | Model property | a model class | Copies that model's filterable columns as `<property>.<column>`. |
+| `@Filter(ModelOrColumns)` | Route method parameter | a model class, or `IColumnFilter[]` | Reads, parses and validates an `IFilterRequest`. |
 
-Passing a model whose own filterable columns are empty contributes nothing — declare
-`@Filterable` on the related model's columns first.
+### Operators
 
-## Operators
+| Operator | SQL | Value check |
+| --- | --- | --- |
+| `eq` | `= ?` | defined |
+| `neq` | `!= ?` | defined |
+| `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` | defined |
+| `like` | `LIKE '%value%'` | non-empty string; `null` / `undefined` skip the check |
+| `b-like` | `LIKE '%value'`: wildcard before, matches values ending with it | as `like` |
+| `e-like` | `LIKE 'value%'`: wildcard at the end, matches values starting with it | as `like` |
+| `regexp` | `REGEXP ?` | as `like` |
+| `between` / `notbetween` | `BETWEEN` / `NOT BETWEEN` | array, at least 2 values |
+| `in` / `nin` | `IN (...)` / `NOT IN (...)` | array, at least 1 value |
+| `in-set` / `nin-set` | `whereInSet` / `whereNotInSet` | array, at least 1 value |
+| `isnull` / `notnull` | `IS NULL` / `IS NOT NULL` | none |
+| `exists` / `n-exists` | `whereExist(column)` / `whereNotExists(column)` on a relation | none |
 
-| Operator | SQL |
-| --- | --- |
-| `eq` | `= ?` |
-| `neq` | `!= ?` |
-| `gt` / `gte` / `lt` / `lte` | `> ?` / `>= ?` / `< ?` / `<= ?` |
-| `like` | `LIKE '%value%'` |
-| `b-like` | `LIKE '%value'` — *begins* the wildcard, i.e. matches at the end |
-| `e-like` | `LIKE 'value%'` — matches at the start |
-| `regexp` | `REGEXP ?` |
-| `between` / `notbetween` | `BETWEEN` / `NOT BETWEEN` |
-| `isnull` / `notnull` | `IS NULL` / `IS NOT NULL` |
-| `in` / `nin` | `IN (...)` / `NOT IN (...)` |
-| `in-set` / `nin-set` | `FIND_IN_SET` membership |
-| `exists` / `n-exists` | `EXISTS` / `NOT EXISTS` on a relation |
+A failed value check throws `InvalidArgument` (`400`).
 
-Value validation per operator:
-
-| Operators | Requirement |
-| --- | --- |
-| `in`, `nin`, `in-set`, `nin-set` | An array with at least one value. |
-| `between`, `notbetween` | An array with at least two values. |
-| `like`, `b-like`, `e-like`, `regexp` | A non-empty string (`null`/`undefined` skip the check). |
-| `eq`, `neq`, `gt`, `gte`, `lt`, `lte` | A defined value. |
-| `isnull`, `notnull`, `exists`, `n-exists` | No value needed. |
-
-## The `@Filter()` route argument
-
-```ts sample
-import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
-import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-import { Filter, Filterable, IFilterRequest } from '@spinajs/orm-http';
-
-@Connection('default')
-@Model('articles')
-export class Article extends ModelBase<Article> {
-  @Primary()
-  public Id: number;
-
-  @Filterable(['eq', 'like'])
-  public Title: string;
-
-  @Filterable(['eq', 'gt', 'lt'])
-  public Views: number;
-}
-
-@BasePath('articles')
-export class ArticleController extends BaseController {
-  /** Derive the allowed filters from the model. */
-  @Get()
-  public async list(@Filter(Article) filter: IFilterRequest) {
-    const rows = await Article.select().filter(filter.filters, filter.op);
-    return new Ok(rows.map((r) => r.dehydrate()));
-  }
-
-  /** Or spell the allowed columns out inline. */
-  @Get('custom')
-  public async custom(
-    @Filter([
-      { column: 'Title', operators: ['eq', 'like'] },
-      { column: 'Views', operators: ['gt'] },
-    ])
-    filter: IFilterRequest,
-  ) {
-    const rows = await Article.select().filter(filter.filters, filter.op);
-    return new Ok(rows.map((r) => r.dehydrate()));
-  }
-}
-```
-
-The value is read from `req.query[paramName]` first, then `req.body[paramName]`. A string is
-`JSON.parse`d; malformed JSON becomes an `InvalidArgument` (a client error), not an unhandled
-500.
-
-The schema is built at **request** time, not decoration time — the `filterSchema()` static is
-installed by `OrmHttpBootstrapper` when the ORM resolves, which is after controllers are
-constructed.
-
-## Request shape
+### Request shape
 
 ```json
 {
   "op": "and",
   "filters": [
     { "Column": "Title", "Operator": "like", "Value": "typescript" },
-    { "Column": "Views", "Operator": "gt", "Value": 100 }
+    { "op": "or", "filters": [
+      { "Column": "Views", "Operator": "gt", "Value": 1000 },
+      { "Column": "Featured", "Operator": "eq", "Value": true }
+    ] }
   ]
 }
 ```
 
-As a query string:
+- Field names are capitalised: `Column`, `Operator`, `Value`.
+- `op` is `and` or `or` (`FilterableLogicalOperators`). Anything but `or` means `and`, at every level.
+- In a query string the whole object is JSON: `?filter=%7B%22op%22%3A%22and%22%2C...%7D`.
 
-```
-GET /articles?filter=%7B%22op%22%3A%22and%22%2C%22filters%22%3A%5B%7B%22Column%22%3A%22Title%22%2C%22Operator%22%3A%22like%22%2C%22Value%22%3A%22ts%22%7D%5D%7D
-```
+### The generated schema
 
-`op` is `and` or `or` (`FilterableLogicalOperators`); anything other than `or` is treated as
-`and`. Note the field names are **capitalised** — `Column`, `Operator`, `Value`.
-
-## The generated schema
-
-`Model.filterSchema()` produces:
+`Model.filterSchema()` and `filterSchemaFor(columns)` return:
 
 ```json
 {
@@ -184,6 +113,14 @@ GET /articles?filter=%7B%22op%22%3A%22and%22%2C%22filters%22%3A%5B%7B%22Column%2
               "Value": { "type": ["string", "integer", "array", "boolean"] },
               "Operator": { "type": "string", "enum": ["eq", "like"] }
             }
+          },
+          {
+            "type": "object",
+            "required": ["filters"],
+            "properties": {
+              "op": { "type": "string", "enum": ["and", "or"] },
+              "filters": { "type": "array", "items": { "type": "object", "anyOf": ["<the column items above>"] } }
+            }
           }
         ]
       }
@@ -192,24 +129,126 @@ GET /articles?filter=%7B%22op%22%3A%22and%22%2C%22filters%22%3A%5B%7B%22Column%2
 }
 ```
 
-`Value` is deliberately **not** required — the valueless operators (`isnull`, `notnull`,
-`exists`, `n-exists`) carry none. A model with no `@Filterable` columns returns `{}`.
+- `Value` is not required: `isnull`, `notnull`, `exists` and `n-exists` carry none.
+- Groups nest one level in the schema. `.filter()` itself walks any depth.
+- A model with no `@Filterable` column returns `{}` from `filterSchema()` and `[]` from `filterColumns()`.
 
-## Applying a filter
+## Services and extension points
 
-`SelectQueryBuilder.filter(filters, logicalOperator?, filterColumns?)` is installed on the
-prototype at module load.
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| `@Filter` extractor | name `'FilterModelRouteArg'`, singleton, resolved per route by name | `FilterModelRouteArg` | none shipped | `@Injectable(FilterModelRouteArg)` on a subclass; see [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md). |
+| Per-column SQL | `IColumnFilter.query` | built-in operator map | any function returning a `WhereFunction` | See [Custom filter columns](07-custom-filter-columns.md). |
+| `SelectQueryBuilder.filter()` | prototype method, installed at import | `builders.ts` | none | Wrap the prototype method; see [Model statics and builder extension](10-model-statics-and-builder-extension.md). |
+| Filter statics | `MODEL_STATIC_MIXINS` bound by `OrmHttpBootstrapper` | `filter`, `filterColumns`, `filterSchema` | none | See [Model statics and builder extension](10-model-statics-and-builder-extension.md). |
 
-Every filter is wrapped in a single `andWhere(function () { ... })` group, so it composes with
-conditions you added yourself rather than fighting them.
+The operator map is private to `builders.ts`. You cannot add an operator name; give a column a custom `query` instead.
 
-Before applying anything it checks: at most **100** filters; each entry is an object with a
-`Column` and an `Operator`; the operator is known; the column is in the filterable list; and the
-operator is allowed for that column. Any failure throws.
+## Important behaviour
+
+- All conditions sit in one `andWhere(...)` group, so they AND with conditions you add yourself.
+- Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries) are plain `Error`s and answer `500`. `@Filter()` rejects most of them earlier with a `400`; a filter passed to `.filter()` without `@Filter()` gets the `500`.
+- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does, with a `500`.
+- Columns copied with `@Filterable(OtherModel)` (`Author.Name`) pass the schema, but `.filter()` fails on them: the dotted `where()` calls `populate()` on the inner group builder, which has none (`TypeError: self.populate is not a function`).
+- A column marked aggregate (`@Filterable(ops, null, true)`) is dropped from the SQL when applied through `.filter()`: the compiler moves aggregate conditions to `HAVING` only at the top level, and the filter group is not top level.
+- `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.
+- `@Filterable` on a property without a column creates a virtual column. It is never selected or written; filter on it with a custom `query`.
+
+## Best practices
+
+- Keep the operator list per column short: `like` on an unindexed text column is a full scan.
+- Call `filter(filter?.filters, filter?.op)`: the argument is `undefined` when the client sent no filter, and `filter()` treats that as no-op.
+- Pass the same column list to `@Filter([...])` and to `.filter(..., columns)` when you filter on inline columns, so validation and application agree.
+
+## Patterns and antipatterns
+
+```ts
+// Don't: skip @Filter and hand the raw query string to filter(); bad input becomes a 500
+@Get()
+public async list(@Query() filter: any) {
+  return new Ok(await Article.select().filter(JSON.parse(filter).filters));
+}
+
+// Do: @Filter validates against the schema first and answers 400 on bad input
+@Get()
+public async list(@Filter(Article) filter: IFilterRequest) {
+  return new Ok(await Article.select().filter(filter?.filters, filter?.op));
+}
+```
+
+## Examples
+
+### Declare filterable columns
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-import { Filterable, IFilterRequest } from '@spinajs/orm-http';
+import { Filterable } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('articles')
+export class Article extends ModelBase<Article> {
+  @Primary()
+  public Id: number;
+
+  @Filterable(['eq', 'like', 'b-like', 'e-like'])
+  public Title: string;
+
+  @Filterable(['eq', 'gt', 'gte', 'lt', 'lte', 'between'])
+  public Views: number;
+
+  @Filterable(['isnull', 'notnull'])
+  public PublishedAt: string;
+}
+```
+
+### Filter a listing from the model or from inline columns
+
+```ts sample
+import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Filter, Filterable, IColumnFilter, IFilterRequest } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('articles')
+export class Article extends ModelBase<Article> {
+  @Primary()
+  public Id: number;
+
+  @Filterable(['eq', 'like'])
+  public Title: string;
+
+  @Filterable(['eq', 'gt', 'lt'])
+  public Views: number;
+}
+
+const PUBLIC_COLUMNS: IColumnFilter<Article>[] = [
+  { column: 'Title', operators: ['like'] },
+  { column: 'Views', operators: ['gt'] },
+];
+
+@BasePath('articles')
+export class ArticleController extends BaseController {
+  /** Columns and operators come from the model's @Filterable declarations. */
+  @Get()
+  public async list(@Filter(Article) filter: IFilterRequest) {
+    const rows = await Article.select().filter(filter?.filters, filter?.op);
+    return new Ok(rows.map((r) => r.dehydrate()));
+  }
+
+  /** A narrower set for the public listing; the same list validates and applies. */
+  @Get('public')
+  public async publicList(@Filter(PUBLIC_COLUMNS) filter: IFilterRequest) {
+    const rows = await Article.select().filter(filter?.filters, filter?.op, PUBLIC_COLUMNS);
+    return new Ok(rows.map((r) => r.dehydrate()));
+  }
+}
+```
+
+### Combine a client filter with your own conditions and a nested group
+
+```ts sample
+import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Filterable, FilterableLogicalOperators, IFilter, IFilterGroup, IFilterRequest } from '@spinajs/orm-http';
 
 @Connection('default')
 @Model('articles')
@@ -221,17 +260,32 @@ export class Article extends ModelBase<Article> {
 
   @Filterable(['eq', 'like'])
   public Title: string;
+
+  @Filterable(['like'])
+  public Slug: string;
 }
 
-export async function combined(filter: IFilterRequest) {
-  // The client's filter is one AND-group; our own condition sits alongside it.
-  return await Article.select().where('Published', true).filter(filter.filters, filter.op).orderByDescending('Id').take(50);
+export async function search(filter: IFilterRequest | undefined, text: string) {
+  const textSearch: IFilterGroup = {
+    op: FilterableLogicalOperators.Or,
+    filters: [
+      { Column: 'Title', Operator: 'like', Value: text },
+      { Column: 'Slug', Operator: 'like', Value: text },
+    ],
+  };
+
+  // Published AND (client filter) AND (Title LIKE text OR Slug LIKE text)
+  return await Article.select()
+    .where('Published', true)
+    .filter(filter?.filters, filter?.op)
+    // filter() is typed IFilter[]; nested groups are accepted at runtime.
+    .filter([textSearch] as unknown as IFilter[])
+    .orderByDescending('Id')
+    .take(50);
 }
 ```
 
-## Filtering a relation
-
-`filter()` is available on any select builder, including the one a `populate` callback receives.
+### Filter the rows of a populated relation
 
 ```ts sample
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
@@ -265,7 +319,7 @@ export class RelationFilterController extends BaseController {
   @Get('with-comments')
   public async list(@Filter(Comment) filter: IFilterRequest) {
     const rows = await Article.select().populate('Comments', function () {
-      this.filter(filter.filters, filter.op);
+      this.filter(filter?.filters, filter?.op);
     });
 
     return new Ok(rows.map((r) => r.dehydrateWithRelations()));
@@ -273,41 +327,7 @@ export class RelationFilterController extends BaseController {
 }
 ```
 
-## A custom query per column
-
-`@Filterable`'s second argument replaces the generated predicate entirely — for computed
-columns, or a column whose filter should span several database columns.
-
-```ts sample
-import { Connection, Model, ModelBase, Primary, WhereFunction } from '@spinajs/orm';
-import { Filterable, FilterableOperators } from '@spinajs/orm-http';
-
-@Connection('default')
-@Model('people')
-export class Person extends ModelBase<Person> {
-  @Primary()
-  public Id: number;
-
-  public FirstName: string;
-
-  public LastName: string;
-
-  /**
-   * A virtual column: filtering `FullName` searches both real name columns.
-   * The callback receives the operator and the value, and returns a where function.
-   */
-  @Filterable(['like'], (_operator: FilterableOperators, value: any): WhereFunction<unknown> => {
-    return function () {
-      this.where('FirstName', 'like', `%${value}%`).orWhere('LastName', 'like', `%${value}%`);
-    };
-  })
-  public FullName: string;
-}
-```
-
-When a column declares a custom query, validation of the value is skipped — the callback owns it.
-
-## Inspecting what is filterable
+### Inspect what is filterable
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -323,14 +343,21 @@ export class Article extends ModelBase<Article> {
   public Title: string;
 }
 
-export function describe() {
+export function describeFilters() {
   return {
     // [{ column: 'Title', operators: ['eq', 'like'], query: undefined }]
-    columns: (Article as any).filterColumns(),
-    schema: (Article as any).filterSchema(),
+    columns: Article.filterColumns(),
+    schema: Article.filterSchema(),
   };
 }
 ```
 
-Both are useful for generating client-side filter UIs, and `filterSchema()` is what
-`http-swagger` documents the endpoint with.
+Use both to build client-side filter UIs. `@spinajs/http-swagger` documents `@Filter` parameters with `filterSchema()`.
+
+## Related
+
+- [Custom filter columns](07-custom-filter-columns.md): your own SQL per column, and column sets for models you cannot decorate.
+- [Model statics and builder extension](10-model-statics-and-builder-extension.md): where `filter()` and the statics come from.
+- [Query builder](../orm/05-query-builder.md): `where`, `whereIn`, `whereExist` and the other calls the operators map to.
+- [Relations](../orm/06-relations.md): `exists` / `n-exists` filter on relations through `whereExist()`.
+- [Parameters and request bodies](../http-swagger/03-parameters-and-request-bodies.md): how `@Filter` appears in the OpenAPI document.

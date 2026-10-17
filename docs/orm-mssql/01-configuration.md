@@ -1,19 +1,58 @@
-# Configuration
+# Connection and configuration
 
-## Options
+`MsSqlOrmDriver` is the connection class for SQL Server. A `db.Connections` entry with `Driver: 'orm-driver-mssql'` gets one driver instance, which opens a connection pool from the `mssql` package and answers every query on that connection.
 
-| Option | Meaning |
-| --- | --- |
-| `Name` | Connection name — what `@Connection('...')` refers to. |
-| `Driver` | `orm-driver-mssql`, matching the DI registration. |
-| `Host`, `Port` | Server address. SQL Server's default port is 1433. |
-| `User`, `Password` | Credentials. `Password` is never logged. |
-| `Database` | Database name — the first part of the three-part table name. |
-| `Pool.*` | `Min`, `Max`, `IdleTimeout`, `AcquireTimeout`. |
-| `Resilience.*` | Health-check interval and retry policy. |
-| `Migration.*` | `OnStartup`, `Table`, `Transaction.Mode`. |
-| `Options` | Passed through to the `mssql` package, **plus** `Schema` (see below). |
-| `AliasSeparator` | Defaults to **`#`** here, not `$`. |
+## How it works
+
+1. **Registration.** Importing `@spinajs/orm-mssql` runs `@Injectable('orm-driver-mssql')` and `@NewInstance()` on `MsSqlOrmDriver`: the class is registered in the root container under the string `orm-driver-mssql`, one new instance per resolve. `DI.register(MsSqlOrmDriver).as('orm-driver-mssql')` makes the same registration explicitly.
+2. **Resolve.** `Orm.createConnections()` reads `db.Connections` and resolves each entry's `Driver` string with the entry as the constructor argument. A string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')`.
+3. **Constructor.** `MsSqlOrmDriver` merges `{ AliasSeparator: '#' }` under the entry, so a configured `AliasSeparator` still wins. `OrmDriver` then merges the result over its defaults.
+4. **`resolve()`.** `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the driver's child container `this.Container`. `SqlDriver.resolve()` registers the shared SQL classes. `MsSqlOrmDriver.resolve()` registers the T-SQL classes listed in [Extending the driver](08-extending-the-driver.md#what-the-driver-registers).
+5. **`connect()`.** Calls `mssql.connect()` with `Host`, `User`, `Password`, `Database`, the TLS options and the pool settings, then runs `USE <Database>`. On failure it closes the pool, sets it to `null` and re-throws; `Orm` wraps the error in `OrmException('Failed to connect to database for connection <Name> ...')`.
+6. **Health check.** `Orm` starts the health check, which calls `ping()`. `ping()` runs `SELECT 1` and returns `true`, or `false` on any error.
+7. **`disconnect()`.** Closes the pool and clears it.
+
+```mermaid
+sequenceDiagram
+  participant Orm
+  participant D as MsSqlOrmDriver
+  participant M as mssql
+  Orm->>D: resolve 'orm-driver-mssql' with the connection entry
+  D->>D: resolve(): child container, SQL and T-SQL registrations
+  Orm->>D: connect()
+  D->>M: mssql.connect({ server, user, password, database, options, pool })
+  D->>M: USE <Database>
+  Orm->>D: ping() every HealthCheckInterval
+  D->>M: SELECT 1
+```
+
+## Configuration
+
+Keys of one `db.Connections[]` entry. Keys this driver does not read are listed as ignored, so a value you set there has no effect.
+
+| Key | Type | Default | Allowed values | Meaning |
+| --- | --- | --- | --- | --- |
+| `db.Connections[].Driver` | `string` | none | `'orm-driver-mssql'`, or the string of a subclass | Selects `MsSqlOrmDriver`. |
+| `db.Connections[].Name` | `string` | `'orm-driver'` | any | Connection name for `@Connection('...')` and `Orm.Connections.get()`; also names the logger `orm-driver-<Name>`. |
+| `db.Connections[].Host` | `string` | none | host name or IP | Passed as `server`. |
+| `db.Connections[].Port` | `number` | ignored | | **Not passed to `mssql`.** The `mssql` package connects to port `1433`. |
+| `db.Connections[].User` | `string` | none | | SQL login. |
+| `db.Connections[].Password` | `string` | none | | SQL login password. |
+| `db.Connections[].Database` | `string` | none | | Database of the pool, and the target of the `USE` statement after connect. |
+| `db.Connections[].AliasSeparator` | `string` | `'#'` | any | Wraps generated table aliases: `[#users#]`. `$` is the framework default; this driver replaces it. |
+| `db.Connections[].Options.Schema` | `string` | none | schema name | Adds the schema to every table name: `[dbo].[users]`. |
+| `db.Connections[].Options.TrustServerCertificate` | `boolean` | `true` | `true`, `false` | Passed as `options.trustServerCertificate`. `true` accepts any server certificate. |
+| `db.Connections[].Options.CryptoCredentialsDetails` | `object` | `{}` | Node TLS secure-context options | Passed as `options.cryptoCredentialsDetails`, for example a CA bundle. |
+| `db.Connections[].Pool.Min` | `number` | `0` | | Passed as `pool.min`. |
+| `db.Connections[].Pool.Max` | `number` | `PoolLimit`, else `10` | | Passed as `pool.max`. |
+| `db.Connections[].Pool.IdleTimeout` | `number` | `30000` | ms | Passed as `pool.idleTimeoutMillis`. |
+| `db.Connections[].Pool.AcquireTimeout` | `number` | `10000` | ms | Passed as `pool.acquireTimeoutMillis`. |
+| `db.Connections[].PoolLimit` | `number` | none | | Deprecated; used for `Pool.Max` when that is absent. |
+| `db.Connections[].Resilience.HealthCheckInterval` | `number` | see [Connections](../orm/01-connections.md) | ms | How often `ping()` runs. |
+| `db.Connections[].Migration.*` | | see [Migrations](../orm/10-migrations.md) | | `OnStartup`, `Table`, `Transaction.Mode`, `Lock`. |
+| any other `Options.*` key | | ignored | | `encrypt`, `requestTimeout`, `instanceName` and other `mssql` options are **not** passed through. |
+
+`mssql` fills the options the driver does not pass with its own defaults: `encrypt: true`, port `1433`, a 15 000 ms connect timeout and a 15 000 ms request timeout. To change them, override `connect()` (see [the example below](#connect-with-a-custom-port-encryption-and-a-pool-per-connection)).
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
@@ -31,24 +70,20 @@ export class AppConfiguration extends FrameworkConfiguration {
           {
             Name: 'mssql',
             Driver: 'orm-driver-mssql',
-            Host: '127.0.0.1',
-            Port: 1433,
-            User: 'sa',
+            Host: 'sql.internal',
+            User: 'app',
             Password: 'Str0ng!Passw0rd',
-            Database: 'app',
+            Database: 'shop',
             Pool: { Min: 2, Max: 20, IdleTimeout: 30000, AcquireTimeout: 10000 },
-            Resilience: { HealthCheckInterval: 30000, MaxRetries: 5 },
+            Resilience: { HealthCheckInterval: 30000 },
             Migration: {
               OnStartup: true,
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
             Options: {
-              // Driver-specific: the schema used to qualify every table.
               Schema: 'dbo',
-              // Passed straight to the `mssql` package.
-              encrypt: true,
-              trustServerCertificate: false,
-              requestTimeout: 30000,
+              // Validate the server certificate in production.
+              TrustServerCertificate: false,
             },
           },
         ],
@@ -58,168 +93,120 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 ```
 
-## `Options.Schema`
+## Services and extension points
 
-`MsSqlTableAliasCompiler` builds a **three-part** name:
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| The driver | `'orm-driver-mssql'` in the root container, new instance per connection (`@Injectable`, `@NewInstance`) | `MsSqlOrmDriver` | none shipped | Subclass `MsSqlOrmDriver` with its own `@Injectable('<string>')`, and set that string as `Driver`. Or `DI.register(MySubclass).as('orm-driver-mssql')` before `Orm` resolves, to use it for every MSSQL connection. |
+| Connection setup | `MsSqlOrmDriver.connect()`, `disconnect()`, `ping()` | `mssql.connect()` global pool | | Override `connect()` to pass more `mssql` options or to open a pool per connection. Assign the pool to `this._connectionPool`; `executeOnDb()`, transactions and `disconnect()` read it from there. |
+| Table reflection | `MsSqlOrmDriver.tableInfo(name, schema?)` | `INFORMATION_SCHEMA` queries | | Override `tableInfo()` to fix the column descriptors; see [Important behaviour](#important-behaviour). |
 
-```sql
-[database].[schema].[table] as [alias]
-```
+### Connection setup: custom implementation
 
-- `[database]` appears when the builder has one (from `Database`, or `database()` on the builder).
-- `[schema]` appears when `Options.Schema` is set.
-- The alias appears when the builder has one.
+Override `connect()` when you need an option the driver does not pass: a port, `encrypt: false`, a request timeout, a named instance. A subclass also gives each connection its own `ConnectionPool` instead of the `mssql` global one. Register the subclass under its own driver string; it inherits every T-SQL registration from `MsSqlOrmDriver.resolve()`.
 
-Set `Options.Schema: 'dbo'` unless your objects live elsewhere. Without it, tables resolve
-against the connection's default schema, which is usually but not always what you want.
+```ts sample
+import { Injectable, NewInstance } from '@spinajs/di';
+import { OrmDriver } from '@spinajs/orm';
+import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
+import mssql from 'mssql';
 
-## `AliasSeparator`
+/** Opens its own pool, with the port, encryption and timeouts taken from the connection entry. */
+@Injectable('orm-driver-mssql-tls')
+@NewInstance()
+export class TlsMsSqlDriver extends MsSqlOrmDriver {
+  public async connect(): Promise<OrmDriver> {
+    const pool = this.resolvedPoolOptions();
 
-The driver overrides the default in its constructor:
+    this._connectionPool = await new mssql.ConnectionPool({
+      server: this.Options.Host!,
+      port: this.Options.Port ?? 1433,
+      user: this.Options.User,
+      password: this.Options.Password,
+      database: this.Options.Database,
+      requestTimeout: this.Options.Options?.RequestTimeout ?? 30000,
+      options: {
+        encrypt: this.Options.Options?.Encrypt ?? true,
+        trustServerCertificate: this.Options.Options?.TrustServerCertificate ?? false,
+      },
+      pool: { min: pool.Min, max: pool.Max, idleTimeoutMillis: pool.IdleTimeout, acquireTimeoutMillis: pool.AcquireTimeout },
+    }).connect();
 
-```ts
-constructor(options: IDriverOptions) {
-  super(Object.assign({ AliasSeparator: '#' }, options));
+    return this;
+  }
 }
 ```
 
-`$` is the framework-wide default, but it begins a pseudo-column in T-SQL, so generated aliases
-would be invalid. Generated aliases here look like `#users#`.
+Then set `Driver: 'orm-driver-mssql-tls'` and, for example, `Port: 14330, Options: { Encrypt: true, RequestTimeout: 60000 }` on the connection.
 
-Override it only if `#` collides with something in your schema.
+## Important behaviour
 
-## Backtick stripping
+- **One global pool per process.** `connect()` calls `mssql.connect()`, which creates the `mssql` package's global pool once and returns that same pool on later calls. A second MSSQL connection with a different host or database gets the first connection's pool, and `disconnect()` on either closes it for both. Use the `connect()` override above for more than one MSSQL connection.
+- **`Port` is ignored.** Only `Host` is passed; the server must listen on `1433`.
+- **`TrustServerCertificate` defaults to `true`.** The connection is encrypted (the `mssql` default) but the server certificate is not validated unless you set it to `false`.
+- **The option keys are PascalCase.** `Options.TrustServerCertificate` is read; `Options.trustServerCertificate` is not.
+- **`USE <Database>` is not quoted.** A database name with spaces or brackets fails at connect.
+- **No statement retries.** `executeOnDb()` does not use `withReconnect()`. A dropped connection fails the statement; the health check marks the connection state. See [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection).
+- **`tableInfo(name, schema?)` reflects loosely.** It filters `INFORMATION_SCHEMA.COLUMNS` by table name, and by `TABLE_CATALOG` (the database) when `schema` is given; `Options.Schema` is not applied, so same-named tables in two schemas are merged. `MaxLength` is always `-1`. `AutoIncrement` is `true` for every `int` primary key, not read from `IDENTITY`. `Nullable` holds the raw `IS_NULLABLE` text (`'YES'` / `'NO'`), so it is truthy for every column. It returns `null` for a table that does not exist.
 
-`executeOnDb` runs `stmt.replaceAll('`', '')` before sending anything to the server. The generic
-SQL layer quotes identifiers with backticks — MySQL's convention — and T-SQL uses `[brackets]`,
-so the backticks are removed wholesale rather than translated.
+## Best practices
 
-The practical consequence: **a backtick inside a string literal in a raw query will be stripped
-too.** Bind values as parameters rather than interpolating them, which is what the builders do
-anyway.
+- Set `Options.TrustServerCertificate: false` and, for a private CA, `Options.CryptoCredentialsDetails: { ca: ... }` outside local development.
+- Set `Options.Schema` (usually `'dbo'`) so table names do not depend on the login's default schema.
+- Keep one MSSQL connection per process with the stock driver; subclass `connect()` before adding a second.
 
-## Pooling
-
-A real pool of read-write connections, backed by the `mssql` package's `ConnectionPool`.
-
-| Option | Default |
-| --- | --- |
-| `Pool.Min` | `0` |
-| `Pool.Max` | `10` |
-| `Pool.IdleTimeout` | `30000` |
-| `Pool.AcquireTimeout` | `10000` |
-
-`PoolLimit` remains honoured when `Pool.Max` is absent.
-
-## Transactions
-
-Pooled, so `_begin` acquires a connection onto `ctx.connection` and `_dispose` releases it.
-Statements inside the callback pick the transaction's request up from the context — only this
-driver's `_begin` populates it, so nothing outside a transaction is affected.
-
-All four isolation levels are declared:
+## Patterns and antipatterns
 
 ```ts
-public readonly SupportedIsolationLevels: IsolationLevel[] = [
-  'READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE',
-];
+// Don't: lowercase mssql keys are never read; Port is ignored, so this still connects to 1433
+{ Driver: 'orm-driver-mssql', Host: 'sql', Port: 14330, Options: { trustServerCertificate: false, encrypt: false } }
+
+// Do: the PascalCase keys the driver reads, and a subclass for anything else
+{ Driver: 'orm-driver-mssql', Host: 'sql', Options: { TrustServerCertificate: false } }
 ```
+
+## Examples
+
+### Connect with a custom port, encryption and a pool per connection
+
+The `TlsMsSqlDriver` sample above, used for two databases on the same server:
+
+```ts sample
+import { FrameworkConfiguration } from '@spinajs/configuration';
+import _ from 'lodash';
+
+export class TwoDatabasesConfiguration extends FrameworkConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    this.Config = _.merge(this.Config, {
+      db: {
+        DefaultConnection: 'shop',
+        Connections: [
+          { Name: 'shop', Driver: 'orm-driver-mssql-tls', Host: 'sql.internal', Port: 14330, User: 'app', Password: 'secret', Database: 'shop', Options: { Schema: 'dbo' } },
+          { Name: 'audit', Driver: 'orm-driver-mssql-tls', Host: 'sql.internal', Port: 14330, User: 'app', Password: 'secret', Database: 'audit', Options: { Schema: 'dbo' } },
+        ],
+      },
+    });
+  }
+}
+```
+
+### Check a connection from a readiness probe
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 
-export async function isolated() {
-  const driver = DI.resolve<OrmDriver>('OrmConnection', ['mssql'])!;
-
-  return await driver.transaction(
-    async () => driver.select().from('ledger').where('Posted', false),
-    { isolation: 'SERIALIZABLE' },
-  );
+export async function databaseReady(): Promise<boolean> {
+  const connection = DI.get(Orm)?.Connections.get('mssql');
+  return connection ? await connection.ping() : false;
 }
 ```
 
-Nesting takes savepoints, so `save()` and nested `transaction()` calls compose.
+## Related
 
-Unlike MySQL, **SQL Server DDL *is* transactional** — `CREATE TABLE` and `ALTER TABLE` roll back
-with the transaction. `Migration.Transaction.Mode = PerMigration` therefore gives a genuinely
-atomic migration here.
-
-## Encryption
-
-The `mssql` package defaults to encrypted connections against Azure. For a local server with a
-self-signed certificate:
-
-```ts sample
-import { FrameworkConfiguration } from '@spinajs/configuration';
-import _ from 'lodash';
-
-export class LocalConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = _.merge(this.Config, {
-      db: {
-        Connections: [
-          {
-            Name: 'mssql',
-            Driver: 'orm-driver-mssql',
-            Host: '127.0.0.1',
-            Port: 1433,
-            User: 'sa',
-            Password: 'Str0ng!Passw0rd',
-            Database: 'app',
-            Options: {
-              Schema: 'dbo',
-              encrypt: false,
-              trustServerCertificate: true,
-            },
-          },
-        ],
-      },
-    });
-  }
-}
-```
-
-Do not carry `trustServerCertificate: true` into production — it disables certificate validation.
-
-## Named instances
-
-Reach a named instance through `Options.instanceName`, which the `mssql` package understands:
-
-```ts sample
-import { FrameworkConfiguration } from '@spinajs/configuration';
-import _ from 'lodash';
-
-export class NamedInstanceConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = _.merge(this.Config, {
-      db: {
-        Connections: [
-          {
-            Name: 'mssql',
-            Driver: 'orm-driver-mssql',
-            Host: 'db-server',
-            User: 'app',
-            Password: 'secret',
-            Database: 'app',
-            Options: {
-              Schema: 'dbo',
-              instanceName: 'SQLEXPRESS',
-              // The SQL Browser service resolves the port; omit Port entirely.
-            },
-          },
-        ],
-      },
-    });
-  }
-}
-```
-
-## Before you write
-
-See the [README](README.md): this driver registers no `ServerResponseMapper`, so every insert
-path throws. Selects, schema operations and transactions work.
+- [Connections](../orm/01-connections.md): `db.Connections`, `Pool`, `Resilience` and the `OrmDriver` contract.
+- [`SqlDriver`](../orm-sql/01-sql-driver.md): what the base class does before `executeOnDb()` runs.
+- [Executing statements](02-executing-statements.md): how a statement reaches the pool.
+- [Extending the driver](08-extending-the-driver.md): subclassing rules shared by every override.

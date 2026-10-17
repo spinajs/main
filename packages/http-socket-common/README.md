@@ -23,4 +23,6 @@ The wire protocol shared by `@spinajs/http-socket` (server) and `@spinajs/http-s
   - `SocketException`, a throwable `SocketError` with `toWire()` / `fromWire()`
 - Typed contracts: `defineContract<C>()`, `ContractShape`, `SocketContract` and the helper types `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload`, `ClientEventName`, `ClientEventPayload`, `ContractOf`.
 
+Full documentation: [`docs/http-socket-common`](../../docs/http-socket-common/README.md), covering the [wire protocol](../../docs/http-socket-common/01-wire-protocol.md), the [handshake](../../docs/http-socket-common/02-handshake.md), [frame guards](../../docs/http-socket-common/03-frame-guards.md), [error codes](../../docs/http-socket-common/04-error-codes.md), [custom socket exceptions](../../docs/http-socket-common/05-custom-socket-exceptions.md), [typed contracts](../../docs/http-socket-common/06-typed-contracts.md) and the [contract helper types](../../docs/http-socket-common/07-contract-helper-types.md).
+
 See [`@spinajs/http-socket`](../http-socket) for the server, [`@spinajs/http-socket-client`](../http-socket-client) for the client and [`packages/http-socket-example`](../http-socket-example) for a runnable example.

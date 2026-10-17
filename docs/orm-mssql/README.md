@@ -1,59 +1,31 @@
-# `@spinajs/orm-mssql` documentation
+# `@spinajs/orm-mssql`
 
-The Microsoft SQL Server dialect driver, built on [`@spinajs/orm-sql`](../orm-sql/).
+The Microsoft SQL Server driver for [`@spinajs/orm`](../orm/README.md). `MsSqlOrmDriver` extends `SqlDriver` from [`@spinajs/orm-sql`](../orm-sql/README.md), sends statements through the `mssql` package, and registers the T-SQL compilers, quoters and converters a connection needs.
 
-| | Page | Covers |
-| --- | --- | --- |
-| 01 | [Configuration](01-configuration.md) | Connection options, schemas, pooling |
-| 02 | [Dialect notes](02-dialect-notes.md) | Feature support, T-SQL differences, compiler overrides |
+It does **not** register a `ServerResponseMapper`, so model inserts, `save()` and upserts throw after the row is written. [Inserts and upserts](04-inserts-and-upserts.md) has the mapper to register. It does **not** create tables with T-SQL column types either: column types use the shared MySQL spelling (see [Schema dialect](06-schema-dialect.md)).
 
-## Known defect: inserts fail
+## Install
 
-**`MsSqlOrmDriver` does not register a `ServerResponseMapper`.** Every driver must — the shape of
-an insert response is dialect-specific and the base class has no default. Any code path that
-reads an insert response therefore throws:
-
-```
-no ServerResponseMapper is registered for this connection. Every driver must register one:
-container.register(MyMapper).as(ServerResponseMapper)
+```sh
+npm install @spinajs/orm @spinajs/orm-mssql
 ```
 
-That covers `Model.insert()`, `model.insert()`, `model.save()` and every upsert. It is
-reproducible from this package's own suite:
+## Features
 
-```
-cd packages/orm-mssql && npm test
-→ 10 passing, 2 failing — both with the message above
-```
-
-The fix is a mapper reading the `SELECT SCOPE_IDENTITY() as ID` that
-`MsSqlInsertQueryCompiler` already appends to every insert, registered in `resolve()`:
-
-```ts
-export class MsSqlServerResponseMapper extends ServerResponseMapper {
-  public read(data: any, _pkNames?: string[]) {
-    const id = Array.isArray(data) ? data[data.length - 1]?.ID : data?.ID;
-
-    return {
-      RowsAffected: data?.rowsAffected?.[0] ?? (Array.isArray(data) ? data.length : 0),
-      LastInsertId: typeof id === 'number' ? id : 0,
-      Returning: [] as any[],
-    };
-  }
-}
-
-// in MsSqlOrmDriver.resolve(), after super.resolve()
-this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
-```
-
-Until that lands, treat this driver as **read-capable only**. Selects, schema operations and
-transactions all work.
+| Feature | What it does |
+| --- | --- |
+| [Connection and configuration](01-configuration.md) | Registers the `orm-driver-mssql` driver; connection keys, the `mssql` pool, TLS options, `ping()`, `tableInfo()` |
+| [Executing statements](02-executing-statements.md) | `executeOnDb()`: backtick stripping, `?` to `@p0` rewriting with `toNamedParameters()`, result shapes per `QueryContext` |
+| [Transactions](03-transactions.md) | Four isolation levels, `SAVE TRANSACTION` savepoints, `IMsSqlTransactionContext` |
+| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MERGE` upserts, no `INSERT IGNORE`, and the missing `ServerResponseMapper` |
+| [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, single-column `ORDER BY`, `DELETE TOP`, `CHARINDEX` set membership, `N'...'` literals |
+| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, databases, views, table existence, unsupported schema features |
+| [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime`; `MssqlModelDehydrator` |
+| [Extending the driver](08-extending-the-driver.md) | Every DI token the driver registers, how to subclass `MsSqlOrmDriver`, replace one token, or replace the driver everywhere |
 
 ## Quick start
 
-```bash
-npm install @spinajs/orm @spinajs/orm-mssql
-```
+Register the driver and point a connection at it.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -82,11 +54,10 @@ export class AppConfiguration extends FrameworkConfiguration {
             Name: 'mssql',
             Driver: 'orm-driver-mssql',
             Host: '127.0.0.1',
-            Port: 1433,
             User: 'sa',
             Password: 'Str0ng!Passw0rd',
             Database: 'app',
-            Options: { Schema: 'dbo', encrypt: false, trustServerCertificate: true },
+            Options: { Schema: 'dbo', TrustServerCertificate: true },
           },
         ],
       },
@@ -95,12 +66,27 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 ```
 
-## What is distinctive here
+## At a glance
 
-- **`AliasSeparator` defaults to `#`, not `$`.** `$` begins a pseudo-column in T-SQL, so the
-  driver overrides it in its constructor.
-- **Backticks are stripped** from every statement in `executeOnDb`, since T-SQL does not use them
-  for quoting.
-- **A three-part table name** — `database.schema.table` — via `Options.Schema`.
-- **`OFFSET ... FETCH NEXT`** instead of `LIMIT`, and `DELETE TOP (n)` for limited deletes.
-- **No `INSERT IGNORE`** — `orIgnore()` throws.
+| Behaviour | MSSQL |
+| --- | --- |
+| Driver string | `orm-driver-mssql` |
+| `ServerResponseMapper` | Not registered: model inserts throw. Register one, see [Inserts and upserts](04-inserts-and-upserts.md). |
+| `RETURNING` | Not supported: `returning()` throws `NotSupported` |
+| Batch key backfill | Not supported (`insertIdIsFirstOfBatch: false`) |
+| `INSERT IGNORE` | Throws `OrmException` |
+| Upsert | `MERGE ... WITH (HOLDLOCK)` |
+| Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; needs `ORDER BY`; `skip()` alone does nothing |
+| Multi-column `ORDER BY` | Only the first sort is rendered |
+| Identifier quoting | `[brackets]`; every backtick is stripped before sending |
+| Alias separator | `#` |
+| Table naming | `[database].[schema].[table]` |
+| Isolation levels | All four |
+| Scheduled events | Not supported: `createEvent()` / `dropEvent()` throw `MethodNotImplemented` |
+
+## Related packages
+
+- [`@spinajs/orm`](../orm/README.md): models, builders, connections and transactions this driver serves.
+- [`@spinajs/orm-sql`](../orm-sql/README.md): `SqlDriver` and the shared compilers this driver extends; [Extending an existing dialect](../orm-sql/08-extending-an-existing-dialect.md) covers the subclassing pattern for every driver.
+- `@spinajs/di`: the container every token here is registered in.
+- `@spinajs/configuration`: where `db.Connections` is read from.
