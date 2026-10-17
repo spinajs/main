@@ -38,8 +38,8 @@ export class FeatureFlags {
  * new value into the live config, so `flags.CheckoutV2` flips on its own.
  */
 export async function enableCheckoutV2() {
-  // Write through the model or any sql tool, eg:
-  //   await DbConfig.update({ Value: '1' }).where('Slug', 'features.checkoutV2');
+  // Write the canonical text through the model or any sql tool ('1' would read back as false), eg:
+  //   await DbConfig.update({ Value: 'true' }).where('Slug', 'features.checkoutV2');
   const cfg = await DI.resolve(Configuration);
   console.log('current value:', cfg.get('features.checkoutV2'));
 }
