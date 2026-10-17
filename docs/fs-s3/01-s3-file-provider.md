@@ -108,6 +108,7 @@ fs: {
 - **`copy()` without `dstFs` puts the key in `CopySource` unencoded.** Keys with spaces or non-ASCII characters can fail; `setMetadata()` encodes them.
 - **`stat()` has no creation or access time.** `CreationTime` and `AccessTime` are `DateTime.min()` with no arguments, which is `undefined`.
 - **`stat().Version` is the ETag.** For multipart uploads it is not the content MD5; compare it only for equality.
+- **`upload(src, dest, { exclusive: true })` is a conditional write.** It sends `IfNoneMatch: '*'`; the 412 or 409 that S3 returns for an existing key becomes `ResourceDuplicated`. An S3-compatible store without conditional writes may overwrite.
 - **Errors are AWS SDK errors.** A missing key on `read`, `stat` or `getMetadata` rejects with the SDK's `NotFound` or `NoSuchKey` error, not with an `@spinajs/exceptions` type.
 - **`dispose()` disposes the shared `fs-temp-s3`.** Disposing one `fsS3` stops temp cleanup for every other provider that uses it.
 

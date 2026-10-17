@@ -194,6 +194,14 @@ export interface IZipResult {
   unlink(): Promise<void>;
 }
 
+export interface IFsUploadOptions {
+  /**
+   * Fail with `ResourceDuplicated` instead of overwriting when `destPath` already exists.
+   * Providers do it atomically where the backend allows ( see each provider's docs ).
+   */
+  exclusive?: boolean;
+}
+
 export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
   public get ServiceName() {
     return this.Name;
@@ -226,7 +234,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param srcPath source path ( full absolute path eg. file from local disk )
    * @param destPath dest path ( relative to base path of provider )
    */
-  public abstract upload(srcPath: string, destPath?: string): Promise<void>;
+  public abstract upload(srcPath: string, destPath?: string, options?: IFsUploadOptions): Promise<void>;
 
   /**
    *
