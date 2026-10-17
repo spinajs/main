@@ -2,14 +2,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm, OrmDriver } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
 import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_secret';
@@ -26,16 +25,19 @@ const RAW_MAX = 1024;
  *
  * Two parallel `issue` calls for one identity and purpose may both leave a live row: each deletes, then inserts.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(SecretStore)
 export class DbSecretStore extends SecretStore {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
   private calls = 0;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
     super();
-    this.connection = new StoreConnection('DbSecretStore', driver, options.container);
+    this.connection = new StoreConnection('DbSecretStore', driver, () => this.Orm);
   }
 
   public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {

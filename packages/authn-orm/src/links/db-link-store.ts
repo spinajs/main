@@ -2,12 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
 import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
 import type { Dialect } from '../support/sql.js';
 
@@ -20,15 +19,18 @@ function identityParts(ref: IdentityRef): { type: string; id: string } {
 }
 
 /** `authn_identity`: external subjects linked to identities (A19). Values longer than their columns throw (D1). */
-@Singleton()
+@PerChildInstance()
 @Injectable(IdentityLinkStore)
 export class DbIdentityLinkStore extends IdentityLinkStore {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
     super();
-    this.connection = new StoreConnection('DbIdentityLinkStore', driver, options.container);
+    this.connection = new StoreConnection('DbIdentityLinkStore', driver, () => this.Orm);
   }
 
   public async find(provider: string, subject: string): Promise<IdentityLink | null> {

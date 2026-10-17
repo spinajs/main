@@ -1,8 +1,7 @@
-import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm, OrmDriver } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
 import { checkedMs, checkedText, isDuplicate, rowsAffected, sqlTime } from '../support/sql.js';
 
 const TABLE = 'authn_nonce';
@@ -48,16 +47,19 @@ export class MemoryNonceStore extends NonceStore {
 }
 
 /** `authn_nonce`: the primary key makes a claim atomic across processes; an expired row is taken over with a conditional update. */
-@Singleton()
+@PerChildInstance()
 @Injectable(NonceStore)
 export class DbNonceStore extends NonceStore {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
   private claims = 0;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
     super();
-    this.connection = new StoreConnection('DbNonceStore', driver, options.container);
+    this.connection = new StoreConnection('DbNonceStore', driver, () => this.Orm);
   }
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
