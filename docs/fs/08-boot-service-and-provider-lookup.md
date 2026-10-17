@@ -81,6 +81,18 @@ export function registerProviderAliases(): void {
 }
 ```
 
+### Reading a published provider
+
+`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { fs, FILE_PROVIDER_INSTANCES, publishedFs } from '@spinajs/fs';
+
+const uploads = publishedFs('uploads');
+const all = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+```
+
 ## Important behaviour
 
 - `fsService` is not decorated with `@Injectable`. It is created on the first `DI.resolve(fsService)`, which is the only boot trigger.
