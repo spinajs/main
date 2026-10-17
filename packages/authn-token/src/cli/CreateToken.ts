@@ -1,7 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { Autoinject } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { TokenService } from '@spinajs/authn/contracts';

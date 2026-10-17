@@ -1,6 +1,6 @@
 import { PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { parseOrigin } from '@spinajs/http';
 import { CredentialExtractor } from '@spinajs/authn/contracts';

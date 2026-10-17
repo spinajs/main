@@ -10,6 +10,11 @@
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     },
+    "./schemas": {
+      "types": "./lib/mjs/schema.d.ts",
+      "import": "./lib/mjs/schema.js",
+      "require": "./lib/cjs/schema.js"
+    },
     "./socket": {
       "types": "./lib/mjs/socket/index.d.ts",
       "import": "./lib/mjs/socket/index.js",
@@ -18,6 +23,9 @@
   },
   "typesVersions": {
     "*": {
+      "schemas": [
+        "lib/cjs/schema.d.ts"
+      ],
       "socket": [
         "lib/cjs/socket/index.d.ts"
       ]

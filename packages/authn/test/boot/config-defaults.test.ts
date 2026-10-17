@@ -73,32 +73,13 @@ describe('authn shipped config', () => {
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [], totp: check({}).config.mfa.totp }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, jwt: { issuers: [] }, keys: check({}).config.keys, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { expiration: { ttl: 30, maxLifetime: 480 }, pendingTtlSeconds: 300, cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }, hashIds: true } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS }, token: check({}).config.token, keys: check({}).config.keys, http: {}, session: { expiration: { maxLifetime: 480 } } });
   });
 });
 
 describe('authn schema (task 8 edits)', () => {
-  it('takes previous peppers as { secret, version } with distinct versions (D9)', () => {
-    expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 1 }] } } }).ok).to.eq(true);
-    expect(check({ local: { pepper: { secret: null, version: 1, previous: [] } } }).ok).to.eq(true);
-    expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 1 }, { secret: 'z', version: 1 }] } } }).paths).to.include('/local/pepper/previous');
-    expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: '', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/secret');
-    expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y' }] } } }).paths).to.include('/local/pepper/previous/0');
-    expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 0 }] } } }).paths).to.include('/local/pepper/previous/0/version');
-  });
-
-  it('caps the pepper version and refuses a previous version equal to the current one, implicit 1 included', () => {
-    expect(check({ local: { pepper: { secret: 'x', version: 999999999 } } }).ok).to.eq(true);
-    expect(check({ local: { pepper: { secret: 'x', version: 1000000000 } } }).paths).to.include('/local/pepper/version');
-    expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 1000000000 }] } } }).paths).to.include('/local/pepper/previous/0/version');
-    expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } } }).paths).to.include('/local/pepper/previous/0/version');
-    expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/version');
-    expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } } }).ok).to.eq(true);
-  });
-
-  it('names the pepper and MFA key paths in full on a boot', async () => {
-    const paths = await violationPaths(configuredChild({ authn: { local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } }, mfa: { encryptionKey: { secret: {} } } } }));
-    expect(paths).to.include('authn.local.pepper.previous.0.version');
+  it('names the MFA key path in full on a boot', async () => {
+    const paths = await violationPaths(configuredChild({ authn: { mfa: { encryptionKey: { secret: {} } } } }));
     expect(paths).to.include('authn.mfa.encryptionKey.secret');
   });
 
@@ -143,9 +124,8 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ session: { expiration: { maxLifetime: 0 } } }).paths).to.include('/session/expiration/maxLifetime');
   });
 
-  it('defaults the session lifetimes to what authn-session ships: 30 idle and 480 absolute minutes, 300 s pending', () => {
-    expect(check({}).config.session.expiration).to.deep.eq({ ttl: 30, maxLifetime: 480 });
-    expect(check({}).config.session.pendingTtlSeconds).to.eq(300);
+  it('defaults the absolute session lifetime to what authn-session ships: 480 minutes', () => {
+    expect(check({}).config.session.expiration).to.deep.eq({ maxLifetime: 480 });
     expect(check({ session: { expiration: { service: 'AbsoluteExpiration', ttl: 5 } } }).config.session.expiration).to.deep.eq({ service: 'AbsoluteExpiration', ttl: 5, maxLifetime: 480 });
   });
 
@@ -209,18 +189,18 @@ describe('AuthnConfigBootstrapper', () => {
       const c = await boot({});
       expect(c.get('authn.throttle.login.account')).to.deep.eq(BACKOFF);
       expect(c.get('authn.audit.sinkTimeoutMs')).to.eq(2000);
-      expect(c.get('authn.session.hashIds')).to.eq(true);
+      expect(c.get('authn.session.expiration.maxLifetime')).to.eq(480);
     });
 
     it('fails the boot of a config the schema refuses', async () => {
       let error: unknown;
       try {
-        await boot({ authn: { session: { hashIds: false } } });
+        await boot({ authn: { session: { expiration: { maxLifetime: 0 } } } });
       } catch (e) {
         error = e;
       }
       expect(error, 'boot refused').to.be.instanceOf(InvalidConfiguration);
-      expect(((error as InvalidConfiguration).validationExceptions ?? []).map((e) => e.instancePath)).to.include('/session/hashIds');
+      expect(((error as InvalidConfiguration).validationExceptions ?? []).map((e) => e.instancePath)).to.include('/session/expiration/maxLifetime');
     });
   });
 });

@@ -9,6 +9,26 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./schemas": {
+      "types": "./lib/mjs/schema.d.ts",
+      "import": "./lib/mjs/schema.js",
+      "require": "./lib/cjs/schema.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "schemas": [
+        "lib/cjs/schema.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
+      ]
     }
   },
   "type": "module",

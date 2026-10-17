@@ -1,11 +1,11 @@
 import { AUTHZ_CONFIGURATION_SCHEMA, PermissionRegistryImpl } from '@spinajs/authz';
 import Ajv from 'ajv';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compileGrants, compileRoles } from '@spinajs/authz-rbac';
 import type { GrantDef, RoleDef } from '@spinajs/authz-rbac';
 import { expect } from 'chai';
 import * as fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import _ from 'lodash';
 
 import { convertLayers, loadLayers, readDbFacts, scanSources } from '../src/index.js';
@@ -14,6 +14,7 @@ import type { ConvertOptions, ConvertResult } from '../src/index.js';
 // UPDATE_GOLDEN=1 rewrites the expected files; review the diff before committing it.
 const UPDATE = process.env.UPDATE_GOLDEN === '1';
 const ROOT = 'test/fixtures/golden';
+const PACKAGES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 interface Case {
   readonly name: string;
@@ -90,24 +91,43 @@ describe('golden conversions', () => {
       });
 
       it('writes authz and authn config the 3.0 schemas accept', async () => {
-        // Read from the built authn package by path: authz* packages may not depend on authn* (plan §1 rule 10).
-        const authnSchema = (await import(pathToFileURL(join(process.cwd(), '..', 'authn', 'lib', 'mjs', 'schemas', 'authn.configuration.js')).href)).AUTHN_CONFIGURATION_SCHEMA;
+        // Read from the built authn packages by path: authz* packages may not depend on authn* (plan §1 rule 10).
+        const built = async (pkg: string, file: string, name: string) => ((await import(pathToFileURL(join(PACKAGES, pkg, 'lib', 'mjs', file)).href)) as Record<string, { $configurationModule: string }>)[name];
+        // The authn schema and the fragments the authn packages register for their subtrees.
+        const authnSchemas = [
+          await built('authn', 'schemas/authn.configuration.js', 'AUTHN_CONFIGURATION_SCHEMA'),
+          await built('authn-session', 'schema.js', 'AUTHN_SESSION_CONFIGURATION_SCHEMA'),
+          await built('authn-local', 'schema.js', 'AUTHN_LOCAL_CONFIGURATION_SCHEMA'),
+          await built('authn-token', 'schema.js', 'AUTHN_TOKEN_CONFIGURATION_SCHEMA'),
+          await built('authn-token', 'schema.js', 'AUTHN_JWT_CONFIGURATION_SCHEMA'),
+          await built('authn-keys', 'schema.js', 'AUTHN_KEYS_CONFIGURATION_SCHEMA'),
+          await built('authn-totp', 'schema.js', 'AUTHN_TOTP_CONFIGURATION_SCHEMA'),
+          await built('authn-http', 'schema.js', 'AUTHN_HTTP_CONFIGURATION_SCHEMA'),
+        ];
         // ajv is CommonJS; under ESM its class may sit on .default.
         const AjvClass = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as new (options: object) => { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown }; errorsText(errors?: unknown): string };
         const ajv = new AjvClass({ allErrors: true, strict: false, useDefaults: true, $data: true });
-        const validate = { authz: ajv.compile(AUTHZ_CONFIGURATION_SCHEMA), authn: ajv.compile(authnSchema) };
+        const validateAuthz = ajv.compile(AUTHZ_CONFIGURATION_SCHEMA);
+        const validateAuthn = authnSchemas.map((schema) => ({ module: schema.$configurationModule, validate: ajv.compile(schema) }));
         const r = results.get(c.name)!;
         const handDone = r.findings.some((x) => x.code === 'guard-privileged-permission');
         for (const f of r.files) {
           const root = f.name.split('-')[0] as 'authz' | 'authn';
-          if (!f.name.endsWith('.ts') || !(root in validate)) continue;
+          if (!f.name.endsWith('.ts') || (root !== 'authz' && root !== 'authn')) continue;
           // An env file is loaded over the common one, so it is validated as the app sees it, merged.
           // _.merge joins arrays by index where the loader concatenates them (its mergeArrays is not exported); no golden env file holds an array the common one also sets.
           const common = r.files.find((x) => x.name === `${root}-generated.ts`);
           const value = _.merge({}, common && common !== f ? read(common.content)[root] : {}, structuredClone(read(f.content)[root]));
           // The finding leaves privilegedPermission to a person; give it one, as they would.
           if (root === 'authz' && handDone) value.admin.guard.privilegedPermission = 'users:update';
-          expect(validate[root](value), `${f.name}: ${ajv.errorsText(validate[root].errors)}`).to.equal(true);
+          if (root === 'authz') {
+            expect(validateAuthz(value), `${f.name}: ${ajv.errorsText(validateAuthz.errors)}`).to.equal(true);
+            continue;
+          }
+          for (const { module, validate } of validateAuthn) {
+            const subtree = module === 'authn' ? value : _.get(value, module.slice('authn.'.length));
+            if (subtree !== undefined) expect(validate(subtree), `${f.name} ${module}: ${ajv.errorsText(validate.errors)}`).to.equal(true);
+          }
         }
       });
     });

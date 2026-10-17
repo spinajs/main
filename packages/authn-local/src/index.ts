@@ -8,3 +8,5 @@ export * from './service.js';
 export * from './mailer.js';
 export * from './deferred.js';
 export * from './expiration.js';
+export * from './schema.js';
+export * from './bootstrap.js';

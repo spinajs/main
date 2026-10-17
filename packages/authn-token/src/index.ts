@@ -18,3 +18,5 @@ export * from './cli/TokenCliCommand.js';
 export * from './cli/CreateToken.js';
 export * from './cli/DeleteToken.js';
 export * from './cli/DeleteExpiredTokens.js';
+export * from './schema.js';
+export * from './bootstrap.js';

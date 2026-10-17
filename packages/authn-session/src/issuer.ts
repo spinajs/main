@@ -6,7 +6,7 @@ import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';

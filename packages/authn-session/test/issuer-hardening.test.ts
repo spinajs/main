@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
 import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY } from '../src/index.js';
@@ -156,7 +156,7 @@ describe('DefaultSessionIssuer hardening', () => {
 
   describe('pending state (A09 store part)', () => {
     it('the shipped pendingTtlSeconds equals the schema default: 300 seconds', () => {
-      const session = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: Record<string, { default?: unknown }> } } }).properties.session.properties;
+      const session = (AUTHN_SESSION_CONFIGURATION_SCHEMA as unknown as { properties: Record<string, { default?: unknown }> }).properties;
       expect(session.pendingTtlSeconds.default).to.equal(300);
       expect((shipped.authn.session as Record<string, unknown>).pendingTtlSeconds).to.equal(300);
     });

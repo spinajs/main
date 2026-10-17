@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
+import { AuthnLocalConfigBootstrapper } from '../src/bootstrap.js';
 
 import authnLocal from '../src/config/authn-local.js';
 import { Argon2PasswordHasher } from '../src/hasher.js';
@@ -8,9 +10,9 @@ import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { PasswordExpirationJob } from '../src/expiration.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from './support/config-boot.js';
+import { registeredSchemasAfter } from './support/registered-schemas.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
-// authn.local has no schema default of its own: an app that installs authn-local names it.
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_LOCAL_CONFIGURATION_SCHEMA];
 const LOCAL = { authn: { local: {} } };
 const bad = (local: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { local } });
 
@@ -19,9 +21,24 @@ describe('authn.local through the schema', function () {
   afterEach(disposeBooted);
 
   describe('defaults', () => {
-    it('fills no authn.local tree for an app that does not name it', async () => {
-      const { configuration } = await boot(SCHEMAS, {});
-      expect(configuration.get('authn.local')).to.eq(undefined);
+    it('AuthnLocalConfigBootstrapper registers the authn.local fragment', () => {
+      expect(AUTHN_LOCAL_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authn.local');
+      expect(registeredSchemasAfter(() => new AuthnLocalConfigBootstrapper().bootstrap())).to.include(AUTHN_LOCAL_CONFIGURATION_SCHEMA);
+    });
+
+    // The single authn schema filled authn.local only when the app named it; the fragment is there only with authn-local.
+    it('with no user config, the effective authn.local equals what the former single authn schema filled for authn.local: {}', async () => {
+      const expected = {
+        hasher: { maxConcurrent: 8 },
+        pepper: { secret: null, version: 1 },
+        policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
+        generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
+        reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
+        invite: { ttlSeconds: 900 },
+        expiration: { enabled: false, maxAgeDays: 31 },
+      };
+      expect((await boot(SCHEMAS, {})).configuration.get('authn.local')).to.deep.eq(expected);
+      expect((await boot(SCHEMAS, LOCAL)).configuration.get('authn.local')).to.deep.eq(expected);
     });
 
     it('fills every key the classes used to default in code', async () => {
@@ -84,10 +101,36 @@ describe('authn.local through the schema', function () {
       for (const [local, path] of cases) expect(await bad(local), JSON.stringify(local)).to.include(path);
     });
 
+    it('refuses argon2 cost keys under hasher (H30), a maxConcurrent that is no number, a pepper without secret and short lengths', async () => {
+      for (const key of ['memoryCost', 'timeCost', 'parallelism', 'hashLength', 'saltLength', 'type']) {
+        expect(await bad({ hasher: { service: 'Argon2PasswordHasher', [key]: 1 } }), key).to.include(`authn.local.hasher.${key}`);
+      }
+      for (const maxConcurrent of ['eight', { n: 8 }]) expect(await bad({ hasher: { maxConcurrent } }), JSON.stringify(maxConcurrent)).to.include('authn.local.hasher.maxConcurrent');
+      expect(await bad({ pepper: { version: 1 } })).to.include('authn.local.pepper.secret');
+      expect(await bad({ policy: { minLength: 0 } })).to.include('authn.local.policy.minLength');
+      expect(await bad({ policy: { maxLength: 7 } })).to.include('authn.local.policy.maxLength');
+    });
+
+    it('takes previous peppers as { secret, version } with distinct versions, the implicit version 1 included (D9)', async () => {
+      expect(await bad({ pepper: { secret: null, version: 1, previous: [] } })).to.deep.eq([]);
+      expect(await bad({ pepper: { secret: 'x', version: 999999999 } })).to.deep.eq([]);
+      expect(await bad({ pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } })).to.deep.eq([]);
+      expect(await bad({ pepper: { secret: 'x', previous: [{ secret: 'y' }] } })).to.include('authn.local.pepper.previous.0.version');
+      expect(await bad({ pepper: { secret: 'x', previous: [{ secret: 'y', version: 0 }] } })).to.include('authn.local.pepper.previous.0.version');
+      expect(await bad({ pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } })).to.include('authn.local.pepper.previous.0.version');
+      expect(await bad({ pepper: { secret: 'x', previous: [{ secret: 'y', version: 1 }] } })).to.include('authn.local.pepper.previous.0.version');
+    });
+
+    it('coerces a numeric string, as the app validator does', async () => {
+      const { configuration } = await boot(SCHEMAS, { authn: { local: { hasher: { maxConcurrent: '4' } } } });
+      expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(4);
+    });
+
     it('accepts equal bounds, a fractional expiry and a rotation', async () => {
       expect(await bad({ policy: { minLength: 12, maxLength: 12 } })).to.deep.eq([]);
       expect(await bad({ expiration: { enabled: true, maxAgeDays: 0.5 } })).to.deep.eq([]);
       expect(await bad({ pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 1 }] } })).to.deep.eq([]);
+      expect(await bad({ policy: { minLength: 12, maxLength: 64 } })).to.deep.eq([]);
     });
   });
 

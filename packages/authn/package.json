@@ -20,6 +20,11 @@
       "import": "./lib/mjs/service/boot/env.js",
       "require": "./lib/cjs/service/boot/env.js"
     },
+    "./boot": {
+      "types": "./lib/mjs/service/boot/index.d.ts",
+      "import": "./lib/mjs/service/boot/index.js",
+      "require": "./lib/cjs/service/boot/index.js"
+    },
     "./schemas": {
       "types": "./lib/mjs/schemas/index.d.ts",
       "import": "./lib/mjs/schemas/index.js",
@@ -48,6 +53,9 @@
       ],
       "env": [
         "lib/cjs/service/boot/env.d.ts"
+      ],
+      "boot": [
+        "lib/cjs/service/boot/index.d.ts"
       ],
       "schemas": [
         "lib/cjs/schemas/index.d.ts"

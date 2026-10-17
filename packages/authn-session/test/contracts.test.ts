@@ -197,7 +197,9 @@ const EXPECTED_META = [{ autoinject: true, key: 'Expiration', inject: 'SessionEx
 
 /** The package's public runtime surface; contracts plus the session building blocks. */
 const PUBLIC_EXPORTS = [
+  'AUTHN_SESSION_CONFIGURATION_SCHEMA',
   'AbsoluteExpiration',
+  'AuthnSessionConfigBootstrapper',
   'DefaultSessionIssuer',
   'LEGACY_IDENTITY_KEYS',
   'MemorySessionStore',
@@ -228,8 +230,10 @@ const PUBLIC_EXPORTS = [
   'storageKeyOf',
 ];
 
-/** What loading the package may add to the root registry: the issuer, the store and the strategies under their types. */
+/** What loading the package may add to the root registry: the issuer, the store, the strategies and the schema bootstrapper under their types. */
 const EXPECTED_REGISTRATIONS: Record<string, string[]> = {
+  Bootstrapper: ['AuthnSessionConfigBootstrapper'],
+  AuthnSessionConfigBootstrapper: ['AuthnSessionConfigBootstrapper'],
   SessionProvider: ['MemorySessionStore'],
   SessionIssuer: ['DefaultSessionIssuer'],
   DefaultSessionIssuer: ['DefaultSessionIssuer'],
@@ -361,7 +365,7 @@ describe('@spinajs/authn-session contracts', function () {
 
     it('imports only what the package may depend on', () => {
       const specs = ts.preProcessFile(readFileSync(SRC_FILE, 'utf8'), true, true).importedFiles.map((f) => f.fileName);
-      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/authn/register-schema', '@spinajs/configuration', '@spinajs/di', 'luxon']);
+      expect([...specs].sort()).to.deep.eq(['./register-schema.js', '@spinajs/authn/contracts', '@spinajs/configuration', '@spinajs/di', 'luxon']);
     });
 
     it('docs carry the rules a reader needs', () => {
@@ -477,7 +481,7 @@ describe('@spinajs/authn-session contracts', function () {
       expect(meta.inject[0].serviceFunc!(KEY, container)).to.deep.eq({ service: 'SlidingCappedExpiration', options: cfg[KEY] });
     });
 
-    describe('loading the built package registers only the issuer, the memory store and the expiration strategies', () => {
+    describe('loading the built package registers only the issuer, the memory store, the expiration strategies and the schema bootstrapper', () => {
       let esm: Probe;
       let cjs: Probe;
 
@@ -518,8 +522,8 @@ describe('@spinajs/authn-session contracts', function () {
         const after = p.after as Snapshot;
         expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
         // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the
-        // pending TTL; the authn schema those properties read is registered at import.
-        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object'] });
+        // pending TTL; the authn schema and the authn.session fragment those properties read are registered at import.
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object', 'Object'] });
         expect(after.events).to.deep.eq(before.events);
       };
 

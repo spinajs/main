@@ -1,6 +1,6 @@
 import { OrmMigration, OrmDriver, Migration, DatetimeValueConverter, IdentifierQuoter, RawQuery } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { DateTime } from 'luxon';
 
 const TABLE = 'rbac_access_tokens';

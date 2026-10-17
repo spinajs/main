@@ -1,6 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_KEYS_CONFIGURATION_SCHEMA } from '../src/schema.js';
+import { AuthnKeysConfigBootstrapper } from '../src/bootstrap.js';
+import { registeredSchemasAfter } from './support/registered-schemas.js';
 import { MemorySecretStore, FakeBackoffThrottle, throttleParams } from '@spinajs/authn-testing';
 
 import { keysOptionsOf } from '../src/options/index.js';
@@ -13,7 +16,7 @@ import { boot, disposeBooted, readingFrom, violationsOf } from './support/config
 import { TEST_KEYS_CONFIG, keysOptionsFor } from './support/keys-options.js';
 import type { KeysOverrides } from './support/keys-options.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const bad = (keys: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { keys } });
 const AUD = 'https://keys.example.test';
 
@@ -27,6 +30,21 @@ describe('authn.keys through the schema', () => {
   afterEach(disposeBooted);
 
   describe('defaults', () => {
+    it('AuthnKeysConfigBootstrapper registers the authn.keys fragment', () => {
+      expect(AUTHN_KEYS_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authn.keys');
+      expect(registeredSchemasAfter(() => new AuthnKeysConfigBootstrapper().bootstrap())).to.include(AUTHN_KEYS_CONFIGURATION_SCHEMA);
+    });
+
+    it('with no user config, the effective authn.keys equals the defaults of the former single authn schema', async () => {
+      const { configuration } = await boot(SCHEMAS, {});
+      expect(configuration.get('authn.keys')).to.deep.eq({
+        algorithms: ['EdDSA', 'ES256'],
+        challenge: { ttlSeconds: 120, audience: null },
+        assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
+        httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+      });
+    });
+
     it('fills the whole block, equal to the test fixture', async () => {
       const { configuration } = await boot(SCHEMAS, {});
       expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG });

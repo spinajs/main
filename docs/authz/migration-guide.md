@@ -214,12 +214,13 @@ key, among them `rbac.user`, `rbac.email` and `rbac.actions`, which move to `use
 detector names only keys of your own config.
 
 **`authn:check-config`.** The command ships in `authn-http`; the check behind it is the function
-`checkAuthnConfig(container)` of `@spinajs/authn`. It prints findings (`topic`, `level`, `message`)
+`checkAuthnConfig(container)` of `@spinajs/authn/boot`. It prints findings (`topic`, `level`, `message`)
 and throws nothing. Of what boot refuses it covers the secret, throttle and strategy registration
 checks, and it also warns about: an empty `authn.strategies`; neither `authn.http.trustProxy` nor `http.trustProxy` set; an `http.cors` whose
 `origins` is not a list (`@spinajs/http` then refuses to start) or is empty or unset; the env fallback.
 The topics are `strategies`, `secrets`, `proxy`, `cors`, `env`, `mfa`, `throttle` and
-`schema` (a value the `authn.*` schema refuses, reported as its path and the rule, never the value).
+`schema` (a value an `authn.*` schema refuses, reported as its path and the rule, never the value; the schemas of the
+authn packages loaded in the process are checked too).
 
 ## 4. Running `spinajs-authz-convert`
 

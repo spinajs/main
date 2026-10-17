@@ -1,6 +1,6 @@
 import { DI, Inject, Injectable } from '@spinajs/di';
 import { Config, service } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';

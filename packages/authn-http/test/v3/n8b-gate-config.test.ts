@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+// The schemas entry, not the package root: the root registers a KeyRegistry, which opens the key routes.
+import { AUTHN_KEYS_CONFIGURATION_SCHEMA } from '@spinajs/authn-keys/schemas';
 import type { IContainer } from '@spinajs/di';
 import type { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
 
@@ -11,7 +13,7 @@ import { KeyRoutesOn } from '../../src/keys/gate.js';
 import { TOTP_SERVICE, TotpEnrolmentOn } from '../../src/mfa/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const AUDIENCE = 'https://gate-config.example.test';
 const MFA_KEY = 'ab'.repeat(32);
 

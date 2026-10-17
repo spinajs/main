@@ -451,7 +451,7 @@ function bootPort(): BootPort {
       try {
         child.register(isolatedConfiguration(values, spec.env ?? given.env)).as(Configuration);
         await child.resolve(Configuration);
-        const { checkAuthnConfig } = await import('@spinajs/authn');
+        const { checkAuthnConfig } = await import('@spinajs/authn/boot');
         return await checkAuthnConfig(child);
       } finally {
         await child.dispose();

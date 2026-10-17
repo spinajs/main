@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { Log, Logger } from '@spinajs/log';
 import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
 import { AuthenticationStrategy, TokenService } from '@spinajs/authn/contracts';

@@ -139,7 +139,10 @@ test, boot then refuses a missing `authn.mfa.encryptionKey`; in development and 
 
 Boot checks and `authn:check-config` are in
 [the migration guide](../authz/migration-guide.md#34-keys-that-other-config-files-own). The
-command ships in `authn-http`; the check behind it is the function `checkAuthnConfig`.
+command ships in `authn-http`; the check behind it is the function `checkAuthnConfig` of
+`@spinajs/authn/boot`. That entry holds the boot checks and their helpers (`checkAuthnSecrets`,
+`authnSecretFindings`, `isLenientAuthnEnv`, `AUTHN_PUBLIC_COOKIE_SECRET`, ...); the root entry does not
+re-export them.
 
 ## Strategies
 
@@ -634,13 +637,24 @@ Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.
 boot refuses a public or missing value for the cookie secret outside development and test (A24), and
 a deployment with no app env set counts as production here.
 
-The schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
+The schemas fail boot on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
 
-Keys the schema adds to the sample above: `authn.throttle.maxRows`, `authn.token.generation`,
+Keys the schemas add to the sample above: `authn.throttle.maxRows`, `authn.token.generation`,
 `authn.audit.hashKey`, `authn.http.publicOrigin`, `authn.http.routes` (not read) and
 `authn.jwt.issuers[].linking`.
-`AuthnConfigBootstrapper` registers the schema.
+
+**Schemas.** `AuthnConfigBootstrapper` registers the schema of `@spinajs/authn`. Every package that owns
+a subtree registers a schema for it, in its own bootstrapper and when a module that reads the subtree
+loads: `authn-session` (`authn.session`), `authn-local` (`authn.local`), `authn-token` (`authn.token`,
+`authn.jwt`), `authn-keys` (`authn.keys`), `authn-totp` (`authn.mfa.totp`), `authn-http` (`authn.http`)
+and `authn-oidc` (`authn.oidc`). A subtree is checked and gets its defaults while its package is
+loaded. The authn schema keeps the keys that a package reads without depending on their owner:
+`authn.session.expiration.maxLifetime` (the impersonation service), `authn.token.prefix`,
+`authn.token.headerName` and `authn.keys.assertion.typ` (the `authn-http` extractors), and
+`authn.http.trustProxy` (`http-socket`). Each package exports its schema from its root and from a
+`./schemas` entry that has no side effects. A module of another package that reads `authn.session`
+imports `@spinajs/authn-session/register-schema`.
 
 **Old keys.** `authn` no longer detects 2.x keys; the `authz` detector fails boot on the `rbac.*` root and points at
 `spinajs-authz-convert`, which maps each key (see [the migration guide](../authz/migration-guide.md)). No package

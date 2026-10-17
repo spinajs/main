@@ -6,8 +6,9 @@ import { Configuration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep, checkAuthnConfig } from '../../src/index.js';
-import type { AuthnConfigFinding } from '../../src/index.js';
+import { AuthenticationStrategy, AuthnThrottle, MfaEnrolments, MfaPolicy, MfaStep } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/boot/index.js';
+import type { AuthnConfigFinding } from '../../src/service/boot/index.js';
 import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
 
@@ -98,6 +99,22 @@ describe('authn:check-config', () => {
       const f = await checkAuthnConfig(child);
       expect(topics(f)).to.include('schema:error');
       expect(f.map((x) => x.message).join(' ')).to.contain('authn.strategies').and.not.contain('hunter2');
+    });
+  });
+
+  describe('schema', () => {
+    const FRAGMENT = { $id: 'spec/authn-probe.configuration.schema.json', $configurationModule: 'authn.probe', type: 'object', properties: { size: { type: 'integer', minimum: 1 } } };
+    const OTHER = { $id: 'spec/other.configuration.schema.json', $configurationModule: 'other', type: 'object', properties: { size: { type: 'integer', minimum: 1 } } };
+
+    it('checks the authn.* fragment schemas registered after the configuration resolved, as a CLI process loads them, and only those', async () => {
+      const f = await check(merge(sound(), { authn: { probe: { size: 0 } }, other: { size: 0 } }), { register: (c) => [FRAGMENT, OTHER].forEach((s) => c.register(s).asValue('__configurationSchema__')) });
+      expect(topics(f)).to.deep.eq(['schema:error']);
+      expect(f[0].message).to.contain('authn.probe.size');
+    });
+
+    it('reports the violations of every authn schema at once', async () => {
+      const f = await check(merge(sound(), { authn: { probe: { size: 0 }, impersonation: { maxMinutes: 0 } } }), { register: (c) => c.register(FRAGMENT).asValue('__configurationSchema__') });
+      expect(f.map((x) => x.message.split(' ')[0]).sort()).to.deep.eq(['authn.impersonation.maxMinutes', 'authn.probe.size']);
     });
   });
 

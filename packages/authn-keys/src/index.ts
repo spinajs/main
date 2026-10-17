@@ -8,3 +8,5 @@ export * from './jws/index.js';
 export * from './nonce/index.js';
 export * from './strategies/index.js';
 export * from './httpsig/index.js';
+export * from './schema.js';
+export * from './bootstrap.js';

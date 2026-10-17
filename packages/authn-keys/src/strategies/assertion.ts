@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';

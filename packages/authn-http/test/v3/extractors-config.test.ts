@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
 import { TokenStrategy } from '@spinajs/authn-token';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
@@ -9,7 +10,7 @@ import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../../src/e
 import { HttpSignatureExtractor, publicOriginOf } from '../../src/extractors/signature.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA];
 const sreq = (headers: Record<string, string>, over: Partial<SignedRequest> = {}): SignedRequest => ({ method: 'GET', targetUri: '/x', headers, ...over });
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwsOf = (typ: string) => `${b64({ alg: 'EdDSA', typ })}.${b64({ iss: 'k' })}.sig`;

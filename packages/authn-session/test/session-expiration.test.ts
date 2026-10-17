@@ -2,6 +2,7 @@ import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
 import shipped from '../src/config/session.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
@@ -118,8 +119,11 @@ describe('Session expiration strategy defaults', () => {
   });
 
   it('the schema defaults ttl and maxLifetime to the shipped config: 30 and 480 minutes', () => {
-    const expiration = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: { expiration: { properties: Record<string, { default?: unknown }> } } } } }).properties.session.properties.expiration.properties;
-    expect({ ttl: expiration.ttl.default, maxLifetime: expiration.maxLifetime.default }).to.deep.equal({ ttl: 30, maxLifetime: 480 });
+    type Expiration = { properties: { expiration: { properties: Record<string, { default?: unknown }> } } };
+    const expiration = (AUTHN_SESSION_CONFIGURATION_SCHEMA as unknown as Expiration).properties.expiration.properties;
+    // maxLifetime is in the authn schema: the impersonation service reads it too.
+    const core = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: Expiration } }).properties.session.properties.expiration.properties;
+    expect({ ttl: expiration.ttl.default, maxLifetime: core.maxLifetime.default }).to.deep.equal({ ttl: 30, maxLifetime: 480 });
     expect(shipped.authn.session.expiration).to.deep.include({ ttl: 30, maxLifetime: 480 });
   });
 

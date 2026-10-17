@@ -1,7 +1,7 @@
 import type * as express from 'express';
 import { Autoinject, DI } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '@spinajs/authn-session/register-schema';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { proxyTrustOf } from '@spinajs/authn-http';

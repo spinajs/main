@@ -4,12 +4,14 @@ import { InvalidOption } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
-import { PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
+import { AUTHN_SESSION_CONFIGURATION_SCHEMA, PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
-import { ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
+import { AUTHN_HTTP_CONFIGURATION_SCHEMA, ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
+import { registeredSchemasAfter } from '../support/registered-schemas.js';
+import { AuthnHttpConfigBootstrapper } from '../../src/bootstrap.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const STRONG = 'unit-' + 'Zx8q'.repeat(10);
 const bad = (values: Record<string, unknown>) => violationsOf(SCHEMAS, values);
 
@@ -45,6 +47,16 @@ describe('authn http middlewares through @Config and the schemas', () => {
       const apiKey = readingFrom(new ApiKeyHeaderExtractor(), child) as unknown as Record<string, unknown>;
       const bearer = readingFrom(new AuthorizationBearerExtractor(), child) as unknown as Record<string, unknown>;
       expect([apiKey.HeaderName, apiKey.Prefix, bearer.Prefix]).to.deep.equal(['x-api-key', 'spt_', 'spt_']);
+    });
+
+    it('AuthnHttpConfigBootstrapper registers the authn.http fragment', () => {
+      expect(AUTHN_HTTP_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authn.http');
+      expect(registeredSchemasAfter(() => new AuthnHttpConfigBootstrapper().bootstrap())).to.include(AUTHN_HTTP_CONFIGURATION_SCHEMA);
+    });
+
+    it('with no user config, the effective authn.http equals the defaults of the former single authn schema', async () => {
+      const { configuration } = await boot(SCHEMAS, {});
+      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] } });
     });
 
     it('fills the csrf and session cookie defaults', async () => {
