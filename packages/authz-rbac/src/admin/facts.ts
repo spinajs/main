@@ -68,7 +68,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     if (wanted.size === 0) return true;
     const perms = [...wanted.keys()];
     try {
-      const decisions = await ctx.authz.checkMany(actor, perms, scope);
+      const decisions = new Map(await Promise.all(perms.map(async (permission) => [permission, await ctx.authz.check({ principal: actor, permission, resource: scope, fresh: true })] as const)));
       if (!perms.every((p) => unconditional(decisions.get(p)))) return false;
       // SYSTEM gets every field the engine lets anyone have (authz.fields.neverRead removed): the most a grant gives.
       const most = await ctx.authz.checkMany(SYSTEM, perms, scope);
@@ -102,7 +102,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
           if (tried.has(permission)) continue;
           tried.add(permission);
           try {
-            return (await ctx.authz.check({ principal: actor, permission, resource: scope })).roles?.[ladder];
+            return (await ctx.authz.check({ principal: actor, permission, resource: scope, fresh: true })).roles?.[ladder];
           } catch (e) {
             // Not checkable at this scope; try the next permission.
             if (!(e instanceof AuthzConfigError)) throw e;
