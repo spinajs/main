@@ -107,7 +107,7 @@ void main();
 - A class registered under `T` after the collection was built is picked up on the next `Array.ofType(T)` resolve; already built elements keep their identity.
 - A singleton reached through `Array.ofType(T)` is also cached under its own name, so `DI.resolve(DatabaseCheck)` returns the same instance.
 - `resolve(Array.chainOf(T))` with a non-async base is typed `T[] | Promise<T[]>`; `await` it.
-- A key recorded only because an unregistered class was resolved does not take part in `Array.chainOf` once any container registers that key.
+- A single resolve of an unregistered `T` registers nothing, so its bare instance never shows up in `Array.ofType(T)` or `Array.chainOf(T)`.
 - `Array.ofType(T)` and `Array.chainOf(T)` in one `@Inject` are two separate dependencies.
 
 ## Best practices
