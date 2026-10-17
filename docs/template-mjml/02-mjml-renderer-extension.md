@@ -7,7 +7,7 @@
 1. Importing `@spinajs/templates-mjml` runs `@Injectable(TemplateRenderer)` on `MjmlRenderer`, adding it to the `TemplateRenderer` list of the root container. No lifetime decorator: it is a singleton.
 2. The first `DI.resolve(Templates)` resolves `Array.ofType(TemplateRenderer)` through `@Autoinject(TemplateRenderer)` and keeps that array in `Templates.Renderers`.
 3. On `Templates.render()` and `renderToFile()`, `Templates` picks the **first** element whose `Extension` equals the template's extension. On `Templates.compile()` and `compileToFile()`, it picks the first whose `Type` equals the given name.
-4. `MjmlRenderer.render()` resolves `Templates` through `@LazyInject(Templates)` (root container, at call time) and calls `Templates.compile(template, 'handlebars', ...)`: the Handlebars pre-pass is found by `Type`, not imported.
+4. `MjmlRenderer.render()` resolves `Templates` through `@LazyInject(Templates)` (root container, at call time) and calls `Templates.compile(template, 'handlebars', ...)`: the Handlebars pre-pass is found by `Type`, registered when this package is imported.
 5. `MjmlRenderer` reads `templates.mjml` through `@Config` on every render and hands it to `mjml2html()`.
 
 ## Services and extension points
@@ -122,7 +122,7 @@ console.log(PrintMjmlRenderer.name);
 
 `MjmlRenderer` never imports `@spinajs/templates-handlebars`; it calls `Templates.compile(template, 'handlebars', model, language)`. So:
 
-- the app must import `@spinajs/templates-handlebars` (or register another renderer with `Type` `'handlebars'`), or every `.mjml` render throws `InvalidOperation: No renderer for handlebars`;
+- importing this package registers the Handlebars renderer; a replacement must register a renderer with `Type` `'handlebars'`, or `.mjml` renders throw `InvalidOperation: No renderer for handlebars`;
 - Handlebars helpers, options (`templates.handlebars`) and its delegate cache (`templates.cache.mode`) apply to `.mjml` files too;
 - to use another engine as the pre-pass, override `render()` and call `this.Templates.compile(template, '<type>', ...)` with that engine's `Type`. The engine must read any file path, not only its own extension; `HandlebarsRenderer` does.
 
