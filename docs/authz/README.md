@@ -73,7 +73,8 @@ indeterminate and counts as a deny (B04).
 **Decision.** `allowed`, the `residual`, the readable and writable `fields`, the effective `roles`,
 the `reason` of a deny and an optional `trace`. `allowed: true` with a residual other than `TRUE`
 is conditional: "yes, if the row matches". A check given the row (`subject`, or `subject: 'load'` on
-`@Access`) evaluates the residual against it and answers `TRUE` or `FALSE`.
+`@Access`) evaluates the residual against it and answers `TRUE` or `FALSE`. `definite(decision)` is
+true only for an allow whose residual is `TRUE`.
 
 **Residual filter.** A predicate over one resource, such as `owner = me`. `TRUE` is "allowed",
 `FALSE` is "denied". It settles single-object checks only: no residual is turned into SQL.
@@ -99,7 +100,12 @@ unattended into system.
 **Domain.** A child DI container with its own models and config. The root domain is `root`
 (`ROOT_DOMAIN`), and a domain name matches `DOMAIN_NAME_PATTERN`. Use a domain when a part of the app
 needs different models, such as the file system (B29). `AuthzDomains.describe(container)` names the
-domain a container is, and `lineage(name)` lists the domains from `root` down to `name`.
+domain a container is, and `lineage(name)` lists the domains from `root` down to `name`. Once a
+domain's service has booted, the host's `DefaultAuthzDomains` gives what that service booted with:
+`config(name)` (the domain's config merged over its lineage, frozen), `audit(name)`, `bus(name)` and
+`clock(name)`. Before the boot they throw `AuthzConfigError`. `pickNamed(container, token, name, key,
+where)` picks a registration by class name, as the host does for `authz.audit.service` and
+`authz.bus.service`, and throws `AuthzConfigError` for an unknown name.
 
 ## Using the service
 
@@ -719,6 +725,11 @@ brackets):
 
 `SYSTEM` skips the guard and is audited. A missing guard fails closed: every call throws
 `AuthzConfigError` until `authz.admin.guard.service` names a registered guard.
+
+The admin of a domain resolves its guard, its backend and the `authz.admin` keys on its first call and
+keeps them; a call that fails there is retried on the next one. It publishes to, audits with and dates
+by the bus, audit and clock the domain's service booted with, so a later registration or config change
+does not reach it.
 
 ```ts
 authz: {
