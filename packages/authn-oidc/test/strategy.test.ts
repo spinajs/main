@@ -1,10 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { Credentials } from '@spinajs/authn/contracts';
+import { authnFailureResponse } from '@spinajs/authn-http';
 
 import { hasRequiredClaims, mapClaims, rawClaims, readClaim } from '../src/claims.js';
 import { DEFAULT_CLAIMS, OIDC_PRESETS } from '../src/presets.js';
-import { OIDC_FAILURE_BODY } from '../src/login.js';
 import { flowCookieName } from '../src/flow/cookie.js';
 import { FakeIdp } from './support/fake-idp.js';
 import type { FakeLogin } from './support/fake-idp.js';
@@ -283,9 +284,17 @@ describe('authn-oidc login', () => {
     it('an unlinked subject fails with the login failure answer while JIT is off', async () => {
       const w = await world();
       const { done } = await w.roundTrip({ claims: { sub: 'nobody' } });
-      expect(done).to.deep.include({ status: 401, body: OIDC_FAILURE_BODY });
+      expect(done).to.deep.include({ status: 401, body: AUTHN_FAILURE_BODY });
       expect(done.cookies.map((c) => [c.Name, c.Value])).to.deep.eq([[flowCookieName(ENV), '']]);
       expect(w.hook.calls).to.have.length(0);
+    });
+
+    it("the failure body is the login route's 401 body", async () => {
+      const w = await world();
+      const { done } = await w.roundTrip({ claims: { sub: 'nobody' } });
+      const loginBody = (authnFailureResponse() as unknown as { responseData: unknown }).responseData;
+      expect(JSON.parse(JSON.stringify(done.body))).to.deep.eq(JSON.parse(JSON.stringify(loginBody)));
+      expect(done.body).to.have.property('message');
     });
 
     it('JIT provisions only with the global and the provider switch on', async () => {
@@ -332,7 +341,7 @@ describe('authn-oidc login', () => {
         (await w.roundTrip({ claims: { sub: 'kc-1' }, tamper: 'alg-none' })).done,
       ];
       for (const a of answers) {
-        expect(a).to.deep.include({ status: 401, body: OIDC_FAILURE_BODY });
+        expect(a).to.deep.include({ status: 401, body: AUTHN_FAILURE_BODY });
       }
     });
 

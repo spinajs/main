@@ -2,8 +2,7 @@ import { Autoinject, AsyncService, DI, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { AuthenticationStrategy, IdentityLinkStore, IdentityStore } from '@spinajs/authn/contracts';
-import { NonceStore } from '@spinajs/authn-orm';
+import { AuthenticationStrategy, IdentityLinkStore, IdentityStore, NonceStore } from '@spinajs/authn/contracts';
 import { Log, Logger } from '@spinajs/log';
 import { appEnvOf as sessionAppEnvOf } from '@spinajs/authn-session';
 

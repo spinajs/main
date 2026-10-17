@@ -1,4 +1,10 @@
-import type { AuthnContext } from './credentials.js';
+import { isNonEmptyString } from '@spinajs/util';
+import type { BackoffParams } from '@spinajs/util';
+
+import type { AuthnContext, IdentityRef } from './credentials.js';
+
+export { backoffDelayMs } from '@spinajs/util';
+export type { BackoffParams } from '@spinajs/util';
 
 export interface ThrottleKey {
   readonly kind: 'ip' | 'account' | 'account-ip' | 'global' | (string & {});
@@ -20,12 +26,6 @@ export abstract class AuthnThrottle {
   abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
   /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
   checkConfiguration?(configuration: { get<T>(path: string | string[]): T }): void | Promise<void>;
-}
-
-export interface BackoffParams {
-  readonly free: number;
-  readonly baseDelayMs: number;
-  readonly maxDelayMs: number;
 }
 
 /** A key kind without params does not gate in that flow. */
@@ -58,7 +58,7 @@ export const DEFAULT_THROTTLE_PARAMS: ThrottleParams = Object.freeze({
   global: null,
 });
 
-/** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
-export function backoffDelayMs(p: BackoffParams, n: number): number {
-  return n < p.free ? 0 : Math.min(p.baseDelayMs * 2 ** (n - p.free), p.maxDelayMs);
+/** The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14). */
+export function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
+  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
 }

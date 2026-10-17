@@ -3,12 +3,9 @@ import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
-import { IdentityStore, PasswordService } from '@spinajs/authn/contracts';
-import type { PrincipalRef } from '@spinajs/authn/contracts';
+import { CLI_ACTOR, IdentityStore, PasswordService, cliContext } from '@spinajs/authn/contracts';
 
 import { LocalPasswordPolicy } from '../policy.js';
-
-const CLI_ACTOR: PrincipalRef = { type: 'service', id: 'cli' };
 
 export interface SetUserPasswordOptions {
   readonly generate?: boolean;
@@ -58,7 +55,7 @@ export class SetUserPassword extends CliCommand {
     const generated = options.generate === true;
     const password = generated ? DI.resolve(LocalPasswordPolicy).generate() : await this.readPassword();
     const service = await DI.resolve(PasswordService);
-    const result = await service.set(id, password, { now: new Date(), purpose: 'request' }, { actor: CLI_ACTOR });
+    const result = await service.set(id, password, cliContext(), { actor: CLI_ACTOR });
     if (result.status === 'rejected') {
       const violations = result.violations.join(', ');
       this.Log.error({ violations: result.violations }, 'The password was rejected (${violations}); the stored password is unchanged');

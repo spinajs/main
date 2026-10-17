@@ -1,16 +1,17 @@
 import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 
-import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
 import { errorClass } from '../support/guards.js';
+import { restoreHandle, statusRefusal } from '../support/identity.js';
+import { sameRef } from '../contracts/principal.js';
 import { KeyRegistry } from '../contracts/keys.js';
 import type { KeyRecord } from '../contracts/keys.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import type { IdentityLink } from '../contracts/link.js';
 import { IdentityStore, PasswordCredentialStore } from '../contracts/identity.js';
-import type { IdentityStatus } from '../contracts/identity.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
@@ -23,19 +24,6 @@ type Holder = { readonly identity: IdentityRef; readonly session?: string };
 type Guarded = { readonly holder?: Holder; readonly refused?: string };
 
 type LinkEvent = 'identity.link' | 'identity.unlink';
-
-const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
-
-/** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
-const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
-
-function refusal(st: IdentityStatus): string | null {
-  if (!st.exists) return 'unknown_identity';
-  if (st.deleted) return 'deleted';
-  if (st.banned) return 'banned';
-  if (!st.active) return 'inactive';
-  return null;
-}
 
 // Per process, across containers: two parallel unlinks must not both see the other link as the remaining credential.
 const unlinking = new Map<string, Promise<unknown>>();
@@ -138,15 +126,13 @@ export class AccountLinkService extends AsyncService {
 
   /** The session's identity, and the audit reason when it may not change its links. */
   private async guard(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<Guarded> {
-    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(session, 'session');
-    if (!ok) return { refused: 'not_active' };
-    const stored = await this.Sessions.restore(id);
+    const stored = await restoreHandle(this.Sessions, session);
     if (!stored || stored.handle.state !== 'active') return { refused: 'not_active' };
     const holder: Holder = { identity: stored.identity, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     if (ctx.purpose !== 'link') return { holder, refused: 'wrong_purpose' };
     // An impersonator acting as the target must not attach a login of their own to it.
     if (stored.facts.impersonator !== undefined) return { holder, refused: 'impersonating' };
-    const status = VOUCHED_TYPES.has(holder.identity.type) ? null : refusal(await this.Identities.status(holder.identity));
+    const status = await statusRefusal(this.Identities, holder.identity);
     if (status) return { holder, refused: status };
     if (!(await this.Fresh.check(session, { ...ctx, purpose: 'reauth' }, reauth))) return { holder, refused: 'not_fresh' };
     return { holder };

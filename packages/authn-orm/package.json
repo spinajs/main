@@ -14,12 +14,20 @@
       "types": "./lib/mjs/mfa/cipher.d.ts",
       "import": "./lib/mjs/mfa/cipher.js",
       "require": "./lib/cjs/mfa/cipher.js"
+    },
+    "./identity": {
+      "types": "./lib/mjs/identity.d.ts",
+      "import": "./lib/mjs/identity.js",
+      "require": "./lib/cjs/identity.js"
     }
   },
   "typesVersions": {
     "*": {
       "cipher": [
         "lib/cjs/mfa/cipher.d.ts"
+      ],
+      "identity": [
+        "lib/cjs/identity.d.ts"
       ]
     }
   },

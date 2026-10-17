@@ -132,6 +132,7 @@ The interfaces are in `authn/src/contracts/` unless noted.
 | `IdentityLinkStore` (`link.ts:14`) | `DbIdentityLinkStore` (`authn-orm`) | — |
 | `MfaSecretStore` (`authn-totp/src/store/store.ts:18`) | `DbMfaSecretStore`, over `authn-orm`'s `DbMfaStore` | `MemoryMfaSecretStore` |
 | `KeyStore`, `KeyNonceStore` (`authn-keys`) | `OrmKeyStore`, `DbKeyNonceStore` | `MemoryKeyStore`, `MemoryKeyNonceStore` |
+| `NonceStore` (`nonce.ts`) | `DbNonceStore` (`authn-orm`) | `MemoryNonceStore` (`@spinajs/authn/nonces`) |
 | `TokenService` | `DbTokenService` (`authn-token/src/service/token-service.ts:135`) | — |
 | `AuthnEventSink` | `DbAuthnAuditSink` (`authn-orm`) | `LogAuthnAuditSink` |
 
@@ -210,7 +211,7 @@ sequenceDiagram
 
 1. The controller revokes and audits any session the caller already holds.
 2. It reads `{login, password}`, or the 2.x names `Email` and `Password`. Each value is capped at
-   1024 characters (`PASSWORD_HARD_CAP`).
+   1024 characters (`PASSWORD_HARD_CAP` of `@spinajs/authn/contracts`).
 3. [`DefaultAuthnService.authenticate`](../../packages/authn/src/service/default-authn-service.ts#L215-L239)
    picks the strategy for the credential kind, here `LocalPasswordStrategy` (name `local`,
    interactive).
