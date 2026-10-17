@@ -4,23 +4,23 @@ import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configur
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 
-import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
+import { restoreHandle, statusRefusal } from '../support/identity.js';
 import { IdentityStore } from '../contracts/identity.js';
-import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
-import type { Session } from '../contracts/session-state.js';
 import { ExternalLoginHook } from '../contracts/hooks.js';
+import { sameRef } from '../contracts/principal.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import type { AuthenticationStrategy } from '../contracts/strategy.js';
-import { AuthnThrottle } from '../contracts/throttle.js';
+import { AuthnThrottle, identityThrottleKeys } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
@@ -62,30 +62,17 @@ interface Keyed {
   of(s: AuthenticationStrategy): readonly ThrottleKey[];
 }
 
-const dedupe = (keys: readonly ThrottleKey[]): ThrottleKey[] => {
-  const seen = new Set<string>();
-  return keys.filter((k) => {
-    const id = `${k.kind}\u0000${k.value}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-};
+const dedupe = (keys: ThrottleKey[]): ThrottleKey[] => uniqueBy(keys, (k) => `${k.kind}\u0000${k.value}`);
 
 /** A strategy may answer these; anything else breaks the contract (D5). */
 const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked']);
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
-
 // ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
 const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
 const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && foldAscii(stored) === foldAscii(verified);
-
-/** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
-const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 
@@ -108,15 +95,6 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
 }
 
 const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isPlainObject(k) && isNonEmptyString(k.kind) && typeof k.value === 'string');
-
-/** The audit reason of a status that refuses the login, or null. */
-function refusal(st: IdentityStatus): string | null {
-  if (!st.exists) return 'unknown_identity';
-  if (st.deleted) return 'deleted';
-  if (st.banned) return 'banned';
-  if (!st.active) return 'inactive';
-  return null;
-}
 
 /**
  * The authentication flow of design §22.4. Every failure the caller sees is one of the AuthnFailure values (A02); the
@@ -255,14 +233,14 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   public async completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
-    const stored = await this.restore(pending);
+    const stored = await restoreHandle(this.Sessions, pending);
     if (!stored || stored.handle.state !== 'pending') {
       await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_pending' });
       return fail('invalid_credentials');
     }
     const id = stored.identity;
     const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
-    const keys = this.identityKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx);
     const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
@@ -283,7 +261,7 @@ export class DefaultAuthnService extends AuthnService {
     // An account banned or deleted between the two steps must not get in.
     let refused: string | null;
     try {
-      refused = await this.statusRefusal(id);
+      refused = await statusRefusal(this.Identities, id);
       if (refused) await this.Sessions.revoke(stored.handle);
     } catch (err) {
       await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
@@ -314,7 +292,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   public async reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean> {
-    const stored = await this.restore(session);
+    const stored = await restoreHandle(this.Sessions, session);
     if (!stored || stored.handle.state !== 'active') {
       await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'not_active' });
       return false;
@@ -332,7 +310,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
       return false;
     }
-    const keys = this.identityKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx);
     if (!(await this.Throttle.attempt(keys, 'reauth', ctx)).allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
@@ -346,7 +324,7 @@ export class DefaultAuthnService extends AuthnService {
       if (v === null) reason = 'unsupported_credentials';
       else if ('broken' in v) [reason, data] = [v.broken, v.data];
       else if (!v.outcome.ok) reason = v.outcome.reason;
-      else reason = (await this.isSessionIdentity(v.outcome, id)) ? await this.statusRefusal(id) : 'other_identity';
+      else reason = (await this.isSessionIdentity(v.outcome, id)) ? await statusRefusal(this.Identities, id) : 'other_identity';
       if (reason === null) await this.Throttle.succeed(keys, 'reauth');
     } catch (err) {
       [reason, data] = ['store_error', { error: errorClass(err) }];
@@ -411,7 +389,7 @@ export class DefaultAuthnService extends AuthnService {
     if (found.link && found.provisioned) await this.link(ctx, s, id, found.link);
     // Service and agent identities authenticate per request only (D12).
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
-    const refused = await this.statusRefusal(r.delegation?.onBehalfOf ?? id);
+    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id);
     if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
     if (s.interactive && r.external) {
@@ -467,11 +445,6 @@ export class DefaultAuthnService extends AuthnService {
     }
   }
 
-  /** Only a subject of a type strategies vouch for skips the store, so an unknown type fails closed (D4, D4b). */
-  private async statusRefusal(subject: IdentityRef): Promise<string | null> {
-    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.Identities.status(subject));
-  }
-
   /**
    * True: passed; false: a wrong code; a string: why the step cannot be taken (audit reason). The steps the policy
    * requires now are alternatives; `recovery` goes to the first enrolled step that takes recovery codes (D6).
@@ -498,12 +471,6 @@ export class DefaultAuthnService extends AuthnService {
     if (r.delegation) return false;
     const verified = r.identity ?? (r.external && this.Links ? (await this.Links.find(r.external.provider, r.external.subject))?.identity : undefined);
     return verified !== undefined && sameRef(verified, id);
-  }
-
-  private async restore(h: SessionHandle): Promise<Session | null> {
-    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
-    if (!ok) return null;
-    return this.Sessions.restore(id);
   }
 
   /**
@@ -566,11 +533,6 @@ export class DefaultAuthnService extends AuthnService {
     }
     const shared: ThrottleKey[] = [...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
     return { all: dedupe([...[...own.values()].flat(), ...shared]), of: (s) => dedupe([...(own.get(s) ?? []), ...shared]) };
-  }
-
-  /** The keys of the `mfa` and `reauth` flows, shared with N3's PasswordService.change (D14). */
-  private identityKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-    return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
   }
 
   private async throttled(ctx: AuthnContext, retryAfterSeconds: number, only: { strategy?: string }): Promise<Failure> {

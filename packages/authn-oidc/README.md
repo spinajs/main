@@ -32,8 +32,8 @@ export default {
   `authn.http.trustProxy` (else `http.trustProxy`): forwarded proto and host
   count only from a trusted proxy. Behind a TLS proxy without that setting the
   derived origin is http, which the provider refuses; a warning says so.
-- Needs `NonceStore` and `IdentityLinkStore` (`@spinajs/authn-orm`: tables
-  `authn_nonce`, `authn_identity`), `AuthnService`, `SessionIssuer`, and for
+- Needs `NonceStore` and `IdentityLinkStore` (contracts of `@spinajs/authn`;
+  the app imports `@spinajs/authn-orm` for the tables `authn_nonce`, `authn_identity`), `AuthnService`, `SessionIssuer`, and for
   linking an `OidcAccountLinks` registration (see below).
 
 ## Behaviour

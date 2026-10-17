@@ -3,8 +3,8 @@ import '@spinajs/authn/register-schema';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
-import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, identityThrottleKeys, isFresh } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 import { registered } from '../support/registered.js';
@@ -101,7 +101,7 @@ export class TotpService {
       await this.audit(ctx, c, { type: 'mfa.enrol', outcome: 'failure', reason: failure });
       return { ok: false, code: failure };
     }
-    const keys = throttleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -149,7 +149,7 @@ export class TotpService {
     if (!(await step.enrolled(c.identity))) {
       return { ok: false, code: 'not_enrolled' };
     }
-    const keys = throttleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -294,9 +294,4 @@ function missing(name: string): never {
 async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promise<T | null> {
   const t = type as unknown as new () => T;
   return registered(type) ? ((await DI.resolve(t)) as T) : null;
-}
-
-/** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */
-function throttleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
 }

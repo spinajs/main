@@ -2,17 +2,13 @@ import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { SessionHandle } from '@spinajs/authn/contracts';
 import { appEnvOf, clearSessionCookie, sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
-import { AUTHN_FAILURE } from '../policies/v3/errors.js';
-
-/**
- * The 401 body of every authentication failure (A02): login, MFA completion and inline re-authentication, and authn-oidc's
- * callback. It is the body @spinajs/http makes of a thrown authnFailed() in production.
- */
-export const AUTHN_FAILURE_BODY: Readonly<{ error: typeof AUTHN_FAILURE; message: string }> = Object.freeze({ error: AUTHN_FAILURE, message: AUTHN_FAILURE.message });
+// Also the body @spinajs/http makes of a thrown authnFailed() in production.
+export { AUTHN_FAILURE_BODY };
 
 /** Authenticated answers and session cookies must not be cached. */
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });

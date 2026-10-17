@@ -5,6 +5,7 @@ import { Class, DI, Injectable, SyncService } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
+import { PASSWORD_HARD_CAP } from '@spinajs/authn/contracts';
 import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
 
 /** Bounds every password must stay within, whatever the policy says (A04). */
@@ -12,7 +13,7 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 
 /** Above this many code points `check` answers `too_long` without running the rule or the blocklist on the input. */
-export const PASSWORD_HARD_CAP = 1024;
+export { PASSWORD_HARD_CAP };
 
 /**
  * How many draws `generate()` makes before declaring the pool and the rule incompatible. A uniform draw can miss a class the rule
