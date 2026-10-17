@@ -1,13 +1,12 @@
 import type { AuthzTx } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import type { OrmDriver } from '@spinajs/orm';
 
 import { AdminMembershipStore } from '../admin/ports.js';
 import { latestPerSet } from '../membership/closure.js';
 import type { MembershipRow } from '../membership/closure.js';
 import { toDate } from './columns.js';
-import { storeConnection, storeTransactionDriver } from './context.js';
+import { withDbRbacStore } from './db-store.js';
 import { whereLive } from './queries.js';
 
 export const AUTHZ_SUBJECT_MEMBERSHIP_TABLE = 'authz_subject_membership';
@@ -34,7 +33,7 @@ const sorted = (keys: Iterable<string>): string[] => [...new Set(keys)].sort();
 @PerChildInstance()
 @Injectable()
 @Inject(Container)
-export class DbMembershipStore extends AdminMembershipStore {
+export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
   readonly name: string = 'DbMembershipStore';
 
   constructor(protected readonly container: IContainer) {
@@ -63,7 +62,7 @@ export class DbMembershipStore extends AdminMembershipStore {
   }
 
   async replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void> {
-    const driver = storeTransactionDriver(tx, await this.connection(), `${this.name}.replace`);
+    const driver = await this.writeDriver(tx, `${this.name}.replace`);
     await driver.del().from(AUTHZ_SUBJECT_MEMBERSHIP_TABLE).where('member_key', memberKey);
     const values = rows.map((r) => ({ member_key: memberKey, set_key: r.setKey, depth: r.depth, expires_at: r.expiresAt }));
     for (let i = 0; i < values.length; i += INSERT_BATCH) {
@@ -72,10 +71,6 @@ export class DbMembershipStore extends AdminMembershipStore {
         .into(AUTHZ_SUBJECT_MEMBERSHIP_TABLE)
         .values(values.slice(i, i + INSERT_BATCH));
     }
-  }
-
-  protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
   }
 
   /** Rows whose `column` is one of `keys`, in batches; `at` undefined keeps expired rows. */
