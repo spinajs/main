@@ -798,8 +798,8 @@ const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 ```ts
 import type { Principal, ResourceRef, ResourceType } from "./principal.js";
 import type { PermissionDef } from "./permission.js";
-import type { RelationResolver } from "./adapter.js";
 import type { DenyReason } from "./decision.js";
+import type { RelationResolver } from "./adapter.js";
 /** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
 export interface PlanTerm {
     readonly op: string;
@@ -834,13 +834,13 @@ export type AccessPlan = {
     readonly validUntil?: Date;
 };
 /** Why a model cannot plan a permission on a type, or true. */
+export type ListSupport = true | {
+    readonly reason: string;
+};
 /** What listSupport may consult besides the permission and type. */
 export interface ListSupportContext {
     relation(type: ResourceType, name: string): RelationResolver | undefined;
 }
-export type ListSupport = true | {
-    readonly reason: string;
-};
 export interface ListPlanRequest {
     readonly principal: Principal;
     /** The acting principal under `inherit` delegation, as `DecisionRequest.actor`. */
