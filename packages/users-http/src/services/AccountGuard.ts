@@ -4,7 +4,7 @@ import { AccountStatusSource, AssignmentStore, guardSwitches } from '@spinajs/au
 import { Config } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { Log, Logger } from '@spinajs/log';
+import { Log, Logger, warnOnce } from '@spinajs/log';
 import { User, UserPrincipalFactory, userModel } from '@spinajs/users';
 
 import { configuredRoleNames } from './user-roles.js';
@@ -46,8 +46,6 @@ export class DefaultAccountGuard extends AccountGuard {
 
   @Autoinject(UserPrincipalFactory)
   protected Users: UserPrincipalFactory;
-
-  private warnedNoStatusSource = false;
 
   public async assertCanDisable(actor: Principal, target: User, action: AccountDisableAction): Promise<void> {
     const cfg = guardSwitches(this.Guard, 'users-http AccountGuard');
@@ -170,10 +168,7 @@ export class DefaultAccountGuard extends AccountGuard {
     // null (never or no longer registered) and an empty list both mean none.
     const registered = DI.getRegisteredTypes(AccountStatusSource);
     if (!registered || registered.length === 0) {
-      if (!this.warnedNoStatusSource) {
-        this.warnedNoStatusSource = true;
-        this.Log.warn('users-http AccountGuard: no AccountStatusSource is registered, so no account counts as a remaining holder of the privileged permission');
-      }
+      warnOnce(this.Log, 'users-http:no-account-status-source', 'users-http AccountGuard: no AccountStatusSource is registered, so no account counts as a remaining holder of the privileged permission');
       return undefined;
     }
 

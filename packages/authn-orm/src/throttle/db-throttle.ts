@@ -9,7 +9,7 @@ import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/con
 import '@spinajs/authn/register-schema';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { Log, Logger } from '@spinajs/log';
+import { Log, Logger, warnOnce } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ThrottleStore } from '@spinajs/util';
 
@@ -184,7 +184,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
       if (!isSecret(secret)) {
-        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances', () => this.Log);
+        warnOnce(() => this.Log, 'authn-orm:db-throttle-random-hash-key', 'DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
       }
     }
     if (!this.driver) {
@@ -200,20 +200,6 @@ function checkKey(key: ThrottleKey): void {
   if (typeof key?.value !== 'string') {
     throw new InvalidArgument(`DbAuthnThrottle: the value of a ${JSON.stringify(String(key?.kind))} key must be a string`);
   }
-}
-
-let warned = false;
-
-function warnOnce(message: string, getLog: () => Log): void {
-  if (warned) return;
-  warned = true;
-  try {
-    getLog().warn(message);
-    return;
-  } catch {
-    // the logger getter resolves lazily and can fail without a registered Log: fall back to the console
-  }
-  console.warn(message);
 }
 
 function deepFreeze<T extends object>(o: T): T {

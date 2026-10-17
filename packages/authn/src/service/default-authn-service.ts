@@ -2,7 +2,7 @@ import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di
 import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { Log, Logger } from '@spinajs/log-common';
+import { Log, Logger, warnOnce } from '@spinajs/log-common';
 
 import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
@@ -180,9 +180,6 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
-  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
-  private static readonly warned = new Set<string>();
-
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -202,10 +199,9 @@ export class DefaultAuthnService extends AuthnService {
     await super.resolve();
   }
 
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private warnOnce(message: string): void {
-    if (DefaultAuthnService.warned.has(message)) return;
-    DefaultAuthnService.warned.add(message);
-    this.Log.warn(message);
+    warnOnce(this.Log, `authn:${message}`, message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {
