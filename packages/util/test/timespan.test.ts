@@ -666,6 +666,11 @@ describe('TimeSpan', () => {
       expect(parsed.toString()).to.equal(original);
     });
 
+    it('should parse and toString consistently (negative)', () => {
+      expect(TimeSpan.parse('-01:30:00')!.totalMinutes).to.equal(-90);
+      expect(TimeSpan.parse('-1.02:30:45.123')!.toString()).to.equal('-1.02:30:45.123');
+    });
+
     it('should parse and toString consistently (complete)', () => {
       const original = '1.02:30:45.123';
       const parsed = TimeSpan.parse(original)!;

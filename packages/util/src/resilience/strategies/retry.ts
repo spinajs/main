@@ -1,5 +1,5 @@
 import { TimeSpan, TimeSpanLike } from '../../timespan.js';
-import { BackoffType, Outcome, ResilienceStrategy, ShouldHandle, _backoff, _capture, _delay, _resolveShouldHandle, _toTimeSpan, _unwrap } from '../core.js';
+import { BackoffType, Outcome, ResilienceStrategy, ShouldHandle, _abortReason, _backoff, _capture, _delay, _resolveShouldHandle, _toTimeSpan, _unwrap } from '../core.js';
 
 export interface OnRetryArguments<T> {
   /**
@@ -99,6 +99,8 @@ export function retryStrategy<T>(options: RetryStrategyOptions<T> = {}): Resilie
 
       if (delay.totalMilliseconds > 0) {
         await _delay(delay, ctx.Signal);
+      } else if (ctx.Signal?.aborted) {
+        throw _abortReason(ctx.Signal);
       }
     }
   };
