@@ -51,10 +51,9 @@ export class TypescriptCompiler {
       this.walkClassNode(
         className,
         this.walkMemberNode((method: ts.MethodDeclaration) => {
-          // method.name.getText() returns null ?
-          // UGLY HACK FOR THIS
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-          members.set((method.name as any).text, method);
+          // the program has no parent pointers, so getText() needs the source file passed in
+          const name = ts.isComputedPropertyName(method.name) ? method.name.getText(sourceFile) : method.name.text;
+          members.set(name, method);
         }),
       ),
     );
@@ -94,11 +93,11 @@ export class TypescriptCompiler {
  * @param configPath - dir paths taken from app config eg. "system.dirs.controllers". Path MUST be avaible in configuration
  *
  */
-export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
+export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string) {
   return _listOrResolveFromFiles(filter, configPath, false, typeMatcher);
 }
 
-export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
+export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string, exportName: string) => string) {
   return _listOrResolveFromFiles(filter, configPath, true, typeMatcher);
 }
 
@@ -106,7 +105,7 @@ function _listOrResolveFromFiles(
   filter: string,
   configPath: string,
   noResolve: boolean,
-  typeMatcher?: (fileName: string, type: string) => string,
+  typeMatcher?: (fileName: string, exportName: string) => string,
 ) {
   return (target: any, propertyKey: string | symbol) => {
     _check_arg(_is_string(), _non_empty())(filter, 'filter');
@@ -128,7 +127,11 @@ function _listOrResolveFromFiles(
     });
 
     async function _loadInstances(): Promise<Array<ClassInfo<any>>> {
-      const config = DI.get(Configuration)!;
+      const config = DI.get(Configuration);
+      if (!config) {
+        throw new ReflectionException(`Cannot scan files for ${configPath}: Configuration is not resolved, call DI.resolve(Configuration) first`);
+      }
+
       // resolving the abstract Log from log-common only works when some loaded
       // module has registered an implementation ( importing @spinajs/log does
       // that as a side effect ) — this package cannot import it itself due to a
@@ -158,9 +161,11 @@ function _listOrResolveFromFiles(
         .flatMap((f: string) => {
           logger.trace({ file: f }, 'Loading file ${file}');
 
-          return DI.__spinajs_require__(f).then((fTypes: any) => {
+          return DI.__spinajs_require__(f).then((loaded: any) => {
+            // in ESM mode __spinajs_require__ unwraps a default export to the class itself
+            const fTypes = typeof loaded === 'function' ? { [loaded.name]: loaded } : loaded;
             const _k = Object.keys(fTypes);
-            if (!_k) {
+            if (_k.length === 0) {
               logger.warn({ file: f }, 'File ${file} does not contain any exported type !');
               return null;
             }
@@ -180,14 +185,20 @@ function _listOrResolveFromFiles(
               
               try {
                 if (type.prototype instanceof AsyncService) {
-                  return (DI.resolve(type) as any).then((instance: any) => {
-                    return {
-                      file: f,
-                      instance,
-                      name: nameToResolve,
-                      type,
-                    };
-                  });
+                  return (DI.resolve(type) as any).then(
+                    (instance: any) => {
+                      return {
+                        file: f,
+                        instance,
+                        name: nameToResolve,
+                        type,
+                      };
+                    },
+                    (err: unknown) => {
+                      logger.error({ error: err, type: nameToResolve, file: f }, 'Cannot resolve type ${type} from file ${file}');
+                      return null;
+                    },
+                  );
                 }
 
                 return Promise.resolve({
@@ -197,7 +208,7 @@ function _listOrResolveFromFiles(
                   type,
                 });
               } catch (err) {
-                logger.error({ error: err, type: type.name, file: f }, 'Cannot resolve type ${type} from file ${file}');
+                logger.error({ error: err, type: nameToResolve, file: f }, 'Cannot resolve type ${type} from file ${file}');
               }
             }
           });
