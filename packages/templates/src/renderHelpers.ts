@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
-import { Templates } from '../index.js';
-import { IRenderProgress, RenderPhase, RenderProgressCallback } from '../progress.js';
+import { Templates } from './index.js';
+import { IRenderProgress, RenderPhase, RenderProgressCallback } from './progress.js';
 
 /** Load an optional JSON model file, returning an empty object when no readable file is given. */
 export function loadJsonModel(modelPath?: string): Record<string, unknown> {
