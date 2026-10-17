@@ -93,6 +93,8 @@ export interface OrmModelSpec {
   readonly owner?: string;
   /** `@Parent(type, { nullable })` columns. */
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType; readonly nullable?: boolean }[];
+  /** `@Relation(name)` columns. */
+  readonly relations?: readonly { readonly name: string; readonly column: string }[];
   /** Columns besides `id`. */
   readonly columns: readonly string[];
   readonly rows?: readonly FakeRow[];
