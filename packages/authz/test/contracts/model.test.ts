@@ -179,6 +179,12 @@ class FakeDomains extends AuthzDomains {
   public names(): readonly string[] {
     return ['root'];
   }
+  public describe(_container: IContainer): undefined {
+    return undefined;
+  }
+  public lineage(_name: string): readonly string[] {
+    return ['root'];
+  }
 }
 
 class FakeCache extends DecisionCache {

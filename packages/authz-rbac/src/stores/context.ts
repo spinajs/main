@@ -1,4 +1,4 @@
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, ROOT_DOMAIN } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
@@ -9,8 +9,6 @@ export const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
 
 /** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
 export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
-
-const ROOT_DOMAIN = 'root';
 
 /**
  * The driver of an `AuthzAdmin` transaction (D-L2-1). Stores write only inside one (design §9.2),
@@ -41,21 +39,19 @@ export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: str
 
 /**
  * The authz domain a store resolved in `container` serves: the nearest domain container on the
- * way to the root, else `'root'`. Reads the domain registry only when the host already created it,
- * so a store never instantiates it.
+ * way to the root; root before the host created the domain registry, so a store never instantiates it.
+ * A container outside every domain is an AuthzConfigError: a guess would bump the wrong domain's version.
  */
 export function storeDomain(container: IContainer): string {
   if (!container.isResolved(AuthzDomains)) return ROOT_DOMAIN;
 
-  const domains = container.get(AuthzDomains);
-  if (!(domains instanceof DefaultAuthzDomains)) return ROOT_DOMAIN;
-
+  const domains = container.get(AuthzDomains) as AuthzDomains;
   for (let c: IContainer | undefined = container; c; c = c.Parent) {
     const id = domains.describe(c);
     if (id) return id.name;
   }
 
-  return ROOT_DOMAIN;
+  throw new AuthzConfigError('a store container is not inside any authz domain (AuthzDomains.describe() places none of its ancestors)');
 }
 
 /**
