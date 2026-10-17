@@ -597,7 +597,8 @@ export class Folder extends ModelBase {
   over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor`. The permission
   must be declared `list: true`: `authz: { permissions: { 'task:read': { list: true } } }` in the root
   domain, `authz.domains.<name>.permissions` in another. Boot refuses one that something can grant
-  only by reading the row (boot rule 12). A principal that nothing could ever grant it to gets
+  only by reading the row, or one on a type that no `@AccessResource` model serves (boot rule 12,
+  checked even when the ORM is not resolved yet at boot). A principal that nothing could ever grant it to gets
   `AccessDenied`, not an empty list (H16), unless the call says `.accessible(perm, { onNone: 'empty' })`,
   which then matches no row. The same helper works on update and delete
   builders. `.withAccess(['task:update', 'task:delete'])` adds `$access` to every row (key:
