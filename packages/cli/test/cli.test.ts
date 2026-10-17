@@ -23,6 +23,7 @@ import { TestCommandEnv } from './commands/TestCommandEnv.js';
 import { TestCommandConfigKey } from './commands/TestCommandConfigKey.js';
 import { TestCommandAdvOpts } from './commands/TestCommandAdvOpts.js';
 import { TestSideEffectCommand } from './commands/TestSideEffectCommand.js';
+import { TestCommandExtraExports } from './commands/TestCommandExtraExports.js';
 
 
 //const expect = chai.expect;
@@ -188,6 +189,16 @@ describe('Commands', () => {
     const execute = spy(TestCommandAlias.prototype, 'execute');
 
     DI.register(() => ['node', 'script.js', 'ac']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+  });
+
+  it('Should find a command that is not the first export of its file', async () => {
+    const execute = spy(TestCommandExtraExports.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'extra-exports']).as('__cli_argv_provider__');
 
     await c();
 

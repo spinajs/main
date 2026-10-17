@@ -170,51 +170,71 @@ function _listOrResolveFromFiles(
               return null;
             }
 
+            const seen = new Set<unknown>();
+            const found: Array<Promise<ClassInfo<any> | null>> = [];
+
             for (const key of _k) {
               const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
               const type = fTypes[`${nameToResolve}`] as Class<any>;
 
-              if(noResolve){ 
-                return {
-                  file: f,
-                  name: nameToResolve,
-                  instance: undefined,
-                  type,
-                };
+              // constants and arrow functions cannot be classes; a class exported under
+              // two names, or picked by a typeMatcher for every key, is listed once
+              if (typeof type !== 'function' || !type.prototype || seen.has(type)) {
+                continue;
               }
-              
+              seen.add(type);
+
+              if (noResolve) {
+                found.push(
+                  Promise.resolve({
+                    file: f,
+                    name: nameToResolve,
+                    instance: undefined,
+                    type,
+                  }),
+                );
+                continue;
+              }
+
               try {
                 if (type.prototype instanceof AsyncService) {
-                  return (DI.resolve(type) as any).then(
-                    (instance: any) => {
-                      return {
-                        file: f,
-                        instance,
-                        name: nameToResolve,
-                        type,
-                      };
-                    },
-                    (err: unknown) => {
-                      logger.error({ error: err, type: nameToResolve, file: f }, 'Cannot resolve type ${type} from file ${file}');
-                      return null;
-                    },
+                  found.push(
+                    (DI.resolve(type) as any).then(
+                      (instance: any) => {
+                        return {
+                          file: f,
+                          instance,
+                          name: nameToResolve,
+                          type,
+                        };
+                      },
+                      (err: unknown) => {
+                        logger.error({ error: err, type: nameToResolve, file: f }, 'Cannot resolve type ${type} from file ${file}');
+                        return null;
+                      },
+                    ),
                   );
+                  continue;
                 }
 
-                return Promise.resolve({
-                  file: f,
-                  instance: DI.resolve(type),
-                  name: nameToResolve,
-                  type,
-                });
+                found.push(
+                  Promise.resolve({
+                    file: f,
+                    instance: DI.resolve(type),
+                    name: nameToResolve,
+                    type,
+                  }),
+                );
               } catch (err) {
                 logger.error({ error: err, type: nameToResolve, file: f }, 'Cannot resolve type ${type} from file ${file}');
               }
             }
+
+            return Promise.all(found);
           });
         });
 
-      return Promise.all(fPromises).then((x) => x.filter((i) => i !== null && i !== undefined));
+      return Promise.all(fPromises).then((x) => x.flat().filter((i) => i !== null && i !== undefined));
     }
   };
 }

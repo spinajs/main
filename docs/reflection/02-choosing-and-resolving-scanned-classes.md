@@ -1,18 +1,18 @@
 # Choosing and resolving scanned classes
 
-A scan builds one `ClassInfo` per file. Two things decide what it holds: the `typeMatcher` you pass, which picks the export, and the scanned class's own DI setup, which decides what `@ResolveFromFiles` puts in `instance`.
+A scan builds one `ClassInfo` per exported class of each file. Two things decide what it holds: the `typeMatcher` you pass, which can narrow the exports to one, and the scanned class's own DI setup, which decides what `@ResolveFromFiles` puts in `instance`.
 
 ## How it works
 
-1. **Export keys.** For each imported module, the scan reads `Object.keys(module)` and takes the first key.
-2. **Export name.** With a `typeMatcher`, the name is `typeMatcher(path.parse(file).name, key)`: the file's base name without its last extension, and the export key; see [Type matcher](#type-matcher). Without one, the name is the first key.
-3. **Type.** `type` is `module[name]`.
-4. **List mode.** `@ListFromFiles` returns `{ file, name, type, instance: undefined }` and moves to the next file.
+1. **Export keys.** For each imported module, the scan walks every key of `Object.keys(module)`.
+2. **Export name.** With a `typeMatcher`, the name is `typeMatcher(path.parse(file).name, key)`: the file's base name without its last extension, and the export key; see [Type matcher](#type-matcher). Without one, the name is the key.
+3. **Type.** `type` is `module[name]`. A value without a prototype (a constant, an arrow function, a missing export) is skipped, and so is a class already taken for this file under another name.
+4. **List mode.** `@ListFromFiles` adds `{ file, name, type, instance: undefined }` and moves to the next key.
 5. **Resolve mode.** `@ResolveFromFiles` checks `type.prototype instanceof AsyncService`:
    - `AsyncService`: it awaits `DI.resolve(type)`, which runs `resolve()` on a new instance, and stores the result.
    - Any other class: it stores the value `DI.resolve(type)` returns, without awaiting it.
 6. **Lifetime.** `DI.resolve(type)` honours the class's lifetime decorator. Without one, the class is a singleton in the root container.
-7. **Errors.** A synchronous resolve error is logged at `error`, and the scan tries the next export key of the same file with the same name rule. When no key succeeds, the file yields no entry. A rejected `AsyncService.resolve()` is logged at `error` and the file yields no entry.
+7. **Errors.** A synchronous resolve error or a rejected `AsyncService.resolve()` is logged at `error`, and that class yields no entry. The other classes of the file are still resolved.
 
 ### Type matcher
 
@@ -24,7 +24,7 @@ A scan builds one `ClassInfo` per file. Two things decide what it holds: the `ty
 | `jobs/MonthlyInvoices.ts` | `MonthlyInvoices` |
 | `jobs/monthly-invoices.job.js` | `monthly-invoices.job` |
 
-The matcher returns the export name to use. A name that is not exported gives `type: undefined`: `@ListFromFiles` returns the entry anyway, and `@ResolveFromFiles` logs the resolve error and skips the file.
+The matcher returns the export name to use. A matcher that ignores the export key names one class per file, which is then listed once. A name that is not exported yields no entry.
 
 ### Scanned class lifetime
 
@@ -43,12 +43,12 @@ See [Lifetimes](../di/04-lifetimes.md) and [Service lifecycle](../di/10-service-
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Export picker | The `typeMatcher` argument of the decorator | First export key | Any `(fileName: string, exportKey: string) => string` | Pass a function; see [Type matcher: custom implementation](#type-matcher-custom-implementation) |
+| Export picker | The `typeMatcher` argument of the decorator | Every exported class | Any `(fileName: string, exportKey: string) => string` | Pass a function; see [Type matcher: custom implementation](#type-matcher-custom-implementation) |
 | Scanned class | The class itself, by type, root container | Singleton | `@NewInstance()`, `@PerChildInstance()`, `AsyncService` | Decorate the scanned class, or `DI.register(Impl).as(Scanned)` before the first read |
 
 ### Type matcher: custom implementation
 
-Pass a matcher when a scanned file exports more than one name and the class is not the first. A file that exports its DTOs above the class is the common case. Derive the export name from the file name with a fixed convention.
+Pass a matcher when a scanned file exports more than one class and you want only one of them. A file that exports its DTOs next to the class is the common case. Derive the export name from the file name with a fixed convention.
 
 ```ts sample
 import { ClassInfo, DI } from '@spinajs/di';
@@ -75,10 +75,6 @@ async function main() {
 
   const reports = await DI.resolve(ReportCatalog).Reports;
   for (const report of reports) {
-    if (!report.type) {
-      console.warn(`${report.file} does not export ${report.name}`);
-      continue;
-    }
     console.log(`report ${report.name} found in ${report.file}`);
   }
 }
@@ -127,7 +123,7 @@ void main();
 ## Important behaviour
 
 - **A default-exported class is seen under its class name.** In ESM mode `DI.__spinajs_require__` unwraps a default export, so the named exports next to it are not seen.
-- **"First" depends on the module mode.** An ESM namespace object lists its export names in alphabetical order. A CommonJS `exports` object lists them in assignment order.
+- **Order depends on the module mode.** Entries of one file follow its export order: alphabetical for an ESM namespace object, assignment order for a CommonJS `exports` object.
 - **The matcher is called once per export key.** It receives the file name and the export key; a one-parameter matcher returns the same name for every key.
 - **A non-`AsyncService` instance is not awaited.** If `DI.resolve()` returns a `Promise` for it, `instance` holds that `Promise`.
 - **`@NewInstance()` classes are built once per scan, not per read.** The scan's `Promise` is cached, so later reads return the same instances.
@@ -135,14 +131,14 @@ void main();
 
 ## Best practices
 
-- Name scanned files after their class, and use a matcher when the convention differs from "first export".
+- Name scanned files after their class, and use a matcher when a file exports classes the scan should not list or resolve.
 - Make a scanned class an `AsyncService` when it needs I/O at start-up; `@ResolveFromFiles` then returns it ready.
-- In a matcher, check `report.type` before use; a file that breaks the convention gives `type: undefined`.
+- With a matcher, a file that breaks the convention yields no entry, so a missing class shows up as a missing entry, not an error.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the DTO is the first export, so the scan picks InvoiceRow instead of the job
+// Don't: @ResolveFromFiles resolves every exported class, so InvoiceRow becomes a DI singleton too
 export class InvoiceRow { public Number!: string; }
 export class MonthlyInvoicesJob extends ImportJob { /* ... */ }
 
@@ -155,4 +151,4 @@ export class MonthlyInvoicesJob extends ImportJob { /* ... */ }
 - [Loading classes from directories](01-loading-classes-from-directories.md): the scan these rules apply to.
 - [Lifetimes](../di/04-lifetimes.md): `@Singleton`, `@NewInstance`, `@PerChildInstance`.
 - [Service lifecycle](../di/10-service-lifecycle.md): `AsyncService.resolve()`.
-- [Controller discovery](../http/03-controller-discovery.md): re-reads each scanned file to find every controller, not only the first export.
+- [Controller discovery](../http/03-controller-discovery.md): keeps the scanned classes that are controllers.

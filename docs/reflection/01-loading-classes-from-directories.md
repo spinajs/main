@@ -10,7 +10,7 @@
 4. **Missing directories.** Each directory is checked with `fs.existsSync()`. A missing one is logged at `warn` (`Directory ${directory} not exists`) and skipped.
 5. **Files.** `glob.sync(path.join(dir, filter))` lists the files, backslashes turned into `/`. Each file is logged at `trace` (`Loading file ${file}`).
 6. **Import.** `DI.__spinajs_require__(file)` imports each file; see [module loading](../di/13-module-loading.md). A file with no exports is logged at `warn` (`File ${file} does not contain any exported type !`) and skipped.
-7. **One entry per file.** The scan takes the first key of the module's exports, or the name the `typeMatcher` returns, and builds one `ClassInfo` from it; see [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md).
+7. **One entry per exported class.** For every key of the module's exports the scan takes that key, or the name the `typeMatcher` returns for it, and builds a `ClassInfo` when the value is a class or a plain `function`. Constants, arrow functions and a class already listed under another name are skipped; see [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md).
 8. **Resolve.** `@ListFromFiles` stops here with `instance: undefined`. `@ResolveFromFiles` calls `DI.resolve(type)`, and awaits it when the class extends `AsyncService`.
 9. **Result.** All entries are awaited with `Promise.all`. `null` and `undefined` entries are removed.
 
@@ -45,8 +45,8 @@ sequenceDiagram
 | Field | Value |
 | --- | --- |
 | `file` | The path `glob` returned, with `/` separators |
-| `name` | The export name used: the first export key, or the `typeMatcher` result |
-| `type` | The exported value under `name`; `undefined` when the matcher names a missing export |
+| `name` | The export name used: the export key, or the `typeMatcher` result |
+| `type` | The exported class under `name`. A constant, an arrow function, or a matcher result naming a missing export yields no entry |
 | `instance` | `@ResolveFromFiles`: the resolved instance. `@ListFromFiles`: `undefined` |
 
 The filter `'/**/!(*.d).{ts,js}'` is the one the framework uses: every `.ts` and `.js` file at any depth, without `.d.ts` files.
@@ -90,7 +90,7 @@ export default {
 
 - **The scan is lazy and runs once per decoration.** The cached `Promise` lives in the decorator closure, so all instances of the class, and all subclasses, share one result.
 - **The property is always a `Promise`,** even with no directories. Await it before iterating.
-- **One `ClassInfo` per file.** Only the first export, or the matcher's pick, is used. A second class in the same file is not listed.
+- **One `ClassInfo` per exported class.** A file exporting a command and a helper class yields both; filter the list by what you need (a decorator's metadata, a base class). Constants and arrow functions are never listed; a plain exported `function` is, and `@ResolveFromFiles` resolves every entry it lists.
 - **Config and resolution use the root container.** `DI.get(Configuration)` and `DI.resolve(type)` go to the root, even when the decorated object came from a child container.
 - **`Configuration` must be resolved first.** `DI.get()` does not build it. When it is missing, the `Promise` rejects with a `ReflectionException`.
 - **Missing directories do not fail the scan;** they are logged at `warn` and skipped.
@@ -198,7 +198,7 @@ export class MaintenanceRunner {
 
 ## Related
 
-- [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md): the export picked per file and what `instance` holds.
+- [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md): which exports are listed and what `instance` holds.
 - [Scan services](03-scan-services.md): replacing the configuration, logger and module loader the scan uses.
 - [Pluggable discovery sources](04-pluggable-discovery-sources.md): wrapping a scan in a replaceable DI service.
 - [Module loading](../di/13-module-loading.md): how `DI.__spinajs_require__` imports a file.
