@@ -77,6 +77,7 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
+    "@spinajs/log-common": "2.0.549",
     "@spinajs/orm": "2.0.549",
     "luxon": "^3.6.1"
   },

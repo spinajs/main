@@ -339,6 +339,27 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expect(warn.callCount, 'a passing request logs nothing').to.eq(4);
     });
 
+    it('a refusal logged after a quiet minute says how many of its pair were suppressed', () => {
+      const clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+      try {
+        const guard = unitGuard({});
+        const warn = sinon.spy();
+        Object.defineProperty(guard, 'Log', { value: { warn } });
+        const handler = guard.before()!;
+        const hit = () => handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin: 'https://app.example.com' }), fakeRes() as any, sinon.spy());
+        hit();
+        hit();
+        hit();
+        clock.tick(60_000);
+        hit();
+        expect(warn.callCount).to.eq(2);
+        expect(rendered(warn.firstCall)).to.not.contain('suppressed');
+        expect(rendered(warn.secondCall)).to.contain('(2 more suppressed)');
+      } finally {
+        clock.restore();
+      }
+    });
+
     it('writes at most 20 refusal lines a minute however the origins vary, and clips long values', () => {
       const guard = unitGuard({});
       const warn = sinon.spy();

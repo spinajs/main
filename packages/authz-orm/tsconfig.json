@@ -24,6 +24,9 @@
       "path": "../exceptions/tsconfig.json"
     },
     {
+      "path": "../log-common/tsconfig.json"
+    },
+    {
       "path": "../orm/tsconfig.json"
     },
     {
