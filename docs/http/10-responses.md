@@ -33,19 +33,19 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | Class | Status | Template | Mapped exceptions (thrown → this response) | Notes |
 | --- | --- | --- | --- | --- |
 | `Ok` | 200 | `ok.pug` | | |
-| `Created` | 201 | `created.pug` | | The package ships no `created.pug`: HTML clients get the 500 error page. |
+| `Created` | 201 | `created.pug` | | |
 | `NoContent` | 204 | `noContent.pug` | | Pass `null`: `new NoContent(null)`. |
-| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest`, `ExpectedResponseUnacceptable` | |
+| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest` | |
 | `ValidationError` | 400 | `validationError.pug` | `ValidationFailed` (`@spinajs/validation`) | |
 | `Unauthorized` | 401 | `unauthorized.pug` | `AuthenticationFailed` | |
 | `ForbiddenResponse` | 403 | `forbidden.pug` | `Forbidden` | |
 | `NotFound` | 404 | `notFound.pug` | `ResourceNotFound` | |
 | `NotAllowed` | 405 | `not-allowed.pug` | | |
-| `NotAcceptable` | 406 | `notAcceptable.pug` | | The shipped file is `not-acceptable.pug`: HTML clients get the 500 error page. |
+| `NotAcceptable` | 406 | `not-acceptable.pug` | `ExpectedResponseUnacceptable` | |
 | `Conflict` | 409 | `conflict.pug` | `ResourceDuplicated` | |
 | `EntityTooLarge` | 413 | `entityTooLarge.pug` | `EntityTooLargeException` | |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
-| `Json` | 200 | none | | Always JSON; ignores `options.StatusCode`. |
+| `Json` | 200 or `options.StatusCode` | none | | Always JSON. |
 | `Xml` | 200 or `options.StatusCode` | none | | Always XML. Third argument: `XMLBuilder` options. |
 | `TemplateResponse` | 200 or `options.StatusCode` | the given file | | Renders `file` from the `__fs_http_templates__` provider, or `{ template, provider }` from another provider. Throws `IOFail` when the provider is missing. |
 | `FileResponse` | 200 | none | | Sends a file from a provider (default `local`) as an attachment. See below. |
@@ -59,7 +59,7 @@ Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `StatusCode` | `HTTP_STATUS_CODE` | Overrides the class status (except `Json`). |
+| `StatusCode` | `HTTP_STATUS_CODE` | Overrides the class status. |
 | `Headers` | `{ Name, Value }[]` | Response headers. |
 | `Coockies` | `{ Name, Value, Options }[]` | Cookies; note the spelling. `Options.signed: true` signs with `http.cookie.secret`. |
 
@@ -183,7 +183,7 @@ export class CustomersExportController extends BaseController {
 
 ## Important behaviour
 
-- The status of a negotiated response is `options.StatusCode` when given, else the class's `_errorCode`. `Json` always uses 200.
+- The status of a negotiated response is `options.StatusCode` when given, else the class's `_errorCode`.
 - A JSON answer with status 400 or above always goes through the error transformer named by `x-error-transform`; an unknown name answers 400 `invalid data transformer`.
 - `Xml` and the XML branch wrap arrays and scalars in `<response>`; an object becomes the document root, so give it a single root key for well-formed XML.
 - `TemplateResponse` needs the `__fs_http_templates__` provider, which the package does not configure.
