@@ -19,6 +19,8 @@ import { registered } from '../../src/support/registered.js';
 import authnTotpConfig from '../../src/config/authn-totp.js';
 import * as pkg from '../../src/index.js';
 import { renderTemplate } from '@spinajs/log';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { Generate2FaQrCode } from '../../src/cli/Generate2FaQrCode.js';
 
 const text = (first: unknown, template?: string): string => (typeof first === 'string' ? first : renderTemplate(template ?? '', first as Record<string, unknown>));
 
@@ -106,7 +108,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   it('an unknown login throws, echoing only the login, and changes nothing', async () => {
     await enrol();
     const { cmd, out } = command();
-    await assert.rejects(cmd.execute('mallory'), (e: Error) => e.message.includes('mallory') && !e.message.includes(alice.id));
+    await assert.rejects(cmd.execute('mallory'), (e: Error) => e instanceof InvalidArgument && e.message.includes('mallory') && !e.message.includes(alice.id));
     assert.deepStrictEqual(out, { success: [], info: [], warn: [] });
     assert.strictEqual(await step.enrolment(alice), 'confirmed');
     assert.deepStrictEqual(events.all(), []);
@@ -115,6 +117,12 @@ describe('v3 cli: authn:mfa-reset', () => {
   it('carries the authn:mfa-reset command name', () => {
     const meta = Reflect.getMetadata(META_COMMAND, MfaReset) as ICommand;
     assert.match(meta.nameAndArgs, /^authn:mfa-reset\b/);
+  });
+
+  it('names the QR command authn:mfa-qr and keeps rbac:2fa-qr as an alias', () => {
+    const meta = Reflect.getMetadata(META_COMMAND, Generate2FaQrCode) as ICommand;
+    assert.match(meta.nameAndArgs, /^authn:mfa-qr\b/);
+    assert.deepStrictEqual(meta.aliases, ['rbac:2fa-qr']);
   });
 
   it('the package no longer exports EnableUser2Fa and keeps the QR helper', () => {
@@ -223,9 +231,14 @@ describe('v3 support: registered', () => {
     assert.strictEqual(registered(Probe), false);
   });
 
-  it('a failed command without an IdentityStore says so', async () => {
-    const cmd = new MfaReset();
-    Object.defineProperty(cmd, 'Identities', { value: undefined });
-    await assert.rejects(cmd.execute('alice'), /needs a registered IdentityStore/);
+  it('MfaReset does not resolve without a registered IdentityStore', async () => {
+    class KitOrm {}
+    DI.register(KitOrm).as(Orm);
+    try {
+      assert.strictEqual(registered(IdentityStore), false);
+      await assert.rejects(Promise.resolve(DI.resolve(MfaReset)), /Type IdentityStore is not registered/);
+    } finally {
+      DI.unregister(KitOrm);
+    }
   });
 });
