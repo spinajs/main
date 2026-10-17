@@ -1,8 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
+import { Clock } from '@spinajs/util';
 
-export abstract class AuthzClock {
-  abstract now(): Date;
-}
+export abstract class AuthzClock extends Clock {}
 
 @Singleton()
 @Injectable(AuthzClock)

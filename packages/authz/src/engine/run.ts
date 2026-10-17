@@ -1,3 +1,5 @@
+import { settleWithin as settle } from '@spinajs/util';
+
 /**
  * One pipeline for async and sync callers: steps are generators that `yield`
  * values which may be promises and get the settled value back.
@@ -60,22 +62,9 @@ export type Settled = { readonly ok: true; readonly value: unknown } | { readonl
 
 /** Never rejects; a result after `ms` is ignored and its rejection caught. `label` names the awaited hook in the error. */
 export function settleWithin(p: PromiseLike<unknown>, ms: number, describe: (e: unknown) => string, label: string): Promise<Settled> {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (s: Settled) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(s);
-    };
-    const timer = setTimeout(() => finish({ ok: false, error: `${label} timed out after ${ms} ms` }), ms);
-    try {
-      p.then(
-        (value) => finish({ ok: true, value }),
-        (e) => finish({ ok: false, error: `${label} rejected: ${describe(e)}` }),
-      );
-    } catch (e) {
-      finish({ ok: false, error: `${label} returned a broken thenable: ${describe(e)}` });
-    }
+  return settle(p, ms).then((s): Settled => {
+    if (s.status === 'fulfilled') return { ok: true, value: s.value };
+    if (s.status === 'timeout') return { ok: false, error: `${label} timed out after ${ms} ms` };
+    return { ok: false, error: `${label} ${s.brokenThenable ? 'returned a broken thenable' : 'rejected'}: ${describe(s.reason)}` };
   });
 }

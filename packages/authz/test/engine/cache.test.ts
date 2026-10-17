@@ -68,7 +68,7 @@ describe('LruDecisionCache', () => {
       expect(c.size).to.equal(0);
     });
 
-    for (const ttl of [0, -1, NaN, Infinity, -Infinity]) {
+    for (const ttl of [0, -1, NaN, Infinity, -Infinity, undefined as unknown as number, '1000' as unknown as number]) {
       it(`stores nothing for ttl ${ttl} and drops an older entry under the key`, () => {
         const c = new LruDecisionCache();
         c.set('k', decision('doc.read'), ['a'], 1000);
