@@ -100,21 +100,25 @@ export class Cli extends AsyncService {
 
     for (const cmd of commands ?? []) {
 
-      if (!cmd.type) {
+      if (typeof cmd.type !== 'function') {
         this.Log.warn({ command: cmd.name }, 'Command ${command} has no exported class. Make sure the file exports a CliCommand subclass');
+        continue;
+      }
+
+      const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
+
+      if (!cMeta) {
+        // every export of a command file is listed, helpers next to the command included
+        if (cmd.type.prototype instanceof CliCommand) {
+          this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
+        }
         continue;
       }
 
       this.Log.info({ command: cmd.name }, 'Found command ${command}');
 
-      const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
       const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
       const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.type) as IArgument[];
-
-      if (!cMeta) {
-        this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
-        continue;
-      }
 
       const c = new Command(cMeta.nameAndArgs);
       c.description(this.translate(cMeta.description));
