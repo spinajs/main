@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance, ResolveType, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { errorMessage } from '@spinajs/exceptions';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzTx } from '../contracts/admin.js';
@@ -53,7 +54,6 @@ const q = (v: unknown): string => {
     return Object.prototype.toString.call(v);
   }
 };
-const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
 const typeName = (t: unknown): string => (typeof t === 'function' && typeof t.name === 'string' ? t.name : '');
 const className = (v: unknown): string => (isObject(v) ? typeName(v.constructor) : '') || q(v);
 const kindOf = (c: unknown): AuthzCommand['kind'] => (isObject(c) && typeof c.kind === 'string' ? c.kind : q(isObject(c) ? c.kind : c)) as AuthzCommand['kind'];
@@ -240,7 +240,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       try {
         return deepFreeze(structuredClone(c));
       } catch (e) {
-        throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${describeError(e)}`, String(i));
+        throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${errorMessage(e)}`, String(i));
       }
     });
 
@@ -487,7 +487,7 @@ function copyOf(v: unknown): unknown {
   try {
     return structuredClone(v);
   } catch (e) {
-    throw new AuthzAdminFailure('invalid_query', `a query must be plain data: ${describeError(e)}`);
+    throw new AuthzAdminFailure('invalid_query', `a query must be plain data: ${errorMessage(e)}`);
   }
 }
 const MAX_LIMIT = 500;

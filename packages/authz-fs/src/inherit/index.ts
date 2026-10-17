@@ -2,6 +2,7 @@ import { AuthorizationModel, FALSE, GLOBAL, TRUE, isPermission, resourceKey } fr
 import type { DecisionRequest, EvaluationContext, ModelCapabilities, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { errorMessage } from '@spinajs/exceptions';
 
 import { fsAccessConfigs } from '../access-config/index.js';
 import { parseFsRef } from '../refs/index.js';
@@ -12,8 +13,6 @@ export const FS_INHERIT_MODEL = 'fs-inherit';
 const TYPES: readonly ResourceType[] = Object.freeze(['file', 'dir']);
 
 const CAPABILITIES: ModelCapabilities = Object.freeze({ effects: Object.freeze(['permit'] as const), residuals: Object.freeze([]), sync: 'never', fields: false, needsSubject: false, resourceTypes: TYPES });
-
-const describe = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
  * `fs-inherit` (design §13): permits `fs:<op>` on a file or directory of a filesystem checked in this model's
@@ -75,7 +74,7 @@ export class FsInheritModel extends AuthorizationModel {
           allowed = decision.allowed && decision.residual.op === 'true';
           validUntil = decision.validUntil;
         } catch (e) {
-          errors.push(`${permission} on ${resourceKey(parent)}: ${describe(e)}`);
+          errors.push(`${permission} on ${resourceKey(parent)}: ${errorMessage(e)}`);
           continue;
         }
         ctx.trace({ step: 'inherit', note: `${permission} on ${resourceKey(parent)}: ${allowed ? 'allowed' : 'not allowed unconditionally'}` });

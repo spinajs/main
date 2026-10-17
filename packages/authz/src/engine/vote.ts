@@ -1,3 +1,5 @@
+import { describeError, toError } from '@spinajs/exceptions';
+
 import { FALSE, TRUE, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { DenyReason, FieldSet, TraceStep, Vote } from '../contracts/decision.js';
@@ -39,17 +41,8 @@ const isPlain = (v: object): boolean => {
   return proto === Object.prototype || proto === null;
 };
 
-export const describeError = (e: unknown): string => {
-  try {
-    if (e instanceof Error) return `${e.name}: ${e.message}`;
-    return typeof e === 'string' ? e : Object.prototype.toString.call(e);
-  } catch {
-    return 'unprintable error';
-  }
-};
-
 /** A caught value as the `error` log field: a non-Error is wrapped so only its description, never the value, is logged. */
-export const thrownError = (e: unknown): Error => (e instanceof Error ? e : new Error(describeError(e)));
+export const thrownError: (e: unknown) => Error = toError;
 
 export function faultVote(model: string, error: string): Vote {
   return Object.freeze({ model, permitWhen: FALSE, denyWhen: TRUE, error, cacheable: false });
