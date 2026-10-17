@@ -35,8 +35,7 @@ describe('endpoints — statsHandler', () => {
   it('writes JSON with `all` + `timeline` from the store lifetime stats', () => {
     const store = new TelemetryStore();
     store.RequestStats.countResponse(200, 5);
-    // default bucketMs is 60_000, so ts 42_000 -> bucket key floor(42000/60000) = 0
-    store.Timeline.record(200, 5, 42_000);
+    store.Timeline.record(200, 5);
 
     const res = fakeRes();
     statsHandler(store)({}, res as any);
@@ -50,6 +49,6 @@ describe('endpoints — statsHandler', () => {
     expect(parsed).to.have.property('timeline');
     expect(parsed.all.responses).to.eq(1);
     expect(parsed.all.success).to.eq(1);
-    expect(Object.keys(parsed.timeline)).to.deep.eq(['0']);
+    expect(Object.keys(parsed.timeline)).to.deep.eq([String(store.Timeline.keyFor(Date.now()))]);
   });
 });

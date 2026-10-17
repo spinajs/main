@@ -36,6 +36,13 @@ describe('RequestStats — status classes, errors, apdex', () => {
     expect(j.avg_time).to.eq(20);
   });
 
+  it('keeps a 0 ms response as the minimum', () => {
+    const s = new RequestStats();
+    s.countResponse(200, 0);
+    s.countResponse(200, 5);
+    expect(s.toJSON().min_time).to.eq(0);
+  });
+
   it('apdex: fast 2xx = satisfied, medium = tolerated, slow / 5xx = neither', () => {
     // threshold 25ms -> satisfied <=25, tolerated <=100
     const s = new RequestStats(25);
