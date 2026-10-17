@@ -1,9 +1,7 @@
 import { DI, IContainer } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
-import { Orm, OrmDriver } from '@spinajs/orm';
-
-import { driverDialect } from './sql.js';
-import type { Dialect } from './sql.js';
+import { driverDialect, Orm, OrmDriver } from '@spinajs/orm';
+import type { SqlDialect } from '@spinajs/orm';
 
 export interface StoreOptions {
   /** Where the Orm comes from when no driver is given; default the root container. */
@@ -13,7 +11,7 @@ export interface StoreOptions {
 /** @internal */
 export interface StoreDb {
   readonly driver: OrmDriver;
-  readonly dialect: Dialect;
+  readonly dialect: SqlDialect;
 }
 
 /** @internal The given driver, or the Orm's `'default'` connection resolved once on first use; a failed resolve is retried. */

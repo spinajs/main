@@ -4,12 +4,12 @@ import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver } from '@spinajs/orm';
+import { isUniqueViolation, OrmDriver, rowsAffected } from '@spinajs/orm';
+import type { SqlDialect } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
-import type { Dialect } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_identity';
 
@@ -63,7 +63,7 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
         .into(TABLE)
         .values({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: sqlTime(nowMs), last_used_at: null });
     } catch (err) {
-      if (isDuplicate(err)) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
+      if (isUniqueViolation(err)) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
       throw err;
     }
     return { id: linkId, identity: { type, id }, provider, subject, ...(email !== undefined ? { email } : {}), linkedAt: new Date(nowMs) };
@@ -81,12 +81,12 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     return rowsAffected(await driver.update().in(TABLE).update({ last_used_at: t }).where('id', id)) === 1;
   }
 
-  private selectLinks(driver: OrmDriver, dialect: Dialect) {
+  private selectLinks(driver: OrmDriver, dialect: SqlDialect) {
     const q = driver.select().from(TABLE).select('id').select('identity_type').select('identity_id').select('provider').select('subject').select('email');
     return selectTime(dialect, selectTime(dialect, q, 'linked_at', 'linked_text'), 'last_used_at', 'last_used_text');
   }
 
-  private toLink(dialect: Dialect, r: Record<string, unknown>): IdentityLink {
+  private toLink(dialect: SqlDialect, r: Record<string, unknown>): IdentityLink {
     const lastUsed = columnText(dialect, r, 'last_used_at', 'last_used_text');
     return {
       id: String(r.id),

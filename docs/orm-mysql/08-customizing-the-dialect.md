@@ -84,7 +84,7 @@ Some packages switch their SQL on the connection's dialect. They detect it in tw
 | --- | --- | --- |
 | `@spinajs/authz-orm` (`dialectOf()`) | `Driver` is `orm-driver-mysql` or `orm-driver-mysql-ssh` | throws `AuthzConfigError` |
 | `@spinajs/session-provider-db` (`isMySqlDialect()`) | `Driver` is `orm-driver-mysql` or `orm-driver-mysql-ssh` | skips the MySQL-only session-table migration |
-| `@spinajs/authn-orm` (`driverDialect()`) | a class named `MySqlOrmDriver` in the prototype chain, then `mysql` in the `Driver` string | recognized |
+| `@spinajs/authn-orm` (`@spinajs/orm` `driverDialect()`) | a class named `MySqlOrmDriver` in the prototype chain, then `mysql` in the `Driver` string | recognized |
 | `@spinajs/authz-fs` (binary collation migration) | a class named `MySqlOrmDriver` in the prototype chain | recognized |
 
 Register a subclass under `'orm-driver-mysql'` (or `'orm-driver-mysql-ssh'`) when these packages share the connection.

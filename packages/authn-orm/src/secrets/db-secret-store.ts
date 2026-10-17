@@ -3,14 +3,14 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { everyNthCall, OrmDriver, purgeBatch, rowsAffected } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_secret';
 const PURPOSE_MAX = 32;
@@ -30,7 +30,7 @@ const RAW_MAX = 1024;
 @Injectable(SecretStore)
 export class DbSecretStore extends SecretStore {
   private readonly connection: StoreConnection;
-  private calls = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
   constructor(driver?: OrmDriver, options: StoreOptions = {}) {
@@ -86,10 +86,7 @@ export class DbSecretStore extends SecretStore {
       this.whereNotNull('used_at');
       this.orWhere('expires_at', '<=', t);
     };
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
-    const ids = ((await driver.select().from(TABLE).select('id').where(done).orderBy('id').take(PURGE_BATCH)) as { id: string }[]).map((r) => r.id);
-    if (ids.length === 0) return 0;
-    return rowsAffected(await driver.del().from(TABLE).whereIn('id', ids).where(done));
+    return purgeBatch(driver, { table: TABLE, key: 'id', where: done, limit: PURGE_BATCH });
   }
 
   /** @internal An early exit only: the claim's SQL guard decides. */
@@ -99,7 +96,7 @@ export class DbSecretStore extends SecretStore {
   }
 
   private async purgeNowAndThen(nowMs: number): Promise<void> {
-    if (++this.calls % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(new Date(nowMs));
     }
   }

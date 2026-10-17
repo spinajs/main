@@ -1,39 +1,16 @@
 import { createHash } from 'node:crypto';
 
-import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver, RawQuery } from '@spinajs/orm';
-import type { IUpdateResult } from '@spinajs/orm';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { RawQuery } from '@spinajs/orm';
+import type { SqlDialect } from '@spinajs/orm';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
 import { fromUtcColumn } from '../models/utc.js';
 
-/** @internal */
-export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
-
-const DIALECT_CLASSES: readonly (readonly [string, Dialect])[] = [
-  ['SqliteOrmDriver', 'sqlite'],
-  ['PostgresOrmDriver', 'postgres'],
-  ['MySqlOrmDriver', 'mysql'],
-  ['MsSqlOrmDriver', 'mssql'],
-];
-
-/** @internal The driver's SQL dialect, from its class chain, else from the name it was registered under. */
-export function driverDialect(driver: OrmDriver): Dialect {
-  for (let p = Object.getPrototypeOf(driver); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
-    const hit = DIALECT_CLASSES.find(([name]) => p.constructor?.name === name);
-    if (hit) return hit[1];
-  }
-  const registered = String((driver as { Options?: { Driver?: unknown } }).Options?.Driver ?? '');
-  for (const d of ['sqlite', 'postgres', 'mysql', 'mssql'] as const) {
-    if (registered.includes(d)) return d;
-  }
-  return 'other';
-}
-
 // A datetime read as text comes back exactly as stored; node-postgres would parse it in the local zone (D10).
 /** @internal Undefined for an unknown dialect: read the column itself and pass it to {@link columnText}. */
-export function textColumn(dialect: Dialect, column: string, alias: string): RawQuery | undefined {
+export function textColumn(dialect: SqlDialect, column: string, alias: string): RawQuery | undefined {
   switch (dialect) {
     case 'sqlite':
     case 'postgres':
@@ -48,13 +25,13 @@ export function textColumn(dialect: Dialect, column: string, alias: string): Raw
 }
 
 /** @internal Adds `column` to a select, as text where the dialect allows. */
-export function selectTime<Q extends { select(column: string | RawQuery): Q }>(dialect: Dialect, query: Q, column: string, alias: string): Q {
+export function selectTime<Q extends { select(column: string | RawQuery): Q }>(dialect: SqlDialect, query: Q, column: string, alias: string): Q {
   const text = textColumn(dialect, column, alias);
   return text ? query.select(text) : query.select(column);
 }
 
 /** @internal The text form of a datetime selected with {@link selectTime}; null when the column is null. */
-export function columnText(dialect: Dialect, row: Record<string, unknown>, column: string, alias: string): string | null {
+export function columnText(dialect: SqlDialect, row: Record<string, unknown>, column: string, alias: string): string | null {
   const value = textColumn(dialect, column, alias) ? row[alias] : row[column];
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' && textColumn(dialect, column, alias)) return value;
@@ -83,22 +60,6 @@ export function checkedMs(value: unknown, label: string): number {
     throw new InvalidArgument(`${label} must be a valid Date`);
   }
   return ms;
-}
-
-/** @internal */
-export const rowsAffected = (r: unknown): number => (r as IUpdateResult | undefined)?.RowsAffected ?? 0;
-
-// sqlite: ResourceDuplicated; postgres: 23505; mysql: ER_DUP_ENTRY / 1062; mssql: 2627 (key) or 2601 (index).
-/** @internal */
-export function isDuplicate(err: unknown): boolean {
-  let current = err as { code?: unknown; errno?: unknown; number?: unknown; inner?: unknown; cause?: unknown; originalError?: unknown } | undefined;
-  for (let depth = 0; current && depth < 5; depth++) {
-    if (current instanceof ResourceDuplicated || current.code === '23505' || current.code === 'ER_DUP_ENTRY' || current.errno === 1062 || current.number === 2627 || current.number === 2601) {
-      return true;
-    }
-    current = (current.inner ?? current.cause ?? current.originalError) as typeof current;
-  }
-  return false;
 }
 
 /** @internal Hex SHA-256 of the UTF-8 bytes. */
