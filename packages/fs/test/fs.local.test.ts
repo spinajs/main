@@ -4,11 +4,11 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper, fsService } from './../src/index.js';
+import { fs, FsBootsrapper, fsNative, fsService } from './../src/index.js';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
 import { expect } from 'chai';
-import { extname, join } from 'path';
+import { extname, isAbsolute, join } from 'path';
 import { IOFail } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
@@ -231,6 +231,30 @@ describe('fs local tests', function () {
   });
 
  
+
+  it('should keep folders of tuple entry names in zip', async () => {
+    // constructed directly: DI resolves fsNative by class name, which can pick another build of the class
+    const _f = new fsNative({ name: 'zip-tuple', service: 'fsNative', basePath: dir('./files') });
+    await _f.resolve();
+    const _tmp = await fTemp();
+    const result = await _f.zip(
+      [
+        ['test.txt', 'a/same.txt'],
+        ['test2.txt', 'b/same.txt'],
+      ],
+      _tmp,
+    );
+
+    const out = await _tmp.unzip(result.asFilePath());
+
+    expect(await _tmp.exists(join(out, 'a/same.txt'))).to.be.true;
+    expect(await _tmp.exists(join(out, 'b/same.txt'))).to.be.true;
+  });
+
+  it('should return absolute tmppath without basePath', () => {
+    const p = new fsNative({ name: 'no-base', service: 'fsNative' }).tmppath('.txt');
+    expect(isAbsolute(p)).to.be.true;
+  });
 
   it('should unzip file', async () => {
     const _f = await f();

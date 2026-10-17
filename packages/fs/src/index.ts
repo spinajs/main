@@ -38,7 +38,8 @@ export class fsService extends AsyncService {
       providers.set(x.name, x);
     });
 
-    const rProviders = DI.RootContainer.Registry.getTypes(fs);
+    // getTypes() returns null when nothing is registered under the token
+    const rProviders = DI.RootContainer.Registry.getTypes(fs) ?? [];
 
     // order provider creation so that providers referencing other providers
     // ( eg. fsTemp backend via `provider` option ) are created after their dependency,
@@ -112,7 +113,7 @@ export class fsService extends AsyncService {
 }
 
 @Injectable(Bootstrapper)
-export class FsBootsrapper extends Bootstrapper {
+export class FsBootstrapper extends Bootstrapper {
   public bootstrap() {
     DI.register((_container: IContainer, name: string) => {
       const provider = DI.get<Map<string, fs>>('__file_provider_instance__');
@@ -131,3 +132,12 @@ export class FsBootsrapper extends Bootstrapper {
     }).as('__file_provider__');
   }
 }
+
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export const FsBootsrapper = FsBootstrapper;
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export type FsBootsrapper = FsBootstrapper;
