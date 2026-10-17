@@ -1,7 +1,7 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
@@ -26,7 +26,7 @@ export class CredentialAdminGuardRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(CredentialAdminGuard as unknown as Class<CredentialAdminGuard>)) throw notFound('not_found', 'the credential admin routes are off');
+    if (!this.Container.hasRegistered(CredentialAdminGuard)) throw notFound('not_found', 'the credential admin routes are off');
   }
 }
 
@@ -40,7 +40,7 @@ export class SessionIssuerRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) throw notFound('not_found', 'the admin sessions route is off');
+    if (!this.Container.hasRegistered(SessionIssuer)) throw notFound('not_found', 'the admin sessions route is off');
   }
 }
 

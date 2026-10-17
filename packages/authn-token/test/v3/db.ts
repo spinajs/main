@@ -57,9 +57,8 @@ function uncacheOwn(): void {
   DI.uncache(SqliteOrmDriver);
 }
 
-// An earlier suite may leave a RoleSource or IdentityStore registered; the 3.0
-// suites register their own or assert there is none. Unregistering alone leaves an empty entry, which DI resolves
-// differently from an unregistered port, so the port is registered as itself: what DI records when it resolves one.
+// An earlier suite may leave a RoleSource or IdentityStore registered; the 3.0 suites register their own or assert
+// there is none.
 const FOREIGN_PORTS = [RoleSource, IdentityStore] as Class<unknown>[];
 let restoreForeign: (() => void) | undefined;
 
@@ -67,15 +66,13 @@ function hideForeignRegistrations(): void {
   if (restoreForeign) {
     return;
   }
-  const hidden = FOREIGN_PORTS.map((port) => ({ port, types: (DI.getRegisteredTypes(port) ?? []).filter((type) => type !== port) })).filter((h) => h.types.length > 0);
+  const hidden = FOREIGN_PORTS.map((port) => ({ port, types: DI.getRegisteredTypes(port) ?? [] })).filter((h) => h.types.length > 0);
   for (const { port, types } of hidden) {
     types.forEach((type) => DI.unregister(type));
-    DI.register(port).as(port);
     DI.uncache(port);
   }
   restoreForeign = () => {
     for (const { port, types } of hidden) {
-      DI.unregister(port);
       types.forEach((type) => DI.register(type).as(port));
       DI.uncache(port);
     }

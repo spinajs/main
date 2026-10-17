@@ -77,7 +77,6 @@ const ROOT_CREATED: readonly Class<unknown>[] = [DefaultAuthzService, DefaultAut
 interface RootRegistration {
   readonly token: Class<unknown>;
   readonly factory: Factory<unknown> | Class<unknown>;
-  readonly createdKey: boolean;
 }
 
 let installed: { cachedBefore: Set<Class<unknown>>; config: TestConfiguration } | undefined;
@@ -106,7 +105,7 @@ export async function uninstallHost(): Promise<void> {
   if (!installed) return;
   await disposeDomains();
   await resetRoot();
-  for (const r of rootRegistrations.splice(0)) unregisterFromRoot(r);
+  for (const r of rootRegistrations.splice(0)) DI.unregister(r.token, r.factory);
   const root = DI.RootContainer;
   for (const t of ROOT_CREATED) if (!installed.cachedBefore.has(t)) root.uncache(t);
   DI.unregister(TestConfiguration);
@@ -117,7 +116,7 @@ export async function uninstallHost(): Promise<void> {
 export async function resetHost(): Promise<void> {
   await disposeDomains();
   await resetRoot();
-  for (const r of rootRegistrations.splice(0)) unregisterFromRoot(r);
+  for (const r of rootRegistrations.splice(0)) DI.unregister(r.token, r.factory);
   config().reset();
 }
 
@@ -153,31 +152,16 @@ export async function resetRoot(): Promise<void> {
   }
 }
 
-/**
- * Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration.
- * The undo reaches into the DI registry's internals; lanes should prefer the harness's `register` hook.
- */
+/** Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration. */
 export function registerInRoot<T>(token: Class<T>, factory: Factory<T> | Class<T>): () => void {
-  const root = DI.RootContainer;
-  const createdKey = !root.Registry.ownsRegistration(token);
-  root.register(factory).as(token);
-  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown>, createdKey };
+  DI.register(factory).as(token);
+  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown> };
   rootRegistrations.push(entry);
   return () => {
     const i = rootRegistrations.indexOf(entry);
     if (i >= 0) rootRegistrations.splice(i, 1);
-    unregisterFromRoot(entry);
+    DI.unregister(entry.token, entry.factory);
   };
-}
-
-function unregisterFromRoot(entry: RootRegistration): void {
-  const root = DI.RootContainer;
-  const list = root.Registry.getTypes(entry.token, false);
-  if (!list) return;
-  const i = list.indexOf(entry.factory);
-  if (i >= 0) list.splice(i, 1);
-  // Registry.unregister matches by name, which every arrow factory shares; drop the key we created.
-  if (entry.createdKey && list.length === 0) (root.Registry as unknown as { registry: Map<string, unknown[]> }).registry.delete(entry.token.name);
 }
 
 /** A factory registration for one instance: `c.register(instance(x)).as(Token)`. */

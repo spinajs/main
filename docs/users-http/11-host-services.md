@@ -94,7 +94,6 @@ export class HumanAccountStatusSource extends UserAccountStatusSource {
 
 - A `CredentialAdminGuard` answer is trusted only when it is exactly `{ ok: true }`; anything else, including a guard that answers past its types, refuses. An unknown code becomes `forbidden`.
 - `DefaultAccountGuard` trusts only answers that are exactly `true` in a `Map`; a source that returns anything else, or throws, counts no witness.
-- The token routes tell a bare abstract class (recorded by an earlier resolve of an unregistered token) from a real implementation, and ignore the bare one.
 - users-http never imports authn-token: the profile policy is found by name so that loading users-http does not register token strategies.
 
 ## Best practices
