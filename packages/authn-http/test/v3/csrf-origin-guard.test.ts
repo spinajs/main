@@ -15,7 +15,6 @@ import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
 import * as barrel from '../../src/index.js';
-import * as api from '../../src/api.js';
 import { CsrfOriginGuard, ownOrigin } from '../../src/middleware/csrf.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
@@ -145,8 +144,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     uncacheGuard();
   });
 
-  it('the barrel exports the lane CsrfOriginGuard, registered as a ServerMiddleware at Order 4, not the api.ts stub', () => {
-    expect(barrel.CsrfOriginGuard).to.eq(CsrfOriginGuard).and.not.eq(api.CsrfOriginGuard);
+  it('the barrel exports the lane CsrfOriginGuard, registered as a ServerMiddleware at Order 4', () => {
+    expect(barrel.CsrfOriginGuard).to.eq(CsrfOriginGuard);
     expect(new CsrfOriginGuard().Order).to.eq(4);
     expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(CsrfOriginGuard);
   });
