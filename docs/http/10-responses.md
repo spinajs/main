@@ -44,6 +44,7 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `NotAcceptable` | 406 | `notAcceptable.pug` | | The shipped file is `not-acceptable.pug`: HTML clients get the 500 error page. |
 | `Conflict` | 409 | `conflict.pug` | `ResourceDuplicated` | |
 | `EntityTooLarge` | 413 | `entityTooLarge.pug` | `EntityTooLargeException` | |
+| `TooManyRequests` | 429 | `too-many-requests.pug` | | Options also take `retryAfterSeconds`, sent as `Retry-After` (rounded up, see `retryAfterHeader` in [Header and cookie helpers](22-header-and-cookie-helpers.md)) when it is a finite number. |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
 | `Json` | 200 | none | | Always JSON; ignores `options.StatusCode`. |
 | `Xml` | 200 or `options.StatusCode` | none | | Always XML. Third argument: `XMLBuilder` options. |
