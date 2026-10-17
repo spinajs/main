@@ -1,13 +1,12 @@
 import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, errorClassOf } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import { ResiliencePipelineBuilder, TimeoutRejectedException, TimeSpan, frozenCopy } from '@spinajs/util';
 import type { ResiliencePipeline } from '@spinajs/util';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
-import { errorClass } from '../support/guards.js';
 import type { AuditConfig } from './config.js';
 
 /**
@@ -59,7 +58,7 @@ export class AuthnAudit extends AsyncService {
       await this.pipeline.execute(() => Promise.resolve().then(() => sink.publish(event)));
     } catch (err) {
       if (err instanceof TimeoutRejectedException) this.Log.warn({ sink: name, eventType: event.type, timeoutMs: this.Config.sinkTimeoutMs }, 'AuthnAudit: sink ${sink} timed out on a ${eventType} event after ${timeoutMs} ms');
-      else this.Log.warn({ sink: name, eventType: event.type, errorClass: errorClass(err) }, 'AuthnAudit: sink ${sink} failed to publish a ${eventType} event (${errorClass})');
+      else this.Log.warn({ sink: name, eventType: event.type, errorClass: errorClassOf(err) }, 'AuthnAudit: sink ${sink} failed to publish a ${eventType} event (${errorClass})');
     }
   }
 

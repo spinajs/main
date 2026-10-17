@@ -1,7 +1,7 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { InvalidOption } from '@spinajs/exceptions';
+import { InvalidOption, errorClassOf } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { PasswordCredentialStore, PasswordService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -95,7 +95,7 @@ export class PasswordExpirationJob {
       } catch (err) {
         counts.failed++;
         // The name only: a store error may carry the hash in its message.
-        this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'Could not expire the password of ${identityType} ${identityId}: ${errorName}');
+        this.log().warn({ identityType: id.type, identityId: id.id, errorName: errorClassOf(err) }, 'Could not expire the password of ${identityType} ${identityId}: ${errorName}');
       }
     }
     return counts;

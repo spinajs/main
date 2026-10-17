@@ -1,4 +1,4 @@
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, isErrorOf } from '@spinajs/exceptions';
 
 import type { IdentityRef } from '../contracts/credentials.js';
 
@@ -37,15 +37,13 @@ export class MfaEnrolmentMismatch extends InvalidOperation {
   }
 }
 
-// By name, so an error of another copy of this module (cjs and mjs) counts too.
-const named = (e: unknown, name: string): e is { steps: readonly string[] } => e instanceof Error && e.name === name && Array.isArray((e as Partial<MfaStepNotListed>).steps);
-
+// isErrorOf, not instanceof, so an error of another copy of this module (cjs and mjs) counts too.
 export function isMfaStepNotListed(e: unknown): e is MfaStepNotListed {
-  return named(e, 'MfaStepNotListed');
+  return isErrorOf(e, MfaStepNotListed);
 }
 
 export function isMfaEnrolmentMismatch(e: unknown): e is MfaEnrolmentMismatch {
-  return named(e, 'MfaEnrolmentMismatch');
+  return isErrorOf(e, MfaEnrolmentMismatch);
 }
 
 /** The audit reason and steps when `e` is DefaultMfaPolicy refusing a login over the stored enrolments, else undefined. */

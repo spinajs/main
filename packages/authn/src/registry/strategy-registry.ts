@@ -1,6 +1,6 @@
 import { AsyncService, PerChildInstance } from '@spinajs/di';
 import { AutoinjectNamedServices, Config, InvalidConfiguration } from '@spinajs/configuration';
-import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidOption, isErrorOf } from '@spinajs/exceptions';
 import { _is_array_of, _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
@@ -38,15 +38,14 @@ function check(e: StrategyEntry, s: unknown): Checked {
   return { strategy, kinds: Object.freeze([...kinds]), selector: isCredentialSelector(strategy) };
 }
 
-// A refused configuration section fails the request (a 500 the HTTP layer logs); read as a decline it would only show
-// as a quiet 401 for every credential of the kind. Matched by name too: the cjs and the mjs build each have the class.
-const isInvalidConfiguration = (e: unknown): boolean => e instanceof InvalidConfiguration || (e instanceof Error && e.constructor.name === 'InvalidConfiguration');
-
 function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
   try {
     return (s as AuthenticationStrategy & CredentialSelector).accepts(c) === true;
   } catch (e) {
-    if (isInvalidConfiguration(e)) throw e;
+    // A refused configuration section fails the request (a 500 the HTTP layer logs); read as a decline it would only
+    // show as a quiet 401 for every credential of the kind. isErrorOf, not instanceof: the cjs and the mjs build each
+    // have the class.
+    if (isErrorOf(e, InvalidConfiguration)) throw e;
     return false;
   }
 }

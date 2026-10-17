@@ -1,14 +1,14 @@
 import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, errorClassOf } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 
 import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
-import { errorClass, isRef } from '../support/guards.js';
+import { isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
@@ -92,7 +92,7 @@ const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 /** The audit reason and data of an MFA policy that threw: the step names of a refusal over stored enrolments, else the error class. */
 const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => {
   const refusal = mfaEnrolmentRefusal(err);
-  return refusal ? { reason: refusal.reason, data: { steps: [...refusal.steps] } } : { reason: otherwise, data: { error: errorClass(err) } };
+  return refusal ? { reason: refusal.reason, data: { steps: [...refusal.steps] } } : { reason: otherwise, data: { error: errorClassOf(err) } };
 };
 
 function checkOutcome(o: unknown): StrategyOutcome | null {
@@ -250,7 +250,7 @@ export class DefaultAuthnService extends AuthnService {
       return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx);
     } catch (err) {
       // Only a verified credential gets here: a rejection would tell it apart from a wrong one (A02).
-      return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClass(err) } });
+      return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClassOf(err) } });
     }
   }
 
@@ -286,7 +286,7 @@ export class DefaultAuthnService extends AuthnService {
       refused = await this.statusRefusal(id);
       if (refused) await this.Sessions.revoke(stored.handle);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
+      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClassOf(err) }, ...about });
       return fail('invalid_credentials');
     }
     if (refused) {
@@ -304,7 +304,7 @@ export class DefaultAuthnService extends AuthnService {
       facts = rest;
       await this.Throttle.succeed(keys, 'mfa');
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
+      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClassOf(err) }, ...about });
       return fail('invalid_credentials');
     }
     const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
@@ -349,7 +349,7 @@ export class DefaultAuthnService extends AuthnService {
       else reason = (await this.isSessionIdentity(v.outcome, id)) ? await this.statusRefusal(id) : 'other_identity';
       if (reason === null) await this.Throttle.succeed(keys, 'reauth');
     } catch (err) {
-      [reason, data] = ['store_error', { error: errorClass(err) }];
+      [reason, data] = ['store_error', { error: errorClassOf(err) }];
     }
     if (reason !== null) {
       await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason, ...(data ? { data } : {}), ...strategy, ...about });
@@ -389,7 +389,7 @@ export class DefaultAuthnService extends AuthnService {
       try {
         raw = await s.verify(c, ctx);
       } catch (err) {
-        return { s, broken: 'strategy_error', data: { error: errorClass(err) } };
+        return { s, broken: 'strategy_error', data: { error: errorClassOf(err) } };
       }
       const checked = checkOutcome(raw);
       if (checked === null) return { s, broken: 'strategy_contract' };
@@ -463,7 +463,7 @@ export class DefaultAuthnService extends AuthnService {
       for (const hook of chain.filter((h) => h?.constructor !== ExternalLoginHook)) await hook.afterLogin(id, external);
       return null;
     } catch (err) {
-      return errorClass(err);
+      return errorClassOf(err);
     }
   }
 
@@ -551,7 +551,7 @@ export class DefaultAuthnService extends AuthnService {
       try {
         given = s.throttleKeys(c, ctx);
       } catch (err) {
-        return { strategy: s, error: errorClass(err) };
+        return { strategy: s, error: errorClassOf(err) };
       }
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
       const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.kind === 'account' ? `${s.interactive ? 'login' : 'request'}:${k.value}` : k.value }));

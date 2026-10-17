@@ -1,3 +1,5 @@
+import { errorClassOf } from '@spinajs/exceptions';
+
 import type { AuditLog } from './audit.js';
 
 /**
@@ -12,7 +14,7 @@ export class DeferredWork {
   public defer(work: () => Promise<void>): void {
     const p = new Promise<void>((resolve) => setImmediate(resolve))
       .then(work)
-      .catch((err) => this.log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'Deferred authn-local work failed: ${errorName}'))
+      .catch((err) => this.log.warn({ errorName: errorClassOf(err) }, 'Deferred authn-local work failed: ${errorName}'))
       .finally(() => this.pending.delete(p));
     this.pending.add(p);
   }

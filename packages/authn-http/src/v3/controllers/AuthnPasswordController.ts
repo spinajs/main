@@ -1,4 +1,5 @@
 import { Autoinject } from '@spinajs/di';
+import { errorClassOf } from '@spinajs/exceptions';
 import { BaseController, BasePath, Get, Ok, Patch, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
@@ -56,7 +57,7 @@ export class AuthnPasswordController extends BaseController {
       if (result.status === 'throttled') return resetRequestThrottled(result.retryAfterSeconds);
     } catch (err) {
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
-      this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A password reset request failed: ${errorName}');
+      this._log.warn({ errorName: errorClassOf(err) }, 'A password reset request failed: ${errorName}');
     }
     return resetAck();
   }
