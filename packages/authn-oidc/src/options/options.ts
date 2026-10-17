@@ -1,9 +1,10 @@
 import type { Log } from '@spinajs/log';
+import { isDevOrTestEnv } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcEndpoints, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../contracts.js';
 import { DEFAULT_CLAIMS, OIDC_PRESETS, resolveEndpoints, resolveIssuer } from '../presets.js';
-import { checkedUrl, deepFreeze, isRelaxedEnv } from '../support.js';
+import { checkedUrl, deepFreeze } from '../support.js';
 import { OIDC_APP_PATH_PATTERN } from './schema.js';
 
 /** One configured provider after defaults and presets; deep frozen. */
@@ -106,7 +107,7 @@ function sourceOf(raw: Record<string, unknown>): OidcProviderSource {
 function buildProvider(name: string, provider: ConfiguredProvider, env: string | undefined, extra: BuildOidcOptionsExtra): OidcProviderOptions {
   const at = `${ROOT}.providers.${name}`;
   const raw = provider as unknown as Record<string, unknown>;
-  checkUrls(at, raw, isRelaxedEnv(env));
+  checkUrls(at, raw, isDevOrTestEnv(env));
 
   // Floor (see buildOidcOptions): a missing, NaN, string or huge skew switches the exp, iat and nbf checks off.
   const skew = provider.clockSkewSeconds;

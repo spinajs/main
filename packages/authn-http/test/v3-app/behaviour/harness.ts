@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { request } from 'node:http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, explicitAppEnv } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -25,7 +25,7 @@ import {
   TokenService,
 } from '@spinajs/authn/contracts';
 import type { Credentials, IdentityRef } from '@spinajs/authn/contracts';
-import { MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, SessionExpirationProvider, SessionProvider, sessionCookieName, appEnvOf } from '@spinajs/authn-session';
+import { MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, SessionExpirationProvider, SessionProvider, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, KIT_ATTRIBUTES, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HarnessFactory, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
@@ -174,8 +174,8 @@ function removeKey(c: Configuration, path: string): void {
 
 /**
  * Sets the case's keys (over the harness strategy list and the design §22.5 session expiry) and returns what undoes
- * it; undo removes what did not exist before. An env is named through APP_ENV as well, because the configuration
- * counts 'development' as a fallback unless some env source names it.
+ * it; undo removes what did not exist before. An env is named through NamedEnv as well, because the configuration
+ * counts 'development' as a fallback unless some env source named it at load.
  */
 function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, strategies: readonly StrategyEntry[] = STRATEGIES): () => void {
   const c = config();
@@ -184,7 +184,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
     saved.push({ path, value: c.get(path), missing: missingPrefix(c, path) });
     c.set(path, value);
   };
-  const savedAppEnv = process.env.APP_ENV;
+  const savedNamedEnv = c.NamedEnv;
   try {
     set('authn.strategies', strategies);
     set('authn.session.expiration.ttl', 30);
@@ -195,7 +195,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
     }
     if (overrides.env !== undefined) {
       set(ENV_PATH, overrides.env);
-      process.env.APP_ENV = overrides.env;
+      c.NamedEnv = overrides.env;
     }
   } catch (e) {
     undo();
@@ -206,8 +206,7 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides, stra
       if (missing === undefined) c.set(path, value);
       else removeKey(c, missing);
     }
-    if (savedAppEnv === undefined) delete process.env.APP_ENV;
-    else process.env.APP_ENV = savedAppEnv;
+    c.NamedEnv = savedNamedEnv;
   }
   return undo;
 }
@@ -393,7 +392,7 @@ function send(req: HttpRequest): Promise<HttpResponse> {
 
 function sessionCookie(): string {
   const c = config();
-  return sessionCookieName(c.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, appEnvOf(c));
+  return sessionCookieName(c.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, explicitAppEnv(c));
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);

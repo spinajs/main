@@ -1,9 +1,10 @@
+import { explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration-common';
 import { ServiceNotFound } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { MfaStep } from '../../contracts/mfa.js';
 import { kindOf, q } from '../../support/format.js';
-import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from './env.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET } from './env.js';
 import type { AuthnConfigSource } from './env.js';
 
 /** One finding of the boot checks and of authn:check-config. */
@@ -35,8 +36,8 @@ export function secretStoringSteps(steps: ReadonlyMap<string, MfaStep>): string[
  * only when the MFA key is missing; steps that cannot be resolved count as a missing key.
  */
 export async function authnSecretFindings(config: AuthnConfigSource, steps: SecretStoringSteps): Promise<AuthnConfigFinding[]> {
-  const env = authnAppEnv(config);
-  const lenient = isLenientAuthnEnv(env);
+  const env = explicitAppEnv(config);
+  const lenient = isDevOrTestEnv(env);
   const out: AuthnConfigFinding[] = [];
   const error = (message: string): void => {
     out.push({ topic: 'secrets', level: 'error', message });

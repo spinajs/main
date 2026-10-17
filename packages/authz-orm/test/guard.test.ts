@@ -27,16 +27,12 @@ describe('authz-orm runtime guard', function () {
   let db: TestDb;
   let Task: M;
   let Plain: M;
-  const appEnv = process.env.APP_ENV;
-
   before(async () => {
     db = await TestDb.open();
   });
 
   after(async () => {
     await db?.close();
-    if (appEnv === undefined) delete process.env.APP_ENV;
-    else process.env.APP_ENV = appEnv;
   });
 
   beforeEach(async () => {
@@ -46,6 +42,7 @@ describe('authz-orm runtime guard', function () {
 
   afterEach(async () => {
     testHost.config().unset(['process', 'env', 'APP_ENV']);
+    testHost.config().NamedEnv = undefined;
     sinon.restore();
     await db.clear();
   });
@@ -60,9 +57,15 @@ describe('authz-orm runtime guard', function () {
     env('production');
     expect(guardMode()).to.equal('off');
     env('development');
-    delete process.env.APP_ENV;
-    expect(guardMode(), 'development that no source named is a fallback, so unset').to.equal('off');
+    const appEnv = process.env.APP_ENV;
     process.env.APP_ENV = 'development';
+    try {
+      expect(guardMode(), 'development that no source named at load is a fallback, so unset').to.equal('off');
+    } finally {
+      if (appEnv === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = appEnv;
+    }
+    testHost.config().NamedEnv = 'development';
     expect(guardMode()).to.equal('warn');
   });
 
@@ -97,7 +100,7 @@ describe('authz-orm runtime guard', function () {
 
   it('in development, warns once per call site', async () => {
     env('development');
-    process.env.APP_ENV = 'development';
+    testHost.config().NamedEnv = 'development';
     const warn = sinon.stub(ormLog(), 'warn');
     for (let i = 0; i < 3; i++) await as(alice, async () => await Task.query());
     await as(alice, async () => await Task.query());

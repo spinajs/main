@@ -1,6 +1,6 @@
 import type * as express from 'express';
 import { Autoinject, DI } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Config, isDevOrTestEnv } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
@@ -16,7 +16,6 @@ import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
 import { requestOrigin } from '../origin.js';
-import { isRelaxedEnv } from '../support.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
 
@@ -128,7 +127,7 @@ export class OidcController extends BaseController {
   protected originOf(req: Request): string {
     const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
     const origin = requestOrigin({ encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') }, this.trusted);
-    if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
+    if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isDevOrTestEnv(this.env)) {
       this.warnedHttpOrigin = true;
       this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set authn.http.trustProxy (or http.trustProxy) or the provider redirectUri');
     }

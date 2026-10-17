@@ -2,14 +2,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration, explicitAppEnv } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
-import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
+import { PUBLIC_DEFAULT_COOKIE_SECRET, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import type * as express from 'express';
 
@@ -52,7 +52,7 @@ function bodyOf(req: Request): Uint8Array | undefined {
  * (registerAuthnHttpV3).
  */
 export class AuthnMiddleware extends ServerMiddleware {
-  // Stays an injected Configuration: appEnvOf reads its Env for the SR-16 "no env named" rule, which @Config cannot express.
+  // Stays an injected Configuration: explicitAppEnv reads its NamedEnv for the SR-16 "no env named" rule, which @Config cannot express.
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
 
@@ -89,7 +89,7 @@ export class AuthnMiddleware extends ServerMiddleware {
   }
 
   public async resolve(): Promise<void> {
-    const env = appEnvOf(this.Configuration);
+    const env = explicitAppEnv(this.Configuration);
     const secret = this.ConfiguredCookieSecret;
     assertSessionCookieSecret(secret, env);
     if (secret === PUBLIC_DEFAULT_COOKIE_SECRET) {

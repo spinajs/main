@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
-import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { AUTHN_PUBLIC_COOKIE_SECRET } from '@spinajs/authn/env';
+import { explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration-common';
 import type { Configuration } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 import type { ISession } from './contracts.js';
@@ -53,35 +54,30 @@ export const PUBLIC_DEFAULT_COOKIE_SECRET = AUTHN_PUBLIC_COOKIE_SECRET;
 
 function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): boolean {
   if (flag === undefined || flag === 'auto') {
-    return !isLenientAuthnEnv(env);
+    return !isDevOrTestEnv(env);
   }
   return flag !== false && flag !== 'false';
 }
 
-/**
- * The app env as the configuration resolved it from `--env`, `APP_ENV` or `NODE_ENV`; undefined when it resolved
- * development but no source names development (the fallback), so the cookie gets the production flags (SR-16).
- */
-export function appEnvOf(config: Configuration): string | undefined {
-  return authnAppEnv(config);
-}
+/** @deprecated Use `explicitAppEnv` of `@spinajs/configuration`. */
+export const appEnvOf: (config: Configuration) => string | undefined = explicitAppEnv;
 
 /**
  * Throws when the cookie signing secret is missing, or is the public default
  * outside development and test.
  *
- * @param env - app env, see {@link appEnvOf}; absent means production
+ * @param env - app env, see `explicitAppEnv` of `@spinajs/configuration`; absent means production
  */
 export function assertSessionCookieSecret(secret: string | undefined, env?: string): void {
   if (!secret) {
     throw new InvalidOption('http.cookie.secret is not set; session cookies cannot be signed');
   }
-  if (secret === PUBLIC_DEFAULT_COOKIE_SECRET && !isLenientAuthnEnv(env)) {
+  if (secret === PUBLIC_DEFAULT_COOKIE_SECRET && !isDevOrTestEnv(env)) {
     throw new InvalidOption('http.cookie.secret is the public default shipped with @spinajs/http; set a secret of your own');
   }
 }
 
-/** @param env - app env, see {@link appEnvOf}; absent means production */
+/** @param env - app env, see `explicitAppEnv` of `@spinajs/configuration`; absent means production */
 export function sessionCookieName(config: ISessionCookieConfig = {}, env?: string): string {
   const base = (config.name as string) ?? SESSION_COOKIE_BASE_NAME;
   return flagOn(config.hostPrefix, env) ? `__Host-${base}` : base;
@@ -93,7 +89,7 @@ export function sessionCookieName(config: ISessionCookieConfig = {}, env?: strin
  * the cookie.
  *
  * @param maxAge - lifetime in ms; `undefined` = browser-session cookie
- * @param env - app env, see {@link appEnvOf}; absent means production
+ * @param env - app env, see `explicitAppEnv` of `@spinajs/configuration`; absent means production
  */
 export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?: number, env?: string): Record<string, unknown> {
   const passthrough: Record<string, unknown> = {};
@@ -133,7 +129,7 @@ export interface ISessionCookieDescriptor {
  *
  * @param rawId - `SessionHandle.id`
  * @param expiration - when the session expires; `undefined` = browser-session cookie
- * @param env - app env, see {@link appEnvOf}; absent means production
+ * @param env - app env, see `explicitAppEnv` of `@spinajs/configuration`; absent means production
  */
 export function sessionCookie(rawId: string, config: ISessionCookieConfig = {}, expiration?: DateTime, env?: string): ISessionCookieDescriptor {
   return {
@@ -149,7 +145,7 @@ export function sessionCookie(rawId: string, config: ISessionCookieConfig = {}, 
 /**
  * An already-expired session cookie; clears the session client side on logout.
  *
- * @param env - app env, see {@link appEnvOf}; absent means production
+ * @param env - app env, see `explicitAppEnv` of `@spinajs/configuration`; absent means production
  */
 export function clearSessionCookie(config: ISessionCookieConfig = {}, env?: string): ISessionCookieDescriptor {
   return {
