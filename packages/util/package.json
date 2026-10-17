@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./crypto": {
+      "types": "./lib/mjs/crypto/index.d.ts",
+      "import": "./lib/mjs/crypto/index.js",
+      "require": "./lib/cjs/crypto/index.js"
     }
   },
   "type": "module",
