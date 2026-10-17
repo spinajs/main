@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 /**
  * Create factory func that sets client-id to connection by app name.
  * We cannot have two connections with the same ID, so by default we take app-name
- * with NODE_ENV and then name from options.
+ * with APP_ENV and then name from options. A `clientId` set in the options wins.
  *
  * This way we can share the same config/connections across multiple apps.
  */
@@ -17,7 +17,7 @@ DI.register(async (container, options: IQueueConnectionOptions) => {
 
   const c = new AmqpQueueClient({
     ...options,
-    clientId: `${appName}-${env}-${options.name}`,
+    clientId: options.clientId ?? `${appName}-${env}-${options.name}`,
   });
   await c.resolve();
 
