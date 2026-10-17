@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver, insertChunked, rowsAffected } from '@spinajs/orm';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, parseAttributeLeaf, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
 
@@ -98,7 +98,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const now = new Date();
     const by = principalKey(actor).slice(0, BY_MAX);
     const rows = set.map(([path, v]) => ({ ...key, path, value_json: JSON.stringify(v), value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by: by, updated_at: now }));
-    for (const part of chunks(rows, INSERT_CHUNK)) await driver.insert().into(TABLE).values(part);
+    await insertChunked(driver, TABLE, rows, INSERT_CHUNK);
     return removed.length + set.length;
   }
 
@@ -124,8 +124,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
    */
   private async bump(driver: OrmDriver): Promise<void> {
     const values = { version: randomUUID(), updated_at: new Date() };
-    const out = (await driver.update().in(VERSION_TABLE).update(values).where({ id: 1 })) as { RowsAffected?: number } | undefined;
-    if (!out?.RowsAffected) throw new AuthzConfigError(`DbScopeAttributeStore: ${VERSION_TABLE} has no row; run migration AuthzScopeAttribute_2026_10_02_00_00_00`);
+    if (rowsAffected(await driver.update().in(VERSION_TABLE).update(values).where({ id: 1 })) === 0) throw new AuthzConfigError(`DbScopeAttributeStore: ${VERSION_TABLE} has no row; run migration AuthzScopeAttribute_2026_10_02_00_00_00`);
   }
 
   private async writer(tx: AuthzTx): Promise<OrmDriver> {

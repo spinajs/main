@@ -1,11 +1,10 @@
 import { resourceKey } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { whereInGroups } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 
 import { ANCESTOR_COLUMNS, AUTHZ_RESOURCE_ANCESTOR_TABLE, ID_CHUNK, chunks } from './table.js';
 import type { AncestorRow } from './table.js';
-
-type Where = IWhereBuilder<unknown>;
 
 /** Ids of the refs that have one, by type. */
 export function groupIds(refs: readonly ResourceRef[]): Map<string, string[]> {
@@ -17,21 +16,6 @@ export function groupIds(refs: readonly ResourceRef[]): Map<string, string[]> {
     out.set(r.type, ids);
   }
   return out;
-}
-
-/** `(typeColumn = t1 AND idColumn IN (…)) OR (typeColumn = t2 AND …)` as one where group. */
-export function whereRefs(q: Where, typeColumn: string, idColumn: string, groups: ReadonlyMap<string, readonly string[]>): void {
-  q.where(function (this: Where) {
-    let first = true;
-    for (const [type, ids] of groups) {
-      const clause = function (this: Where) {
-        this.where(typeColumn, type).whereIn(idColumn, [...ids]);
-      };
-      if (first) this.where(clause as never);
-      else this.orWhere(clause as never);
-      first = false;
-    }
-  } as never);
 }
 
 export const byDepth = (a: AncestorRow, b: AncestorRow): number => a.depth - b.depth || (a.ancestor_type < b.ancestor_type ? -1 : a.ancestor_type > b.ancestor_type ? 1 : 0) || (a.ancestor_id < b.ancestor_id ? -1 : a.ancestor_id > b.ancestor_id ? 1 : 0);
@@ -50,7 +34,7 @@ export async function readAncestors(driver: OrmDriver, refs: readonly ResourceRe
       .select()
       .from(AUTHZ_RESOURCE_ANCESTOR_TABLE)
       .columns([...ANCESTOR_COLUMNS]);
-    whereRefs(q as unknown as Where, 'resource_type', 'resource_id', groups);
+    whereInGroups(q, 'resource_type', 'resource_id', groups);
     for (const raw of (await q) as Record<string, unknown>[]) {
       const row: AncestorRow = { resource_type: String(raw.resource_type), resource_id: String(raw.resource_id), ancestor_type: String(raw.ancestor_type), ancestor_id: String(raw.ancestor_id), depth: Number(raw.depth) };
       const key = resourceKey({ type: row.resource_type, id: row.resource_id });

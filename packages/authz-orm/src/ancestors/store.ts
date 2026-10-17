@@ -1,15 +1,14 @@
 import { resourceKey } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { insertChunked, whereInGroups } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 
 import { idLookup, idText, tableOf } from '../ids.js';
 import { classesOf, entryOf } from '../registry.js';
 import type { Link } from './closure.js';
-import { groupIds, whereRefs } from './read.js';
+import { groupIds } from './read.js';
 import { AUTHZ_RESOURCE_ANCESTOR_TABLE, ID_CHUNK, ROW_CHUNK, chunks } from './table.js';
 import type { AncestorRow } from './table.js';
-
-type Where = IWhereBuilder<unknown>;
 
 function splitGroups(refs: readonly ResourceRef[]): Map<string, string[]>[] {
   const out: Map<string, string[]>[] = [];
@@ -22,7 +21,7 @@ export async function readDescendants(driver: OrmDriver, refs: readonly Resource
   const seen = new Map<string, ResourceRef>();
   for (const groups of splitGroups(refs)) {
     const q = driver.select().from(AUTHZ_RESOURCE_ANCESTOR_TABLE).columns(['resource_type', 'resource_id']);
-    whereRefs(q as unknown as Where, 'ancestor_type', 'ancestor_id', groups);
+    whereInGroups(q, 'ancestor_type', 'ancestor_id', groups);
     for (const row of (await q) as Record<string, unknown>[]) {
       const ref = { type: String(row.resource_type), id: String(row.resource_id) };
       seen.set(resourceKey(ref), ref);
@@ -72,7 +71,7 @@ export async function readParents(driver: OrmDriver, refs: readonly ResourceRef[
 export async function deleteRowsOf(driver: OrmDriver, refs: readonly ResourceRef[]): Promise<void> {
   for (const groups of splitGroups(refs)) {
     const q = driver.del().from(AUTHZ_RESOURCE_ANCESTOR_TABLE);
-    whereRefs(q as unknown as Where, 'resource_type', 'resource_id', groups);
+    whereInGroups(q, 'resource_type', 'resource_id', groups);
     await q;
   }
 }
@@ -84,5 +83,5 @@ export async function replaceAncestors(driver: OrmDriver, nodes: readonly Resour
   for (const n of nodes) {
     for (const l of closure.get(resourceKey(n)) ?? []) rows.push({ resource_type: n.type, resource_id: String(n.id), ancestor_type: l.type, ancestor_id: l.id, depth: l.depth });
   }
-  for (const part of chunks(rows, ROW_CHUNK)) await driver.insert().into(AUTHZ_RESOURCE_ANCESTOR_TABLE).values(part);
+  await insertChunked(driver, AUTHZ_RESOURCE_ANCESTOR_TABLE, rows, ROW_CHUNK);
 }
