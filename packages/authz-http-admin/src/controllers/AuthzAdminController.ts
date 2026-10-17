@@ -157,8 +157,7 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminPage} One page of holders
    * @response 400 {AuthzAdminError} invalid_query: a malformed or missing query parameter
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden: the caller lacks authz:holders.read at the resource
-   * @response 404 {AuthzAdminError} not_found: unknown resource
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks authz:holders.read at the resource, or the resource is unknown
    */
   @Get('holders')
   public async listHolders(@Req() req: Request) {
