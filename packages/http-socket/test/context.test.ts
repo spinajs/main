@@ -39,6 +39,15 @@ describe('SocketCommandContext deadlines', () => {
     expect(ctx.signal.aborted).to.be.false;
   });
 
+  it('aborts at once on a deadline of 0 or below', () => {
+    const ctx = create();
+
+    ctx.armDeadline(0);
+
+    expect((ctx.signal.reason as SocketException).code).to.equal('deadline_exceeded');
+    expect(timerOf(ctx)).to.equal(null);
+  });
+
   it('still fires a short deadline', async () => {
     const ctx = create();
 
