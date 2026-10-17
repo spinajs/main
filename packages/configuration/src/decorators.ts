@@ -332,8 +332,10 @@ export function AutoinjectNamedService<T>(path: string, type: Class<T>, options?
  *
  * @param path - configuration path where service type is stored
  * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
+ * @param options - `optional: true` leaves the property undefined (with a warning) when the value at `path` is empty
+ * @throws InvalidOperation when the value at `path` is empty and the injection is not optional
  */
-export function AutoinjectService(path: string, type?: Class<unknown>) {
+export function AutoinjectService(path: string, type?: Class<unknown>, options?: { optional?: boolean }) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
@@ -359,6 +361,9 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         }
 
         if (!cfgVal) {
+          if (!options?.optional) {
+            throw new InvalidOperation(`Configuration value at ${String(data)} is empty. Cannot autoinject service for property ${propertyKey.toString()}`);
+          }
           InternalLogger.warn({ path: data, property: propertyKey.toString() }, 'Configuration value for path ${path} is empty. Cannot autoinject service for property ${property}', "Configuration");
           return undefined;
         }
