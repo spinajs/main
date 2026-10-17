@@ -25,6 +25,7 @@ describe('authz-orm api', () => {
     expect(() => stubs.Owner({ typeColumn: 'InitiatorType' })).to.throw(Error, notImplemented('Owner'));
     expect(() => stubs.registerAccessResource(model, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } })).to.throw(Error, notImplemented('registerAccessResource'));
     expect(() => stubs.Self()).to.throw(Error, notImplemented('Self'));
+    expect(() => stubs.Relation('assignee')).to.throw(Error, notImplemented('Relation'));
     expect(() => stubs.registerAccessResource(model, 'job', { owner: 'initiator', self: 'Uuid', parents: [{ column: 'org_id', type: 'org' }] })).to.throw(Error, notImplemented('registerAccessResource'));
     expect(() => stubs.reparent(model, ['1'], '2', 'project_id')).to.throw(Error, notImplemented('reparent'));
   });
@@ -34,9 +35,10 @@ describe('authz-orm api', () => {
     same<typeof root.Parent, typeof stubs.Parent>(true);
     same<typeof root.Owner, typeof stubs.Owner>(true);
     same<typeof root.Self, typeof stubs.Self>(true);
+    same<typeof root.Relation, typeof stubs.Relation>(true);
     same<typeof root.registerAccessResource, typeof stubs.registerAccessResource>(true);
     same<typeof root.reparent, typeof stubs.reparent>(true);
-    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'registerAccessResource', 'reparent']) {
+    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'Relation', 'registerAccessResource', 'reparent']) {
       expect((root as Record<string, unknown>)[k], k).to.not.equal((stubs as Record<string, unknown>)[k]);
     }
     const t: ResourceType = 'task';

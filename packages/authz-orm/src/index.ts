@@ -5,7 +5,7 @@ export * from './scope-attributes/index.js';
 export * from './schema.js';
 // api.ts is the frozen contract and keeps its stubs; the implementations shadow them here (an
 // explicit export wins over export *), and test/api.test.ts pins that their types equal the contract's.
-export { AccessResource, Parent, Owner, Self, registerAccessResource } from './decorators.js';
+export { AccessResource, Parent, Owner, Self, Relation, registerAccessResource } from './decorators.js';
 export { reparent } from './ancestors/reparent.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';

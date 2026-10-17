@@ -17,6 +17,11 @@ export interface OwnerOptions {
   readonly typeColumn?: string;
 }
 
+export interface RelationOptions {
+  /** A column holding the principal type; without it the relation names `user` principals. */
+  readonly typeColumn?: string;
+}
+
 export interface AccessResourceOptions {
   /** The `@Parent` columns of a model the package does not own. */
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType }[];
@@ -24,6 +29,8 @@ export interface AccessResourceOptions {
   readonly owner?: string | { readonly column: string; readonly typeColumn?: string };
   /** The `self` column: the row is the user whose id it holds. */
   readonly self?: string;
+  /** Named column relations (`@Relation`) of a model the package does not own. */
+  readonly relations?: Readonly<Record<string, string | { readonly column: string; readonly typeColumn?: string }>>;
 }
 
 // default permissions: `${type}:read|create|update|delete`; several models may share one type (B21)
@@ -44,6 +51,11 @@ export function Owner(opts?: OwnerOptions): PropertyDecorator {
 // relation 'self' on the model's type
 export function Self(): PropertyDecorator {
   throw notImplemented('Self');
+}
+
+// relation `name` on the model's type: the column holds the principal's id; checks and lists use it
+export function Relation(name: string, opts?: RelationOptions): PropertyDecorator {
+  throw notImplemented('Relation', name, opts);
 }
 
 // for models a package does not own (JobModel, DbConfig)

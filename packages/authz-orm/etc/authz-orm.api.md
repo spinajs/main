@@ -18,6 +18,10 @@ export interface OwnerOptions {
     /** A column holding the owner's principal type; without it the owner is always a `user`. */
     readonly typeColumn?: string;
 }
+export interface RelationOptions {
+    /** A column holding the principal type; without it the relation names `user` principals. */
+    readonly typeColumn?: string;
+}
 export interface AccessResourceOptions {
     /** The `@Parent` columns of a model the package does not own. */
     readonly parents?: readonly {
@@ -31,11 +35,17 @@ export interface AccessResourceOptions {
     };
     /** The `self` column: the row is the user whose id it holds. */
     readonly self?: string;
+    /** Named column relations (`@Relation`) of a model the package does not own. */
+    readonly relations?: Readonly<Record<string, string | {
+        readonly column: string;
+        readonly typeColumn?: string;
+    }>>;
 }
 export declare function AccessResource(type: ResourceType): ClassDecorator;
 export declare function Parent(type: ResourceType, opts?: ParentOptions): PropertyDecorator;
 export declare function Owner(opts?: OwnerOptions): PropertyDecorator;
 export declare function Self(): PropertyDecorator;
+export declare function Relation(name: string, opts?: RelationOptions): PropertyDecorator;
 export declare function registerAccessResource(model: Class<ModelBase>, type: ResourceType, opts?: AccessResourceOptions): void;
 export declare function reparent(model: Class<ModelBase>, ids: readonly (string | number)[], newParentId: string | number | null, column?: string): Promise<number>;
 ```
