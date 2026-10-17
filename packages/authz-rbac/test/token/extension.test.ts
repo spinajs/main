@@ -189,15 +189,6 @@ describe('authz-rbac token: role rules on token principals', function () {
       expect(await allowed(authz, agent, 'report:export')).to.equal(false);
     });
 
-    it('covers works for a token principal (the synchronous heldNow path)', async () => {
-      const { authz, model } = await l.open();
-      const service = new RbacService(model);
-      await authz.preload(token());
-      expect(service.covers(token(), ['viewer', 'editor'])).to.equal(true);
-      expect(service.covers(token(), ['route.export'])).to.equal(false);
-      expect(service.covers(alice, ['route.export'])).to.equal(true);
-    });
-
     it('a type-level filter after preload answers without IO (B22)', async () => {
       const { authz } = await l.open();
       expect(authz.filterNow(token(), 'file:read', 'file')).to.equal(undefined);
@@ -284,17 +275,6 @@ describe('authz-rbac token: role rules on token principals', function () {
       expect(await names(token(), false)).to.deep.equal(['moderator', 'viewer']);
       expect(await names(token(['editor', 'viewer']), false)).to.deep.equal(['viewer']);
       expect(await names(alice, true)).to.deep.equal(['editor', 'moderator', 'route.export', 'viewer']);
-    });
-
-    it('removes it in covers and coversAt', async () => {
-      const { authz, model, session } = await l.open();
-      const service = new RbacService(model);
-      await authz.preload(token());
-      expect(service.covers(token(), ['viewer'])).to.equal(true);
-      expect(service.covers(token(), ['editor'])).to.equal(false);
-      const ctx = fakeEvaluationContext({ now: session.clock!.now() });
-      expect(await service.coversAt(token(), ['viewer'], GLOBAL, ctx)).to.equal(true);
-      expect(await service.coversAt(token(), ['editor'], GLOBAL, ctx)).to.equal(false);
     });
 
     it('removes it in summarize and summary', async () => {
