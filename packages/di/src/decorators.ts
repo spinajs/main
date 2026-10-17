@@ -1,6 +1,6 @@
 import { ResolveType } from './enums.js';
 import { IAutoinjectOptions, IContainer, IInjectDescriptor } from './interfaces.js';
-import { Class } from './types.js';
+import { Class, Lazy } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 import * as DI from './root.js';
 import { getTypeName, isChainArray, isConstructor, isTypedArray } from './helpers.js';
@@ -159,7 +159,19 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  *
  * ```
  */
-export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
+export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>): any;
+/**
+ * With `{ lazy: true }` the property gets a `Lazy<T>` instead of the instance; `Array.ofType(T)` and `Array.chainOf(T)`
+ * give a `Lazy<T[]>`.
+ */
+export function Autoinject<T>(type: Class<T> | TypedArray<T>, options: IAutoinjectOptions<T> & { lazy: true }): any;
+export function Autoinject<T>(typeOrOptions?: Class<T> | TypedArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
+  if (options?.lazy || (isOptions(typeOrOptions) && typeOrOptions.lazy)) {
+    return LazyAutoinject(typeOrOptions, options ?? {});
+  }
+  if (typeOrOptions instanceof TypedArray && !isChainArray(typeOrOptions)) {
+    throw new Error('@Autoinject: Array.ofType(T) needs { lazy: true }, an eager array property takes the element class');
+  }
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array' || type.name === 'Map';
@@ -225,6 +237,66 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoin
       options: opt?.options,
     });
   });
+}
+
+function isOptions(value: unknown): value is IAutoinjectOptions<unknown> {
+  return typeof value === 'object' && value !== null && !(value instanceof Array);
+}
+
+function LazyAutoinject<T>(type: unknown, opt: IAutoinjectOptions<T>) {
+  if (!isConstructor(type) && !(type instanceof TypedArray)) {
+    throw new Error('@Autoinject: lazy needs an explicit type, a class, Array.ofType(T) or Array.chainOf(T)');
+  }
+  if (opt.check && opt.optional) {
+    throw new Error('@Autoinject: check and optional exclude each other');
+  }
+
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, _target: Class<unknown>, propertyKey: string | symbol) => {
+    if (type instanceof TypedArray && (opt.check || opt.optional)) {
+      throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
+    }
+
+    const args = opt.options !== undefined ? [opt.options] : undefined;
+    const resolve = (container: IContainer) => {
+      const value = opt.optional ? container.resolveOptional(type as Class<T>, args) : container.resolve(type, args, opt.check);
+      return opt.mapFunc ? Promise.resolve(value).then((v) => (Array.isArray(v) ? toMap(v as T[], opt.mapFunc!) : v)) : value;
+    };
+
+    descriptor.inject.push({
+      autoinject: true,
+      autoinjectKey: propertyKey,
+      inject: type,
+      resolveFunc: (_data: unknown, container: IContainer) => lazy(() => resolve(container)),
+    });
+  });
+}
+
+function toMap<T>(values: T[], mapFunc: (x: T) => string | undefined) {
+  const map = new Map<string, T>();
+  for (const v of values) {
+    const key = mapFunc(v);
+    if (key !== undefined) {
+      map.set(key, v);
+    }
+  }
+  return map;
+}
+
+function lazy<T>(resolve: () => unknown): Lazy<T> {
+  let pending: Promise<T> | undefined;
+  return () => {
+    if (!pending) {
+      // the executor turns a synchronous throw into a rejection
+      const attempt = new Promise<T>((res) => res(resolve() as T));
+      attempt.catch(() => {
+        if (pending === attempt) {
+          pending = undefined;
+        }
+      });
+      pending = attempt;
+    }
+    return pending;
+  };
 }
 
 /**
