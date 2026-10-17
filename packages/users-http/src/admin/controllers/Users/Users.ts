@@ -4,7 +4,7 @@ import type { Request } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
-import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { Filter, FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO, readPage, readSort } from '@spinajs/orm-http';
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthzService, GLOBAL, ROLE_NAME_MAX_LENGTH, ROLE_NAME_PATTERN, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, Principal } from '@spinajs/authz';
@@ -324,10 +324,8 @@ export class Users extends BaseController {
     // The query cannot apply a residual, so a conditional grant is refused rather than listing everyone.
     await requireEveryUser(caller, 'users:read');
 
-    // ONE limit for both take and skip. They used to disagree — take fell back
-    // to 10 while skip fell back to 0 — so any request that sent a page but no
-    // limit silently got page 0 whatever it asked for.
-    const limit = Math.min(pagination?.limit || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    // PaginationDTO admits `limit: 0`, which has always meant the default page size.
+    const { limit, offset } = readPage({ limit: pagination?.limit || undefined, page: pagination?.page }, { defaultLimit: DEFAULT_PAGE_SIZE, maxLimit: MAX_PAGE_SIZE });
     const column = this.sortColumn(order);
 
     // Soft-deleted accounts are hidden by every model query, so a DeletedAt
@@ -350,7 +348,7 @@ export class Users extends BaseController {
       )
       .populate(include ?? [])
       .take(limit)
-      .skip(limit * (pagination?.page ?? 0))
+      .skip(offset)
       .order(column, order?.order ?? SortOrder.DESC)
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
@@ -694,17 +692,7 @@ export class Users extends BaseController {
    * {@link SORTABLE_COLUMNS}.
    */
   protected sortColumn(order?: OrderDTO): string {
-    const column = order?.column;
-
-    if (!column) {
-      return 'CreatedAt';
-    }
-
-    if (!SORTABLE_COLUMNS.includes(column)) {
-      throw new InvalidArgument(`Cannot sort by '${column}'. Sortable columns are: ${SORTABLE_COLUMNS.join(', ')}`);
-    }
-
-    return column;
+    return readSort(order, SORTABLE_COLUMNS, { column: 'CreatedAt' }).column;
   }
 
 }
