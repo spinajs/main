@@ -1,6 +1,6 @@
 import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 
-import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, KeyedMutex } from '@spinajs/util';
 
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
@@ -38,19 +38,9 @@ function refusal(st: IdentityStatus): string | null {
 }
 
 // Per process, across containers: two parallel unlinks must not both see the other link as the remaining credential.
-const unlinking = new Map<string, Promise<unknown>>();
+const unlinking = new KeyedMutex<string>();
 
-async function oneAtATime<T>(id: IdentityRef, run: () => Promise<T>): Promise<T> {
-  const key = `${id.type}\u0000${id.id}`;
-  const mine = (unlinking.get(key) ?? Promise.resolve()).then(run, run);
-  const tail = mine.catch(() => undefined);
-  unlinking.set(key, tail);
-  try {
-    return await mine;
-  } finally {
-    if (unlinking.get(key) === tail) unlinking.delete(key);
-  }
-}
+const oneAtATime = <T>(id: IdentityRef, run: () => Promise<T>): Promise<T> => unlinking.runExclusive(`${id.type}\u0000${id.id}`, run);
 
 const usable = (k: KeyRecord, owner: IdentityRef, now: Date): boolean => isPlainObject(k) && isPlainObject(k.owner) && sameRef(k.owner, owner) && k.revokedAt === undefined && (k.expiresAt === undefined || (k.expiresAt instanceof Date && now.getTime() < k.expiresAt.getTime()));
 

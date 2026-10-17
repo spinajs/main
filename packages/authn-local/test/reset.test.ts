@@ -2,11 +2,11 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AuthnContext, AuthnFacts, IdentityRef, ThrottleKey } from '@spinajs/authn/contracts';
+import { TaskTracker } from '@spinajs/util';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
-import { DeferredWork } from '../src/deferred.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService, LocalPasswordServiceDeps } from '../src/service.js';
 import { recordingLog } from './support/recording-log.js';
@@ -501,9 +501,9 @@ describe('LocalPasswordService reset and invite', function () {
     });
   });
 
-  describe('DeferredWork', () => {
+  describe('deferred work', () => {
     it('runs work after the caller continues and drain waits for all of it, including work added while draining', async () => {
-      const work = new DeferredWork({ warn: () => undefined });
+      const work = new TaskTracker(() => undefined);
       const order: string[] = [];
       work.defer(async () => {
         order.push('a');
@@ -517,7 +517,7 @@ describe('LocalPasswordService reset and invite', function () {
     });
 
     it('starts the work only after setImmediate, not in a microtask', async () => {
-      const work = new DeferredWork({ warn: () => undefined });
+      const work = new TaskTracker(() => undefined);
       const order: string[] = [];
       work.defer(async () => {
         order.push('job');

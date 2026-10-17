@@ -2,6 +2,7 @@ import { createPublicKey } from 'node:crypto';
 import type { JsonWebKey as NodeJwk } from 'node:crypto';
 import { importJWK } from 'jose';
 import type { JWK } from 'jose';
+import { memoizeAsync, RefreshingCache } from '@spinajs/util';
 
 import { OIDC_SIGNING_ALGORITHMS } from './contracts.js';
 import type { OidcSigningAlgorithm } from './contracts.js';
@@ -61,11 +62,14 @@ function fits(e: Entry, alg: OidcSigningAlgorithm): boolean {
 
 /** The JWKS of one provider (D9): kept an hour; an unknown kid, or no key fitting the alg, refreshes at most once a minute. */
 export class OidcJwks {
-  protected entries: readonly Entry[] | undefined;
-  protected fetchedAt = 0;
-  protected attemptedAt = Number.NEGATIVE_INFINITY;
-  protected inflight: Promise<void> | undefined;
   protected readonly imported = new Map<string, Promise<CryptoKey>>();
+  protected readonly cache = new RefreshingCache<readonly Entry[]>({
+    load: (now) => this.fetch(now),
+    maxAgeMs: JWKS_MAX_AGE_MS,
+    minIntervalMs: JWKS_REFRESH_MS,
+    onRefresh: () => this.imported.clear(),
+    coolingDownError: () => new Error('authn-oidc: the JWKS fetch failed recently'),
+  });
 
   /** @param relaxed - an http JWKS URI allowed (development and test) */
   constructor(
@@ -88,31 +92,22 @@ export class OidcJwks {
     }
     const kid = header.kid;
 
-    await this.load(now, now >= this.fetchedAt + JWKS_MAX_AGE_MS);
+    await this.cache.get(now);
     let found = this.find(alg, kid);
     if (found === 'missing') {
-      await this.load(now, true);
+      await this.cache.refresh(now);
       found = this.find(alg, kid);
     }
     if (found === 'missing' || found === 'refused') {
       throw new Error('authn-oidc: no key of the provider fits the token');
     }
-    const index = this.entries!.indexOf(found);
-    const cacheKey = `${index}|${alg}`;
-    let key = this.imported.get(cacheKey);
-    if (!key) {
-      const importing = importJWK(found.jwk!, alg) as Promise<CryptoKey>;
-      key = importing;
-      this.imported.set(cacheKey, importing);
-      importing.catch(() => {
-        if (this.imported.get(cacheKey) === importing) this.imported.delete(cacheKey);
-      });
-    }
-    return key;
+    const index = this.cache.value!.indexOf(found);
+    const jwk = found.jwk!;
+    return memoizeAsync(this.imported, `${index}|${alg}`, () => importJWK(jwk, alg) as Promise<CryptoKey>);
   }
 
   protected find(alg: OidcSigningAlgorithm, kid: string | undefined): Entry | 'missing' | 'refused' {
-    const entries = this.entries ?? [];
+    const entries = this.cache.value ?? [];
     if (kid !== undefined) {
       const named = entries.filter((e) => e.kid === kid);
       if (named.length === 0) return 'missing';
@@ -122,34 +117,6 @@ export class OidcJwks {
     const usable = entries.filter((e) => fits(e, alg));
     if (usable.length === 0) return 'missing';
     return usable.length === 1 ? usable[0] : 'refused';
-  }
-
-  /** Fetches when `wanted` and the once-a-minute limit allows; concurrent callers share one fetch. */
-  protected async load(now: number, wanted: boolean): Promise<void> {
-    if (this.inflight) {
-      return this.inflight;
-    }
-    if (!wanted && this.entries) return;
-    if (now < this.attemptedAt + JWKS_REFRESH_MS) {
-      if (this.entries) return;
-      throw new Error('authn-oidc: the JWKS fetch failed recently');
-    }
-    this.attemptedAt = now;
-    this.inflight = this.fetch(now).then(
-      (entries) => {
-        this.entries = entries;
-        this.fetchedAt = now;
-        this.imported.clear();
-      },
-      (err: unknown) => {
-        if (!this.entries) throw err;
-      },
-    );
-    try {
-      await this.inflight;
-    } finally {
-      this.inflight = undefined;
-    }
   }
 
   protected async fetch(now: number): Promise<readonly Entry[]> {

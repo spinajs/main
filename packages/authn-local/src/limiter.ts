@@ -1,53 +1,35 @@
-import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
+import { _check_arg, _gte, _integer, _is_number, concurrencyLimiterStrategy } from '@spinajs/util';
+import type { ConcurrencyLimiterStrategy } from '@spinajs/util';
+
+const NEVER_ABORTED = new AbortController().signal;
 
 /** Runs at most `max` tasks at once; the rest wait in FIFO order. */
 export class ConcurrencyLimiter {
-  private _active = 0;
-  private _peak = 0;
-  private _runs = 0;
-  private readonly _queue: (() => void)[] = [];
+  private readonly strategy: ConcurrencyLimiterStrategy<unknown>;
 
   constructor(public readonly max: number) {
     _check_arg(_is_number(_integer(), _gte(1)))(max, 'max');
+    this.strategy = concurrencyLimiterStrategy({ PermitLimit: max, QueueLimit: Number.POSITIVE_INFINITY });
   }
 
   public get active(): number {
-    return this._active;
+    return this.strategy.stats.active;
   }
 
   public get queued(): number {
-    return this._queue.length;
+    return this.strategy.stats.queued;
   }
 
   public get peak(): number {
-    return this._peak;
+    return this.strategy.stats.peak;
   }
 
   /** Tasks started so far. */
   public get runs(): number {
-    return this._runs;
+    return this.strategy.stats.runs;
   }
 
-  public async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this._active >= this.max) {
-      // A finishing task hands its slot over without decrementing `_active`,
-      // so no newcomer can take it before this waiter resumes.
-      await new Promise<void>((res) => this._queue.push(res));
-    } else {
-      this._active++;
-    }
-    this._peak = Math.max(this._peak, this._active);
-    this._runs++;
-
-    try {
-      return await task();
-    } finally {
-      const next = this._queue.shift();
-      if (next) {
-        next();
-      } else {
-        this._active--;
-      }
-    }
+  public run<T>(task: () => Promise<T>): Promise<T> {
+    return this.strategy(task)({ Signal: NEVER_ABORTED, Properties: new Map() }) as Promise<T>;
   }
 }

@@ -1,3 +1,5 @@
+import { RefreshingCache } from '@spinajs/util';
+
 import type { OidcHttpClient } from './http/client.js';
 import { checkedUrl, isPlainObject } from './support.js';
 
@@ -22,10 +24,12 @@ export function discoveryUrlOf(issuer: string): string {
 
 /** Discovery of one provider: fetched on first use, kept for an hour, a failed refresh keeps the last good document. */
 export class OidcDiscovery {
-  protected document: OidcProviderMetadata | undefined;
-  protected fetchedAt = 0;
-  protected failedAt: number | undefined;
-  protected inflight: Promise<OidcProviderMetadata> | undefined;
+  protected readonly cache = new RefreshingCache<OidcProviderMetadata>({
+    load: () => this.fetch(),
+    maxAgeMs: DISCOVERY_MAX_AGE_MS,
+    retryAfterFailureMs: DISCOVERY_RETRY_MS,
+    coolingDownError: () => new Error(`authn-oidc: discovery of ${this.issuer} failed recently`),
+  });
 
   /** @param relaxed - http endpoints allowed (development and test) */
   constructor(
@@ -38,34 +42,7 @@ export class OidcDiscovery {
     if (!Number.isFinite(now)) {
       throw new Error('authn-oidc: discovery needs a finite time');
     }
-    if (this.document && now < this.fetchedAt + DISCOVERY_MAX_AGE_MS) {
-      return this.document;
-    }
-    if (this.inflight) {
-      return this.inflight;
-    }
-    if (this.failedAt !== undefined && now < this.failedAt + DISCOVERY_RETRY_MS) {
-      if (this.document) return this.document;
-      throw new Error(`authn-oidc: discovery of ${this.issuer} failed recently`);
-    }
-    this.inflight = this.fetch().then(
-      (doc) => {
-        this.document = doc;
-        this.fetchedAt = now;
-        this.failedAt = undefined;
-        return doc;
-      },
-      (err: unknown) => {
-        this.failedAt = now;
-        if (this.document) return this.document;
-        throw err;
-      },
-    );
-    try {
-      return await this.inflight;
-    } finally {
-      this.inflight = undefined;
-    }
+    return this.cache.get(now);
   }
 
   protected async fetch(): Promise<OidcProviderMetadata> {

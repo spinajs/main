@@ -3,6 +3,7 @@ import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { TaskTracker } from '@spinajs/util';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
@@ -23,7 +24,6 @@ import type {
 } from '@spinajs/authn/contracts';
 
 import { AuditLog, publishAuthnEvent } from './audit.js';
-import { DeferredWork } from './deferred.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
@@ -96,7 +96,7 @@ export class LocalPasswordService extends PasswordService {
   @Logger('authn-local')
   protected Log: Log;
 
-  private _work?: DeferredWork;
+  private _work?: TaskTracker;
 
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
@@ -365,8 +365,12 @@ export class LocalPasswordService extends PasswordService {
     await publishAuthnEvent(await this.sinks(), event, this.log());
   }
 
-  protected work(): DeferredWork {
-    return (this._work ??= new DeferredWork(this.log()));
+  protected work(): TaskTracker {
+    if (!this._work) {
+      const log = this.log();
+      this._work = new TaskTracker((err) => log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'Deferred authn-local work failed: ${errorName}'));
+    }
+    return this._work;
   }
 
   protected resetTtlSeconds(): number {
