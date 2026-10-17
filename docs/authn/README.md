@@ -357,8 +357,9 @@ throws only for a fault. Rules:
 - `adminReset(actor, target, ctx)` removes the enrolment and recovery codes and returns
   `{ reset }`, never a secret (SR-10). It does not check who may reset whom: the caller applies the
   target guard (A25, `users:credentials`) first.
-- `TotpService` finds the other MFA steps in the root container. An app that registers steps per
-  child container passes `steps` itself.
+- `TotpService` injects the MFA steps, `SessionIssuer`, `AuthnService`, `AuthnThrottle` and
+  `AuthnAudit` from the container that resolves it. The first three are optional, so the CLI's
+  `adminReset` works without them; a call that needs a missing one throws `InvalidOperation`.
 
 `TotpService` implements and registers `MfaEnrolmentService` (`@spinajs/authn/contracts`), the
 contract behind the `/user/mfa` routes and the admin `POST /authn/admin/users/:uuid/mfa-reset` of
