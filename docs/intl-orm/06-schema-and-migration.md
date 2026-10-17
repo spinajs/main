@@ -7,7 +7,7 @@ The package stores model translations in `intl_resources` and phrase translation
 1. Importing `@spinajs/intl-orm` evaluates `@Migration('default')` on `IntlOrm_2022_06_28_01_13_00`, which registers it in DI. `DiRegistryMigrationSource` of `@spinajs/orm` finds it with no directory scan.
 2. The models `IntlResource` (`@Model('intl_resources')`) and `IntlTranslation` (`@Model('intl_translations')`) are bound to `@Connection('default')`, the connection named by `db.DefaultConnection`.
 3. At `Orm.resolve()`, the migration runs with the other pending migrations when the connection has `Migration.OnStartup` set, or on `orm.Migration.up()`.
-4. `up()` creates both tables and their unique indexes. `down()` does nothing.
+4. `up()` creates both tables and their unique indexes. `down()` drops both tables.
 
 ## Configuration
 
@@ -99,7 +99,7 @@ export class WidenIntlColumns_2026_10_17_09_00_00 extends OrmMigration {
 
 ## Important behaviour
 
-- `down()` is empty: rolling the migration back leaves both tables in place.
+- `down()` drops `intl_translations` and `intl_resources`, with every translation in them.
 - Both tables are on `default`. A model on another connection still has its translations on `default`, so a transaction on the model's connection does not cover its translation rows.
 - SQLite does not enforce `string(n)` lengths; MySQL and MSSQL reject or truncate longer values. A test suite on SQLite will not catch a too-long `Column` or `Key`.
 - `intl_resources` has no foreign keys. Deleting an entity leaves its rows.
