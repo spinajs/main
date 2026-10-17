@@ -5,12 +5,12 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { Configuration, ConfigurationSource } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
-import { Connection, Model, Orm, QueryMiddleware } from '@spinajs/orm';
+import { Connection, Model, Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { DefaultQueueService, Job, QueueJob, QueueMessageHook, QueueTrackingHook } from '@spinajs/queue';
-import { AuthzContributor, ChangeBus, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
+import { DefaultQueueService, Job, QueueJob, QueueMessageHook } from '@spinajs/queue';
+import { ChangeBus, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
@@ -229,7 +229,7 @@ describe('UserPrincipalFactory', function () {
 
     // authz-queue registers its hooks and bus on import; nothing outside this block may see them.
     before(async () => {
-      const added = trackRegistrations([QueueMessageHook, QueueTrackingHook, ChangeBus, 'InitiatorPrincipalFactory', QueryMiddleware, ResourceAdapter, AuthzContributor, ConfigurationSource]);
+      const added = trackRegistrations([QueueMessageHook, ChangeBus, 'InitiatorPrincipalFactory']);
       usersQueue = await import('../src/queue/index.js');
       authzQueue = await import('@spinajs/authz-queue');
       // The root domain of these tests has no queue to carry authz changes over.
