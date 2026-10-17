@@ -129,11 +129,15 @@ describe('holders query on the RbacModel', function () {
   });
 
   it('pages a stable order and refuses an actor without authz:holders.read', async () => {
+    const everyone = await holders();
     const first = await holders({ page: { limit: 2, offset: 0 } });
     const second = await holders({ page: { limit: 2, offset: 2 } });
     expect(first.items).to.have.length(2);
     expect(second.items).to.have.length(2);
     expect(first.total).to.equal(4);
+    const keys = (r: { items: readonly unknown[] }) => (r.items as Holder[]).map((h) => JSON.stringify(h.subject));
+    expect([...keys(first), ...keys(second)]).to.deep.equal(keys(everyone));
+    expect(new Set([...keys(first), ...keys(second)]).size).to.equal(4);
     expect(await rejection(holders({}, D1, 'doc:read', alice))).to.equal('forbidden');
   });
 
@@ -141,6 +145,102 @@ describe('holders query on the RbacModel', function () {
     expect(await rejection(holders({}, D1, 'doc:nope'))).to.equal('invalid_query');
     expect(await rejection(holders({}, ref('doc', 'missing')))).to.equal('forbidden');
     expect(await rejection(holders({}, T1))).to.equal('invalid_query');
+  });
+});
+
+const L1 = ref('project', 'l1');
+const LD = ref('doc', 'ld');
+const filterWorld: World = {
+  now: world.now,
+  permissions: [
+    { name: 'doc:read', types: ['doc', 'project'] },
+    { name: 'doc:edit', types: ['doc', 'project'] },
+    { name: 'authz:holders.read', types: ['doc', 'project', 'team', '$global'] },
+  ],
+  principals: people,
+  scopes: [{ nodes: [{ ref: L1 }, { ref: LD, parent: L1 }, { ref: T1 }] }],
+  combine: fixtureDsl.combine('deny-overrides', 'rbac'),
+  rbac: {
+    roles: [
+      role('viewer', ['doc:read']),
+      role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }),
+      role('projviewer', [{ permission: 'doc:read', grantedAt: ['project'] }]),
+      role('tagged', [{ permission: 'doc:read', requiresTag: 'vip' }]),
+      role('wrongdoc', [{ permission: 'doc:read', on: [{ type: 'doc', id: 'other' }] }]),
+      role('auditor', ['authz:holders.read']),
+      role('team.member', [], { subjectSet: true }),
+    ],
+    assignments: [
+      assignment('f-root', root, 'auditor', GLOBAL),
+      assignment('f-alice-lead-doc', alice, 'lead', LD),
+      assignment('f-bob-lead-project', bob, 'lead', L1),
+      assignment('f-carol-pv-doc', carol, 'projviewer', LD),
+      assignment('f-dave-pv-project', dave, 'projviewer', L1),
+      assignment('f-alice-tagged', alice, 'tagged', L1),
+      assignment('f-bob-wrongdoc', bob, 'wrongdoc', L1),
+      { id: 'f-set-lead-doc', subject: TEAM_SET, role: 'lead', scope: LD, source: 'test' },
+      { id: 'f-set-viewer-project', subject: { set: { role: 'team.member', scope: T1 } }, role: 'viewer', scope: L1, source: 'test' },
+      { id: 'f-link', subject: { type: 'link', id: 'lnk1' }, role: 'viewer', scope: LD, source: 'test' },
+      { id: 'f-any', subject: { type: 'user', id: '*' }, role: 'viewer', scope: LD, source: 'test' },
+    ] as Assignment[],
+  },
+};
+
+describe('holders query: assignments that cannot give the permission here are not listed', function () {
+  this.timeout(30000);
+  const harness = rbacAdminHarness({});
+  let session: HarnessSession;
+  let admin: AuthzAdmin;
+
+  before(async () => {
+    await harness.beforeAll?.();
+  });
+  after(async () => {
+    await harness.afterAll?.();
+  });
+  beforeEach(async () => {
+    session = await harness.setup(filterWorld, { id: 'B26', part: 'holders', case: 'holders-filter', title: 'holders-filter', facets: ['engine', 'admin', 'rbac', 'audit'] });
+    admin = session.admin as AuthzAdmin;
+  });
+  afterEach(async () => {
+    await session?.dispose();
+  });
+
+  const list = async () => (await admin.list(root, { kind: 'holders', scope: LD, permission: 'doc:read' })).items as Holder[];
+  const assignmentsOf = (items: Holder[]) => items.flatMap((h) => h.via.map((v) => v.assignment)).sort();
+
+  it('does not list a role whose implied role applies to descendants only, assigned on the resource itself, but lists it on an ancestor', async () => {
+    const ids = assignmentsOf(await list());
+    expect(ids).to.not.include('f-alice-lead-doc');
+    expect(ids).to.include('f-bob-lead-project');
+  });
+
+  it('does not list a grantedAt-limited grant assigned at a scope type it does not name', async () => {
+    const ids = assignmentsOf(await list());
+    expect(ids).to.not.include('f-carol-pv-doc');
+    expect(ids).to.include('f-dave-pv-project');
+  });
+
+  it('does not list a grant whose on pattern excludes the resource, and keeps a tag-conditional one', async () => {
+    const ids = assignmentsOf(await list());
+    expect(ids).to.not.include('f-bob-wrongdoc');
+    expect(ids).to.include('f-alice-tagged');
+  });
+
+  it('applies the same filters to a set subject', async () => {
+    const items = await list();
+    const set = items.find((h) => JSON.stringify(h.subject) === JSON.stringify(TEAM_SET));
+    expect(set?.via.map((v) => v.assignment)).to.deep.equal(['f-set-viewer-project']);
+  });
+
+  it('gives a link and a wildcard subject no decision, and lists them', async () => {
+    const items = await list();
+    const link = items.find((h) => (h.subject as { type?: string }).type === 'link');
+    const any = items.find((h) => (h.subject as { id?: string }).id === '*');
+    expect(link, 'link listed').to.not.equal(undefined);
+    expect(link!.decision).to.equal(undefined);
+    expect(any, 'wildcard listed').to.not.equal(undefined);
+    expect(any!.decision).to.equal(undefined);
   });
 });
 

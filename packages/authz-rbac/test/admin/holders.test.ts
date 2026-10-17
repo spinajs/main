@@ -3,7 +3,10 @@ import { fakeModelInitContext } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
-import { grantingRoles } from '../../src/admin/holders.js';
+import { AuthzConfigError } from '@spinajs/authz';
+import type { AdminContext } from '@spinajs/authz';
+
+import { grantingRoles, grantingRolesAt, listHolders } from '../../src/admin/holders.js';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '../../src/index.js';
 import type { GrantDef, RoleDef } from '../../src/index.js';
 
@@ -32,5 +35,41 @@ describe('authz-rbac holders: grantingRoles', () => {
     ]);
     expect([...grantingRoles(m, 'doc:read')].sort()).to.deep.equal(['admin', 'editor', 'lead', 'viewer']);
     expect([...grantingRoles(m, 'doc:delete')]).to.deep.equal(['janitor']);
+  });
+  it('leaves out a deny role', async () => {
+    const m = await model([role('viewer', ['doc:read']), role('blocked', ['doc:read'], { deny: true })]);
+    expect([...grantingRoles(m, 'doc:read')]).to.deep.equal(['viewer']);
+  });
+
+  it('counts a descendants-only implied role for ancestors but not for the resource itself', async () => {
+    const m = await model([
+      role('viewer', ['doc:read']),
+      role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }),
+      role('owner', [], { implies: [{ role: 'viewer', at: 'self-and-descendants' }] }),
+    ]);
+    const { self, ancestors } = grantingRolesAt(m, 'doc:read');
+    expect([...self].sort()).to.deep.equal(['owner', 'viewer']);
+    expect([...ancestors].sort()).to.deep.equal(['lead', 'owner', 'viewer']);
+  });
+});
+
+describe('authz-rbac holders: listHolders needs an AuthzService with ancestors and inspect', () => {
+  const query = { permission: 'doc:read', scope: { type: 'doc', id: 'd1' }, expandSets: false, page: { limit: 10, offset: 0 } } as const;
+  const ctxWith = (m: RbacModel, authz: object) => ({ domain: 'root', authz: { models: () => [m], ...authz } }) as unknown as AdminContext;
+
+  it('throws AuthzConfigError without ancestors()', async () => {
+    const m = await model([role('viewer', ['doc:read'])]);
+    let e: unknown;
+    await listHolders(query, ctxWith(m, { inspect: async () => ({}) })).catch((err: unknown) => (e = err));
+    expect(e).to.be.instanceOf(AuthzConfigError);
+    expect((e as Error).message).to.match(/ancestors/);
+  });
+
+  it('throws AuthzConfigError without inspect()', async () => {
+    const m = await model([role('viewer', ['doc:read'])]);
+    let e: unknown;
+    await listHolders(query, ctxWith(m, { ancestors: async () => [] })).catch((err: unknown) => (e = err));
+    expect(e).to.be.instanceOf(AuthzConfigError);
+    expect((e as Error).message).to.match(/inspect/);
   });
 });
