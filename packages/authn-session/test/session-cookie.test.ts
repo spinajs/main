@@ -136,7 +136,16 @@ describe('session cookie attributes', () => {
       // carries a Domain — so the prefix forces all three regardless of config
       expect(cookie.Options.secure, label).to.equal(true);
       expect(cookie.Options.path, label).to.equal('/');
-      expect(cookie.Options, label).to.not.have.property('domain');
+      expect(cookie.Options.domain, label).to.equal(undefined);
+    }
+  });
+
+  it('keeps a Domain from http.cookie.options off a __Host- cookie', () => {
+    // @spinajs/http sets each cookie with its http.cookie.options spread under the cookie's own options.
+    const httpDefaults = { domain: 'example.com' };
+    for (const cookie of [sessionCookie(RAW_ID, {}, in30(), 'production'), clearSessionCookie({}, 'production')]) {
+      expect(cookie.Name).to.equal('__Host-ssid');
+      expect({ ...httpDefaults, ...cookie.Options }.domain).to.equal(undefined);
     }
   });
 
@@ -275,7 +284,7 @@ describe('appEnvOf', () => {
       expect(cookie.Name).to.equal('__Host-ssid');
       expect(cookie.Options.secure).to.equal(true);
       expect(cookie.Options.path).to.equal('/');
-      expect(cookie.Options).to.not.have.property('domain');
+      expect(cookie.Options.domain).to.equal(undefined);
     });
 
     it('stays production when NODE_ENV or APP_ENV names another env after the configuration fell back', async () => {

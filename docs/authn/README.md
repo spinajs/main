@@ -256,7 +256,8 @@ authn: {
   `HttpOnly` always. `'auto'` means `Secure` and the `__Host-` prefix are on unless the app env is
   development or test, so the cookie is named `__Host-ssid`. For local http, name the env
   (`APP_ENV=development`): `secure: false` alone no longer relaxes the cookie, and `hostPrefix: false`
-  alone keeps `Secure` outside development and test. The
+  alone keeps `Secure` outside development and test. A `__Host-` cookie is sent with `Path=/` and no
+  `Domain`, even when `http.cookie.options` sets one. The
   cookie is signed with `http.cookie.secret`, which must not be the public default outside development
   and test (A24).
 
