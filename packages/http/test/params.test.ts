@@ -5,6 +5,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { expect } from 'chai';
+import * as cs from 'cookie-signature';
 
 import { fsService, fs as sFs } from '@spinajs/fs';
 
@@ -733,6 +734,15 @@ describe('controller action test params', function () {
       const spy = CoockieParams.prototype.simple as sinon.SinonSpy;
       await req().get('params/coockie/simple').set('Cookie', 'name=hello');
       expect(spy.args[0][0]).to.eq('hello');
+    });
+
+    it('signed: the s: form and the unprefixed form both verify', async () => {
+      const spy = CoockieParams.prototype.signed as sinon.SinonSpy;
+      const secret = DI.get(Configuration)!.get<string>('http.cookie.secret');
+      await req().get('params/coockie/signed').set('Cookie', `name=${encodeURIComponent('s:' + cs.sign('hello', secret))}`);
+      await req().get('params/coockie/signed').set('Cookie', `name=${encodeURIComponent(cs.sign('legacy', secret))}`);
+      await req().get('params/coockie/signed').set('Cookie', `name=${encodeURIComponent('s:' + cs.sign('forged', 'other'))}`);
+      expect(spy.args.map((a) => a[0])).to.deep.eq(['hello', 'legacy', null]);
     });
   });
 

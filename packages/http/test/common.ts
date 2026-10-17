@@ -114,6 +114,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
 
         port: 8888,
+
+        cookie: { secret: 'http-test-cookie-secret' },
         middlewares: [
           (helmet as any)(),
           express.json({

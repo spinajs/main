@@ -271,7 +271,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       expect(done.status).to.eq(303);
       expect(done.headers.get('location')).to.eq('/');
       const signed = cookiesOf(done)[sessionName];
-      const rawId = cs.unsign(signed, COOKIE_SECRET);
+      expect(signed, 'express signed-cookie format').to.match(/^s:/);
+      const rawId = cs.unsign(signed.slice(2), COOKIE_SECRET);
       expect(rawId, 'a signed session cookie').to.be.a('string');
       expect((await sessions.restore(rawId as string))?.identity).to.deep.eq(alice);
       expect(cookiesOf(done)[flowName]).to.eq('');
