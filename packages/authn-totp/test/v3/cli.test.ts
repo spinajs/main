@@ -15,7 +15,6 @@ import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 import { TotpService } from '../../src/service/index.js';
 import { MfaReset } from '../../src/cli/index.js';
 import { CLI_ACTOR } from '../../src/cli/common.js';
-import { registered } from '../../src/support/registered.js';
 import authnTotpConfig from '../../src/config/authn-totp.js';
 import * as pkg from '../../src/index.js';
 import { renderTemplate } from '@spinajs/log';
@@ -180,7 +179,7 @@ describe('v3 cli: authn:mfa-reset', () => {
 
     it('adminReset needs only the step and the sinks', async () => {
       for (const t of [SessionIssuer, AuthnService, AuthnThrottle]) {
-        assert.strictEqual(registered(t), false, t.name);
+        assert.strictEqual(DI.hasImplementation<unknown>(t), false, t.name);
       }
       await enrol();
       seen.length = 0;
@@ -206,7 +205,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   });
 });
 
-describe('v3 support: registered', () => {
+describe('v3 support', () => {
   abstract class Probe {}
   class ProbeImpl extends Probe {}
 
@@ -215,12 +214,12 @@ describe('v3 support: registered', () => {
     DI.clearCache();
   });
 
-  it('is false before, true while and false after a registration', () => {
-    assert.strictEqual(registered(Probe), false);
+  it('DI.hasImplementation is false before, true while and false after a registration', () => {
+    assert.strictEqual(DI.hasImplementation(Probe), false);
     DI.register(ProbeImpl).as(Probe);
-    assert.strictEqual(registered(Probe), true);
+    assert.strictEqual(DI.hasImplementation(Probe), true);
     DI.unregister(ProbeImpl);
-    assert.strictEqual(registered(Probe), false);
+    assert.strictEqual(DI.hasImplementation(Probe), false);
   });
 
   it('a failed command without an IdentityStore says so', async () => {

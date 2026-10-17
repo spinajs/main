@@ -1,7 +1,7 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { KeyRegistry } from '@spinajs/authn/contracts';
@@ -28,7 +28,7 @@ export class KeyRoutesOn extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(KeyRegistry as unknown as Class<KeyRegistry>)) throw notFound('not_found', 'the key routes are off');
+    if (!this.Container.hasRegistered(KeyRegistry)) throw notFound('not_found', 'the key routes are off');
     if (!(this.ChallengeAudience ?? this.AssertionAudience)) throw notFound('not_found', 'the key routes are off');
   }
 }

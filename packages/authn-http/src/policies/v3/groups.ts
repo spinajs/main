@@ -1,5 +1,5 @@
 import { Autoinject, Container } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { ImpersonationGuard, RoleSource } from '@spinajs/authn/contracts';
@@ -19,7 +19,7 @@ export class RoleSourceRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(RoleSource as unknown as Class<RoleSource>)) throw notFound('not_found', 'role switch is off: no RoleSource is registered');
+    if (!this.Container.hasRegistered(RoleSource)) throw notFound('not_found', 'role switch is off: no RoleSource is registered');
   }
 }
 
@@ -33,6 +33,6 @@ export class ImpersonationGuardRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(ImpersonationGuard as unknown as Class<ImpersonationGuard>)) throw notFound('not_found', 'impersonation is off: no ImpersonationGuard is registered');
+    if (!this.Container.hasRegistered(ImpersonationGuard)) throw notFound('not_found', 'impersonation is off: no ImpersonationGuard is registered');
   }
 }

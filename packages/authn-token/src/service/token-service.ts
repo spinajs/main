@@ -1,4 +1,4 @@
-import { DI, Inject, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Inject, Injectable } from '@spinajs/di';
 import { Config, service } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -151,6 +151,9 @@ export class DbTokenService extends TokenService {
 
   @Logger('authn-token')
   protected Log: Log;
+
+  @Autoinject(RoleSource, { optional: true })
+  protected Roles: RoleSource | undefined;
 
   constructor(protected readonly owners: TokenOwnerResolver, protected readonly profiles: TokenProfilePolicy, protected readonly identities: IdentityStore) {
     super();
@@ -508,12 +511,11 @@ export class DbTokenService extends TokenService {
    * check time. Without a registered RoleSource the roles are stored as given.
    */
   protected async ownerHolds(owner: IdentityRef, roles: readonly string[]): Promise<boolean> {
-    // Resolving an unregistered abstract class builds it bare and records it under its own name.
-    if (!(DI.getRegisteredTypes(RoleSource) ?? []).some((t) => t !== RoleSource)) {
+    const source = this.Roles;
+    if (source === undefined) {
       return true;
     }
-    const source = await DI.resolve(RoleSource);
-    if (typeof source?.rolesOf !== 'function') {
+    if (typeof source.rolesOf !== 'function') {
       throw new Error('The registered RoleSource has no rolesOf()');
     }
 

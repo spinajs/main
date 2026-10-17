@@ -7,7 +7,6 @@ import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, is
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
-import { registered } from '../support/registered.js';
 
 export type TotpBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
 /** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
@@ -270,9 +269,9 @@ export class TotpService {
     const d = this.deps;
     switch (key) {
       case 'step':
-        return d.step ?? (registered(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
+        return d.step ?? (DI.hasImplementation(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
       case 'steps':
-        return d.steps ?? (registered(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
+        return d.steps ?? (DI.hasImplementation(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
       case 'sessions':
         return d.sessions ?? (await resolveOne(SessionIssuer)) ?? missing('SessionIssuer');
       case 'authn':
@@ -280,7 +279,7 @@ export class TotpService {
       case 'throttle':
         return d.throttle ?? (await resolveOne(AuthnThrottle)) ?? missing('AuthnThrottle');
       case 'sinks':
-        return d.sinks ?? (registered(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
+        return d.sinks ?? (DI.hasImplementation(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
       case 'maxAgeSeconds':
         return d.maxAgeSeconds ?? this.MaxAgeSeconds;
     }
@@ -292,8 +291,7 @@ function missing(name: string): never {
 }
 
 async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promise<T | null> {
-  const t = type as unknown as new () => T;
-  return registered(type) ? ((await DI.resolve(t)) as T) : null;
+  return DI.hasImplementation(type) ? ((await DI.resolve(type)) as T) : null;
 }
 
 /** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */

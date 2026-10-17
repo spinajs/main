@@ -1,5 +1,5 @@
 import { Autoinject, Container } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
@@ -19,6 +19,6 @@ export class TokenServiceRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(TokenService as unknown as Class<TokenService>)) throw notFound('not_found', 'the token routes are off: no TokenService is registered');
+    if (!this.Container.hasRegistered(TokenService)) throw notFound('not_found', 'the token routes are off: no TokenService is registered');
   }
 }

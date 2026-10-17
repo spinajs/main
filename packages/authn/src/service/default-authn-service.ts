@@ -459,8 +459,7 @@ export class DefaultAuthnService extends AuthnService {
   private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
     try {
       const chain = (await this.Container.resolve(Array.chainOf(ExternalLoginHook))) as readonly ExternalLoginHook[];
-      // A resolve of the abstract base itself leaves an instance of it in the chain; it is no hook.
-      for (const hook of chain.filter((h) => h?.constructor !== ExternalLoginHook)) await hook.afterLogin(id, external);
+      for (const hook of chain) await hook.afterLogin(id, external);
       return null;
     } catch (err) {
       return errorClass(err);

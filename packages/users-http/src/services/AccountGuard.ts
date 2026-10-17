@@ -167,9 +167,7 @@ export class DefaultAccountGuard extends AccountGuard {
 
   /** The uuids the AccountStatusSource answers exactly `true` for, asked in one call; undefined when it is missing or fails. */
   protected async inService(uuids: readonly string[]): Promise<ReadonlySet<string> | undefined> {
-    // null (never or no longer registered) and an empty list both mean none.
-    const registered = DI.getRegisteredTypes(AccountStatusSource);
-    if (!registered || registered.length === 0) {
+    if (!DI.hasImplementation(AccountStatusSource)) {
       if (!this.warnedNoStatusSource) {
         this.warnedNoStatusSource = true;
         this.Log.warn('users-http AccountGuard: no AccountStatusSource is registered, so no account counts as a remaining holder of the privileged permission');
