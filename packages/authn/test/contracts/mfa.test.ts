@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 import { AsyncService } from '@spinajs/di';
-import { MfaPolicy, MfaStep } from '../../src/contracts/mfa.js';
+import { MfaEnrolmentService, MfaPolicy, MfaStep } from '../../src/contracts/mfa.js';
 import { SecretStore } from '../../src/contracts/secrets.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
@@ -142,11 +142,12 @@ const docOf = (members: MemberShape[], name: string) => members.find((m) => m.na
 
 describe('mfa and secret contracts', () => {
   describe('runtime', () => {
-    it('exports MfaStep, MfaPolicy and SecretStore from the contracts index as plain abstract classes', () => {
+    it('exports MfaStep, MfaPolicy, MfaEnrolmentService and SecretStore from the contracts index as plain abstract classes', () => {
       expect(index.MfaStep).to.eq(MfaStep);
       expect(index.MfaPolicy).to.eq(MfaPolicy);
+      expect(index.MfaEnrolmentService).to.eq(MfaEnrolmentService);
       expect(index.SecretStore).to.eq(SecretStore);
-      for (const c of [MfaStep, SecretStore]) {
+      for (const c of [MfaStep, MfaEnrolmentService, SecretStore]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
@@ -199,7 +200,7 @@ describe('mfa and secret contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('mfa.ts holds MfaStep and MfaPolicy with the design members', () => {
+    it('mfa.ts holds MfaStep, MfaPolicy and MfaEnrolmentService with the design members', () => {
       expect(shape(classMembers('mfa.ts'))).to.deep.eq({
         MfaStep: {
           base: null,
@@ -220,6 +221,17 @@ describe('mfa and secret contracts', () => {
           members: [
             { name: 'steps', modifiers: ['abstract'], optional: false, params: [] },
             { name: 'required', modifiers: ['abstract'], optional: false, params: ['id', 'facts'] },
+          ],
+        },
+        MfaEnrolmentService: {
+          base: null,
+          members: [
+            { name: 'enabled', modifiers: ['abstract'], optional: false, params: ['steps'] },
+            { name: 'begin', modifiers: ['abstract'], optional: false, params: ['session', 'ctx', 'reauth'] },
+            { name: 'confirm', modifiers: ['abstract'], optional: false, params: ['session', 'code', 'ctx'] },
+            { name: 'disable', modifiers: ['abstract'], optional: false, params: ['session', 'code', 'ctx', 'reauth'] },
+            { name: 'regenerateRecoveryCodes', modifiers: ['abstract'], optional: false, params: ['session', 'ctx', 'reauth'] },
+            { name: 'adminReset', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'ctx'] },
           ],
         },
       });
