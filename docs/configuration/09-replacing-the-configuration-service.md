@@ -196,7 +196,7 @@ void main();
 - `@AutoinjectNamedService(s)` resolve that configuration first; `@Config` and `@AutoinjectService` need it resolved.
 - A configuration registered as a factory (`child.register(() => instance).as(Configuration)`) is read by calling the factory on every read: return an already-resolved instance from it.
 - `cfg()`, `_cfg()`, `service()` and `_service()` always use the root configuration.
-- Protocols are resolved from the root container for every configuration.
+- Protocols are resolved in each configuration's own container, from the nearest container that registers any.
 - Schemas registered in an ancestor apply to a child's `FrameworkConfiguration`; schemas registered in the child do not apply to the parent.
 - `FrameworkConfiguration` reads `--app`, `--apppath` and `--env` from `process.argv` in its constructor. A subclass for tests sets `this.Env` after `super()` to stay independent of the command line.
 

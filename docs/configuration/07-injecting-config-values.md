@@ -30,7 +30,7 @@ When that configuration is not resolved yet, the read throws `InvalidOperation('
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Config(path, options?)` | property | `defaultValue?: unknown` returned when the value is `undefined`; `required?: boolean` stored for admin UIs, **not enforced**; `expose`, `exposeOptions` added by `@spinajs/configuration-db-source` | Replaces the property with a getter that reads `path` from the configuration of the building container on every access. |
+| `@Config(path, options?)` | property | `defaultValue?: unknown` returned when the value is `undefined` or a `ConfigVar` that is not ready; `required?: boolean` stored for admin UIs, **not enforced**; `expose`, `exposeOptions` added by `@spinajs/configuration-db-source` | Replaces the property with a getter that reads `path` from the configuration of the building container on every access. |
 
 ## Configuration
 
@@ -120,7 +120,7 @@ void main();
 ## Important behaviour
 
 - The property is a live view: after `set()`, `load()` or a database watch update, the next read returns the new value.
-- `defaultValue` is a fallback for `undefined` only. A `null` from a source is returned as `null`.
+- `defaultValue` is a fallback for `undefined` and for a `ConfigVar` that reads `null` (not ready yet). A plain `null` from a source is returned as `null`.
 - `required` is not enforced. Use a [schema](06-schema-validation.md) with `required`.
 - Read `@Config` properties in `resolve()` or later. In the constructor and in field initializers, the container is not injected yet, so the root configuration is read.
 - A class with `@Config` resolves synchronously, even before the configuration boots; only reading the property needs the configuration.

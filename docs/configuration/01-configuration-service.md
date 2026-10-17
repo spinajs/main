@@ -12,12 +12,14 @@
 4. **Resolve the sources.** `loadSources()` resolves `Array.ofType(ConfigurationSource)` with the constructor arguments `[RunApp, CustomConfigPaths, AppBaseDir, Env]` and sorts them by `Order`, ascending.
 5. **Load.** `load()` builds the tree:
    1. resets the tree to `{}`;
-   2. sets `process.env` to `process.env`, merged with the `process.env` DI value, plus `APP_ENV` (see [Environments](02-environments.md));
-   3. calls `Load(this)` on each source in order and deep-merges the result;
-   4. merges what `onLoad()` returns (`null` in `FrameworkConfiguration`; subclasses override it);
-   5. merges every `__configuration__` DI value, key by key, with `merge()`;
-   6. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
-   7. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
+   2. sets `process.env` to `process.env`, merged with the `process.env` DI value of its container, plus `APP_ENV` (see [Environments](02-environments.md));
+   3. merges this package's defaults: `app.*`, and the `configuration.*` flags derived from that `APP_ENV`;
+   4. calls `Load(this)` on each source in order and deep-merges the result;
+   5. merges what `onLoad()` returns (`null` in `FrameworkConfiguration`; subclasses override it);
+   6. deep-merges every `__configuration__` DI value at the root;
+   7. with an app (`RunApp`), appends `<AppBaseDir>/<RunApp>/<name>` to every `system.dirs.<name>` list (`applyAppDirs()`);
+   8. resolves protocol strings with `loadProtocolVars()` (see [Config var protocols](05-config-var-protocols.md));
+   9. wraps each object that holds a `ConfigVar` in a proxy, so reading the key returns the var's value.
 6. **Validate.** `validate()` checks every registered schema in the container lineage, applies defaults and coercion, and throws one `InvalidConfiguration` listing every violation.
 7. **Configure.** `configure()` calls `configure()` on every top-level section that defines one, with `this` bound to the configuration.
 8. DI caches the instance. Every later `DI.resolve(Configuration)` in that container returns it.
@@ -50,11 +52,11 @@ sequenceDiagram
 
 | Method | Effect |
 | --- | --- |
-| `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned only when the value is `undefined`. Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
+| `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned when the value is `undefined`, or is a `ConfigVar` that reads `null` (not ready yet). Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
 | `set(path, value)` | Replaces the value at `path`, creating missing objects. Not validated. |
 | `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated. A no-op when nothing is stored at `path`. Not validated. |
 | `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` and schema defaults are lost; the tree is not validated again. |
-| `mergeSource(sourceClass)` | Resolves a source and adds it to the source list for later `load()` calls. See [Important behaviour](#important-behaviour). |
+| `mergeSource(sourceClass)` | Resolves a source, deep-merges what it loads into the current tree and adds it to the source list for later `load()` calls. Protocol strings it brings are not resolved until the next `load()`. |
 | `RootConfig` | The whole tree. |
 | `RunApp`, `AppBaseDir`, `Env` | The app name, the apps directory and the environment from the options or the command line. |
 | `validateModule(schema)` | Checks one schema against the loaded tree; used by [`registerConfigurationSchema`](06-schema-validation.md). |
@@ -74,13 +76,13 @@ sequenceDiagram
 
 The options win over the command line. Command-line values must be separate tokens: `--env prod`, not `--env=prod`.
 
-The package ships its own config module, merged from `lib/<mjs|cjs>/config/configuration.js` by `JsFileSource`:
+`load()` sets this package's defaults before the sources merge, so a source can override them:
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `configuration.isDevelopment` | `boolean` | from `APP_ENV` / `NODE_ENV` | See [Environments](02-environments.md). |
-| `configuration.isProduction` | `boolean` | from `APP_ENV` / `NODE_ENV` | See [Environments](02-environments.md). |
-| `configuration.isLocal` | `boolean` | from `APP_ENV` / `NODE_ENV` | See [Environments](02-environments.md). |
+| `configuration.isDevelopment` | `boolean` | from the resolved `APP_ENV` | See [Environments](02-environments.md). |
+| `configuration.isProduction` | `boolean` | from the resolved `APP_ENV` | See [Environments](02-environments.md). |
+| `configuration.isLocal` | `boolean` | from the resolved `APP_ENV` | See [Environments](02-environments.md). |
 | `app.name` | `string` | `'spinajs'` | Application name. |
 | `app.version` | `string` | `'1.0.0'` | Application version. |
 | `process.env` | `object` | the process environment | Filled by `load()`, not by a file. |
@@ -107,7 +109,7 @@ export default {
 | --- | --- | --- | --- | --- |
 | Configuration | `Configuration`, singleton per container (`@Injectable(Configuration)`) | `FrameworkConfiguration` | `BrowserFrameworkConfiguration` ([browser entry](10-browser-configuration.md)), `ElectronRendererConfiguration` (`@spinajs/electron`) | Subclass and `DI.register(MyConfiguration).as(Configuration)` before the first resolve. See [Replacing the configuration service](09-replacing-the-configuration-service.md). |
 | Configuration sources | `ConfigurationSource`, resolved as `Array.ofType` | `JsFileSource`, `JsonFileSource` | `ConfiguratioDbSource` (`@spinajs/configuration-db-source`), `StaticConfigurationSource(...)` | See [Custom configuration sources](04-custom-configuration-sources.md). |
-| Protocols | `ConfigVarProtocol`, resolved as `Array.ofType` from the root container | none | `fs-path://`, `aws-secrets://`, `aws-parameters://` | See [Config var protocols](05-config-var-protocols.md). |
+| Protocols | `ConfigVarProtocol`, resolved as `Array.ofType` in the configuration's container | none | `fs-path://`, `aws-secrets://`, `aws-parameters://` | See [Config var protocols](05-config-var-protocols.md). |
 | Schemas | `__configurationSchema__` values in the container lineage | none | none | See [Schema validation](06-schema-validation.md). |
 | Code-only config | `__configuration__` values (`DI.register(obj).asValue('__configuration__')`) | none | none | See [Custom configuration sources](04-custom-configuration-sources.md#the-__configuration__-value). |
 | Environment override | `process.env` value (`DI.register(env).asValue('process.env')`) | none | none | Merged over `process.env` in `load()`; see [Environments](02-environments.md). |
@@ -157,10 +159,6 @@ void main();
 - Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
 - `set()` and `merge()` do not validate, and `load()` does not validate again. A `load()` drops the defaults schemas applied at boot.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.
-- `merge()` used by the `__configuration__` step has the same limit: a `__configuration__` value whose top-level key no source defines is dropped in `FrameworkConfiguration`. `BrowserFrameworkConfiguration` merges it at the root and keeps it.
-- `mergeSource()` adds the source to the list used by later `load()` calls, but merges nothing into the current tree. Call `load()` after it.
-- `resolve()` sets `configuration` to the shipped defaults before `load()` resets the tree, so that `set` has no effect. The `configuration.*` and `app.*` defaults come only from the shipped config file. A configuration without file sources (a `loadSources()` override) has no `configuration.isProduction`.
-- `applyAppDirs()` runs before `load()`, while the tree is still empty, so it never adds app directories to `system.dirs.*`.
 - The `system` section is not wrapped in a proxy: a `ConfigVar` stored directly under `system` is returned as the `ConfigVar` object.
 - Reading `configuration.get()` before `resolve()` finishes returns the partial tree; read config in your service's `resolve()` or later.
 
@@ -178,15 +176,6 @@ configuration.merge('featureFlags', { betaCheckout: true });
 
 // Do
 configuration.set('featureFlags.betaCheckout', true);
-```
-
-```ts
-// Don't: mergeSource() alone does not change the current tree
-await configuration.mergeSource(TenantSource);
-
-// Do
-await configuration.mergeSource(TenantSource);
-await configuration.load();
 ```
 
 ## Examples
