@@ -5,6 +5,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import { ChangeBus, engineLog, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
+import { ListenerSet } from '@spinajs/util';
 
 interface WireChange {
   domain?: unknown;
@@ -52,8 +53,8 @@ export function reviveChange(raw: unknown): AuthzChange | undefined {
 @Injectable(ChangeBus)
 export class QueueChangeBus extends ChangeBus {
   protected readonly node = randomUUID();
-  private readonly subscribers = new Set<(c: AuthzChange) => void>();
   private readonly log = engineLog('authz-queue-bus');
+  private readonly subscribers = new ListenerSet<AuthzChange>((err) => this.log.error({ error: thrownError(err) }, 'authz change subscriber failed'));
   private queue?: Promise<QueueService>;
   private retried = false;
   private disposed = false;
@@ -76,12 +77,9 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   subscribe(fn: (c: AuthzChange) => void): () => void {
-    const entry = (c: AuthzChange) => fn(c);
-    this.subscribers.add(entry);
+    const unsubscribe = this.subscribers.add(fn);
     this.listenWithRetry();
-    return () => {
-      this.subscribers.delete(entry);
-    };
+    return unsubscribe;
   }
 
   /** AuthzService subscribes once, at boot: a queue that is not ready yet must not leave the node deaf. */
@@ -158,17 +156,6 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   private deliver(change: AuthzChange): void {
-    for (const fn of [...this.subscribers]) {
-      try {
-        const r = fn(change) as unknown;
-        if (r !== null && typeof r === 'object' && typeof (r as Promise<unknown>).then === 'function') (r as Promise<unknown>).then(undefined, (err) => this.fail(err));
-      } catch (err) {
-        this.fail(err);
-      }
-    }
-  }
-
-  private fail(err: unknown): void {
-    this.log.error({ error: thrownError(err) }, 'authz change subscriber failed');
+    this.subscribers.emit(change);
   }
 }
