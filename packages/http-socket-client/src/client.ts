@@ -92,16 +92,22 @@ export class SocketClient {
       io: options.io,
       onListenerError,
     });
-    this.commands = new CommandDispatcher(this.connection, options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS);
-    this.durableQueue = new DurableQueue({
-      connection: this.connection,
-      commands: this.commands,
-      store: options.outbox ?? new MemoryOutboxStore(),
-      clientId: this.clientId,
-      reconnect: options.reconnect,
-      durable: options.durable,
-      onListenerError,
-    });
+    try {
+      this.commands = new CommandDispatcher(this.connection, options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+      this.durableQueue = new DurableQueue({
+        connection: this.connection,
+        commands: this.commands,
+        store: options.outbox ?? new MemoryOutboxStore(),
+        clientId: this.clientId,
+        reconnect: options.reconnect,
+        durable: options.durable,
+        onListenerError,
+      });
+    } catch (error) {
+      // invalid options must not leave a socket behind
+      this.connection.close();
+      throw error;
+    }
     this.durableQueue.events.on('acked', (event) => this.lifecycle.emit('acked', event));
     this.durableQueue.events.on('failed', (event) => this.lifecycle.emit('failed', event));
     this.durableQueue.events.on('held', (event) => this.lifecycle.emit('held', event));
@@ -142,6 +148,7 @@ export class SocketClient {
    * Terminal: rejects pending commands and releases the socket. Resolves once the outbox has no write of this
    * client in flight and every answered durable command has been reported: await it before opening the next
    * client or store on the same outbox, and keep the `acked` / `failed` listeners until then.
+   * The outbox store is not closed: call `store.close()` yourself to release its lock and connection before reopening the same name.
    */
   public close(): Promise<void> {
     this.controlled = true;
@@ -159,7 +166,7 @@ export class SocketClient {
   }
 
   /**
-   * Persisted, ordered and retried until the server answers ( spec §6 ); the server command must be idempotent and ordered: 'client'.
+   * Persisted, ordered and retried until the server answers ( spec §6 ); the server command must be idempotent; `ordered: 'client'` is optional, the `after` fence alone orders execution.
    * With the default MemoryOutboxStore the queue is lost on reload; pass `outbox` ( IndexedDbOutboxStore in browsers, FileOutboxStore in Node ) to keep it.
    */
   public durable<R = unknown>(name: string, payload?: unknown, options?: DurableCommandOptions): Promise<R> {
