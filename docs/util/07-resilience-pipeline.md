@@ -138,6 +138,15 @@ Strategies are configured by the options object of each `add*` call. Every durat
 | `PermitLimit` | `number` | required | `>= 1` | Executions running at once |
 | `QueueLimit` | `number` | `0` | `>= 0` | Callers waiting for a permit, first in first out; one more is rejected with `RateLimiterRejectedException` |
 
+To read the limiter's counters, build the strategy yourself with `concurrencyLimiterStrategy(options)` and pass it to `addStrategy`. Its `stats` object reads live values: `active` (executions holding a permit), `queued` (waiting for one), `peak` (highest `active` seen) and `runs` (executions started; a rejected call is not counted).
+
+```ts
+const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 4, QueueLimit: Infinity });
+const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+// later
+log.info({ active: limiter.stats.active, peak: limiter.stats.peak }, 'hash pool');
+```
+
 ### Exceptions
 
 All extend `Exception` from `@spinajs/exceptions`.

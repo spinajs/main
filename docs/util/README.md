@@ -37,6 +37,7 @@ The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@s
 | [Custom throttle stores](11-custom-throttle-stores.md) | The `ThrottleStore` contract, writing a shared store, the `MemoryThrottleStore` limiter factory |
 | [Collections, objects and JSON](12-collections-objects-and-json.md) | `toArray`, `chunk`, `unique`, `groupBy`, `tryGetHash`, `deepFreeze`, `frozenCopy`, Map/Set-aware JSON |
 | [Strings, functions and type guards](13-strings-functions-and-type-guards.md) | `trimChar`, `truncate`, `Lazy`, `once`, `memoize`, `isPromise`, `isThenable`, `isDefined` |
+| [Async helpers, caches and graphs](14-async-helpers-caches-and-graphs.md) | `onceAsync`, `memoizeAsync`, `singleFlight`, `KeyedMutex`, `TaskTracker`, `settleWithin`, `Deadline`, `RefreshingCache`, `LruTtlCache`, `BoundedMap`, `Clock`, `ListenerSet`, `findCycle`, `reachable` |
 | [Crypto helpers](14-crypto.md) | `@spinajs/util/crypto`: `sha256`, `hmacSha256`, `taggedHash`, constant-time comparison, strict base64url/base64/base32, `randomToken`, `processSecret`, `parseKeyMaterial` |
 
 ## Quick start
