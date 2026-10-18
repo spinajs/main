@@ -8,7 +8,7 @@ Helpers for arrays, `Map` caches, immutable objects, and JSON that keeps `Map` a
 
 | Function | Returns | Notes |
 | --- | --- | --- |
-| `toArray(val)` | `val` when it is an array, `[val]` for a truthy value, `[]` otherwise | `0`, `''` and `false` become `[]` |
+| `toArray(val)` | `val` when it is an array, `[]` for `null` or `undefined`, `[val]` otherwise | `0`, `''` and `false` become `[0]`, `['']`, `[false]` |
 | `chunk(arr, size)` | Consecutive slices of at most `size` | Throws `Error('chunk size must be >= 1')` |
 | `unique(arr)` | Duplicates removed, first occurrence kept | `Set` equality (`SameValueZero`) |
 | `uniqueBy(arr, keyFn)` | Duplicates by `keyFn(item)` removed, first kept | Like lodash `uniqBy` |

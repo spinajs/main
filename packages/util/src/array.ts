@@ -5,10 +5,10 @@ type ArrayItemType<T> = T extends (infer U)[] ? U : T;
  * return value
  *
  * @param val val to convert
- * @returns val if array, or [val]
+ * @returns val if array, [] for null / undefined, or [val]
  */
 export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayItemType<T>[] => {
-  return global.Array.isArray(val) ? val : val ? [val] : [];
+  return global.Array.isArray(val) ? val : val === null || val === undefined ? [] : [val];
 };
 
 /**
