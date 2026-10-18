@@ -2,6 +2,9 @@ import { CORE_FILTER_OPS, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz'
 import type { AuthzService, DecisionRequest, Principal, ResourceFilter } from '@spinajs/authz';
 import { agentPrincipal, fakeEvaluationContext, fakeModelInitContext, fixtureDsl, sealPrincipal, userPrincipal } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, HostSetup, World } from '@spinajs/authz-testing';
+import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -345,12 +348,12 @@ describe('authz-rbac token: role rules on token principals', function () {
       gather: (request: DecisionRequest) => ({ assignments: [...rows], request: { ...request } }),
     });
 
-    async function model(extensions: readonly RbacExtension[]): Promise<RbacModel> {
+    async function model(extensions: readonly RbacExtension[], container?: IContainer): Promise<RbacModel> {
       const registry = new PermissionRegistryImpl();
       registry.register([{ name: 'file:read' }, { name: 'report:export' }], 'test');
       registry.freeze();
       const m = new RbacModel({ ...opts(), extensions });
-      await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
+      await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry, ...(container ? { container } : {}) }));
       return m;
     }
 
@@ -370,6 +373,33 @@ describe('authz-rbac token: role rules on token principals', function () {
       expect(isTokenRoleExtension(m.extensions[1])).to.equal(true);
       expect(isTokenRoleExtension(fresh)).to.equal(false);
       expect(Object.isFrozen(m.extensions)).to.equal(true);
+    });
+
+    it('reads authz.token from a Configuration its container resolved, and never starts loading one', async () => {
+      let built = 0;
+      class TokenConfiguration {
+        constructor() {
+          built++;
+        }
+
+        get<T>(path: string | readonly string[], dflt?: T): T {
+          return ([path].flat().join('.') === 'authz.token.excludedRoles' ? ['route.*'] : dflt) as T;
+        }
+      }
+      const domain = DI.RootContainer.child();
+      try {
+        domain.register(TokenConfiguration).as(Configuration);
+        const unresolved = await model([freshGather()], domain);
+        expect(built).to.equal(0);
+        expect(await permits(unresolved, token(), 'report:export')).to.equal(true);
+
+        await domain.resolve(Configuration);
+        const resolved = await model([freshGather()], domain);
+        expect(built).to.equal(1);
+        expect(await permits(resolved, token(), 'report:export')).to.equal(false);
+      } finally {
+        await domain.dispose();
+      }
     });
 
     it('moves an explicitly passed token extension last, keeping that instance', async () => {
