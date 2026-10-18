@@ -46,6 +46,7 @@ export default {
 | `requestId` | `RequestId` | Correlation id; also `x-request-id` and `@RequestId()`. |
 | `traceId`, `spanId` | `RequestId` | W3C trace context, merged into log lines. |
 | `realIp` | `RealIp` | Client address; also `@Ip()`. |
+| `proxyTrust` | `RealIp` | The parsed proxy trust `realIp` came from; read it with `requestProxyTrust(req)`. |
 | `responseStart`, `responseEnd`, `responseTime` | `ResponseTime` | Timing; `responseEnd` and `responseTime` exist only after the answer. |
 | `serverTiming` | `ServerTiming` | `IServerTimingEntry[]`: `{ name, dur?, desc? }`; push your own. |
 | `perf` | `PerfRollup` | `IPerfScope` accumulator filled by the `Perf` facade. |
