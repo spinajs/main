@@ -104,9 +104,11 @@ All are `@Migration('queue')` and run on the `queue` connection.
 | --- | --- |
 | `Queue_2022_10_18_01_13_00` | Creates `queue_jobs` and the unique `JobId` index |
 | `Queue_2026_06_30_00_00_00` | Adds `Attempt` |
-| `Queue_2026_07_02_00_00_00` | Adds `LastError`, `MaxAttempts`, `UpdatedAt`; widens `Name` and `Result`, turns `Status` into `varchar(32)` (not on SQLite); adds the (`Status`, `CreatedAt`) index |
+| `Queue_2026_07_02_00_00_00` | Adds `LastError`, `MaxAttempts`, `UpdatedAt`; widens `Name` and `Result`, turns `Status` into `varchar(32)`; adds the (`Status`, `CreatedAt`) index |
 | `Queue_2026_07_10_00_00_00` | Adds `Phase` and `Message` |
-| `Queue_2026_07_17_00_00_00` | Turns `Status` into an enum of the six statuses, keeping the `'created'` default (skipped on SQLite) |
+| `Queue_2026_07_17_00_00_00` | Turns `Status` into an enum of the six statuses, keeping `NOT NULL` and the `'created'` default |
+
+The column changes are `modify()` calls on every driver. On SQLite each modifying `alterTable()` rebuilds `queue_jobs`, keeping its rows and indexes; see [SQLite `ALTER TABLE`](../orm-sqlite/04-schema-and-ddl.md#modifying-columns).
 | `Queue_2026_10_03_00_00_00` | Adds `InitiatorType` and `InitiatorId` |
 | `Queue_2026_10_17_00_00_00` | Turns `Status` back into `varchar(32)`, keeping the `'created'` default (skipped on SQLite) |
 
