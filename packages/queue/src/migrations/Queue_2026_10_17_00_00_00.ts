@@ -9,12 +9,6 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 @Migration('queue')
 export class Queue_2026_10_17_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
-    // sqlite has no MODIFY COLUMN and already stores Status as unconstrained TEXT
-    const isSqlite = connection.Options.Driver.toLowerCase().includes('sqlite');
-    if (isSqlite) {
-      return;
-    }
-
     await connection.schema().alterTable('queue_jobs', (table) => {
       const status = table.string('Status', 32).notNull();
       status.default().value('created');
