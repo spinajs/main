@@ -222,6 +222,10 @@ widths. A failed write is logged (`authz-audit`) and the record dropped; it neve
 3. Register and select it: `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's
    container), with `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
 
+`authz:audit-unattended` prints the resource types of the rows with the reason `unattended` (queried
+without a principal), with a count, the most frequent first. It reads `authz_audit` on the
+`authz-audit` connection and exits 1 when that connection or the table is missing.
+
 The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
 the last one registered, so loading the module would silently replace the log audit.
 

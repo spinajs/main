@@ -727,7 +727,7 @@ Check: run the app's tests. A missing `runAs` shows as `AccessDenied` with reaso
 naming the model.
 
 To find the models you missed, run your tests with `DbDecisionAudit` on (it writes `authz_audit`),
-then run `authz:check-config --unattended`. It prints the resource types that were queried without
+then run `authz:audit-unattended` (`@spinajs/authz-orm`). It prints the resource types that were queried without
 a principal, with a count, the most frequent first:
 
 ```
@@ -737,9 +737,9 @@ resource types queried without a principal:
 ```
 
 With no such row it prints `no unattended queries in the audit log`. It fails when `authz_audit` does
-not exist. It reads the table on `authz.rbac.connection` (else `default`), while `DbDecisionAudit`
-writes on the connection named `authz-audit`: map that name to the same database
-(`db.Aliases: { 'authz-audit': 'default' }`). Turning `DbDecisionAudit` on takes three steps
+not exist. It reads the table on the connection named `authz-audit`, the one `DbDecisionAudit`
+writes, and fails when the ORM has none (map it, e.g. `db.Aliases: { 'authz-audit': 'default' }`).
+Turning `DbDecisionAudit` on takes three steps
 (`packages/authz-orm/README.md`, "Database audit"): import `@spinajs/authz-orm/audit` before the ORM
 boots, map the connection, and register and select it:
 `DI.register(DbDecisionAudit).as(DecisionAudit)` with `authz.audit.service: 'DbDecisionAudit'`. The
@@ -846,8 +846,8 @@ Run the app's tests. Then run the config checks:
   with a message that names the key. On success it prints `OK: <n> role(s), <m> ladder(s)`.
   `authz:check-config --explain-role <role>` lists the effective grants of a role, inherited ones
   included, one line each: the permission, then `relation=`, `on=`, `fields=`, `requiresTag=` and
-  `grantedAt=` when set. `--unattended` is described in step 4. These commands ship in
-  `@spinajs/authz-rbac`.
+  `grantedAt=` when set. These commands ship in `@spinajs/authz-rbac`; `authz:audit-unattended`
+  (`@spinajs/authz-orm`) is described in step 4.
 - `authn:check-config` (in `authn-http`) reports strategies, secrets, proxy, CORS, env, MFA, the
   throttle and old keys as findings ([section 3.4](#34-keys-that-other-config-files-own)). It prints key
   names, never secret values.
