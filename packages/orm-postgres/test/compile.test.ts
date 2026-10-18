@@ -9,7 +9,7 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { NotSupported } from '@spinajs/exceptions';
-import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput } from '@spinajs/orm';
+import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput, Wrapper } from '@spinajs/orm';
 
 import { ConnectionConf, FakePostgresDriver } from './fixture.js';
 import { ExistsItem } from './models/exists.js';
@@ -89,7 +89,27 @@ describe('postgres SQL compilation', function () {
       const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
       const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
 
-      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "test"."adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId" ORDER BY "name" ASC');
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId" ORDER BY "name" ASC');
+    });
+
+    it('qualifies the join table with the configured schema, not the database', () => {
+      const connection = db()!.Connections.get('postgres')!;
+      const options = connection.Options.Options;
+      connection.Options.Options = { Schema: 'app' };
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).clone().toDB();
+      connection.Options.Options = options;
+
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "app"."adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId"');
+    });
+  });
+
+  describe('date wrappers', () => {
+    it('casts Wrapper.DateTime() to TIMESTAMP - postgres has no DATETIME()', () => {
+      const result = sqb().select('*').from('roles').where(Wrapper.DateTime('CreatedAt'), '<', 'abc').toDB();
+
+      expect(result.expression).to.equal('SELECT * FROM "roles" WHERE CAST("CreatedAt" AS TIMESTAMP) < ?');
+      expect(result.bindings).to.deep.equal(['abc']);
     });
   });
 
