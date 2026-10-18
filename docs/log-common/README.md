@@ -16,7 +16,7 @@ The package uses no `node:*` module. It runs in Node and in the browser.
 
 | Feature | What it does |
 | --- | --- |
-| [Logger contract](01-logger-contract.md) | The abstract `Log` class, the `@Logger()` decorator, child loggers, variables, timers, flushing and a custom `Log` implementation |
+| [Logger contract](01-logger-contract.md) | The abstract `Log` class, the `@Logger()` decorator, child loggers, variables, timers, flushing, a custom `Log` implementation, the console fallback (`optionalLog`) and rate-limited logging (`RateLimitedLog`, `warnOnce`) |
 | [Log levels](02-log-levels.md) | `LogLevel`, name maps, OpenTelemetry severity numbers, runtime level overrides and their browser persistence |
 | [Log entries and message templates](03-log-entries.md) | `createLogMessageObject()`, the `ILogEntry` shape, call forms, `renderTemplate()` and `renderValue()` |
 | [Ambient log context](04-ambient-log-context.md) | `setLogContextProvider()`: the seam that adds request-scoped fields to every entry |

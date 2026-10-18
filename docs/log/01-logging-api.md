@@ -60,6 +60,7 @@ sequenceDiagram
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Logger(name, variables?)` | property | `name`: logger name; `variables`: see Important behaviour | Defines a non-enumerable, non-configurable getter on the prototype that returns the logger `name`, resolved on first read. |
+| `@Logger(name, { optional: true })` | property | `optional`: no `Log` registration required | Reads as the console-backed `consoleLog` until a `Log` is registered. Type the property as `LogWriter`. See [Logging without a registered Log](../log-common/01-logger-contract.md#logging-without-a-registered-log). |
 
 ## Call shapes
 

@@ -3,6 +3,7 @@ import _ from "lodash";
 import { format } from "./format.js";
 import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
+import { consoleLog } from "./optional.js";
 
 export * from "./serializers.js";
 export * from "./template.js";
@@ -11,6 +12,8 @@ export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
 export * from "./persistence.js";
 export * from "./perf.js";
+export * from "./optional.js";
+export * from "./rate-limit.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 import type { ILogFilterOptions, LogFilter } from "./filters/filter.js";
@@ -673,25 +676,44 @@ export abstract class Log extends SyncService {
   }
 }
 
+export interface LoggerOptions {
+  /**
+   * While no {@link Log} is registered the property reads as {@link consoleLog} instead of throwing, and the logger
+   * is resolved on a later read. Type the property as {@link LogWriter}.
+   */
+  optional?: boolean;
+  variables?: Record<string, unknown>;
+}
+
+// A variables bag holding only these keys is read as options; the default Log factory drops variables anyway.
+const isLoggerOptions = (v: Record<string, unknown> | LoggerOptions | undefined): v is LoggerOptions =>
+  typeof v?.optional === "boolean" && Object.keys(v).every((k) => k === "optional" || k === "variables");
+
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables
  * @param name - name of logger
- * @param variables - optional log variables
+ * @param variablesOrOptions - optional log variables, or {@link LoggerOptions}
  */
-export function Logger(name: string, variables?: Record<string, unknown>) {
+export function Logger(name: string, variablesOrOptions?: Record<string, unknown> | LoggerOptions) {
+  const options: LoggerOptions = isLoggerOptions(variablesOrOptions) ? variablesOrOptions : { variables: variablesOrOptions };
+  const variables = options.variables;
+
   return (target: any, key: string): any => {
     let logger: Log;
 
     // property getter
     const getter = () => {
       if (!logger) {
-        const allLoggers = DI.get(Array.ofType(Log));
-        const found = allLoggers!.find((l) => l.Name === name);
-
-        if (found) {
-          logger = found;
+        if (!options.optional) {
+          logger = resolveLogger(name, variables);
+        } else if (!DI.check(Log)) {
+          return consoleLog;
         } else {
-          logger = DI.resolve(Log, [name, variables]);
+          try {
+            logger = resolveLogger(name, variables);
+          } catch {
+            return consoleLog;
+          }
         }
       }
       return logger;
@@ -704,6 +726,12 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
       configurable: false,
     });
   };
+}
+
+function resolveLogger(name: string, variables: Record<string, unknown> | undefined): Log {
+  const allLoggers = DI.get(Array.ofType(Log));
+  const found = allLoggers!.find((l) => l.Name === name);
+  return found ?? DI.resolve(Log, [name, variables]);
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
