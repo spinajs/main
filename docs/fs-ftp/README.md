@@ -2,7 +2,7 @@
 
 An FTP and FTPS file provider for `@spinajs/fs`. It ships one class, `fsFTP`, which implements the abstract `fs` API on top of the [`basic-ftp`](https://www.npmjs.com/package/basic-ftp) client, so code written against `fs` reads and writes an FTP server without changes.
 
-It does **not** support SFTP (SSH), streaming writes (`writeStream()`), temporary paths (`tmppath()`) or local path resolving (`resolvePath()` for relative paths). It does **not** reconnect: the connection opens once, when the provider resolves.
+It does **not** support SFTP (SSH), streaming writes (`writeStream()`), temporary paths (`tmppath()`) or local path resolving (`resolvePath()`). It does **not** reconnect: the connection opens once, when the provider resolves.
 
 ## Install
 
