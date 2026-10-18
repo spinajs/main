@@ -141,7 +141,7 @@ export class ReplicaPostgresDriver extends PostgresOrmDriver {
 - A registration made before `super.resolve()` is overwritten. Register after it.
 - A replacement compiler is resolved with the same constructor arguments as the class it replaces. Keep its constructor signature, and its `@Inject(Container)` decorator when the original has one.
 - `PostgresAlterColumnQueryCompiler._modify()` resolves `ColumnQueryCompiler` and calls `typeExpression()` and `defaultExpression()` on it. A `ColumnQueryCompiler` replacement must extend `PostgresColumnQueryCompiler`, or `modify()` fails.
-- `connect()` is called again by every reconnect (`withReconnect()` and failed health probes). An override must be safe to call on a connected driver; ending the previous `Pool` first avoids leaking it.
+- `connect()` is called again by every reconnect (`withReconnect()` and failed health probes). The base `connect()` ends the previous `Pool` first; an override that builds its own pool must do the same.
 - Other packages detect the PostgreSQL dialect on their own. `@spinajs/authz-orm` matches the exact driver string `orm-driver-postgres`, so a subclass under a new string is rejected there; `@spinajs/authn-orm` walks the class chain for `PostgresOrmDriver`, so a subclass is recognised. Register the subclass under `orm-driver-postgres` when those packages use the connection.
 
 ## Best practices
