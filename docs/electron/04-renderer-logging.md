@@ -9,7 +9,7 @@ The renderer entry replaces the `Log` registration with a factory that returns `
    - `ElectronRendererLogger` as `'__logImplementation__'`.
 2. `DI.resolve(Log, ['checkout'])` (or `@Logger('checkout')`) calls the factory with `logName = 'checkout'`.
 3. The factory returns `ElectronRendererLogger.Loggers.get('checkout')` when present, otherwise `container.resolve('__logImplementation__', ['checkout'])`.
-4. `new ElectronRendererLogger('checkout')` sets `Name`.
+4. `new ElectronRendererLogger('checkout')` sets `Name` and adds itself to `Log.Loggers`, so the next resolve of `checkout` returns the same instance.
 5. `logger.info('Cart saved', ...)` calls `window.ipc.__spinaJsIpcBridge.call('info', 'Log', ['checkout'], 'Cart saved', ...)` and does not await it.
 6. In main, `callService()` resolves `DI.resolve('Log', ['checkout'])`, the main logger named `checkout`, and calls `info('Cart saved', ...)` on it, without `runAs`.
 
@@ -36,20 +36,20 @@ The renderer logger reads no configuration. Levels, rules and targets come from 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Log factory | `Log` and `'__log__'`; factory function, runs on every resolve | `logFactoryFunction` in `renderer.ts` (not exported) | | `DI.register(myFactory).as(Log)` after importing the renderer entry. The last registration wins. |
-| Logger implementation | `'__logImplementation__'`; singleton (no lifetime decorator) | `ElectronRendererLogger` | | `DI.register(MyLogger).as('__logImplementation__')`. Mark it `@NewInstance()` to get one instance per name. |
+| Logger implementation | `'__logImplementation__'`; one instance per name (`@NewInstance()`, cached in `Log.Loggers`) | `ElectronRendererLogger` | | `DI.register(MyLogger).as('__logImplementation__')`. |
 
 ### `ElectronRendererLogger` members
 
 | Member | Behaviour |
 | --- | --- |
-| `constructor(name)` | Sets `Name`. |
+| `constructor(name)` | Sets `Name` and stores the instance in `Log.Loggers` under `name`. |
 | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `security`, `success` | Forward all arguments with `call(<level>, 'Log', [Name], ...args)`. Fire and forget. |
 | `child()`, `write()` | Throw `Method not implemented.` |
 | `setLevel()`, `getLevel()`, `addVariable()`, `timeStart()` and the other `Log` members | Inherited from `Log` in `@spinajs/log-common`; they act on the renderer object only and do not filter forwarded calls. |
 
 ### Logger implementation: custom implementation
 
-The shipped implementation is a singleton, so the first name resolved is the name every renderer logger reports (see [Important behaviour](#important-behaviour)). A subclass marked `@NewInstance()` gives one instance per name and can add renderer-side behaviour, such as sending `trace` lines only while a debug flag is set.
+Subclass the shipped logger to add renderer-side behaviour, such as sending `trace` lines only while a debug flag is set. Mark the subclass `@NewInstance()` as well, so each name keeps its own instance.
 
 ```ts
 import { DI, NewInstance } from '@spinajs/di';
@@ -58,11 +58,6 @@ import { ElectronRendererLogger } from '@spinajs/electron';
 
 @NewInstance()
 export class NamedRendererLogger extends ElectronRendererLogger {
-  constructor(name: string) {
-    super(name);
-    Log.Loggers.set(name, this);
-  }
-
   public trace(...args: unknown[]): void {
     if (localStorage.getItem('debug-trace') === '1') {
       window.ipc.__spinaJsIpcBridge.call('trace', 'Log', [this.Name], ...args);
@@ -76,7 +71,7 @@ const log = DI.resolve(Log, ['checkout']);
 log.info('Cart saved, %d items', 3);
 ```
 
-`Log.Loggers.set()` lets the factory return the same instance on the next resolve of that name.
+The inherited constructor adds the instance to `Log.Loggers`, so the factory returns it on the next resolve of that name.
 
 ### Log factory: custom implementation
 
@@ -102,8 +97,7 @@ DI.register(rendererLogFactory).as('__log__');
 
 ## Important behaviour
 
-- **One name for all loggers.** `ElectronRendererLogger` has no lifetime decorator, so DI caches it as a singleton by type. The constructor runs once; later `DI.resolve(Log, ['other'])` calls return the first instance with the first `Name`. Register a `@NewInstance()` implementation, as above, to get per-name loggers.
-- **`Loggers` is never filled by the shipped logger.** The factory checks `ElectronRendererLogger.Loggers` (the static `Log.Loggers` map), but the shipped constructor does not add itself to it.
+- **One logger per name.** Each name gets its own `ElectronRendererLogger`, kept in the static `Log.Loggers` map; resolving the same name again returns that instance.
 - **Fire and forget.** Log methods return before main writes the line; a failed IPC call is not reported to the caller.
 - **No `runAs` audit.** Main runs `Log` calls without `authz().runAs()`, so renderer log lines write no audit entries.
 - **Arguments are cloned.** `Error` objects arrive in main as plain errors with `message` and `stack`; functions in the arguments break the call.
