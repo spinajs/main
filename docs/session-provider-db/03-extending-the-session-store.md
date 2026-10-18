@@ -181,7 +181,7 @@ export class SessionTestConfiguration extends FrameworkConfiguration {
 }
 ```
 
-The migrations recognise dialects by the exact driver name: `orm-driver-mysql`, `orm-driver-mysql-ssh`, `orm-driver-postgres`, `orm-driver-sqlite`. A driver subclass registered under its own name gets no dialect branch; see [Session table and migrations](02-session-table-and-migrations.md#important-behaviour).
+The migrations do not check the driver name: a driver subclass registered under its own name runs them as its parent does. They read `supportedFeatures().nativeJson` and leave each column modify to the driver; see [Session table and migrations](02-session-table-and-migrations.md#important-behaviour).
 
 ### Extra migrations
 
@@ -199,8 +199,8 @@ export class UserSessionsExpirationIndex_2026_10_20_00_00_00 extends OrmMigratio
   }
 
   public async down(connection: OrmDriver): Promise<void> {
-    const mysql = ['orm-driver-mysql', 'orm-driver-mysql-ssh'].includes(connection.Options?.Driver);
-    await connection.schema().raw(mysql ? 'DROP INDEX user_sessions_expiration_idx ON user_sessions' : 'DROP INDEX user_sessions_expiration_idx');
+    // the driver decides whether DROP INDEX names the table
+    await connection.index().table('user_sessions').name('user_sessions_expiration_idx').drop();
   }
 }
 ```
