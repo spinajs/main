@@ -30,7 +30,8 @@ const DIALECTS = [
     acceptStep: 'UPDATE `authn_mfa` SET `last_step` = ? WHERE `identity` = ? AND `step` = ? AND ( `last_step` IS NULL OR `last_step` < ? )',
     redeemCode: 'UPDATE `authn_recovery_code` SET `used_at` = ? WHERE `identity` = ? AND `code_hash` = ? AND `used_at` IS NULL',
     putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
-    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND CAST(`secret_enc` AS BINARY) = ?',
+    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND `secret_enc` = CAST(? AS BINARY)',
+    confirmExactCipher: 1,
     confirmedSteps: 'SELECT `identity`,`step`,`confirmed_at` FROM `authn_mfa` WHERE `identity` = ? AND `confirmed_at` IS NOT NULL',
     confirmedStepNames: 'SELECT `step`,`confirmed_at` FROM `authn_mfa` WHERE `confirmed_at` IS NOT NULL',
   },
@@ -46,7 +47,8 @@ const DIALECTS = [
     acceptStep: 'UPDATE [authn_mfa] SET [last_step] = ? WHERE [identity] = ? AND [step] = ? AND ( [last_step] IS NULL OR [last_step] < ? )',
     redeemCode: 'UPDATE [authn_recovery_code] SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
     putPendingUpdate: 'UPDATE [authn_mfa] SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
-    confirmExact: 'UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND CAST([secret_enc] AS NVARCHAR(MAX)) = ?',
+    confirmExact: "UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND ([secret_enc] = ? COLLATE Latin1_General_BIN2 AND LEN([secret_enc] + 'x') = LEN(? + 'x'))",
+    confirmExactCipher: 2,
     confirmedSteps: 'SELECT [identity],[step],[confirmed_at] FROM [authn_mfa] WHERE [identity] = ? AND [confirmed_at] IS NOT NULL',
     confirmedStepNames: 'SELECT [step],[confirmed_at] FROM [authn_mfa] WHERE [confirmed_at] IS NOT NULL',
   },
@@ -173,7 +175,7 @@ for (const d of DIALECTS) {
       expect(await new DbMfaStore(driver).confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
 
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmExact]);
-      expect(driver.executed[0].params).to.deep.eq([NOW_TEXT, `user:${ALICE.id}`, 'totp', 'v1.expected']);
+      expect(driver.executed[0].params).to.deep.eq([NOW_TEXT, `user:${ALICE.id}`, 'totp', ...Array(d.confirmExactCipher).fill('v1.expected')]);
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {
