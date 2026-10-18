@@ -5,14 +5,14 @@ A scan builds one `ClassInfo` per file. Two things decide what it holds: the `ty
 ## How it works
 
 1. **Export keys.** For each imported module, the scan reads `Object.keys(module)` and takes the first key.
-2. **Export name.** With a `typeMatcher`, the name is `typeMatcher(path.parse(file).name)`: the file's base name without its last extension; see [Type matcher](#type-matcher). Without one, the name is the first key.
+2. **Export name.** With a `typeMatcher`, the name is `typeMatcher(path.parse(file).name, key)`: the file's base name without its last extension, and the export key; see [Type matcher](#type-matcher). Without one, the name is the first key.
 3. **Type.** `type` is `module[name]`.
 4. **List mode.** `@ListFromFiles` returns `{ file, name, type, instance: undefined }` and moves to the next file.
 5. **Resolve mode.** `@ResolveFromFiles` checks `type.prototype instanceof AsyncService`:
    - `AsyncService`: it awaits `DI.resolve(type)`, which runs `resolve()` on a new instance, and stores the result.
    - Any other class: it stores the value `DI.resolve(type)` returns, without awaiting it.
 6. **Lifetime.** `DI.resolve(type)` honours the class's lifetime decorator. Without one, the class is a singleton in the root container.
-7. **Errors.** A synchronous resolve error is logged at `error`, and the scan tries the next export key of the same file with the same name rule. When no key succeeds, the file yields no entry.
+7. **Errors.** A synchronous resolve error is logged at `error`, and the scan tries the next export key of the same file with the same name rule. When no key succeeds, the file yields no entry. A rejected `AsyncService.resolve()` is logged at `error` and the file yields no entry.
 
 ### Type matcher
 
@@ -24,7 +24,7 @@ A scan builds one `ClassInfo` per file. Two things decide what it holds: the `ty
 | `jobs/MonthlyInvoices.ts` | `MonthlyInvoices` |
 | `jobs/monthly-invoices.job.js` | `monthly-invoices.job` |
 
-The matcher returns the export name to use. A name that is not exported gives `type: undefined`: `@ListFromFiles` returns the entry anyway, and `@ResolveFromFiles` rejects the whole scan with a `TypeError`.
+The matcher returns the export name to use. A name that is not exported gives `type: undefined`: `@ListFromFiles` returns the entry anyway, and `@ResolveFromFiles` logs the resolve error and skips the file.
 
 ### Scanned class lifetime
 
@@ -43,7 +43,7 @@ See [Lifetimes](../di/04-lifetimes.md) and [Service lifecycle](../di/10-service-
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Export picker | The `typeMatcher` argument of the decorator | First export key | Any `(fileName: string) => string` | Pass a function; see [Type matcher: custom implementation](#type-matcher-custom-implementation) |
+| Export picker | The `typeMatcher` argument of the decorator | First export key | Any `(fileName: string, exportKey: string) => string` | Pass a function; see [Type matcher: custom implementation](#type-matcher-custom-implementation) |
 | Scanned class | The class itself, by type, root container | Singleton | `@NewInstance()`, `@PerChildInstance()`, `AsyncService` | Decorate the scanned class, or `DI.register(Impl).as(Scanned)` before the first read |
 
 ### Type matcher: custom implementation
@@ -126,9 +126,9 @@ void main();
 
 ## Important behaviour
 
-- **Only named exports are seen.** In ESM mode a default export is unwrapped by `DI.__spinajs_require__`, so the scan reads the class's static keys, not the module's exports.
+- **A default-exported class is seen under its class name.** In ESM mode `DI.__spinajs_require__` unwraps a default export, so the named exports next to it are not seen.
 - **"First" depends on the module mode.** An ESM namespace object lists its export names in alphabetical order. A CommonJS `exports` object lists them in assignment order.
-- **The matcher has one declared parameter.** At runtime it also receives the export key as a second argument, but the public type is `(fileName: string) => string`, so a two-parameter matcher does not compile.
+- **The matcher is called once per export key.** It receives the file name and the export key; a one-parameter matcher returns the same name for every key.
 - **A non-`AsyncService` instance is not awaited.** If `DI.resolve()` returns a `Promise` for it, `instance` holds that `Promise`.
 - **`@NewInstance()` classes are built once per scan, not per read.** The scan's `Promise` is cached, so later reads return the same instances.
 - **The `AsyncService` check uses `instanceof`.** A class extending `AsyncService` from a second copy of `@spinajs/di` is resolved without awaiting.
