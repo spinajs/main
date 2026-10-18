@@ -242,9 +242,8 @@ adds an `AccessPolicy`. Options: `resource` (`fromParam`, `fromBody`, `fromQuery
 
 Related: `@Unscoped(reason)` skips scoping and is audited; `AuthzFieldsMiddleware` filters fields.
 
-`authz-http/src/api.ts` and `authz-orm/src/api.ts` hold `notImplemented` stubs of the decorators.
-The real ones are `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`
-(re-exported from `authz-orm/src/index.ts`).
+The decorators live in `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`,
+exported from each package's `src/index.ts`. `src/api.ts` holds only the contract types.
 
 ### 3. Service
 
