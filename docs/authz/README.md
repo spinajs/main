@@ -634,6 +634,43 @@ export class Folder extends ModelBase {
   `DbDecisionAudit` writes, and fails when the ORM has no such connection or the table does not
   exist. It replaces `authz:check-config --unattended` (authz-rbac), which read `authz.rbac.connection`.
 
+**Plan term compilers.** A `PlanTermSql` (`op`, `toSql(args, row)`) renders one term of a list plan
+against a `SqlRowContext`: `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`,
+`ancestorTable`, `relation('owner' | 'self')`, `now`, and `expressions`. `expressions` is a
+`SqlRowExpressions` from the connection's driver (its `SqlExpressions`, see
+[SQL helpers](../orm/17-sql-helpers.md#dialect-expressions)):
+
+| Member | Returns |
+|---|---|
+| `castText(expression, length?)` | `expression` as text; `length` bounds the type where the dialect needs one |
+| `contains(haystack, needle)` | a `SqlFragment`, true where `needle` occurs in `haystack` |
+
+A driver without `SqlExpressions` fails the query with `NotSupported`. Bind `row.now` as a `Date`:
+each driver binds it the way it stores datetimes, SQLite through its `DatetimeValueConverter`.
+
+```ts
+import { PlanTermSql } from '@spinajs/authz';
+import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+
+// a listPlan term { op: 'myapp.label', args: { label: 'urgent' } } over a comma-wrapped labels column
+export class LabelSql extends PlanTermSql {
+  readonly op = 'myapp.label';
+  toSql(args: unknown, row: SqlRowContext): SqlFragment {
+    return row.expressions.contains({ sql: row.rowColumn('labels'), bindings: [] }, { sql: '?', bindings: [`,${(args as { label: string }).label},`] });
+  }
+}
+```
+
+*Migration.* `SqlRowContext.dialect` is gone; spell dialect SQL through `row.expressions`.
+
+```ts
+// before
+const id = row.dialect === 'mysql' ? `CAST(${row.rowColumn('id')} AS CHAR(64))` : `CAST(${row.rowColumn('id')} AS TEXT)`;
+
+// after
+const id = row.expressions.castText(row.rowColumn('id'), 64);
+```
+
 Full reference: `packages/authz-orm/README.md`.
 
 ### Queue (`@spinajs/authz-queue`)

@@ -2,6 +2,7 @@ import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/au
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 import { AdminRuleStore } from '../admin/ports.js';
@@ -9,7 +10,7 @@ import type { Page } from '../admin/ports.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
 import type { ScopeRefColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { pageWindow, whereLive } from './queries.js';
 import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
 import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
 import { readVersion, bumpVersion } from './version.js';
@@ -107,7 +108,7 @@ export class DbRuleStore extends AdminRuleStore {
       try {
         await driver.insert().into(AUTHZ_RULE_TABLE).values({ ...rows.rule, created_by: principalKey(actor), created_at: this.now() });
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
         throw new AuthzAdminFailure('conflict', `${this.name}.put: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
       }
     }

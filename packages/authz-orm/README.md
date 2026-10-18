@@ -136,8 +136,8 @@ export class TenantSql extends PlanTermSql {
 ```
 
 `SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
-`ancestorTable`, the `owner`/`self` relation columns, `now` and the `dialect` (`sqlite`, `postgres`,
-`mysql`, `mssql`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+`ancestorTable`, the `owner`/`self` relation columns, `now` and `expressions`, the connection's SQL for what
+dialects spell differently (`castText`, `contains`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
 guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
 
 ## Per-row access

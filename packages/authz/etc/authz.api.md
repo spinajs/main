@@ -846,6 +846,13 @@ export interface ListPlanRequest {
     /** Set for a consistency `fresh` permission, as `DecisionRequest.fresh`. */
     readonly fresh?: boolean;
 }
+/** SQL that each dialect spells its own way, from the connection's driver. */
+export interface SqlRowExpressions {
+    /** `expression` as text; `length` bounds the type where the dialect needs one. */
+    castText(expression: string, length?: number): string;
+    /** True where `needle` occurs in `haystack`. */
+    contains(haystack: SqlFragment, needle: SqlFragment): SqlFragment;
+}
 /** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
 export interface SqlRowContext {
     readonly type: ResourceType;
@@ -858,7 +865,7 @@ export interface SqlRowContext {
         readonly typeColumn?: string;
     } | undefined;
     readonly now: Date;
-    readonly dialect: "sqlite" | "postgres" | "mysql" | "mssql";
+    readonly expressions: SqlRowExpressions;
 }
 export interface SqlFragment {
     readonly sql: string;
