@@ -3,8 +3,8 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
-import { AuthzConfigError, SYSTEM, UNATTENDED, UnknownPermission } from '../../src/index.js';
-import type { ListPlanRequest, ModelListPlan, PlanTerm } from '../../src/index.js';
+import { AuthzConfigError, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '../../src/index.js';
+import type { EvaluationContext, ListPlanRequest, ModelListPlan, PlanTerm } from '../../src/index.js';
 import { ListModel, RecordingLog, fakeClock, principal, registryOf } from './fakes.js';
 
 const expect = chai.expect;
@@ -258,6 +258,39 @@ describe('Authorizer.accessPlan', () => {
       await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
       expect(m.planCalls).to.have.length(2);
       expect(m.planCalls.map((c) => c.req.fresh)).to.deep.equal([true, true]);
+    });
+
+    it('a plan of a consistency fresh permission is not stored in the request scope', async () => {
+      const strict = registryOf([
+        { name: 'doc:read', types: ['doc'], list: true, consistency: 'fresh' },
+        { name: 'doc:list', types: ['doc'], list: true },
+      ]);
+      const a = make([planner('m', { kind: 'all' })], { registry: strict });
+      const plans = (scope: { cache: Map<string, unknown> }) => [...scope.cache.values()].filter((v) => typeof v === 'object' && v !== null && 'plan' in v);
+      const fresh = { cache: new Map<string, unknown>() };
+      await a.accessPlan(alice, 'doc:read', 'doc', undefined, fresh);
+      expect(plans(fresh)).to.have.length(0);
+      const cached = { cache: new Map<string, unknown>() };
+      await a.accessPlan(alice, 'doc:list', 'doc', undefined, cached);
+      expect(plans(cached)).to.have.length(1);
+    });
+
+    it("a fresh plan's nested ctx.check is fresh too and reads no L1", async () => {
+      const strict = registryOf([
+        { name: 'doc:read', types: ['doc'], list: true, consistency: 'fresh' },
+        { name: 'doc:write', types: ['doc'] },
+      ]);
+      const m = new ListModel('m', {
+        vote: { permitWhen: TRUE },
+        listPlan: async (_req: ListPlanRequest, ctx: EvaluationContext) => ((await ctx.check({ principal: alice, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } })).allowed ? { kind: 'all' } : { kind: 'abstain' }),
+      });
+      const a = make([m], { registry: strict });
+      const scope = { cache: new Map<string, unknown>() };
+      await a.check({ principal: alice, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } }, scope);
+      expect(m.calls).to.have.length(1);
+      expect(await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).to.deep.equal({ kind: 'filter', permit: 'all', deny: [] });
+      expect(m.calls).to.have.length(2);
+      expect(m.calls[1].req.fresh).to.equal(true);
     });
 
     it('a faulted plan is not memoised', async () => {
