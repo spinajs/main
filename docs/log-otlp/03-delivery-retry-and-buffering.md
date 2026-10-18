@@ -9,10 +9,10 @@
 3. The flush takes the whole buffer and calls `OtlpLogTarget.send(batch)`.
 4. `send()` builds the payload and runs `AxiosInstance.post("/v1/logs", payload)` inside `RetryPipeline`:
    1. A failure that `isRetryableOtlpError()` accepts is retried, up to 5 retries after the first attempt.
-   2. The delay is the `Retry-After` header when the response has one (`retryAfterMs()`), otherwise exponential backoff from 1 s, capped at 5 s, with jitter.
+   2. The delay is the `Retry-After` header when the response has one (`retryAfterMs()`), capped at 5 s, otherwise exponential backoff from 1 s, capped at 5 s, with jitter.
    3. Any other failure leaves the pipeline at once.
 5. On success: `HasError = false`, `Error = null`, the overflow warning is re-armed, and a `trace` line is logged.
-6. On a retryable failure after the last retry: `HasError = true`, an `error` line is logged, and `Queue.requeueFront(batch)` puts the batch back at the front of the buffer for the next flush.
+6. On a retryable failure after the last retry: `HasError = true`, an `error` line is logged, and `Queue.requeueFront(batch)` puts the batch back at the front of the buffer for the next flush. After `dispose()` the batch is dropped as in step 7 instead.
 7. On a non-retryable failure: `HasError = true`, `OnDropped(entry)` is called for each record of the batch, an `error` line is logged, and the batch is dropped.
 8. Whenever the buffer exceeds `maxBufferSize` (after `enqueue()` or `requeueFront()`), the queue removes the **oldest** records, calls `OnDropped(entry)` for each, and the target logs one `warn` per overflow episode.
 
@@ -68,7 +68,7 @@ sequenceDiagram
 | --- | --- | --- |
 | Retries after the first attempt | 5 | no, subclass the target |
 | Base delay | 1 s | no |
-| Maximum backoff delay | 5 s (does not cap `Retry-After`) | no |
+| Maximum backoff delay | 5 s (also caps `Retry-After`) | no |
 | Backoff | exponential, with jitter | no |
 | Request timeout | `options.timeout`, default 5000 ms, per attempt | yes |
 
@@ -86,9 +86,9 @@ To change the policy, override `resolve()` and replace `RetryPipeline`; see [Ext
 
 - **Exports are serial.** While one batch is being retried, no other batch is sent. New records keep buffering, and the cap drops the oldest once `maxBufferSize` is reached.
 - **One flush can take long.** Six attempts with the default 5 s timeout plus the backoff delays can block the queue for roughly 45 s before the batch is requeued.
-- **`Retry-After` is not capped.** A receiver that answers `Retry-After: 3600` makes the target wait an hour inside one flush, and `dispose()` waits with it.
-- **Requeued batches do not call `OnDropped`.** Only the cap and permanent errors do. A record that is requeued and later pushed out by the cap does reach `OnDropped`.
-- **Records requeued during shutdown are lost.** `dispose()` stops the queue, then flushes once. If that last export fails with a retryable error, the batch goes back into a stopped queue, is never sent and never reaches `OnDropped`.
+- **`Retry-After` is capped at 5 s.** A receiver that answers `Retry-After: 3600` is retried after 5 s, so one flush, and `dispose()` with it, never waits longer than the normal retry budget.
+- **Requeued batches do not call `OnDropped`.** Only the cap, permanent errors and failed exports after `dispose()` do. A record that is requeued and later pushed out by the cap does reach `OnDropped`.
+- **Failed exports during shutdown reach `OnDropped`.** `dispose()` stops the queue, then flushes once. A batch that fails from then on, even with a retryable error, is not requeued into the stopped queue: each entry is passed to `OnDropped` and the batch is dropped.
 - **The overflow warning is logged once per episode.** It is re-armed only by a successful export.
 - **Partial success is ignored.** A `2xx` response is a success; an OTLP `partialSuccess` body with rejected records is not read.
 - **Timers do not keep the process alive.** The flush timer is `unref()`'d; buffered records are exported only by a later tick, a flush call or the `beforeExit` drain from `@spinajs/log`.
