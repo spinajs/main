@@ -1,20 +1,15 @@
 import { InvalidArgument } from '@spinajs/exceptions';
+import { chunk } from '@spinajs/util';
 
 import { RawQuery } from './builders.js';
 import type { OrmDriver } from './driver.js';
-import type { IWhereBuilder } from './interfaces.js';
+import type { DeleteChunkedOptions, IWhereBuilder, PurgeBatchOptions, SqlFragment } from './interfaces.js';
 import { IdentifierQuoter } from './quoting.js';
-import type { WhereFunction } from './types.js';
 
 /** `RowsAffected` of an update, delete or insert result; 0 when the driver did not report a number, so an unknown count never reads as success. */
 export function rowsAffected(result: unknown): number {
   const n = (result as { RowsAffected?: unknown } | null | undefined)?.RowsAffected;
   return typeof n === 'number' && Number.isFinite(n) ? n : 0;
-}
-
-export interface SqlFragment {
-  readonly sql: string;
-  readonly bindings: readonly unknown[];
 }
 
 export function isSqlFragment(value: unknown): value is SqlFragment {
@@ -93,13 +88,6 @@ export function whereInGroups<Q extends IWhereBuilder<any>>(query: Q, groupColum
 /** Default values per `IN` list, capped by the driver's {@link OrmDriver.MaxBindings}. */
 export const IN_CHUNK = 1000;
 
-function chunks<T>(list: readonly T[], size: number): T[][] {
-  if (!Number.isInteger(size) || size < 1) throw new InvalidArgument(`chunk size must be a positive integer, got ${String(size)}`);
-  const out: T[][] = [];
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
-  return out;
-}
-
 /**
  * Inserts `rows` with as few statements as the driver's {@link OrmDriver.MaxBindings} and {@link OrmDriver.MaxInsertRows}
  * allow, in order; returns the rows inserted. The default rows per statement come from the widest row; pass
@@ -110,7 +98,7 @@ export async function insertChunked(driver: OrmDriver, table: string, rows: read
   const columns = Math.max(1, ...rows.map((r) => Object.keys(r).length));
   const size = rowsPerStatement ?? Math.max(1, Math.min(rows.length, driver.MaxInsertRows, Math.floor(driver.MaxBindings / columns)));
   let count = 0;
-  for (const part of chunks(rows, size))
+  for (const part of chunk(rows, size))
     count += rowsAffected(
       await driver
         .insert()
@@ -120,32 +108,15 @@ export async function insertChunked(driver: OrmDriver, table: string, rows: read
   return count;
 }
 
-export interface DeleteChunkedOptions {
-  /** Extra condition every delete also checks. */
-  readonly where?: WhereFunction<unknown>;
-  /** Values per statement; default {@link IN_CHUNK}, or fewer when the driver binds fewer. */
-  readonly size?: number;
-}
-
 /** `DELETE FROM table WHERE column IN (…)` over `values`, one statement per chunk; returns the rows deleted. */
 export async function deleteChunked(driver: OrmDriver, table: string, column: string, values: readonly unknown[], options: DeleteChunkedOptions = {}): Promise<number> {
   let count = 0;
-  for (const part of chunks(values, options.size ?? Math.min(IN_CHUNK, driver.MaxBindings))) {
+  for (const part of chunk(values, options.size ?? Math.min(IN_CHUNK, driver.MaxBindings))) {
     const q = driver.del().from(table).whereIn(column, part);
     if (options.where) q.where(options.where);
     count += rowsAffected(await q);
   }
   return count;
-}
-
-export interface PurgeBatchOptions {
-  readonly table: string;
-  /** A unique column: the batch is selected by it, ordered by it, and deleted by it. */
-  readonly key: string;
-  /** The rows to purge; checked again by the delete, so a row that stopped matching in between stays. */
-  readonly where: WhereFunction<unknown>;
-  /** Default 500. */
-  readonly limit?: number;
 }
 
 /** Deletes up to one batch of the rows `where` matches; returns how many went. */

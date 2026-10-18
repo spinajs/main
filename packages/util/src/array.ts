@@ -15,13 +15,13 @@ export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayIte
  * Splits an array into consecutive chunks of at most `size` elements.
  *
  * @param arr - source array ( not mutated )
- * @param size - max chunk length ( must be >= 1 )
+ * @param size - max chunk length ( an integer >= 1 )
  * @returns array of chunks; empty when `arr` is empty
  * @example
  * chunk([1, 2, 3, 4, 5], 2); // [[1, 2], [3, 4], [5]]
  */
 export const chunk = <T>(arr: readonly T[], size: number): T[][] => {
-  if (size < 1) {
+  if (!Number.isInteger(size) || size < 1) {
     throw new Error('chunk size must be >= 1');
   }
 

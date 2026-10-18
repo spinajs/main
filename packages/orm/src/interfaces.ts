@@ -1970,3 +1970,27 @@ export interface ITransactionContext {
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
 }
+/** SQL text with its `?` bindings, built by the `sql` tagged template. */
+export interface SqlFragment {
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}
+
+/** Options of `deleteChunked`. */
+export interface DeleteChunkedOptions {
+  /** Extra condition every delete also checks. */
+  readonly where?: WhereFunction<unknown>;
+  /** Values per statement; default `IN_CHUNK`, or fewer when the driver binds fewer. */
+  readonly size?: number;
+}
+
+/** Options of `purgeBatch`. */
+export interface PurgeBatchOptions {
+  readonly table: string;
+  /** A unique column: the batch is selected by it, ordered by it, and deleted by it. */
+  readonly key: string;
+  /** The rows to purge; checked again by the delete, so a row that stopped matching in between stays. */
+  readonly where: WhereFunction<unknown>;
+  /** Default 500. */
+  readonly limit?: number;
+}
