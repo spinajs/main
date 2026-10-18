@@ -14,7 +14,7 @@
    4. An array is sent one `executeOnDb()` per entry, sequentially and in order; the first failure stops the rest.
 5. **Result.** The promise resolves with what `executeOnDb()` returned for that `QueryContext` (rows or a status object). The builder hydrates models and runs after-hooks.
 
-Errors: a throw while compiling (inside `toDB()`) or logging is logged at `error` with the model name and query context, then re-thrown. A rejected `executeOnDb()` promise is returned as is, not logged here.
+Errors: a throw while compiling (inside `toDB()`) or logging is logged at `error` with the model name and query context, then re-thrown. A rejected `executeOnDb()` promise is not logged here; it rejects with `translateError(err)`: `ResourceDuplicated` when `isUniqueViolation()` recognises `err` or an error it wraps (`inner`), `err` itself otherwise.
 
 ## Configuration
 
@@ -41,12 +41,16 @@ The SQL is the log message; bindings go to the structured `bindings` field only,
 | `executeOnDb(stmt, params, context)` | `SqlDriver` | always | Send one statement with `?` placeholders; shape the result by `QueryContext`. |
 | `connect()`, `disconnect()` | `OrmDriver` | always | Open and close the handle or pool. |
 | `ping()` | `OrmDriver` | always | Liveness probe for the health check. |
-| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, insertIdIsFirstOfBatch? }`. |
+| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, insertIdIsFirstOfBatch?, nativeJson? }`. |
 | `tableInfo(name, schema?)` | `OrmDriver` | always | Reflect a table into `IColumnDescriptor[]`, or `null` when it does not exist. |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | `OrmDriver` | always | Transaction primitives. |
 | `resolve()` | `OrmDriver`, `SqlDriver` | always | Call `super.resolve()`, then register the dialect. |
 | `SupportedIsolationLevels` | `OrmDriver` | when transactions take an isolation level | Empty by default: every explicit level is rejected. |
 | `poolMetrics()`, `isRetryableError()` | `OrmDriver` | optional | Pool gauges; which errors `withReconnect()` retries. |
+| `isUniqueViolation(err)` | `OrmDriver` (protected) | when the server reports duplicate keys | `true` for the client's unique or primary-key violation; `execute()` then rejects with `ResourceDuplicated`. The default recognises nothing. |
+| `lockTableShared(table)` | `OrmDriver` | optional | Keeps other writers off a table until the transaction ends. Call `assertInTransaction('lockTableShared')` first. The default throws `NotSupported`. |
+| `MaxBindings`, `MaxInsertRows` | `OrmDriver` | when the server has limits | Parameters per statement and rows per `VALUES` list; `insertChunked()` and `deleteChunked()` stay under them. Default `Infinity`. |
+| `SqlExpressions` registration | `OrmDriver` registers the base | always | Register your subclass `.as(SqlExpressions)` in `resolve()`; the base throws `NotSupported` from every method. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions). |
 | `execute(builder)` | `SqlDriver` | no | Compile, log, measure, send. |
 | `logQuery(expression, bindings, builder)` | `SqlDriver` (protected) | optional | Override to log differently; it must never throw. |
 
@@ -65,7 +69,7 @@ The insert shape is a convention between your `executeOnDb()` and your `ServerRe
 
 ### What `SqlDriver.resolve()` registers
 
-All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered `StandardModelToSqlConverter`, `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
+All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered `StandardModelToSqlConverter`, `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter`, `UniversalValueConverter` and the base `SqlExpressions`.
 
 | Token | Implementation |
 | --- | --- |

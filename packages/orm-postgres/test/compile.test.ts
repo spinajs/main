@@ -307,7 +307,7 @@ describe('postgres SQL compilation', function () {
         })
         .toDB() as unknown as ICompilerOutput[];
 
-      expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
+      expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128) USING "Id2"::VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
     });
 
     it('sets a numeric boolean default as FALSE or TRUE', () => {

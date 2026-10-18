@@ -136,7 +136,8 @@ All three are `0` before `connect()` and after `disconnect()`. The health check 
 - Every reconnect, from `withReconnect()` or from a failed health probe, calls `connect()`, which first ends the previous pool and then creates a new `pg.Pool`. When the new pool cannot connect, `Pool` is `null` until the next successful reconnect; statements in that window fail with a retryable error (code `08003`), so `withReconnect()` keeps trying.
 - `pg` returns `NUMERIC`, `DECIMAL` and `BIGINT` values, `COUNT(*)` included, as strings. `ResponseSchemaTypes` declares this for JSON Schema generation; see [Queries and inserts](03-queries-and-inserts.md#response-types).
 - `pg` parses `TIMESTAMP` (without time zone) values in the Node process's local time zone.
-- Database errors reach the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`, e.g. `23505` for a unique violation.
+- Database errors reach the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`, e.g. `23502` for a `NOT NULL` violation.
+- A unique or primary-key violation (`23505`) rejects with `ResourceDuplicated` instead, its `inner` the `OrmException`: `isUniqueViolation()` recognises it. See [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys).
 
 ## Best practices
 
@@ -158,10 +159,10 @@ process.env.PGOPTIONS = '-c statement_timeout=5000';
 
 ```ts
 // Don't: reads the SQLSTATE from the wrapper; OrmException has no code
-catch (err) { if ((err as any).code === '23505') { /* ... */ } }
+catch (err) { if ((err as any).code === '23503') { /* ... */ } }
 
 // Do: the pg error is the inner error
-catch (err) { if ((err as OrmException).inner?.code === '23505') { /* ... */ } }
+catch (err) { if ((err as OrmException).inner?.code === '23503') { /* ... */ } }
 ```
 
 ## Examples
@@ -223,7 +224,8 @@ export async function postgresReadiness(): Promise<{ ready: boolean; waiting: nu
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Orm, OrmException } from '@spinajs/orm';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { Orm } from '@spinajs/orm';
 
 export async function registerEmail(email: string): Promise<'created' | 'taken'> {
   const orm = await DI.resolve(Orm);
@@ -233,8 +235,8 @@ export async function registerEmail(email: string): Promise<'created' | 'taken'>
     await driver.insert().into('subscribers').values({ email });
     return 'created';
   } catch (err) {
-    // pg puts the SQLSTATE on its own error, which OrmException carries as `inner`
-    if (err instanceof OrmException && (err.inner as { code?: string } | undefined)?.code === '23505') {
+    // SQLSTATE 23505; other constraint failures stay OrmException
+    if (err instanceof ResourceDuplicated) {
       return 'taken';
     }
     throw err;

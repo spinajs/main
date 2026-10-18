@@ -144,6 +144,8 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
+| `lockTableShared(table)` | Keeps other writers off `table` until the transaction in scope ends; readers go on. Throws `InvalidOperation` outside a transaction, `NotSupported` on a driver that does not implement it. See [Transactions](08-transactions.md#shared-table-lock). |
+| `MaxBindings`, `MaxInsertRows` | The server's parameters per statement and rows per `VALUES` list. `Infinity` unless the driver declares them. See [SQL helpers](17-sql-helpers.md#batches). |
 | `startHealthCheck()`, `stopHealthCheck()`, `poolMetrics()`, `publishPoolMetrics()`, `observeAcquireSeconds(s)` | Health probe and metrics. See [Observability and resilience](13-observability-and-resilience.md). |
 
 `ISupportedFeature` tells the ORM what the dialect can do:
@@ -153,6 +155,7 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `events` | `boolean` | The database supports scheduled events. |
 | `insertReturning` | `boolean` | A plain `INSERT` can echo inserted rows with `RETURNING` / `OUTPUT`. |
 | `insertIdIsFirstOfBatch` | `boolean` (optional, default `false`) | The identity reported after a multi-row insert is the key of the first row, with the others contiguous. |
+| `nativeJson` | `boolean` (optional, default `false`) | The database has a JSON column type of its own. Without it, `json()` columns are stored as text. `true` on MySQL and PostgreSQL. |
 
 Insert and update responses are normalized to `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) by the connection's `ServerResponseMapper`. See [Architecture](12-architecture.md). To write a new driver, see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 

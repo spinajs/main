@@ -19,7 +19,7 @@ npm install @spinajs/orm @spinajs/orm-mssql
 | [Transactions](03-transactions.md) | Four isolation levels, `SAVE TRANSACTION` savepoints, `IMsSqlTransactionContext` |
 | [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE` |
 | [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, multi-column `ORDER BY`, `DELETE TOP (n)`, `CHARINDEX` set membership, `N'...'` literals |
-| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, column defaults, databases, views, table existence, unsupported schema features |
+| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, column defaults, `ALTER TABLE` / `ALTER COLUMN` / `sp_rename`, databases, views, table existence, unsupported schema features |
 | [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime` |
 | [Extending the driver](08-extending-the-driver.md) | Every DI token the driver registers, how to subclass `MsSqlOrmDriver`, replace one token, or replace the driver everywhere |
 
@@ -77,6 +77,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 | `INSERT IGNORE`, `INSERT OR REPLACE` | Throw `OrmException` |
 | Upsert | `MERGE ... WITH (HOLDLOCK)` on the unique columns |
 | Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; `ORDER BY (SELECT NULL)` when the query has no sort |
+| Column changes | `ALTER COLUMN` for type, collation and nullability; renames through `sp_rename`; no `AFTER` |
 | Multi-column `ORDER BY` | Every sort is rendered |
 | Identifier quoting | `[brackets]`; every backtick is stripped before sending |
 | Alias separator | `#` |

@@ -2,7 +2,7 @@
 
 Small functions for stores that talk to a connection directly (`driver.select()`, `driver.insert()`, …) instead of through models. They cover what every such store repeats: counting affected rows, building SQL with bindings, matching composite keys, and writing or purging rows in batches that stay under the driver's parameter limits.
 
-All of them are exported from `@spinajs/orm`. None of them asks which database it runs on. What differs between databases is the driver's job: duplicate keys reject with `ResourceDuplicated`, and statement limits come from the driver.
+All of them are exported from `@spinajs/orm`. None of them asks which database it runs on. What differs between databases is the driver's job: duplicate keys reject with `ResourceDuplicated`, statement limits come from the driver, and SQL that each dialect spells its own way comes from the connection's `SqlExpressions`.
 
 | Helper | What it does |
 | --- | --- |
@@ -16,6 +16,7 @@ All of them are exported from `@spinajs/orm`. None of them asks which database i
 | `purgeBatch(driver, { table, key, where, limit? })` | Deletes up to one batch of matching rows |
 | `everyNthCall(n)` | A counter that is `true` on every `n`-th call |
 | `bumpVersionRow(driver, table, key, column?)` | Atomic `column = column + 1` on a version row, created at `0` when absent |
+| `SqlExpressions` | Per-dialect SQL for a cast to text, a datetime as text, a substring test and a byte-exact comparison; resolved from the connection |
 
 ## How it works
 
@@ -35,6 +36,21 @@ A statement that breaks a unique or primary key constraint rejects with `Resourc
 | SQLite | `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` (primary keys report the same text) |
 
 A driver that does not override `isUniqueViolation()` recognises nothing: its violations reject as it threw them.
+
+### Dialect expressions
+
+`driver.Container.resolve(SqlExpressions)` returns the connection's `SqlExpressions`. Each driver registers its own in `resolve()`. A string argument is SQL without bindings, such as a quoted column; a `SqlFragment` argument carries its bindings into the result.
+
+| Method | Returns | SQLite | PostgreSQL | MySQL | MSSQL |
+| --- | --- | --- | --- | --- | --- |
+| `castText(expression, length?)` | `expression` as text; `length` bounds the type where the dialect needs one | `CAST(x AS TEXT)` | `CAST(x AS TEXT)` | `CAST(x AS CHAR[(n)])` | `CAST(x AS NVARCHAR(n \| MAX))` |
+| `datetimeText(expression)` | A datetime column as the wall-clock text it stores, `yyyy-MM-dd HH:mm:ss[.SSS]`, never shifted into a zone | `x` (stored as text) | `CAST(x AS TEXT)` | `CAST(x AS CHAR)` | `CONVERT(varchar(23), x, 121)` |
+| `contains(haystack, needle)` | `SqlFragment`, true where `needle` occurs in `haystack` | `instr(h, n) > 0` | `strpos(h, n) > 0` | `LOCATE(n, h) > 0` | `CHARINDEX(n, h) > 0` |
+| `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r` | `l = r` | `l = CAST(r AS BINARY)` | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
+
+The base `SqlExpressions` throws `NotSupported` from every method, so a driver that registers none fails loudly instead of emitting another dialect's SQL. To add or fix one, subclass a shipped implementation and register it `.as(SqlExpressions)` in the driver's `resolve()`; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
+
+Use `datetimeText()` to read a datetime column when the driver would parse it in a zone: `node-postgres` reads `timestamp` in the process zone, and `tedious` reads it as UTC. Use `equalsExactly()` where a match must not fold case, such as a secret or a token, on a column declared without [`exact()`](09-schema-builder.md#exact-columns).
 
 ### SQL fragments
 
@@ -65,7 +81,7 @@ Pair it with `everyNthCall()` to purge from a hot path now and then instead of o
 
 ```ts sample
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver, everyNthCall, insertChunked, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
+import { IdentifierQuoter, OrmDriver, SqlExpressions, everyNthCall, insertChunked, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
 
 const purgeNow = everyNthCall(64);
 
@@ -106,5 +122,12 @@ export async function edgesOf(driver: OrmDriver, parents: Map<string, string[]>)
 export async function visible(driver: OrmDriver, owner: string, teams: string[]): Promise<{ id: number }[]> {
   const where = sql.or([sql`owner_id = ${owner}`, ...(teams.length ? [sql`team_id IN (${teams})`] : [])]);
   return driver.select<{ id: number }[]>().from('document').where(toRawQuery(where));
+}
+
+// Confirm a pending MFA enrolment only for the exact secret it was started with; MySQL and MSSQL collations ignore case.
+export async function confirmEnrolment(driver: OrmDriver, identity: string, secretEnc: string, at: Date): Promise<boolean> {
+  const column = driver.Container.resolve(IdentifierQuoter).quote('secret_enc');
+  const same = driver.Container.resolve(SqlExpressions).equalsExactly(column, sql`${secretEnc}`);
+  return rowsAffected(await driver.update().in('mfa').update({ confirmed_at: at }).where('identity', identity).whereNull('confirmed_at').where(toRawQuery(same))) === 1;
 }
 ```

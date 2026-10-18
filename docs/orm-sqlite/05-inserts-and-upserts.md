@@ -36,7 +36,7 @@ The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step
 
 ## Configuration
 
-No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead.
+No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead.
 
 ## Services and extension points
 
@@ -196,7 +196,7 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 - `orReplace()` deletes the conflicting row and inserts a new one: its other columns take defaults, and `ON DELETE` actions fire if foreign keys are enforced.
 - `orIgnore()` with `returning()` returns no row for a skipped insert.
 - A multi-row insert whose rows set different columns renders `NULL` for the gaps only when the column is known to be nullable without a default (model inserts); a raw `driver.insert()` with such gaps throws `InvalidArgument`, because the driver cannot tell what the table default is.
-- A duplicate key (`UNIQUE constraint failed`) becomes `ResourceDuplicated` for `Insert`, `InsertReturning` and `Upsert`; other constraint violations raise `OrmException`.
+- A unique or primary-key violation (`UNIQUE constraint failed`) rejects with `ResourceDuplicated` for `Insert`, `InsertReturning` and `Upsert` alike. Other `SQLITE_CONSTRAINT` failures (`NOT NULL`, `CHECK`) stay `OrmException`. See [Errors](01-connection.md#errors).
 
 ## Best practices
 

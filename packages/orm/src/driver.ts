@@ -4,8 +4,9 @@ import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, Iso
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
+import { SqlExpressions } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
@@ -131,6 +132,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(JsonValueConverter).as(JsonValueConverter);
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
+    this.Container.register(SqlExpressions).as(SqlExpressions);
   }
 
   /**
@@ -544,6 +546,20 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
     await this._runAfterCommit(ctx.afterCommit ?? []);
     return result;
+  }
+
+  /**
+   * Inside a transaction, keeps other writers off `table` until it ends; readers go on.
+   * Drivers implement it; the default throws `NotSupported`.
+   */
+  public async lockTableShared(table: string): Promise<void> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot lock table ${table}`);
+  }
+
+  protected assertInTransaction(operation: string): void {
+    if (!this.CurrentTransaction) {
+      throw new InvalidOperation(`${operation} must run inside a transaction`);
+    }
   }
 
   /**
