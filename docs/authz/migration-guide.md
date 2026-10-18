@@ -80,8 +80,8 @@ Rules for the move (§4.1.1):
   `AuthnMiddleware`.
 - The 2.x queue events `UserRoleGranted` and `UserRoleRevoked` become `RoleAssigned` and
   `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventSink`.
-- Logger names (`rbac`, `rbac-http-token`, `rbac-http-user`) and the queue connection
-  `rbac-user-empty-queue` stay as they were.
+- Logger names (`rbac`, `rbac-http-token`) and the queue connection `rbac-user-empty-queue` stay
+  as they were. The QR command logged as `rbac-http-user`; it now logs as `authn-totp`.
 
 ### 2.2 The package set of an app
 
@@ -366,6 +366,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `SessionProvider`, `UserSession`, `regenerateSession`, `revokeUserSessions` | `SessionProvider` from `@spinajs/authn-session`; `SessionIssuer.rotate`, `.revokeAll(subject)` |
 | `TwoFactorAuthProvider`, `Default2FaToken`, `auth2Fa` | `MfaStep`, `TotpMfaStep`, `TotpService`, `AuthnService.completeMfa` (`authn-totp`) |
 | CLI `rbac:user-enable-2fa` | `authn:mfa-reset <login>` (removes the enrolment, prints no secret); the owner enrols again through `/user/mfa` |
+| CLI `rbac:2fa-qr` | `authn:mfa-qr` (`rbac:2fa-qr` stays as an alias) |
 | `validateToken`, `createToken` | `TokenService.validate`, `.create` (`DbTokenService` in `authn-token`) |
 | `@Policy(NoTokenAuthPolicy)` | `NoTokenAuthPolicy` from `authn-http` (a token or key caller gets 403 `session_required`) |
 | `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated` (a pending MFA session does not pass); fresh auth through `FreshAuth(seconds)` or, in a handler, `assertFreshAuth` (exported from the `@spinajs/authn-http` root) |
@@ -1546,7 +1547,7 @@ and guard check runs inside `AuthzAdmin`.
 - Kept on purpose: table and migration names, the 2.x metadata key names (hidden and protected), 2.x
   session rows (migrated on first use), and the names `RbacException`, `RbacCliCommand`,
   `RbacBootstrapper`, `RBAC_USER_MODEL`, the `rbac:user-*` CLI commands of users, `rbac:2fa-qr` of
-  authn-totp, and the `rbac*` logger and queue names.
+  authn-totp (now an alias of `authn:mfa-qr`), and the `rbac*` logger and queue names.
 - `getRegisteredTypes` answers `null` once no container in the lineage holds a registration of the
   type, also after every registration was removed; callers treat it as none (Z5).
 
