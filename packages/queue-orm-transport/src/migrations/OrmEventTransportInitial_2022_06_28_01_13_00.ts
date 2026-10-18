@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('orm-event-transport')
@@ -18,8 +17,8 @@ export class OrmEventTransportInitial_2022_06_28_01_13_00 extends OrmMigration {
     });
 
     await connection.schema().createTable('orm_event_transport__queue', (table) => {
-      table.int('orm_event_transport__subscribers_Id');
-      table.int('orm_event_transport__event_Id');
+      table.int('orm_event_transport__subscribers_Id').notNull().primaryKey();
+      table.int('orm_event_transport__event_Id').notNull().primaryKey();
       table.dateTime('Ack');
     });
 
@@ -29,11 +28,14 @@ export class OrmEventTransportInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.text('Value').notNull();
       table.text('Result');
       table.dateTime('CreatedAt').notNull().default().dateTime();
-      table.dateTime('FinishedAt').notNull().default().dateTime();
+      table.dateTime('FinishedAt');
     });
   }
 
-  // tslint:disable-next-line: no-empty
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public async down(_connection: OrmDriver): Promise<void> {}
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropTable('orm_event_transport__job');
+    await connection.schema().dropTable('orm_event_transport__queue');
+    await connection.schema().dropTable('orm_event_transport__subscribers');
+    await connection.schema().dropTable('orm_event_transport__event');
+  }
 }

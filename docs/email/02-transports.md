@@ -59,7 +59,7 @@ export default {
 | Class | `service` value | Behaviour |
 | --- | --- | --- |
 | `BlackHoleEmailSender` | `'BlackHoleEmailSender'` | Reads each attachment that has no `file` through its filesystem, logs `Email <subject> sent to black hole`, sends nothing. A refused read still fails the send. |
-| `BlackHoleEmailTransport` | none | Empty `send()`. Registered with `@Injectable()` only, so it is **not** an `EmailSender` registration and cannot be named in `service`. Use `BlackHoleEmailSender`. |
+| `BlackHoleEmailTransport` | `'BlackHoleEmailTransport'` | Empty `send()`: no attachment reads, no log line. |
 
 ### Transport contract
 

@@ -112,7 +112,7 @@ this.Config = _.merge(this.Config, {
 
 ## Important behaviour
 
-- **MSSQL is not supported.** `orm-mssql` registers no `AlterTableQueryCompiler`, so the column adds of `UserSessionIdHash_2026_10_02_00_00_00` throw. The migration is recorded as failed, and the ORM then refuses every later migration on that connection.
+- **MSSQL is not supported.** The column adds of `UserSessionIdHash_2026_10_02_00_00_00` run, but step 3 has no MSSQL branch: `SessionId` is the primary key, and SQL Server refuses to widen a column a `PRIMARY KEY` depends on. `SessionId` stays `VARCHAR(36)` and `UserId` `NOT NULL`, so every `save()` of a 64-character key fails.
 - Dialects are recognised by `db.Connections[].Driver`, by exact name. A driver registered under another name, even a subclass of the MySQL driver, gets no `SessionId` widening and keeps `UserId` `NOT NULL`, so every `save()` of a 64-character key or a `NULL` `UserId` fails.
 - On a fresh database the table is created with `SessionId` `VARCHAR(36)` and `UserId` `NOT NULL`; `UserSessionIdHash_2026_10_02_00_00_00` then reshapes it in the same boot pass.
 - The create migration needs the `users` table on the same connection for its foreign key. Its timestamp is later than `@spinajs/users`'s `RBACInitial_2022_06_28_01_13_00`, so on one connection the parent table exists first.

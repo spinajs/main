@@ -4,6 +4,7 @@ import _ from 'lodash';
 import { IntlResource } from './models/IntlResource.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { guessLanguage } from '@spinajs/intl';
+import { DateTime } from 'luxon';
 export class Translatable extends ModelBase {
   protected Language: string;
 
@@ -36,55 +37,68 @@ export class Translatable extends ModelBase {
     const selectedLang = guessLanguage(this.Language);
     const defaultLanguage = DI.get(Configuration)!.get<string>('intl.defaultLocale');
 
+    if (!selectedLang || defaultLanguage === selectedLang) {
+      return await super.update(data);
+    }
+
     let result = {
       RowsAffected: 0,
       LastInsertId: 0,
     };
 
-    if (!selectedLang || defaultLanguage === selectedLang) {
-      return await super.update(data);
-    } else {
-      this.Language = selectedLang;
-      // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module
-      const tColumns = _.uniqBy(
-        this.ModelDescriptor!.Columns.filter((c) => c.Translate),
-        'Name',
-      );
+    if (data) {
+      this.hydrate(data);
+    }
 
-      const { query } = this.createUpdateQuery();
+    this.Language = selectedLang;
 
-      if (this.ModelDescriptor!.Timestamps.UpdatedAt) {
-        (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = new Date();
-      }
+    const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
+    const changed = this.changeSet()
+      .map((c) => c.Column)
+      .filter((c) => !keyColumns.includes(c));
 
-      // update only non translated
-      const cToDehydrate = [...tColumns.map((c) => c.Name)];
-      const dToUpdate = _.omit(this.toSql(), cToDehydrate);
-
-      if (Object.keys(dToUpdate).length !== 0) {
-        const q = query.update(dToUpdate);
-        wherePk(q, this.ModelDescriptor!, this.PrimaryKeyValue);
-        await q;
-      }
-
-      const translations = tColumns.map((c) => {
-        return new IntlResource({
-          ResourceId: this.PrimaryKeyValue,
-          Resource: this.constructor.name,
-          Column: c.Name,
-          Lang: this.Language,
-          Value: (this as any)[c.Name],
-        });
-      });
-
-      // update or insert translations to database
-      for (const t of translations) {
-        await t.insert(InsertBehaviour.InsertOrUpdate);
-      }
-
-
-      // TODO: fixit
+    if (changed.length === 0) {
       return result;
     }
+
+    // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module
+    const tColumns = _.uniqBy(
+      this.ModelDescriptor!.Columns.filter((c) => c.Translate && changed.includes(c.Name)),
+      'Name',
+    );
+    const tColumnNames = tColumns.map((c) => c.Name);
+    const columnsToUpdate = changed.filter((c) => !tColumnNames.includes(c));
+
+    const updatedAt = this.ModelDescriptor!.Timestamps.UpdatedAt;
+    if (updatedAt) {
+      (this as any)[updatedAt] = DateTime.now();
+      if (!columnsToUpdate.includes(updatedAt)) {
+        columnsToUpdate.push(updatedAt);
+      }
+    }
+
+    if (columnsToUpdate.length !== 0) {
+      const { query } = this.createUpdateQuery();
+      const q = query.update(_.pick(this.toSql() as Record<string, unknown>, columnsToUpdate));
+      wherePk(q, this.ModelDescriptor!, this.PrimaryKeyValue);
+      result = await q;
+    } else {
+      // only translations changed: the entity is still saved, in intl_resources
+      result = { RowsAffected: 1, LastInsertId: 0 };
+    }
+
+    for (const c of tColumns) {
+      await new IntlResource({
+        ResourceId: this.PrimaryKeyValue,
+        Resource: this.constructor.name,
+        Column: c.Name,
+        Lang: this.Language,
+        Value: (this as any)[c.Name],
+      }).insert(InsertBehaviour.InsertOrUpdate);
+    }
+
+    this.takeSnapshot();
+
+    return result;
   }
 }

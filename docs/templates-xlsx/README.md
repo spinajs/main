@@ -2,7 +2,7 @@
 
 Renders Excel `.xlsx` templates to `.xlsx` files. The package adds one engine, `XlsxRenderer`, to the `@spinajs/templates` renderer list; you call it through the `Templates` facade like any other engine. Cell placeholders and loops come from [`xlsx-renderer`](https://www.npmjs.com/package/xlsx-renderer), the workbook I/O from [`exceljs`](https://www.npmjs.com/package/exceljs).
 
-It does **not** render to memory: `render()` and `compile()` reject with `NotSupported`; only `renderToFile()` and `compileToFile()` work. It does **not** read `fs://` URIs, does **not** cache templates, does **not** create the output folder and ignores `language` and `onProgress`. [Custom XLSX renderer](02-custom-xlsx-renderer.md) shows how to add any of these.
+It does **not** render to memory: `render()` and `compile()` reject with `NotSupported`; only `renderToFile()` and `compileToFile()` work. It does **not** cache templates and ignores `language` and `onProgress`. [Custom XLSX renderer](02-custom-xlsx-renderer.md) shows how to add progress reporting.
 
 ## Install
 
@@ -15,7 +15,7 @@ npm install @spinajs/templates-xlsx
 | Feature | What it does |
 | --- | --- |
 | [Rendering XLSX files](01-rendering-xlsx-files.md) | `Templates.renderToFile()` with a `.xlsx` template: the flow, template cell syntax, errors and limits. |
-| [Custom XLSX renderer](02-custom-xlsx-renderer.md) | The `TemplateRenderer` slot `XlsxRenderer` fills: replace it, subclass it, add `fs://` sources or custom cell commands. |
+| [Custom XLSX renderer](02-custom-xlsx-renderer.md) | The `TemplateRenderer` slot `XlsxRenderer` fills: replace it, subclass it, add progress reporting or custom cell commands. |
 
 ## Quick start
 

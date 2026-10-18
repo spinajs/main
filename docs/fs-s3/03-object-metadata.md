@@ -29,7 +29,7 @@ Reading it back:
 | Method | Returns |
 | --- | --- |
 | `getMetadata(path)` | `Record<string, string> \| undefined`: the user metadata as S3 returns it, with **lowercased** keys (`height`, `mimetype`, `hash`). |
-| `metadata(path)` | the same object, typed as `IFileInfo`. |
+| `metadata(path)` | the same object as `IFileInfo`: the fields `upload()` stores are restored under their `IFileInfo` names, as numbers and `DateTime` values; other keys stay lowercased strings. |
 | `hash(path)` | the `hash` entry: the SHA-256 hex digest. Throws `InvalidArgument` when an algorithm is passed, and `IOFail` when the object has no `hash` entry. |
 | `setMetadata(path, metadata)` | replaces all user metadata; see below. |
 
@@ -88,7 +88,7 @@ DI.register(ExtensionFileInfo).as(FileInfoService);
 
 ## Important behaviour
 
-- **Keys come back lowercased, values as strings.** S3 normalizes metadata names, so `upload()` stores `Height` and `getMetadata()` returns `height: '1080'`. `metadata()` casts that object to `IFileInfo`, so `info.Height` is `undefined` at runtime; read lowercase keys from `getMetadata()`.
+- **Keys come back lowercased, values as strings.** S3 normalizes metadata names, so `upload()` stores `Height` and `getMetadata()` returns `height: '1080'`. `metadata()` converts the stored file info back, so `info.Height` is `1080`.
 - **`hash()` is SHA-256, not MD5.** The `md5` entry exists, but `hash()` returns the `hash` entry, and passing an algorithm throws.
 - **Only objects written through `write()`, `upload()` or `append()` have a hash.** Objects from `writeStream()` or from outside the application make `hash()` throw `IOFail`.
 - **`setMetadata()` replaces everything.** Keys you leave out, `hash` and `md5` included, are deleted.

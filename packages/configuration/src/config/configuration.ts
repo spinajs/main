@@ -18,6 +18,7 @@ import { normalizeEnvironment } from '@spinajs/configuration-common';
  *
  * These stay ordinary configuration values, so an app may override them in its own config - that
  * is the point of deciding it here rather than re-deriving it at each call site.
+ * `FrameworkConfiguration.load()` sets them from the `APP_ENV` it resolved, before the sources merge.
  *
  * @param env - process.env, taken as an argument so the derivation is testable without reloading
  *              the module
@@ -40,9 +41,9 @@ export function buildEnvironmentFlags(env: NodeJS.ProcessEnv) {
   };
 }
 
+// No environment flags here: this file is evaluated at import, before `--env` and the `process.env`
+// DI value are known, and as a config file it would override the flags load() derives from them.
 const config = {
-  configuration: buildEnvironmentFlags(process.env),
-
   app: {
     name: 'spinajs',
     version: '1.0.0',

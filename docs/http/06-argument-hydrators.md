@@ -36,7 +36,7 @@ An unparsable string gives an invalid `DateTime` (`isValid === false`), not an e
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `ArgHydrator` (abstract) | No token: the class named in `@Hydrator` is resolved with `DI.resolve(Class, options)`; singleton unless decorated `@NewInstance()` | none | `DateTimeHydrator`; `DbModelHydrator` and `RelationResolverHydrator` in `@spinajs/orm-http` | Extend `ArgHydrator`, implement `hydrate()`, name it in `@Hydrator`. To swap the hydrator of a type you do not own, `DI.register(Mine).as(TheirHydrator)`. |
-| `DateTimeHydrator` | Key `'DateTimeHydrator'` (its class name), `@Injectable()`, singleton; read by `HttpBootstrapper` with `DI.getRegisteredTypes(DateTimeHydrator)`. Not exported from the package entry. | `DateTimeHydrator` | | `DI.register(Mine).as('DateTimeHydrator')` **before** the bootstrappers run; the last registered type is attached to `DateTime`. |
+| `DateTimeHydrator` | Key `'DateTimeHydrator'` (its class name), `@Injectable()`, singleton; read by `HttpBootstrapper` with `DI.getRegisteredTypes(DateTimeHydrator)`. | `DateTimeHydrator` | | `DI.register(Mine).as('DateTimeHydrator')` **before** the bootstrappers run; the last registered type is attached to `DateTime`. |
 
 ### `ArgHydrator`: custom implementation
 
@@ -82,7 +82,7 @@ export class PricesController extends BaseController {
 
 ### `DateTimeHydrator`: custom implementation
 
-Replace the date parsing for every `DateTime` argument, for example to read Unix **milliseconds** from JavaScript clients and to refuse unparsable dates. `DateTimeHydrator` is not exported from the package entry, so you cannot subclass it; extend `ArgHydrator` and register your class under the string key `'DateTimeHydrator'`, which is the key the class registers under.
+Replace the date parsing for every `DateTime` argument, for example to read Unix **milliseconds** from JavaScript clients and to refuse unparsable dates. Extend `ArgHydrator` (or subclass `DateTimeHydrator`, exported from the package entry) and register your class under the string key `'DateTimeHydrator'`, which is the key the class registers under.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -109,7 +109,7 @@ DI.register(StrictDateTimeHydrator).as('DateTimeHydrator');
 ## Important behaviour
 
 - With a hydrator, the **raw** value is validated, not the hydrated one. A schema on the type must describe the input format.
-- `@Hydrator` keeps the first hydrator found on the class or any parent: a subclass of a hydrated class inherits the parent's hydrator and cannot set its own.
+- A subclass of a hydrated class inherits the parent's hydrator unless it declares its own `@Hydrator`.
 - Hydrators are resolved per argument per request, from the root container. A singleton hydrator is built once.
 - `DateTimeHydrator` treats every numeric string as Unix **seconds**: `?from=20260101` is a date in 1970.
 - `DateTimeHydrator` returns an invalid `DateTime` for unparsable input; check `isValid` or add a schema.

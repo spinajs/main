@@ -169,6 +169,7 @@ void main();
 ## Important behaviour
 
 - Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
+- A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.
 - An unconfigured module gets its defaults only when `{}` passes the schema. With a `required` key and no default, the module stays `undefined` and only a warning is logged; the boot does not fail.

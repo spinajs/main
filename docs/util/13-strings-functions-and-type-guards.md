@@ -63,7 +63,7 @@ console.log(grossPrice(p), grossPrice({ ...p }), loadVatTable() === loadVatTable
 ## Important behaviour
 
 - `isPromise` is strict on purpose. Awaitable query builders expose `then`, and calling it runs the query; `@spinajs/di` uses `isPromise` to decide whether to await a resolved value. Use `isThenable` when foreign promises must match too.
-- `once` marks itself called before running `fn`. When `fn` throws, later calls return `undefined` instead of retrying.
+- `once` does not count a call where `fn` throws: the error propagates and the next call runs `fn` again.
 - `memoize` never evicts entries, and it caches a rejected promise like any other result.
 - `Lazy.call` runs the callback every time; it does not cache. Combine it with `once` for a lazily computed value.
 - `truncateWords` joins the kept words with single spaces when it truncates; it returns the string unchanged otherwise.

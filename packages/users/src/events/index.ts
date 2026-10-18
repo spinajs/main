@@ -12,3 +12,5 @@ export * from "./UserEvent.js";
 export * from "./UserLoginFailed.js";
 export * from "./UserImpersonationStarted.js";
 export * from "./UserImpersonationEnded.js";
+export * from "./UserMetadataChange.js";
+export * from "./UserPasswordExpired.js";

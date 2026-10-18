@@ -12,7 +12,7 @@
    - `done`: resolves with `result` (the `IRenderOutput`); the queue stores it in `queue_jobs.Result` and marks the row `success`.
    - `error`: rejects with `new Error(message)` and sends `SIGTERM` to the child.
 5. A child `error` event rejects with that error. A child `exit` before `done` or `error` rejects with `Render worker exited unexpectedly with code <code>`.
-6. When the timer fires first, the job rejects with `Render worker timed out after <timeoutMs>ms` and the child gets `SIGKILL`.
+6. When the timer fires first, the job rejects with `Render worker timed out after <timeoutMs>ms` and the child gets `SIGTERM`, then `SIGKILL` after 5 s if it is still running. On `SIGTERM` the worker removes its temp PDF and exits.
 7. Every terminal path runs once: it clears the timer and removes the `message`, `error` and `exit` listeners, so a late `exit` after `done` changes nothing.
 8. On a rejection the queue records the attempt, sets the row to `retrying` or `dead`, writes `LastError`, calls `onFailed()` and rethrows so the transport can retry or dead-letter.
 
@@ -66,8 +66,8 @@ The job's own timeout is the payload field `timeoutMs`, not a config key.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| The job class | `RenderPdfJob`; resolved per delivery with `DI.resolve(RenderPdfJob)`; singleton unless the registered class has `@NewInstance()` | `RenderPdfJob` | none shipped | Subclass and `DI.register(MyJob).as(RenderPdfJob)`; see [Extending `RenderPdfJob`](05-extending-render-pdf-job.md) |
-| `spawnWorker(): ChildProcess` | protected method | `fork(<package lib>/render-worker.js)` | Your worker script; a fake child in tests | Override; see [Custom worker entry](06-custom-worker-entry.md) |
+| The job class | `RenderPdfJob`; resolved per delivery with `DI.resolve(RenderPdfJob)`; `@NewInstance()`, one object per delivery | `RenderPdfJob` | none shipped | Subclass and `DI.register(MyJob).as(RenderPdfJob)`; see [Extending `RenderPdfJob`](05-extending-render-pdf-job.md) |
+| `spawnWorker(): ChildProcess` | protected method | `fork(<package lib>/render-worker.js, process.argv.slice(2))` | Your worker script; a fake child in tests | Override; see [Custom worker entry](06-custom-worker-entry.md) |
 | `buildRequest(): IRenderRequest` | protected method | copies the payload fields | Your defaults | Override and call `super.buildRequest()`; see [Extending `RenderPdfJob`](05-extending-render-pdf-job.md#add-defaults-to-every-request) |
 | `superviseChild(child, progress)` | protected method | timer, relay, settle-once | Your supervision | Override only to wrap it; the settle-once logic lives inside |
 | `onFailed(err, ctx)` | inherited from `QueueJob` | no-op | Your alert | Override; see [Extending `RenderPdfJob`](05-extending-render-pdf-job.md#alert-on-the-final-failed-attempt) |
@@ -122,7 +122,7 @@ async function failedRenderKillsTheWorker(): Promise<void> {
 
 - One render, one process. The worker exits after `done` or `error`; no worker is reused between jobs.
 - The job timeout (`timeoutMs`, default 120 s) covers the whole worker: process start, config bootstrap, template compile, Chromium start, render and upload. The renderer's own `templates.pdf.renderTimeout` (default 30 s) covers only the page; keep `timeoutMs` above it.
-- A timeout sends `SIGKILL`, so the worker gets no chance to clean up. Its temp PDF stays in the OS temp directory.
+- A timeout sends `SIGTERM` first: the worker removes its temp PDF and exits. A worker that is still running 5 s later gets `SIGKILL`, and its temp PDF stays in the OS temp directory.
 - An `error` message sends `SIGTERM`; the worker is already disposing and exiting with code `1` by then.
 - Progress persistence never blocks or fails the render: a rejected `progress()` call only logs `Failed to persist progress: <message>` on the `RenderPdfJob` logger.
 - The worker's error reaches the job row as text only (`LastError`): the stack and the error class stay in the child.

@@ -9,7 +9,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
    - `@Migration('default')` registers `Mutex_2024_12_03_11_41_00` under `__migrations__`.
 2. `Orm.resolve()` finds the migration through `DiRegistryMigrationSource`; no directory scan is needed.
 3. The boot pass runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
-4. `Mutex_2024_12_03_11_41_00.up()` creates the table. `down()` does nothing.
+4. `Mutex_2024_12_03_11_41_00.up()` creates the table. `down()` drops it.
 5. `Orm` binds the model to the driver stored under `default`, which is the connection named in `db.DefaultConnection`.
 
 ## Configuration
@@ -46,7 +46,7 @@ this.Config = _.merge(this.Config, {
 | `Tenant` | `VARCHAR(32)`, not null | Current or last owner. |
 | `Locked` | `BOOLEAN`, not null, default `0` | `true` while the owner holds the lock. |
 | `Created_at` | `DATETIME`, not null, default current time | Set on insert; `@CreatedAt` on the model. |
-| `Updated_at` | `DATETIME`, not null, default current time | `@UpdatedAt` on the model. Changes only on an instance `update()`, not on `OrmMutex.acquire()` or `release()`. |
+| `Updated_at` | `DATETIME`, not null, default current time | `@UpdatedAt` on the model. Set by every `OrmMutex.acquire()` and `release()`, and by an instance `update()`. |
 
 ### The `__mutex__` model
 
@@ -66,7 +66,7 @@ The constructor fills `Created_at` and `Updated_at` with `DateTime.now()` unless
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `__mutex__` model | `__models__` list, registered by `@Model` on import | `__mutex__` | none | Use it directly for reads and admin writes. `OrmMutex` references the class itself, so a subclass model is **not** picked up; change the table with a migration instead. |
-| `Mutex_2024_12_03_11_41_00` migration | `__migrations__` list, registered by `@Migration('default')` on import | creates `__mutex__` | none | Add your own later migration on `default` to alter the table. Its `down()` is empty. |
+| `Mutex_2024_12_03_11_41_00` migration | `__migrations__` list, registered by `@Migration('default')` on import | creates `__mutex__` | none | Add your own later migration on `default` to alter the table. Its `down()` drops the table. |
 
 ### Migration: widen the name and tenant columns
 
@@ -104,10 +104,9 @@ Each column gets its own `alterTable()` call, because the statements of one call
 ## Important behaviour
 
 - The table always lives on the `default` connection. Moving it means changing `db.DefaultConnection`, which moves every model bound to `default`.
-- Rolling back `Mutex_2024_12_03_11_41_00` leaves the table in place: `down()` is empty.
+- Rolling back `Mutex_2024_12_03_11_41_00` drops the `__mutex__` table, and every lock in it.
 - A lock row stays after `release()`; only `release(options, true)` and `delete()` remove it.
 - The model has no `Id` column; `Name` is the key, so `__mutex__.get(name)` finds a lock by name.
-- The `__mutex__` constructor takes a required `data` argument. Under `strictNullChecks`, static calls such as `__mutex__.where()` fail to type-check; cast the class as the examples below do. `OrmMutex` itself casts it to `any`.
 
 ## Best practices
 
@@ -119,14 +118,10 @@ Each column gets its own `alterTable()` call, because the statements of one call
 ### List the locks held right now
 
 ```ts sample
-import { ModelBase } from '@spinajs/orm';
 import { __mutex__ } from '@spinajs/orm-threading';
 
-// __mutex__ declares a required constructor argument, which the static model API rejects under strictNullChecks.
-const MutexTable = __mutex__ as unknown as typeof ModelBase & (new (data?: Partial<__mutex__>) => __mutex__);
-
 export async function heldLocks(): Promise<Array<{ name: string; owner: string; since: string }>> {
-  const locks = await MutexTable.where({ Locked: true });
+  const locks = await __mutex__.where({ Locked: true });
 
   return locks.map((lock) => ({
     name: lock.Name,
@@ -138,20 +133,16 @@ export async function heldLocks(): Promise<Array<{ name: string; owner: string; 
 
 ### Release stale locks
 
-`OrmMutex` locks never expire. A cleanup job frees locks held longer than an hour. It relies on `Updated_at` being stamped at acquire time, which the stock `OrmMutex` does not do; register [`AtomicOrmMutex`](02-custom-mutex-backends.md#ormmutex-atomic-acquire) or another subclass that sets it.
+`OrmMutex` locks never expire. A cleanup job frees locks held longer than an hour. It relies on `Updated_at`, which `OrmMutex.acquire()` stamps when it takes a lock.
 
 ```ts sample
 import { DateTime } from 'luxon';
-import { ModelBase } from '@spinajs/orm';
 import { __mutex__ } from '@spinajs/orm-threading';
-
-// __mutex__ declares a required constructor argument, which the static model API rejects under strictNullChecks.
-const MutexTable = __mutex__ as unknown as typeof ModelBase & (new (data?: Partial<__mutex__>) => __mutex__);
 
 export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
   const cutoff = DateTime.now().minus({ minutes: maxAgeMinutes });
 
-  const result = await MutexTable
+  const result = await __mutex__
     .update({ Locked: false, Updated_at: DateTime.now() })
     .where({ Locked: true })
     .where('Updated_at', '<', cutoff);
@@ -163,7 +154,7 @@ export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
 ## Related
 
 - [Database mutex](01-database-mutex.md): how `OrmMutex` reads and writes these rows.
-- [Custom mutex backends](02-custom-mutex-backends.md): `AtomicOrmMutex`, which stamps `Updated_at`.
+- [Custom mutex backends](02-custom-mutex-backends.md): extend `OrmMutex` or replace it.
 - [Models](../orm/02-models.md) and [Model API](../orm/03-model-api.md): `@Model`, `@Primary`, `where()`, `update()`.
 - [Migrations](../orm/10-migrations.md): discovery, the boot pass and rollback.
 - [Schema builder](../orm/09-schema-builder.md): `alterTable()` and `modify()`.

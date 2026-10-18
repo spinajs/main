@@ -24,23 +24,26 @@ The builder turns every route argument into a path, query, header or cookie para
 | --- | --- | --- | --- |
 | `@Query()`, `@QueryField()` | parameter | `schema`, `{ required }` | Query parameter |
 | `@Param()`, `@ParamField()`, `@PKey()`, `@Uuid()` | parameter | `schema` | Path parameter, bound to the placeholder of the same name |
-| `@Header()`, `@HeadersField()` | parameter | `keyName`, `schema` | Header parameter |
+| `@Header()`, `@HeadersField()` | parameter | `keyName`, `schema`, `{ required }` | Header parameter |
+| `@UserAgent()`, `@Referer()` | parameter | none | `User-Agent` / `Referer` header parameter |
 | `@Cookie()` | parameter | `secure` | Cookie parameter |
 | `@Body()`, `@BodyField()`, `@Model()` | parameter | none | JSON body, or a property of it |
+| `@RawBody()` | parameter | none | JSON body with an unconstrained schema (`{}`) |
+| `@FromXml()` | parameter | parser options | `application/xml` body |
 | `@Form()`, `@FormField()` | parameter | form options | `multipart/form-data` body fields |
 | `@File()`, `@Files()`, `@CsvFile()`, `@JsonFile()` | parameter | upload options, `required` | `multipart/form-data` file field |
 | `@AsModel()` (`@spinajs/orm-http`) | parameter | none | JSON body, like `@Body()` |
 | `@FromModel()` (`@spinajs/orm-http`) | parameter | `paramType`, `paramField`, `queryField` | The model key: path by default; query or header with `paramType`; no parameter for a body key |
 | `@Filter()` (`@spinajs/orm-http`) | parameter | model class or `IColumnFilter[]` | Query parameter named after the argument, with the `{ op, filters }` envelope as JSON content |
 | `@Req()`, `@Res()`, `@FromDI()`, `@AcceptType()`, session arguments | parameter | none | Not documented: framework values, not API input |
-| `@Ip()`, `@RequestId()`, `@UserAgent()`, `@Referer()`, `@RawBody()`, `@FromXml()` | parameter | none | Not documented |
+| `@Ip()`, `@RequestId()` | parameter | none | Not documented |
 
 ## Parameters
 
 | Aspect | Rule |
 | --- | --- |
-| Name | Path: the placeholder. Query and header: `paramField` when the decorator has one, else the argument name. The `keyName` of `@Header('x-tenant')` is **not** used: the header is documented under the argument name |
-| `required` | `true` for path parameters, `false` for all others. `{ required: true }` on `@Query()` or `@Header()` is **not** carried over |
+| Name | Path: the placeholder. Query and header: `paramField` when the decorator has one, else the `keyName` of `@Header('x-tenant')`, else the argument name. `@UserAgent()` and `@Referer()`: `User-Agent` and `Referer` |
+| `required` | `true` for path parameters and for parameters whose decorator options have `{ required: true }`, eg. `@Query()` or `@Header()`; `false` otherwise |
 | Description | The argument's `@param` text. For a path parameter, also the `@param` named after the placeholder |
 | Object in the query | `content: { 'application/json': { schema } }` instead of `schema` |
 | Array in the query | `style: 'form'`, `explode: true` |
@@ -76,6 +79,7 @@ A placeholder without an argument is still documented, so a handler that never r
 | One, not a form or file | `application/json` | That argument's schema; `description` from its `@param`; `required: true` |
 | Several, none a form or file | `application/json` | `{ type: 'object', properties }`, one property per argument name |
 | Any `@File()`, `@Files()`, `@Form()`, `@FormField()`, `@CsvFile()`, `@JsonFile()` | `multipart/form-data` | `{ type: 'object', properties }`, one property per argument name |
+| Any `@FromXml()`, none a form or file | `application/xml` | As for JSON |
 
 - A `@Form()` DTO is not nested under its argument name: its properties and its `required` list are lifted to the root, as the runtime reads them.
 - `@File({ required: true })` puts the argument name into the body's `required` list.
@@ -109,7 +113,6 @@ Documented as a query parameter with JSON content: `{ op: 'and' | 'or', filters:
 
 - The builder reads `@spinajs/orm` and `@spinajs/orm-http` metadata through global symbols (`Symbol.for('MODEL_DESCRIPTOR')`, `Symbol.for('orm-http:relations')`). Neither package is a dependency.
 - One unreadable route stops the documentation of its controller at that route, and the whole build fails after every controller was tried.
-- `@UserAgent()` and `@Referer()` read headers but are not documented as header parameters. `@RawBody()` and `@FromXml()` routes get no `requestBody`.
 
 ## Best practices
 
@@ -190,7 +193,7 @@ export class ExpenseController extends BaseController {
 }
 ```
 
-`list` documents the header as `tenant`, not `x-tenant`; see [Parameters](#parameters). `upload` gets a `multipart/form-data` body with `amount`, `note`, `scan` (binary) and `attachments` (array of binary) at the root, and `required: ['amount', 'scan']`.
+`list` documents the header as `x-tenant`, the key it is read from; see [Parameters](#parameters). `upload` gets a `multipart/form-data` body with `amount`, `note`, `scan` (binary) and `attachments` (array of binary) at the root, and `required: ['amount', 'scan']`.
 
 ## Related
 

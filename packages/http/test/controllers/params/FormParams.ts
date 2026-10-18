@@ -107,4 +107,9 @@ export class FormParams extends BaseController {
   ) {
     return new Ok(file);
   }
+
+  @Post()
+  public fileWithZipTransformerFs(@File({ fs: 'test2', middlewares: [ZipFileTransformer] }) file: IUploadedFile) {
+    return new Ok(file);
+  }
 }

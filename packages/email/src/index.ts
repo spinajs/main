@@ -23,11 +23,14 @@ export * from './redact.js';
 export * from './password-mailer.js';
 
 @Injectable(Bootstrapper)
-export class LogBotstrapper extends Bootstrapper {
+export class EmailBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerConfigurationSchema(CONFIGURATION_SCHEMA);
   }
 }
+
+/** @deprecated misspelled, use {@link EmailBootstrapper} */
+export const LogBotstrapper = EmailBootstrapper;
 
 /**
  * Email sending service.
@@ -79,7 +82,7 @@ export class DefaultEmailService extends EmailService {
   public async send(email: IEmail): Promise<void> {
     const connection = email.connection;
 
-    if (!this.Senders.has(connection)) {
+    if (!this.Senders?.has(connection)) {
       this.Log.error({ connection }, 'Email sender ${connection} not exists. Please check your configuration files.');
       Perf.count('email.send.failed', 1, { connection });
       throw new InvalidOperation(`Email sender ${connection} not exists. Please check your configuration files.`);

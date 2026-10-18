@@ -28,7 +28,7 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 
 | Action | Steps | Event, mail |
 | --- | --- | --- |
-| `activate(identifier)` | `IsActive = true` (`updateUser`), drop `user:invite:pending` | `UserChanged`, `UserActivated`; mail `activated` |
+| `activate(identifier)` | Drop `user:invite:pending`; on an inactive account `IsActive = true` (`updateUser`) | `UserChanged`, `UserActivated`; mail `activated`. None on an already active account |
 | `deactivate(identifier)` | Drop `user:invite:pending`, write `IsActive = false` unconditionally, `revokeUserSessions`, `revokeUserTokens` | `UserChanged`, `UserDeactivated`; mail `deactivated` |
 | `ban(identifier, reason = 'NO_REASON', duration = 86400)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
 | `unban(identifier)` | Refuse with `UserIsBanned` when `user:ban:is_banned` is not set; delete the four `user:ban:*` keys | `UserUnbanned`; mail `unbanned` |
@@ -131,7 +131,7 @@ export async function suspendForFraudReview(identifier: string, caseId: string):
 - `create()` sends no users mail for an invited account; authn-local's `PasswordMailer` sends the invite at once, never through the queue.
 - `create()` as `SYSTEM` skips `AuthzAdmin`'s guard. A caller acting for a user must pass that user's principal as `actor`, or it can grant roles above its own.
 - A revocation failure in `ban`, `deactivate` or `deleteUser` throws **after** the state change is stored. Call `revokeUserSessions` and `revokeUserTokens` again to finish.
-- `activate()` does not check the current state; on an active account it emits the events and sends the mail again.
+- `activate()` on an already active account only drops `user:invite:pending`: no event, no mail.
 - `ban()` refuses a banned user only while the ban runs; an expired ban can be replaced. `unban()` refuses when the flag is absent, even if an old ban expired.
 - `deleteUser()` is a soft delete. The login and email stay taken: `assertUserUnique()` counts soft-deleted rows.
 - `revokeUserTokens()` names the ambient principal as the audit actor; an unattended or anonymous caller is named as nobody.

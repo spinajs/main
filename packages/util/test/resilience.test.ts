@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument } from '@spinajs/exceptions';
 import {
   ResiliencePipelineBuilder,
   PredicateBuilder,
@@ -158,6 +158,10 @@ describe('resilience', () => {
   });
 
   describe('timeout', () => {
+    it('rejects an empty Timeout when the strategy is added', () => {
+      expect(() => new ResiliencePipelineBuilder<string>().addTimeout('')).to.throw(InvalidArgument);
+    });
+
     it('passes through fast operations', async () => {
       const pipeline = new ResiliencePipelineBuilder<string>().addTimeout(TimeSpan.fromSeconds(1)).build();
       const res = await pipeline.execute(() => Promise.resolve('fast'));
@@ -255,6 +259,16 @@ describe('resilience', () => {
       } finally {
         clock.restore();
       }
+    });
+
+    it('a call finishing after the circuit opened does not open it again', async () => {
+      let opened = 0;
+      const pipeline = new ResiliencePipelineBuilder<string>()
+        .addCircuitBreaker({ FailureRatio: 0.5, MinimumThroughput: 2, OnOpened: () => void opened++ })
+        .build();
+
+      await Promise.allSettled([1, 2, 3, 4].map(() => pipeline.execute(() => Promise.reject(new IOFail('down')))));
+      expect(opened).to.eq(1);
     });
 
     it('manual isolate rejects with IsolatedCircuitException', async () => {
@@ -387,6 +401,27 @@ describe('resilience - edge cases', () => {
       }
     });
 
+    it('stops retrying with a zero delay once the signal aborts', async () => {
+      const controller = new AbortController();
+      let calls = 0;
+      const pipeline = new ResiliencePipelineBuilder<string>().addRetry({ MaxRetryAttempts: 5, Delay: 0 }).build();
+      const run = pipeline.execute(
+        () => {
+          calls++;
+          controller.abort();
+          return Promise.reject(new IOFail('boom'));
+        },
+        { Signal: controller.signal },
+      );
+      await expect(run).to.be.rejected;
+      expect(calls).to.eq(1);
+    });
+
+    it('treats a thrown undefined as a failure', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>().addRetry({ MaxRetryAttempts: 1, Delay: 0 }).build();
+      await expect(pipeline.execute(() => Promise.reject(undefined))).to.be.rejectedWith('Operation threw undefined');
+    });
+
     it('DelayGenerator overrides the computed backoff', async () => {
       const clock = sinon.useFakeTimers();
       try {
@@ -422,6 +457,11 @@ describe('resilience - edge cases', () => {
       } finally {
         clock.restore();
       }
+    });
+
+    it('treats a thrown undefined as a failure', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>().addHedging({ MaxHedgedAttempts: 1, Delay: 0 }).build();
+      await expect(pipeline.execute(() => Promise.reject(undefined))).to.be.rejectedWith('Operation threw undefined');
     });
 
     it('HedgingException is an Error subtype', () => {

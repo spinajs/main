@@ -91,7 +91,7 @@ void main();
 ## Important behaviour
 
 - Each renderer instance has its own `Cache`. Entries are never evicted; memory grows with the number of distinct template keys.
-- Concurrent first renders of one template each run `compile()`; the last one stored wins. There is no in-flight deduplication.
+- Concurrent first renders of one template share a single `compile()` call. Entries are never evicted.
 - `revalidate` prefers a stale entry over a failed render when `stat()` fails, and logs `Cannot stat template ...`.
 - A miss in `revalidate` whose `stat()` failed stores the token `null`; the next successful `stat()` recompiles.
 - Renderers that do not call `withCache()` do not cache: csv, xlsx, mjml (its handlebars step is cached by the handlebars renderer) and the puppeteer renderers (their pug step is cached by the pug renderer).

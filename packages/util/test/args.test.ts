@@ -141,6 +141,7 @@ describe('args validators (extended)', () => {
     it('_non_empty', () => {
       expect(run(_non_empty(), [1])).to.deep.eq([1]);
       expect(() => run(_non_empty(), '')).to.throw(InvalidArgument);
+      expect(() => run(_non_empty(), null)).to.throw(InvalidArgument);
     });
   });
 
@@ -198,6 +199,9 @@ describe('args validators (extended)', () => {
       class Foo {}
       expect(run(_is_instance_of(Foo), new Foo())).to.be.instanceOf(Foo);
       expect(() => run(_is_instance_of(Foo), {})).to.throw(InvalidArgument);
+      class Bar extends Foo {}
+      expect(run(_is_instance_of(Foo), new Bar())).to.be.instanceOf(Bar);
+      expect(() => run(_is_instance_of(Foo), new (class Foo {})())).to.throw(InvalidArgument);
     });
 
     it('_contains_key on Map and object', () => {

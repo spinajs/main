@@ -62,7 +62,7 @@ Open `/docs/` for Swagger UI. Compile controllers with `declaration: true` and w
 
 ## Related packages
 
-- [`@spinajs/di`](../di/README.md): every service here is a DI singleton you can replace with `DI.register(...).as(...)`.
+- [`@spinajs/di`](../di/README.md): every service here is resolved through DI (singletons, except `OpenApiBuilder`, which is `@NewInstance()`) and can be replaced with `DI.register(...).as(...)`.
 - [`@spinajs/configuration`](../configuration/README.md): the `http.swagger` keys and how package config files merge with the app config.
 - [`@spinajs/orm`](../orm/11-json-schema.md): `ModelSchemaProvider` turns model names into component schemas.
 - [`@spinajs/orm-http`](../orm-http/README.md): `@FromModel`, `@Filter` and DTO `@Relation` are documented with their real wire shape.

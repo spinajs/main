@@ -713,9 +713,8 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
         return (this._builder.getColumns()[i] as ColumnStatement).Column;
       })
       .map((c) => {
-        // RawQuery columns carry raw SQL - preserve the existing (unescaped)
-        // backtick wrapping. String columns go through the identifier escaper.
-        return c instanceof RawQuery ? `\`${c.Query}\`` : this.Quoter.quote(c);
+        // RawQuery columns carry raw SQL and are emitted as is.
+        return c instanceof RawQuery ? c.Query : this.Quoter.quote(c);
       });
 
     if (columns.length === 0) {
@@ -829,6 +828,9 @@ export interface SqlAlterTableQueryCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected container: Container, protected builder: AlterTableQueryBuilder) {
     super();
   }
@@ -842,7 +844,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
         this.builder.DroppedColumns.map((c) => {
           return {
             bindings: [] as any[],
-            expression: `${_table} DROP COLUMN ${c}`,
+            expression: `${_table} DROP COLUMN ${this.Quoter.quote(c)}`,
           };
         }),
       );
@@ -1008,11 +1010,10 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
 
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-        CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
+        expression: `CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
         BEGIN 
           DECLARE rev INT;
-          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
           SET NEW.__revision__ = rev + 1; 
         END;`,
       },
@@ -1034,32 +1035,29 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       // insert into history table & update __end__ date for all operations
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
                         INSERT INTO ${hTtblName} SELECT 'insert', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
                     END;`,
       },
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
                         INSERT INTO ${hTtblName} SELECT 'update', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
                       END;`,
       },
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
-                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = OLD.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = OLD.${pKey.Name} AND __revision__ = rev;
+                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = OLD.${pKey.Name}; 
                      END;`,
       },
     ];

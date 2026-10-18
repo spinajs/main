@@ -17,6 +17,7 @@ export class ActivateUser extends RbacCliCommand {
       this.Log.success({ user: idOrUuid }, active ? 'User ${user} activated' : 'User ${user} deactivated');
     } catch (e) {
       this.Log.error({ error: e, user: idOrUuid }, 'Error while activating user ${user}');
+      process.exitCode = 1;
     }
   }
 }
