@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-pug",
-  "version": "2.0.556",
+  "version": "2.0.557",
   "description": "Pug template renderer for @spinajs/templates.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,19 +51,19 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/fs": "2.0.556",
+    "@spinajs/fs": "2.0.557",
     "@types/luxon": "^3.6.1",
     "@types/mocha": "10.0.1",
     "@types/node": "^22.14.1",
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.556",
-    "@spinajs/di": "2.0.556",
-    "@spinajs/exceptions": "2.0.556",
-    "@spinajs/intl": "2.0.556",
-    "@spinajs/log": "2.0.556",
-    "@spinajs/templates": "2.0.556",
+    "@spinajs/configuration": "2.0.557",
+    "@spinajs/di": "2.0.557",
+    "@spinajs/exceptions": "2.0.557",
+    "@spinajs/intl": "2.0.557",
+    "@spinajs/log": "2.0.557",
+    "@spinajs/templates": "2.0.557",
     "pug": "^3.0.2",
     "tempfile": "4.0.0"
   },
