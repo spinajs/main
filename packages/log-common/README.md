@@ -86,7 +86,7 @@ The returned entry is:
 {
   Level: LogLevel,
   Variables: {
-    error,     // Error | undefined
+    error,     // serialized error record ( ISerializedError ) | undefined
     level,     // "INFO" | "ERROR" | ...
     logger,    // logger name
     message,   // formatted message

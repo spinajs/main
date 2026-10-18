@@ -15,7 +15,7 @@ Sources only **discover**. They never create controller instances; DI does that 
 ### `FilesystemControllerSource`
 
 1. `@ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')` lists every `.ts` and `.js` file (not `.d.ts`) under each directory in `system.dirs.controllers`.
-2. It loads each file with `DI.__spinajs_require__()` and walks all its exports. A default-exported class counts as one export.
+2. The scan returns one entry per exported class of each file. A default-exported class counts as one export.
 3. An export is a controller when its prototype extends `BaseController` or carries the route descriptor (`CONTROLLED_DESCRIPTOR_SYMBOL`). DTO classes and helpers in the same file are skipped; several controllers in one file are all found.
 
 ### `DiRegistryControllerSource`

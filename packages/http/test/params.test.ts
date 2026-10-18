@@ -9,7 +9,7 @@ import { expect } from 'chai';
 import { fsService, fs as sFs } from '@spinajs/fs';
 
 import { dir, releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
-import { Controllers, HttpServer } from '../src/index.js';
+import { Controllers, FileProportions, FileTypeEnum, FileValidationMiddleware, HttpServer } from '../src/index.js';
 import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, CvsSampleObjectWithSchema, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
 import { UrlParams } from './controllers/params/UrlParams.js';
@@ -660,6 +660,27 @@ describe('controller action test params', function () {
       expect(spy.args[0][0]).to.be.not.undefined;
     });
 
+    it('fileWithZipTransformer stores the zip on the target fs', async () => {
+      const spy = FormParams.prototype.fileWithZipTransformerFs as sinon.SinonSpy;
+      const response = await req()
+        .post('params/forms/fileWithZipTransformerFs')
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
+
+      expect(response).to.have.status(200);
+      expect(spy.args[0][0].Name).to.eq('test3.zip');
+
+      const tFs = DI.resolve<sFs>('__file_provider__', ['test2']);
+      expect(await tFs.exists(spy.args[0][0].BaseName)).to.be.true;
+      await tFs.rm(spy.args[0][0].BaseName);
+    });
+
+    it('FileValidationMiddleware accepts a file matching any listed proportion or FileTypeEnum.any', async () => {
+      const file = { Size: 1, Info: { Width: 10, Height: 10, MimeType: 'text/plain' } } as any;
+      const middleware = new FileValidationMiddleware({ proportions: [FileProportions['16:9'], FileProportions['1:1']], types: [FileTypeEnum.any] });
+
+      await expect(middleware.beforeUpload(file, {})).to.be.fulfilled;
+    });
+
     const tinyPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yt6Wq4AAAAASUVORK5CYII=',
       'base64',
@@ -759,6 +780,13 @@ describe('controller action test params', function () {
       expect(spy.args[0][1]).to.eq(1);
       expect(spy.args[0][2]).to.eq('header');
       expect(spy.args[0][3]).to.eq('queryhello');
+    });
+
+    it('@QueryField gets the whole query', async () => {
+      const response = await req().get('params/mixed/queryField?a=1&b=x').set('Accept', 'application/json');
+
+      expect(response).to.have.status(200);
+      expect(response.body.query).to.deep.eq({ a: '1', b: 'x' });
     });
   });
 
@@ -872,7 +900,15 @@ describe('controller action test params', function () {
   });
 
   describe('from json files', function () {
-    it('should parse json file to objects', async () => {});
+    it('should parse json file to objects', async () => {
+      const response = await req()
+        .post('params/v1/json/objectsFromJsonFile')
+        .set('Accept', 'application/json')
+        .attach('objects', Buffer.from(JSON.stringify({ id: 1, name: 'test' })), { filename: 'objects.json' });
+
+      expect(response).to.have.status(200);
+      expect(response.body.objects).to.deep.eq({ id: 1, name: 'test' });
+    });
 
     it('should parse json file to models', async () => {});
 

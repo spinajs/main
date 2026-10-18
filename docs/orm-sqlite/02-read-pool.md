@@ -132,12 +132,12 @@ export class WaitingReadersSqliteDriver extends SqliteOrmDriver {
 
 - Only `QueryContext.Select` goes to a read handle. `Upsert` and `InsertReturning`, which also read rows, stay on the writer.
 - `tableInfo()` runs its `PRAGMA` queries as `Select`, so outside a transaction they use read handles too.
-- Read handles see only committed data. A write made on the writer outside a transaction autocommits before it resolves, so a later read sees it.
+- Read handles see only committed data. A write made on the writer outside a transaction waits for any open transaction, then autocommits before it resolves, so a later read sees it.
 - Read handles do not share the writer's connection state: `ATTACH DATABASE`, `TEMP` tables and per-connection `PRAGMA`s set through `schema().raw()` apply to the writer only.
 - Handles open with `OPEN_READONLY` and no `OPEN_CREATE`. The writer opens first and creates the file.
 - A handle that fails to open is skipped silently apart from the `warn` log. `poolMetrics().Size` shows how many opened.
 - `connect()` reopens the pool on every call, closing the old read handles first.
-- `sqlite3` gives every handle a 1000 ms busy timeout. A read blocked by the writer's commit for longer fails with `SQLITE_BUSY`; the driver does not retry it.
+- `sqlite3` gives every handle a 1000 ms busy timeout. A read blocked by the writer's commit for longer fails with `SQLITE_BUSY`; outside a transaction the driver retries it per `Resilience.MaxRetries` (see [Errors](01-connection.md#errors)).
 
 ## Best practices
 

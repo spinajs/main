@@ -50,12 +50,13 @@ Decorators declare what a class needs; the container supplies it when it builds 
 ## Important behaviour
 
 - `@Autoinject` properties are **not** set inside the constructor. They are assigned right after it returns. Read them in methods or in `resolve()`, not in the constructor.
-- `@Autoinject` reads `design:type` even when you pass a type, so `emitDecoratorMetadata` is required. A build that drops decorator metadata (esbuild, `tsx`) throws `TypeError: Cannot read properties of undefined (reading 'name')` when the class is defined.
+- `@Autoinject()` without a type needs `emitDecoratorMetadata`. A build that drops decorator metadata (esbuild, `tsx`) throws when the class is defined; pass the type explicitly there. Without metadata the container cannot see an array or `Map` property, so an explicit class is injected as a single instance.
+- `@Autoinject()` or `@Autoinject({ mapFunc })` on an array or `Map` property throws `you must provide inject type when injecting array or map` when the class is defined.
 - On an interface-typed property, `design:type` is `Object`. Pass the class explicitly: `@Autoinject(Container)`, not `@Autoinject() c: IContainer`.
 - `@LazyInject` resolves on every read, in the container that built the owner (the child for a `@PerChildInstance()` owner built there, the root for a root singleton reached through a child). Until the container assigns its properties, in the constructor or in an object made with `new`, it reads the root. With a string key it calls `get(key)`, so it returns only what is already cached.
 - `@LazyInject` returns what `resolve()` returns: a promise for an `AsyncService` that is not built yet, and for a list with an async element. Type such a property `Promise<T[]>` or `Promise<Map<string, T>>`.
 - `@LazyInject` defines a getter and a setter on the prototype; assigning the property throws a `TypeError`. An own class field with the same name shadows them, which happens when `useDefineForClassFields` is `true` (the default for `target` ES2022 and later). Keep `useDefineForClassFields: false`.
-- Adding `@Inject`, `@Autoinject` or `@LazyInject` to a subclass gives it its own descriptor with the default `Singleton` lifetime. A lifetime decorator on the base class is then **not** inherited; repeat it on the subclass. A subclass without its own injection decorators inherits the base lifetime.
+- A subclass inherits the lifetime of its nearest decorated base class, also when it adds its own `@Inject`, `@Autoinject` or `@LazyInject`. Put a lifetime decorator (`@Singleton()` included) on the subclass to change it.
 - `@Autoinject(Array.chainOf(T))` and `@Autoinject(T)` on an array are different dependencies: the first merges the container lineage, the second takes the nearest list. See [Multiple implementations](06-multiple-implementations.md).
 
 ## Best practices

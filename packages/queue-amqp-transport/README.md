@@ -48,7 +48,7 @@ const config = {
     connections: [
       {
         name: 'amqp',
-        transport: 'AmqpQueueClient',
+        service: 'AmqpQueueClient',
         host: 'localhost',
         port: 5672,
         login: 'guest',
@@ -66,8 +66,8 @@ const config = {
 };
 ```
 
-`host` may also be a full url ( `amqp://user:pass@host/vhost` ), in which case the discrete
-`port`/`login`/`password` fields are ignored.
+`host` may also be a full url ( `amqp://user:pass@host/vhost` ). Its port and credentials win;
+`port` and `login`/`password` are used only when the url has none.
 
 ## Not yet supported
 

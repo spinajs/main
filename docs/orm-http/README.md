@@ -20,7 +20,7 @@ Importing the package is enough. Its classes register themselves with DI on impo
 | [Route arguments](02-route-args.md) | `@FromModel` loads a row by a request value (404 when absent); `@AsModel` and `@Body` build an unsaved model from the body |
 | [Filtering](03-filtering.md) | `@Filterable`, `@Filter`, every operator, nested groups, the generated JSON schema, `SelectQueryBuilder.filter()` |
 | [DTO relations](04-dto-relations.md) | `@Relation` on a DTO field: the incoming id is replaced with the resolved model, 404 when absent |
-| [Pagination and ordering](05-pagination-and-order.md) | `PaginationDTO`, `OrderDTO`: schema-validated paging and sorting input |
+| [Pagination and ordering](05-pagination-and-order.md) | `PaginationDTO`, `OrderDTO`: schema-validated paging and sorting input; `readPage`, `readSort`, `DEFAULT_PAGE`: default, clamp and whitelist it |
 | [Repository middleware](06-repository-middleware.md) | `RepositoryMiddleware` (defined, not exported) and the ORM's `QueryMiddleware` that works instead |
 | [Custom filter columns](07-custom-filter-columns.md) | `IColumnFilter.query`: your own SQL for a filter column; inline column sets for models you cannot decorate |
 | [Custom route arguments and hydrators](08-custom-route-args-and-hydrators.md) | Replace or extend `FromDbModel`, `AsDbModel`, `FilterModelRouteArg`, `DbModelHydrator`, `RelationResolverHydrator` through DI |

@@ -2,7 +2,7 @@
 
 A database-backed implementation of the `Mutex` service from `@spinajs/threading`. `OrmMutex` keeps named locks in the `__mutex__` table, so processes that share a database can coordinate through it.
 
-It does **not** register itself: register `OrmMutex` as `Mutex` before the first `mutex_*` call. Its locks have no expiry, and its `acquire()` is not atomic across processes; see [Database mutex](01-database-mutex.md#important-behaviour).
+It does **not** register itself: register `OrmMutex` as `Mutex` before the first `mutex_*` call. Its locks have no expiry, and without an explicit `Tenant` every instance of an app is the same owner; see [Database mutex](01-database-mutex.md#important-behaviour).
 
 ## Install
 
@@ -15,7 +15,7 @@ npm install @spinajs/orm-threading
 | Feature | What it does |
 | --- | --- |
 | [Database mutex](01-database-mutex.md) | `OrmMutex`: acquire, release, wait for, create, delete and read named locks stored in the database |
-| [Custom mutex backends](02-custom-mutex-backends.md) | The `Mutex` DI token: register `OrmMutex`, extend it (atomic acquire, per-process tenant) or replace it |
+| [Custom mutex backends](02-custom-mutex-backends.md) | The `Mutex` DI token: register `OrmMutex`, extend it (per-process tenant) or replace it |
 | [Mutex table and migration](03-mutex-table-and-migration.md) | The `__mutex__` model and table, the shipped migration, widening columns, reading and cleaning locks |
 
 ## Quick start

@@ -103,7 +103,7 @@ export class BrokerTokenCredentials implements IQueueCredentialsProvider {
       this.Tokens.set(options.name, { token, expiresAt: Date.now() + expiresIn * 1000 });
       return { login: options.login, passcode: token };
     } catch (err) {
-      // never throw here: a rejected beforeConnect is an unhandled rejection and stops reconnecting
+      // a throw fails the boot, or on a reconnect retries with the previous credentials; a cached token is better
       return { login: options.login, passcode: cached?.token };
     }
   }
@@ -131,7 +131,7 @@ export const config = {
 - An empty `login` or `passcode` is left out of the headers, not sent empty.
 - The provider is resolved from the root container (`DI`), not from the container that built the queue service.
 - A name that is not registered resolves to `null`, and `getCredentials` fails with a `TypeError`.
-- A provider that throws or rejects, or a name that is not registered, rejects `stompjs`'s connect attempt before the socket opens. Nobody awaits that attempt, so the error is an unhandled promise rejection, which stops Node by default. When the process survives (an `unhandledRejection` handler), no socket close follows and `stompjs` schedules no reconnect: at boot `resolve()` never settles, and after a drop the client stays disconnected with emits buffered.
+- A provider that throws or rejects, or a name that is not registered, before the first connect deactivates the client and rejects `resolve()` with `UnexpectedServerError`, so the boot fails. On a reconnect the error is logged and the client connects with the previous `CONNECT` headers; a broker that refuses them closes the socket and `stompjs` tries again after `reconnectDelay`.
 - `getCredentials()` runs on every reconnect. A slow provider delays every reconnect by its own latency.
 
 ## Best practices

@@ -1,7 +1,7 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
-import { applySerializers } from "./serializers.js";
+import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
 export * from "./serializers.js";
@@ -124,7 +124,8 @@ export interface ILogRule {
 export interface ITargetsOption {
   name: string;
   type: string;
-  options?: ICommonTargetOptions;
+  /** Target-specific settings; each target defines its own shape ( eg. `IFileTargetOptions["options"]` ). */
+  options?: Record<string, any>;
 
   /**
    * When `false` the target is NOT instantiated at all ( its class is never
@@ -316,7 +317,8 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
 }
 
 export interface ILogStaticVariables {
-  error: Error | undefined;
+  /** `createLogMessageObject` replaces the logged `Error` with its serialized record. */
+  error: ISerializedError | Error | undefined;
   level: string;
   logger: string;
   message: string;
@@ -432,7 +434,7 @@ export function createLogMessageObject(err: Error | string, message: string | an
   const theVars = {
     ...ctx,
     error: err instanceof Error ? err : undefined,
-    level: LogLevelStrings[`${level}`].toUpperCase(),
+    level: ((LogLevelStrings as Record<number, string>)[level] ?? String(level)).toUpperCase(),
     logger: lName,
     message: tMsg,
     ...variables,
@@ -560,7 +562,9 @@ export abstract class Log extends SyncService {
         Log.Loggers.clear();
       })
       .then(() => {
-        return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+        const internal = [...Log.InternalLoggers.values()];
+        Log.InternalLoggers.clear();
+        return Promise.all(internal.map((l) => l.dispose()));
       });
   }
 
@@ -591,7 +595,7 @@ export abstract class Log extends SyncService {
     return diff;
   }
 
-  public child(name: string, variables?: LogVariables): Log {
+  public child(name: string, variables?: Record<string, unknown>): Log {
     return DI.resolve(Log, [
       `${this.Name}.${name}`,
       {

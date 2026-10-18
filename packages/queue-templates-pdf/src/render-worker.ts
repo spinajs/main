@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
-import { renderPdfToProvider } from './render.js';
+import { unlinkSync } from 'fs';
+import { renderPdfToProvider, activeTempFiles } from './render.js';
 import { IRenderRequest, WorkerMessage } from './protocol.js';
 
 /**
@@ -11,6 +12,17 @@ import { IRenderRequest, WorkerMessage } from './protocol.js';
 function send(message: WorkerMessage): void {
   process.send?.(message);
 }
+
+process.on('SIGTERM', () => {
+  for (const f of activeTempFiles) {
+    try {
+      unlinkSync(f);
+    } catch {
+      /* already gone */
+    }
+  }
+  process.exit(1);
+});
 
 process.on('message', async (req: IRenderRequest) => {
   try {

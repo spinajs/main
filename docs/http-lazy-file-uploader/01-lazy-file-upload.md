@@ -61,14 +61,14 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `HttpLazyFileUploader` | class `HttpLazyFileUploader`, registered by `@Injectable()` under its own name; singleton (no lifetime decorator) | `HttpLazyFileUploader` | `ImmediateFileUploader` from `@spinajs/http`, your own `FormFileUploader` | Subclass with `@NewInstance()`, `DI.register(MyUploader).as(HttpLazyFileUploader)`, or point `uploader.service` at your class. See [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md). |
+| `HttpLazyFileUploader` | class `HttpLazyFileUploader`, registered by `@Injectable()` under its own name; `@NewInstance()`, built on every resolve | `HttpLazyFileUploader` | `ImmediateFileUploader` from `@spinajs/http`, your own `FormFileUploader` | Subclass, `DI.register(MyUploader).as(HttpLazyFileUploader)`, or point `uploader.service` at your class. See [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md). |
 | `FormFileUploader` | abstract class from `@spinajs/http`; resolved per route from `IUploadOptions.uploader` | `ImmediateFileUploader` (only for the `fs` copy) | `HttpLazyFileUploader` | Implement `upload(file)`. See [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md#write-your-own-uploader-and-job). |
 
 `HttpLazyFileUploader` is resolved by `FromFile.extract()` on every request with that route's options, through `DI.resolve(type, [options])`. A string `service` resolves the class registered under that name, so `'HttpLazyFileUploader'` works once the package is imported.
 
 ## Important behaviour
 
-- The uploader is a DI singleton. The first route that resolves it fixes its `Options` for the whole process; a second route with another `fs` still queues to the first route's `fs`. Use one target per application, or the `@NewInstance()` subclass from [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md#use-different-targets-per-route).
+- The uploader is `@NewInstance()`: every request builds it with its route's `Options`, so routes can queue to different targets.
 - The controller gets `Provider: null`. Do not read the file through `file.Provider`; at that moment it is only in the source filesystem.
 - The target path equals the source path: `file.BaseName`, formidable's random name. Store `BaseName` to find the file later; `Name` holds the client's file name.
 - `LazyUploadJob.emit()` returns a job id, but `upload()` drops it. The controller cannot track the copy; write your own uploader to expose it.
@@ -87,13 +87,12 @@ sequenceDiagram
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the singleton keeps the first route's options, so avatars land in 'invoices-s3'.
+// Don't: a bare class passes {} as options, so every job fails with IOFail.
+@Post() invoice(@File({ uploader: HttpLazyFileUploader }) f: IUploadedFile) {}
+
+// Do: name the target on every route; each route gets its own.
 @Post() invoice(@File({ uploader: { service: HttpLazyFileUploader, options: { fs: 'invoices-s3' } } }) f: IUploadedFile) {}
 @Post() avatar(@File({ uploader: { service: HttpLazyFileUploader, options: { fs: 'avatars-s3' } } }) f: IUploadedFile) {}
-
-// Do: a @NewInstance() subclass reads each route's options.
-@Post() invoice(@File({ uploader: { service: PerRouteLazyUploader, options: { fs: 'invoices-s3' } } }) f: IUploadedFile) {}
-@Post() avatar(@File({ uploader: { service: PerRouteLazyUploader, options: { fs: 'avatars-s3' } } }) f: IUploadedFile) {}
 ```
 
 ```ts
@@ -155,6 +154,6 @@ export class DocumentController extends BaseController {
 ## Related
 
 - [Upload job and worker](02-upload-job-and-worker.md): what happens after `upload()` returns.
-- [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md): per-route options, job id, own job.
+- [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md): replacing the uploader, job id, own job.
 - [`@spinajs/http`](../http/README.md): `@File()`, `@Files()`, `IUploadOptions` and upload middlewares.
 - [`@spinajs/fs`](../fs/README.md): configuring the source and target providers.

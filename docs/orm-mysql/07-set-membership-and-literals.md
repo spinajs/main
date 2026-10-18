@@ -53,8 +53,8 @@ No keys. The server's `sql_mode` decides whether the stock literal quoter is rig
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Set membership | `InSetStatement`; `@NewInstance()`, constructor `(column, values, not, tableAlias)`; resolved per `whereInSet()` | `MySqlInSetStatement` (not exported) | `SqlInSetStatement` (portable `LIKE`, from `@spinajs/orm-sql`) | Extend `InSetStatement` or `SqlInSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
-| Literal quoter | `LiteralQuoter`; `@NewInstance() @Inject(Container)` | `MySqlLiteralQuoter` (not exported) | `SqlLiteralQuoter` (ANSI: doubles `'` only) | Extend `SqlLiteralQuoter`, override `quoteString()`, `quoteBoolean()` or `quoteDate()`; register `.as(LiteralQuoter)`. |
+| Set membership | `InSetStatement`; `@NewInstance()`, constructor `(column, values, not, tableAlias)`; resolved per `whereInSet()` | `MySqlInSetStatement` | `SqlInSetStatement` (portable `LIKE`, from `@spinajs/orm-sql`) | Extend `InSetStatement` or `SqlInSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
+| Literal quoter | `LiteralQuoter`; `@NewInstance() @Inject(Container)` | `MySqlLiteralQuoter` | `SqlLiteralQuoter` (ANSI: doubles `'` only) | Extend `SqlLiteralQuoter`, override `quoteString()`, `quoteBoolean()` or `quoteDate()`; register `.as(LiteralQuoter)`. |
 | Identifier quoter | `IdentifierQuoter` | `BacktickIdentifierQuoter` | `DoubleQuoteIdentifierQuoter`, `BracketIdentifierQuoter` | Register another quoter `.as(IdentifierQuoter)`; every compiler picks it up. |
 
 Register each replacement in a driver subclass's `resolve()`, after `super.resolve()`.
@@ -127,7 +127,7 @@ export class CaseInsensitiveSetsMySqlDriver extends MySqlOrmDriver {
 
 - `FIND_IN_SET` cannot use an index: a `whereInSet()` filter scans every row it reaches.
 - A set value cannot contain `,`; the statement throws instead of matching neighbouring members.
-- `MySqlInSetStatement.clone()` copies the column, values, negation, alias and quoter, but not the `Boolean` connector; copy it in your own statement's `clone()`.
+- `MySqlInSetStatement.clone()` copies the column, values, negation, alias, quoter and `Boolean` connector. `OnJoin` does not survive `clone()`, as for every statement.
 - `MySqlLiteralQuoter` only writes values into SQL that the server stores (views, events). It is not a substitute for bindings.
 
 ## Best practices

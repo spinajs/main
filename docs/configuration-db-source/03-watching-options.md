@@ -8,7 +8,7 @@ An exposed option with `exposeOptions.watch: true` is polled from the `configura
 2. `startWatchTimer()` reads the `__config_watch_interval__` DI value once. A missing or `0` value means 3 minutes (180 000 ms).
 3. The timer is armed only when the watched set is not empty. The first late registration with `watch: true` arms an idle timer.
 4. Each tick calls `refreshWatched()`: `DbConfig.select().whereIn('Slug', watchedSlugs)`, through `asSystem()` when [authz guarding](06-running-under-authz.md) is on.
-5. For each row, `isConfigValueEqual(configuration.get(row.Slug), row.Value)` compares the values. `DateTime` values compare by instant, arrays and objects deeply.
+5. Rows whose `Exposed` flag is cleared are skipped. For each other row, `isConfigValueEqual(configuration.get(row.Slug), row.Value)` compares the values. `DateTime` values compare by instant, arrays and objects deeply.
 6. A changed value is written with `Configuration.set(row.Slug, row.Value)`. `Value` is already typed: the model's `@DbConfigValue` converter ran when the row was hydrated.
 7. The next tick is scheduled only after this one settles, so a slow query never overlaps the next. Database errors are logged as `Failed to refresh watched config values from db` and the timer keeps going.
 8. `di.dispose` stops the timer.
@@ -38,7 +38,7 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 - **Code decides what is watched.** Only slugs declared with `watch: true` in code are polled. Setting the `Watch` column to `1` in the database has no effect.
 - **The interval is fixed at startup.** Changing `__config_watch_interval__` after `Orm` resolved does nothing until the next process start.
 - **One query per tick.** All watched slugs are read with a single `WHERE Slug IN (...)` query.
-- **The `Exposed` flag is not checked.** A watched row with `Exposed` = `0` is still copied into the configuration.
+- **Hidden rows are not polled into the config.** A watched row with `Exposed` = `0` is skipped until the flag is set again.
 - **No schema validation.** A polled value is set as-is; configuration schemas are not re-checked.
 - **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved `Orm`.
 - **Changes are eventually visible.** A change shows up after at most one interval plus the query time.

@@ -4,7 +4,7 @@ Every row stores `Value` and `Default` as text. The row's `Type` column decides 
 
 ## How it works
 
-1. **Write.** `DbConfigValueConverter.toDB(value, model, column, { TypeColumn })` reads the type from `model[TypeColumn]`. Without a model (a static `DbConfig.insert({...})` with a plain object) it uses `typeof value`.
+1. **Write.** `DbConfigValueConverter.toDB(value, model, column, { TypeColumn })` reads the type from `model[TypeColumn]`. Without a model (a static `DbConfig.insert({...})` with a plain object) it infers the type from the value: a `DateTime` is `datetime`, an array of `DateTime` is `datetime-range`, any other object or array is `json`, the rest uses `typeof value`.
 2. It returns the canonical text for that type, or `null`/`undefined` unchanged. Types it does not handle go to `UniversalValueConverter.toDB()` from `@spinajs/orm`.
 3. **Read.** `fromDB(value, rawRow, { TypeColumn })` reads the type from `rawRow[TypeColumn]` and parses the text. `null`, `undefined` and `''` come back unchanged.
 4. The source calls `fromDB()` on raw rows; the `DbConfig` model calls both through its `@DbConfigValue('Type')` columns; the bootstrapper calls `toDB()` on each `defaultValue`.
@@ -50,7 +50,7 @@ Every row stores `Value` and `Default` as text. The row's `Type` column decides 
 
 - **Canonical form only.** There is no legacy-format tolerance: a `boolean` row holding `'1'` reads as `false`, a `date` row holding `24.06.2026` reads as an invalid `DateTime`.
 - **`number` truncates.** `fromDB` uses `parseInt`, so `'10.5'` in a `number` row reads as `10`. Use `float` or `range` for decimals.
-- **Static inserts guess the type.** `DbConfig.insert({ ... })` with a plain object calls `toDB()` without a model, so the type is `typeof value`. Strings pass unchanged, numbers become text, booleans become `'true'`/`'false'`. Objects and arrays are **not** serialized.
+- **Static inserts guess the type.** `DbConfig.insert({ ... })` with a plain object calls `toDB()` without a model, so the type comes from the value. Strings pass unchanged, numbers become text, booleans become `'true'`/`'false'`, objects and arrays become JSON (which `json` and `manyOf` rows read back), `DateTime` values become ISO datetimes and arrays of them ISO datetimes joined by `;`.
 - **Static updates skip the converter.** `DbConfig.update({ Value: ... })` binds the value as-is; column converters do not run. Write the canonical text yourself.
 - **Ranges split on `;`.** A value containing `;` cannot be stored in a `*-range` type.
 - **`time` reads as today.** `DateTime.fromISO('13:05:09')` gives today's date at that time in the local zone.

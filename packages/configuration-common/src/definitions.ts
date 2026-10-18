@@ -11,7 +11,7 @@ export interface IFrameworkVersion {
 export interface IConfigLike {
   [val: string]: unknown;
 
-  onConfigLoad(config: any): Promise<IConfigLike> | undefined;
+  onConfigLoad?(config: any): Promise<IConfigLike> | undefined;
 }
 
 export interface IConfigurationSchema {

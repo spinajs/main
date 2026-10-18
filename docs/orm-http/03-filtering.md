@@ -21,11 +21,12 @@ Reading a request:
 Applying:
 
 1. `query.filter(filters, op?, columns?)` returns the builder unchanged for `undefined`, `null` or `[]`.
-2. More than 100 top-level entries throw `Error`.
+2. More than 100 top-level entries throw `InvalidArgument` (`400`).
 3. `columns` defaults to the model's `filterColumns()`.
-4. Inside one `andWhere(function () { ... })` group, each entry is checked (object, `Column`, known `Operator`, filterable column, operator allowed) and applied with `andWhere` (op `and` or absent) or `orWhere` (op `or`).
+4. Inside one `andWhere(function () { ... })` group, each entry is checked (object, `Column`, known `Operator`, filterable column, operator allowed; a failed check throws `InvalidArgument`) and applied with `andWhere` (op `and` or absent) or `orWhere` (op `or`).
 5. A nested group `{ op, filters }` becomes one bracketed condition with its own operator.
-6. A column with a custom `query` calls it instead of the built-in operator; see [Custom filter columns](07-custom-filter-columns.md).
+6. A column with a custom `query` calls it instead of the built-in operator, as one bracketed condition joined like any other entry; see [Custom filter columns](07-custom-filter-columns.md).
+7. A relation column (`Author.Name`) or an aggregate column is applied on the query itself, outside the group, so `populate()` and `HAVING` work. That only keeps its meaning while the condition is ANDed with everything else; under an `or` level with other entries it throws `InvalidArgument`.
 
 ```mermaid
 sequenceDiagram
@@ -147,10 +148,10 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 ## Important behaviour
 
 - All conditions sit in one `andWhere(...)` group, so they AND with conditions you add yourself.
-- Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries) are plain `Error`s and answer `500`. `@Filter()` rejects most of them earlier with a `400`; a filter passed to `.filter()` without `@Filter()` gets the `500`.
-- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does, with a `500`.
-- Columns copied with `@Filterable(OtherModel)` (`Author.Name`) pass the schema, but `.filter()` fails on them: the dotted `where()` calls `populate()` on the inner group builder, which has none (`TypeError: self.populate is not a function`).
-- A column marked aggregate (`@Filterable(ops, null, true)`) is dropped from the SQL when applied through `.filter()`: the compiler moves aggregate conditions to `HAVING` only at the top level, and the filter group is not top level.
+- Validation errors from `.filter()` (unknown operator, non-filterable column, more than 100 entries) are `InvalidArgument` and answer `400`. `@Filter()` rejects most of them earlier, also with a `400`.
+- The schema does not limit how many filters a request carries; the 100-entry limit in `.filter()` does.
+- Columns copied with `@Filterable(OtherModel)` (`Author.Name`) populate the relation and AND the condition onto the whole query. They cannot be ORed with other entries.
+- A column marked aggregate (`@Filterable(ops, null, true)`) lands in `HAVING`, ANDed with the rest of the query. It cannot be ORed with other entries either.
 - `filter()` needs the columns: from `filterColumns()` (bound by the bootstrapper) or from the third argument.
 - `@Filterable` on a property without a column creates a virtual column. It is never selected or written; filter on it with a custom `query`.
 
@@ -163,7 +164,7 @@ The operator map is private to `builders.ts`. You cannot add an operator name; g
 ## Patterns and antipatterns
 
 ```ts
-// Don't: skip @Filter and hand the raw query string to filter(); bad input becomes a 500
+// Don't: skip @Filter and hand the raw query string to filter(); invalid JSON becomes a 500 and the schema is never checked
 @Get()
 public async list(@Query() filter: any) {
   return new Ok(await Article.select().filter(JSON.parse(filter).filters));
@@ -248,7 +249,7 @@ export class ArticleController extends BaseController {
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-import { Filterable, FilterableLogicalOperators, IFilter, IFilterGroup, IFilterRequest } from '@spinajs/orm-http';
+import { Filterable, FilterableLogicalOperators, IFilterGroup, IFilterRequest } from '@spinajs/orm-http';
 
 @Connection('default')
 @Model('articles')
@@ -278,8 +279,7 @@ export async function search(filter: IFilterRequest | undefined, text: string) {
   return await Article.select()
     .where('Published', true)
     .filter(filter?.filters, filter?.op)
-    // filter() is typed IFilter[]; nested groups are accepted at runtime.
-    .filter([textSearch] as unknown as IFilter[])
+    .filter([textSearch])
     .orderByDescending('Id')
     .take(50);
 }

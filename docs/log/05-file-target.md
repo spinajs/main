@@ -6,13 +6,13 @@
 
 1. **Resolve.** `FileTarget.resolve()` merges options, lowest first: `LOG_FILE_DEFAULTS`, the `logger.file` config, the target's `options`. It throws `InvalidOption` when `path` is missing.
 2. **Async init.** It starts `init()` and keeps the promise in `Ready`:
-   1. `getFs(options.fs)` and `getFs(options.archiveFs)` (default: the same provider);
+   1. `getFs(options.fs)` and `getFs(options.archiveFs)` (default: the same provider); a provider that does not resolve fails init;
    2. `mkdir` of the active log's directory, and of `archivePath` when set;
    3. builds the `ILogArchiveContext` and resolves a `LogArchiveService`, which starts the rotation strategy.
-   A failed init sets `HasError` and `Error` and logs to the `LogFileTarget` logger.
+   A failed init sets `HasError` and `Error` and logs to the `LogFileTarget` logger (first failure only).
 3. **Queue.** It creates a `BatchQueue<string>` with `maxBatch = maxBufferSize`, `maxQueue = maxQueueSize`, a `flushInterval` timer (`unref()`'d) and `onFlush = append`.
 4. **Write.** `write(entry)` returns at once when disabled or disposed. Otherwise it calls `formatEntry(entry)` (layout for `FileTarget`, JSON for `JsonFileTarget`) and enqueues the line. When the buffer reaches `maxBufferSize`, `write()` awaits the flush.
-5. **Append.** `append(batch)` awaits `Ready`, takes the write lock, recomputes the active path and calls `fs.append(path, lines.join(EOL) + EOL)`. On failure it logs the error and puts the batch back at the front of the queue.
+5. **Append.** `append(batch)` awaits `Ready`; when init failed before an fs provider resolved, it runs `init()` again and, if that fails too, puts the batch back. Then it takes the write lock, recomputes the active path and calls `fs.append(path, lines.join(EOL) + EOL)`. On failure it logs the error and puts the batch back at the front of the queue.
 6. **Overflow.** Past `maxQueueSize` the oldest lines are dropped, and one warning per overflow episode goes to the `LogFileTarget` logger.
 7. **Dispose.** `dispose()` stops accepting writes, flushes the queue and stops the archive service.
 
@@ -98,9 +98,9 @@ Overridable members of `FileTarget`: `formatEntry(entry)` (one line per entry), 
 
 - **`${logger}` in `path` is the target name**, not the logger name: one file target serves every logger routed to it.
 - **Only the first file target is shared.** DI caches the first `FileTarget` instance it builds; every other `FileTarget` definition gets a new instance each time a logger resolves it. N loggers routed to it make N writers, each with its own buffer, flush timer and archive service, appending to the same file.
-- **Init is never retried.** When the fs provider is missing at init (eg. `fsService` has not booted), the target keeps `HasError`, never writes, and holds lines until `maxQueueSize`. Boot `@spinajs/fs` before the first logger that routes to a file.
-- **Self-logging loop.** The target logs its own errors to the `LogFileTarget` logger. When that logger routes back to the same target and `path` has no directory and no `archivePath` is set, init fails with `Circular dependency detected for FileTarget`. Give the path a directory, or route `LogFileTarget` elsewhere with a `final` rule.
-- A date-based `path` switches files on the next append, but the archive context keeps the path computed at init, so the size strategy keeps checking the first file.
+- **Init is retried while the fs provider is missing.** When the provider does not resolve at init (eg. `fsService` has not booted), every flush runs `init()` again; lines stay queued, up to `maxQueueSize`, until it succeeds. Other init failures (a failed `mkdir`, a bad rotation setting) are not retried.
+- The target logs its own errors to the `LogFileTarget` logger, so that logger may route back to the same target.
+- A date-based `path` switches files on the next append, and the archive context's `activePath` follows it.
 - `write()` resolves even when appends fail (self-healing): `RetryingTarget` and `FallbackGroupTarget` do not see file failures as rejections.
 - Lines dropped on overflow are strings, so they never reach `OnDropped`.
 - The flush timer is `unref()`'d: it never keeps the process alive. Buffered lines are lost on a hard exit unless you flush; see [Bootstrap, flushing and shutdown](14-bootstrap-flushing-and-shutdown.md).
