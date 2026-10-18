@@ -135,8 +135,8 @@ Index on `(scope_type, scope_id)`.
 
 ### authz-fs
 
-`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`**: PK `(fs, path)` with a binary
-collation on MySQL and Postgres, `owner_type`, `owner_id`, `scope_type`, `scope_id`, `tags`,
+`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`**: PK `(fs, path)`, both columns
+`exact()` (the driver's binary collation, so case variants of a path are two rows), `owner_type`, `owner_id`, `scope_type`, `scope_id`, `tags`,
 `created_at`, `updated_at`.
 
 ## Teams
