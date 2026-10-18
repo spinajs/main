@@ -118,16 +118,20 @@ export class Cli extends AsyncService {
         continue;
       }
 
-      this.Log.info({ command: cmd.name }, 'Found command ${command}');
-
       const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
-      const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
-      const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.type) as IArgument[];
 
       if (!cMeta) {
-        this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
+        // every export of a command file is listed, helpers next to the command included
+        if (cmd.type.prototype instanceof CliCommand) {
+          this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
+        }
         continue;
       }
+
+      this.Log.info({ command: cmd.name }, 'Found command ${command}');
+
+      const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
+      const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.type) as IArgument[];
 
       const [, name, args] = /([^ ]+) *(.*)/.exec(cMeta.nameAndArgs) ?? [];
       const c = new Command(name);

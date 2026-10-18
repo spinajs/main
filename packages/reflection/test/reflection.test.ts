@@ -182,6 +182,17 @@ describe('Reflection tests', () => {
     expect(services[0].name).to.eq('FooServiceDefault');
   });
 
+  it('Should list every exported class of a file', async () => {
+    const target = {
+      services: [] as any[],
+    };
+
+    ListFromFiles('/**/*.{ts,js}', 'system.dirs.multiple')(target, 'services');
+
+    const services = await target.services;
+    expect(services.map((s: any) => s.name)).to.have.members(['Model1', 'Model2']);
+  });
+
   it('Should reject with ReflectionException when configuration is not resolved', async () => {
     DI.clearCache();
 
