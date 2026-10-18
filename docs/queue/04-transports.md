@@ -26,7 +26,7 @@ A transport is a `QueueClient`: the class that moves messages to and from one br
 | `emit(message)` | abstract | Publish. Resolve only once the broker has taken custody (publisher confirm, receipt), so persistent jobs are delivered at least once |
 | `subscribe(messageClass \| channel, callback, subscriptionId?, durable?)` | abstract, two overloads | Listen. With a class, listen on all its routed channels |
 | `unsubscribe(messageClass \| channel, removeDurable?)` | abstract, two overloads | Stop listening; `removeDurable` also drops the durable subscription |
-| `getChannelForMessage(message)` | public | Channels from `Routing`, or the connection's default channel |
+| `getChannelForMessage(message)` | public | Channels from `Routing` (of an array route, only this connection's items), or the connection's default channel |
 | `getDeadLetterChannelForMessage(message)` | public | Dead-letter channel from `Routing`, or `Options.defaultQueueDeadLetterChannel` |
 | `__checkInstance__(options)` | public | `true` when `options[0].name` equals `Options.name`; used by `@PerInstanceCheck()` |
 

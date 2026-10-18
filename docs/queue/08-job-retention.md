@@ -98,7 +98,7 @@ export const config = {
 - **The first purge runs one `interval` after startup**, not at startup.
 - **Age is `CreatedAt`, the first receipt**, not `FinishedAt`. A job that ran for a long time is purged as soon as its row is old enough and its status matches.
 - **Every process that builds `QueueService` runs its own timer.** Web and worker processes all purge; the deletes are idempotent, but they multiply the load.
-- **Order matters for a manual resolve.** `DI.resolve(JobRetentionService)` before the queue is built creates the singleton without `Options`; the queue then receives that instance and the periodic purge never starts. Build `QueueService` first.
+- **A manual resolve reads the config itself.** `DI.resolve(JobRetentionService)` before the queue is built creates the singleton without `Options`, and the queue then receives that instance. `DefaultJobRetentionService` then reads the `queue.retention` block, so the periodic purge still starts.
 - **`tracked()` is not exported.** An implementation that queries `JobModel` itself bypasses the tracking hooks; call `super.purgeJobs()` from a `DefaultJobRetentionService` subclass to stay inside them.
 
 ## Best practices
