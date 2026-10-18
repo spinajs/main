@@ -6,7 +6,7 @@
 
 1. Importing `@spinajs/tasks` registers the `__task` and `__task_history` models (`@Model`) and the `Task_2024_12_03_11_41_00` migration (`@Migration('default')`).
 2. `Orm.resolve()` runs the migration on the connection named by `db.DefaultConnection` when that connection has `Migration.OnStartup: true`. Otherwise run it with the ORM CLI.
-3. The migration creates `__tasks`, `__task_history` and the unique index `__tasks_unique_name`.
+3. The migration creates `__tasks` and `__task_history`.
 4. When the driver reports `supportedFeatures().events` (MySQL only), it also creates the database event `__task_delete_old_entries`, which deletes history rows older than 7 days once a day.
 5. At run time the `@Task()` wrapper reads and writes the rows; see [Task decorator](01-task-decorator.md#how-it-works).
 
@@ -19,7 +19,7 @@ Model `__task`, `@Connection('default')`.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `Id` | `INT`, primary key, auto-increment | Task id; `__task_history.TaskId` points here. |
-| `Name` | `VARCHAR(64)`, unique, not null | The `taskName` passed to `@Task()`, trimmed. Also indexed by `__tasks_unique_name`. |
+| `Name` | `VARCHAR(64)`, unique, not null | The `taskName` passed to `@Task()`, trimmed. |
 | `Description` | `VARCHAR(128)`, not null | The `description` passed to `@Task()` when the row was created. |
 | `State` | `ENUM('running', 'stopped')`, nullable | `'stopped'` on insert, `'running'` while a run is in progress. |
 | `LastRunAt` | `DATETIME`, nullable | Start time of the last run. Luxon `DateTime` on the model (`@DateTime()`). |
@@ -32,7 +32,7 @@ Model `__task_history`, `@Connection('default')`.
 | --- | --- | --- |
 | `Id` | `INT`, primary key, auto-increment | Row id. |
 | `TaskId` | `INT`, not null | `__tasks.Id`. No foreign key. |
-| `Result` | `TEXT`, nullable | The method's return value as JSON (`@Json()`), or `{ "error": true }` for a failed run. |
+| `Result` | `TEXT`, nullable | The method's return value as JSON (`@Json()`), or `{ "error": true, "message": "..." }` for a failed run. |
 | `CreatedAt` | `DATETIME`, not null, defaults to the current time | When the run finished (`@CreatedAt()`). |
 | `Duration` | `INT`, defaults to `0` | Run time of the method and its event emit, in milliseconds. |
 
@@ -90,9 +90,9 @@ export class TaskHistoryByTask_2026_10_17_09_00_00 extends OrmMigration {
 
 ## Important behaviour
 
-- **No history row is written in the current source.** The wrapper's finalize step fails before the insert, and `State` stays `'running'` after the first run; see [Task decorator](01-task-decorator.md#important-behaviour). Do not build alerting on these tables until that is fixed.
-- **Rollback does nothing.** The migration's `down()` is empty; it drops neither the tables nor the event.
-- **`Name` is unique twice:** the column is created `UNIQUE` and the migration also creates `__tasks_unique_name`.
+- **`State` is `'running'` only while a run is in progress.** Each finished run sets it back to `'stopped'`. A process killed mid-run leaves it `'running'` and writes no history row.
+- **Rollback drops everything.** The migration's `down()` drops the MySQL event (when the driver supports events) and both tables, with their rows.
+- **Older databases have an extra index.** A database migrated by an earlier version of this migration also has the unique index `__tasks_unique_name` on `Name`, redundant with the column's `UNIQUE`.
 - **Retention is MySQL only.** On SQLite, PostgreSQL and MSSQL nothing deletes history rows.
 - **The models are bound to `default`.** There is no config key to move them to another connection; the task tables live wherever `db.DefaultConnection` points.
 - `__task_history.TaskId` is typed `Number` (the boxed type) on the model; compare it with `Number(row.TaskId)`.
@@ -103,17 +103,6 @@ export class TaskHistoryByTask_2026_10_17_09_00_00 extends OrmMigration {
 - Run the migration once in every environment that runs tasks, even if you do not read the tables: the wrapper writes `__tasks` on every call and fails without it.
 - Add an index on `__task_history.TaskId` before you show per-task history.
 - Read `LastRunAt` from `__tasks` for "last started" and `__task_history.CreatedAt` for "last finished".
-
-## Patterns and antipatterns
-
-```ts
-// Don't: rely on State to tell whether a task is running now; it is never reset after the first run
-const busy = await __task.where({ Name: 'rebuild-sales-report', State: 'running' }).first();
-
-// Do: ask the lock backend that guards the task
-const lock = await mutex_get('task-rebuild-sales-report');
-const busy = lock?.Locked === true;
-```
 
 ## Examples
 

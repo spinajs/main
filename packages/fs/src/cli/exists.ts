@@ -18,6 +18,7 @@ export class FsExistsCommand extends CliCommand {
       this.Log.info(`${path} ${exists ? 'exists' : 'does not exist'} ( fs: ${fsName} )`);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot check ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

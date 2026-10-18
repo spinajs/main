@@ -41,13 +41,15 @@ export class HandlebarsRenderer extends CompiledTemplateRenderer<HandlebarsTempl
       throw new IOFail(`Template file ${template} is empty`);
     }
 
-    const compiled = Handlebars.compile(content, this.Options);
-
-    if (!compiled) {
-      throw new IOFail(`Cannot compile handlebars template from path ${template}`);
+    // Handlebars.compile() defers parsing to the first render, so a broken
+    // template would be cached; precompile() fails here instead.
+    try {
+      Handlebars.precompile(content, this.Options);
+    } catch (err) {
+      throw new IOFail(`Cannot compile handlebars template from path ${template}: ${(err as Error).message}`, err);
     }
 
-    return compiled;
+    return Handlebars.compile(content, this.Options);
   }
 
   protected buildContext(model: unknown, language: string): Record<string, unknown> {

@@ -120,7 +120,7 @@ describe('Swagger error response components', function () {
   });
 
   it('should keep attaching @example to the request body when the route has one', () => {
-    const op = spec.paths['/pets/'].post;
+    const op = spec.paths['/pets'].post;
     const examples = op.requestBody.content['application/json'].examples;
     expect(examples).to.be.an('object');
     expect(examples['Create pet request'].value).to.deep.equal({ name: 'Rex', type: 'dog', age: 3 });

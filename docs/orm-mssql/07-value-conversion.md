@@ -1,6 +1,6 @@
 # Value conversion
 
-`MsSqlOrmDriver` registers `MsSqlDatetimeValueConverter` in place of the shared datetime converter, so model datetime columns and `Date` / luxon `DateTime` values in queries are written as ISO strings and read back as `DateTime`. It also registers `MssqlModelDehydrator`, which the ORM never resolves.
+`MsSqlOrmDriver` registers `MsSqlDatetimeValueConverter` in place of the shared datetime converter, so model datetime columns and `Date` / luxon `DateTime` values in queries are written as UTC ISO strings and read back as `DateTime`.
 
 ## How it works
 
@@ -13,27 +13,28 @@
 | Value | Written as |
 | --- | --- |
 | `Date` | `value.toISOString()`: UTC with a `Z` suffix, eg. `2024-05-01T08:30:00.000Z` |
-| luxon `DateTime` | `value.toISO({ includeOffset: false })`: the wall-clock time **in the `DateTime`'s own zone**, no offset |
-| anything else (`string`, `number`, `null`) | `null` |
+| luxon `DateTime` | `value.toUTC().toISO({ includeOffset: false })`: UTC, no offset, eg. `2024-05-01T08:30:00.000` |
+| `string` | the string unchanged, for SQL Server to parse |
+| anything else (`number`, `null`) | `null` |
 
 4. The string is bound as a parameter; see [Executing statements](02-executing-statements.md).
 
 ### Reading a datetime
 
 1. `mssql` returns `DATE`, `DATETIME` and `DATETIME2` columns as JavaScript `Date`.
-2. `fromDB(value)` returns `null` for an empty value, otherwise `DateTime.fromJSDate(value)`, in the process's local zone.
+2. `mssql` reads a `DATETIME` value as UTC. `fromDB(value)` returns `null` for an empty value, otherwise `DateTime.fromJSDate(value)`, in the process's local zone.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Datetime conversion | `DatetimeValueConverter` (from `@spinajs/orm`), in the driver's child container | `MsSqlDatetimeValueConverter` (not exported) | `SqlDatetimeValueConverter` (registered by `SqlDriver`, replaced here) | Extend `DatetimeValueConverter`, implement `toDB()` and `fromDB()`, register `.as(DatetimeValueConverter)` in a driver subclass after `super.resolve()`. |
-| Model dehydration | `ModelDehydrator` | `MssqlModelDehydrator` (not exported) | | Has no effect: the core resolves `StandardModelDehydrator` by class. To change `model.dehydrate()` on a connection, register a subclass `.as(StandardModelDehydrator)`. |
+| Model dehydration | `StandardModelDehydrator` (from `@spinajs/orm`), resolved by class | the shared `StandardModelDehydrator` | | To change `model.dehydrate()` on a connection, register a subclass `.as(StandardModelDehydrator)`. |
 | Per-column converters | `@Converter(...)` on a model property | | `JsonValueConverter`, `UuidConverter`, `UniversalValueConverter` (registered by `OrmDriver`) | See [Converters and hydration](../orm/04-converters-and-hydration.md). |
 
 ### Datetime conversion: custom implementation
 
-Store every datetime as UTC, whatever the zone of the `DateTime`, and read it back in UTC:
+Write datetimes without the `Z` suffix, and read them back in UTC instead of the local zone:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -51,7 +52,7 @@ export class UtcDatetimeValueConverter extends DatetimeValueConverter {
       return value.toUTC().toISO({ includeOffset: false });
     }
 
-    // keeps already formatted values such as '2024-05-01' instead of writing NULL
+    // already formatted values such as '2024-05-01' go through unchanged
     return typeof value === 'string' ? value : null;
   }
 
@@ -104,25 +105,24 @@ export class ApiMsSqlDriver extends MsSqlOrmDriver {
 
 ## Important behaviour
 
-- **`Date` and `DateTime` are written differently.** A `Date` is written in UTC; a `DateTime` is written as its local wall-clock time without an offset. The same instant stored once from each differs by the zone offset unless the `DateTime` is in UTC.
-- **A string assigned to a datetime model property is written as `NULL`.** Convert it to a `DateTime` first, or a `NOT NULL` column fails. A string passed straight to a builder (`values({ CreatedAt: '2024-05-01' })`) is not converted and reaches the server as is.
+- **`Date` and `DateTime` are both written in UTC.** The same instant stored from either gives the same column value.
+- **A string is written as is.** SQL Server parses it; a string with an offset is not converted to UTC.
 - **Reads come back in the local zone** of the Node process.
-- **`MssqlModelDehydrator` is never used.** The ORM resolves `StandardModelDehydrator` by class, so the `ModelDehydrator` registration has no effect on `dehydrate()` or inserts.
 - **Boolean columns** use the shared `SqlBooleanValueConverter`; `mssql` binds JavaScript booleans as `BIT`.
 
 ## Best practices
 
-- Keep all datetimes in UTC: use `DateTime.utc()` or register `UtcDatetimeValueConverter`.
+- Assign `Date` or `DateTime` values to datetime properties rather than strings, so the UTC conversion applies.
 - Use `DATETIME2` columns (see the column compiler in [Schema dialect](06-schema-dialect.md#column-definition-custom-implementation)) for sub-millisecond precision; `DATETIME` rounds to 1/300 s.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a local-zone DateTime is stored as local wall-clock time, a Date as UTC
-order.PaidAt = DateTime.now();
+// Don't: a string with an offset is stored as written, not converted to UTC
+order.PaidAt = '2024-05-01T10:30:00+02:00' as any;
 
 // Do
-order.PaidAt = DateTime.utc();
+order.PaidAt = DateTime.fromISO('2024-05-01T10:30:00+02:00');
 ```
 
 ## Examples

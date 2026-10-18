@@ -118,7 +118,7 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 - No rows throws `InvalidArgument('values count invalid')`; no columns throws `InvalidArgument('invalid column count')`.
 - `orIgnore()` adds `IGNORE`. `orReplace()` sets `Replace`, which this class does **not** render (MySQL and SQLite override `into()`); it only suppresses the upsert clause.
 - `onDuplicate()` sets `Update`; the upsert tail comes from `OnDuplicateQueryCompiler` unless `Replace` is also set.
-- A `RawQuery` column is wrapped in literal backticks, not through the quoter.
+- A `RawQuery` column is emitted as is, not through the quoter.
 
 ### DDL
 
@@ -128,10 +128,10 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` | See the type table below. String literals go through `escapeStringLiteral()`. |
 | `SqlForeignKeyQueryCompiler` | `FOREIGN KEY (`c`) REFERENCES `schema`.`t`(`pk`) ON DELETE <a> ON UPDATE <a>` | The referenced table goes through `quoteQualified()`, so `schema.table` works. Throws `Error('foreign key query builder cannot be null')`. |
 | `SqlIndexQueryCompiler` | `` CREATE [UNIQUE] INDEX `name` ON `t` (`a`,`b`); `` | Ends with `;`. |
-| `SqlAlterTableQueryCompiler` | one `ALTER TABLE <t> ...` per change | `DROP COLUMN <c>` (name not quoted), `RENAME TO <t>`, then each column via `AlterColumnQueryCompiler`. A column that compiles to an empty string is skipped; one whose compiler reports `IsStandaloneStatement` is emitted without the `ALTER TABLE` prefix. |
+| `SqlAlterTableQueryCompiler` | one `ALTER TABLE <t> ...` per change | `DROP COLUMN <c>` (name quoted), `RENAME TO <t>`, then each column via `AlterColumnQueryCompiler`. A column that compiles to an empty string is skipped; one whose compiler reports `IsStandaloneStatement` is emitted without the `ALTER TABLE` prefix. |
 | `SqlAlterColumnQueryCompiler` | `ADD <def> [AFTER `c`]`, `MODIFY <def>`, `` RENAME COLUMN `old` TO `new` `` | Hooks `_add()`, `_modify()`, `_rename()` return `null` to emit nothing. `_columnDefinition()` resolves `ColumnQueryCompiler`, so the dialect's column syntax is used. |
 | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE <t> LIKE <src>`, then `INSERT INTO <t> <filter or SELECT * FROM src>` | A shallow clone emits only the first statement. |
-| `SqlTableHistoryQueryCompiler` | `CREATE TABLE <t>__history LIKE <t>`, key and column changes, `DELIMITER $$` triggers | MySQL only. Adds `__action__`, `__revision__`, `__start__`, `__end__`. The trigger bodies compare a column literally named `Id`. |
+| `SqlTableHistoryQueryCompiler` | `CREATE TABLE <t>__history LIKE <t>`, key and column changes, triggers | MySQL only. Adds `__action__`, `__revision__`, `__start__`, `__end__`. The trigger bodies compare the table's primary key column. |
 | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <t>` | |
 | `SqlDropTableQueryCompiler`, `SqlDropViewQueryCompiler` | `DROP TABLE|VIEW [IF EXISTS] <t>` | Name through `TableAliasCompiler`, so a schema prefix applies. |
 | `SqlCreateDatabaseQueryCompiler` | `` CREATE DATABASE [IF NOT EXISTS] `db` [CHARACTER SET cs] [COLLATE col] `` | `assertCharsetName()` refuses any name outside `[A-Za-z0-9_]`. |
@@ -200,7 +200,7 @@ Point a connection at it with `Driver: 'orm-driver-sqlite-guarded'`.
 - Registrations are per connection: they live in `driver.Container`. A registration in the root `DI` container is shadowed by the driver's own and never reaches a query.
 - The container returns the last registration of a token, so a registration made after `super.resolve()` wins.
 - `WHERE`, `HAVING`, column, join, group and recursive rendering are mixed into the DML compilers at class definition time. `SqlJoinStatement` and `SqlWhereQueryStatement` also call `new SqlWhereCompiler()` directly. There is no token to replace them through DI.
-- A multi-statement result (`ICompilerOutput[]`) is sent by `SqlDriver.execute()` with `Promise.all`, one `executeOnDb()` per entry, without waiting for the previous one.
+- A multi-statement result (`ICompilerOutput[]`) is sent by `SqlDriver.execute()` one `executeOnDb()` per entry, each awaited before the next.
 - `toDB()` compiles without a database and without query middlewares. The output is what the compiler sees after `afterQueryCreation` hooks.
 - Every compiler quotes through `@Autoinject(IdentifierQuoter)`. `SqlDriver` registers no quoter: a driver that forgets one fails on its first query.
 - `SqlUpdateQueryCompiler` always emits `WHERE`. An update with no conditions compiles to `... WHERE ` and the database rejects it.

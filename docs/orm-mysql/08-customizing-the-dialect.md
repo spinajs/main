@@ -37,21 +37,21 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 
 | Token | Implementation | Exported from `@spinajs/orm-mysql` | Page |
 | --- | --- | --- | --- |
-| `TableExistsCompiler` | `MySqlTableExistsCompiler` | no | [Table reflection](05-table-reflection.md) |
+| `TableExistsCompiler` | `MySqlTableExistsCompiler` | yes | [Table reflection](05-table-reflection.md) |
 | `ServerResponseMapper` | `MysqlServerResponseMapper` | yes | [Inserts](04-inserts-and-generated-keys.md) |
-| `InSetStatement` | `MySqlInSetStatement` | no | [Set membership](07-set-membership-and-literals.md) |
+| `InSetStatement` | `MySqlInSetStatement` | yes | [Set membership](07-set-membership-and-literals.md) |
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Set membership](07-set-membership-and-literals.md) |
-| `LiteralQuoter` | `MySqlLiteralQuoter` | no | [Set membership](07-set-membership-and-literals.md) |
-| `InsertQueryCompiler` | `MySqlInsertQueryCompiler` | no | [Inserts](04-inserts-and-generated-keys.md) |
+| `LiteralQuoter` | `MySqlLiteralQuoter` | yes | [Set membership](07-set-membership-and-literals.md) |
+| `InsertQueryCompiler` | `MySqlInsertQueryCompiler` | yes | [Inserts](04-inserts-and-generated-keys.md) |
 | `OnDuplicateQueryCompiler` | `SqlOnDuplicateQueryCompiler` | | [Inserts](04-inserts-and-generated-keys.md) |
-| `CreateViewCompiler` | `MySqlCreateViewCompiler` | no | [Schema](06-schema-views-and-events.md) |
+| `CreateViewCompiler` | `MySqlCreateViewCompiler` | yes | [Schema](06-schema-views-and-events.md) |
 | `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlColumnQueryCompiler`, `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | | [Query compilers](../orm-sql/02-query-compilers.md) |
 
-`Sql*` classes are exported from `@spinajs/orm-sql`. The `MySql*` classes marked "no" are not exported: to change one, extend the `Sql*` class it extends and re-implement its MySQL part, as the custom examples on each page do.
+`Sql*` classes are exported from `@spinajs/orm-sql`, the `MySql*` classes from `@spinajs/orm-mysql`: to change one, extend it and override only the part that differs.
 
 ## Configuration
 
@@ -74,7 +74,7 @@ db: {
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'`; `@NewInstance()` per connection | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`) | Subclass; `@Injectable('orm-driver-mysql')` for all connections, or a new string for some. |
 | Dialect classes | the tokens above, in `driver.Container` | the table above | per-page alternatives | `this.Container.register(X).as(Token)` after `super.resolve()`. |
-| Driver hooks | `connect()`, `isRetryableError()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
+| Driver hooks | `connect()`, `poolConfig()`, `isRetryableError()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
 
 ### How other packages recognize a MySQL connection
 

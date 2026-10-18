@@ -60,8 +60,10 @@
   "dependencies": {
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
+    "@spinajs/exceptions": "2.0.549",
     "@spinajs/fs": "2.0.549",
     "@spinajs/log": "2.0.549",
+    "@spinajs/log-common": "2.0.549",
     "basic-ftp": "^5.0.5",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"

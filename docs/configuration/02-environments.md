@@ -15,7 +15,7 @@ The environment decides which environment-specific config files load (`db.dev.js
    | `''`, `undefined`, `null` | `prod` | `*.prod.*` |
    | any other name (`local`, `staging`) | unchanged, case kept | `*.local.js`, `*.staging.json` |
 
-4. **Flags.** The shipped `config/configuration.js` computes the flags when it is imported, from `process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development'`, through the same `normalizeEnvironment()`.
+4. **Flags.** `load()` computes the flags from that same `process.env.APP_ENV`, through the same `normalizeEnvironment()`, before the sources merge.
 
 ## Configuration
 
@@ -71,11 +71,10 @@ void main();
 - An explicitly empty `APP_ENV` (`APP_ENV=`) means **production** for both: `normalizeEnvironment('')` returns `prod`.
 - Environment names are case-sensitive: `Local` and `local` load different files.
 - File suffixes use the short names: `db.prod.js`, not `db.production.js`. A file named `*.production.js` never loads.
-- The flags are computed from `process.env` when the shipped config file is imported. They ignore `--env` and the `process.env` DI value; the file sources honour both. With `--env prod` and no `APP_ENV` / `NODE_ENV`, the prod files load while `isProduction` stays `false`.
+- `load()` derives the flags from the same resolved `APP_ENV` the file sources read, so `--env` and the `process.env` DI value set both.
 
 ## Best practices
 
-- Set `APP_ENV` in the deployment, not `--env`, so the files and the flags agree.
 - Guard production-only behaviour with `configuration.isProduction`, not `process.env.NODE_ENV`.
 - Use `local` for developer machines and keep secrets in `*.local.js`, excluded from version control.
 

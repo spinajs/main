@@ -4,7 +4,7 @@ A key can hold many registrations. A single resolve takes the last one; a list r
 
 ## How it works
 
-`Array.ofType(T)` returns a `TypedArray<T>` and `Array.chainOf(T)` a `ChainArray<T>`. Both are markers you pass to `resolve()`, `@Inject` or `@Autoinject`; `T` can be a class or a string key.
+`Array.ofType(T)` returns a `TypedArray<T>` and `Array.chainOf(T)` a `ChainArray<T>`. Both are markers you pass to `resolve()`, `@Inject`, `@Autoinject` or `@LazyInject`; `T` can be a class or a string key.
 
 ### `Array.ofType(T)`: the nearest list
 
@@ -38,10 +38,11 @@ A key can hold many registrations. A single resolve takes the last one; a list r
 | --- | --- |
 | `@Inject(Array.ofType(T))` | `T[]` as a constructor argument |
 | `@Inject(Array.chainOf(T))` | The chain as a constructor argument |
-| `@Autoinject(T) prop: T[]` | `Array.ofType(T)` |
+| `@Autoinject(T) prop: T[]` or `@Autoinject(Array.ofType(T)) prop: T[]` | `Array.ofType(T)` |
 | `@Autoinject(Array.chainOf(T)) prop: T[]` | `Array.chainOf(T)` |
 | `@Autoinject(T, { mapFunc }) prop: Map<string, T>` | The list as a `Map` keyed by `mapFunc(instance)` |
 | `@Autoinject(Array.chainOf(T), { mapFunc }) prop: Map<string, T>` | The chain as a `Map` |
+| `@LazyInject(...)` with any of the `@Autoinject` forms above | The same, resolved on every read |
 
 `container.getRegisteredTypes(Array.chainOf(T))` returns the merged registrations in resolve order: element `i` is the registration of instance `i`.
 

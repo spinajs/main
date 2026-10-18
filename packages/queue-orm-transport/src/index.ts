@@ -1,5 +1,5 @@
 // import { Message, QueueClient } from '@spinajs/queue';
-// import { Event } from './models/event';
+// import { Event } from './models/Event.js';
 // import { Subscriber } from './models/Subscriber';
 // import { Config } from '@spinajs/configuration';
 // import { Queue } from './models/Queue';

@@ -92,10 +92,11 @@ The serialized stack already contains the `cause` chain. The `code` and `signal`
 | --- | --- |
 | `string` | `{ stringValue: v }` |
 | `boolean` | `{ boolValue: v }` |
-| integer `number` | `{ intValue: String(v) }` |
-| non-integer `number` | `{ doubleValue: v }` |
+| safe integer `number` | `{ intValue: String(v) }` |
+| other finite `number` | `{ doubleValue: v }` |
+| `NaN`, `Infinity`, `-Infinity` | `{ stringValue: String(v) }` |
 | object, array, `bigint`, `null` | `{ stringValue: safeStringify(v) }`, a JSON string |
-| `undefined` | `{ stringValue: undefined }`, serialized as an empty `{}` |
+| `undefined` | `{ stringValue: undefined }`, serialized as an empty `{}`. `toLogRecord()` skips `undefined` variables, so they never become attributes |
 
 `kv(obj)` maps a plain object to `[{ key, value: anyValue(obj[key]) }]`, and returns `[]` for `undefined`. `toOtlp()` uses it for the resource attributes.
 
@@ -109,14 +110,14 @@ The serialized stack already contains the `cause` chain. The `code` and `signal`
 | `kv` | `(obj?: Record<string, unknown>) => IOtlpKeyValue[]` | A `KeyValue` list |
 | `IOtlpRecord` | `{ entry: ILogEntry; timeUnixNano: string }` | A buffered entry with its event time |
 
-`IOtlpAnyValue` and `IOtlpKeyValue` appear in these signatures but are not exported. Use `ReturnType<typeof anyValue>` and `ReturnType<typeof kv>` when you need the types.
+`IOtlpAnyValue` and `IOtlpKeyValue`, the types in these signatures, are exported too.
 
 ## Important behaviour
 
 - **One resource, one scope per payload.** All records of a batch share the target's `resource` and `scopeName`; the logger name is an attribute (`logger`), not the scope.
 - **Ambient context becomes attributes.** Scalar fields of the active `LogContext` (for example `requestId`, set per request by `@spinajs/http`) are merged into `Variables`, so they are exported as attributes on every record.
-- **An empty `error` attribute on every record.** `createLogMessageObject()` always sets `error`, to `undefined` when nothing was logged. `toLogRecord()` maps it to `{ "key": "error", "value": {} }` on records that carry no error.
-- **Integers are not range-checked.** `anyValue(1e21)` yields `{ intValue: "1e+21" }`, which is not a valid OTLP int64. `NaN` and `Infinity` yield `doubleValue`, which JSON serializes as `null`.
+- **No `error` attribute without an error.** `createLogMessageObject()` always sets `error`, to `undefined` when nothing was logged; `toLogRecord()` skips `undefined` variables.
+- **Only safe integers become `intValue`.** An integer beyond `Number.MAX_SAFE_INTEGER` (for example `1e21`) is sent as `doubleValue`, and `NaN` / `Infinity` as `stringValue`, since JSON has no literal for them.
 - **Nested objects are flattened to JSON strings,** not to OTLP `kvlistValue` or `arrayValue`. Query them as strings in your backend.
 
 ## Best practices

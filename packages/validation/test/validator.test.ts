@@ -336,6 +336,51 @@ describe('validator tests', function () {
     });
   });
 
+  describe('argument handling', () => {
+    it('reports absent data in the two-argument form', async () => {
+      const v = await val();
+      const schema = { type: 'object' };
+
+      expect(v.tryValidate(schema, undefined as unknown as object)[1]![0].keyword).to.eq('invalid_argument');
+      expect(v.tryValidate('http://spinajs/none.schema.json', null as unknown as object)[1]![0].keyword).to.eq('invalid_argument');
+      expect(() => v.validate(schema, undefined as unknown as object)).to.throw(InvalidArgument, 'data is null or undefined');
+    });
+
+    it('extractSchema returns undefined for a plain object', async () => {
+      const v = await val();
+      expect(v.extractSchema({ a: 1 })).to.be.undefined;
+    });
+
+    it('accepts a @Schema class constructor', async () => {
+      const v = await val();
+
+      @Schema({ type: 'object', required: ['a'], properties: { a: { type: 'string' } } })
+      class CtorDto {}
+
+      expect(v.tryValidate(CtorDto, { a: 'x' })[0]).to.be.true;
+      expect(v.tryValidate(CtorDto, {})[0]).to.be.false;
+    });
+
+    it('validateSchema does not clash with a registered $id', async () => {
+      const v = await val();
+      const id = 'http://spinajs/clash.schema.json';
+      v.addSchema({ $id: id, type: 'object' }, id);
+
+      expect(v.validateSchema({ $id: id, type: 'string' })[0]).to.be.true;
+      v.removeSchema(id);
+    });
+
+    it('a second inline schema reusing an $id returns errors instead of throwing', async () => {
+      const v = await val();
+      const id = 'http://spinajs/inline.schema.json';
+
+      expect(v.tryValidate({ $id: id, type: 'string' }, 'a' as unknown as object)[0]).to.be.true;
+      const [ok, errors] = v.tryValidate({ $id: id, type: 'number' }, 'a' as unknown as object);
+      expect(ok).to.be.false;
+      expect(errors).to.not.be.empty;
+    });
+  });
+
   describe('public api', () => {
     it('addSchema / hasSchema / getSchema / removeSchema', async () => {
       const v = await val();

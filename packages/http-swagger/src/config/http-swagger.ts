@@ -52,7 +52,7 @@ const httpSwagger = {
       {
         service: 'fsNative',
         name: '__fs_swagger_cache__',
-        basePath: join(process.cwd(), '__cache__', '__swagger__'),
+        basePath: cwd('__cache__', '__swagger__'),
       },
     ],
   },

@@ -25,7 +25,7 @@ Same as the JSON source, with these differences:
 
 - Globs `<dir>/**/*.{js,cjs}`; `de.js` and `de.cjs` both feed `de`.
 - Loads each file with `DI.__spinajs_require__(file)` (see [Module loading](../di/13-module-loading.md)). The module's export is the table; a `{ de: { ... } }` export is unwrapped like in JSON.
-- A load error is **not** caught: it fails `Intl.resolve()`.
+- A file that throws on load is logged as a warning and skipped, like a broken JSON file.
 
 ```mermaid
 sequenceDiagram
@@ -180,11 +180,10 @@ DI.resolve(Intl).then((intl) => console.log(Object.keys(intl.Locales)));
 
 - **First wins.** Between sources and between files of one source, the first value of a phrase stays. A source registered after the file sources can only add phrases, not change them.
 - **Load once.** `Intl` reads the sources during its own `resolve()`. Changing a file or a database row afterwards has no effect until the process restarts or your `Intl` subclass reloads (see [Custom `Intl` service](05-custom-intl-service.md#reload-phrases-without-a-restart)).
-- **Locale from the file name.** `pl-PL.json` creates a `pl-PL` table, which breaks `__n()` (see [Plural forms](02-plural-forms.md#important-behaviour)).
+- **Locale from the file name.** `pl-PL.json` creates a `pl-PL` table; `__n()` uses the `pl` plural rule for it (see [Plural forms](02-plural-forms.md#important-behaviour)).
 - **Plural objects merge deeply.** A later file can add a missing category (`many`) to a plural phrase defined earlier.
 - **Logger required.** Both file sources log every file they find with `this.Log.trace`; without `@spinajs/log` imported, the first found file throws.
-- **JSON errors are swallowed, JS errors are not.** A broken `.json` file gives a warning and a missing locale; a broken `.js` file fails the boot.
-- Both file sources log "Found json localisation file" for `.js` files too.
+- **Broken files are skipped.** A `.json` file that fails to parse or a `.js` file that throws on load gives a warning and a missing locale; the boot goes on.
 
 ## Best practices
 

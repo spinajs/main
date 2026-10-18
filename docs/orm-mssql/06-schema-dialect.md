@@ -1,19 +1,19 @@
 # Schema dialect
 
-What the schema builder (`driver.schema()`, migrations) produces on SQL Server: tables, columns, indexes, databases, views and existence checks. The driver replaces the table, column, database, view and existence compilers; column **types** still use the shared MySQL spelling, so pick types that are valid T-SQL or replace the column compiler.
+What the schema builder (`driver.schema()`, migrations) produces on SQL Server: tables, columns, indexes, databases, views and existence checks. The driver replaces the table, column, default value, database, view and existence compilers; column types it does not map still use the shared MySQL spelling, so pick types that are valid T-SQL or replace the column compiler.
 
 ## How it works
 
 `driver.schema().createTable('orders', (table) => { ... })` compiles like this:
 
 1. `TableQueryBuilder.toDB()` resolves `TableQueryCompiler`: `MsSqlTableQueryCompiler`.
-2. `_table()` writes `CREATE TABLE <name>` through `MsSqlTableAliasCompiler`, so the name gets the `[database].[schema].` prefix; see [Query dialect](05-query-dialect.md).
-3. `_columns()` compiles each column with `ColumnQueryCompiler` (`MsSqlColumnQueryCompiler`) and appends ` PRIMARY KEY` to primary key columns.
-4. Every column marked `unique()` is collected into one table-level `UNIQUE(<names>)`.
+2. `compile()` throws `MethodNotImplemented('orm-driver-mssql has no table history support')` for `trackHistory()`.
+3. `_table()` writes `CREATE TABLE <name>` through `MsSqlTableAliasCompiler`, so the name gets the `[database].[schema].` prefix; see [Query dialect](05-query-dialect.md). With `ifExists()` it writes `IF OBJECT_ID(N'<name>', N'U') IS NULL CREATE TABLE <name>`. `temporary()` throws `NotSupported`: a SQL Server temporary table is one whose name starts with `#`.
+4. `_columns()` compiles each column with `ColumnQueryCompiler` (`MsSqlColumnQueryCompiler`) and appends ` PRIMARY KEY` to primary key columns. A `unique()` column carries an inline `UNIQUE`.
 5. `_foreignKeys()` compiles each foreign key with the shared `ForeignKeyQueryCompiler`.
-6. The result is one statement: `CREATE TABLE [dbo].[orders] (<columns> , UNIQUE(...) ,<foreign keys>)`.
+6. The result is one statement: `CREATE TABLE [dbo].[orders] (<columns>,<foreign keys>)`.
 
-`MsSqlColumnQueryCompiler` is `SqlColumnQueryCompiler` with one change: `autoIncrement()` writes `IDENTITY(1,1)` instead of `AUTO_INCREMENT`.
+`MsSqlColumnQueryCompiler` is `SqlColumnQueryCompiler` with the T-SQL spelling of `autoIncrement()` (`IDENTITY(1,1)`), `boolean`, `json`, `enum`, `set`, `unsigned()`, `charset()`, `comment()` and `collation()`, listed below.
 
 ### Column types
 
@@ -30,9 +30,9 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `date`, `time`, `dateTime` | `DATE`, `TIME`, `DATETIME` | yes |
 | `timestamp` | `TIMESTAMP` | accepted, but it is a row version, not a date |
 | `binary(name, size)`, `uuid` | `BINARY(size)`, `BINARY(16)` | yes |
-| `boolean` | `BOOLEAN` | no: use `bit` |
-| `json` | `JSON` | no: use `text` or a custom column compiler |
-| `enum`, `set` | `ENUM(...)`, `SET(...)` | no |
+| `boolean` | `BIT` | yes |
+| `json` | `NVARCHAR(MAX)` | yes |
+| `enum`, `set` | `NVARCHAR(255)`; the allowed values are not enforced | yes |
 | `mediumint`, `tinyblob`, `mediumblob`, `longblob` | same name | no |
 
 | Modifier | Writes | Valid T-SQL |
@@ -40,10 +40,13 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `notNull()` | `NOT NULL` | yes |
 | `autoIncrement()` | `IDENTITY(1,1)` | yes |
 | `primaryKey()` | ` PRIMARY KEY` (added by the table compiler) | yes |
-| `unique()` | `UNIQUE` on the column **and** in the table-level `UNIQUE(...)` | yes; creates two unique constraints |
-| `unsigned()`, `charset()`, `comment()` | `UNSIGNED`, `CHARACTER SET '...'`, `COMMENT '...'` | no |
-| `collation(name)` | `COLLATE '...'` | no: T-SQL takes the name unquoted |
-| `default()` | see [Important behaviour](#important-behaviour) | fails |
+| `unique()` | `UNIQUE` on the column | yes |
+| `unsigned()`, `comment()` | nothing: T-SQL has neither | yes |
+| `charset()` | throws `NotSupported('mssql has no CHARACTER SET for a column, use collation() instead')` | |
+| `collation(name)` | `COLLATE name`, the name checked to be letters, digits and `_` | yes |
+| `default().value(v)` | `DEFAULT 'v'` for a string, `DEFAULT v` for a number | yes |
+| `default().date()`, `default().dateTime()` | `DEFAULT (CAST(GETDATE() AS DATE))`, `DEFAULT CURRENT_TIMESTAMP` | yes |
+| `default().raw(query)` | `DEFAULT <query>` | as written |
 
 ### Other schema statements
 
@@ -64,7 +67,14 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | ... `.ifNotExists()`, `.temporary()`, `.algorithm()`, `.security()`, `.checkOption('CASCADED' \| 'LOCAL')`, a `database()` prefix | | throw `MethodNotImplemented` |
 | `schema().dropView(name).ifExists()` | shared `SqlDropViewQueryCompiler` | `DROP VIEW IF EXISTS [name]` |
 | `schema().createEvent()`, `dropEvent()` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | throw `MethodNotImplemented('<Driver> has no native scheduled events')`, `<Driver>` being the connection's driver string |
-| `schema().alterTable()`, `alterColumn`, `cloneTable()` | none registered | fail |
+| `schema().alterTable(name, t => ...)` | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | one statement per change, in this order: |
+| ... `t.dropColumn(c)` | | `ALTER TABLE <table> DROP COLUMN [c]` |
+| ... `t.string(c, 64).notNull()` (add) | | `ALTER TABLE <table> ADD [c] VARCHAR(64) NOT NULL [PRIMARY KEY]` |
+| ... `t.string(c, 64).modify()` | | `ALTER TABLE <table> ALTER COLUMN [c] VARCHAR(64) NULL`; `NOT NULL` when `notNull()` |
+| ... `t.string(old).rename(new)` | | `EXEC sp_rename N'[schema].[table].[old]', N'new', N'COLUMN'` |
+| ... `t.rename(new)` | | `EXEC sp_rename N'[schema].[table]', N'new'`, written last |
+| ... `.after(c)` on an add; `default()`, `autoIncrement()`, `primaryKey()`, `unique()` on a modify | | throw `NotSupported` |
+| `schema().cloneTable()` | none registered | throws `TypeError` |
 
 ## Services and extension points
 
@@ -74,17 +84,18 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | --- | --- | --- | --- | --- |
 | Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
-| Column defaults | `DefaultValueBuilder` | **none** | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
+| Column defaults | `DefaultValueBuilder`, new instance | `MsSqlDefaultValueBuilder` | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`, `CURRENT_DATE()` is not T-SQL) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
 | Databases | `CreateDatabaseCompiler`, `DropDatabaseCompiler`, new instance | `MsSqlCreateDatabaseQueryCompiler`, `MsSqlDropDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler`, `SqlDropDatabaseQueryCompiler` (MySQL spelling) | Extend the abstract token, implement `compile()`. |
 | Views | `CreateViewCompiler`, new instance | `MsSqlCreateViewCompiler` | `SqlCreateViewQueryCompiler` | Extend `SqlCreateViewQueryCompiler`; override the hooks (`_replace()`, `_name()`, `_checkOption()`, ...). See [View compiler hooks](../orm-sql/06-view-compiler-hooks.md). |
 | Truncate | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | | Register your own `.as(TruncateTableQueryCompiler)`. |
 | Scheduled events | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | | Implement with SQL Server Agent jobs, and override `supportedFeatures()` to return `events: true`. |
-| Table changes | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | **none** | the shared `Sql*` classes write MySQL syntax | Implement the token in T-SQL and register it. |
+| Table changes | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, new instance | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` (MySQL spelling) | Extend `SqlAlterColumnQueryCompiler`; override `_add()` or `_modify()`. Renames are written by the table compiler. |
+| Table cloning and history | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | **none** | the shared `Sql*` classes write MySQL syntax | Implement the token in T-SQL and register it. |
 
 ### Column definition: custom implementation
 
-Write Unicode strings, `BIT` booleans, `DATETIME2` datetimes and `NVARCHAR(MAX)` for text and JSON:
+Write Unicode strings, `DATETIME2` datetimes and `NVARCHAR(MAX)` for long text, on top of the stock T-SQL mappings:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -106,6 +117,7 @@ export class TsqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.dateTime = () => 'DATETIME2';
     // T-SQL has no column comments; an empty entry is dropped from the definition
     this._statementsMappings.comment = () => '';
+    this._statementsMappings.unsigned = () => '';
   }
 }
 
@@ -121,7 +133,7 @@ export class UnicodeMsSqlDriver extends MsSqlOrmDriver {
 
 ### Column defaults: custom implementation
 
-With no `DefaultValueBuilder` registered, `default()` cannot be used on MSSQL. Register one; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`.
+`SqlColumnQueryCompiler` turns the builder's `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. Replace the builder to change what `date()` and `dateTime()` write, for example the higher-precision `SYSDATETIME()`:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -156,11 +168,12 @@ Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[Creat
 
 ## Important behaviour
 
-- **`default()` fails.** No `DefaultValueBuilder` is registered, so the container instantiates the abstract class itself, whose `value()`, `date()`, `dateTime()` and `raw()` are not implemented: calling one throws a `TypeError`. Register a builder as above.
-- **Unregistered schema tokens fail on first use**, not at connect: `alterTable()`, `alterColumn`, `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
-- **`trackHistory()` is ignored.** `MsSqlTableQueryCompiler` does not compile table history; the table is created without it.
-- **`temporary()` and `ifExists()` on `createTable` write MySQL syntax** (`CREATE TEMPORARY TABLE`, `IF NOT EXISTS`), which SQL Server rejects.
-- **`UNIQUE(...)` names are not quoted.** A unique column named after a reserved word, such as `Key`, breaks the statement.
+- **Unregistered schema tokens fail on first use** with a `TypeError`, not at connect: `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
+- **`ALTER COLUMN` changes only type, collation and nullability.** SQL Server keeps defaults, identity and keys as constraints, and refuses to alter a column a `PRIMARY KEY` depends on; drop and re-create the constraint with raw statements. Dropping a column that has a default needs its default constraint dropped first.
+- **The `sp_rename` arguments are literals.** The new name is not bracketed, because brackets in it would become part of the name; a `database()` prefix calls `[database].sys.sp_rename`.
+- **`trackHistory()` throws** `MethodNotImplemented`; SQL Server's equivalent is a temporal table, which the driver does not create.
+- **`temporary()` on `createTable` throws** `NotSupported`. Create the table with a `#` name through a `RawQuery` instead.
+- **`enum` and `set` columns do not enforce their values.** They are plain `NVARCHAR(255)` columns.
 - **`tableExists()` ignores `Options.Schema`.** A table of the same name in another schema of the database counts as existing.
 - **`CREATE DATABASE` is guarded with `EXEC`** because it must be alone in its batch; the name is escaped by doubling `'`.
 - **A view body's bindings are inlined** with `MsSqlLiteralQuoter`: strings as `N'...'`, booleans as `1` / `0`. A string containing a backtick throws `InvalidArgument`.
@@ -168,20 +181,20 @@ Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[Creat
 
 ## Best practices
 
-- In migrations for MSSQL, use `int`, `bigint`, `bit`, `decimal`, `string`, `text`, `date`, `dateTime` and `binary`; or register `TsqlColumnQueryCompiler`.
+- In migrations for MSSQL, use `int`, `bigint`, `bit`, `boolean`, `decimal`, `string`, `text`, `json`, `date`, `dateTime` and `binary`; or register `TsqlColumnQueryCompiler`.
 - Declare unique columns with `unique()` only; avoid a separate `driver.index().unique()` on the same column.
 - Use `orReplace()` for views you redeploy: it becomes `CREATE OR ALTER VIEW`.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: BOOLEAN and JSON are not T-SQL types, default() throws
-table.boolean('Active').default().value(1);
-table.json('Settings');
+// Don't: LONGTEXT and MEDIUMINT are not T-SQL types
+table.longtext('Body');
+table.mediumint('Views');
 
 // Do
-table.bit('Active').notNull();
-table.text('Settings');
+table.text('Body');
+table.int('Views');
 ```
 
 ## Examples

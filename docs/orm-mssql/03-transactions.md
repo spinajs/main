@@ -6,7 +6,7 @@
 
 1. `OrmDriver.transaction(cb, options)` checks `options.isolation` against `SupportedIsolationLevels`; an unlisted level throws `OrmException`. All four levels are listed here.
 2. **Outermost call.** `_begin(options)` creates `this._connectionPool.transaction()` and calls `begin()` with the mapped `mssql.ISOLATION_LEVEL`, or with none (the server default, `READ COMMITTED`). It returns an `IMsSqlTransactionContext`: `{ transaction, request: transaction.request(), depth: 0 }`.
-3. `OrmDriver` runs `cb` inside `TransactionStorage.run(ctx, ...)`. `executeOnDb()` finds the context there and sends every statement through `ctx.request`; see [Executing statements](02-executing-statements.md).
+3. `OrmDriver` runs `cb` inside `TransactionStorage.run(ctx, ...)`. `executeOnDb()` finds the context there and sends each statement through a new `ctx.transaction.request()`; see [Executing statements](02-executing-statements.md). `ctx.request` runs only the savepoint statements.
 4. **Nested call.** With a transaction already in scope, `OrmDriver` names a savepoint `sp_<depth>` and calls `_savepoint()`: `SAVE TRANSACTION [sp_1]`. On success `_releaseSavepoint()` runs, which does nothing: T-SQL has no `RELEASE SAVEPOINT`. On error `_rollbackToSavepoint()` runs `ROLLBACK TRANSACTION [sp_1]` and the error is re-thrown.
 5. **End.** A resolved callback calls `_commit()` (`transaction.commit()`). A rejected one calls `_rollback()` (`transaction.rollback()`) and re-throws. `_dispose()` does nothing: `mssql` returns the connection to the pool itself. `afterCommit` callbacks run after commit.
 
@@ -21,42 +21,37 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Transaction primitives | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` (protected, on the driver) | `mssql.Transaction` with `SAVE TRANSACTION` / `ROLLBACK TRANSACTION` | | Override in a driver subclass. `_begin()` must return an `IMsSqlTransactionContext`, because `executeOnDb()` reads its `request`. |
-| Transaction context | `IMsSqlTransactionContext`, exported interface; the value of `driver.CurrentTransaction` inside a transaction | `{ transaction: mssql.Transaction, request: mssql.Request, depth, afterCommit? }` | | Read it in an `executeOnDb()` override; replace `request` to send a statement on a different request of the same transaction. |
+| Transaction primitives | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` (protected, on the driver) | `mssql.Transaction` with `SAVE TRANSACTION` / `ROLLBACK TRANSACTION` | | Override in a driver subclass. `_begin()` must return an `IMsSqlTransactionContext`, because `executeOnDb()` reads its `transaction` and the savepoint primitives its `request`. |
+| Transaction context | `IMsSqlTransactionContext`, exported interface; the value of `driver.CurrentTransaction` inside a transaction | `{ transaction: mssql.Transaction, request: mssql.Request, depth, afterCommit? }` | | Read it in an `executeOnDb()` override; `transaction.request()` gives a new request on the transaction's connection. |
 | Isolation levels | `SupportedIsolationLevels` (public, read-only array) | all four | | Override the property in a subclass to forbid a level on a connection. |
 
 ### Transaction context: custom implementation
 
-The stock driver sends every statement of a transaction through one `mssql.Request`, and `mssql` refuses to declare the same parameter name twice on one request. A second statement with bindings inside the same transaction fails with `RequestError` code `EDUPEPARAM` (`The parameter name p0 has already been declared`). Give each statement a fresh request of the same transaction:
+Read the context in an `executeOnDb()` override to act on statements that run inside a transaction, for example to tag them for the server's activity monitor:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
 import { IMsSqlTransactionContext, MsSqlOrmDriver } from '@spinajs/orm-mssql';
 
-/** One mssql.Request per statement, so several parameterized statements share a transaction. */
-@Injectable('orm-driver-mssql-tx')
+/** Prefixes every statement sent inside a transaction with a comment naming its nesting depth. */
+@Injectable('orm-driver-mssql-tx-tagged')
 @NewInstance()
-export class TransactionSafeMsSqlDriver extends MsSqlOrmDriver {
+export class TaggedTransactionMsSqlDriver extends MsSqlOrmDriver {
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tx = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
 
-    if (tx) {
-      // super.executeOnDb() reads tx.request before its first await, so concurrent statements each get their own
-      tx.request = tx.transaction.request();
-    }
-
-    return super.executeOnDb(stmt, params, context);
+    return super.executeOnDb(tx ? `/* tx depth ${tx.depth} */ ${stmt}` : stmt, params, context);
   }
 }
 ```
 
-Register it with `Driver: 'orm-driver-mssql-tx'` on the connection, or with `DI.register(TransactionSafeMsSqlDriver).as('orm-driver-mssql')` before `Orm` resolves to use it for every MSSQL connection.
+Register it with `Driver: 'orm-driver-mssql-tx-tagged'` on the connection, or with `DI.register(TaggedTransactionMsSqlDriver).as('orm-driver-mssql')` before `Orm` resolves to use it for every MSSQL connection.
 
 ## Important behaviour
 
-- **One request per transaction.** With the stock driver, only the first statement with bindings succeeds inside a transaction; later statements with bindings throw `EDUPEPARAM`. Statements without bindings (DDL, savepoints) are not affected. Use the subclass above.
-- **DDL is transactional.** SQL Server rolls back `CREATE TABLE` and `ALTER TABLE` with the transaction, so `Migration.Transaction.Mode: MigrationTransactionMode.PerMigration` makes a migration atomic. A migration with more than one parameterized statement needs the subclass above.
+- **One request per statement.** `mssql` refuses to declare the same parameter name twice on one request, so each statement takes a new request of the transaction. They all run on the transaction's connection.
+- **DDL is transactional.** SQL Server rolls back `CREATE TABLE` and `ALTER TABLE` with the transaction, so `Migration.Transaction.Mode: MigrationTransactionMode.PerMigration` makes a migration atomic.
 - **Savepoint names are inlined**, bracket-quoted with `]` doubled, because T-SQL does not accept a savepoint name as a parameter.
 - **Releasing a savepoint does nothing.** A savepoint stays reachable until the outer transaction ends.
 - **Rollback errors are swallowed.** `OrmDriver` ignores an error from `_rollback()` and re-throws the callback's error.
@@ -70,20 +65,20 @@ Register it with `Driver: 'orm-driver-mssql-tx'` on the connection, or with `DI.
 ## Patterns and antipatterns
 
 ```ts
-// Don't: with the stock driver the second parameterized statement throws EDUPEPARAM
+// Don't: two statements outside a transaction run on separate pooled connections, and the first stays when the second fails
+await driver.update().in('accounts').update({ Balance: 90 }).where('Id', 1);
+await driver.update().in('accounts').update({ Balance: 110 }).where('Id', 2);
+
+// Do
 await driver.transaction(async () => {
   await driver.update().in('accounts').update({ Balance: 90 }).where('Id', 1);
   await driver.update().in('accounts').update({ Balance: 110 }).where('Id', 2);
 });
-
-// Do: use a driver that takes a fresh request per statement (TransactionSafeMsSqlDriver above)
 ```
 
 ## Examples
 
 ### Record a payment and mark the invoice paid
-
-On a connection configured with `Driver: 'orm-driver-mssql-tx'`:
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -104,7 +99,7 @@ export async function payInvoice(invoiceId: number, amount: number): Promise<voi
 
 ### Keep the order when the optional coupon fails
 
-A nested `transaction()` is a savepoint: its failure rolls back only the coupon. The `billing` connection uses `TransactionSafeMsSqlDriver`, since the callback sends several parameterized statements.
+A nested `transaction()` is a savepoint: its failure rolls back only the coupon.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -130,5 +125,5 @@ export async function placeOrder(orderId: number, coupon?: string): Promise<void
 ## Related
 
 - [Transactions](../orm/08-transactions.md): `transaction()`, `afterCommit()`, isolation levels, and who opens transactions for you.
-- [Executing statements](02-executing-statements.md): how a statement picks the transaction's request.
+- [Executing statements](02-executing-statements.md): how a statement gets a request of the transaction.
 - [Migrations](../orm/10-migrations.md): `Migration.Transaction.Mode`.

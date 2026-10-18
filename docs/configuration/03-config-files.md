@@ -37,7 +37,7 @@ In merge order; later directories win for scalars:
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `WORKSPACE_ROOT_PATH` (environment variable) | `string` | detected hoisting root | absolute path | Root of an npm / yarn workspace. Package configs build their own paths from it (`${WORKSPACE_ROOT_PATH ?? cwd}/node_modules/@spinajs/<pkg>/...`). An explicit value is never overwritten. |
+| `WORKSPACE_ROOT_PATH` (environment variable) | `string` | detected hoisting root | absolute path | Root of an npm / yarn workspace. Package configs build their own paths from it (`${WORKSPACE_ROOT_PATH ?? cwd}/node_modules/@spinajs/<pkg>/...`), with `packageLibDirs()`. An explicit value is never overwritten. |
 | `--app`, `--apppath`, `cfgCustomPaths` | see [Configuration service](01-configuration-service.md#configuration) | | | Add directories 5 to 7. |
 
 A config module is a plain object, as a default export or as CommonJS exports:
@@ -68,6 +68,19 @@ export default {
   },
 };
 ```
+
+A package config points `system.dirs` at its own build with `packageLibDirs(pkg, sub)`. It returns two paths, `<root>/node_modules/<pkg>/lib/<cjs|mjs>/<sub>` and the same one directory up (for a process started from an app or build folder), where `<root>` is `WORKSPACE_ROOT_PATH`, else the working directory. `cjs` or `mjs` follows how `@spinajs/configuration` was loaded. Node only.
+
+```ts
+// src/config/my-package.ts
+import { packageLibDirs } from '@spinajs/configuration';
+
+export default {
+  system: { dirs: { cli: packageLibDirs('@spinajs/my-package', 'cli') } },
+};
+```
+
+`merge(to, from)` and `mergeArrays` are exported too: `merge` deep-merges in place and unions arrays; `mergeArrays` is the `_.mergeWith` customizer the configuration merges sources with (arrays concatenated).
 
 ## Services and extension points
 

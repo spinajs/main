@@ -1,5 +1,4 @@
 import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
-import { IOFail } from '@spinajs/exceptions';
 import * as pug from 'pug';
 import _ from 'lodash';
 import * as fs from 'fs';
@@ -26,13 +25,7 @@ export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
     // against the local filesystem itself, so remote fs:// sources are
     // materialised to temp storage first.
     const tPath = await this.resolveLocalPath(template);
-    const compiled = pug.compileFile(tPath, this.Options);
-
-    if (!compiled) {
-      throw new IOFail(`Cannot compile pug template ${template} from path ${tPath}`);
-    }
-
-    return compiled;
+    return pug.compileFile(tPath, this.Options);
   }
 
   protected buildContext(model: unknown, language: string): Record<string, unknown> {

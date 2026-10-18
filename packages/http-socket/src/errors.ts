@@ -14,7 +14,7 @@ export abstract class SocketErrorMapping {
 
 // Module-level rather than a DI map value (as @HandleException does): DI.clearCache() drops
 // cache entries, and the decorators that fill this map run only once per process.
-const SOCKET_ERROR_MAP = new Map<string, Constructor<SocketErrorMapping>>();
+const SOCKET_ERROR_MAP = new Map<unknown, Constructor<SocketErrorMapping>>();
 
 /**
  * Registers the decorated mapping for one or more exception types. Lookup walks the prototype
@@ -23,16 +23,16 @@ const SOCKET_ERROR_MAP = new Map<string, Constructor<SocketErrorMapping>>();
 export function HandleSocketException(exception: Constructor<Error> | Constructor<Error>[]) {
   return (target: Constructor<SocketErrorMapping>) => {
     for (const e of Array.isArray(exception) ? exception : [exception]) {
-      SOCKET_ERROR_MAP.set(e.name, target);
+      SOCKET_ERROR_MAP.set(e, target);
     }
   };
 }
 
 export function resolveSocketErrorMapping(error: unknown): Constructor<SocketErrorMapping> | null {
   for (let ctor = (error as { constructor?: unknown } | null | undefined)?.constructor; typeof ctor === 'function' && ctor !== Object; ctor = Object.getPrototypeOf(ctor)) {
-    const name = (ctor as { name?: string }).name;
-    if (name && SOCKET_ERROR_MAP.has(name)) {
-      return SOCKET_ERROR_MAP.get(name)!;
+    const mapping = SOCKET_ERROR_MAP.get(ctor);
+    if (mapping) {
+      return mapping;
     }
   }
 

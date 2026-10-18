@@ -50,7 +50,7 @@ export const logger = {
 };
 ```
 
-The first rule keeps the target's own diagnostic logger (`LogOtlpTarget`) out of the OTLP export; see [Important behaviour](01-otlp-log-target.md#important-behaviour).
+The first rule sends the target's own diagnostic logger (`LogOtlpTarget`) to the console only; the OTLP target never exports it. See [Important behaviour](01-otlp-log-target.md#important-behaviour).
 
 ## Related packages
 
