@@ -23,7 +23,7 @@ The package has **no** upload route. The project writes the route, composes `acc
 6. The stored name is validated like a `PATCH` `Value`: `Type`, `Meta` and the [slug schema](03-value-schemas.md). A failure throws `ConfigFileRejected`; an uncompilable schema throws a plain `Error` after logging.
 7. `getFs(meta.file.fs)` resolves the provider. An unregistered provider throws a plain `Error` naming the slug and the provider.
 8. A file with the same name on the provider throws `ConfigFileRejected` (`uploaded a moment ago, try again`).
-9. `_fileHash(localPath)` computes the sha256; `provider.upload(localPath, fileName)` stores the file. A failed upload removes the partial file and rethrows.
+9. `_fileHash(localPath)` computes the sha256; `provider.upload(localPath, fileName, { exclusive: true })` stores the file. A same-named upload that landed after step 8 makes the provider throw `ResourceDuplicated`, which becomes the same `ConfigFileRejected` and leaves that file in place. Any other failed upload removes the partial file and rethrows. A provider that ignores `exclusive` overwrites in that race; see [fs file operations](../fs/02-file-operations.md#important-behaviour).
 10. In every case, success or failure, the multipart temp file at `file.OriginalFile.filepath` is removed.
 11. The result is an `IAcceptedConfigFile`. `Value` is **not** changed yet.
 
@@ -49,7 +49,7 @@ sequenceDiagram
   R->>U: accept(entry, file)
   U->>U: rules, stored name, slug schema
   U->>V: validate(candidate, entry)
-  U->>F: upload(localPath, fileName)
+  U->>F: upload(localPath, fileName, { exclusive: true })
   U-->>R: IAcceptedConfigFile
   R->>H: record(accepted)
   alt record failed
