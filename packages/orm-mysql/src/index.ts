@@ -88,6 +88,9 @@ export class MySqlOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  /** The server's prepared-statement limit; mysql2 binds client-side, where only max_allowed_packet caps it. */
+  public readonly MaxBindings = 65535;
+
   /**
    * DECIMAL/NUMERIC comes back from mysql2 as a STRING, not a number: it parses them with
    * readLengthCodedString unless `decimalNumbers` is on ( see connect() below - it is off by
@@ -110,6 +113,10 @@ export class MySqlOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
     // where the statement provably never reached the server.
     return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+  }
+
+  protected isUniqueViolation(err: unknown): boolean {
+    return (err as { errno?: unknown })?.errno === 1062;
   }
 
   /**

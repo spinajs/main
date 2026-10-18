@@ -96,6 +96,11 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  // 2100 per RPC, a few of which tedious spends on sp_executesql itself.
+  public readonly MaxBindings = 2000;
+
+  public readonly MaxInsertRows = 1000;
+
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
@@ -132,6 +137,12 @@ export class MsSqlOrmDriver extends SqlDriver {
       default:
         return result.recordset;
     }
+  }
+
+  /** 2627: a primary key or unique constraint; 2601: a unique index. */
+  protected isUniqueViolation(err: unknown): boolean {
+    const n = (err as { number?: unknown })?.number;
+    return n === 2627 || n === 2601;
   }
 
   public supportedFeatures(): ISupportedFeature {

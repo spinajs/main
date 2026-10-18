@@ -76,6 +76,9 @@ export class SqliteOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['SERIALIZABLE'];
 
+  /** SQLITE_MAX_VARIABLE_NUMBER of the bundled SQLite (3.32 and later). */
+  public readonly MaxBindings = 32766;
+
   // getNextExecutionId() went with the per-driver query timing that master centralised into
   // `Perf.measure('orm.query', ...)` around SqlDriver.execute — its only caller is gone.
 
@@ -243,7 +246,7 @@ export class SqliteOrmDriver extends SqlDriver {
           break;
 
         case QueryContext.Insert:
-          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
               reject(self.toDbError(err, stmt, params, queryContext));
               return;
@@ -279,6 +282,12 @@ export class SqliteOrmDriver extends SqlDriver {
         }
       }
     });
+  }
+
+  // The code alone is every constraint (NOT NULL, CHECK, FOREIGN KEY); a primary key reports the UNIQUE text too.
+  protected isUniqueViolation(err: unknown): boolean {
+    const e = err as { code?: unknown; message?: unknown } | undefined;
+    return e?.code === 'SQLITE_CONSTRAINT' && /UNIQUE constraint failed/.test(String(e.message));
   }
 
   public supportedFeatures(): ISupportedFeature {
