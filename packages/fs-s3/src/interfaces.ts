@@ -22,9 +22,11 @@ export interface IS3Config {
 
     signer?: {
         service: string;
-        privateKey: string;
-        publicKeyId: string;
-        domain: string;
+
+        // CloudFront signer only
+        privateKey?: string;
+        publicKeyId?: string;
+        domain?: string;
     }
 }
 
@@ -48,7 +50,7 @@ export abstract class S3UrlSigner {
     /**
      * 
      * @param path url path to access / sign
-     * @param until link valid until ? if null valid for 1 hour
+     * @param until link valid until ? if null valid for 15 minutes
      */
     public abstract sign(path: string, until?: DateTime): Promise<string>;
 }
