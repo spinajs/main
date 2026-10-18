@@ -39,9 +39,3 @@ export type ResolveArrayResult<T> = T extends AsyncService ? Promise<T[]> : T[];
  * Extracts instance type from Class<T> or Factory<T>, distributing over unions.
  */
 export type InferClassOrFactory<T> = T extends Class<infer U> ? U : T extends Factory<infer U> ? U : never;
-
-/**
- * Value of an `@Autoinject(type, { lazy: true })` property: resolves on its first call, in the container that built
- * the owner. The resolved value is kept per owner; a rejection is not, so the next call retries.
- */
-export type Lazy<T> = () => Promise<T>;

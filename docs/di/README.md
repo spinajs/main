@@ -30,7 +30,7 @@ The package imports `reflect-metadata` itself.
 | --- | --- |
 | [Registering services](01-registering-services.md) | `DI.register()`, `@Injectable`, the `IBind` methods, how keys work, replacing and extending a registered service |
 | [Resolving services](02-resolving-services.md) | `resolve`, `get`, `has`, `resolveOptional`, constructor options, the strict check, sync and async results |
-| [Injection decorators](03-injection-decorators.md) | `@Inject`, `@Autoinject` and its options (lazy injection included), `@LazyInject`, injection through inheritance |
+| [Injection decorators](03-injection-decorators.md) | `@Inject`, `@Autoinject` and its options, `@LazyInject`, injection through inheritance |
 | [Lifetimes](04-lifetimes.md) | `@Singleton`, `@NewInstance`, `@PerChildInstance`, `@PerInstance`, `@PerInstanceCheck` and `IInstanceCheck` |
 | [Child containers](05-child-containers.md) | `child()`, per-scope overrides, which container owns a singleton, disposal, standalone and custom containers |
 | [Multiple implementations](06-multiple-implementations.md) | `Array.ofType`, `Array.chainOf`, injecting lists and maps, plugin-style extension |

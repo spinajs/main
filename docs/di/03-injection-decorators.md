@@ -1,10 +1,10 @@
 # Injection decorators
 
-Decorators declare what a class needs; the container supplies it when it builds the class. `@Inject` feeds constructor arguments, `@Autoinject` fills properties (with `{ lazy: true }`, a function that resolves on its first call), and `@LazyInject` resolves on property access.
+Decorators declare what a class needs; the container supplies it when it builds the class. `@Inject` feeds constructor arguments, `@Autoinject` fills properties, and `@LazyInject` resolves on property access.
 
 ## How it works
 
-1. **Declaration.** Each decorator adds an entry (`IToInject`) to the class's injection descriptor, stored as `reflect-metadata` under `DI_DESCRIPTION_SYMBOL` (`'__DI_INJECTION_DESCRIPTOR__'`). `@LazyInject` is the exception: it defines a getter and adds nothing to the descriptor.
+1. **Declaration.** Each decorator adds an entry (`IToInject`) to the class's injection descriptor, stored as `reflect-metadata` under `DI_DESCRIPTION_SYMBOL` (`'__DI_INJECTION_DESCRIPTOR__'`). `@LazyInject` also adds an entry, which hands the owner the resolving container instead of an instance, and defines the getter that resolves in it.
 2. **Collection.** On resolve, `Container.extractDescriptor()` walks the class and every base class and merges their entries:
    - constructor entries (`@Inject`) come first: the class's own, then its bases', each type once;
    - property entries (`@Autoinject`) follow, one per property name.
@@ -18,10 +18,9 @@ Decorators declare what a class needs; the container supplies it when it builds 
 | --- | --- | --- | --- |
 | `@Inject(...types)` | class | Classes, `Array.ofType(T)` or `Array.chainOf(T)` | Resolves each type and passes them to the constructor, in order. A type already declared (here or on a base class) is injected once |
 | `@Autoinject()` | property | none | Resolves the property's declared type (`design:type`) |
-| `@Autoinject(type)` | property | A class, or `Array.chainOf(T)` | Resolves `type` instead of the declared type. On an array or `Map` property, a class means `Array.ofType(type)` |
+| `@Autoinject(type)` | property | A class, `Array.ofType(T)` or `Array.chainOf(T)` | Resolves `type` instead of the declared type. On an array or `Map` property, a class means `Array.ofType(type)` |
 | `@Autoinject(type?, options)` / `@Autoinject(options)` | property | `IAutoinjectOptions` (below) | As above, with options |
-| `@Autoinject(type, { lazy: true, ... })` | property | A class, `Array.ofType(T)` or `Array.chainOf(T)`, plus `IAutoinjectOptions` | Assigns a `Lazy<T>` (`() => Promise<T>`) that resolves `type` on its first call; see [Lazy injection](#lazy-injection) |
-| `@LazyInject(type?)` | property | A class or a string key; omitted: the declared type | Replaces the property with a getter that resolves on every read |
+| `@LazyInject(type?, { mapFunc }?)` | property | A class, `Array.ofType(T)`, `Array.chainOf(T)` or a string key; omitted: the declared type. On an array or `Map` property, a class means `Array.ofType(type)`; `mapFunc` builds a `Map` as for `@Autoinject` | Replaces the property with a getter that resolves on every read, in the container that built the owner |
 
 ### `IAutoinjectOptions`
 
@@ -31,29 +30,14 @@ Decorators declare what a class needs; the container supplies it when it builds 
 | `options` | `any` | none | Passed to the resolved class's constructor as its first extra argument |
 | `check` | `boolean` | `false` | Resolve as `resolve(type, [options], true)`: fail when nothing is registered, instead of building the type itself |
 | `optional` | `boolean` | `false` | Resolve as `resolveOptional(type)`: `undefined` when nothing is registered |
-| `lazy` | `boolean` | `false` | Assign a `Lazy<T>` instead of the instance; needs an explicit `type` |
 
 `@Autoinject` throws at class definition when:
 
 - `check` and `optional` are both set (`'check and optional exclude each other'`);
 - `check` or `optional` is set on an array or `Map` property, or with `Array.chainOf` (`'check and optional take a single class'`);
-- `Array.chainOf(T)` is given for a property that is not an array or `Map`;
-- `lazy` is set without a class, `Array.ofType(T)` or `Array.chainOf(T)` (`'lazy needs an explicit type'`);
-- `Array.ofType(T)` is given without `lazy` (`'Array.ofType(T) needs { lazy: true }'`).
+- `Array.ofType(T)` or `Array.chainOf(T)` is given for a property that is not an array or `Map`.
 
-### Lazy injection
-
-`@Autoinject(type, { lazy: true })` defers the resolve until the owner first needs the dependency. Use it when building the dependency together with the owner is too early: it builds its own collaborators that the app may not register, or it would form a cycle with the owner.
-
-1. While the owner is built, the property gets a `Lazy<T>` bound to the container that built the owner, the same container an eager `@Autoinject` resolves in (the child for a `@PerChildInstance()` owner built there, the root for a root singleton reached through a child).
-2. The first call resolves `type` there with the same rules as the eager form: `check`, `optional`, `options` and `mapFunc` keep their meaning. The call always returns a promise, also for a `SyncService` or a plain class; an `AsyncService` is awaited.
-3. The promise is kept per owner instance: every later call, concurrent ones included, gets the same value without resolving again.
-4. A rejected resolve, or one that throws, is not kept. The next call resolves again.
-
-On a lazy property `design:type` is `Function`, so the container cannot tell an array from a single class: pass `Array.ofType(T)` for the nearest list or `Array.chainOf(T)` for the whole lineage, typed `Lazy<T[]>`, or `Lazy<Map<string, T>>` with `mapFunc`.
-
-- A lazy `optional` that found nothing keeps `undefined`; a registration made later is not seen by that owner.
-- `@LazyInject` is a different mechanism: a synchronous getter that resolves from the root container on every read. Prefer the lazy `@Autoinject` in new code.
+`@LazyInject` throws at class definition when `Array.ofType(T)` or `Array.chainOf(T)` is given for a property that is not an array, `Map` or `Promise`, or when an array or `Map` property has no type.
 
 ## Services and extension points
 
@@ -68,9 +52,10 @@ On a lazy property `design:type` is `Function`, so the container cannot tell an 
 - `@Autoinject` properties are **not** set inside the constructor. They are assigned right after it returns. Read them in methods or in `resolve()`, not in the constructor.
 - `@Autoinject` reads `design:type` even when you pass a type, so `emitDecoratorMetadata` is required. A build that drops decorator metadata (esbuild, `tsx`) throws `TypeError: Cannot read properties of undefined (reading 'name')` when the class is defined.
 - On an interface-typed property, `design:type` is `Object`. Pass the class explicitly: `@Autoinject(Container)`, not `@Autoinject() c: IContainer`.
-- `@LazyInject` always resolves from the **root** container, even for an object built in a child container, and it resolves on every read. With a string key it calls `DI.get(key)`, so it returns only what is already cached.
-- `@LazyInject` defines the getter on the prototype. An own class field with the same name shadows it, which happens when `useDefineForClassFields` is `true` (the default for `target` ES2022 and later). Keep `useDefineForClassFields: false`.
-- Adding `@Inject` or `@Autoinject` to a subclass gives it its own descriptor with the default `Singleton` lifetime. A lifetime decorator on the base class is then **not** inherited; repeat it on the subclass. A subclass without its own injection decorators inherits the base lifetime.
+- `@LazyInject` resolves on every read, in the container that built the owner (the child for a `@PerChildInstance()` owner built there, the root for a root singleton reached through a child). Until the container assigns its properties, in the constructor or in an object made with `new`, it reads the root. With a string key it calls `get(key)`, so it returns only what is already cached.
+- `@LazyInject` returns what `resolve()` returns: a promise for an `AsyncService` that is not built yet, and for a list with an async element. Type such a property `Promise<T[]>` or `Promise<Map<string, T>>`.
+- `@LazyInject` defines a getter and a setter on the prototype; assigning the property throws a `TypeError`. An own class field with the same name shadows them, which happens when `useDefineForClassFields` is `true` (the default for `target` ES2022 and later). Keep `useDefineForClassFields: false`.
+- Adding `@Inject`, `@Autoinject` or `@LazyInject` to a subclass gives it its own descriptor with the default `Singleton` lifetime. A lifetime decorator on the base class is then **not** inherited; repeat it on the subclass. A subclass without its own injection decorators inherits the base lifetime.
 - `@Autoinject(Array.chainOf(T))` and `@Autoinject(T)` on an array are different dependencies: the first merges the container lineage, the second takes the nearest list. See [Multiple implementations](06-multiple-implementations.md).
 
 ## Best practices
@@ -105,37 +90,23 @@ class Importer extends SyncService {
 ```
 
 ```ts
-// Don't: a lazy property in a child-scoped object reads the root container
-class TenantReport {
-  @LazyInject(TenantSettings)
-  protected Settings: TenantSettings;
-}
-
-// Do: @Autoinject resolves in the container that builds the object
-class TenantReport {
-  @Autoinject()
-  protected Settings: TenantSettings;
-}
-```
-
-```ts
 // Don't: look the service up on every call to keep it from being built with the owner
-class SessionResolver {
+class TenantReport {
   @Autoinject(Container)
   protected Container: IContainer;
 
-  public async principalOf(session: Session) {
-    return (await this.Container.resolve(ImpersonationService)).principalOf(session);
+  public render() {
+    return this.Container.resolve(TenantSettings).format();
   }
 }
 
-// Do: a lazy inject resolves in the same container, once, on first use
-class SessionResolver {
-  @Autoinject(ImpersonationService, { lazy: true })
-  protected Impersonation: Lazy<ImpersonationService>;
+// Do: @LazyInject resolves on read, in the container that built the report
+class TenantReport {
+  @LazyInject(TenantSettings)
+  protected Settings: TenantSettings;
 
-  public async principalOf(session: Session) {
-    return (await this.Impersonation()).principalOf(session);
+  public render() {
+    return this.Settings.format();
   }
 }
 ```
@@ -230,54 +201,6 @@ async function main() {
     // Type PaymentGateway is not registered at container
     console.error((err as Error).message);
   }
-}
-
-void main();
-```
-
-### Resolve an optional, async collaborator on first use
-
-```ts sample
-import { AsyncService, Autoinject, DI, Lazy, PerChildInstance } from '@spinajs/di';
-
-abstract class AuditSink {
-  public abstract write(event: string): Promise<void>;
-}
-
-class DbAuditSink extends AsyncService implements AuditSink {
-  public readonly events: string[] = [];
-
-  public async resolve() {
-    // open the connection here
-    await super.resolve();
-  }
-
-  public async write(event: string) {
-    this.events.push(event);
-  }
-}
-
-@PerChildInstance()
-class LoginHandler {
-  // not built with the handler; undefined when the app registers no sink
-  @Autoinject(AuditSink, { lazy: true, optional: true })
-  protected Audit: Lazy<AuditSink | undefined>;
-
-  public async login(user: string) {
-    await (await this.Audit())?.write(`login ${user}`);
-  }
-}
-
-async function main() {
-  const request = DI.child();
-  request.register(DbAuditSink).as(AuditSink);
-
-  const handler = request.resolve(LoginHandler);
-  await handler.login('alice');
-
-  const sink = (await request.resolve(DbAuditSink)) as DbAuditSink;
-  console.log(sink.events);
-  // [ 'login alice' ]
 }
 
 void main();

@@ -153,7 +153,7 @@ Limits of a custom container:
 
 - A child does not see registrations made in a sibling, and the root never sees a child's registrations.
 - Resolving in a child writes nothing into the child's registry when an ancestor owns the key, so a later root registration stays visible to the child.
-- `@LazyInject` and `DI.*` calls always use the root, even inside an object a child built. Use `@Autoinject` (with `{ lazy: true }` to resolve on first use) or the injected container for scoped lookups.
+- `DI.*` calls always use the root, even inside an object a child built. Use `@Autoinject`, `@LazyInject` or the injected container for scoped lookups.
 - `dispose()` on the root disposes every live child first.
 - A disposed child is removed from its parent's children set, but it stays usable: its registry is kept and its cache is rebuilt on the next resolve.
 

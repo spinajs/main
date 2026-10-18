@@ -272,6 +272,4 @@ export interface IAutoinjectOptions<T> {
   check?: boolean;
   /** Resolve as `resolveOptional(type)`: `undefined` when nothing is registered. */
   optional?: boolean;
-  /** Inject a `Lazy<T>` that resolves on its first call instead of while the owner is built; needs an explicit type. */
-  lazy?: boolean;
 }
