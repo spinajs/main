@@ -5,7 +5,7 @@ import * as chai from "chai";
 import * as sinon from "sinon";
 import _ from "lodash";
 import { BlackHoleTarget, LogLevel } from "@spinajs/log";
-import { InternalLogger } from "../src/index.js";
+import { InternalLogger, InternalLoggerProxy } from "../src/index.js";
 
 const expect = chai.expect;
 
@@ -97,8 +97,8 @@ describe("@spinajs/internal-logger", () => {
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
 
     // buffered before Configuration resolves
-    InternalLogger.debug("hello %s", "world", "myLogger");
-    InternalLogger.trace("hello %s", "world", "myLogger");
+    InternalLogger.debug("hello %s", "myLogger", "world");
+    InternalLogger.trace("hello %s", "myLogger", "world");
 
     const bootstrappers = DI.resolve(InternalLogger);
     bootstrappers.bootstrap();
@@ -154,5 +154,35 @@ describe("@spinajs/internal-logger", () => {
     expect(vars.error.stack).to.be.a("string").and.contain("boom");
     expect(vars.logger).to.eq("myLogger");
     expect(vars.message).to.eq("something failed");
+  });
+
+  it("should take the logger name from the second argument of the string form", async () => {
+    const spy = sinon.spy(BlackHoleTarget.prototype, "write");
+    DI.resolve(InternalLogger).bootstrap();
+    await DI.resolve(Configuration);
+
+    InternalLogger.warn("No protocols registered", "myLogger");
+
+    const vars = (spy.args[0] as any)[0].Variables;
+    expect(vars.logger).to.eq("myLogger");
+    expect(vars.message).to.eq("No protocols registered");
+  });
+
+  it("should resolve a proxy per name", () => {
+    expect(DI.resolve(InternalLoggerProxy, ["CLI"]).Name).to.eq("CLI");
+    expect(DI.resolve(InternalLoggerProxy, ["reflection"]).Name).to.eq("reflection");
+  });
+
+  it("should add proxy and child variables to level method entries", async () => {
+    const spy = sinon.spy(BlackHoleTarget.prototype, "write");
+    DI.resolve(InternalLogger).bootstrap();
+    await DI.resolve(Configuration);
+
+    const proxy = new InternalLoggerProxy("parent", { app: "a" });
+    proxy.addVariable("host", "h");
+    proxy.child("sub", { req: "r" } as any).info("hello %s", "world");
+
+    const vars = (spy.args[0] as any)[0].Variables;
+    expect(vars).to.include({ logger: "parent.sub", message: "hello world", app: "a", host: "h", req: "r" });
   });
 });

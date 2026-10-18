@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder, AlterColumnQueryBuilder, AlterColumnQueryCompiler, ColumnAlterationType } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 /**
@@ -17,9 +17,9 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
 
   public compile() {
     const table = this._builder.getParent().Container.resolve(TableAliasCompiler).compile(this._builder.getParent());
-    const descriptor = extractModelDescriptor(this._builder.getParent().Model);
+    const unique = this._builder.getColumn();
 
-    if (this._builder.getColumn().length === 0) {
+    if (unique.length === 0) {
       throw new OrmException(`no unique columns defined in table ${this._builder.getParent().Table}`);
     }
 
@@ -45,22 +45,20 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       }
     });
 
-    const wBindings = this._builder.getColumn().map((c) => {
+    const wBindings = unique.map((c) => {
       return parent.Values[0][valueMap.indexOf(c)];
     });
 
+    // The source is built from the inserted values: selected from the target table it is
+    // empty for a new row, and WHEN NOT MATCHED would never fire.
     return {
       bindings: wBindings.concat(bindings),
-      expression: `MERGE INTO ${table} WITH (HOLDLOCK) AS target
-      USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
-        return `${c} = ?`;
-      })}) as source
-      ON (target.${descriptor!.PrimaryKey[0]} = source.${descriptor!.PrimaryKey[0]})
-      WHEN MATCHED
-        THEN UPDATE
-            SET ${columns}
-      WHEN NOT MATCHED
-        THEN `.replace(/(\r\n|\n|\r)/gm, ''),
+      expression:
+        `MERGE INTO ${table} WITH (HOLDLOCK) AS target ` +
+        `USING (SELECT ${unique.map((c) => `? AS ${this.Quoter.quote(c)}`).join(', ')}) AS source ` +
+        `ON (${unique.map((c) => `target.${this.Quoter.quote(c)} = source.${this.Quoter.quote(c)}`).join(' AND ')}) ` +
+        `WHEN MATCHED THEN UPDATE SET ${columns} ` +
+        `WHEN NOT MATCHED THEN `,
     };
   }
 }
@@ -78,6 +76,10 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
   public compile() {
     if (this._builder.Ignore) {
       throw new OrmException(`mssql insert or ignore is not supported`);
+    }
+
+    if (this._builder.Replace) {
+      throw new OrmException(`mssql insert or replace is not supported`);
     }
 
     const into = this.into();
@@ -180,14 +182,25 @@ export class MsSqlLimitCompiler extends SqlLimitQueryCompiler {
 
   public compile(): ICompilerOutput {
     const limits = this._builder.getLimits();
+    const limit = limits.limit ?? 0;
+    const offset = Math.max(limits.offset ?? 0, 0);
     const bindings = [];
     let stmt = '';
 
-    if ((limits.limit ?? 0) > 0) {
+    if (limit > 0 || offset > 0) {
+      // T-SQL rejects OFFSET without ORDER BY; the select compiler writes the sort right before this
+      const sorts = (this._builder as unknown as Partial<IOrderByBuilder>).getSorts?.() ?? [];
+      if (sorts.length === 0) {
+        stmt += ` ORDER BY (SELECT NULL)`;
+      }
+
       stmt += ` OFFSET ? ROWS`;
-      bindings.push(Math.max(limits.offset ?? 0, 0));
+      bindings.push(offset);
+    }
+
+    if (limit > 0) {
       stmt += ` FETCH NEXT ? ROWS ONLY`;
-      bindings.push(limits.limit);
+      bindings.push(limit);
     }
 
     return {
@@ -200,12 +213,12 @@ export class MsSqlLimitCompiler extends SqlLimitQueryCompiler {
 @NewInstance()
 export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
   public compile(): ICompilerOutput {
-    const sort = this._builder.getSort();
+    const sorts = this._builder.getSorts();
     let stmt = '';
     const bindings = [] as unknown[];
 
-    if (sort) {
-      stmt = ` ORDER BY ${sort.tableAlias ? `${this.Quoter.quote(sort.tableAlias)}.` : ''}${this.Quoter.quote(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+    if (sorts.length > 0) {
+      stmt = ` ORDER BY ${sorts.map((sort) => `${sort.tableAlias ? `${this.Quoter.quote(sort.tableAlias)}.` : ''}${this.Quoter.quote(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`).join(', ')}`;
     }
 
     return {
@@ -218,15 +231,19 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
 @NewInstance()
 export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
   public compile(): ICompilerOutput[] {
+    if (this.builder.TrackHistory) {
+      throw new MethodNotImplemented('orm-driver-mssql has no table history support');
+    }
+
     const _table = this._table();
     const _columns = this._columns();
-    const _keys = [this._foreignKeys()];
-    const _unique = this.builder.Columns.filter((c) => c.Unique).map((c) => c.Name);
+    // a unique column already carries an inline UNIQUE from the column compiler
+    const _keys = this._foreignKeys();
 
     return [
       {
         bindings: [],
-        expression: `${_table} (${_columns} ${_unique.length !== 0 ? `, UNIQUE(${_unique.join(',')}) ` : ''} ${_keys ? ',' + _keys.filter((k) => k && k !== '').join(',') : ''})`,
+        expression: `${_table} (${_columns}${_keys ? ',' + _keys : ''})`,
       },
     ];
   }
@@ -249,7 +266,14 @@ export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
+    if (this.builder.Temporary) {
+      throw new NotSupported('mssql has no CREATE TEMPORARY TABLE, a temporary table is one whose name starts with #');
+    }
+
+    const table = this.container.resolve(TableAliasCompiler).compile(this.builder);
+    const create = `CREATE TABLE ${table}`;
+
+    return this.builder.CheckExists ? `IF OBJECT_ID(N'${escapeTsqlLiteral(table)}', N'U') IS NULL ${create}` : create;
   }
 }
 
@@ -259,8 +283,28 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
   constructor(protected builder: ColumnQueryBuilder) {
     super(builder);
 
-    // MSSQL usess this expression for AUTO_INCREMENT
     this._statementsMappings.autoincrement = () => `IDENTITY(1,1)`;
+    this._statementsMappings.boolean = () => `BIT`;
+    this._statementsMappings.json = () => `NVARCHAR(MAX)`;
+    // T-SQL has no ENUM / SET; a set is stored delimited, as MsSqlInSetStatement reads it
+    this._statementsMappings.enum = () => `NVARCHAR(255)`;
+    this._statementsMappings.set = () => `NVARCHAR(255)`;
+    // no unsigned integers and no inline column comments; the empty string is dropped from the definition
+    this._statementsMappings.unsigned = () => '';
+    this._statementsMappings.comment = () => '';
+    this._statementsMappings.charset = () => {
+      throw new NotSupported('mssql has no CHARACTER SET for a column, use collation() instead');
+    };
+    this._statementsMappings.collation = (b: ColumnQueryBuilder) => `COLLATE ${assertCharsetName(b.Collation, 'collation')}`;
+  }
+}
+
+/** T-SQL has no `CURRENT_DATE()`; the shared builder is right about everything else. */
+@NewInstance()
+export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
+  public date(): T {
+    this.Query = RawQuery.create('(CAST(GETDATE() AS DATE))');
+    return this.Owner;
   }
 }
 
@@ -284,7 +328,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     const lBuilder = this._builder;
     const limits = lBuilder.getLimits();
 
-    return `DELETE ${(limits.limit ?? 0) > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
+    return `DELETE ${(limits.limit ?? 0) > 0 ? `TOP (${limits.limit}) ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
   }
 }
 
@@ -343,5 +387,85 @@ export class MsSqlCreateViewCompiler extends SqlCreateViewQueryCompiler {
     }
 
     return option === true ? 'WITH CHECK OPTION' : this.unsupported(`WITH ${option} CHECK OPTION`);
+  }
+}
+
+/**
+ * T-SQL renames a table or a column with `sp_rename`, a complete statement that needs the
+ * table's qualified name, which the column compiler never sees - so renames are written here.
+ */
+@NewInstance()
+@Inject(Container)
+export class MsSqlAlterTableQueryCompiler extends SqlAlterTableQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public compile(): ICompilerOutput[] {
+    const alter = this._table();
+    const outputs: ICompilerOutput[] = this.builder.DroppedColumns.map((c) => ({ bindings: [], expression: `${alter} DROP COLUMN ${this.Quoter.quote(c)}` }));
+
+    for (const column of this.builder.Columns as AlterColumnQueryBuilder[]) {
+      if (column.AlterType === ColumnAlterationType.Rename) {
+        outputs.push(this._rename(`${this._objectName()}.${this.Quoter.quote(column.OldName)}`, column.Name, 'COLUMN'));
+        continue;
+      }
+
+      const output = this.container.resolve<AlterColumnQueryCompiler>(AlterColumnQueryCompiler, [column]).compile();
+      if ((output.expression ?? '').trim().length !== 0) {
+        outputs.push({ bindings: output.bindings, expression: `${alter} ${output.expression}` });
+      }
+    }
+
+    // last, so every statement above still finds the table under its current name
+    if (this.builder.NewTableName) {
+      outputs.push(this._rename(this._objectName(), this.builder.NewTableName));
+    }
+
+    return outputs;
+  }
+
+  /** sp_rename takes `schema.table`; a database prefix goes on the procedure instead. */
+  protected _objectName(): string {
+    const schema = this.builder.Driver.Options.Options?.Schema;
+    return `${schema ? `${this.Quoter.quote(schema)}.` : ''}${this.Quoter.quote(this.builder.Table)}`;
+  }
+
+  /** The new name is taken literally - brackets in it would become part of the name. */
+  protected _rename(objectName: string, newName: string, type?: string): ICompilerOutput {
+    const procedure = this.builder.Database ? `${this.Quoter.quote(this.builder.Database)}.sys.sp_rename` : 'sp_rename';
+
+    return {
+      bindings: [],
+      expression: `EXEC ${procedure} N'${escapeTsqlLiteral(objectName)}', N'${escapeTsqlLiteral(newName)}'${type ? `, N'${type}'` : ''}`,
+    };
+  }
+}
+
+/**
+ * `ADD` takes no COLUMN keyword and no AFTER. `ALTER COLUMN` restates only type, collation and
+ * nullability: defaults, identity and keys are constraints T-SQL changes with their own statements.
+ */
+@NewInstance()
+@Inject(Container)
+export class MsSqlAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+  protected _add(definition: string): string | null {
+    if (this.builder.AfterColumn) {
+      throw new NotSupported('mssql cannot place a column AFTER another, it is always appended');
+    }
+
+    return `ADD ${definition}${this.builder.PrimaryKey ? ' PRIMARY KEY' : ''}`;
+  }
+
+  protected _modify(definition: string): string | null {
+    if (this.builder.Default || this.builder.AutoIncrement || this.builder.PrimaryKey || this.builder.Unique) {
+      throw new NotSupported('mssql ALTER COLUMN changes only type, collation and nullability; alter defaults, identity and keys as constraints with raw statements');
+    }
+
+    // explicit NULL, otherwise the session's ANSI_NULL_DFLT setting decides
+    return `ALTER COLUMN ${definition}${this.builder.NotNull ? '' : ' NULL'}`;
+  }
+
+  protected _rename(): string | null {
+    throw new NotSupported('mssql renames a column with sp_rename, which only MsSqlAlterTableQueryCompiler can write');
   }
 }

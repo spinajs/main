@@ -1,6 +1,8 @@
-import { AuthzConfigError, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { AuthzConfigError, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, PermissionInput, Principal, ResourceRef, RuleDef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -48,9 +50,9 @@ const scopes = new FakeScopeResolver({
 });
 const ctx = () => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes], conditions: new DefaultConditionCompiler(undefined, [scopes]) });
 
-async function model(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[], roles: readonly RoleDef[] = ROLES) {
+async function model(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[], roles: readonly RoleDef[] = ROLES, container?: IContainer) {
   const m = new RbacModel({ roles: new MemoryRoleStore(roles, LADDERS), assignments: new MemoryAssignmentStore(rows), rules: new ConfigRuleStore(rules.map(rule)), log: { warn: () => undefined } });
-  await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
+  await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), ...(container ? { container } : {}) }));
   m.grantIndex();
   return m;
 }
@@ -78,6 +80,24 @@ describe('authz-rbac rules (B35)', () => {
       await rejects(boot([{ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', subjects: { rank: { ladder: 'org', at: 'org', lt: 'viewer' } } }]), 'subjects.rank.lt');
       await rejects(boot([{ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: { ref: 'org.max' } }]), 'not a ref');
       await rejects(boot([{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: 'viewer', when: { attr: 'galaxy.x', eq: 1 } }]), "rbac rule 't'");
+    });
+
+    it('knows a condition function registered only in the domain container, and refuses one registered nowhere', async () => {
+      class Weekday extends ConditionFunction {
+        readonly name = 'weekday';
+        evaluate(): boolean {
+          return true;
+        }
+      }
+      const threshold: Omit<RuleDef, 'source'> = { id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: 'viewer', when: { fn: 'weekday' } };
+      const domain = DI.RootContainer.child();
+      try {
+        domain.register(Weekday).as(ConditionFunction);
+        await model([], [threshold], ROLES, domain);
+        await rejects(boot([threshold]), 'unknown condition function "weekday"');
+      } finally {
+        await domain.dispose();
+      }
     });
 
     it('feeds literal permissions and the scope types a rule reads to the boot checks', async () => {

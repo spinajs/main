@@ -60,7 +60,7 @@ The access log line carries `method`, `path` (query values redacted), `status`, 
 | `IActionLocalStoregeContext` | interface of `req.storage` | the fields above | `language` (`@spinajs/intl-http`), authz principal and decision fields (`@spinajs/authz-http`) | Add fields with `declare module '@spinajs/http' { interface IActionLocalStoregeContext { ... } }` and fill them from a server middleware with Order above -2. |
 | `AsyncLocalStorage` | Class `AsyncLocalStorage` from `node:async_hooks`, DI singleton (unregistered, resolves to itself) | one instance shared by `@spinajs/http` and `@spinajs/log` | | Do not replace; read it with `DI.resolve(AsyncLocalStorage)`. |
 | `AccessLog`, `ServerTiming`, `SlowRequestWarning`, `PerfRollup` | `ServerMiddleware` list, Order 2 | themselves | | `DI.register(Mine).as(AccessLog)` and so on; see [Server middlewares](15-server-middlewares.md#replacing-a-shipped-middleware). |
-| `RequestStorage`, `RequestId`, `ResponseTime` | `ServerMiddleware` list | themselves | | Not exported; not replaceable by class. |
+| `RequestStorage`, `RequestId`, `ResponseTime` | `ServerMiddleware` list | themselves | | Exported as `RequestStorage`, `RequestIdMiddleware`, `ResponseTime`; not replaceable by class. |
 
 ### `IActionLocalStoregeContext`: custom fields
 

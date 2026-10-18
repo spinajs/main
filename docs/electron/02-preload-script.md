@@ -129,7 +129,7 @@ A sandboxed preload can import only `electron` and a few Node built-ins, so bund
 
 - **`contextIsolation` must be on.** `contextBridge.exposeInMainWorld()` throws when it is off, and `window.ipc` is then never set.
 - **The renderer never gets `ipcRenderer`.** Only the three functions cross the context bridge. A filter in the preload cannot be bypassed from page scripts.
-- **Sync errors are thrown, async errors are not always.** `callSync` throws an `Error` it receives. `call` and `callOnOrmConnection` pass a resolved `Error` value through, see [error shapes](01-main-process-bridge.md#important-behaviour).
+- **Sync errors are thrown, async errors reject.** `callSync` throws an `Error` it receives. `call` and `callOnOrmConnection` return the rejected `invoke()` promise, see [error shapes](01-main-process-bridge.md#important-behaviour).
 - **Errors lose their class.** Errors crossing IPC arrive as plain `Error` objects; custom subclasses and extra fields do not survive.
 
 ## Best practices

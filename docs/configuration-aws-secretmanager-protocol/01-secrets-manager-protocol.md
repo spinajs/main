@@ -80,8 +80,8 @@ aws: {
 - `SecretString` comes back as a string, even when it holds JSON. Add `#key` to get one value; the config layer does not parse JSON for you.
 - `SecretBinary` comes back as a base64 string, because the config layer cannot hold a `Buffer`. With `#json.path` the binary payload is parsed as UTF-8 JSON first.
 - A missing secret value (neither string nor binary) becomes `''`, so no config key stays `undefined`.
-- A `#json.path` that names a missing key returns `undefined`. Array items are reachable by index: `#hosts.0`.
-- A value that is not valid JSON makes `#json.path` throw `Cannot extract '<path>': value is not valid JSON (...)`. This error is thrown after the fallback check, so `?default=` does **not** cover it.
+- A `#json.path` that names a missing key returns `''`. Array items are reachable by index: `#hosts.0`.
+- A value that is not valid JSON makes `#json.path` throw `Cannot extract '<path>': value is not valid JSON (...)`. `?default=` and `?optional=true` cover this error like a failed fetch.
 - The cache key is id plus `versionStage` plus `versionId`. All `#json.path` reads of one secret share one fetch.
 - `my-secret` and `my-secret?versionStage=AWSCURRENT` use different cache keys and fetch twice, although AWS returns the same version.
 - `versionId` and `versionStage` together are both sent; AWS decides whether they match.

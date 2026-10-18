@@ -300,6 +300,20 @@ describe('DefaultAuthzService', function () {
       await d.service('rd-domain');
       expect(seen).to.deep.equal([3, 'dflt']);
     });
+
+    it('a model init gets the container of the domain that inits it', async () => {
+      let seen: IContainer | undefined;
+      class Seeing extends StaticModel {
+        init(ctx: ModelInitContext): void {
+          seen = ctx.container;
+        }
+      }
+      const d = await domains();
+      const own = d.create('ct-domain');
+      own.register(instance(new Seeing({ name: 'ct' }))).as(AuthorizationModel);
+      await d.service('ct-domain');
+      expect(seen).to.equal(own);
+    });
   });
 
   describe('boot failures', () => {

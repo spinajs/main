@@ -13,7 +13,6 @@ export class Subscriber extends ModelBase {
   @Primary()
   public Id: number;
 
-  @Primary()
   public Name: string;
 
   @HasManyToMany(Queue, Event, {

@@ -12,8 +12,8 @@ abstract class ConfigVariable {
 ## How it works
 
 1. `@Injectable(ConfigVariable)` on your class runs when its module is imported. It calls `DI.register(YourClass).as(ConfigVariable)` and `DI.register(YourClass).asSelf()` on the root container.
-2. On the first `format()` call, `DI.resolve(Array.ofType(ConfigVariable))` creates one instance of every registered class, in registration order.
-3. Each instance is stored in a module-level map under its `Name`. A later class with the same `Name` replaces an earlier one.
+2. On each `format()` call, `DI.resolve(Array.ofType(ConfigVariable))` returns one instance of every registered class, in registration order; DI creates each instance once and caches it.
+3. Each instance is stored in a module-level map under its `Name`, rebuilt when the DI collection changes. A later class with the same `Name` replaces an earlier one.
 4. For each `${Name:option}` with no matching custom var, `format()` calls `instance.Value(option)` and inserts the returned string.
 
 ```mermaid
@@ -22,7 +22,7 @@ sequenceDiagram
   participant DI as DI root container
   participant F as format()
   App->>DI: import runs @Injectable(ConfigVariable)
-  F->>DI: first call: resolve(Array.ofType(ConfigVariable))
+  F->>DI: each call: resolve(Array.ofType(ConfigVariable))
   DI-->>F: instances, registration order
   F->>F: index by Name (later wins)
   F->>App: Value(option) per placeholder
@@ -32,12 +32,12 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `ConfigVariable` | `ConfigVariable` token, collected with `Array.ofType`; singleton in the root container (no lifetime decorator) | the [built-in variables](02-built-in-variables.md) | `ElectronPathVariables` in `@spinajs/electron` | **add**: `@Injectable(ConfigVariable)` on a new class. **override**: same `Name`, different class name. **extend**: subclass a built-in and override `Value()`. **remove**: `DI.unregister(BuiltInClass)`. All before the first `format()`. |
+| `ConfigVariable` | `ConfigVariable` token, collected with `Array.ofType`; singleton in the root container (no lifetime decorator) | the [built-in variables](02-built-in-variables.md) | `ElectronPathVariables` in `@spinajs/electron` | **add**: `@Injectable(ConfigVariable)` on a new class. **override**: same `Name`, different class name. **extend**: subclass a built-in and override `Value()`. **remove**: `DI.unregister(BuiltInClass)` before the first `format()`. |
 
 ### When to register
 
-- Register before the first `format()` call anywhere in the process. Log targets call `format()` early, so in an app the safe place is a module loaded at boot (a bootstrapper, or a file in a directory the app loads).
-- A module is registered only when it is imported. Nothing scans for subclasses. In a standalone script or test, add a side-effect import (`import './variables/release.js'`) before the first `format()`.
+- A variable is used from the first `format()` call after it is registered. Log targets call `format()` early, so register at boot (a bootstrapper, or a file in a directory the app loads) when the first log lines need it.
+- A module is registered only when it is imported. Nothing scans for subclasses. In a standalone script or test, add a side-effect import (`import './variables/release.js'`) before the `format()` calls that need it.
 - Register on the root container (`@Injectable` does this). `DI.child().register(...)` is not seen by `format()`.
 
 ### Registration rules that bite
@@ -131,7 +131,7 @@ console.log(format(null, 'by ${user}'));
 
 ## Important behaviour
 
-- **The variable set is frozen after the first `format()`.** It is held in a module-level map, not in the DI cache, so `DI.clearCache()` and later registrations do not change it.
+- **Later registrations are picked up.** The next `format()` after a registration sees the new variable. `DI.unregister()` of an already resolved class takes effect only after `DI.clearCache()`, because DI keeps returning the cached collection.
 - **One instance per class.** The instance is created once and reused; keep `Value()` free of per-call state, or compute it inside `Value()`.
 - **`Value()` must return a string.** A number or `undefined` is passed to `String.replace` and coerced; `undefined` prints `undefined`.
 - **`option` is `null`, not `undefined`, when absent** (`format()` passes `v[3] ?? null`). Test with `option ?? default` or `if (option)`, not `option === undefined`.
@@ -158,11 +158,11 @@ export class TenantVariable extends ConfigVariable { /* ... */ }
 ```
 
 ```ts
-// Don't: format() runs before the variable module is imported, so ${tenant} stays '' for the whole process
+// Don't: format() runs before the variable module is imported, so ${tenant} renders ''
 console.log(format(null, '${tenant} booting'));
 await import('./variables/tenant.js');
 
-// Do: import variable modules before the first format()
+// Do: import variable modules before the format() calls that use them
 import './variables/tenant.js';
 console.log(format(null, '${tenant} booting'));
 ```

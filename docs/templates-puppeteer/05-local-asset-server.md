@@ -19,9 +19,9 @@ After 10 failed attempts `serve()` logs an error and throws the last `EADDRINUSE
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `<key>.static.portRange` | `number[]` | `[3000, 4000]` for `templates.pdf` and `templates.image` | `[min, max]`, both inclusive; unset or `[]` for an OS port | Port range for the server; only the first two elements are read |
+| `<key>.static.portRange` | `number[]` | `[3000, 4000]` for `templates.pdf` and `templates.image` | `[min, max]`, both inclusive; unset or `[]` for an OS port | Port range for the server; only the last two elements are read |
 
-`<key>` is the renderer's config path. Package configs merge before yours and arrays concatenate, so a `portRange` in your config files is appended and ignored. Set it at runtime:
+`<key>` is the renderer's config path. Package configs merge before yours and arrays concatenate, so a `portRange` in your config files is appended after the shipped one; the server reads the last two elements, so yours wins. You can also set it at runtime:
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -112,7 +112,7 @@ Register `BrandedPdfRenderer` in place of `PdfRenderer` as shown in [Extend a sh
 - The server binds to `127.0.0.1` only; the served directory is never exposed to the network.
 - `cors()` allows every origin, and `express.static` serves every file under the base path except dot-files. Any script in the rendered page can read them while the render runs. Do not point `assetBasePath` at a directory with secrets.
 - One server per render: concurrent renders each get their own port.
-- `__http_template_address__` uses `localhost` while the server binds `127.0.0.1`. On a host where `localhost` resolves only to `::1`, assets referenced through it can fail to load; prefer `http://127.0.0.1:` + `__http_template_port__` there.
+- `__http_template_address__` is `http://127.0.0.1:<port>`, the address the server binds, so it does not depend on how `localhost` resolves.
 - With a configured range, a random pick can collide with a port your app or another render uses; each collision costs a retry. An OS-assigned port never collides.
 
 ## Best practices

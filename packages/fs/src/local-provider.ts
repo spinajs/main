@@ -293,7 +293,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param path - dir to remove
    */
   public async rm(path: string) {
-    await rm(this.resolvePath(path), { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+    const p = this.resolvePath(path);
+
+    try {
+      await rm(p, { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+    } catch (err) {
+      throw new IOFail(`Cannot remove ${path}`, err);
+    }
   }
 
   /**
@@ -347,7 +353,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public tmppath(ext?: string): string {
-    return join(this.Options.basePath!, super.tmpname(ext));
+    // without basePath relative paths resolve against cwd, so the temp path does too
+    return pathResolve(this.Options.basePath ?? '', super.tmpname(ext));
   }
 
   /**
@@ -469,11 +476,11 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   /**
-   * Name a zip entry is stored under. Defaults to the source path when no
-   * explicit entry name is given.
+   * Name a zip entry is stored under: the explicit entry name of a tuple
+   * ( folders kept ), otherwise the base name of the source path.
    */
   protected zipEntryName(entry: string | string[]): string {
-    return Array.isArray(entry) ? entry[1] : entry;
+    return Array.isArray(entry) ? entry[1] : basename(entry);
   }
 
   /**
@@ -505,7 +512,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
         continue;
       }
 
-      archive.file(this.resolvePath(this.zipEntrySource(p)), { name: basename(this.zipEntryName(p)) });
+      archive.file(this.resolvePath(this.zipEntrySource(p)), { name: this.zipEntryName(p) });
     }
   }
 

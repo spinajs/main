@@ -1,7 +1,7 @@
 import "mocha";
 import { expect } from "chai";
 import { format } from "@spinajs/configuration-common";
-import { createLogMessageObject, LogLevel } from "../src/index.js";
+import { createLogMessageObject, LogLevel, SILENT_LEVEL } from "../src/index.js";
 
 describe("createLogMessageObject serializer wiring", () => {
   it("serializes the `error` Error into a structured record on the entry", () => {
@@ -43,6 +43,11 @@ describe("createLogMessageObject serializer wiring", () => {
     expect(rendered).to.contain("(test-format)");
     // never leaks [object Object]
     expect(rendered).to.not.contain("[object Object]");
+  });
+
+  it("builds an entry for a level missing from LogLevelStrings", () => {
+    const entry = createLogMessageObject("msg", [], SILENT_LEVEL, "lg", {});
+    expect(entry.Variables.level).to.equal(String(SILENT_LEVEL));
   });
 
   it("renders ${?error} block empty when there is no error", () => {

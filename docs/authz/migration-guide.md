@@ -1039,7 +1039,8 @@ A token's role is never above its owner's role (B24, B07). See example g.
   to 60 s). Only ABAC's own pairs are `model_error`.
 - `authz_policy` has `actor_types` and `priority` columns, and no domain column. The migration runs on
   the `default` connection, so an app on another connection must create the table there.
-- Register condition functions in the root container, or pass them to the model.
+- Register condition functions in the domain's container or an ancestor (root included), or pass them
+  to the model.
 
 ### L2: RBAC stores, migrations and CLI
 
@@ -1608,8 +1609,6 @@ Known gaps an app may meet. None of them widens access.
   `AccountGuard`) can both pass (G2b).
 - **A deferred mail whose attachment read is refused** is retried like any failed job, although the
   answer stays the same.
-- **`authz-fs` exports a mirror `FsDecorator`** from its frozen `api.ts`; `@spinajs/fs`'s class is the one
-  `fsService` resolves.
 - **HTTP log redaction** covers query values, not secrets in a URL path (`/verify/<token>`) or short
   query keys. Some body-parser errors (too large, charset, parameters) still answer 500.
 - **OIDC** has no run against a real Keycloak yet (lane IC2).

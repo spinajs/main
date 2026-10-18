@@ -3,7 +3,7 @@ import { Client } from '@microsoft/microsoft-graph-client';
 
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, getFs, IStat, IZipResult } from '@spinajs/fs';
+import { fs, FileSystem, IStat, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
@@ -12,8 +12,14 @@ export interface IOnedriveConfig {
   clientId: string;
   clientSecret: string;
   name: string;
+  /** Graph drive id. Not read by `fsOneDrive`; reserved for subclasses that build drive paths. */
   drive: string;
   debug: boolean;
+}
+
+export interface IOnedriveEndpoints {
+  aad_endpoint: string;
+  graph_endpoint: string;
 }
 
 /**
@@ -31,11 +37,12 @@ export class fsOneDrive extends fs {
   protected Logger: Log;
 
   @Config('fs.onedrive')
-  protected Config: IOnedriveConfig;
+  protected Config: IOnedriveEndpoints;
 
   /**
-   * File system for temporary files
+   * File system for temporary files. Resolved lazily, so provider creation order does not matter.
    */
+  @FileSystem('fs-temp')
   protected TempFs: fs;
 
   protected OneDriveCredentials: ClientSecretCredential;
@@ -61,19 +68,20 @@ export class fsOneDrive extends fs {
   public async resolve() {
     await super.resolve();
 
-    this.OneDriveCredentials = new ClientSecretCredential(this.Options.tenantId, this.Options.clientId, this.Options.clientSecret);
+    this.OneDriveCredentials = new ClientSecretCredential(this.Options.tenantId, this.Options.clientId, this.Options.clientSecret, {
+      authorityHost: this.Config?.aad_endpoint,
+    });
 
     this.Client = Client.initWithMiddleware({
       debugLogging: this.Options.debug,
+      baseUrl: this.Config?.graph_endpoint ? new URL('v1.0', this.Config.graph_endpoint).href : undefined,
       authProvider: {
         getAccessToken: async () => {
-          const token = await this.OneDriveCredentials.getToken(fsOneDrive.GRAPH_SCOPE);
+          const token = await this.OneDriveCredentials.getToken((this.constructor as typeof fsOneDrive).GRAPH_SCOPE);
           return token?.token ?? '';
         },
       },
     });
-
-    this.TempFs = await getFs('fs-temp');
   }
 
   private notImplemented(method: string): never {

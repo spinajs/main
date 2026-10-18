@@ -14,16 +14,16 @@ At class definition, `Task(taskName, description, opts)`:
 On every call of the decorated method, the wrapper:
 
 1. Resolves a logger with `DI.resolve('__log__', ['TASKS'])` and logs `Executing task ...` at `info`.
-2. Calls `__task.getOrCreate(null, { Name, Description, State: 'stopped' })`. It finds the row by its unique `Name` column, or inserts it. An existing row keeps its stored `Description`.
-3. When `opts.taskStacking` is `false`, calls `mutex_acquire({ Name: 'task-<name>' })` from `@spinajs/threading`. When the result has `Locked: false`, it logs a warning and returns `undefined` without running the method. See [Task locking](02-task-locking.md).
+2. Calls `__task.getOrCreate(null, { Name, Description, State: 'stopped' })`. It finds the row by its unique `Name` column, or inserts it. An existing row keeps its stored `Description`. When the insert fails because another process inserted the same `Name` first, it reads that row instead.
+3. When `opts.taskStacking` is `false` or not set, calls `mutex_acquire({ Name: 'task-<name>', Tenant })` from `@spinajs/threading`, with a tenant generated for this run. When the result has `Locked: false`, it logs a warning and returns `undefined` without running the method. See [Task locking](02-task-locking.md).
 4. Sets `State = 'running'` and `LastRunAt = DateTime.now()` and saves the row with `task.update()`.
 5. Calls the original method with the same `this` and arguments.
-6. On success, emits `TaskSuccess` with `TaskName` and logs at `success`. See [Task events](03-task-events.md).
-7. When the method or the `TaskSuccess` emit throws, logs at `error`, sets the result to `{ error: true, message: err.Message }` and emits `TaskFailed` with `TaskName` and `Reason: err.Message`.
-8. In a `finally` block, it calls `mutex_release({ Name: 'task-' + name })`, then sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration` in milliseconds. Errors in this step are logged as `Cannot finalize task` and swallowed. **In the current source step 8 always fails;** see [Important behaviour](#important-behaviour).
+6. On success, emits `TaskSuccess` with `TaskName` (the trimmed name) and logs at `success`. See [Task events](03-task-events.md).
+7. When the method or the `TaskSuccess` emit throws, logs at `error`, sets the result to `{ error: true, message: err.message }` and emits `TaskFailed` with `TaskName` and `Reason: err.message`.
+8. In a `finally` block, when step 3 took the lock, it calls `mutex_release()` with the same name and tenant. Then it sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration` in milliseconds. Errors in this step are logged as `Cannot finalize task` and swallowed.
 9. Returns the method's result, or the `{ error, message }` object from step 7.
 
-An error in steps 2 to 4 is logged as `Cannot start task` and rethrown to the caller. That covers a missing `default` connection, a missing `Mutex` registration, and calling a task decorated without `opts`.
+An error in steps 2 to 4 is logged as `Cannot start task` and rethrown to the caller. That covers a missing `default` connection and a missing `Mutex` registration. An error thrown by `TaskFailed.emit()` in step 7 takes the same path, after step 8 has run.
 
 ```mermaid
 sequenceDiagram
@@ -52,13 +52,13 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `@Task(taskName, description, opts?)` | Method | `taskName: string` (stored in `__tasks.Name`, up to 64 characters, unique), `description: string` (stored in `__tasks.Description`, up to 128 characters), `opts: { taskStacking: boolean }` | Wraps the method as described above. The wrapper is `async`, so the method always returns a `Promise`. |
 
-`opts` is typed as optional, but the wrapper reads `opts.taskStacking` on every call. Always pass it.
+`opts` is optional; without it the task runs with `taskStacking: false`.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `taskStacking` | `boolean` | none; `opts` must be passed | `false`: take the `task-<name>` mutex before the run and skip the run when it is held. `true`: no mutex; runs can overlap. |
+| `taskStacking` | `boolean` | `false` | `false`: take the `task-<name>` mutex before the run and skip the run when it is held. `true`: no mutex; runs can overlap. |
 
-The `TaskOptions` interface is not exported; pass an object literal.
+The options type is exported as `TaskOptions`.
 
 `@Task()` replaces the method's descriptor. Decorators listed above it in the source wrap the `@Task()` wrapper; decorators listed below it are wrapped by it.
 
@@ -68,7 +68,6 @@ The `TaskOptions` interface is not exported; pass an object literal.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `system.dirs.cli` | `string[]` | appends `node_modules/@spinajs/tasks/lib/<mjs\|cjs>/tasks`, resolved from `WORKSPACE_ROOT_PATH` or `process.cwd()` and from its parent | directory paths | CLI command directories. The package ships no `tasks` directory, so this entry adds no command. See [Command discovery](../cli/05-command-discovery.md). |
 | `queue.routing.TaskFailed`, `queue.routing.TaskSuccess`, `queue.connections` | | `task-empty-queue` | | Where the task events go. See [Task events](03-task-events.md#configuration). |
 
 The tables live on the `default` connection, which is `db.DefaultConnection`. See [Task tables and migration](04-task-tables-and-migration.md).
@@ -139,46 +138,25 @@ export async function startReportTasks(): Promise<ReportTasks> {
 
 ## Important behaviour
 
-The wrapper has several defects in the current source. They decide what you can rely on today:
-
-- **The finalize step always fails.** `mutex_release()` is called with `` `task-${name}` ``, and `name` is not defined in the module. In Node.js this throws `ReferenceError: name is not defined`, which the wrapper logs as `Cannot finalize task`. As a result:
-  - no `__task_history` row is ever written;
-  - `__tasks.State` stays `'running'` after the first run;
-  - the `task-<name>` mutex is never released.
-- **Calling a task decorated without `opts` throws.** The wrapper reads `opts!.taskStacking`, so `@Task('a', 'b')` fails with a `TypeError` on every call, logged as `Cannot start task` and rethrown.
-- **Error messages are lost.** The wrapper reads `err.Message`, but `Error` has `message`. The returned `{ error: true, message }` and the `TaskFailed.Reason` field are `undefined` for standard errors.
-
-Other behaviour:
-
 - **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`; it never rejects. Check the result if the caller must react.
 - **A skipped run resolves with `undefined`.** When the mutex is held, nothing marks the call as skipped except the `warn` log line.
 - **A failed `TaskSuccess` emit counts as a failed run.** It is inside the same `try` as the method, so the run is reported again as `TaskFailed`.
-- **Errors from `TaskFailed.emit()` are swallowed.** The `return` in the `finally` block discards them.
-- **The first run of a new task can race.** Two processes calling `getOrCreate` for a new `Name` at the same moment both insert; the second fails on the unique index and its call rejects.
+- **A failed `TaskFailed` emit rejects the call.** The lock is released and the history row is written first; the error is then logged as `Cannot start task` and rethrown.
+- **A run killed mid-way is not cleaned up.** When the process dies during the method, `State` stays `'running'`, no history row is written and the lock stays held; see [Task locking](02-task-locking.md#important-behaviour).
 - **`Description` is written once.** Changing the text in `@Task()` does not update an existing row.
-- **Logs and events use the untrimmed name.** The database row and the mutex use the trimmed `taskName`; `TaskName` in the events and the `success` / `error` log fields use the string as passed.
+- **The name is trimmed everywhere.** The database row, the mutex name, the event `TaskName` and the log fields all use the trimmed `taskName`.
 - **The return value is stored as JSON.** `__task_history.Result` is a `@Json()` column, so return a JSON-serializable value.
 - The exported constant `TASK_COMMAND` (`'task:command'`) is not used by the package.
 
 ## Best practices
 
-- Always pass `opts`, with an explicit `taskStacking`.
+- Pass `opts` with an explicit `taskStacking`, so the locking choice is visible at the decorator.
 - Keep `taskName` short, stable and unique across the app: it is the `__tasks` key and the mutex name.
 - Return a small summary object (`{ sent: 12 }`), not the full data set: it is what the history stores.
 - Catch errors you can handle inside the method and return them in the result; the wrapper turns every other error into `{ error: true }`.
 - Call tasks through `void task()` or `.catch()` in timers: setup errors (no `Orm`, no `Mutex`) reject the call.
 
 ## Patterns and antipatterns
-
-```ts
-// Don't: no opts; every call throws "Cannot read properties of undefined (reading 'taskStacking')"
-@Task('sync-exchange-rates', 'Downloads ECB exchange rates')
-public async syncRates() {}
-
-// Do
-@Task('sync-exchange-rates', 'Downloads ECB exchange rates', { taskStacking: false })
-public async syncRates() {}
-```
 
 ```ts
 // Don't: expects the task to reject on failure; the wrapper resolves with { error: true } instead

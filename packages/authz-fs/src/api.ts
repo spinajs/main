@@ -1,17 +1,7 @@
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
-import type { IProviderConfiguration, fs } from '@spinajs/fs';
 
-// Takes the arguments so the stubs keep the design's parameter names under noUnusedParameters.
-function notImplemented(name: string, ..._args: unknown[]): Error {
-  return new Error(`@spinajs/authz-fs: ${name} is not implemented yet`);
-}
-
-// Mirrors the hook lane L7 adds to @spinajs/fs; L7 replaces it with a re-export from there, a contract change that needs
-// the integrator's approval at G1 or an RFC.
-export abstract class FsDecorator {
-  abstract readonly order: number;
-  abstract decorate(instance: fs, config: IProviderConfiguration): fs;
-}
+export { FsDecorator } from '@spinajs/fs';
+export { fromFsPath } from './http/from-fs-path.js';
 
 export interface FileMeta {
   readonly owner?: PrincipalRef;
@@ -30,9 +20,4 @@ export abstract class FsPathResolver {
   abstract readonly fs: string | RegExp;
   /** Domain parents of a path, nearest first; null = none. */
   abstract parents(fsName: string, path: string): Promise<readonly ResourceRef[] | null>;
-}
-
-// Structural so authz-fs needs no authz-http; assignable to its ResourceExtractor.
-export function fromFsPath(fsName: string, param: string): (req: unknown) => ResourceRef | Promise<ResourceRef> {
-  throw notImplemented('fromFsPath', fsName, param);
 }

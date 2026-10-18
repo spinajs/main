@@ -30,6 +30,17 @@ export interface INotesServerOptions {
 
 // one notes server per process: DI and this configuration are process-wide, so a second start replaces the first one's options
 let current: INotesServerOptions = {};
+let running: INotesServer | undefined;
+
+/** One level deeper than a spread, so `{ auth: { revalidateMs } }` keeps the example's `auth.required`. */
+function withOverrides(base: Record<string, Record<string, unknown>>, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    const isObject = typeof value === 'object' && value !== null && !Array.isArray(value);
+    merged[key] = isObject && base[key] ? { ...base[key], ...value } : value;
+  }
+  return merged;
+}
 
 /** The example's settings, merged over the package defaults ( `http.socket` of @spinajs/http-socket ). */
 export class NotesConfiguration extends FrameworkConfiguration {
@@ -43,10 +54,14 @@ export class NotesConfiguration extends FrameworkConfiguration {
       },
       http: {
         socket: {
-          // a handshake without one of the demo tokens is refused instead of running as UNATTENDED
-          auth: { required: true, revalidateMs: 60_000 },
-          streams: { maxCredits: 16 },
-          ...current.socket,
+          ...withOverrides(
+            {
+              // a handshake without one of the demo tokens is refused instead of running as UNATTENDED
+              auth: { required: true, revalidateMs: 60_000 },
+              streams: { maxCredits: 16 },
+            },
+            current.socket,
+          ),
         },
       },
     };
@@ -62,6 +77,8 @@ export interface INotesServer {
 }
 
 export async function startNotesServer(options: INotesServerOptions = {}): Promise<INotesServer> {
+  // clearCache() forgets the old SocketServer without disposing it
+  await running?.close();
   current = options;
   DI.clearCache();
   // without it the config sources look for the cjs builds and cannot require them in an ES module, so the package defaults never load
@@ -74,15 +91,18 @@ export async function startNotesServer(options: INotesServerOptions = {}): Promi
   await new Promise<void>((resolve) => host.Http.listen(options.port ?? 0, '127.0.0.1', () => resolve()));
   const { port } = host.Http.address() as AddressInfo;
 
-  return {
+  const started: INotesServer = {
     url: `http://127.0.0.1:${port}`,
     path: DI.get(Configuration)!.get<string>('http.socket.path'),
     server,
     store: DI.resolve(NotesStore) as NotesStore,
     close: async () => {
+      if (running === started) running = undefined;
       await server.dispose();
       host.Http.closeAllConnections();
       await new Promise<void>((resolve) => host.Http.close(() => resolve()));
     },
   };
+  running = started;
+  return started;
 }

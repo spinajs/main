@@ -81,7 +81,7 @@ export async function sendInvoiceNotice(customer: string, invoiceNo: string): Pr
 | Transport per connection | `EmailSender`, new instance per connection entry, picked by class name in `email.connections[].service` | none configured | `BlackHoleEmailSender`, `EmailSenderSmtp` ([`email-smtp-transport`](../email-smtp-transport/README.md)) | `@Injectable(EmailSender) @NewInstance()` class; see [02](02-transports.md) |
 | Password mailer | not registered here; `@spinajs/users` registers it as `PasswordMailer` | `EmailPasswordMailer` | your `PasswordMailer` | subclass and override `compose()`; see [08](08-password-mailer.md) |
 | Sent and failed events | queue events `EmailSent`, `EmailSendFailed` | routed to a black-hole queue | any queue connection | `queue.routing` plus `QueueService.consume()`; see [04](04-deferred-sending.md) |
-| Config schema bootstrapper | `Bootstrapper`, `LogBotstrapper` | registers the `email` config schema | none | not meant to be replaced |
+| Config schema bootstrapper | `Bootstrapper`, `EmailBootstrapper` (`LogBotstrapper` is a deprecated alias) | registers the `email` config schema | none | not meant to be replaced |
 
 ## Related packages
 

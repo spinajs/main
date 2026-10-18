@@ -1,4 +1,5 @@
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { Autoinject, Bootstrapper, Container, Injectable } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config, Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 
 import type { ConfiguredOidc } from './options/options.js';
@@ -14,10 +15,14 @@ export class OidcBootstrapper extends Bootstrapper {
   @Config('authn.oidc')
   protected Oidc: ConfiguredOidc | undefined;
 
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
   public async bootstrap(): Promise<void> {
-    registerConfigurationSchema(AUTHN_OIDC_CONFIGURATION_SCHEMA);
-    // A @Config read needs the Configuration resolved; resolving it also validates the schema just registered.
-    await DI.resolve(Configuration);
-    registerOidcStrategies(providerNamesOf(this.Oidc));
+    registerConfigurationSchema(AUTHN_OIDC_CONFIGURATION_SCHEMA, this.Container);
+    // A @Config read needs the Configuration resolved. Not injected: that would boot it while the bootstrappers are being
+    // resolved, before any of them registered its schema.
+    await this.Container.resolve(Configuration);
+    registerOidcStrategies(providerNamesOf(this.Oidc), this.Container);
   }
 }

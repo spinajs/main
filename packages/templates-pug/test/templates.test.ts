@@ -98,7 +98,7 @@ describe('templates', () => {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.render(dir('templates/handlebars/template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
+    await expect(t.render(dir('templates/template_not_exists.pug'), { hello: 'world' })).to.be.rejected;
   });
 
   it('should render pug from fs:// uri', async () => {

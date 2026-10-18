@@ -5,11 +5,11 @@
 ## How it works
 
 1. `FrameworkConfiguration` resolves every `ConfigurationSource` with `Array.ofType(ConfigurationSource)` and sorts them by `Order`. `ConfiguratioDbSource.Order` is `999`, so it runs after the file sources (`Order` `1`).
-2. `ConfiguratioDbSource.Load(configuration)` reads `configuration_db_source` with the fallback `{ connection: 'default', table: 'configuration' }`.
+2. `ConfiguratioDbSource.Load(configuration)` reads `configuration_db_source` and fills each missing key from `{ connection: 'default', table: 'configuration' }`.
 3. `Connect()` reads `db.Connections` from what earlier sources loaded. It throws when the key is missing.
 4. `Connect()` turns the name `default` into the value of `db.DefaultConnection`, then finds the entry whose `Name` matches. It throws when none matches.
 5. When `Orm` is already resolved (`DI.has(Orm)`), `Connect()` takes `Orm.Connections.get(name)` and pings it. A failed ping only logs a warning.
-6. Otherwise `Connect()` checks the driver is registered (`DI.check(Driver)`), resolves it with the connection options and calls `connect()`. On failure it calls `disconnect()` and throws.
+6. Otherwise `Connect()` checks the driver is registered (`DI.check(Driver)`), resolves it with the connection options and calls `connect()`. On failure it calls `disconnect()` and throws. `Load()` closes this connection again once it has read the rows.
 7. `CheckTable()` calls `schema().tableExists(table)`. A missing table logs a warning: run the migration first.
 8. `Load()` selects every row of the table and keeps the rows whose `Exposed` value is truthy. The filter runs in memory, so it works for any boolean storage.
 9. `DbConfigValueConverter.fromDB()` converts each `Value` according to the row's `Type` column. See [Entry types](04-entry-types-and-converter.md).
@@ -89,7 +89,7 @@ Created by the migration `configuration_db_source_2022_02_08_01_13_00` on the `d
 | `Meta` | `text` (JSON) | `exposeOptions.meta`: `min`, `max`, `minDate`, `maxDate`, `oneOf`, `manyOf`, `file`. |
 | `Type` | `enum`, not null | One of the 15 entry types, see [Entry types](04-entry-types-and-converter.md). |
 
-The migration's `down()` is empty: rolling it back leaves the table.
+The migration's `down()` drops the `configuration` table.
 
 ### `DbConfig` model
 
@@ -107,9 +107,9 @@ The migration's `down()` is empty: rolling it back leaves the table.
 ## Important behaviour
 
 - **First boot loads nothing.** The ORM needs the configuration, so the first `Configuration` load runs before `Orm` resolves. The migration runs when `Orm` resolves, so on an empty database the table is missing and the source logs a warning. Call `Configuration.load()` again after `Orm` resolves to pick the rows up.
-- **The source may open its own connection.** When `Orm` is not resolved yet, `Connect()` creates a driver connection of its own and does not close it. With SQLite `Filename: ':memory:'` that connection is a different, empty database.
+- **The source may open its own connection.** When `Orm` is not resolved yet, `Connect()` creates a driver connection of its own, which `Load()` closes after reading. With SQLite `Filename: ':memory:'` that connection is a different, empty database.
 - **`onLoad()` is too late.** `FrameworkConfiguration` merges `onLoad()` and the `__configuration__` DI values after all sources ran. Put `db.Connections` in a config file or a `StaticConfigurationSource` with a lower `Order`.
-- **Set both keys or none.** `Load()` reads `configuration_db_source` before schema defaults are applied. A partial object such as `{ table: 'app_settings' }` leaves `connection` undefined, so `Connect()` fails and nothing loads.
+- **Partial options are completed.** Schema defaults are applied only after all sources ran, so `Load()` fills them in itself: `{ table: 'app_settings' }` reads from the `default` connection.
 - **Database wins.** The source loads last, and a later source overrides earlier ones for the same key.
 - **`Group` is not a path segment.** A row with `Slug: 'mailer.from'` and `Group: 'mailer'` is read at `mailer.from`, never at `mailer.mailer.from`.
 - **Hidden rows stay hidden.** A row with `Exposed` = `0` is never loaded, even when its `Slug` matches a `@Config` option.

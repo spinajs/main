@@ -1,7 +1,15 @@
 import type express from 'express';
 import cookieParser from 'cookie-parser';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, normalizeEnvironment } from '@spinajs/configuration';
+import type { ICookie } from './interfaces.js';
+
+/** `http.cookie.secret` as the package ships it: public, so anyone can sign cookies with it. */
+export const HTTP_PUBLIC_COOKIE_SECRET = '1234adreewD';
+
+export function isPublicCookieSecret(secret: unknown): boolean {
+  return secret === HTTP_PUBLIC_COOKIE_SECRET;
+}
 
 /**
  * cookie-parser bound to the configured `http.cookie.secret`.
@@ -33,4 +41,21 @@ export const configuredCookieParser: express.RequestHandler = (req, res, next) =
  */
 export function resetCookieParser(): void {
   parser = undefined;
+}
+
+const isRelaxedEnv = (env: string | null | undefined): boolean => ['dev', 'test'].includes(normalizeEnvironment(env));
+
+/**
+ * A `__Host-<name>` cookie: Secure, `Path=/` and no Domain, as browsers require for the prefix. Development and test
+ * (plain http on localhost) drop the prefix and Secure; an absent or unknown env is production.
+ */
+export function hostPrefixedCookie(name: string, value: string, options: express.CookieOptions = {}, env?: string | null): ICookie {
+  const relaxed = isRelaxedEnv(env);
+  // domain undefined, not deleted: it must override a domain from http.cookie.options, which responses merge in first.
+  return { Name: relaxed ? name : `__Host-${name}`, Value: value, Options: { ...options, secure: !relaxed, path: '/', domain: undefined } };
+}
+
+/** The expired, unsigned copy of `cookie` that clears it in the browser. */
+export function clearCookie(cookie: ICookie): ICookie {
+  return { Name: cookie.Name, Value: '', Options: { ...cookie.Options, maxAge: 0, signed: false } };
 }
