@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { buildRoutePath, resolveRoutePolicies } from '../src/route-builder.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { buildRoutePath, createActionHandler, resolveRoutePolicies } from '../src/route-builder.js';
+import { Ok } from '../src/response-methods/ok.js';
 import { RouteRegistrationException } from '../src/exceptions.js';
 import type { IControllerDescriptor, IRoute } from '../src/interfaces.js';
 
@@ -50,6 +52,30 @@ describe('route-builder', () => {
         expect((err as Error).message).to.contain('http.some.policy.key');
         expect((err as Error).message).to.contain('TestController');
       }
+    });
+  });
+
+  describe('createActionHandler', () => {
+    it('waits for every async onResponse() before handing the response on', async () => {
+      const calls: string[] = [];
+      const controller = { action: async () => new Ok() } as any;
+      const middleware = {
+        onResponse: async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          calls.push('onResponse');
+        },
+      } as any;
+
+      const handler = createActionHandler(controller, route({ Method: 'action', Parameters: new Map() }), [middleware], new AsyncLocalStorage());
+
+      await new Promise<void>((resolve) => {
+        handler({ storage: {} } as any, { locals: {} } as any, () => {
+          calls.push('next');
+          resolve();
+        });
+      });
+
+      expect(calls).to.deep.eq(['onResponse', 'next']);
     });
   });
 });

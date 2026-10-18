@@ -16,6 +16,6 @@ export class Json<T = any> extends Response<T> {
 
   public async execute(_req: express.Request, _res: express.Response): Promise<ResponseFunction | void> {
     const data = await this.prepareResponse();
-    return jsonResponse(data, { ...this.options, StatusCode: this._errorCode });
+    return jsonResponse(data, { ...this.options, StatusCode: this.options?.StatusCode ?? this._errorCode });
   }
 }

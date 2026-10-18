@@ -1,4 +1,4 @@
-import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok } from '../../src/index.js';
+import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok, Created, Accepts, HttpAcceptHeaders } from '../../src/index.js';
 
 @BasePath('responses')
 export class TestResponses extends BaseController {
@@ -36,5 +36,16 @@ export class TestResponses extends BaseController {
     };
 
     return new Ok(action());
+  }
+
+  @Get()
+  public created() {
+    return new Created({ id: 1 });
+  }
+
+  @Get()
+  @Accepts(HttpAcceptHeaders.JSON)
+  public acceptsJson() {
+    return new Ok({ message: 'hello world' });
   }
 }
