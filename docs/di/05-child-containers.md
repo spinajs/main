@@ -6,12 +6,12 @@ A child container inherits every registration and cached instance of its parent 
 
 1. `DI.child()` or `container.child()` creates a container of the parent's class, `new Container(parent)` by default. The parent keeps it in its children set until the child emits `di.dispose`.
 2. **Lookup.** A key the child has not registered is looked up in the parent, then the grandparent, up to the root. A key the child registers hides the parent's list for single resolves and for `Array.ofType`. `Array.chainOf` merges all levels; see [Multiple implementations](06-multiple-implementations.md).
-3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key on purpose. Keys recorded only because an unregistered class was resolved do not count.
+3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key. A key registered nowhere is owned by the resolving container.
 4. **Where the instance is built and cached:**
    - `Singleton`, `PerInstance`, `PerInstanceCheck`: in the owner, with the owner's dependencies.
    - `PerChildContainer`: in the resolving container.
    - `NewInstance` and factories: in the resolving container, never cached.
-5. **Disposal.** `child.dispose()` disposes the child's own children, then every `Service` in the child's cache, then clears the cache and emits `di.dispose`. The parent's instances are untouched. See [Service lifecycle](10-service-lifecycle.md).
+5. **Disposal.** `child.dispose()` disposes the child's own children, then every `Service` in the child's cache, then clears the cache and emits `di.dispose`. `child.dispose({ plainOwners: true })` also calls `dispose()` on cached instances that are not a `Service`. The parent's instances are untouched. See [Service lifecycle](10-service-lifecycle.md).
 
 ```mermaid
 sequenceDiagram
@@ -48,7 +48,8 @@ A singleton built in the root gets root dependencies, even when a child resolves
 | `Registry` | The `Registry`: what is registered under which key |
 | `Cache` | The `ContainerCache`: built instances and values, iterable as `{ key, value }` |
 | `child()` | A new child of this container |
-| `dispose()` | Dispose children and cached services, clear the cache |
+| `dispose(options?)` | Dispose children and cached services, clear the cache; `{ plainOwners: true }` also disposes cached non-`Service` instances that have a `dispose()` |
+| `isCached(instance, parent = false)` | `true` when this container's cache holds `instance` |
 | `clear()`, `clearCache()`, `clearRegistry()` | Empty this container's cache and registry |
 | `getCacheStats()` (on `Container`) | `{ size, entries, childrenCount }` for memory checks |
 | `DI.RootContainer` | The root `IContainer`; every `DI.*` function works on it |

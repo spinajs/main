@@ -1107,12 +1107,12 @@ describe('Dependency injection', () => {
     }).to.throw();
   });
 
-  it('Should register singleton at resolve', () => {
+  it('Should not register singleton at resolve', () => {
     class PisFart {}
 
     DI.resolve(PisFart);
 
-    expect(DI.check(PisFart)).to.eq(true);
+    expect(DI.check(PisFart)).to.eq(false);
   });
 
   it('Should not register at resolve @NewInstance', () => {
