@@ -637,8 +637,9 @@ column when you revoked it on purpose. Then run
 `orm.Migration.resolve('AuthzRbacDropUserRole_2026_10_01_00_02_00', 'rolled-back')` and migrate
 again. It also refuses when the id column is not unique (it counts the rows its walk saw against the
 table count), when the table has rows but no id column, and warns about rows with roles but a null id
-(those roles are lost with the column). On PostgreSQL it takes a `SHARE` lock on `users` between the
-check and the drop, which stops a 2.x node that still writes users. Then it runs
+(those roles are lost with the column). Between the check and the drop it holds a shared lock on
+`users` (`connection.lockTableShared()`, on every driver), which stops a 2.x node that still writes
+users. Then it runs
 `ALTER TABLE users DROP COLUMN <roleColumn>`.
 
 *Rollback.* The drop's `down()` re-adds `<roleColumn>` as `varchar(256) NOT NULL DEFAULT ''` (2.x
