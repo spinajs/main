@@ -495,6 +495,11 @@ Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `D
 writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
 ([Wiring the models](#wiring-the-models)).
 
+A malformed policy fails with `InvalidPolicy` (an `AuthzConfigError`), whose `field` names the policy
+key at fault (`'when'`, `'permissions'`, ...); a refused `policy.put` reports it as `policy.<field>`.
+`AUTHZ_POLICY_COLUMNS` holds the `authz_policy` column widths that `DbPolicyStore` and `policy.put`
+enforce.
+
 A policy condition may call every `ConditionFunction` the domain's container sees: its own
 registrations and those of its ancestors, root included (`registeredFunctions(container)`). RBAC rule
 conditions are checked the same way. `ModelInitContext.container` is that container; a model resolves

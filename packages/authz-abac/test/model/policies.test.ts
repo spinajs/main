@@ -4,7 +4,7 @@ import { AuthzConfigError, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRe
 import type { Condition, Policy, Principal } from '@spinajs/authz';
 import { agentPrincipal, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
-import { DEFAULT_POLICY_PRIORITY, PolicyIndex, loadPolicy, scopeFilter, targets } from '../../src/index.js';
+import { DEFAULT_POLICY_PRIORITY, InvalidPolicy, PolicyIndex, loadPolicy, scopeFilter, targets } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -81,6 +81,28 @@ describe('authz-abac: policies', () => {
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], when: { attr: 'row.a', eq: 1 } }, /^abac policy "p1" when: "row\.a" must start with/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], when: { fn: 'time.betwen' } }, /^abac policy "p1" when: unknown condition function "time\.betwen"/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], when: { fn: 'ip.in', args: { cidrs: [] } } }, /^abac policy "p1" when: ip\.in cidrs must be a non-empty list/);
+    });
+
+    it('names the policy key at fault in InvalidPolicy.field', () => {
+      const fieldOf = (raw: unknown): string | undefined => {
+        try {
+          load(raw);
+        } catch (e) {
+          expect(e).to.be.instanceOf(InvalidPolicy);
+          return (e as InvalidPolicy).field;
+        }
+        throw new Error('loaded');
+      };
+      const p = { id: 'p1', effect: 'permit', permissions: ['file:read'] };
+      expect(fieldOf(null)).to.equal(undefined);
+      expect(fieldOf({ effect: 'permit', permissions: ['file:read'] })).to.equal('id');
+      expect(fieldOf({ ...p, 'col"our': 'red' })).to.equal('col"our');
+      expect(fieldOf({ ...p, permissions: ['file'] })).to.equal('permissions');
+      expect(fieldOf({ ...p, actorTypes: [''] })).to.equal('actorTypes');
+      expect(fieldOf({ ...p, scope: { type: '$global', id: 'x' } })).to.equal('scope');
+      expect(fieldOf({ ...p, fields: { hide: ['a'] } })).to.equal('fields');
+      expect(fieldOf({ ...p, reason: '' })).to.equal('reason');
+      expect(fieldOf({ ...p, when: { fn: 'time.betwen' } })).to.equal('when');
     });
   });
 
