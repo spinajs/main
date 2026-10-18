@@ -14,6 +14,8 @@ export * from "./object.js";
 export * from "./async.js";
 export * from "./cache.js";
 export * from "./clock.js";
+export * from "./date.js";
 export * from "./events.js";
 export * from "./graph.js";
+export * from "./maybe.js";
 export * from "./refreshing-cache.js";
