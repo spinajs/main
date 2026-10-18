@@ -87,7 +87,13 @@ const RETRY_COUNT_HEADER = 'x-retry-count';
  */
 interface ISubscriptionDescriptor {
   channel: string;
+
+  // runs every handler in `handlers`: one broker subscription per channel serves all of them,
+  // because on a queue a second subscription would split the messages between the two
   callback: (e: IQueueMessage) => Promise<void>;
+
+  // keyed by what was passed to subscribe(): the channel string or the message class
+  handlers: Map<string | Constructor<QueueMessage>, (e: IQueueMessage) => Promise<void>>;
   subscriptionId?: string;
   durable?: boolean;
 
@@ -114,8 +120,8 @@ export class StompQueueClient extends QueueClient {
 
   protected PendingEmits: IPendingEmit[] = [];
 
-  // resolvers waiting for the connection to come up ( see whenReady )
-  protected ReadyWaiters: Array<() => void> = [];
+  // settlers waiting for the connection to come up ( see whenReady ), called with an error on dispose
+  protected ReadyWaiters: Array<(err?: unknown) => void> = [];
 
   protected Disposing = false;
 
@@ -147,14 +153,23 @@ export class StompQueueClient extends QueueClient {
       return Promise.resolve();
     }
 
+    if (this.Disposing) {
+      return Promise.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} is disposing`));
+    }
+
     return new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
 
-      const waiter = () => {
+      const waiter = (err?: unknown) => {
         if (timer) {
           clearTimeout(timer);
         }
-        resolve();
+
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
       };
 
       if (timeoutMs) {
@@ -193,6 +208,12 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
+    // createWebSocket() runs inside stompjs's un-awaited connect loop, where a throw would be
+    // an unhandled rejection and leave this promise pending
+    if (!this.Options.host) {
+      throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
+    }
+
     this.Log.info({ host: this.Options.host, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
     this.Client = this.createClient({
@@ -223,21 +244,6 @@ export class StompQueueClient extends QueueClient {
       this.Log[debugLevel](`${str}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
     };
 
-    // if a credential provider is configured, refresh credentials right before
-    // every ( re )connect - supports rotating secrets / token based auth
-    if (this.Options.credentialProvider) {
-      this.Client.beforeConnect = async () => {
-        const provider = DI.resolve<IQueueCredentialsProvider>(this.Options.credentialProvider!);
-        const creds = await provider.getCredentials(this.Options);
-
-        this.Client.connectHeaders = {
-          'client-id': this.ClientId,
-          ...(creds.login ? { login: creds.login } : {}),
-          ...(creds.passcode ? { passcode: creds.passcode } : {}),
-        };
-      };
-    }
-
     // lifecycle handlers that simply log - installed once, never reassigned
 
     this.Client.onUnhandledMessage = (message) => {
@@ -261,6 +267,35 @@ export class StompQueueClient extends QueueClient {
       // ensures we settle the initial-connect promise exactly once, and that a
       // broker / websocket error only rejects BEFORE the first successful connect
       let settled = false;
+
+      // if a credential provider is configured, refresh credentials right before
+      // every ( re )connect - supports rotating secrets / token based auth
+      if (this.Options.credentialProvider) {
+        this.Client.beforeConnect = async () => {
+          try {
+            const provider = DI.resolve<IQueueCredentialsProvider>(this.Options.credentialProvider!);
+            const creds = await provider.getCredentials(this.Options);
+
+            this.Client.connectHeaders = {
+              'client-id': this.ClientId,
+              ...(creds.login ? { login: creds.login } : {}),
+              ...(creds.passcode ? { passcode: creds.passcode } : {}),
+            };
+          } catch (err) {
+            // stompjs does not await its connect loop: a throw here would be an unhandled rejection
+            // with no socket close, so no reconnect would ever be scheduled
+            if (!settled) {
+              settled = true;
+              void this.Client.deactivate();
+              reject(new UnexpectedServerError(`Cannot get credentials for queue connection ${this.Options.name} from provider ${this.Options.credentialProvider}`, err));
+              return;
+            }
+
+            // reconnect with the last credentials: a broker refusal closes the socket and stompjs retries
+            this.Log.error({ error: err, provider: this.Options.credentialProvider, clientId: this.ClientId }, 'Credential provider ${provider} failed, reconnecting with previous credentials, client-id: ${clientId}');
+          }
+        };
+      }
 
       // onConnect fires on EVERY ( re )connect - this is where we replay
       // subscriptions and flush buffered emits so the client survives drops
@@ -329,6 +364,12 @@ export class StompQueueClient extends QueueClient {
       p.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before message could be sent`));
     }
 
+    const waiters = this.ReadyWaiters;
+    this.ReadyWaiters = [];
+    for (const w of waiters) {
+      w(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
+    }
+
     if (!this.Client) {
       return;
     }
@@ -365,7 +406,23 @@ export class StompQueueClient extends QueueClient {
         return;
       }
 
-      if (desc.durable && removeDurable && desc.subscriptionId) {
+      // a string drops the whole channel, a message class only its own handler
+      if (_.isString(channelOrMessage)) {
+        desc.handlers.clear();
+      } else {
+        desc.handlers.delete(channelOrMessage);
+      }
+
+      if (desc.handlers.size > 0) {
+        return;
+      }
+
+      if (!this.Connected) {
+        // the live subscription went away with the socket; UNSUBSCRIBE cannot be sent without one
+        if (desc.durable && removeDurable) {
+          this.Log.warn({ subscriptionId: desc.subscriptionId, channel: c }, 'Not connected, broker-side durable subscription ${subscriptionId} on channel ${channel} was not removed');
+        }
+      } else if (desc.durable && removeDurable && desc.subscriptionId) {
         // delete the broker-side durable subscription, not just stop consuming.
         // ActiveMQ removes a durable sub when UNSUBSCRIBE carries its subscription name.
         this.Client.unsubscribe(desc.subscriptionId, { 'activemq.subscriptionName': desc.subscriptionId });
@@ -382,7 +439,9 @@ export class StompQueueClient extends QueueClient {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
     channels.forEach((c) => {
-      if (this.Subscriptions.has(c)) {
+      const existing = this.Subscriptions.get(c);
+
+      if (existing?.handlers.has(channelOrMessage)) {
         this.Log.warn({ channel: c }, 'Channel ${channel} already subscribed !');
         return;
       }
@@ -391,7 +450,20 @@ export class StompQueueClient extends QueueClient {
         throw new InvalidArgument(`subscriptionId cannot be empty if using durable subscriptions`);
       }
 
-      const desc: ISubscriptionDescriptor = { channel: c, callback, subscriptionId, durable };
+      if (existing) {
+        existing.handlers.set(channelOrMessage, callback);
+        this.Log.info({ channel: c }, 'Channel ${channel} already subscribed, handler added to the existing subscription');
+        return;
+      }
+
+      const handlers: ISubscriptionDescriptor['handlers'] = new Map([[channelOrMessage, callback]]);
+      const desc: ISubscriptionDescriptor = {
+        channel: c,
+        callback: (e) => Promise.all([...handlers.values()].map((h) => h(e))).then(() => undefined),
+        handlers,
+        subscriptionId,
+        durable,
+      };
       this.Subscriptions.set(c, desc);
 
       // if already connected subscribe now, otherwise it will be applied on next onConnect
@@ -497,16 +569,16 @@ export class StompQueueClient extends QueueClient {
         headers['AMQ_SCHEDULED_DELAY'] = `${delay}`;
       }
 
-      try {
-        // ack the original and reschedule a fresh delivery to the same channel
-        this.Client.publish({ destination: desc.channel, body: message.body, headers });
-        message.ack();
-
-        this.Log.warn({ jobName: qMessage.Name, channel: desc.channel, attempt: nextAttempt, maxRetries, delay, reason }, 'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}');
-      } catch (retryErr) {
-        this.Log.error({ error: retryErr, jobName: qMessage.Name, channel: desc.channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
-        message.nack();
-      }
+      // ack the original only once the broker confirmed the rescheduled delivery to the same channel
+      this.sendWithReceipt(desc.channel, message.body, headers)
+        .then(() => {
+          message.ack();
+          this.Log.warn({ jobName: qMessage.Name, channel: desc.channel, attempt: nextAttempt, maxRetries, delay, reason }, 'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}');
+        })
+        .catch((retryErr) => {
+          this.Log.error({ error: retryErr, jobName: qMessage.Name, channel: desc.channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
+          message.nack();
+        });
 
       return;
     }
@@ -538,26 +610,26 @@ export class StompQueueClient extends QueueClient {
       return;
     }
 
-    try {
-      const headers: Stomp.StompHeaders = {
-        persistent: 'true',
-        'content-type': 'application/json',
-        'x-original-destination': channel,
-        'x-error': reason,
-      };
+    const headers: Stomp.StompHeaders = {
+      persistent: 'true',
+      'content-type': 'application/json',
+      'x-original-destination': channel,
+      'x-error': reason,
+    };
 
-      if (attempt !== undefined) {
-        headers[RETRY_COUNT_HEADER] = `${attempt}`;
-      }
-
-      this.Client.publish({ destination: dlq, body: message.body, headers });
-      message.ack();
-
-      this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
-    } catch (dlqErr) {
-      this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
-      message.nack();
+    if (attempt !== undefined) {
+      headers[RETRY_COUNT_HEADER] = `${attempt}`;
     }
+
+    this.sendWithReceipt(dlq, message.body, headers)
+      .then(() => {
+        message.ack();
+        this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
+      })
+      .catch((dlqErr) => {
+        this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
+        message.nack();
+      });
   }
 
   /**
@@ -627,25 +699,41 @@ export class StompQueueClient extends QueueClient {
    * caller gets real delivery confirmation ( bounded by `ReceiptTimeout` ).
    */
   protected publishWithReceipt(channel: string, body: string, headers: Stomp.StompHeaders, message: IQueueMessage): Promise<void> {
+    return this.sendWithReceipt(channel, body, headers).then(() => {
+      this.Log.trace({ messageType: message.Type, messageName: message.Name, channel, connection: this.Options.name }, 'Published ${messageType} Name: ${messageName} to channel ${channel} ( ${connection} )');
+    });
+  }
+
+  /**
+   * Sends one frame and resolves on its broker RECEIPT, or rejects after `ReceiptTimeout`
+   * or when the publish throws.
+   */
+  protected sendWithReceipt(channel: string, body: string, headers: Stomp.StompHeaders): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const receiptId = randomUUID();
-      let timer: ReturnType<typeof setTimeout>;
+      let timer: ReturnType<typeof setTimeout> | undefined;
 
       this.Client.watchForReceipt(receiptId, () => {
         clearTimeout(timer);
-        this.Log.trace({ messageType: message.Type, messageName: message.Name, channel, connection: this.Options.name }, 'Published ${messageType} Name: ${messageName} to channel ${channel} ( ${connection} )');
         resolve();
       });
 
       timer = setTimeout(() => {
+        // stompjs has no public API to drop a receipt watcher; without this it lives as long as the socket
+        delete (this.Client as unknown as { _stompHandler?: { _receiptWatchers?: Record<string, unknown> } })._stompHandler?._receiptWatchers?.[receiptId];
         reject(new UnexpectedServerError(`Timeout waiting for broker receipt while publishing to ${channel} ( ${this.Options.name} )`));
       }, this.ReceiptTimeout);
 
-      this.Client.publish({
-        destination: channel,
-        body,
-        headers: { ...headers, receipt: receiptId },
-      });
+      try {
+        this.Client.publish({
+          destination: channel,
+          body,
+          headers: { ...headers, receipt: receiptId },
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+      }
     });
   }
 
