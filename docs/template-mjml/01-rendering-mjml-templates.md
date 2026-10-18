@@ -44,7 +44,7 @@ sequenceDiagram
 | `templates.mjml.beautify` | `boolean` | `false` | `true`, `false` | Pretty-print the HTML. |
 | `templates.mjml.keepComments` | `boolean` | `true` | `true`, `false` | Keep HTML comments in the output. |
 | `templates.mjml.fonts` | `Record<string, string>` | five Google fonts (Open Sans, Droid Sans, Lato, Roboto, Ubuntu) | font name to CSS URL | Fonts imported when the template uses them. |
-| `templates.mjml.filePath` | `string` | `'.'` (current directory) | an existing file or folder | Base for relative `mj-include` paths. Shared by every template. |
+| `templates.mjml.filePath` | `string` | not set (the template's folder) | an existing file or folder | Base for relative `mj-include` paths. When unset, a local template's own folder is used. |
 | `templates.mjml.ignoreIncludes` | `boolean` | `false` | `true`, `false` | Skip `mj-include` elements. |
 | `templates.mjml.preprocessors` | `((xml: string) => string)[]` | none | functions | Run on the markup before MJML parses it. |
 | `templates.mjml.skeleton` | `string \| (() => string)` | MJML's skeleton | module path or function | Replaces the HTML skeleton around the body. |
@@ -80,10 +80,10 @@ export default {
 
 - **Handlebars runs first, MJML second.** `{{...}}` expressions are resolved before MJML sees the markup, so a value can produce MJML tags only through triple braces (`{{{block}}}`).
 - **Included files skip Handlebars.** MJML reads `mj-include` files after the Handlebars pass, so `{{name}}` inside an included file reaches the output literally. Put data-bound parts in the main template.
-- **`mj-include` paths do not follow the template.** Relative include paths resolve against `templates.mjml.filePath` (default: the current directory), the same base for every template. An `fs://` template still reads includes from local disk.
+- **`mj-include` base.** Relative include paths resolve against `templates.mjml.filePath` when set (the same base for every template), otherwise against the folder of a local template. An `fs://` template has no local folder, so its includes resolve against the current directory.
 - **Soft validation never fails a render.** With the default `'soft'` level, broken markup is logged as `warn` and the HTML is returned. Use `'strict'` in CI to catch it.
 - **Errors bubble through `Templates`.** A missing file, an empty file (`IOFail: Template file ... is empty`) or a strict validation failure rejects `render()`. When you pass `options.redact`, `Templates` replaces each secret in the error message with `[redacted]`.
-- **`options.onProgress` is never called.** `MjmlRenderer` ignores `IRenderOptions`; it reports no progress phases.
+- **`options.onProgress` is never called.** `MjmlRenderer` forwards `IRenderOptions` to the Handlebars pass, but neither engine reports progress phases.
 - **`lang` is in the model.** The Handlebars pass adds `lang` (the explicit language, else the ambient one, else the default locale) to a copy of the model; the caller's object is not changed.
 - **Calling `MjmlRenderer` directly needs a resolved `Templates`.** It reaches `Templates` through `@LazyInject` on the root container. Render through `Templates`; then the facade is already resolved.
 
