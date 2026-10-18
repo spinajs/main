@@ -6,48 +6,10 @@ import type { IWhereBuilder } from './interfaces.js';
 import { IdentifierQuoter } from './quoting.js';
 import type { WhereFunction } from './types.js';
 
-export type SqlDialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
-
-const DIALECT_CLASSES: readonly (readonly [string, SqlDialect])[] = [
-  ['SqliteOrmDriver', 'sqlite'],
-  ['PostgresOrmDriver', 'postgres'],
-  ['MySqlOrmDriver', 'mysql'],
-  ['MsSqlOrmDriver', 'mssql'],
-];
-
-/** The driver's SQL dialect, from its class chain, else from the name it was registered under (`orm-driver-mysql-ssh` is mysql). */
-export function driverDialect(driver: OrmDriver): SqlDialect {
-  for (let p = driver ? Object.getPrototypeOf(driver) : null; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
-    const hit = DIALECT_CLASSES.find(([name]) => p.constructor?.name === name);
-    if (hit) return hit[1];
-  }
-  const registered = String((driver as { Options?: { Driver?: unknown } } | undefined)?.Options?.Driver ?? '');
-  for (const d of ['sqlite', 'postgres', 'mysql', 'mssql'] as const) {
-    if (registered.includes(d)) return d;
-  }
-  return 'other';
-}
-
 /** `RowsAffected` of an update, delete or insert result; 0 when the driver did not report a number, so an unknown count never reads as success. */
 export function rowsAffected(result: unknown): number {
   const n = (result as { RowsAffected?: unknown } | null | undefined)?.RowsAffected;
   return typeof n === 'number' && Number.isFinite(n) ? n : 0;
-}
-
-/**
- * True when `err`, or an error it wraps (`inner`, `cause`, `originalError`), is a unique or primary key violation:
- * postgres 23505, mysql ER_DUP_ENTRY / 1062, mssql 2627 (key) or 2601 (index), sqlite "UNIQUE constraint failed".
- */
-export function isUniqueViolation(err: unknown): boolean {
-  let e = err as { code?: unknown; errno?: unknown; number?: unknown; message?: unknown; inner?: unknown; cause?: unknown; originalError?: unknown } | undefined;
-  for (let depth = 0; e && typeof e === 'object' && depth < 5; depth++) {
-    // Not ResourceDuplicated itself: the sqlite driver throws it for every constraint failure (NOT NULL, CHECK too).
-    if (e.code === '23505' || e.code === 'ER_DUP_ENTRY' || e.errno === 1062 || e.number === 2627 || e.number === 2601 || /UNIQUE constraint failed/.test(String(e.message))) {
-      return true;
-    }
-    e = (e.inner ?? e.cause ?? e.originalError) as typeof e;
-  }
-  return false;
 }
 
 export interface SqlFragment {
@@ -128,11 +90,7 @@ export function whereInGroups<Q extends IWhereBuilder<any>>(query: Q, groupColum
   });
 }
 
-/** MSSQL takes at most 2100 parameters per statement (some go to the driver) and 1000 rows per `VALUES`. */
-const MAX_PARAMETERS = 2000;
-const MAX_VALUES_ROWS = 1000;
-
-/** Ids per `IN` list that stay under every driver's parameter limit. */
+/** Default values per `IN` list, capped by the driver's {@link OrmDriver.MaxBindings}. */
 export const IN_CHUNK = 1000;
 
 function chunks<T>(list: readonly T[], size: number): T[][] {
@@ -143,13 +101,14 @@ function chunks<T>(list: readonly T[], size: number): T[][] {
 }
 
 /**
- * Inserts `rows` with as few statements as the parameter limits allow, in order; returns the rows inserted.
- * The default rows per statement come from the widest row; pass `rowsPerStatement` to override.
+ * Inserts `rows` with as few statements as the driver's {@link OrmDriver.MaxBindings} and {@link OrmDriver.MaxInsertRows}
+ * allow, in order; returns the rows inserted. The default rows per statement come from the widest row; pass
+ * `rowsPerStatement` to override.
  */
 export async function insertChunked(driver: OrmDriver, table: string, rows: readonly object[], rowsPerStatement?: number): Promise<number> {
   if (rows.length === 0) return 0;
   const columns = Math.max(1, ...rows.map((r) => Object.keys(r).length));
-  const size = rowsPerStatement ?? Math.min(MAX_VALUES_ROWS, Math.max(1, Math.floor(MAX_PARAMETERS / columns)));
+  const size = rowsPerStatement ?? Math.max(1, Math.min(rows.length, driver.MaxInsertRows, Math.floor(driver.MaxBindings / columns)));
   let count = 0;
   for (const part of chunks(rows, size))
     count += rowsAffected(
@@ -164,14 +123,14 @@ export async function insertChunked(driver: OrmDriver, table: string, rows: read
 export interface DeleteChunkedOptions {
   /** Extra condition every delete also checks. */
   readonly where?: WhereFunction<unknown>;
-  /** Values per statement; default {@link IN_CHUNK}. */
+  /** Values per statement; default {@link IN_CHUNK}, or fewer when the driver binds fewer. */
   readonly size?: number;
 }
 
 /** `DELETE FROM table WHERE column IN (…)` over `values`, one statement per chunk; returns the rows deleted. */
 export async function deleteChunked(driver: OrmDriver, table: string, column: string, values: readonly unknown[], options: DeleteChunkedOptions = {}): Promise<number> {
   let count = 0;
-  for (const part of chunks(values, options.size ?? IN_CHUNK)) {
+  for (const part of chunks(values, options.size ?? Math.min(IN_CHUNK, driver.MaxBindings))) {
     const q = driver.del().from(table).whereIn(column, part);
     if (options.where) q.where(options.where);
     count += rowsAffected(await q);
@@ -192,7 +151,6 @@ export interface PurgeBatchOptions {
 /** Deletes up to one batch of the rows `where` matches; returns how many went. */
 export async function purgeBatch(driver: OrmDriver, options: PurgeBatchOptions): Promise<number> {
   const { table, key, where } = options;
-  // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
   const rows = (await driver
     .select()
     .from(table)

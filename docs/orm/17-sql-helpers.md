@@ -1,14 +1,12 @@
 # SQL helpers
 
-Small functions for stores that talk to a connection directly (`driver.select()`, `driver.insert()`, …) instead of through models. They cover what every such store repeats: reading the dialect, counting affected rows, recognising a duplicate key, building SQL with bindings, matching composite keys, and writing or purging rows in batches that stay under every driver's parameter limit.
+Small functions for stores that talk to a connection directly (`driver.select()`, `driver.insert()`, …) instead of through models. They cover what every such store repeats: counting affected rows, building SQL with bindings, matching composite keys, and writing or purging rows in batches that stay under the driver's parameter limits.
 
-All of them are exported from `@spinajs/orm` and work on SQLite, PostgreSQL, MySQL and MSSQL.
+All of them are exported from `@spinajs/orm`. None of them asks which database it runs on. What differs between databases is the driver's job: duplicate keys reject with `ResourceDuplicated`, and statement limits come from the driver.
 
 | Helper | What it does |
 | --- | --- |
-| `driverDialect(driver)` | `'sqlite' \| 'postgres' \| 'mysql' \| 'mssql' \| 'other'`, from the driver class chain, else from the registered driver name |
 | `rowsAffected(result)` | `RowsAffected` of a write result; `0` when the driver reports no number |
-| `isUniqueViolation(err)` | `true` for a unique or primary key violation, also when wrapped in `inner`, `cause` or `originalError` |
 | `sql` | Tagged template that builds a `SqlFragment` (`{ sql, bindings }`), plus `sql.raw`, `sql.join`, `sql.and`, `sql.or`, `sql.TRUE`, `sql.FALSE` |
 | `isSqlFragment(value)` | Type guard for a `SqlFragment` |
 | `toRawQuery(fragment)` | A `RawQuery` for `where()`, `select()` and the other builder methods that take one |
@@ -21,20 +19,22 @@ All of them are exported from `@spinajs/orm` and work on SQLite, PostgreSQL, MyS
 
 ## How it works
 
-### Affected rows and duplicates
+### Affected rows
 
 `rowsAffected()` returns `0` when the result has no numeric `RowsAffected`. A conditional write such as "revoke if not yet revoked" therefore reads an unknown count as "nothing happened", never as success.
 
-`isUniqueViolation()` checks each error in the chain (up to 5 levels):
+### Duplicate keys
 
-| Database | Signal |
+A statement that breaks a unique or primary key constraint rejects with `ResourceDuplicated` (from `@spinajs/exceptions`), its `inner` the error the driver wrapped. Each driver recognises its own server's signal; other constraint failures (`NOT NULL`, `CHECK`, foreign keys) stay `OrmException`.
+
+| Driver | Signal |
 | --- | --- |
 | PostgreSQL | `code === '23505'` |
-| MySQL | `code === 'ER_DUP_ENTRY'` or `errno === 1062` |
-| MSSQL | `number === 2627` (constraint) or `2601` (unique index) |
-| SQLite | message contains `UNIQUE constraint failed` (primary keys report the same text) |
+| MySQL | `errno === 1062` |
+| MSSQL | `number === 2627` (key or constraint) or `2601` (unique index) |
+| SQLite | `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` (primary keys report the same text) |
 
-A `ResourceDuplicated` alone is not enough: the SQLite driver throws it for every constraint failure on insert, `NOT NULL` and `CHECK` included.
+A driver that does not override `isUniqueViolation()` recognises nothing: its violations reject as it threw them.
 
 ### SQL fragments
 
@@ -48,11 +48,11 @@ Row-value `(a, b) IN ((?, ?), …)` is not portable. `whereInGroups()` adds one 
 
 ### Batches
 
-MSSQL accepts at most 2100 parameters per statement and 1000 rows per `VALUES` list. `insertChunked()` picks `min(1000, floor(2000 / columns))` rows per statement from the widest row, and `deleteChunked()` binds `IN_CHUNK` (1000) values per statement. Both run the statements in order and return the summed `rowsAffected()`.
+Each driver declares its server's limits as `MaxBindings` (parameters per statement) and `MaxInsertRows` (rows per `VALUES` list); a driver that declares none has no limit. `insertChunked()` picks `min(MaxInsertRows, floor(MaxBindings / columns))` rows per statement from the widest row, and `deleteChunked()` binds `min(IN_CHUNK, MaxBindings)` values per statement (`IN_CHUNK` is 1000). Both run the statements in order and return the summed `rowsAffected()`.
 
 `purgeBatch()` runs two statements:
 
-1. It selects up to `limit` (default 500) values of `key` from the rows `where` matches, ordered by `key` (MSSQL needs an `ORDER BY` to page).
+1. It selects up to `limit` (default 500) values of `key` from the rows `where` matches, ordered by `key`.
 2. It deletes the rows with those keys that `where` still matches, so a row that changed in between stays.
 
 Pair it with `everyNthCall()` to purge from a hot path now and then instead of on a timer.
@@ -64,7 +64,8 @@ Pair it with `everyNthCall()` to purge from a hot path now and then instead of o
 ## Usage
 
 ```ts sample
-import { OrmDriver, everyNthCall, insertChunked, isUniqueViolation, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { OrmDriver, everyNthCall, insertChunked, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
 
 const purgeNow = everyNthCall(64);
 
@@ -82,7 +83,7 @@ export async function claim(driver: OrmDriver, key: string, expiresAt: Date, now
     await driver.insert().into('nonce').values({ k: key, expires_at: expiresAt });
     return true;
   } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
+    if (!(err instanceof ResourceDuplicated)) throw err;
   }
   // Take over an expired claim; an unknown row count is not a win.
   return rowsAffected(await driver.update().in('nonce').update({ expires_at: expiresAt }).where('k', key).where('expires_at', '<=', now)) === 1;

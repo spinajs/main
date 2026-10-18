@@ -4,6 +4,7 @@ import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, Iso
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
@@ -64,6 +65,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * documentation lie for every other driver.
    */
   public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {};
+
+  /** Most bound parameters one statement may carry. Drivers set their server's limit. */
+  public readonly MaxBindings: number = Number.POSITIVE_INFINITY;
+
+  /** Most rows one `INSERT … VALUES` may list. Drivers set their server's limit. */
+  public readonly MaxInsertRows: number = Number.POSITIVE_INFINITY;
 
   /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
@@ -191,6 +198,27 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   protected isRetryableError(err: unknown): boolean {
     return isRetryableErrorCode(err);
+  }
+
+  /**
+   * True when `err`, as the database client threw it, is a unique or primary key violation.
+   * Drivers override with their server's codes; the default recognises none.
+   */
+  protected isUniqueViolation(_err: unknown): boolean {
+    return false;
+  }
+
+  /**
+   * The error a failed statement rejects with: a unique or primary key violation, found in
+   * `err` or the errors it wraps, becomes {@link ResourceDuplicated}; anything else is `err` itself.
+   */
+  protected translateError(err: unknown): unknown {
+    // a driver may already map its own duplicates (sqlite inserts do)
+    if (err instanceof ResourceDuplicated) return err;
+    for (let e = err, depth = 0; e && depth < 5; e = (e as { inner?: unknown }).inner, depth++) {
+      if (this.isUniqueViolation(e)) return new ResourceDuplicated((e as Error).message, err);
+    }
+    return err;
   }
 
   /**

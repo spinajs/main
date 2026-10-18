@@ -84,6 +84,9 @@ export class PostgresOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  /** The wire protocol counts parameters in an Int16. */
+  public readonly MaxBindings = 65535;
+
   /**
    * pg hands NUMERIC/DECIMAL and BIGINT back as STRINGS: both can exceed 2^53, where a
    * float loses exactly the precision those types exist to keep, so node-postgres refuses
@@ -100,6 +103,10 @@ export class PostgresOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport
     // failures, where the statement provably never reached the server.
     return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+  }
+
+  protected isUniqueViolation(err: unknown): boolean {
+    return (err as { code?: unknown })?.code === '23505';
   }
 
   protected isRetryableError(err: unknown): boolean {

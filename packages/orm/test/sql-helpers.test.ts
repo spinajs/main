@@ -1,33 +1,31 @@
 import * as chai from 'chai';
 import 'mocha';
-import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 import { OrmDriver } from '../src/driver.js';
-import { driverDialect, everyNthCall, isSqlFragment, isUniqueViolation, rowsAffected, sql } from '../src/sql-helpers.js';
+import { everyNthCall, insertChunked, isSqlFragment, rowsAffected, sql } from '../src/sql-helpers.js';
 
 const expect = chai.expect;
 
-const fakeDriver = (className: string, registeredAs?: string): OrmDriver => {
-  const cls = { [className]: class {} }[className];
-  return Object.assign(new cls(), { Options: { Driver: registeredAs } }) as unknown as OrmDriver;
+const recordingDriver = (limits: { MaxBindings?: number; MaxInsertRows?: number }) => {
+  const statements: object[][] = [];
+  const driver = {
+    MaxBindings: Number.POSITIVE_INFINITY,
+    MaxInsertRows: Number.POSITIVE_INFINITY,
+    ...limits,
+    insert: () => ({
+      into: () => ({
+        values: (rows: object[]) => {
+          statements.push(rows);
+          return Promise.resolve({ RowsAffected: rows.length });
+        },
+      }),
+    }),
+  };
+  return { driver: driver as unknown as OrmDriver, statements };
 };
 
 describe('sql helpers', () => {
-  describe('driverDialect', () => {
-    it('reads the dialect from the class chain', () => {
-      class SqliteOrmDriver {}
-      class Custom extends SqliteOrmDriver {}
-      expect(driverDialect(new Custom() as unknown as OrmDriver)).to.equal('sqlite');
-      expect(driverDialect(fakeDriver('MsSqlOrmDriver'))).to.equal('mssql');
-    });
-
-    it('falls back to the registered driver name', () => {
-      expect(driverDialect(fakeDriver('X', 'orm-driver-postgres'))).to.equal('postgres');
-      expect(driverDialect(fakeDriver('X', 'orm-driver-mysql-ssh'))).to.equal('mysql');
-      expect(driverDialect(fakeDriver('X', 'orm-driver-oracle'))).to.equal('other');
-    });
-  });
-
   describe('rowsAffected', () => {
     it('reads RowsAffected', () => {
       expect(rowsAffected({ RowsAffected: 3, LastInsertId: 0 })).to.equal(3);
@@ -41,30 +39,25 @@ describe('sql helpers', () => {
     });
   });
 
-  describe('isUniqueViolation', () => {
-    it('recognises each dialect', () => {
-      expect(isUniqueViolation({ code: '23505' })).to.equal(true);
-      expect(isUniqueViolation({ code: 'ER_DUP_ENTRY', errno: 1062 })).to.equal(true);
-      expect(isUniqueViolation({ errno: 1062 })).to.equal(true);
-      expect(isUniqueViolation({ number: 2627 })).to.equal(true);
-      expect(isUniqueViolation({ number: 2601 })).to.equal(true);
-      expect(isUniqueViolation(new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: t.k'))).to.equal(true);
+  describe('insertChunked', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ a: i, b: i, c: i }));
+
+    it('splits rows by the driver binding limit', async () => {
+      const { driver, statements } = recordingDriver({ MaxBindings: 9 });
+      expect(await insertChunked(driver, 't', rows)).to.equal(10);
+      expect(statements.map((s) => s.length)).to.deep.equal([3, 3, 3, 1]);
     });
 
-    it('walks inner, cause and originalError', () => {
-      expect(isUniqueViolation({ inner: { cause: { originalError: { number: 2627 } } } })).to.equal(true);
-      expect(isUniqueViolation(new Error('wrapped', { cause: { code: '23505' } }))).to.equal(true);
+    it('splits rows by the driver row limit', async () => {
+      const { driver, statements } = recordingDriver({ MaxInsertRows: 4 });
+      await insertChunked(driver, 't', rows);
+      expect(statements.map((s) => s.length)).to.deep.equal([4, 4, 2]);
     });
 
-    it('does not take every sqlite constraint failure for a duplicate', () => {
-      expect(isUniqueViolation(new ResourceDuplicated(String(new Error('SQLITE_CONSTRAINT: NOT NULL constraint failed: t.k'))))).to.equal(false);
-      expect(isUniqueViolation(new ResourceDuplicated(String(new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: t.k'))))).to.equal(true);
-    });
-
-    it('is false for other errors and non-errors', () => {
-      for (const e of [undefined, null, 'UNIQUE', 42, { code: '23503' }, { number: 547 }, new Error('boom')]) {
-        expect(isUniqueViolation(e)).to.equal(false);
-      }
+    it('sends one statement when the driver sets no limit', async () => {
+      const { driver, statements } = recordingDriver({});
+      await insertChunked(driver, 't', rows);
+      expect(statements.map((s) => s.length)).to.deep.equal([10]);
     });
   });
 

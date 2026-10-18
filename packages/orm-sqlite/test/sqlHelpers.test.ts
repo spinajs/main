@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { DI } from '@spinajs/di';
-import { bumpVersionRow, deleteChunked, driverDialect, insertChunked, isUniqueViolation, OrmDriver, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { bumpVersionRow, deleteChunked, insertChunked, OrmDriver, OrmException, purgeBatch, rowsAffected, sql, toRawQuery, whereInGroups } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import { db } from './common.js';
@@ -27,10 +28,6 @@ describe('sql helpers on sqlite', function () {
 
   afterEach(() => DI.clearCache());
 
-  it('reads the dialect of the driver', () => {
-    expect(driverDialect(driver())).to.equal('sqlite');
-  });
-
   it('inserts in chunks and counts the rows', async () => {
     const rows = Array.from({ length: 7 }, (_, i) => ({ type: i % 2 ? 'a' : 'b', id: String(i), n: i }));
     const { statements, restore } = captureStatements();
@@ -43,12 +40,13 @@ describe('sql helpers on sqlite', function () {
     expect((await items()).map((r) => r.n).sort()).to.deep.equal([0, 1, 2, 3, 4, 5, 6]);
   });
 
-  it('tells a duplicate key from another constraint failure', async () => {
+  it('rejects a duplicate key with ResourceDuplicated, other constraint failures with OrmException', async () => {
     await insertChunked(driver(), 'helper_item', [{ type: 'a', id: '1', n: 1 }]);
     const fail = async (row: object) => driver().insert().into('helper_item').values(row).then(() => undefined, (err: unknown) => err);
 
-    expect(isUniqueViolation(await fail({ type: 'a', id: '1', n: 2 }))).to.equal(true);
-    expect(isUniqueViolation(await fail({ type: 'a', id: '2', n: null }))).to.equal(false);
+    expect(await fail({ type: 'a', id: '1', n: 2 })).to.be.instanceOf(ResourceDuplicated);
+    const notNull = await fail({ type: 'a', id: '2', n: null });
+    expect(notNull).to.be.instanceOf(OrmException).and.not.instanceOf(ResourceDuplicated);
   });
 
   it('counts updated rows', async () => {
