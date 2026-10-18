@@ -1,4 +1,7 @@
-import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler, SqliteAlterColumnQueryCompiler, SqliteCreateDatabaseQueryCompiler, SqliteDropDatabaseQueryCompiler, SqliteCreateViewCompiler, SqliteLimitQueryCompiler } from './compilers.js';
+import { NotSupported } from '@spinajs/exceptions';
+import { SqliteSqlExpressions } from './expressions.js';
+import { createTableParts, definedColumn, modifiedDefinition } from './rebuild.js';
+import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler, SqliteAlterColumnQueryCompiler, SqliteCreateDatabaseQueryCompiler, SqliteDropDatabaseQueryCompiler, SqliteCreateViewCompiler, SqliteLimitQueryCompiler, SqliteIndexQueryCompiler } from './compilers.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -11,13 +14,14 @@ export * from './compilers.js';
 export * from './statements.js';
 export * from './builders.js';
 export * from './converters.js';
+export * from './expressions.js';
 
 // Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
 // IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -201,7 +205,8 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   protected _executeOnDbOnce(handle: sqlite3.Database, stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
-    const queryParams = params ?? [];
+    // Raw SQL bypasses the builder's value converters; sqlite3 would bind a Date as epoch milliseconds, never matching a stored datetime.
+    const queryParams = (params ?? []).map((p) => (p instanceof Date ? this.Container.resolve(DatetimeValueConverter).toDB(p, null as any, null as any) : p));
     const self = this;
 
     return new Promise((resolve, reject) => {
@@ -293,7 +298,7 @@ export class SqliteOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false };
   }
 
   public async ping(): Promise<boolean> {
@@ -435,6 +440,8 @@ export class SqliteOrmDriver extends SqlDriver {
     // SQLite accepts MySQL's backticks. Registered explicitly rather than inherited:
     // nothing dialect-specific is registered in the shared base any more.
     this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(SqliteSqlExpressions).as(SqlExpressions);
+    this.Container.register(SqliteIndexQueryCompiler).as(IndexQueryCompiler);
 
     // Shared implementations that happen to be valid SQLite, claimed explicitly.
     // `CREATE TABLE ... LIKE` is deliberately NOT among them: SQLite has no such
@@ -522,6 +529,70 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param name - table name to retrieve info
    * @param _schema - optional schema name
    */
+  /**
+   * sqlite has no ALTER COLUMN, so a builder that modifies columns rebuilds the table as
+   * https://sqlite.org/lang_altertable.html#otheralter describes: each modified definition is replaced,
+   * the rest of the table, its rows, indexes and triggers are kept.
+   */
+  public execute(builder: Builder<any>) {
+    if (builder instanceof AlterTableQueryBuilder && builder.Columns.some((c) => (c as AlterColumnQueryBuilder).AlterType === ColumnAlterationType.Modify)) {
+      return this.modifyByRebuild(builder);
+    }
+    return super.execute(builder);
+  }
+
+  protected async modifyByRebuild(builder: AlterTableQueryBuilder): Promise<void> {
+    const columns = builder.Columns as AlterColumnQueryBuilder[];
+    if (builder.DroppedColumns.length > 0 || builder.NewTableName || columns.some((c) => c.AlterType !== ColumnAlterationType.Modify)) {
+      throw new NotSupported(`sqlite modifies columns of ${builder.Table} by rebuilding it: alter them in an alterTable() of their own`);
+    }
+
+    const q = this.Container.resolve(IdentifierQuoter);
+    const table = q.quote(builder.Table);
+    const raw = (sql: string, bindings: unknown[] = []) => this.executeOnDb(sql, bindings, QueryContext.Select) as Promise<any[]>;
+
+    await this.transaction(async () => {
+      const [definition] = await raw(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, [builder.Table]);
+      if (!definition) throw new OrmException(`sqlite cannot modify columns of ${builder.Table}: no such table`);
+
+      // With foreign keys enforced, dropping a referenced table deletes or rejects the rows that reference it.
+      const [{ foreign_keys }] = await raw('PRAGMA foreign_keys');
+      if (foreign_keys) {
+        const tables = (await raw(`SELECT name FROM sqlite_master WHERE type = 'table' AND name <> ?`, [builder.Table])) as { name: string }[];
+        for (const { name } of tables) {
+          const keys = (await raw(`PRAGMA foreign_key_list(${q.quote(name)})`)) as { table: string }[];
+          if (keys.some((k) => k.table.toLowerCase() === builder.Table.toLowerCase())) {
+            throw new NotSupported(`sqlite cannot rebuild ${builder.Table} while foreign keys are enforced: ${name} references it`);
+          }
+        }
+      }
+
+      const { body, tail } = createTableParts(definition.sql);
+      for (const column of columns) {
+        const at = body.findIndex((d) => definedColumn(d)?.toLowerCase() === column.Name.toLowerCase());
+        if (at < 0) throw new OrmException(`sqlite cannot modify column ${column.Name}: table ${builder.Table} has none`);
+        const compiled = this.Container.resolve<ColumnQueryCompiler>(ColumnQueryCompiler, [column]).compile().expression as string;
+        body[at] = modifiedDefinition(body[at], column, compiled);
+      }
+
+      const dependents = (await raw(`SELECT sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL`, [builder.Table])) as { sql: string }[];
+      const names = ((await raw(`PRAGMA table_info(${table})`)) as { name: string }[]).map((c) => q.quote(c.name)).join(', ');
+      const next = q.quote(`${builder.Table}__rebuild`);
+
+      await raw(`CREATE TABLE ${next} (${body.join(', ')}) ${tail}`);
+      await raw(`INSERT INTO ${next} (${names}) SELECT ${names} FROM ${table}`);
+      await raw(`DROP TABLE ${table}`);
+      await raw(`ALTER TABLE ${next} RENAME TO ${table}`);
+      for (const { sql } of dependents) await raw(sql);
+    });
+  }
+
+  // A write statement takes the database's RESERVED lock, which keeps every other writer out until the transaction ends.
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`DELETE FROM ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} WHERE 0`);
+  }
+
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
     // An absent converter map is a normal state here, not a bug to assert away. The map lives in
     // the container CACHE and is put there by `Orm.registerDefaultConverters()`, which runs AFTER

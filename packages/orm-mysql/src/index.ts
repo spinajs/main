@@ -1,11 +1,12 @@
 /* eslint-disable promise/no-promise-in-callback */
+import { MySqlSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
 // No LogLevel import: master moved per-query timing out of every driver and into a single
 // `Perf.measure('orm.query', ...)` around SqlDriver.execute, so duplicating it here would
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, SqlExpressions } from '@spinajs/orm';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlColumnQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -18,6 +19,8 @@ import { Duplex, PassThrough } from 'stream';
 
 export * from './compilers.js';
 export * from './statements.js';
+
+export * from './expressions.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
@@ -246,7 +249,7 @@ export class MySqlOrmDriver extends SqlDriver {
     // ( row count known before execution ), so it reserves one contiguous block of
     // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
     // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
-    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true };
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true };
   }
 
   public resolve() {
@@ -269,6 +272,7 @@ export class MySqlOrmDriver extends SqlDriver {
      * `CURRENT_DATE()`; MySQL is the database that understands all of it.
      */
     this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(MySqlSqlExpressions).as(SqlExpressions);
     this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(SqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(SqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
@@ -434,6 +438,12 @@ export class MySqlOrmDriver extends SqlDriver {
         }
       });
     });
+  }
+
+  // A shared lock on every row it reads, and under REPEATABLE READ on the gaps between them, which keeps inserts out too.
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`SELECT COUNT(*) FROM ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} FOR SHARE`);
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {

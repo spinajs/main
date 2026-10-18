@@ -69,6 +69,9 @@ export interface ISupportedFeature {
    * the batch key backfill rather than getting wrong keys.
    */
   insertIdIsFirstOfBatch?: boolean;
+
+  /** Has a JSON column type of its own, rather than storing `json()` columns as text. Unset reads as false. */
+  nativeJson?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {

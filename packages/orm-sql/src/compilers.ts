@@ -580,10 +580,19 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
+    if (this._builder.Drop) {
+      return { bindings: [], expression: this._drop() };
+    }
+
     return {
       bindings: [],
       expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${this.Quoter.quote(this._builder.Name)} ON ${this.Quoter.quote(this._builder.Table)} (${this._builder.Columns.map((c) => this.Quoter.quote(c)).join(',')});`,
     };
+  }
+
+  /** MySQL and MSSQL name the table; dialects with schema-wide index names override. */
+  protected _drop(): string {
+    return `DROP INDEX ${this.Quoter.quote(this._builder.Name)} ON ${this.Quoter.quote(this._builder.Table)}`;
   }
 }
 
@@ -851,10 +860,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     }
 
     if (this.builder.NewTableName) {
-      _outputs.push({
-        bindings: [],
-        expression: `${_table} RENAME TO ${this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.NewTableName)}`,
-      });
+      _outputs.push(this._renameTable());
     }
 
     if (this.builder.Columns.length !== 0) {
@@ -883,6 +889,13 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     }
 
     return _outputs;
+  }
+
+  protected _renameTable(): ICompilerOutput {
+    return {
+      bindings: [],
+      expression: `${this._table()} RENAME TO ${this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.NewTableName)}`,
+    };
   }
 
   protected _table() {
@@ -1166,6 +1179,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     unsigned: () => 'UNSIGNED',
     charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${escapeStringLiteral(builder.Charset)}'`,
     collation: (builder: ColumnQueryBuilder) => `COLLATE '${escapeStringLiteral(builder.Collation)}'`,
+    exact: () => 'CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',
     notnull: () => `NOT NULL`,
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
@@ -1192,6 +1206,9 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     }
     if (this.builder.Collation) {
       _stmt.push(this._statementsMappings.collation(this.builder));
+    }
+    if (this.builder.Exact) {
+      _stmt.push(this._statementsMappings.exact());
     }
     if (this.builder.NotNull) {
       _stmt.push(this._statementsMappings.notnull());
