@@ -1,5 +1,6 @@
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
@@ -10,6 +11,9 @@ import _ from 'lodash';
  */
 export interface ISqsConnectionOptions {
   region?: string;
+  /**
+   * @deprecated Never read by the transport. Use `defaultQueueChannel`, `defaultTopicChannel` or `queue.routing`.
+   */
   queueUrl?: string;
   endpoint?: string;
   waitTimeSeconds?: number;
@@ -39,7 +43,15 @@ export interface ISqsConnectionOptions {
  */
 interface ISqsSubscriptionDescriptor {
   url: string;
+  /**
+   * Runs every entry of {@link handlers} in turn. Several message types can share one
+   * queue URL, so one poll loop serves all of them.
+   */
   callback: (e: IQueueMessage) => Promise<void>;
+  /**
+   * Subscribers of this URL keyed by message class name, or by the URL for a raw string subscribe.
+   */
+  handlers: Map<string, (e: IQueueMessage) => Promise<void>>;
   running: boolean;
   controller: AbortController;
   /**
@@ -65,6 +77,12 @@ export class SqsQueueClient extends QueueClient {
    */
   protected Subscriptions = new Map<string, ISqsSubscriptionDescriptor>();
 
+  /**
+   * Poll loops still running, including ones already stopped by {@link unsubscribe}.
+   * {@link dispose} waits for them so no handler is cut off from the SQSClient.
+   */
+  protected Loops = new Set<Promise<void>>();
+
   constructor(options: IQueueConnectionOptions) {
     super(options);
   }
@@ -84,6 +102,8 @@ export class SqsQueueClient extends QueueClient {
       endpoint: o.endpoint,
       credentials: o.credentials,
     });
+
+    await super.resolve();
 
     this.Log.info({ connection: this.Options.name, region: o.region ?? '<default>', endpoint: o.endpoint ?? '<default>' }, 'SQS queue client ${connection} resolved ( region: ${region}, endpoint: ${endpoint} )');
   }
@@ -107,16 +127,34 @@ export class SqsQueueClient extends QueueClient {
     // mirror STOMP's overload handling: a raw string is the queue URL itself,
     // a message class is resolved through the routing table.
     const urls = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
+    const key = _.isString(channelOrMessage) ? channelOrMessage : channelOrMessage.name;
+
+    if (urls.length === 0 || urls.some((url) => !url)) {
+      throw new InvalidArgument(`No SQS queue URL for ${key} on connection ${this.Options.name}: set a queue.routing entry, defaultQueueChannel or defaultTopicChannel`);
+    }
 
     urls.forEach((url) => {
-      if (this.Subscriptions.has(url)) {
-        this.Log.warn({ queueUrl: url }, 'SQS queue ${queueUrl} already subscribed !');
+      const existing = this.Subscriptions.get(url);
+
+      if (existing) {
+        if (existing.handlers.has(key)) {
+          this.Log.warn({ queueUrl: url }, 'SQS queue ${queueUrl} already subscribed !');
+        } else {
+          existing.handlers.set(key, callback);
+          this.Log.success({ queueUrl: url, key }, 'SQS queue ${queueUrl} subscribed for ${key} on the existing poll loop !');
+        }
         return;
       }
 
+      const handlers = new Map([[key, callback]]);
       const desc: ISqsSubscriptionDescriptor = {
         url,
-        callback,
+        handlers,
+        callback: async (e) => {
+          for (const h of [...handlers.values()]) {
+            await h(e);
+          }
+        },
         running: true,
         controller: new AbortController(),
         exited: false,
@@ -127,7 +165,8 @@ export class SqsQueueClient extends QueueClient {
       // detached loop - subscribe returns as soon as the poll loop is started,
       // it is NOT awaited. Errors inside the loop must never escape ( there is no
       // caller to catch them ), so pollLoop swallows/logs everything itself.
-      void this.pollLoop(desc);
+      const loop = this.pollLoop(desc).finally(() => this.Loops.delete(loop));
+      this.Loops.add(loop);
 
       this.Log.success({ queueUrl: url }, 'SQS queue ${queueUrl} subscribed and polling for messages !');
     });
@@ -279,6 +318,15 @@ export class SqsQueueClient extends QueueClient {
         return;
       }
 
+      // a message class leaves the loop to the other types still subscribed on the URL
+      if (!_.isString(channelOrMessage)) {
+        desc.handlers.delete(channelOrMessage.name);
+
+        if (desc.handlers.size !== 0) {
+          return;
+        }
+      }
+
       this.stop(desc);
       this.Subscriptions.delete(url);
 
@@ -294,6 +342,10 @@ export class SqsQueueClient extends QueueClient {
     }
 
     this.Subscriptions.clear();
+
+    // the abort reaches only ReceiveMessage: a handler already running still
+    // finishes and needs the SQSClient for its DeleteMessage
+    await Promise.all([...this.Loops]);
 
     this.Sqs?.destroy();
 
