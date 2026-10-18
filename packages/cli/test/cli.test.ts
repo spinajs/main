@@ -2,7 +2,7 @@ import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { spy, restore } from 'sinon';
+import { spy, stub, restore } from 'sinon';
 import { expect } from 'chai';
 
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
 import { Cli } from './../src/index.js';
-import { META_ARGUMENT } from './../src/decorators.js';
+import { META_ARGUMENT, META_OPTION, Option } from './../src/decorators.js';
 import { TestCommand } from './commands/TestCommand.js';
 import { TestCommand2 } from './commands/TestCommand2.js';
 import { TestCommand3 } from './commands/TestCommand3.js';
@@ -23,6 +23,8 @@ import { TestCommandEnv } from './commands/TestCommandEnv.js';
 import { TestCommandConfigKey } from './commands/TestCommandConfigKey.js';
 import { TestCommandAdvOpts } from './commands/TestCommandAdvOpts.js';
 import { TestSideEffectCommand } from './commands/TestSideEffectCommand.js';
+import { TestCommandInlineArgs } from './commands/TestCommandInlineArgs.js';
+import { TestAsyncOnCreationCommand } from './commands/TestAsyncOnCreationCommand.js';
 
 
 //const expect = chai.expect;
@@ -338,5 +340,63 @@ describe('Commands', () => {
     DI.register(() => ['node', 'script.js', '--version']).as('__cli_argv_provider__');
 
     await expect(c()).to.be.fulfilled;
+  });
+
+  it('Should take arguments declared in nameAndArgs', async () => {
+    const execute = spy(TestCommandInlineArgs.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'greet', 'World']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.eq('World');
+  });
+
+  it('Should apply command opts such as hidden', async () => {
+    const write = stub(process.stdout, 'write').returns(true);
+
+    try {
+      DI.register(() => ['node', 'script.js', '--help']).as('__cli_argv_provider__');
+      await c();
+    } finally {
+      write.restore();
+    }
+
+    const help = write.args.map((a) => String(a[0])).join('');
+    expect(help).to.contain('test-command');
+    expect(help).to.not.contain('hidden-cmd');
+  });
+
+  it('Should run the parser of an option that also has choices', async () => {
+    const execute = spy(TestCommandChoices.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'choice-cmd', 'red', '-l', '2']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][1]).to.have.property('level', 2);
+  });
+
+  it('Should not add a subclass option to the decorated parent command', () => {
+    @Option('--extra', false, 'subclass only')
+    class ExtendedCommand extends TestCommand {}
+
+    const parent = Reflect.getMetadata(META_OPTION, TestCommand) as Array<{ flags: string }>;
+    const child = Reflect.getMetadata(META_OPTION, ExtendedCommand) as Array<{ flags: string }>;
+    expect(parent.map((o) => o.flags)).to.deep.eq(['-t, --timeout <timeout>']);
+    expect(child.map((o) => o.flags)).to.deep.eq(['--extra', '-t, --timeout <timeout>']);
+  });
+
+  it('Should await an async onCreation before parsing', async () => {
+    const execute = spy(TestAsyncOnCreationCommand.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'async-creation-cmd', '--late', 'x']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.have.property('late', 'x');
   });
 });
