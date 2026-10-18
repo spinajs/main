@@ -21,8 +21,8 @@ const MAX_PORT_ATTEMPTS = 10;
 export class LocalAssetServer {
   /**
    * @param log - logger for lifecycle traces
-   * @param portRange - supplies the optional [min, max] port range; when absent
-   *   an OS-assigned port (0) is used, which cannot collide.
+   * @param portRange - supplies the optional [min, max] port range (the last two
+   *   elements are read); when absent an OS-assigned port (0) is used, which cannot collide.
    */
   constructor(private readonly log: Log, private readonly portRange: () => number[] | undefined) {}
 
@@ -35,10 +35,12 @@ export class LocalAssetServer {
     const range = this.portRange();
     const hasRange = !!range && range.length > 0;
     const maxAttempts = hasRange ? MAX_PORT_ATTEMPTS : 1;
+    // config arrays merge by concatenation, so an app's range is appended after the shipped one
+    const [min, max] = hasRange ? range!.slice(-2) : [];
     let lastErr: any;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const port = hasRange ? _.random(range![0], range![1]) : 0;
+      const port = hasRange ? _.random(min, max) : 0;
 
       try {
         return await this.listenOnce(basePath, port);

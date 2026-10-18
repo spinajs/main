@@ -130,4 +130,14 @@ describe("RateLimitFilter", () => {
     // second for logger a within window -> dropped
     expect(f.apply(entry(LogLevel.Info, "z", { logger: "a" }))).to.eq(null);
   });
+
+  it("drops every entry with limit 0", () => {
+    const f = new RateLimitFilter({ type: "RateLimitFilter", limit: 0, intervalSeconds: 10 }, () => 0);
+    expect(f.apply(entry(LogLevel.Info, "a"))).to.eq(null);
+  });
+
+  it("rejects a missing or zero intervalSeconds", () => {
+    expect(() => new RateLimitFilter({ type: "RateLimitFilter", limit: 1 } as any)).to.throw(/intervalSeconds/);
+    expect(() => new RateLimitFilter({ type: "RateLimitFilter", limit: 1, intervalSeconds: 0 })).to.throw(/intervalSeconds/);
+  });
 });

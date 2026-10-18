@@ -9,8 +9,8 @@ A select such as `Order.where('Status', 'paid').orderBy('PaidAt').take(20).skip(
 1. `SqlSelectQueryCompiler` (shared) assembles `SELECT ... FROM ... WHERE ... ORDER BY ... <limit>` and resolves each part from the driver's container.
 2. **Identifiers.** Every compiler quotes through `IdentifierQuoter`, which is `BracketIdentifierQuoter`: `[name]`, with an embedded `]` doubled. `quoteQualified('dbo.users')` gives `[dbo].[users]`.
 3. **Table name.** `MsSqlTableAliasCompiler.compile(builder)` writes `[database].` when the builder carries a database (model queries carry the connection's `Database`; `driver.select().from('t')` does not), `[schema].` when `Options.Schema` is set, then `[table]`, then ` as [alias]` when the builder has an alias. Generated aliases use the `#` separator: `[#orders#]`.
-4. **Sort.** `MsSqlOrderByCompiler` writes ` ORDER BY [column] ASC|DESC` for the **first** sort only (`getSort()`).
-5. **Paging.** `MsSqlLimitCompiler` writes ` OFFSET ? ROWS FETCH NEXT ? ROWS ONLY` with bindings `[max(offset, 0), limit]`, only when `limit > 0`.
+4. **Sort.** `MsSqlOrderByCompiler` writes ` ORDER BY [column] ASC|DESC` for every sort, comma-separated (`getSorts()`).
+5. **Paging.** `MsSqlLimitCompiler` writes ` OFFSET ? ROWS FETCH NEXT ? ROWS ONLY` with bindings `[max(offset, 0), limit]` when `limit > 0`, and ` OFFSET ? ROWS` alone when only `skip()` was called. When the query has no sort it first writes ` ORDER BY (SELECT NULL)`, because T-SQL rejects `OFFSET` without `ORDER BY`.
 6. `executeOnDb()` strips backticks and renames placeholders; see [Executing statements](02-executing-statements.md).
 
 Result for the example, with `Database: 'shop'` and `Options.Schema: 'dbo'` on the connection:
@@ -23,7 +23,7 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 
 | Builder call | Class | T-SQL |
 | --- | --- | --- |
-| `driver.del().from('t').where(...).take(n)` | `MsSqlDeleteQueryCompiler` | `DELETE TOP n FROM <table> WHERE ...` (no `TOP` without a limit) |
+| `driver.del().from('t').where(...).take(n)` | `MsSqlDeleteQueryCompiler` | `DELETE TOP (n) FROM <table> WHERE ...` (no `TOP` without a limit) |
 | `whereInSet('Roles', ['admin'])` | `MsSqlInSetStatement` | `(CHARINDEX(?, ',' + ISNULL([Roles], '') + ',') > 0)`, bound `',admin,'` |
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
 | `whereInSet('Roles', [])` / negated | `MsSqlInSetStatement` | `(1 = 0)` / `(1 = 1)` |
@@ -41,14 +41,14 @@ All registered in the driver's child container by `MsSqlOrmDriver.resolve()`; no
 | Literal quoting | `LiteralQuoter`, new instance | `MsSqlLiteralQuoter` | `SqlLiteralQuoter` (`@spinajs/orm-sql`, `'...'` without `N`) | Extend `SqlLiteralQuoter`, override `quoteString()`, `quoteBoolean()` or `quoteDate()`, register `.as(LiteralQuoter)`. |
 | Table names | `TableAliasCompiler` | `MsSqlTableAliasCompiler` | `SqlTableAliasCompiler` (no schema) | Implement `TableAliasCompiler.compile(builder, tbl?)`, register `.as(TableAliasCompiler)`. |
 | Paging | `LimitQueryCompiler`, new instance | `MsSqlLimitCompiler` | `SqlLimitQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlLimitQueryCompiler`, override `compile()`. The builder passed in is the select builder, so `getSorts()` is available. |
-| Sorting | `OrderByQueryCompiler`, new instance | `MsSqlOrderByCompiler` (first sort only) | `SqlOrderByQueryCompiler` (every sort, quoted through `IdentifierQuoter`) | Register `SqlOrderByQueryCompiler` `.as(OrderByQueryCompiler)` for multi-column sorting. |
+| Sorting | `OrderByQueryCompiler`, new instance | `MsSqlOrderByCompiler` (every sort, direction normalized to `ASC` / `DESC`) | `SqlOrderByQueryCompiler` (every sort, direction as given) | Extend `SqlOrderByQueryCompiler`, override `compile()`, register `.as(OrderByQueryCompiler)`. |
 | Deletes | `DeleteQueryCompiler`, new instance | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlDeleteQueryCompiler`, override `compile()` or `from()`. |
 | Set membership | `InSetStatement`, new instance | `MsSqlInSetStatement` | `SqlInSetStatement` (`FIND_IN_SET`, MySQL only) | Extend `InSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
 | Recursive CTE | `RecursiveQueryCompiler` | **none** | `SqlRecursiveQueryCompiler` (`WITH RECURSIVE`, not T-SQL) | Implement `RecursiveQueryCompiler` with `WITH cte AS (...)` and register it. |
 
 ### Paging: custom implementation
 
-T-SQL rejects `OFFSET` without `ORDER BY`, and the stock compiler ignores `skip()` without `take()`. This compiler adds a neutral `ORDER BY (SELECT NULL)` when the query has no sort, and pages with `skip()` alone.
+Extend `SqlLimitQueryCompiler` and override `compile()`. This one sorts unsorted pages by the first column instead of the neutral `(SELECT NULL)`, so the page order is stable:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -57,7 +57,7 @@ import { SqlLimitQueryCompiler } from '@spinajs/orm-sql';
 import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
 
 @NewInstance()
-export class SafePagingLimitCompiler extends SqlLimitQueryCompiler {
+export class StablePagingLimitCompiler extends SqlLimitQueryCompiler {
   public compile(): ICompilerOutput {
     const { limit = 0, offset = 0 } = this._builder.getLimits();
 
@@ -66,7 +66,7 @@ export class SafePagingLimitCompiler extends SqlLimitQueryCompiler {
     }
 
     const sorted = (this._builder as unknown as IOrderByBuilder).getSorts().length > 0;
-    const order = sorted ? '' : ' ORDER BY (SELECT NULL)';
+    const order = sorted ? '' : ' ORDER BY 1';
 
     return limit > 0
       ? { bindings: [Math.max(offset, 0), limit], expression: `${order} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY` }
@@ -79,7 +79,7 @@ export class SafePagingLimitCompiler extends SqlLimitQueryCompiler {
 export class PagingMsSqlDriver extends MsSqlOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(SafePagingLimitCompiler).as(LimitQueryCompiler);
+    this.Container.register(StablePagingLimitCompiler).as(LimitQueryCompiler);
   }
 }
 ```
@@ -122,10 +122,9 @@ export class OdbcDatesMsSqlDriver extends MsSqlOrmDriver {
 
 ## Important behaviour
 
-- **Paging needs a sort.** `take()`, `first()` and `skip().take()` emit `OFFSET ... FETCH`, which SQL Server rejects without `ORDER BY`. The model statics `Model.get()`, `Model.first()` and `Model.last()` add a sort; a builder chain you write needs `orderBy()`.
-- **`skip()` without `take()` does nothing.** No `OFFSET` clause is emitted when the limit is `0`.
-- **Only the first sort is used.** `orderBy('LastName').orderBy('FirstName')` orders by `LastName` only. Register `SqlOrderByQueryCompiler` for all of them.
-- **`DELETE TOP n` has no parentheses.** SQL Server requires `DELETE TOP (n)`, so `del().take(n)` fails at the server. Without `take()` the statement is a plain `DELETE`.
+- **An unsorted page has no defined order.** `take()`, `first()` and `skip()` without `orderBy()` get `ORDER BY (SELECT NULL)`, which SQL Server accepts but which does not keep the order stable between pages.
+- **`skip()` without `take()` skips rows** with `OFFSET ? ROWS` and returns all the rest.
+- **`del().take(n)` deletes any `n` matching rows.** `DELETE TOP (n)` takes no `ORDER BY`. Without `take()` the statement is a plain `DELETE`.
 - **Every backtick is removed** from the statement text before sending. `MsSqlLiteralQuoter` throws `InvalidArgument` for a value containing one, instead of letting it vanish.
 - **`whereInSet()` throws `InvalidArgument`** for a value containing the set delimiter `,`.
 - **The schema prefix applies to every table.** One connection has one `Options.Schema`; for a table in another schema, use a second connection or a `RawQuery`.
@@ -133,13 +132,12 @@ export class OdbcDatesMsSqlDriver extends MsSqlOrmDriver {
 ## Best practices
 
 - Put `orderBy()` on every paged builder query, on a unique column for stable pages.
-- Register `SqlOrderByQueryCompiler` (see the example) on connections that sort by several columns.
 - Prefer bindings over inlined literals; inlining happens only where SQL Server forbids parameters, such as view bodies.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: OFFSET without ORDER BY is a syntax error on SQL Server
+// Don't: without a sort, rows can move between pages
 const page = await driver.select().from('orders').take(20).skip(40);
 
 // Do
@@ -173,23 +171,16 @@ export async function paidOrders(page: number, size = 20) {
 ### Sort a customer list by last and first name
 
 ```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { OrderByQueryCompiler } from '@spinajs/orm';
-import { SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
-import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
-/** Renders every orderBy() call; the shared compiler quotes through the bracket IdentifierQuoter. */
-@Injectable('orm-driver-mssql-multisort')
-@NewInstance()
-export class MultiSortMsSqlDriver extends MsSqlOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
-  }
+export async function customers() {
+  const driver = DI.get(Orm)!.Connections.get('mssql')!;
+
+  // ORDER BY [LastName] ASC, [FirstName] ASC
+  return await driver.select().from('customers').orderBy('LastName').orderBy('FirstName');
 }
 ```
-
-With `Driver: 'orm-driver-mssql-multisort'`, `driver.select().from('customers').orderBy('LastName').orderBy('FirstName')` emits `ORDER BY [LastName] ASC, [FirstName] ASC`.
 
 ### Find users with a role in a set column
 

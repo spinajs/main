@@ -1,10 +1,11 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
 import { DI } from '@spinajs/di';
+import '@spinajs/log';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { Intl, SpineJsInternationalizationFromJson } from '../src/index.js';
+import { Intl, SpineJsInternationalizationFromJson } from '../src/index.node.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -120,5 +121,33 @@ describe('Internationalization tests', () => {
     expect((intl.Locales as any)['de']).to.eql({
       hello: 'Backpfeifengesicht',
     });
+  });
+
+  it('should pick interval segments of plural forms', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
+    (intl.Locales as any)['en']['%d files'] = {
+      one: '%d file',
+      other: '[0] no files|]1,3] a few files|[20,] many files|%d files',
+    };
+    const n = (count: number) => intl.__n({ phrase: '%d files', locale: 'en' }, count);
+
+    expect(n(0)).to.eq('no files');
+    expect(n(1)).to.eq('1 file');
+    expect(n(3)).to.eq('a few files');
+    expect(n(5)).to.eq('5 files');
+    expect(n(25)).to.eq('many files');
+  });
+
+  it('should translate plural for region locale and missing phrase', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
+    (intl.Locales as any)['en-US'] = { '%d files': { one: '%d file', other: '%d files' } };
+
+    expect(intl.__n({ phrase: '%d files', locale: 'en-US' }, 1)).to.eq('1 file');
+    expect(intl.__n('%d dogs', 2)).to.eq('2 dogs');
+  });
+
+  it('should key hashed translations by locale', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
+    expect(intl.__h('hello')).to.deep.include({ pl: 'witaj' });
   });
 });

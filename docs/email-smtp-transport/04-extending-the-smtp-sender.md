@@ -53,7 +53,7 @@ export default {
 | Email transport | `EmailSender`, selected by class name from `email.connections[].service`; `@NewInstance()`, one per connection entry | `EmailSenderSmtp` | `BlackHoleEmailSender` (`@spinajs/email`), your subclass, your own `EmailSender` | Register a class `@Injectable(EmailSender)` and name it in `service` |
 | Transporter setup | `public async resolve()` | builds options, `createTransport()`, `buildSendPipeline()`, `verify()` | | Override, call `super.resolve()`, then adjust `this.Transporter` |
 | Message send | `public async send(email: IEmail)` | the flow in [Sending mail](02-sending-mail.md) | | Override, check or change the mail, call `super.send(email)` |
-| Send pipeline | `protected buildSendPipeline()` | timeout, then exponential retry | | Override; see [Send resilience](03-send-resilience.md) |
+| Send pipeline | `protected buildSendPipeline()` | exponential retry around a per-attempt timeout | | Override; see [Send resilience](03-send-resilience.md) |
 | `nodemailer` transporter | `protected Transporter: nodemailer.Transporter` | SMTP transport | pool, OAuth2, DKIM through `options` | `this.Transporter.use('compile' \| 'stream', plugin)`, `this.Transporter.on(...)` after `super.resolve()` |
 | Template renderer | `protected Templates`, `@Autoinject(Templates)` | `Templates` from `@spinajs/templates` | | `DI.register(MyTemplates).as(Templates)`; see [Sending mail](02-sending-mail.md) |
 | Logger | `protected Log`, `@Logger('email')` | the `email` logger | | Configure `logger.rules` for `email` |

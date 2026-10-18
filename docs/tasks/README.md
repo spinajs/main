@@ -2,7 +2,7 @@
 
 Bookkeeping for recurring background work. The `@Task()` method decorator wraps a method so that each call is logged, recorded in the `__tasks` table, optionally guarded by a named mutex, and reported as a `TaskSuccess` or `TaskFailed` queue event.
 
-It does **not** schedule anything: a task runs only when your code calls the decorated method. It ships no CLI command and no worker. Several parts of the wrapper do not work as written in the current source; read [Important behaviour](01-task-decorator.md#important-behaviour) before you rely on run history or locking.
+It does **not** schedule anything: a task runs only when your code calls the decorated method. It ships no CLI command and no worker. Read [Important behaviour](01-task-decorator.md#important-behaviour) for how failed, skipped and interrupted runs are reported.
 
 ## Install
 
@@ -10,7 +10,7 @@ It does **not** schedule anything: a task runs only when your code calls the dec
 npm install @spinajs/tasks
 ```
 
-`@Task()` needs a resolved `Orm` with a `default` connection and a resolved `QueueService`. With `taskStacking: false` it also needs a `Mutex` registered in DI, for example `OrmMutex` from [`@spinajs/orm-threading`](../orm-threading/README.md).
+`@Task()` needs a resolved `Orm` with a `default` connection and a resolved `QueueService`. With `taskStacking: false`, the default, it also needs a `Mutex` registered in DI, for example `OrmMutex` from [`@spinajs/orm-threading`](../orm-threading/README.md).
 
 ## Features
 

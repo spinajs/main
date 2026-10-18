@@ -132,9 +132,8 @@ DI.register(CanaryStore).as(TelemetryStore);
 
 ## Important behaviour
 
-- `req_rate` and `err_rate` are computed by `GET /telemetry/stats` only, over the whole lifetime since `StartedAt`, and stored on the shared `RequestStats`. `statsHandler()` returns whatever the last `/stats` call left, `0` before the first one. Timeline buckets and route entries always report `0`.
-- `min_time` keeps the first non-zero minimum: a response of exactly `0` ms leaves it at `0`, and the next response overwrites that `0`.
-- The timeline expires buckets only when a response is recorded. After an idle period, `/telemetry/timeline` still returns buckets older than `length` until the next request.
+- `req_rate` and `err_rate` of the lifetime stats are computed over the whole lifetime since `StartedAt`, by both `GET /telemetry/stats` and `statsHandler()`. Timeline buckets report rates over the bucket width. Route entries always report `0`.
+- The timeline expires buckets on every record and every read, so after an idle period `/telemetry/timeline` and `/telemetry/stats` no longer return buckets older than `length`.
 - The aggregates live in process memory. They reset on restart and are per process; behind a load balancer each replica reports its own numbers.
 - `GET /telemetry/timeline` rejects a `buckets` value that is not a positive integer, empty string included, with 400 `buckets must be a positive integer`. An absent `buckets` returns every bucket.
 - `/telemetry/routes` has no percentiles; query them from the `route`-labelled histogram.

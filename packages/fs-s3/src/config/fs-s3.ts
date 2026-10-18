@@ -1,8 +1,5 @@
-import { join, normalize, resolve } from 'path';
-
-function dir(path: string) {
-  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), path)));
-}
+import os from 'os';
+import { join } from 'path';
 
 const fs = {
   fs: {
@@ -15,7 +12,7 @@ const fs = {
       {
         service: 'fsNative',
         name: 'fs-temp-s3-local',
-        basePath: dir('./../fs/temp-s3'),
+        basePath: join(os.tmpdir(), 'spinajs-fs-temp-s3'),
       },
       {
         service: 'fsTemp',

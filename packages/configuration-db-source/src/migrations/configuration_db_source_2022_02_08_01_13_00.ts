@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('default')
@@ -23,8 +22,7 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
     await connection.index().unique().table('configuration').name('configuration_unique_slug').columns(['Slug']);
   }
 
-  // tslint:disable-next-line: no-empty
-  public async down(_connection: OrmDriver): Promise<void> {
-    //_connection.schema().dropTable('configuration');
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropTable('configuration');
   }
 }
