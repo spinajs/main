@@ -77,7 +77,7 @@ Register when the engine supports the feature; leave out otherwise, so the featu
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | SQLite uses `DELETE FROM`. |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `CURRENT_DATE()` is MySQL. |
-| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTableHistoryQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`, triggers with `DELIMITER`). |
+| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTableHistoryQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`, triggers). |
 
 Override shared registrations the engine cannot run: `InsertQueryCompiler` (`RETURNING`, `OUTPUT`, `INSERT IGNORE`), `OrderByQueryCompiler`, `TableAliasCompiler` (schema prefix), `CreateDatabaseCompiler` / `DropDatabaseCompiler`, `InSetStatement`, `JoinStatement`, `DatetimeValueConverter`.
 
@@ -134,7 +134,7 @@ Declare only what the engine guarantees: a wrong `insertIdIsFirstOfBatch` assign
 - `tableInfo()` must fill `NativeType`: the orphan-policy resolver treats an empty `NativeType` as unknown and refuses to act on that column.
 - Returning `null` from `tableInfo()` for a missing table lets migrations create it. `MySqlOrmDriver.tableInfo()` throws instead, which is why its tests set `Migration.OnStartup: true`.
 - Placeholder translation sees the whole statement text, quoted literals included. `PostgresOrmDriver` and `MsSqlOrmDriver` rewrite only as many `?` as there are bindings; a `?` beyond that count stays as text.
-- A multi-statement result is sent with `Promise.all`. If the engine needs DDL in order, serialize inside `executeOnDb()`.
+- A multi-statement result is sent sequentially in compile order.
 
 ## Best practices
 
