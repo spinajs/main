@@ -15,7 +15,7 @@
    3. Otherwise `Pool.getConnection()` takes a connection. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
    4. `connection.query(stmt, params)` runs with `?` placeholders; the connection is released exactly once, also when `query()` throws synchronously.
    5. The result is shaped by `QueryContext` (table below).
-7. **Errors.** Any `mysql2` error is wrapped in `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries).
+7. **Errors.** Any `mysql2` error is wrapped in `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries). `SqlDriver.execute()` then rejects a duplicate key (`errno === 1062`, `isUniqueViolation()`) with `ResourceDuplicated`, the `OrmException` as its `inner`.
 
 | `QueryContext` | `executeOnDb()` resolves with |
 | --- | --- |

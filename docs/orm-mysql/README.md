@@ -21,7 +21,7 @@ npm install @spinajs/orm @spinajs/orm-mysql
 | [Table reflection](05-table-reflection.md) | `tableInfo()`, `parseColumnDefault()`, `ResponseSchemaTypes`, the table-exists probe. |
 | [Schema, views and events](06-schema-views-and-events.md) | Column types, `ALTER TABLE`, views, scheduled events, non-transactional DDL. |
 | [Set membership and literal quoting](07-set-membership-and-literals.md) | `FIND_IN_SET`, backslash-escaped literals, backtick identifiers, and `sql_mode` variants. |
-| [Customizing the dialect](08-customizing-the-dialect.md) | Every class the driver registers, how to replace one per connection or everywhere, and how other packages detect MySQL. |
+| [Customizing the dialect](08-customizing-the-dialect.md) | Every class the driver registers, how to replace one per connection or everywhere, and what other packages read from the driver. |
 
 ## Quick start
 

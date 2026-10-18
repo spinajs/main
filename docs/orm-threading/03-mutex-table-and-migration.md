@@ -99,7 +99,7 @@ export class WidenMutexColumns_2026_10_17_09_00_00 extends OrmMigration {
 }
 ```
 
-Each column gets its own `alterTable()` call, because the statements of one call are sent concurrently. SQLite cannot modify a column; see [SQLite `ALTER TABLE` limitations](../orm-sqlite/04-schema-and-ddl.md#alter-table-limitations). There, SQLite does not enforce the `VARCHAR` length either.
+Each column gets its own `alterTable()` call, because the statements of one call are sent concurrently. On SQLite each `modify()` rebuilds the table, and the `VARCHAR` length is not enforced; see [SQLite: modifying columns](../orm-sqlite/04-schema-and-ddl.md#modifying-columns).
 
 ## Important behaviour
 

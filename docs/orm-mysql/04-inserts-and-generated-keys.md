@@ -20,7 +20,7 @@ Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does 
 
 ### Contiguous keys for a batch
 
-`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true }`. The last flag rests on InnoDB behaviour:
+`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true }`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
 
 - `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert*: the row count is known before execution. It is the only shape `InsertQueryBuilder` builds.
 - For a simple insert InnoDB reserves one contiguous block of N auto-increment values, and `LAST_INSERT_ID()` reports the first. Row k gets `LAST_INSERT_ID() + k`.
@@ -48,7 +48,7 @@ No keys of its own. `innodb_autoinc_lock_mode` is a server variable; the guarant
 | Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
 | Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
 | Upsert clause compiler | `OnDuplicateQueryCompiler`; constructor `(builder: OnDuplicateQueryBuilder)` | `SqlOnDuplicateQueryCompiler` | | Extend it and override `compile()`, register `.as(OnDuplicateQueryCompiler)`. |
-| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
+| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
 
 ### Insert response mapper: custom implementation
 

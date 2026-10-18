@@ -66,7 +66,10 @@ Overridable members:
 | `isRetryableError(err)` | protected | `false` in a transaction; transport codes; PostgreSQL connection SQLSTATEs | retry more codes |
 | `ping()` | public | `SELECT 1` without retry | probe something else (a replica lag check) |
 | `tableInfo(name, schema?)` | public | reads `information_schema` | fill more descriptor fields |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }` | declare `events: true` after registering event compilers |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: true }` | declare `events: true` after registering event compilers |
+| `isUniqueViolation(err)` | protected | `code === '23505'`, which `execute()` turns into `ResourceDuplicated` | recognise more codes |
+| `lockTableShared(table)` | public | `LOCK TABLE <table> IN SHARE MODE` inside the transaction | take another lock mode |
+| `MaxBindings` | public readonly field | `65535` parameters per statement | lower it for a proxy with a smaller limit |
 | `poolMetrics()` | public | `pg.Pool` counters | report a different pool |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | see [Transactions](02-transactions.md) | add per-transaction settings |
 | `SupportedIsolationLevels` | public readonly field | all four levels | restrict levels |
@@ -95,11 +98,13 @@ Overridable members:
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | shared, claimed | |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | shared, claimed | |
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | shared, claimed | |
+| `IndexQueryCompiler` | `PostgresIndexQueryCompiler` (`DROP INDEX` without a table) | this package | [Schema DDL](04-schema-ddl-and-reflection.md#altering-a-table) |
+| `SqlExpressions` | `PostgresSqlExpressions` | this package | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `EventQueryCompiler` | `UnsupportedEventQueryCompiler` (throws) | shared | [Customizing dialect compilers](07-customizing-dialect-compilers.md#schedule-jobs-with-pg_cron) |
 | `DropEventQueryCompiler` | `UnsupportedDropEventQueryCompiler` (throws) | shared | |
 | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | not registered | | |
 
-Everything else (statements, select, update and delete compilers, index and foreign-key compilers, value converters, date wrappers) comes from `SqlDriver.resolve()` unchanged; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers).
+Everything else (statements, select, update and delete compilers, foreign-key compilers, value converters, date wrappers) comes from `SqlDriver.resolve()` unchanged; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers).
 
 ### Driver: custom implementation
 

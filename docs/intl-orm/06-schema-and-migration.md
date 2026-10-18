@@ -64,7 +64,7 @@ Unique index `intl_translations_idx` on (`Key`, `Lang`).
 
 ### Migration: widen the language and column names
 
-`intl_resources.Lang` and `intl_translations.Lang` hold 6 characters (`en_GB` fits, `zh_Hant` does not), and `intl_resources.Column` holds 16. Add your own migration with a later timestamp to widen them. SQLite cannot modify a column; there, lengths are not enforced and the migration is not needed. See [SQLite `ALTER TABLE` limitations](../orm-sqlite/04-schema-and-ddl.md#alter-table-limitations).
+`intl_resources.Lang` and `intl_translations.Lang` hold 6 characters (`en_GB` fits, `zh_Hant` does not), and `intl_resources.Column` holds 16. Add your own migration with a later timestamp to widen them. SQLite does not enforce the lengths, so the migration changes nothing there, but each `alterTable()` still rebuilds its table; see [SQLite: modifying columns](../orm-sqlite/04-schema-and-ddl.md#modifying-columns).
 
 ```ts sample
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';

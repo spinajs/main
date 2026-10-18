@@ -42,6 +42,8 @@ sequenceDiagram
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `CreateViewCompiler` | `SqliteCreateViewCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` (`@spinajs/orm-sql`) | | [Schema and DDL](04-schema-and-ddl.md) |
+| `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
+| `SqlExpressions` | `SqliteSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` (`@spinajs/orm-sql`, throw) | | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `InsertQueryCompiler` | `SqliteInsertQueryCompiler` | yes | [Inserts and upserts](05-inserts-and-upserts.md) |
 | `OnDuplicateQueryCompiler` | `SqliteOnDuplicateQueryCompiler` | yes | [Inserts and upserts](05-inserts-and-upserts.md) |

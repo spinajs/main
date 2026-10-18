@@ -59,7 +59,10 @@ Methods a subclass overrides:
 | `isRetryableError(err)` | protected | not used: `executeOnDb()` does not retry | [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection) |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | `mssql.Transaction`, `SAVE TRANSACTION` | [Transactions](03-transactions.md) |
 | `SupportedIsolationLevels` | public property | all four | [Transactions](03-transactions.md) |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, nativeJson: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `isUniqueViolation(err)` | protected | `true` for error `number` `2627` or `2601`, which `execute()` turns into `ResourceDuplicated` | [Executing statements](02-executing-statements.md) |
+| `lockTableShared(table)` | public | `SELECT COUNT(*) FROM <table> WITH (TABLOCK, HOLDLOCK)` inside the transaction | [Transactions](../orm/08-transactions.md#shared-table-lock) |
+| `MaxBindings`, `MaxInsertRows` | public property | `2000` parameters per statement (the server allows 2100), `1000` rows per `VALUES` list | [SQL helpers](../orm/17-sql-helpers.md#batches) |
 | `tableInfo(name, schema?)` | public | `INFORMATION_SCHEMA` queries | [Connection and configuration](01-configuration.md#important-behaviour) |
 | `resolve()` | public | registers the tokens below | this page |
 
@@ -81,10 +84,12 @@ Methods a subclass overrides:
 | `TableExistsCompiler` | `MsSqlTableExistsCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TableQueryCompiler` | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `ColumnQueryCompiler` | `MsSqlColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#column-definition-custom-implementation) |
+| `AlterTableQueryCompiler` | `MsSqlAlterTableQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#altering-tables) |
+| `AlterColumnQueryCompiler` | `MsSqlAlterColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#altering-tables) |
+| `SqlExpressions` | `MsSqlSqlExpressions` (exported) | the base `SqlExpressions`, which throws | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `CreateDatabaseCompiler` | `MsSqlCreateDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `DropDatabaseCompiler` | `MsSqlDropDatabaseQueryCompiler` | `SqlDropDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
-| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `DatetimeValueConverter` | `MsSqlDatetimeValueConverter` | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |

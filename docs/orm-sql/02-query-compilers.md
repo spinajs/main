@@ -125,10 +125,10 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 | Class | SQL | Notes |
 | --- | --- | --- |
 | `SqlTableQueryCompiler` | `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <t> (<cols> ,PRIMARY KEY (...) ,<fks>)` | Columns via `ColumnQueryCompiler`, keys via `ForeignKeyQueryCompiler`. Returns an array; `trackHistory()` appends the `TableHistoryQueryCompiler` outputs. |
-| `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` | See the type table below. String literals go through `escapeStringLiteral()`. |
+| `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [<exact>] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` | See the type table below. `exact()` emits `_statementsMappings.exact()`: `CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`. String literals go through `escapeStringLiteral()`. |
 | `SqlForeignKeyQueryCompiler` | `FOREIGN KEY (`c`) REFERENCES `schema`.`t`(`pk`) ON DELETE <a> ON UPDATE <a>` | The referenced table goes through `quoteQualified()`, so `schema.table` works. Throws `Error('foreign key query builder cannot be null')`. |
-| `SqlIndexQueryCompiler` | `` CREATE [UNIQUE] INDEX `name` ON `t` (`a`,`b`); `` | Ends with `;`. |
-| `SqlAlterTableQueryCompiler` | one `ALTER TABLE <t> ...` per change | `DROP COLUMN <c>` (name quoted), `RENAME TO <t>`, then each column via `AlterColumnQueryCompiler`. A column that compiles to an empty string is skipped; one whose compiler reports `IsStandaloneStatement` is emitted without the `ALTER TABLE` prefix. |
+| `SqlIndexQueryCompiler` | `` CREATE [UNIQUE] INDEX `name` ON `t` (`a`,`b`); ``, or `` DROP INDEX `name` ON `t` `` after `drop()` | The create ends with `;`. The drop comes from the protected `_drop()`; SQLite and PostgreSQL override it to name no table. |
+| `SqlAlterTableQueryCompiler` | one `ALTER TABLE <t> ...` per change | `DROP COLUMN <c>` (name quoted), the table rename from the protected `_renameTable()` (`RENAME TO <t>`), then each column via `AlterColumnQueryCompiler`. A column that compiles to an empty string is skipped; one whose compiler reports `IsStandaloneStatement` is emitted without the `ALTER TABLE` prefix. MSSQL overrides `compile()` instead, to write renames with `sp_rename`. |
 | `SqlAlterColumnQueryCompiler` | `ADD <def> [AFTER `c`]`, `MODIFY <def>`, `` RENAME COLUMN `old` TO `new` `` | Hooks `_add()`, `_modify()`, `_rename()` return `null` to emit nothing. `_columnDefinition()` resolves `ColumnQueryCompiler`, so the dialect's column syntax is used. |
 | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE <t> LIKE <src>`, then `INSERT INTO <t> <filter or SELECT * FROM src>` | A shallow clone emits only the first statement. |
 | `SqlTableHistoryQueryCompiler` | `CREATE TABLE <t>__history LIKE <t>`, key and column changes, triggers | MySQL only. Adds `__action__`, `__revision__`, `__start__`, `__end__`. The trigger bodies compare the table's primary key column. |
@@ -161,7 +161,8 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 | `SqlSelectQueryCompiler` methods `limit()`, `sort()`, `select()`, `from()` | Protected steps of the SELECT | | Override in a subclass |
 | `SqlInsertQueryCompiler` methods `into()`, `columns()`, `values()`, `upsort()`, `keptColumnIndices()`, `autoIncrementPlaceholder()` | Protected steps of the INSERT | | Override in a subclass, as every shipped driver does |
 | `SqlColumnQueryCompiler._statementsMappings` | Type and modifier spelling | MySQL spelling | Reassign one entry in a subclass constructor (MSSQL: `autoincrement = () => 'IDENTITY(1,1)'`) |
-| `SqlAlterColumnQueryCompiler` hooks `_add()`, `_modify()`, `_rename()`, `IsStandaloneStatement` | ALTER COLUMN spelling | MySQL spelling | Override in a subclass |
+| `SqlAlterColumnQueryCompiler` hooks `_add()`, `_modify()`, `_rename()`, `IsStandaloneStatement` | ALTER COLUMN spelling | MySQL spelling | Override in a subclass; throw `NotSupported` for what the engine lacks |
+| `SqlAlterTableQueryCompiler._rename()`, `SqlIndexQueryCompiler._drop()` | Table rename and index drop spelling | MySQL spelling | Override in a subclass |
 
 ```ts sample
 import { Container, Inject, Injectable, NewInstance } from '@spinajs/di';

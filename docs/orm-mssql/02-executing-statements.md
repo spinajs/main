@@ -9,7 +9,7 @@
 3. It takes a new request. Inside `driver.transaction()`, `this.TransactionStorage.getStore()` holds an `IMsSqlTransactionContext` and the request comes from its `transaction.request()`. Otherwise it comes from the pool: `this._connectionPool.request()`.
 4. `toNamedParameters(stmt, params.length)` replaces the first `params.length` `?` placeholders with `@p0`, `@p1`, ... in order, skipping any `?` inside a `'...'` or `"..."` literal or a `[...]` identifier.
 5. Each value is bound with `req.input('p<i>', value)`. `mssql` infers the SQL type from the JavaScript value.
-6. `req.query(statement)` runs it. Database errors propagate as the `mssql` error, unwrapped and not logged by the driver.
+6. `req.query(statement)` runs it. `executeOnDb()` rejects with the `mssql` error, unwrapped and not logged by the driver. `SqlDriver.execute()` then turns error `number` `2627` (primary key or unique constraint) or `2601` (unique index) into `ResourceDuplicated`, with the `mssql` error as `inner`; see [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys).
 7. The result is shaped by context:
 
 | `QueryContext` | `executeOnDb()` returns |

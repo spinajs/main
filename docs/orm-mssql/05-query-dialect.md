@@ -163,7 +163,7 @@ export class Order extends ModelBase<Order> {
 }
 
 export async function paidOrders(page: number, size = 20) {
-  // ORDER BY is required by OFFSET ... FETCH on SQL Server
+  // a sort keeps the pages of OFFSET ... FETCH stable
   return await Order.where('Status', 'paid').orderByDescending('PaidAt').take(size).skip(page * size);
 }
 ```
