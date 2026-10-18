@@ -1,10 +1,10 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzAdminOptions, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
+import { readPage } from '@spinajs/orm-http';
+import type { Page } from '@spinajs/orm-http';
 
 /** A parsed query string (express: string, string[] or a nested object per key). */
 export type QueryInput = Readonly<Record<string, unknown>>;
-
-type Page = { limit?: number; offset?: number };
 
 function invalid(field: string, message: string): never {
   throw new AuthzAdminFailure('invalid_query', message, field);
@@ -52,19 +52,12 @@ function flag(q: QueryInput, field: string): boolean | undefined {
   return v === 'true';
 }
 
-function count(q: QueryInput, field: string): number | undefined {
-  const v = text(q, field);
-  if (v === undefined) return undefined;
-  if (!/^\d+$/.test(v)) invalid(field, `${field} must be a non-negative integer`);
-  return Number(v);
-}
-
-/** `limit` and `offset` as AuthzAdmin's page, only the ones given; AuthzAdmin defaults the rest. */
+/** `limit` and `offset` as a page when either is given; without both, AuthzAdmin's default page applies. */
 function page(q: QueryInput): { page?: Page } {
-  const limit = count(q, 'limit');
-  const offset = count(q, 'offset');
+  const limit = text(q, 'limit');
+  const offset = text(q, 'offset');
   if (limit === undefined && offset === undefined) return {};
-  return { page: { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) } };
+  return { page: readPage({ limit, offset }, { invalid }) };
 }
 
 function scope(q: QueryInput): { scope?: ResourceRef } {
