@@ -284,6 +284,7 @@ export class FrameworkConfiguration extends Configuration {
    */
   public async load() {
     this.Config = {};
+    this.NamedEnv = this.Env ?? this.Container.get<NodeJS.ProcessEnv>('process.env')?.APP_ENV ?? process.env.NODE_ENV;
 
     // add env variables to config
     const env = this.Container.get<NodeJS.ProcessEnv>('process.env');
