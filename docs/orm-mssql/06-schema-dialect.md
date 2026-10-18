@@ -67,7 +67,14 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | ... `.ifNotExists()`, `.temporary()`, `.algorithm()`, `.security()`, `.checkOption('CASCADED' \| 'LOCAL')`, a `database()` prefix | | throw `MethodNotImplemented` |
 | `schema().dropView(name).ifExists()` | shared `SqlDropViewQueryCompiler` | `DROP VIEW IF EXISTS [name]` |
 | `schema().createEvent()`, `dropEvent()` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | throw `MethodNotImplemented('<Driver> has no native scheduled events')`, `<Driver>` being the connection's driver string |
-| `schema().alterTable()`, `alterColumn`, `cloneTable()` | none registered | throw `TypeError` |
+| `schema().alterTable(name, t => ...)` | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | one statement per change, in this order: |
+| ... `t.dropColumn(c)` | | `ALTER TABLE <table> DROP COLUMN [c]` |
+| ... `t.string(c, 64).notNull()` (add) | | `ALTER TABLE <table> ADD [c] VARCHAR(64) NOT NULL [PRIMARY KEY]` |
+| ... `t.string(c, 64).modify()` | | `ALTER TABLE <table> ALTER COLUMN [c] VARCHAR(64) NULL`; `NOT NULL` when `notNull()` |
+| ... `t.string(old).rename(new)` | | `EXEC sp_rename N'[schema].[table].[old]', N'new', N'COLUMN'` |
+| ... `t.rename(new)` | | `EXEC sp_rename N'[schema].[table]', N'new'`, written last |
+| ... `.after(c)` on an add; `default()`, `autoIncrement()`, `primaryKey()`, `unique()` on a modify | | throw `NotSupported` |
+| `schema().cloneTable()` | none registered | throws `TypeError` |
 
 ## Services and extension points
 
@@ -83,7 +90,8 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | Views | `CreateViewCompiler`, new instance | `MsSqlCreateViewCompiler` | `SqlCreateViewQueryCompiler` | Extend `SqlCreateViewQueryCompiler`; override the hooks (`_replace()`, `_name()`, `_checkOption()`, ...). See [View compiler hooks](../orm-sql/06-view-compiler-hooks.md). |
 | Truncate | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | | Register your own `.as(TruncateTableQueryCompiler)`. |
 | Scheduled events | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | | Implement with SQL Server Agent jobs, and override `supportedFeatures()` to return `events: true`. |
-| Table changes | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | **none** | the shared `Sql*` classes write MySQL syntax | Implement the token in T-SQL and register it. |
+| Table changes | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, new instance | `MsSqlAlterTableQueryCompiler`, `MsSqlAlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` (MySQL spelling) | Extend `SqlAlterColumnQueryCompiler`; override `_add()` or `_modify()`. Renames are written by the table compiler. |
+| Table cloning and history | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | **none** | the shared `Sql*` classes write MySQL syntax | Implement the token in T-SQL and register it. |
 
 ### Column definition: custom implementation
 
@@ -160,7 +168,9 @@ Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[Creat
 
 ## Important behaviour
 
-- **Unregistered schema tokens fail on first use** with a `TypeError`, not at connect: `alterTable()`, `alterColumn`, `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
+- **Unregistered schema tokens fail on first use** with a `TypeError`, not at connect: `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
+- **`ALTER COLUMN` changes only type, collation and nullability.** SQL Server keeps defaults, identity and keys as constraints, and refuses to alter a column a `PRIMARY KEY` depends on; drop and re-create the constraint with raw statements. Dropping a column that has a default needs its default constraint dropped first.
+- **The `sp_rename` arguments are literals.** The new name is not bracketed, because brackets in it would become part of the name; a `database()` prefix calls `[database].sys.sp_rename`.
 - **`trackHistory()` throws** `MethodNotImplemented`; SQL Server's equivalent is a temporal table, which the driver does not create.
 - **`temporary()` on `createTable` throws** `NotSupported`. Create the table with a `#` name through a `RawQuery` instead.
 - **`enum` and `set` columns do not enforce their values.** They are plain `NVARCHAR(255)` columns.
