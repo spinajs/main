@@ -51,6 +51,19 @@ describe('authz-rbac ConfigRuleStore', () => {
     expect(paths).to.deep.equal([['authz', 'rbac', 'rules']]);
   });
 
+  it('follows a replaced authz.rbac.rules list, as ConfigRoleStore follows its roles', async () => {
+    const values: Record<string, unknown> = { rules: [cap()] };
+    const store = new ConfigRuleStore({ get: () => values.rules } as unknown as Configuration);
+    const first = store.all();
+    const version = await store.version();
+    expect(store.all()).to.equal(first);
+    values.rules = [cap({ id: 'c2' })];
+    expect(store.all().map((r) => r.id)).to.deep.equal(['c2']);
+    expect(await store.version()).to.not.equal(version);
+    values.rules = undefined;
+    expect(store.all()).to.deep.equal([]);
+  });
+
   // The schema refuses every malformed rule at boot. A list it never saw (Configuration.set, the constructor seam) must
   // still never read as a rule that applies to fewer requests than it says: the store refuses those, the model the rest.
   describe('rules the schema never saw', () => {

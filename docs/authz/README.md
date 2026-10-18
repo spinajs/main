@@ -285,7 +285,7 @@ authz: {
 - **Teams.** `authz_subject_membership` holds the transitive closure of subject sets, so nested teams
   cost one indexed read. The RBAC write handlers recompute it in the batch's transaction for
   `set.addMember`, `set.removeMember` and grants, revokes and expiry changes of `subjectSet` roles. A chain deeper than
-  `authz.rbac.maxSetDepth` (default 8) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
+  `authz.rbac.maxSetDepth` (default 8, at most 64) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
   membership lives while any path to the set lives.
 
 `RbacService` offers `rolesOf(principal, at)`, `grantsOf(role)` and `covers(…)`.
@@ -334,7 +334,8 @@ authz: {
   with its own `reason`. Each rule may filter by `scope`, `resourceTypes`, `subjects`
   (`principalTypes`, `actorTypes`, `refs`, `rank`) and `when`, and may carry `expiresAt` (a `Date`, or a
   date-time string with a zone; one without a zone fails boot).
-- **Rule stores.** `ConfigRuleStore` reads `authz.rbac.rules`; `DbRuleStore` holds rules written through
+- **Rule stores.** `ConfigRuleStore` reads `authz.rbac.rules`, and reads it again once the list is replaced
+  (`Configuration.set`), as `ConfigRoleStore` does for roles; `DbRuleStore` holds rules written through
   `AuthzAdmin` (`rule.put`). The RBAC model reads at most one of each. Rules in config with no
   `ConfigRuleStore` named fail boot, so they are never dropped without a word.
 - **Share links.** `AuthzAdmin` creates a link (`link.create`) and returns its token once. A request
@@ -733,9 +734,9 @@ brackets):
 authz: {
   admin: {
     guard: {
-      service: 'DefaultAdminGuard',          // authz-rbac ships these defaults
+      service: 'DefaultAdminGuard',          // authz-rbac ships these two defaults
       privilegedPermission: 'users:update',
-      protectSystemRole: true,
+      protectSystemRole: true,               // the switches default to true (core schema)
       preventEscalation: true,
       preventSelfLockout: true,
       preventLastPrivilegedRemoval: true,

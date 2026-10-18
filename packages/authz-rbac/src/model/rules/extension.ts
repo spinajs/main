@@ -207,7 +207,7 @@ function readsScopeTypes(rule: CompiledRule): string[] {
  * Kleene value of a compiled condition that names no resource field: CONDITION_UNKNOWN is UNKNOWN
  * (null). `undefined` when some part depends on the row.
  */
-export function kleeneConstant(f: ResourceFilter): boolean | null | undefined {
+function kleeneConstant(f: ResourceFilter): boolean | null | undefined {
   switch (f.op) {
     case 'true':
       return true;
