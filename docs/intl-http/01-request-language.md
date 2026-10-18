@@ -1,13 +1,13 @@
 # Request language
 
-`IntHttpMiddleware` detects the language of every HTTP request and stores it in `req.storage.language`. Everything that runs inside the request then translates into that language without passing it around: `__()` in templates, `guessLanguage()` from `@spinajs/intl`, translated models from `@spinajs/intl-orm`.
+`IntlHttpMiddleware` detects the language of every HTTP request and stores it in `req.storage.language`. Everything that runs inside the request then translates into that language without passing it around: `__()` in templates, `guessLanguage()` from `@spinajs/intl`, translated models from `@spinajs/intl-orm`.
 
 ## How it works
 
-1. Importing `@spinajs/intl-http` registers `IntHttpMiddleware` with `@Injectable(ServerMiddleware)`.
+1. Importing `@spinajs/intl-http` registers `IntlHttpMiddleware` with `@Injectable(ServerMiddleware)`.
 2. `HttpServer.resolve()` resolves every `ServerMiddleware`, sorts them by `Order` ascending, and mounts their `before()` handlers after the plain Express handlers of `http.middlewares` (body parsers, cookie parser).
 3. `RequestStorage` (`Order = -2`, in `@spinajs/http`) creates an empty `req.storage` object.
-4. `IntHttpMiddleware.before()` (`Order = 1`) looks for the language under the name in `intl.queryParameter`, first match wins:
+4. `IntlHttpMiddleware.before()` (`Order = 1`) looks for the language under the name in `intl.queryParameter`, first match wins:
    1. query string: `req.query[<name>]`, eg. `?lang=pl`;
    2. cookie: `req.cookies[<name>]`, eg. `lang=pl`;
    3. header: `req.headers['x-<name>']`, eg. `x-lang: pl`.
@@ -23,7 +23,7 @@ sequenceDiagram
   participant C as Client
   participant S as HttpServer (Express)
   participant R as RequestStorage
-  participant M as IntHttpMiddleware
+  participant M as IntlHttpMiddleware
   participant A as Controller action
   participant T as Templates / guessLanguage()
   C->>S: GET /welcome/page?lang=pl
@@ -48,10 +48,10 @@ The keys belong to `@spinajs/intl`; its config file ships the defaults.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `intl.queryParameter` | `string` | `'lang'` | lower-case name | Name of the query parameter and of the cookie, and suffix of the `x-<name>` header. |
+| `intl.queryParameter` | `string` | `'lang'` | any name | Name of the query parameter and of the cookie, and suffix of the `x-<name>` header. |
 | `intl.defaultLocale` | `string` | `'en'` | a locale with translations | Language stored when the request carries none. |
 | `intl.locales` | `string[]` | `['en']` | locale codes | Not read by this package. It does **not** limit the accepted languages. |
-| `http.middlewares` | Express handlers | includes `configuredCookieParser` | any | Must keep a cookie parser: the middleware reads `req.cookies`. |
+| `http.middlewares` | Express handlers | includes `configuredCookieParser` | any | Keep a cookie parser to read the language from a cookie. |
 
 ```js
 export default {
@@ -67,10 +67,10 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Language middleware | Registered by `@Injectable(ServerMiddleware)` under `ServerMiddleware` (a list) and under `IntHttpMiddleware`; singleton. Resolved as a list by `HttpServer` through `@Autoinject(ServerMiddleware)` when the server resolves. | `IntHttpMiddleware` | none shipped | Replace: subclass or write a `ServerMiddleware`, register it with `@Injectable(ServerMiddleware)`, and call `DI.unregister(IntHttpMiddleware)` before `HttpServer` resolves. Extend: override `before()` and call `super.before()`, or add a second middleware with a higher `Order` ([example](03-custom-language-resolution.md#refine-the-language-with-a-second-middleware)). |
-| Request storage field | `IActionLocalStoregeContext.language: string`, added to `@spinajs/http` by `declare module` | set by `IntHttpMiddleware` | none | Read it from `req.storage.language` or `guessLanguage()`; overwrite it from a later middleware. |
+| Language middleware | Registered by `@Injectable(ServerMiddleware)` under `ServerMiddleware` (a list) and under `IntlHttpMiddleware` (the old `IntHttpMiddleware` name is a deprecated alias); singleton. Resolved as a list by `HttpServer` through `@Autoinject(ServerMiddleware)` when the server resolves. | `IntlHttpMiddleware` | none shipped | Replace: subclass or write a `ServerMiddleware`, register it with `@Injectable(ServerMiddleware)`, and call `DI.unregister(IntlHttpMiddleware)` before `HttpServer` resolves. Extend: override `before()` and call `super.before()`, or add a second middleware with a higher `Order` ([example](03-custom-language-resolution.md#refine-the-language-with-a-second-middleware)). |
+| Request storage field | `IActionLocalStoregeContext.language: string`, added to `@spinajs/http` by `declare module` | set by `IntlHttpMiddleware` | none | Read it from `req.storage.language` or `guessLanguage()`; overwrite it from a later middleware. |
 
-`IntHttpMiddleware` exposes two protected fields to subclasses:
+`IntlHttpMiddleware` exposes two protected fields to subclasses:
 
 | Member | Source | Meaning |
 | --- | --- | --- |
@@ -78,9 +78,9 @@ export default {
 | `defaultLocale` | `@Config('intl.defaultLocale')` | Fallback language. |
 | `Order` | constructor, `1` | Position among server middlewares. Keep it above `-2` (`RequestStorage`). |
 
-### IntHttpMiddleware: custom implementation
+### IntlHttpMiddleware: custom implementation
 
-Replace the middleware when the detection rules change for every request, eg. to honour the browser's `Accept-Language` header when the client makes no explicit choice. `HttpServer` collects the whole `ServerMiddleware` list, so registering a class `.as(IntHttpMiddleware)` does **not** replace the default: unregister it.
+Replace the middleware when the detection rules change for every request, eg. to honour the browser's `Accept-Language` header when the client makes no explicit choice. `HttpServer` collects the whole `ServerMiddleware` list, so registering a class `.as(IntlHttpMiddleware)` does **not** replace the default: unregister it.
 
 - Give the class a different name: `DI.unregister()` matches registrations by class name.
 - Run the module before `HttpServer` resolves, eg. import it from your app entry before the server starts.
@@ -89,11 +89,11 @@ Replace the middleware when the detection rules change for every request, eg. to
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { ServerMiddleware, Request } from '@spinajs/http';
-import { IntHttpMiddleware } from '@spinajs/intl-http';
+import { IntlHttpMiddleware } from '@spinajs/intl-http';
 import * as express from 'express';
 
 @Injectable(ServerMiddleware)
-export class AcceptLanguageMiddleware extends IntHttpMiddleware {
+export class AcceptLanguageMiddleware extends IntlHttpMiddleware {
   @Config('intl.locales')
   protected Locales!: string[];
 
@@ -123,7 +123,7 @@ export class AcceptLanguageMiddleware extends IntHttpMiddleware {
 }
 
 // The default stays in the ServerMiddleware list unless it is removed.
-DI.unregister(IntHttpMiddleware);
+DI.unregister(IntlHttpMiddleware);
 ```
 
 ## Important behaviour
@@ -133,15 +133,14 @@ DI.unregister(IntHttpMiddleware);
 - **Length limit:** `en-US` and `pt_BR` pass; `zh-Hans` (7 characters) fails with `400`.
 - **Repeated parameter:** `?lang=en&lang=pl` parses to an array, fails the string check and answers `400`.
 - **Every request is checked:** the middleware runs before static files and before routing, so `GET /static/logo.png?lang=toolong` also answers `400`.
-- **Header name is case-sensitive:** Node lower-cases incoming header names, and the lookup uses `x-<name>` as configured. A `queryParameter` with upper-case letters never matches the header.
+- **Header name is lower-cased:** the lookup uses `x-<name>` lower-cased, because Node lower-cases incoming header names. Query and cookie names keep the configured case.
 - **Plain cookies only:** the middleware reads `req.cookies`, not `req.signedCookies`. A signed language cookie is ignored or rejected.
-- **Cookie parser required:** with no cookie parser in `http.middlewares`, `req.cookies` is `undefined` and every request without the query parameter fails with `500`.
+- **Cookie parser optional:** with no cookie parser in `http.middlewares`, the cookie source is skipped and the header is read next.
 - **Order matters:** `Order` must stay above `RequestStorage`'s `-2`. Below it, `req.storage` is `undefined` and every request fails with `500`.
 - **Per request only:** the language is not written back to a cookie or session.
 
 ## Best practices
 
-- Keep `intl.queryParameter` lower-case so the `x-<name>` header works.
 - Send `x-lang` from API clients and SPAs; use `?lang=` for links and the cookie for a remembered choice.
 - Use `@Lang(['en', 'pl'])` on routes that must refuse unsupported languages; the middleware alone accepts any short string.
 - Read the language with `guessLanguage()` from `@spinajs/intl` in services, not from a parameter threaded through every call.
