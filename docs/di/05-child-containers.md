@@ -4,7 +4,7 @@ A child container inherits every registration and cached instance of its parent 
 
 ## How it works
 
-1. `DI.child()` or `container.child()` creates `new Container(parent)`. The parent keeps it in its children set until the child emits `di.dispose`.
+1. `DI.child()` or `container.child()` creates a container of the parent's class, `new Container(parent)` by default. The parent keeps it in its children set until the child emits `di.dispose`.
 2. **Lookup.** A key the child has not registered is looked up in the parent, then the grandparent, up to the root. A key the child registers hides the parent's list for single resolves and for `Array.ofType`. `Array.chainOf` merges all levels; see [Multiple implementations](06-multiple-implementations.md).
 3. **Owner.** For each resolve the container finds the **owner** of the key: the nearest container, starting at itself, that registered the key on purpose. Keys recorded only because an unregistered class was resolved do not count.
 4. **Where the instance is built and cached:**
@@ -145,8 +145,8 @@ console.log(container.Created);
 
 Limits of a custom container:
 
-- `child()` always creates a plain `Container`, so children do not inherit the subclass.
-- The container caches itself under its runtime class name. `@Autoinject(Container)` inside a `CountingContainer` resolves the `'Container'` key, finds nothing, and builds a new, empty `Container`.
+- `child()` creates the child with `new this.constructor(parent)`, so children inherit the subclass and its constructor must accept `(parent?: IContainer)`.
+- The container caches itself under its runtime class name and under `'Container'`, so `@Autoinject(Container)` inside a `CountingContainer` gets that container.
 - `@Injectable` and `DI.register()` write to the root container. A standalone container (`new Container()` with no parent) sees none of those registrations.
 
 ## Important behaviour

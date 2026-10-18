@@ -7,17 +7,28 @@ import { getTypeName, isChainArray, isConstructor, isTypedArray } from './helper
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
+/**
+ * The descriptor owned by `target`. A new one keeps the lifetime of the nearest decorated base class,
+ * because `extractDescriptor` takes the lifetime from the nearest descriptor only.
+ */
+function ownDescriptor(target: object): IInjectDescriptor<unknown> {
+  let descriptor = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, target) as IInjectDescriptor<unknown>;
+  if (!descriptor) {
+    const inherited = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, target) as IInjectDescriptor<unknown> | undefined;
+    descriptor = {
+      inject: [],
+      resolver: inherited ? inherited.resolver : ResolveType.Singleton,
+    };
+
+    Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, target);
+  }
+
+  return descriptor;
+}
+
 export function AddDependencyForProperty(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let descriptor = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, target.constructor) as IInjectDescriptor<unknown>;
-    if (!descriptor) {
-      descriptor = {
-        inject: [],
-        resolver: ResolveType.Singleton,
-      };
-
-      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, target.constructor);
-    }
+    const descriptor = ownDescriptor(target.constructor);
 
     if (callback) {
       callback(descriptor, target, propertyKey, indexOrDescriptor);
@@ -27,15 +38,7 @@ export function AddDependencyForProperty(callback?: (descriptor: IInjectDescript
 
 export function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let descriptor = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, target) as IInjectDescriptor<unknown>;
-    if (!descriptor) {
-      descriptor = {
-        inject: [],
-        resolver: ResolveType.Singleton,
-      };
-
-      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, target);
-    }
+    const descriptor = ownDescriptor(target);
 
     if (callback) {
       callback(descriptor, target, propertyKey, indexOrDescriptor);
@@ -161,15 +164,16 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  */
 export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
-    let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
-    const isArray = type.name === 'Array' || type.name === 'Map';
+    // undefined when the build emits no decorator metadata (esbuild, tsx)
+    let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown> | undefined;
+    const isArray = type?.name === 'Array' || type?.name === 'Map';
     let opt = options;
 
     if (isChainArray(typeOrOptions)) {
       if (opt?.check || opt?.optional) {
         throw new Error(`@Autoinject: check and optional take a single class, ${String(propertyKey)} is an array or map`);
       }
-      if (!isArray) {
+      if (type && !isArray) {
         throw new Error(`@Autoinject(Array.chainOf(${getTypeName(typeOrOptions)})) needs an array or map property, ${String(propertyKey)} is not one`);
       }
 
@@ -184,12 +188,17 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | ChainArray<T> | IAutoin
     }
 
     if (isConstructor(typeOrOptions)) {
-      if (isArray && !typeOrOptions) {
-        throw new Error('you must provide inject type when injecting array');
-      }
       type = typeOrOptions;
     } else {
       opt = typeOrOptions;
+
+      if (isArray && !opt?.check && !opt?.optional) {
+        throw new Error(`@Autoinject: you must provide inject type when injecting array or map, ${String(propertyKey)} has none`);
+      }
+
+      if (!type) {
+        throw new Error(`@Autoinject: no type to inject into ${String(propertyKey)}, pass it explicitly or enable emitDecoratorMetadata`);
+      }
     }
 
     if (opt?.check || opt?.optional) {
@@ -324,5 +333,7 @@ export function PerInstanceCheck() {
  * Singleton injection decorator - every time class is resolved - its created only once globally ( even in child DI containers )
  */
 export function Singleton() {
-  return AddDependency();
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
+    descriptor.resolver = ResolveType.Singleton;
+  });
 }
