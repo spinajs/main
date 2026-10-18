@@ -65,10 +65,10 @@ logger: {
 - The logger pipeline runs on the shared entry; a filter that changes it (eg. `WhenRepeatedFilter`'s ` (xN)`) changes it for every target. Per-target filters work on a clone, so their changes stay with their target.
 - The clone is shallow: a per-target filter that mutates a nested object inside `Variables` (eg. `error`) still changes it for other targets.
 - `MatchFilter` with a missing or invalid `pattern` passes everything and prints one `console.warn`.
-- `RateLimitFilter` with `intervalSeconds` unset or `0` keeps everything; with `limit: 0` it still keeps the first entry of each window.
+- `RateLimitFilter` throws `InvalidOption` when `limit` is not a number `>= 0` or `intervalSeconds` is not `> 0`. With `limit: 0` it drops everything.
 - `WhenRepeatedFilter` has no timer: the ` (xN)` count appears only when the same message is logged again after the window. A burst that simply stops leaves no trace of its count.
 - `WhenRepeatedFilter` keys on the formatted message, so `log.info('user %s', id)` with different ids never collapses.
-- An unknown filter `type` resolves to `null`, and every log call of that logger then throws a `TypeError`.
+- An unknown filter `type` fails the logger's resolve (or `addTarget()`) with `InvalidOption`.
 - Filter state is per logger: `RateLimitFilter` in `logger.filters` limits each logger separately, not the process.
 
 ## Best practices
