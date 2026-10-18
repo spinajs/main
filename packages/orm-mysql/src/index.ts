@@ -14,6 +14,10 @@ import { MySqlInSetStatement, MySqlLiteralQuoter } from './statements.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
+import { Duplex, PassThrough } from 'stream';
+
+export * from './compilers.js';
+export * from './statements.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
@@ -305,60 +309,103 @@ export class MySqlOrmDriver extends SqlDriver {
     }
   }
 
-  public connect(): Promise<OrmDriver> {
+  /**
+   * The mysql2 pool settings of this connection. `Options` is handed to mysql2 as is ( `ssl`,
+   * `timezone`, ... ); the keys that have their own setting ( Host, Pool.*, Encoding ) win over it.
+   */
+  protected poolConfig(): PoolOptions {
+    const pool = this.resolvedPoolOptions();
+
+    return {
+      ...(this.Options.Options ?? {}),
+      host: this.Options.Host,
+      user: this.Options.User,
+      password: this.Options.Password,
+      port: this.Options.Port,
+      database: this.Options.Database,
+      ...(this.Options.Encoding ? { charset: this.Options.Encoding } : {}),
+      waitForConnections: true,
+      connectionLimit: pool.Max,
+      // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
+      // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
+      // straight through would set maxIdle to 0 by default and make mysql2 destroy every
+      // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
+      // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
+      maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+      idleTimeout: pool.IdleTimeout,
+      queueLimit: 0,
+      // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
+      // a string, because above 2^53 a float loses exactly the precision DECIMAL is
+      // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
+      // top of this class - otherwise OpenAPI starts lying about the type and client-side
+      // response validation fails on every row.
+    };
+  }
+
+  /**
+   * Creates a pool and proves it with one real connection. A pool that cannot connect is ended
+   * and never becomes `this.Pool`.
+   */
+  protected openPool(config: PoolOptions): Promise<mysql.Pool> {
     return new Promise((resolve, reject) => {
-      try {
-        const pool = this.resolvedPoolOptions();
+      const pool = mysql.createPool(config);
 
-        this.Pool = mysql.createPool({
-          host: this.Options.Host,
-          user: this.Options.User,
-          password: this.Options.Password,
-          port: this.Options.Port,
-          database: this.Options.Database,
-          waitForConnections: true,
-          connectionLimit: pool.Max,
-          // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
-          // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
-          // straight through would set maxIdle to 0 by default and make mysql2 destroy every
-          // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
-          // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
-          maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-          idleTimeout: pool.IdleTimeout,
-          queueLimit: 0,
-          // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
-          // a string, because above 2^53 a float loses exactly the precision DECIMAL is
-          // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
-          // top of this class - otherwise OpenAPI starts lying about the type and client-side
-          // response validation fails on every row.
-        });
-
-        // Test the pool connection
-        this.Pool.getConnection((err, connection) => {
-          if (err) {
-            // Clean up the pool if connection test fails
-            this.Pool.end(() => {
-              reject(err);
-            });
-            return;
-          }
-
-          // Release the test connection
-          connection.release();
-          this.setState(ConnectionState.Connected);
-          resolve(this);
-        });
-      } catch (err) {
-        // Clean up if pool creation fails
-        if (this.Pool) {
-          this.Pool.end(() => {
-            reject(err);
-          });
-        } else {
-          reject(err);
+      pool.getConnection((err, connection) => {
+        if (err) {
+          pool.end(() => reject(err));
+          return;
         }
-      }
+
+        connection.release();
+        resolve(pool);
+      });
     });
+  }
+
+  /**
+   * Makes `pool` the driver's pool and ends the one it replaces once every connection that pool
+   * lent out is back: a transaction still running on it must not lose its connection because
+   * another statement triggered a reconnect. Connections that died are dropped from mysql2's
+   * list without a release event, hence the poll instead of a `release` listener.
+   */
+  protected replacePool(pool: mysql.Pool, onPreviousEnded?: () => void): void {
+    const previous = this.Pool;
+    this.Pool = pool;
+
+    if (!previous) {
+      onPreviousEnded?.();
+      return;
+    }
+
+    const internals = previous as any;
+    const endIfIdle = () => {
+      if ((internals._allConnections?.length ?? 0) > (internals._freeConnections?.length ?? 0)) {
+        return false;
+      }
+
+      previous.end(() => onPreviousEnded?.());
+      return true;
+    };
+
+    if (endIfIdle()) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (endIfIdle()) {
+        clearInterval(timer);
+      }
+    }, 1000);
+    timer.unref();
+  }
+
+  public async connect(): Promise<OrmDriver> {
+    const pool = await this.openPool(this.poolConfig());
+
+    this.replacePool(pool);
+    this.setState(ConnectionState.Connected);
+
+    return this;
   }
 
   public disconnect(): Promise<OrmDriver> {
@@ -401,7 +448,8 @@ export class MySqlOrmDriver extends SqlDriver {
     let indexInfo: IIndexInfo[] = [];
 
     if (!isView || isView.length === 0) {
-      throw new OrmException(`Table ${dbSchema}.${name} does not exist`);
+      this.Log.trace({ schema: dbSchema, table: name }, 'Table ${schema}.${table} does not exist.');
+      return null as any;
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
@@ -412,7 +460,7 @@ export class MySqlOrmDriver extends SqlDriver {
     if (isView && isView[0].Table_type === 'VIEW') {
       this.Log.trace({ schema: dbSchema, table: name }, 'Table ${schema}.${table} is a VIEW and dont have indexes set.');
     } else {
-      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)}`, [], QueryContext.Select)) as IIndexInfo[];
+      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)} FROM ${escapeId(dbSchema)}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
     return tblInfo.map((r: ITableColumnInfo) => {
@@ -553,48 +601,76 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
     return this;
   }
 
-  public connect(): Promise<OrmDriver> {
+  public async connect(): Promise<OrmDriver> {
+    const client = await this.openSshClient();
+    let pool: mysql.Pool;
+
+    try {
+      // a function, not a stream: mysql2 calls it once per pooled connection, and every
+      // connection needs its own forwarded channel
+      pool = await this.openPool({ ...this.poolConfig(), stream: () => this.forwardedStream(client) } as PoolOptions);
+    } catch (err) {
+      client.end();
+      throw err;
+    }
+
+    const previousClient = this.SshClient;
+    this.SshClient = client;
+    this.replacePool(pool, () => {
+      if (previousClient && previousClient !== client) {
+        previousClient.end();
+      }
+    });
+    this.setState(ConnectionState.Connected);
+
+    return this;
+  }
+
+  private openSshClient(): Promise<SSHClient> {
     return new Promise((resolve, reject) => {
-      this.SshClient = new SSHClient();
+      const client = new SSHClient();
 
-      this.SshClient.on('ready', () => {
-        this.SshClient.forwardOut('127.0.0.1', 12345, this.Options.Host!, this.Options.Port!, (err, stream) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+      client.on('ready', () => resolve(client));
 
-          const pool = this.resolvedPoolOptions();
-
-          this.Pool = mysql.createPool({
-            host: 'localhost', // we tunnel via ssh so we use localhost
-            user: this.Options.User,
-            password: this.Options.Password,
-            port: this.Options.Port,
-            database: this.Options.Database,
-            waitForConnections: true,
-            connectionLimit: pool.Max,
-            // see MySqlOrmDriver.connect — `maxIdle` is a ceiling, so Min = 0 must not reach it
-            maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-            idleTimeout: pool.IdleTimeout,
-            queueLimit: 0,
-            stream: stream,
-          } as PoolOptions);
-
-          resolve(this);
-        });
-      });
-
-      this.SshClient.on('error', (err) => {
+      // stays attached after `ready`: an 'error' with no listener would crash the process
+      client.on('error', (err) => {
         reject(err);
       });
 
-      this.SshClient.connect({
+      client.connect({
         host: this.Options.SSH!.Host,
         port: this.Options.SSH!.Port,
         username: this.Options.SSH!.User,
         privateKey: fs.readFileSync(this.Options.SSH!.PrivateKey),
       });
     });
+  }
+
+  /**
+   * mysql2 takes a connection's stream synchronously, while an SSH channel opens asynchronously,
+   * so the connection gets a proxy that the channel is piped into once the forward is open.
+   */
+  private forwardedStream(client: SSHClient): Duplex {
+    const toServer = new PassThrough();
+    const fromServer = new PassThrough();
+    const proxy = Duplex.from({ writable: toServer, readable: fromServer });
+
+    client.forwardOut('127.0.0.1', 0, this.Options.Host!, this.Options.Port ?? 3306, (err, channel) => {
+      if (err) {
+        proxy.destroy(err);
+        return;
+      }
+
+      if (proxy.destroyed) {
+        channel.close();
+        return;
+      }
+
+      channel.on('error', (channelErr: Error) => proxy.destroy(channelErr));
+      proxy.once('close', () => channel.close());
+      toServer.pipe(channel).pipe(fromServer);
+    });
+
+    return proxy;
   }
 }
