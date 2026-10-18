@@ -22,7 +22,7 @@ The package parses request cookies with `cookie-parser`, bound to `http.cookie.s
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.cookie.secret` | `string` | `'1234adreewD'` | non-empty string | Signs and verifies cookies. The default is public: set your own. |
+| `http.cookie.secret` | `string` | `'1234adreewD'` | non-empty string | Signs and verifies cookies. The default is public (exported as `HTTP_PUBLIC_COOKIE_SECRET`, tested by `isPublicCookieSecret`): set your own. |
 | `http.cookie.options` | `express.CookieOptions` | `{ maxAge: 900000, httpOnly: true }` | | Defaults for every cookie a response sets. `maxAge` is in ms (15 minutes). |
 
 ```ts
