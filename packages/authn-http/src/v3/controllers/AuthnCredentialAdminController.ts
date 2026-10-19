@@ -49,9 +49,6 @@ export class AuthnCredentialAdminController extends BaseController {
   @Config('authn.mfa.encryptionKey.secret')
   protected MfaEncryptionKey: string | null | undefined;
 
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
-
   /**
    * Reset a user's password
    * Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,
@@ -88,7 +85,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async mfaReset(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'mfa-reset');
     if ('answer' in admitted) return admitted.answer;
-    const { reset } = await (await adminTotpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService)).adminReset(admitted.actor, admitted.target, admitted.ctx);
+    const { reset } = await (await adminTotpServiceOf(this.Container, this.MfaEncryptionKey)).adminReset(admitted.actor, admitted.target, admitted.ctx);
     return new Ok({ reset }, { Headers: [NO_STORE] });
   }
 

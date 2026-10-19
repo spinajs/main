@@ -187,7 +187,9 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
   compare-and-set, so it never overwrites a concurrent change or reset.
 - **Policy:** passwords are never trimmed. Length is 8-128 code points on create, change, reset and
   login. Add `policy.rule` (a JSON schema) and a `PasswordBlocklist` service named in
-  `policy.blocklist` (for example a breach check) (A04).
+  `policy.blocklist` (for example a breach check) (A04). The name is looked up in the policy's
+  container and its parents: an unknown name fails at boot, and the service is resolved on the
+  first check.
 - **Change (`PasswordService.change`):** needs the owner's own active session (not one that someone
   impersonates). It keeps every API and agent token (H32, A30), revokes the identity's other sessions,
   including sessions where it is the impersonator, and rotates the current one. The write is a
