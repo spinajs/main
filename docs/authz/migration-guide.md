@@ -1057,7 +1057,12 @@ and in [section 7](#7-data-migration). What changes for an app:
 - The authz tables live on the ORM connection alias `authz`, whose default is `default`; map it with
   `db.Aliases.authz`. Their migrations (`AuthzRbac_2026_10_01_00_00_00`,
   `AuthzAdminIdempotency_2026_10_02_00_01_00`, and authz-orm's ancestor and scope-attribute tables) run
-  there. The 3.0 alpha keys `authz.rbac.connection` and `authz.admin.connection` fail boot.
+  there. The 3.0 alpha keys `authz.rbac.connection` and `authz.admin.connection` fail boot, and
+  `DbAuthzAdminBackendOptions` (`connection`, `container`) is gone: `new DbAuthzAdminBackend()` takes no
+  options.
+- With `DbPolicyStore` (authz-abac), set `authz.abac.connection` to the connection `db.Aliases.authz`
+  names, and create `authz_policy` there: the store reads the table on `authz.abac.connection`, while
+  its writes run in the `AuthzAdmin` batch on the `authz` connection.
 - `users.Role` becomes `$global` assignments of `user:<Uuid>` (the design says `users.Id`; the code
   reads `authz.rbac.migration.idColumn`, default `Uuid`). The drop migration refuses an incomplete
   copy.

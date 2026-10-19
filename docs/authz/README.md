@@ -373,9 +373,11 @@ authz: {
 - **Records.** The DB stores and `DbAuthzAdminBackend` read and write through internal ORM models
   (`AssignmentRecord`, `MembershipRecord`, `RuleRecord`, `RuleSubjectRecord`, `LinkRecord`,
   `VersionRecord`, `AdminIdempotencyRecord`) on the `authz` connection. The ORM binds models when it
-  boots, so import `@spinajs/authz-rbac` before the `Orm` resolves. Code that creates the authz tables
-  after the ORM booted (a test that runs the migrations by hand) calls `orm.reloadTableInfo()` before
-  the stores read them.
+  boots, so import `@spinajs/authz-rbac` before the `Orm` resolves. When nothing resolved the `Orm` (a
+  cli process boots only its command), the first store read or `DbAuthzAdminBackend` batch resolves it.
+  Any migration run after the ORM booted that creates the authz tables (a test, or
+  `Migration.OnStartup: false` with a later in-process migration) must be followed by
+  `orm.reloadTableInfo()` before the stores read them.
 - **Share link tokens.** A token is 32 random bytes in base64url. The table keeps only `v1:` and an
   HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
   store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.
@@ -504,6 +506,9 @@ Rules that matter:
 Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`) and
 `authz.abac.connection` (default `default`). Policy writes go through `AuthzAdmin` (`policy.put`,
 `policy.delete`). The app registers the model itself ([Wiring the models](#wiring-the-models)).
+`DbPolicyStore` reads `authz_policy` on `authz.abac.connection`, but writes it in the `AuthzAdmin`
+batch, on the `authz` connection. With `DbPolicyStore`, set `authz.abac.connection` to the connection
+`db.Aliases.authz` names, and create `authz_policy` there.
 
 **Lists.** For a `list: true` permission the ABAC model decides its policies before the query, from
 the principal, the actor and the request env (MFA, time, IP): a permit that holds lists every row, a
@@ -753,6 +758,10 @@ per-domain lock on the `authz_version` row: batches of one domain run one after 
 different domains do not wait for each other (on SQLite the ORM runs one transaction at a time). It
 refuses to run inside an open transaction. The
 default backend keeps data in memory.
+
+On PostgreSQL batches of different domains run in parallel. Only the domain's `authz_version` row
+orders its batches; `authz_assignment` rows that several domains write are not serialized across
+domains, because the guard's invariants (`last_holder`, `self_lockout`) hold per domain.
 
 **List permissions.** A built-in validator refuses `policy.put` and `rule.put` with
 `not_list_filterable` when the stored policy or rule would make a `list: true` permission depend on
