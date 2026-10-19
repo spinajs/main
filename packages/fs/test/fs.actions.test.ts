@@ -4,6 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import { PassThrough } from 'node:stream';
 
 import { DI } from '@spinajs/di';
+import type { Factory } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { FsMiddleware, executeFsAction, fsTarget, inFsAction } from '../src/actions.js';
 import type { FsActionContext } from '../src/actions.js';
@@ -119,6 +121,33 @@ describe('fs actions: engine', () => {
       return 'io';
     });
     expect(await later).to.equal(false);
+  });
+
+  it('refuses every action while an FsMiddleware is registered through a factory or an instance, which it cannot run', async () => {
+    class Registered extends FsMiddleware {
+      async before() {
+        log.push('registered.before');
+      }
+    }
+    const makeMiddleware: Factory<FsMiddleware> = () => new Registered();
+    const entries: [Factory<FsMiddleware> | FsMiddleware, string][] = [
+      [makeMiddleware, 'factory makeMiddleware'],
+      [(() => () => new Registered())(), 'an anonymous factory'],
+      [new Registered(), 'an instance of Registered'],
+    ];
+    for (const [entry, name] of entries) {
+      DI.register(entry).as(FsMiddleware);
+      DI.uncache(Array.ofType(FsMiddleware));
+      let io = false;
+      try {
+        await expect(run(fakeFs('on'), async () => ((io = true), 'io'))).to.be.rejectedWith(InvalidOperation, name);
+      } finally {
+        DI.unregister(FsMiddleware, entry);
+        DI.uncache(Array.ofType(FsMiddleware));
+      }
+      expect(io, name).to.equal(false);
+    }
+    expect(log).to.deep.equal([]);
   });
 
   it('memoises ctx.exists per target', async () => {

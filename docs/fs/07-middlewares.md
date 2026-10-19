@@ -43,7 +43,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `FsMiddleware` | `FsMiddleware`, every registration, resolved as `Array.ofType(FsMiddleware)` on every top-level action; the lifetime is the class's own (singleton unless decorated otherwise) | none in `@spinajs/fs` | `AuthzFsMiddleware` (`@spinajs/authz-fs`, `order` `100`) | `@Injectable(FsMiddleware)` or `DI.register(MyMiddleware).as(FsMiddleware)`. Every registration runs; there is no replacing. A registration made before an action is seen by it, so import order against `fsService` does not matter. |
 
-Register by class. A middleware registered through a DI factory or an instance is **not** run.
+Register by class. `Array.ofType` cannot run a middleware registered through a DI factory or an instance, so while one is registered every file action throws `InvalidOperation` naming it.
 
 ### Members
 

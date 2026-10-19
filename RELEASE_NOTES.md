@@ -452,8 +452,8 @@ password, a token or a reset code never comes back in a response or lands in a l
   middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working
   directory without one.
 - `FsMiddleware` (new) runs `before` and `after` every public file method of every provider, in ascending `order`.
-  Register it by class (`@Injectable(FsMiddleware)`): a factory or an instance is not run. Middlewares are resolved on
-  each action, so import order against `fsService` does not matter. A middleware sees the targets (normalised path,
+  Register it by class (`@Injectable(FsMiddleware)`): while a factory or an instance is registered, every file action
+  throws `InvalidOperation`. Middlewares are resolved on each action, so import order against `fsService` does not matter. A middleware sees the targets (normalised path,
   `file` or `dir`, access, role), the other arguments as `ctx.args`, and unchecked `ctx.exists()`, `ctx.isDir()` and
   `ctx.hasEntries()` probes. Calls a provider makes inside an action skip middlewares. `fs.middlewareTimeoutMs`
   (default 30000) bounds the `after` hooks of a `writeStream`.

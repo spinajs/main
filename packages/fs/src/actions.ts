@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { EventEmitter } from 'node:events';
 
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { DI, isConstructor } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { fs } from './interfaces.js';
 import { normalizeFsPath } from './paths.js';
@@ -98,7 +99,15 @@ export interface FsActionRun<R> {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+const registration = (entry: unknown): string =>
+  typeof entry === 'function' ? (entry.name ? `factory ${entry.name}` : 'an anonymous factory') : `an instance of ${(entry as object)?.constructor?.name ?? typeof entry}`;
+
 async function middlewares(): Promise<FsMiddleware[]> {
+  // Array.ofType resolves only class registrations: anything else would never run, so no action may pass unchecked.
+  const unrunnable = (DI.getRegisteredTypes(Array.ofType(FsMiddleware)) ?? []).filter((entry) => !isConstructor(entry));
+  if (unrunnable.length > 0) {
+    throw new InvalidOperation(`FsMiddleware registered as ${unrunnable.map(registration).join(', ')} cannot run: register the middleware class (@Injectable(FsMiddleware))`);
+  }
   const resolved = ((await DI.resolve(Array.ofType(FsMiddleware))) ?? []) as FsMiddleware[];
   return [...resolved].sort((a, b) => a.order - b.order);
 }
