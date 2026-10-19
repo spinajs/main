@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Forbidden, ResourceNotFound } from '@spinajs/exceptions';
 import { CredentialAdminGuard } from '@spinajs/authn/contracts';
 import type { CredentialAdminAction, Principal } from '@spinajs/authn/contracts';
@@ -22,7 +22,7 @@ const coded = <E extends Error>(err: E, code: string): E => Object.assign(err, {
  * administer whom, so every call is refused.
  */
 export async function assertCredentialAdmin(actor: Principal, uuid: string, action: CredentialAdminAction, container: IContainer = DI.RootContainer): Promise<void> {
-  if (!container.hasRegistered(CredentialAdminGuard as unknown as Class<CredentialAdminGuard>)) {
+  if (!container.hasImplementation(CredentialAdminGuard)) {
     throw coded(new Forbidden('no credential admin guard is registered'), 'forbidden');
   }
 

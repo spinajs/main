@@ -1,16 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { AuthzAdminFailure, AuthzConfigError, AuthzService, GLOBAL } from '@spinajs/authz';
-import type { AuthzAdmin, AuthzCommand, Principal } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL } from '@spinajs/authz';
+import type { AuthzCommand, Principal } from '@spinajs/authz';
 import { AssignmentStore, RoleStore } from '@spinajs/authz-rbac';
 import { DI } from '@spinajs/di';
+import { rootAuthzAdmin } from '@spinajs/users';
 
 import { refusalOf } from './actor.js';
 
 const userSubject = (uuid: string) => ({ type: 'user', id: uuid });
-
-async function rootAdmin(): Promise<AuthzAdmin> {
-  return ((await DI.resolve(AuthzService)) as AuthzService).admin();
-}
 
 /** The roles `user:<uuid>` holds now at GLOBAL, from its own assignments (subject sets are not expanded). */
 export async function globalRolesOf(uuid: string): Promise<string[]> {
@@ -39,7 +36,7 @@ export async function executeAsActor(actor: Principal, commands: readonly AuthzC
     return;
   }
 
-  const results = await (await rootAdmin()).execute(actor, commands, { reason: opts.reason, dryRun: opts.dryRun === true });
+  const results = await (await rootAuthzAdmin()).execute(actor, commands, { reason: opts.reason, dryRun: opts.dryRun === true });
 
   for (const r of results) {
     if (!r.ok) {
@@ -70,7 +67,7 @@ async function assignableDefinitions(): Promise<string[]> {
 
 /** The roles `actor` may grant at GLOBAL: those whose dry-run grant AuthzAdmin accepts. */
 export async function assignableRoles(actor: Principal): Promise<string[]> {
-  const admin = await rootAdmin();
+  const admin = await rootAuthzAdmin();
   // Any subject will do; a dry run writes nothing.
   const subject = userSubject(randomUUID());
   const allowed: string[] = [];

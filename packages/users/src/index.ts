@@ -18,6 +18,7 @@ export * from './migrations/RBACRegisteredAt_2026_07_28_00_00_00.js';
 export * from './migrations/UsersPasswordSetAt_2026_10_04_00_00_00.js';
 export * from './events/index.js';
 export * from './actions.js';
+export { rootAuthzAdmin } from './role-assignments.js';
 export * from './profile.js';
 export * from './model-token.js';
 export * from './cli/RbacCliCommand.js';
