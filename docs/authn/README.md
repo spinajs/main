@@ -326,7 +326,8 @@ listed could not be removed:
 The import loads `authn-orm`, with its migrations and stores. The data migration moves 2.x TOTP
 secrets into `authn_mfa` and deletes the 2.x `2fa:*`, `user:2fa:*`, `user:login:*` and
 `user:pwd_reset:*` metadata, so import it only after the app has left the 2.x login. The root entry
-of the package loads none of this: it takes only the cipher from `@spinajs/authn-orm/cipher`.
+of the package loads none of this: it takes only the cipher from `@spinajs/authn-orm/cipher` and
+`identityKey` from `@spinajs/authn-orm/identity`, two side-effect-free subpaths.
 
 How the step behaves:
 
@@ -361,8 +362,9 @@ throws only for a fault. Rules:
 - `adminReset(actor, target, ctx)` removes the enrolment and recovery codes and returns
   `{ reset }`, never a secret (SR-10). It does not check who may reset whom: the caller applies the
   target guard (A25, `users:credentials`) first.
-- `TotpService` finds the other MFA steps in the root container. An app that registers steps per
-  child container passes `steps` itself.
+- `TotpService` injects the MFA steps, `SessionIssuer`, `AuthnService`, `AuthnThrottle` and
+  `AuthnAudit` from the container that resolves it. The first three are optional, so the CLI's
+  `adminReset` works without them; a call that needs a missing one throws `InvalidOperation`.
 
 `TotpService` implements and registers `MfaEnrolmentService` (`@spinajs/authn/contracts`), the
 contract behind the `/user/mfa` routes and the admin `POST /authn/admin/users/:uuid/mfa-reset` of
