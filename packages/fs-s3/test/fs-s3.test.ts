@@ -283,13 +283,13 @@ describe('fs s3 exclusive upload', function () {
       sent.push(command as PutObjectCommand);
       throw new S3ServiceException({ name: 'PreconditionFailed', $fault: 'client', $metadata: { httpStatusCode: 412 } });
     });
-    sinon.stub(fs.prototype, 'hash').resolves('h');
+    sinon.stub(fs.prototype as unknown as { doHash(path: string, algo?: string): Promise<string> }, 'doHash').resolves('h');
 
     const s3 = new fsS3({ name: 's3-exclusive', bucket: 'b' } as never);
     Object.defineProperty(s3, 'S3', { value: client });
     Object.defineProperty(s3, 'Logger', { value: { warn: () => undefined } });
 
-    await expect(s3.upload(dir('files/sample.mjml'), 'taken.mjml', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    await expect(s3.upload(dir('files/sample.mjml'), '/taken.mjml', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
     expect(sent[0].input).to.include({ Key: 'taken.mjml', IfNoneMatch: '*' });
   });
 });
