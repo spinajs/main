@@ -26,7 +26,7 @@ Removes the schema from Ajv when `hasSchema(schemaId)` is `true`; otherwise does
 3. Ajv compiles `schema`, which finds what the meta-schema accepts but Ajv cannot run: an unknown `format`, an unknown keyword in strict mode, an unresolvable `$ref`. A throw becomes `[false, [{ keyword: 'invalid_schema', message: <Ajv message> }]]`.
 4. Otherwise `[true, null]`. The empty schema `{}` is valid: it accepts everything.
 
-A schema **without** `$id` is not registered by `validateSchema()`; call `addSchema()` after it passes. A schema **with** `$id` is registered under that `$id` by the compile step, and a schema whose `$id` is already registered fails with `invalid_schema` (`schema with key or id "<id>" already exists`). See [Important behaviour](#important-behaviour).
+`validateSchema()` never registers the schema, with or without `$id`; call `addSchema()` after it passes.
 
 ## API
 
@@ -51,7 +51,7 @@ A schema **without** `$id` is not registered by `validateSchema()`; call `addSch
 - **Ids must be URIs Ajv can serialize.** An id such as `urn:x` throws from `addSchema()` (inside `hasSchema()`).
 - **Compilation is lazy and cached.** Errors in a schema show up on the first `hasSchema()`, `getSchema()` or validation, not at `addSchema()`. Call `validateSchema()` first for anything that did not ship with the code.
 - **The registry is process-wide.** `DataValidator` is a singleton, so a schema added for one tenant is visible to every caller. Put the tenant in the id (`http://app/tenants/42/order.schema.json`).
-- **`validateSchema()` has a side effect for schemas with `$id`.** Its compile step registers the schema under its `$id`, so it is resolvable afterwards even when you never call `addSchema()`. Checking a new version of a registered `$id` fails with `already exists`: call `removeSchema(id)` before `validateSchema()`, or check a copy without `$id` and register it under the id with `addSchema()`.
+- **`validateSchema()` has no side effect.** It compiles a copy without `$id`, so a schema whose `$id` is already registered passes, and nothing becomes resolvable until you call `addSchema()`.
 
 ## Best practices
 
@@ -95,7 +95,7 @@ export class CustomFormSchemas {
 
   /** Validates, then installs or replaces the schema. Returns the problems when it is refused. */
   public install(form: FormDefinition): IValidationError[] {
-    // without $id: validateSchema() would register it, and refuse a second version of the same id
+    // the stored schema is registered under its own id below
     const { $id: _ignored, ...schema } = form.schema;
 
     const [isValid, errors] = this.Validator.validateSchema(schema);

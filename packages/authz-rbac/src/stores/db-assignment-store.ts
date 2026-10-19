@@ -2,6 +2,7 @@ import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/au
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
@@ -11,7 +12,7 @@ import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
 import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { pageWindow, whereLive } from './queries.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -101,7 +102,7 @@ export class DbAssignmentStore extends AdminAssignmentStore {
       try {
         await driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values(row);
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
         throw new AuthzAdminFailure('conflict', `${this.name}.assign: another transaction granted ${a.role} to the same subject at the same scope; retry`, undefined, { cause: err });
       }
     }

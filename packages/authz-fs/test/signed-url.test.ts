@@ -10,6 +10,7 @@ import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { fs } from '@spinajs/fs';
 
+import { domainNow } from '../src/guard/shared.js';
 import { guardFs, parseFsAccessConfig } from '../src/index.js';
 import type { FsGuardOptions } from '../src/index.js';
 import { configuredChild } from './helpers.js';
@@ -398,5 +399,17 @@ describe('authz-fs signed URLs through the engine', function () {
     const { g, calls } = await setup(new ExpiringModel(), {});
     await g.signedUrl!('a.txt');
     expect(untilOf(calls[0])).to.equal(at(15).getTime());
+  });
+
+  it('the domain clock is the one its service booted with; before that boot, the system time', async () => {
+    name = `signed-${++seq}`;
+    set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['expiring'] } }, cache: { maxEntries: 0 } });
+    const child = domains.create(name);
+    child.register(testHost.instance(new ExpiringModel())).as(AuthorizationModel);
+    child.register(testHost.instance({ now: () => NOW })).as(AuthzClock);
+    const before = Date.now();
+    expect((await domainNow(scope, name)).getTime()).to.be.within(before, Date.now());
+    await domains.service(name);
+    expect(await domainNow(scope, name)).to.equal(NOW);
   });
 });

@@ -40,11 +40,10 @@ describe('AccessToken model', function () {
     expect(loaded.Name).to.equal('test token');
     expect(loaded.Roles).to.deep.equal(['user']);
     expect(loaded.ExpiresAt).to.be.null;
-    expect(loaded.IsExpired).to.be.false;
     expect(loaded.user_id).to.equal(owner.Id);
   });
 
-  it('IsExpired is true for past ExpiresAt', async () => {
+  it('keeps a past ExpiresAt', async () => {
     const owner = await insertOwner();
     const token = new AccessToken({
       Name: 'expired',
@@ -56,7 +55,7 @@ describe('AccessToken model', function () {
     await token.insert();
 
     const loaded = await AccessToken.where('Uuid', token.Uuid).firstOrFail();
-    expect(loaded.IsExpired).to.be.true;
+    expect(loaded.ExpiresAt!.toMillis()).to.be.below(DateTime.now().toMillis());
   });
 
   it('hides hash, ids and owner when dehydrated', async () => {

@@ -135,8 +135,8 @@ Index on `(scope_type, scope_id)`.
 
 ### authz-fs
 
-`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`**: PK `(fs, path)` with a binary
-collation on MySQL and Postgres, `owner_type`, `owner_id`, `scope_type`, `scope_id`, `tags`,
+`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`**: PK `(fs, path)`, both columns
+`exact()` (the driver's binary collation, so case variants of a path are two rows), `owner_type`, `owner_id`, `scope_type`, `scope_id`, `tags`,
 `created_at`, `updated_at`.
 
 ## Teams
@@ -242,9 +242,8 @@ adds an `AccessPolicy`. Options: `resource` (`fromParam`, `fromBody`, `fromQuery
 
 Related: `@Unscoped(reason)` skips scoping and is audited; `AuthzFieldsMiddleware` filters fields.
 
-`authz-http/src/api.ts` and `authz-orm/src/api.ts` hold `notImplemented` stubs of the decorators.
-The real ones are `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`
-(re-exported from `authz-orm/src/index.ts`).
+The decorators live in `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`,
+exported from each package's `src/index.ts`. `src/api.ts` holds only the contract types.
 
 ### 3. Service
 
@@ -378,7 +377,8 @@ There are no per-row ACL rows. Access to one resource comes from:
 - A fresh check (`DecisionRequest.fresh`, or a permission with `consistency: 'fresh'`) reads neither
   L1 nor L2 and passes `fresh` to the models; `RbacModel` then reads assignments from the store past
   its request memo and `AssignmentCache` (`authz-rbac/src/model/cache.ts`), and the rows it reads
-  refresh both.
+  refresh both. An access plan of a `consistency: 'fresh'` permission skips the L1 plan memo, sets
+  `ListPlanRequest.fresh` for `listPlan`, and runs the models' nested checks fresh.
 
 ## Admin writes
 

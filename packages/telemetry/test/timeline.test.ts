@@ -4,6 +4,17 @@ import { expect } from 'chai';
 import { Timeline } from './../src/index.js';
 
 describe('Timeline — rolling ring of RequestStats buckets', () => {
+  it('toJSON(now) drops buckets that aged out while idle and reports bucket rates', () => {
+    const tl = new Timeline(2, 1000);
+    tl.record(200, 5, 0);
+    tl.record(500, 5, 1000);
+    const j = tl.toJSON(5000);
+    expect(Object.keys(j)).to.have.length(0);
+
+    tl.record(200, 5, 10_000);
+    expect(tl.toJSON(10_000)['10'].req_rate).to.eq(1);
+  });
+
   it('records land in the bucket for their timestamp', () => {
     const tl = new Timeline(60, 60_000);
     const t = 10 * 60_000; // exact bucket boundary -> key 10

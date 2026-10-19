@@ -25,8 +25,9 @@ export class FromQuery extends RouteArgs {
 
         // args passed to another route-args params
         Payload: {
+          ...callData?.Payload,
           Query: {
-            Args: pArg,
+            Args: { ...callData?.Payload?.Query?.Args, ...pArg },
           },
         },
       },

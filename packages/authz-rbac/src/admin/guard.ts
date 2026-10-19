@@ -5,7 +5,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { MembershipStore } from '../contracts.js';
-import { computeClosures, readMaxSetDepth } from '../membership/closure.js';
+import { computeClosures, maxSetDepthOf } from '../membership/closure.js';
 import { parseSetKey } from '../model/sets/keys.js';
 import { subjectKeyOf } from '../stores/columns.js';
 import { AccountStatusSource } from './ports.js';
@@ -156,7 +156,7 @@ export class DefaultAdminGuard extends AdminGuard {
       if (!setMemo.has(role)) setMemo.set(role, setRolesOf(roles, role));
       return setMemo.get(role)!;
     };
-    const call: Call = { actor, ctx, cfg, roles, sets, ranks: new Map(), maxSetDepth: readMaxSetDepth(configuration.get(['authz', 'rbac', 'maxSetDepth'])) };
+    const call: Call = { actor, ctx, cfg, roles, sets, ranks: new Map(), maxSetDepth: await maxSetDepthOf(adminContainer(ctx)) };
     if (cfg.preventEscalation) await this.escalation(call, c);
     await this.removals(call, c);
   }

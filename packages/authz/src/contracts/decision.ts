@@ -61,6 +61,11 @@ export interface Decision {
   readonly trace?: Trace;
 }
 
+/** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
+export function definite(decision: Decision): boolean {
+  return decision.allowed && decision.residual?.op === 'true';
+}
+
 export interface TraceStep {
   readonly by: 'core' | string;
   readonly step: string;

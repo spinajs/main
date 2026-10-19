@@ -8,6 +8,7 @@
 2. `OtlpLogTarget` calls `this.OnDropped?.(entry)` once per entry it gives up on:
    - **Buffer overflow.** The queue exceeds `maxBufferSize` and removes the oldest records; each removed record's `entry` is passed to the hook.
    - **Permanent export error.** The receiver answers with a non-retryable status (for example `400` or `401`); every entry of the batch is passed to the hook, then the batch is dropped.
+   - **Failed export after `dispose()`.** Any failure, retryable or not, once the queue is stopped; the batch cannot be requeued, so each entry goes to the hook.
 3. Entries reach the hook unwrapped: the original `ILogEntry`, without the `timeUnixNano` the target recorded.
 4. `FallbackGroupTarget` (from `@spinajs/log`) resolves its child targets in order and, in its `resolve()`, sets `child[i].OnDropped` to call `child[i + 1].write(entry)`. The last child keeps `OnDropped = null`.
 
@@ -27,8 +28,7 @@ sequenceDiagram
 Entries are **not** passed to the hook when:
 
 - a transient error exhausts its retries: the batch is requeued instead;
-- `write()` is called on a disabled target;
-- a retryable export fails during `dispose()`: the batch is requeued into a stopped queue and lost.
+- `write()` is called on a disabled target, or with an entry from the target's own `LogOtlpTarget` logger.
 
 ## Configuration
 

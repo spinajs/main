@@ -26,7 +26,7 @@ Type checks (`_is_string`, `_is_number`, ...) take nested checks: they test the 
 | `_is_array_of(...checks)` | an array whose every element passes `checks` | `TYPE_MISMATCH`, `ARRAY_ELEMENT_VALIDATION_FAILED` | Elements are validated as `name[index]`; returns the mapped array; the element error is the `inner` |
 | `_is_object(...checks)` | a non-null object that is not an array | `TYPE_MISMATCH` | Class instances pass |
 | `_is_map(...checks)` | `arg instanceof Map` | `TYPE_MISMATCH` | |
-| `_is_instance_of(Ctor, ...checks)` | an object whose `constructor.name` equals `Ctor.name` | `TYPE_MISMATCH` | Compares names, not prototypes: a subclass fails |
+| `_is_instance_of(Ctor, ...checks)` | an object that is `instanceof Ctor` | `TYPE_MISMATCH` | A subclass instance passes |
 | `_contains_key(key)` | a `Map` with `key`, or an object with own key `String(key)` | `MISSING_KEY` | Any other type passes |
 
 ### Presence and defaults
@@ -36,7 +36,7 @@ Type checks (`_is_string`, `_is_number`, ...) take nested checks: they test the 
 | `_non_null(error?)` | `null` | `NULL_VALUE` |
 | `_non_undefined(error?)` | `undefined` | `UNDEFINED_VALUE` |
 | `_non_NaN(error?)` | anything global `isNaN()` is true for, such as `NaN`, `'abc'`, `undefined` | `NAN_VALUE` |
-| `_non_empty(error?)` | a string or array of length 0 | `EMPTY_VALUE` |
+| `_non_empty(error?)` | a string or array of length 0, `null` or `undefined` | `EMPTY_VALUE` |
 | `_non_nil(error?)` | `null`, `undefined`, `''`, `[]`, an object with no own keys | `EMPTY_VALUE` |
 | `_default(value)` | nothing: replaces `null`, `undefined`, `''`, `[]` or `{}` with `value`, or with `value()` when it is a function | |
 
@@ -90,10 +90,10 @@ Every check that takes `error?` throws that `InvalidArgument` instead of its def
 - `_check_arg` returns `any`. Annotate the variable you assign it to.
 - Checks that only validate strings or numbers (`_reg_match`, `_lt`, `_trim`, ...) let other types through. Put a type check first.
 - `_to_int` uses `parseInt`: `'12abc'` becomes `12`. Add `_reg_match(/^\d+$/)` before it when trailing characters must fail.
-- `_or` swallows every branch error. Its message lists the check function names, which are empty for the built-in checks, so the message ends in a list of commas.
+- `_or` swallows every branch error. Its message lists each branch's error message, separated by `; `.
 - `_is_uuid` accepts lower-case version 4 UUIDs only. Put `_to_lower()` before it to accept upper case.
-- `_to_date` drops the time of day. Without `fromFormat`, its error message says `in format undefined`.
-- `_non_empty` reads `arg.length`: on `null` or `undefined` it throws a `TypeError`, not `InvalidArgument`. Use `_non_nil` for values that may be missing.
+- `_to_date` drops the time of day. Without `fromFormat`, it parses ISO 8601 and its error message says `in format ISO 8601`.
+- `_non_empty` also rejects `null` and `undefined` with `EMPTY_VALUE`.
 - A custom `error` instance is created once, when the chain is built, and thrown on every failure.
 
 ## Best practices

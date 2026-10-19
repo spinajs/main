@@ -6,7 +6,7 @@ import type { ImpliesIndex } from '../ladder/implies.js';
 import type { LadderIndex } from '../ladder/ladders.js';
 import type { RoleGraph } from '../roles.js';
 
-export const LIST_RELATIONS: ReadonlySet<string> = new Set(['owner', 'self']);
+const LIST_RELATIONS: ReadonlySet<string> = new Set(['owner', 'self']);
 
 export interface ListSupportSources {
   readonly graph: RoleGraph;

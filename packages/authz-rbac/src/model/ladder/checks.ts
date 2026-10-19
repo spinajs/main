@@ -24,7 +24,7 @@ export interface RowCheck {
 }
 
 /** `requiresTag` (step 6): the tag union of `live` holds it on every row, else the scoped carriers on theirs. */
-export function tagCheck(s: RbacState, tag: string): RowCheck {
+function tagCheck(s: RbacState, tag: string): RowCheck {
   const live = s.live.filter((l) => l.tags.includes(tag));
   if (live.length > 0) return { rows: TRUE, read: live };
   const scoped = s.scoped.filter((l) => l.tags.includes(tag));
@@ -38,7 +38,7 @@ export function tagCheck(s: RbacState, tag: string): RowCheck {
  * gives provenance with the types as `needed` (430), a rank below gives role_too_low (ladder, role,
  * needed: the declaring role) on that rank (440).
  */
-export function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
+function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
   const types = grant.grantedAt!;
   const ladders = s.input.ladders;
   const ladder = ladders?.ladderOf(grant.role);

@@ -83,7 +83,7 @@ function templatePath(inner: string, id: string, fail: (problem: string) => Erro
  * glob metacharacter, or could step out of its path segment (see `segmentSafe`). Not cached: the
  * result depends on the principal.
  */
-export function patternId(p: CompiledPattern, principal: Principal): string | undefined {
+function patternId(p: CompiledPattern, principal: Principal): string | undefined {
   if (!p.id) return undefined;
   let out = '';
   for (const part of p.id) {

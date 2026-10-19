@@ -9,15 +9,15 @@ Boot, when `DefaultQueueService` from `@spinajs/queue` resolves:
 1. `@AutoinjectService('queue.connections', QueueClient)` reads every entry and looks for a class registered under `QueueClient` whose name equals `entry.service`. `StompQueueClient` is registered there by `@Injectable(QueueClient)` when the package is imported.
 2. DI resolves `StompQueueClient` with the entry as its options. The last registration under `StompQueueClient` is the [client factory](05-client-factory-and-client-id.md), so the factory runs:
    1. it reads `app.name` (default `'no-app'`) and `process.env.APP_ENV` (default `'development'`) from `Configuration`, or throws `InvalidOperation` when there is no `Configuration`;
-   2. it calls `new StompQueueClient({ ...entry, clientId: '<app.name>-<APP_ENV>-<entry.name>' })`;
+   2. it calls `new StompQueueClient({ ...entry, clientId: entry.clientId ?? '<app.name>-<APP_ENV>-<entry.name>' })`;
    3. it awaits `client.resolve()` and returns the client.
-3. `StompQueueClient.resolve()` builds the `stompjs` `Client` through `createClient(config)`:
+3. `StompQueueClient.resolve()` rejects with `InvalidArgument` when `host` is empty. Otherwise it builds the `stompjs` `Client` through `createClient(config)`:
    - `brokerURL` is `host`; `connectHeaders` carry `login`, `passcode` (from `password`) and `client-id`;
    - `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing` and `connectionTimeout` come from the entry or their defaults;
-   - `webSocketFactory` calls `createWebSocket()`, which opens `new WebSocket(host, <STOMP protocol versions>)` from `ws`, or throws `InvalidArgument` when `host` is empty;
+   - `webSocketFactory` calls `createWebSocket()`, which opens `new WebSocket(host, <STOMP protocol versions>)` from `ws`;
    - every key of `entry.options` is spread last and overrides the values above.
 4. It sets `client.debug` to log `stompjs` output at `trace`, or at `debug` when `entry.debug` is `true`.
-5. When `entry.credentialProvider` is set, it installs `beforeConnect`, which asks the [credential provider](04-credential-providers.md) for fresh credentials before every connect.
+5. When `entry.credentialProvider` is set, it installs `beforeConnect`, which asks the [credential provider](04-credential-providers.md) for fresh credentials before every connect. A provider that fails before the first connect deactivates the client and rejects `resolve()` with `UnexpectedServerError`; after it, the reconnect goes ahead with the previous credentials.
 6. It installs `onConnect`, `onStompError`, `onWebSocketError`, `onWebSocketClose`, `onDisconnect` and `onUnhandledMessage`, then calls `client.activate()`.
 7. `onConnect` replays all tracked subscriptions, flushes emits buffered while disconnected and resolves `whenReady()` callers. The first `onConnect` resolves `resolve()`.
 8. A broker `ERROR` frame (`onStompError`, eg. a bad login) or a WebSocket error (`onWebSocketError`) **before** the first connect deactivates the client and rejects `resolve()` with `UnexpectedServerError`. The boot fails; there is no retry at boot.
@@ -63,7 +63,7 @@ Each entry of `queue.connections` that uses this transport:
 | `queue.connections[].host` | `string` | none, required | `ws://` or `wss://` URL | Broker WebSocket endpoint, eg. `ws://activemq:61614/ws`. |
 | `queue.connections[].login` | `string` | `undefined` | | STOMP `login` header. |
 | `queue.connections[].password` | `string` | `undefined` | | STOMP `passcode` header. |
-| `queue.connections[].clientId` | `string` | `undefined` | | `client-id` header when the client is built without the factory. The shipped factory **overwrites** it; see [Client factory](05-client-factory-and-client-id.md). Falls back to `name`. |
+| `queue.connections[].clientId` | `string` | `undefined` | | `client-id` header. The shipped factory uses it when set, else `<app.name>-<APP_ENV>-<name>`; see [Client factory](05-client-factory-and-client-id.md). Built without the factory, it falls back to `name`. |
 | `queue.connections[].credentialProvider` | `string` | `undefined` | a DI name of an `IQueueCredentialsProvider` | Fetch credentials before every connect; see [Credential providers](04-credential-providers.md). |
 | `queue.connections[].reconnectDelay` | `number` (ms) | `5000` | `>= 0`; `0` turns auto-reconnect off | Wait before reconnecting after a drop. |
 | `queue.connections[].heartbeatIncoming` | `number` (ms) | `4000` | `>= 0`; `0` turns it off | Heartbeat the client expects from the broker. |
@@ -117,7 +117,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Queue transport | `QueueClient`, selected by class name from `queue.connections[].service`; `@PerInstanceCheck()`, one instance per connection `name` | `StompQueueClient` | `BlackHoleQueueClient` (`@spinajs/queue`), `AmqpQueueClient`, `SqsQueueClient`, your subclass | Register a class `@Injectable(QueueClient)` and name it in `service`; see [Extending the STOMP client](06-extending-the-stomp-client.md) |
-| Client factory | the `StompQueueClient` key; a factory, never cached | `client-id` = `<app.name>-<APP_ENV>-<name>`, then `resolve()` | your factory | `DI.register(factory).as(StompQueueClient)` after the package import; see [Client factory](05-client-factory-and-client-id.md) |
+| Client factory | the `StompQueueClient` key; a factory, never cached | `client-id` = `clientId ?? <app.name>-<APP_ENV>-<name>`, then `resolve()` | your factory | `DI.register(factory).as(StompQueueClient)` after the package import; see [Client factory](05-client-factory-and-client-id.md) |
 | `stompjs` client | `protected createClient(config)` | `new Client(config)` | a fake in tests | Override in a subclass |
 | WebSocket | `protected createWebSocket()`, or `options.webSocketFactory` | `new WebSocket(host, protocols)` from `ws` | TLS options, proxy agents, extra handshake headers | Override in a subclass, or pass `options.webSocketFactory` |
 | Credentials | `IQueueCredentialsProvider`, DI name from `credentialProvider`; its own lifetime | none | your provider | See [Credential providers](04-credential-providers.md) |
@@ -163,10 +163,10 @@ export const config = {
 | Member | Returns | Meaning |
 | --- | --- | --- |
 | `Connected` | `boolean` | `true` while the `stompjs` client is connected. |
-| `whenReady(timeoutMs?)` | `Promise<void>` | Resolves at once when connected, else on the next connect. With `timeoutMs`, rejects with `UnexpectedServerError` after that time. |
+| `whenReady(timeoutMs?)` | `Promise<void>` | Resolves at once when connected, else on the next connect. With `timeoutMs`, rejects with `UnexpectedServerError` after that time. Rejects with `UnexpectedServerError` once `dispose()` has started. |
 | `ClientId` | `string` | The `client-id` sent to the broker: `clientId`, else `name`. |
 | `Name`, `ServiceName` | `string` | The connection `name`. |
-| `dispose()` | `Promise<void>` | Rejects every buffered emit with `UnexpectedServerError`, refuses new emits, then awaits `client.deactivate()`. |
+| `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, then awaits `client.deactivate()`. |
 | `describeWebSocketError(err)` | `string` | Exported helper: a one-line reason for a WebSocket error event, safe on circular socket objects. |
 
 `describeWebSocketError()` prefers the wrapped error's message and code (`connect ECONNREFUSED 127.0.0.1:61614 ( ECONNREFUSED )`), then the event's message, then `event '<type>'`, then `'unknown error'`. For `ws`'s `closed before the connection was established` it adds a hint that the WebSocket handshake never completed, which points at the URL or the network path rather than the broker.
@@ -178,8 +178,7 @@ export const config = {
 - The default heartbeats (4 s both ways) suit ActiveMQ. RabbitMQ Web-STOMP does not support heartbeats over WebSocket; set `heartbeatIncoming` and `heartbeatOutgoing` to `0` there, or the broker drops the connection.
 - `@PerInstanceCheck()` matches instances by `name`. Two entries with the same `name` share one instance when built without the factory.
 - The shipped factory creates a new client on every resolve. `DI.get(StompQueueClient)` does not return it; get a connection with `QueueService.get(name)`.
-- `host` is read inside the `stompjs` connect loop. An entry without `host`, or a credential provider that throws or is not registered, does not reject `resolve()`: the error surfaces as an unhandled promise rejection (which stops Node by default) and `resolve()` never settles.
-- `dispose()` does not settle pending `whenReady()` calls without a timeout.
+- An entry without `host`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
 - `stompjs` frames log at `trace` with the `client-id` and connection name; `debug: true` lifts them to `debug` so they show under a typical logger config.
 
 ## Best practices

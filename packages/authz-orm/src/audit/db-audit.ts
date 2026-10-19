@@ -1,5 +1,5 @@
 import { DecisionAudit, SYSTEM, engineLog, resourceKey, runWithPrincipal, thrownError } from '@spinajs/authz';
-import type { HostLog } from '@spinajs/authz';
+import type { AuthzLog } from '@spinajs/authz';
 import { Singleton } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
@@ -23,10 +23,10 @@ const optional = (v: unknown, max: number): string | null => (v === undefined ||
  */
 @Singleton()
 export class DbDecisionAudit extends DecisionAudit {
-  private log: HostLog | undefined;
+  private log: Pick<AuthzLog, 'error' | 'warn'> | undefined;
 
   /** `log` is for tests; DI constructs the class without arguments. */
-  constructor(log?: HostLog) {
+  constructor(log?: Pick<AuthzLog, 'error' | 'warn'>) {
     super();
     this.log = log;
   }
@@ -35,7 +35,7 @@ export class DbDecisionAudit extends DecisionAudit {
     return this.write(e).catch((err: unknown) => this.logger().error({ error: thrownError(err), entryKind: e?.kind, table: AUDIT_TABLE }, 'authz audit: writing a ${entryKind} entry to ${table} failed, the entry is dropped'));
   }
 
-  private logger(): HostLog {
+  private logger(): Pick<AuthzLog, 'error' | 'warn'> {
     return (this.log ??= engineLog('authz-audit'));
   }
 

@@ -1,16 +1,20 @@
+import type { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import type { Request } from '@spinajs/http';
+import { Ok } from '@spinajs/http';
+import type { ICookie, Request, Unauthorized } from '@spinajs/http';
 import { mfaEnrolmentRefusal } from '@spinajs/authn';
-import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
+import type { Credentials, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
 import { mfaPolicyOf } from '../policies/v3/mfa.js';
+import { contextOf } from './context.js';
+import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from './responses.js';
 
-export { publishAuthnEvent };
+export { contextOf, publishAuthnEvent };
 
 // Helpers of the 3.0 account controllers (src/v3/controllers); not exported by any entry.
 
@@ -33,19 +37,42 @@ export function bodyField(req: Request, ...names: string[]): unknown {
 /** A non-empty string of at most `cap` characters, else null. */
 export const boundedString = (value: unknown, cap: number): string | null => (typeof value === 'string' && value !== '' && value.length <= cap ? value : null);
 
-/** ctx.ip is the trusted-proxy chain's ClientIp, never Express's ip (A05, N3). */
-export function contextOf(req: Request, purpose: AuthnContext['purpose'], session?: SessionHandle): AuthnContext {
-  const ip = req.storage.ClientIp;
-  const userAgent = req.headers['user-agent'];
-  return { ...(typeof ip === 'string' ? { ip } : {}), ...(typeof userAgent === 'string' ? { userAgent } : {}), now: new Date(), purpose, ...(session ? { session } : {}) };
-}
-
 /** Stores the client ip and user agent that GET /user/sessions shows (the issuer takes no request context, N2). */
 export async function stampClient(sessions: SessionIssuer, handle: SessionHandle, req: Request): Promise<void> {
   const ip = req.storage.ClientIp;
   const userAgent = req.headers['user-agent'];
   if (typeof ip === 'string' && ip !== '') await onLiveSession(() => sessions.set(handle, SESSION_IP_KEY, ip));
   if (typeof userAgent === 'string' && userAgent !== '') await onLiveSession(() => sessions.set(handle, SESSION_USER_AGENT_KEY, userAgent.slice(0, USER_AGENT_CAP)));
+}
+
+/**
+ * A login route's answer: ends a session the caller already holds, then authenticates `credentials` (null: missing or
+ * malformed, a failed login). Success: the session cookie and the principal summary with the login extensions; MFA
+ * required: `{ MfaRequired: [steps] }` with the pending session cookie; any failure: the login failure answer, plus
+ * Retry-After when throttled, clearing the ended session's cookie.
+ */
+export async function completeLogin(container: IContainer, sessions: SessionIssuer, config: Configuration, req: Request, credentials: Credentials | null): Promise<Ok | Unauthorized> {
+  const held = req.storage.AuthnSession;
+  if (held) {
+    await sessions.revoke(held.handle);
+    await auditEnded(container, req, held, 'session.revoke', 'login');
+  }
+  const cleared: ICookie[] = held ? [authnClearedSessionCookie(config)] : [];
+  if (credentials === null) return authnFailureResponse(undefined, cleared);
+
+  // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
+  const authn = await container.resolve(AuthnService);
+  const result = await authn.authenticate(credentials, contextOf(req, 'login'));
+  if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
+  if (result.status === 'mfa_required') {
+    await stampClient(sessions, result.pending, req);
+    return new Ok({ MfaRequired: [...result.steps] }, { Coockies: [authnSessionCookie(config, result.pending)], Headers: [NO_STORE] });
+  }
+  // A strategy that takes these credentials but issues no session cannot log anyone in here.
+  if (!result.session) return authnFailureResponse(undefined, cleared);
+  await stampClient(sessions, result.session, req);
+  const principal = await authn.principalOf(result);
+  return new Ok(await answerFor(container, 'login', principal), { Coockies: [authnSessionCookie(config, result.session)], Headers: [NO_STORE] });
 }
 
 /**

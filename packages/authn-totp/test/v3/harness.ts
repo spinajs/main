@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { DbMfaStore } from '@spinajs/authn-orm';
+import { DbMfaStore, identityKey } from '@spinajs/authn-orm';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, parseOtpauth, throttleParams, totp } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, MfaStoragePort } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { DbMfaSecretStore } from '../../src/db.js';
-import { identityKey, MemoryMfaSecretStore } from '../../src/store/index.js';
+import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import type { MfaSecretStore } from '../../src/store/index.js';
 import { TotpMfaStep } from '../../src/step/index.js';
 import type { TotpOptions } from '../../src/step/index.js';

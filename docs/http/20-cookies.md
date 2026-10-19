@@ -8,21 +8,21 @@ The package parses request cookies with `cookie-parser`, bound to `http.cookie.s
 
 **Reading with `@Cookie(secure)`** (`FromCookie`):
 
-1. Takes `req.cookies[<parameter name>]`. Missing: `null`.
-2. With `secure = true`, verifies and strips the signature with `cookie-signature`'s `unsign()` and `http.cookie.secret`. A missing or wrong signature logs a warning and gives `null`.
+1. With `secure = false`, takes `req.cookies[<parameter name>]`. Missing: `null`.
+2. With `secure = true`, takes the value `cookie-parser` verified into `req.signedCookies`. When the cookie is still in `req.cookies` (a parser without a secret, or a cookie signed before the `s:` prefix), it strips an `s:` prefix and verifies the rest with `cookie-signature`'s `unsign()` and `http.cookie.secret`. Missing: `null`. A missing or wrong signature logs a warning and gives `null`.
 3. Converts and validates the value like any [route argument](04-route-arguments.md#validation-and-conversion), with the schema `{ type: 'string' }`.
 
 **Setting from a response.** Every response class applies `options.Coockies` before writing the body:
 
 1. Merges `http.cookie.options` with the cookie's own `Options`; the cookie's options win.
-2. With `Options.signed: true`, signs the value with `cookie-signature`'s `sign()` and `http.cookie.secret`, then sends it with `signed: false`. The value is `<value>.<signature>`, without Express's `s:` prefix.
+2. With `Options.signed: true`, signs the value with `cookie-signature`'s `sign()` and `http.cookie.secret`, then sends it with `signed: false`. The value is `s:<value>.<signature>`, the format Express and `cookie-parser` use.
 3. Calls `res.cookie(name, value, options)`.
 
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `http.cookie.secret` | `string` | `'1234adreewD'` | non-empty string | Signs and verifies cookies. The default is public: set your own. |
+| `http.cookie.secret` | `string` | `'1234adreewD'` | non-empty string | Signs and verifies cookies. The default is public (exported as `HTTP_PUBLIC_COOKIE_SECRET`, tested by `isPublicCookieSecret`): set your own. |
 | `http.cookie.options` | `express.CookieOptions` | `{ maxAge: 900000, httpOnly: true }` | | Defaults for every cookie a response sets. `maxAge` is in ms (15 minutes). |
 
 ```ts
@@ -59,7 +59,7 @@ The `http.configuration` schema refuses an empty `secret`.
 
 ### `FromCookie`: custom implementation
 
-Rotate the cookie secret without logging everybody out: verify against the current secret, then against the previous ones.
+Rotate the cookie secret without logging everybody out: verify against the current secret, then against the previous ones. `cookie-parser` drops a cookie it cannot verify from `req.cookies`, so the subclass reads the raw value from the `Cookie` header.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -74,10 +74,12 @@ export class RotatingFromCookie extends FromCookie {
       return super.extract(callData, args, param, req, res, route);
     }
 
-    const raw = req.cookies?.[param.Name];
-    if (raw === undefined || raw === null) {
+    const pair = (req.headers.cookie ?? '').split(/;\s*/).find((p) => p.startsWith(`${param.Name}=`));
+    if (!pair) {
       return { CallData: callData, Args: null };
     }
+    const sent = decodeURIComponent(pair.slice(param.Name.length + 1));
+    const raw = sent.startsWith('s:') ? sent.slice(2) : sent;
 
     const cfg = DI.get(Configuration)!;
     const secrets = [cfg.get<string>('http.cookie.secret'), ...cfg.get<string[]>('http.cookie.previousSecrets', [])];
@@ -103,7 +105,8 @@ Responses keep signing with `http.cookie.secret`, so cookies migrate to the new 
 ## Important behaviour
 
 - The shipped secret `1234adreewD` is public. Anyone can forge a signed cookie until you set `http.cookie.secret`.
-- Cookies signed by responses have no `s:` prefix, so `cookie-parser` does not move them into `req.signedCookies`. Read them with `@Cookie(true)`.
+- Cookies signed by responses carry the `s:` prefix, so `cookie-parser` moves them into `req.signedCookies` and removes them from `req.cookies`. Read them with `@Cookie(true)`: with the default parser, `@Cookie()` gives `null` for a signed cookie.
+- `@Cookie(true)` still accepts a cookie signed without the `s:` prefix, as responses signed them before, so sessions and other signed cookies already issued keep working.
 - `FromCookie` reads the secret once, when it is first resolved; changing the configuration later does not change it. `configuredCookieParser` likewise builds its parser on the first request.
 - `@Cookie()` reads the cookie named like the parameter; there is no option for another name.
 - `http.cookie.options` apply to every response cookie, including ones set by other packages through `IResponseOptions`; `maxAge` 15 minutes is the default lifetime of all of them.

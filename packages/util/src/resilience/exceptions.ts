@@ -31,7 +31,8 @@ export class IsolatedCircuitException extends BrokenCircuitException {}
 export class RateLimiterRejectedException extends Exception {}
 
 /**
- * Thrown by the hedging strategy when all hedged attempts failed.
- * The last handled outcome is set as the inner error.
+ * Thrown by the hedging strategy when it ends without any outcome to surface.
+ * When every attempt is handled, hedging rethrows the last error or returns the last
+ * handled result instead, so in practice this is not reached.
  */
 export class HedgingException extends Exception {}

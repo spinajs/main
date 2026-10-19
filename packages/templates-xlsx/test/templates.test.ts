@@ -87,6 +87,17 @@ describe('templates', () => {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.render('template_not_exists.xlsx', { hello: 'world' })).to.be.rejected;
+    await expect(t.renderToFile(dir('templates/template_not_exists.xlsx'), { hello: 'world' }, dir('./templates/rendered_template.xlsx'))).to.be.rejectedWith(/not exists/);
+  });
+
+  it('should create missing output folder', async () => {
+    const t = await tp();
+    const out = dir('./templates/nested_out/sub/rendered_template.xlsx');
+    try {
+      await t.renderToFile(dir('templates/template.xlsx'), { hello: 'world' }, out);
+      expect(fs.existsSync(out)).to.eq(true);
+    } finally {
+      fs.rmSync(dir('./templates/nested_out'), { recursive: true, force: true });
+    }
   });
 });

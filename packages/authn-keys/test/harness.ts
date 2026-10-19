@@ -1,3 +1,4 @@
+import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthenticationStrategy, AuthnEventSink } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, KitKeyPair } from '@spinajs/authn-testing';
@@ -76,7 +77,7 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   const sinks: AuthnEventSink[] = [events];
   const identities = new FakeIdentityStore();
   const sessions = new MemorySessionIssuer();
-  const registry = new DefaultKeyRegistry(store, secrets, throttle, sinks, options);
+  const registry = new DefaultKeyRegistry(store, secrets, throttle, AuthnAudit.over(sinks), options);
   const verifier = new StrictJwsVerifier();
   const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options), new HttpSignatureStrategy(registry, nonces, options), new KeyChallengeStrategy(registry, secrets, options)];
   const service = new FakeAuthnService({

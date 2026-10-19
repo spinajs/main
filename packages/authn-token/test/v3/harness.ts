@@ -1,12 +1,14 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, throttleParams } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, Harness, HarnessContext, SeedPort } from '@spinajs/authn-testing';
 
 import '../../src/generator.js';
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
-import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
+import { NoTokenProfilesPolicy } from '../../src/service/index.js';
 import { insertUserRow, v3Connection } from './db.js';
+import { tokenServiceOver } from './services.js';
 
 const SUPPORTED = ['authn.token.maxTtlDays', 'authn.token.agentMaxTtlMinutes'];
 
@@ -55,7 +57,7 @@ export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
   };
 
   return {
-    tokens: new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities),
+    tokens: await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]) }),
     seed,
     async dispose() {
       for (const [path, value] of saved) {

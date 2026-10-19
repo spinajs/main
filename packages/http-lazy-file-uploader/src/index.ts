@@ -1,9 +1,13 @@
-import { Injectable } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { FormFileUploader, IUploadedFile } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log-common';
 import { LazyUploadJob } from './job.js';
 
+export * from './job.js';
+
+// Built per route: a cached instance would keep the Options of the first route that resolved it.
 @Injectable()
+@NewInstance()
 export class HttpLazyFileUploader extends FormFileUploader {
   @Logger('http')
   protected Log!: Log;

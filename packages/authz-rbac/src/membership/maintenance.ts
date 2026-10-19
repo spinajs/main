@@ -24,7 +24,7 @@ export interface MembershipDiff {
 }
 
 /** The closure the live assignment rows give: every subject of a row whose role holds a subjectSet role. */
-export async function expectedMemberships(s: MembershipSources): Promise<Map<string, MembershipRow[]>> {
+async function expectedMemberships(s: MembershipSources): Promise<Map<string, MembershipRow[]>> {
   const members = new Set<string>();
   for (const role of s.roles.roles.keys()) {
     if (setRolesOf(s.roles, role).length === 0) continue;

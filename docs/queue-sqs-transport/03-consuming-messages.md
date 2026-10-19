@@ -6,17 +6,17 @@
 
 1. **Caller.** `QueueService.consume(ResizeImageJob)` (from `@spinajs/queue`) calls `subscribe(ResizeImageJob, callback)` on each connection routed for that message. You can also call `subscribe('<queue URL>', callback)` on a client directly.
 2. **Queue URLs.** A string argument is the URL. A message class goes through `getChannelForMessage()`, as on [publish](02-publishing-messages.md#how-it-works).
-3. **One loop per URL.** For each URL, `subscribe()` stores a descriptor in `this.Subscriptions` and starts `pollLoop(desc)` without awaiting it. A URL that is already subscribed is skipped with a `SQS queue <url> already subscribed !` warning. `subscribe()` resolves at once.
+3. **One loop per URL.** An empty or `undefined` URL (no routing entry and no default channel) makes `subscribe()` throw `InvalidArgument` before any loop starts. For each URL, `subscribe()` stores a descriptor in `this.Subscriptions` and starts `pollLoop(desc)` without awaiting it. A URL that already has a loop gets the new callback added to that loop instead, keyed by the message class name (or by the URL for a string subscribe); the same key twice is skipped with a `SQS queue <url> already subscribed !` warning. `subscribe()` resolves at once.
 4. **Receive.** `pollLoop()` sends `ReceiveMessageCommand({ QueueUrl, WaitTimeSeconds, MaxNumberOfMessages, VisibilityTimeout })` with the descriptor's abort signal. The call waits up to `waitTimeSeconds` for messages.
 5. **Handle, one at a time.** For each message in the batch, in order, `handleMessage(desc, m)`:
    1. `JSON.parse(m.Body)`. Unparseable body: log `Unparseable SQS message`, leave it on the queue.
    2. A non-object result (`null`, number, string, boolean): log `Non-object SQS message body`, leave it on the queue.
    3. A string `CreatedAt` becomes a luxon `DateTime` (`DateTime.fromISO`).
-   4. `await desc.callback(message)`.
-   5. Callback throws: log `Handler failed for <Name>`, leave the message (nack).
-   6. Callback succeeds: `DeleteMessageCommand({ QueueUrl, ReceiptHandle })` (ack). A failed delete is logged as `ack/delete failed ... it will redeliver`.
+   4. `await desc.callback(message)`, which runs every callback subscribed on the URL in turn.
+   5. A callback throws: log `Handler failed for <Name>`, leave the message (nack).
+   6. All callbacks succeed: `DeleteMessageCommand({ QueueUrl, ReceiptHandle })` (ack). A failed delete is logged as `ack/delete failed ... it will redeliver`.
 6. **Loop.** Back to step 4 until the descriptor stops running.
-7. **Stop.** `unsubscribe()` or `dispose()` clears `desc.running` and aborts the in-flight receive; the loop exits and sets `desc.exited = true`.
+7. **Stop.** `unsubscribe()` or `dispose()` clears `desc.running` and aborts the in-flight receive; the loop exits after the message it is handling and sets `desc.exited = true`. `dispose()` waits for every loop to exit before it destroys the `SQSClient`.
 
 What `QueueService.consume()`'s callback does with the message (job tracking, deduplication, `execute()`, `onFailed()`) is documented in [`@spinajs/queue`](../queue/README.md). The transport only sees "resolved" (delete) or "threw" (leave).
 
@@ -103,26 +103,26 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Subscribe | `public async subscribe(channelOrMessage, callback)` | one detached `pollLoop()` per URL | | Override to validate URLs or add per-subscription setup, then call `super.subscribe()` |
+| Subscribe | `public async subscribe(channelOrMessage, callback)` | one detached `pollLoop()` per URL, shared by every callback on it | | Override to validate URLs or add per-subscription setup, then call `super.subscribe()` |
 | Poll loop | `protected async pollLoop(desc)` | sequential receive, handle, backoff | | Override to process a batch in parallel; keep the "never reject" guard |
 | Message handler | `protected async handleMessage(desc, m)` | parse, rehydrate `CreatedAt`, callback, delete | SNS unwrapping in [Extending the SQS client](04-extending-the-sqs-client.md#consume-messages-fanned-out-from-sns) | Override, change `m.Body` or wrap the callback, call `super.handleMessage(desc, m)` |
 | Error sleep | `protected backoffSleep(ms, signal)` | abortable `setTimeout` | | Override to add jitter |
-| Stop | `protected stop(desc)`, `public unsubscribe()`, `public async dispose()` | clear `running`, abort the receive | | Override `dispose()` to wait for `desc.exited` before `super.dispose()` |
+| Stop | `protected stop(desc)`, `public unsubscribe()`, `public async dispose()` | clear `running`, abort the receive; `dispose()` also waits for the loops | | Override `dispose()`, call `super.dispose()` |
 
-`desc` is the subscription descriptor: `url`, `callback`, `running`, `controller` (`AbortController`) and `exited`. Its interface is not exported; type it in a subclass as `Parameters<SqsQueueClient['handleMessage']>[0]`.
+`desc` is the subscription descriptor: `url`, `callback`, `handlers` (the subscribed callbacks by key), `running`, `controller` (`AbortController`) and `exited`. Its interface is not exported; type it in a subclass as `Parameters<SqsQueueClient['handleMessage']>[0]`.
 
 ## Important behaviour
 
-- **One subscription per queue URL per connection.** A second `subscribe()` on the same URL is ignored with a warning, whatever the message class. If two message types share a URL, only the first `consume()` subscribes, and its callback ignores the other type's messages (`e.Name !== event.name`) and resolves, so the transport **deletes them**. Route each consumed type to its own queue.
+- **One poll loop per queue URL per connection.** Message types that share a URL share its loop: each message goes to every callback on the URL, and `QueueService.consume()`'s callback skips other types (`e.Name !== event.name`). A message whose type nobody consumed is still deleted once the callbacks resolve, so route only consumed types to a shared queue.
 - **At-least-once delivery.** A crash between the callback and the delete, a failed delete, or a visibility timeout shorter than the handler causes a second delivery. Handlers must be idempotent; job deduplication in `@spinajs/queue` covers jobs.
 - **Sequential per URL.** Messages of one queue are handled one at a time, also with `maxMessages > 1`. Parallelism comes from more queues, more connections, more processes, or a `pollLoop()` override.
 - **Visibility timeout and batch size.** With `maxMessages: 10`, the tenth message waits for the other nine; its timeout runs meanwhile. A too-short `visibilityTimeout` redelivers it to another worker before it is handled.
 - **The loop never rejects.** Every error is caught and logged on the `queue` logger; nothing reaches `unhandledRejection`. Watch the `queue` logs for receive errors.
-- **A bad URL loops forever.** `subscribe()` validates nothing. An `undefined` or wrong URL (no routing entry and no default channel) keeps failing receives with backoff up to the cap.
+- **A missing URL fails fast, a wrong one loops forever.** `subscribe()` throws `InvalidArgument` when a message has no URL (no routing entry and no default channel). A URL that is set but wrong keeps failing receives with backoff up to the cap.
 - **Poison messages are kept, not deleted.** An unparseable or non-object body stays until the redrive policy moves it, so producer bugs leave evidence in the DLQ.
 - **`subscriptionId` and `durable` are ignored.** SQS has no durable subscriptions; the queue itself is durable.
-- **`unsubscribe()` and `dispose()` do not wait.** They abort the receive and return. A handler that is already running finishes; its delete can fail after `dispose()` destroyed the `SQSClient`, and the message is redelivered.
-- **`unsubscribe(MessageClass)` stops every URL the class routes to**, also when another class subscribed that URL first.
+- **`unsubscribe()` does not wait, `dispose()` does.** Both abort the receive. A handler that is already running finishes; `dispose()` waits for it and its delete before destroying the `SQSClient`, so a slow handler delays shutdown.
+- **`unsubscribe(MessageClass)` removes only that class's callback.** The loop of a URL stops when no callback is left. `unsubscribe('<queue URL>')` stops the loop and drops every callback on it.
 
 ## Best practices
 
@@ -180,7 +180,7 @@ export async function startImageWorker() {
   await queue.consume(ResizeImageJob);
 
   process.once('SIGTERM', async () => {
-    // stops every poll loop and destroys the SQSClient
+    // stops every poll loop, waits for running handlers, destroys the SQSClient
     await queue.dispose();
   });
 }

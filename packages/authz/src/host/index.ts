@@ -5,6 +5,7 @@ export * from './cache.js';
 export * from './clock.js';
 export * from './env.js';
 export * from './log.js';
+export * from './di.js';
 export * from './contributor.js';
 export * from './service.js';
 export * from './domains.js';

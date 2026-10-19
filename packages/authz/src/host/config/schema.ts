@@ -1,14 +1,13 @@
 import { AUTHZ_DEFAULTS } from './defaults.js';
 import { ADMIN_DEFAULTS } from '../../admin/config.js';
 import { PERMISSION_PATTERN } from '../../contracts/permission.js';
+import { DOMAIN_NAME_PATTERN, ROOT_DOMAIN } from '../../contracts/service.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
 const D = AUTHZ_DEFAULTS;
 
 const stringList = { type: 'array', items: { type: 'string' } };
 
-/** What AuthzDomains.create accepts as a domain name. */
-const DOMAIN_NAME = '^[A-Za-z0-9_.-]{1,64}$';
 /**
  * A role name, in configuration and the users admin API alike. No leading digit or minus-digit and not true/false, so
  * coerceTypes cannot turn [5], [-1] or [true] into one; no edge whitespace, but an inner space stays (2.x roles such
@@ -166,11 +165,11 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     combine: combine(true),
     domains: {
       type: 'object',
-      propertyNames: { pattern: DOMAIN_NAME, not: { const: 'root' } },
+      propertyNames: { pattern: DOMAIN_NAME_PATTERN, not: { const: ROOT_DOMAIN } },
       additionalProperties: {
         type: 'object',
         properties: {
-          parent: { type: 'string', pattern: DOMAIN_NAME },
+          parent: { type: 'string', pattern: DOMAIN_NAME_PATTERN },
           combine: combine(false),
           disable: stringList,
           permissions,

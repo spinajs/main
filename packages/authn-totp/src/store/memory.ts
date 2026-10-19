@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import { identityKey } from './identity.js';
+import { identityKey } from '@spinajs/authn-orm/identity';
 import { MfaSecretStore } from './store.js';
 import type { MfaRecord } from './store.js';
 
