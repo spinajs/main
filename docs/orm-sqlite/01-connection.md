@@ -13,7 +13,7 @@
    3. On an open error it drops the handle without closing it and rejects with the `sqlite3` error (`SQLITE_CANTOPEN` for a missing directory or an unreadable file).
    4. `openReadPool()` opens the read-only handles. See [Read handle pool](02-read-pool.md).
    5. Sets `State` to `ConnectionState.Connected`.
-5. **Execute.** `SqlDriver.execute()` compiles the builder and calls `executeOnDb(stmt, params, queryContext)`. `executeOnDb()` picks a handle with `handleFor(queryContext)` and calls the `sqlite3` method listed in [Result shapes](#result-shapes).
+5. **Execute.** `SqlDriver.execute()` compiles the builder and calls `executeOnDb(stmt, params, queryContext)`. `executeOnDb()` holds a writer-handle statement issued from outside an open transaction until it ends (see [Transactions](03-transactions.md#important-behaviour)), then `runStatement()` picks a handle with `handleFor(queryContext)` and calls the `sqlite3` method listed in [Result shapes](#result-shapes).
 6. **`disconnect()`.** Stops the health check, sets `State` to `Disconnected`, closes every read handle, then closes the writer. A close error rejects.
 
 `executeOnDb()` throws `Error('cannot execute sqlite statement, no db connection avaible')` when called before `connect()` or after `disconnect()`.
@@ -118,10 +118,11 @@ Overridable members of `SqliteOrmDriver`:
 | --- | --- | --- | --- |
 | `connect()` | public | open writer, open read pool, set `Connected` | configure every handle (busy timeout, pragmas) after `super.connect()` |
 | `disconnect()` | public | close read pool, then writer | flush or checkpoint before `super.disconnect()` |
-| `executeOnDb(stmt, params, context)` | public | send on `handleFor(context)`, shape the result, wrap errors | map more errors, add tracing |
+| `executeOnDb(stmt, params, context)` | public | hold an outside writer statement while a transaction is open, then `runStatement()` | add tracing; call `super.executeOnDb()` |
+| `runStatement(stmt, params, context)` | protected | send on `handleFor(context)`, shape the result, wrap errors; never held | map more errors |
 | `handleFor(context)` | protected | writer for non-`Select` and inside transactions, else round-robin read handle | route differently; see [Read handle pool](02-read-pool.md#services-and-extension-points) |
 | `openReadPool(filename)`, `closeReadPool()` | protected | open `Max - 1` read-only handles / close them | change how read handles open |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }` | leave as is; the core picks key read-back from it |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766, concurrentTransactions: false }` | leave as is; the core picks key read-back from it |
 | `ping()` | public | `true` while the writer handle exists | run a real query (`SELECT 1`) for the health probe |
 | `tableInfo(name, schema?)` | public | `PRAGMA` reflection above | read extra metadata, eg. column collations |
 | `poolMetrics()` | public | `{ Size: writer + read handles, InUse: 0, Waiting: 0 }` | report other gauges |

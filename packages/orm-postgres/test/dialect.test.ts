@@ -61,7 +61,7 @@ describe('postgres dialect', function () {
   });
 
   it('reports RETURNING support and no events', () => {
-    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 65535 });
+    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 65535, concurrentTransactions: true });
   });
 
   describe('positional parameters', () => {

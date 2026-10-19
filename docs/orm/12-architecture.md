@@ -124,7 +124,7 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | `ModelToSqlConverter`, `ObjectToSqlConverter` | Model or object to column values for writes. | `StandardModelToSqlConverter`, `StandardObjectToSqlConverter` (SQLite overrides the model converter) | See [Converters and hydration](04-converters-and-hydration.md). |
 | `OrmDriver` | Executes builders on one connection. | Dialect drivers | Extend a dialect driver or `SqlDriver`; register under a token named in `db.Connections[].Driver`. See [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md). |
 
-`ISupportedFeature` from `driver.supportedFeatures()` switches core behaviour: `insertReturning` gates `InsertQueryBuilder.returning()` and key read-back on insert, `insertIdIsFirstOfBatch` gates key backfill after a multi-row insert, `maxBindParameters` and `maxInsertRows` make `InsertQueryBuilder` split a multi-row insert into several statements, and `events` tells callers whether `EventQueryBuilder` compiles. See [Connections](01-connections.md).
+`ISupportedFeature` from `driver.supportedFeatures()` switches core behaviour: `insertReturning` gates `InsertQueryBuilder.returning()` and key read-back on insert, `insertIdIsFirstOfBatch` gates key backfill after a multi-row insert, `maxBindParameters` and `maxInsertRows` make `InsertQueryBuilder` split a multi-row insert into several statements, `concurrentTransactions: false` makes `transaction()` queue outermost transactions, and `events` tells callers whether `EventQueryBuilder` compiles. See [Connections](01-connections.md).
 
 ```ts sample
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';

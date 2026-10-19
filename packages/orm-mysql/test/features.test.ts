@@ -17,4 +17,10 @@ describe('mysql supported features', function () {
     expect(driver.supportedFeatures().maxBindParameters).to.eq(Infinity);
     expect(driver.supportedFeatures().maxInsertRows).to.eq(undefined);
   });
+
+  it('allows concurrent transactions', async () => {
+    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-features-test', Driver: 'orm-driver-mysql' } as any]);
+
+    expect(driver.supportedFeatures().concurrentTransactions).to.eq(true);
+  });
 });

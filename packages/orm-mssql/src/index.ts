@@ -116,6 +116,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       maxBindParameters: 2098,
       // a table value constructor takes at most 1000 rows
       maxInsertRows: 1000,
+      concurrentTransactions: true,
     };
   }
 

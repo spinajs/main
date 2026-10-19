@@ -469,6 +469,8 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * open a second, independent transaction: it takes a savepoint, so a failing nested block
    * rolls back only its own work.
    * Callbacks queued with {@link afterCommit} run after the outermost commit, before this resolves.
+   * On a driver whose `supportedFeatures().concurrentTransactions` is `false`, outermost calls
+   * run one at a time, in call order.
    *
    * @param cb - the transaction body
    * @param options - optional isolation level, validated against {@link SupportedIsolationLevels}
@@ -500,6 +502,24 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       }
     }
 
+    const run = () => this._runOutermost(cb, options);
+    // The queue slot is released before the afterCommit callbacks run, so a callback can open a
+    // transaction of its own instead of waiting for the slot its own transaction still holds.
+    const { result, afterCommit } = this.supportedFeatures().concurrentTransactions === false ? await this._enqueueOutermost(run) : await run();
+
+    await this._runAfterCommit(afterCommit);
+    return result;
+  }
+
+  private _outermostQueue: Promise<unknown> = Promise.resolve();
+
+  private _enqueueOutermost<T>(run: () => Promise<T>): Promise<T> {
+    const turn = this._outermostQueue.then(run);
+    this._outermostQueue = turn.catch(() => undefined);
+    return turn;
+  }
+
+  private async _runOutermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions): Promise<{ result: R; afterCommit: (() => void | Promise<void>)[] }> {
     const ctx = await this._begin(options);
     ctx.depth = 0;
 
@@ -515,8 +535,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       await this._dispose(ctx);
     }
 
-    await this._runAfterCommit(ctx.afterCommit ?? []);
-    return result;
+    return { result, afterCommit: ctx.afterCommit ?? [] };
   }
 
   /**

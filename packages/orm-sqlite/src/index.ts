@@ -67,6 +67,14 @@ export class SqliteOrmDriver extends SqlDriver {
 
   private _readCursor = -1;
 
+  /** Resolves when the open transaction ends; `null` while none is open. */
+  private _writerGate: Promise<void> | null = null;
+
+  private _openWriterGate: (() => void) | null = null;
+
+  /** Writer-handle statements from outside any transaction that have not settled yet; they never reject. */
+  private _outsideStatements = new Set<Promise<unknown>>();
+
   /**
    * sqlite3 outside shared-cache mode serializes access to the database file, which is
    * SERIALIZABLE and nothing else. Any other requested level is rejected by the base class
@@ -109,7 +117,33 @@ export class SqliteOrmDriver extends SqlDriver {
     };
   }
 
+  /**
+   * Holds a writer-handle statement from outside the open transaction's async path until that
+   * transaction ends: on the one writer handle it would otherwise run inside the transaction and
+   * commit or roll back with it. The ones it lets through are tracked, so the next `BEGIN` waits
+   * for them.
+   */
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+    if (this.TransactionStorage.getStore() !== undefined || (this.ReadPool.length > 0 && queryContext === QueryContext.Select)) {
+      return this.runStatement(stmt, params, queryContext);
+    }
+
+    if (this._writerGate !== null) {
+      return this._writerGate.then(() => this.executeOnDb(stmt, params, queryContext));
+    }
+
+    const running = this.runStatement(stmt, params, queryContext);
+    const settled: Promise<boolean> = running.then(
+      () => this._outsideStatements.delete(settled),
+      () => this._outsideStatements.delete(settled),
+    );
+    this._outsideStatements.add(settled);
+
+    return running;
+  }
+
+  /** Runs a statement on its handle, never held: the driver's own transaction statements use it directly. */
+  protected runStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
 
     if (!this.Db) {
@@ -206,7 +240,8 @@ export class SqliteOrmDriver extends SqlDriver {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
     // SQLITE_MAX_VARIABLE_NUMBER of the SQLite that sqlite3 5.x bundles
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766 };
+    // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766, concurrentTransactions: false };
   }
 
   public async ping(): Promise<boolean> {
@@ -350,20 +385,38 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
   }
 
-  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
-    await this.executeOnDb('BEGIN TRANSACTION', [] as any, QueryContext.Transaction);
+  /** The statement that opens an outermost transaction, eg. `BEGIN IMMEDIATE TRANSACTION` in a subclass. */
+  protected beginStatement(_options?: ITransactionOptions): string {
+    return 'BEGIN TRANSACTION';
+  }
+
+  protected async _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+    // closed before BEGIN is queued, so no outside statement can land between the two
+    this._writerGate = new Promise<void>((resolve) => (this._openWriterGate = resolve));
+
+    try {
+      // sqlite3 runs the statements of one handle in parallel, so an outside statement submitted
+      // before the gate closed could still run after BEGIN and join the transaction
+      await Promise.all(this._outsideStatements);
+      await this.runStatement(this.beginStatement(options), [], QueryContext.Transaction);
+    } catch (err) {
+      this.openWriterGate();
+      throw err;
+    }
 
     // sqlite3 gives us a single shared handle, so there is no per-transaction connection
     // to carry — everything on this driver already runs on the same `this.Db`.
     return { depth: 0 };
   }
 
+  // COMMIT and ROLLBACK run outside the transaction's async context: through executeOnDb they
+  // would wait for the very transaction they end.
   protected async _commit(_ctx: ITransactionContext): Promise<void> {
-    await this.executeOnDb('COMMIT', [] as any, QueryContext.Transaction);
+    await this.runStatement('COMMIT', [], QueryContext.Transaction);
   }
 
   protected async _rollback(_ctx: ITransactionContext): Promise<void> {
-    await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
+    await this.runStatement('ROLLBACK', [], QueryContext.Transaction);
   }
 
   // savepoint names cannot be bound parameters, so they are inlined through the identifier
@@ -381,7 +434,14 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   protected async _dispose(_ctx: ITransactionContext): Promise<void> {
-    // nothing to release — the sqlite3 handle is owned by the driver, not by the transaction
+    this.openWriterGate();
+  }
+
+  private openWriterGate(): void {
+    const open = this._openWriterGate;
+    this._writerGate = null;
+    this._openWriterGate = null;
+    open?.();
   }
 
   /**

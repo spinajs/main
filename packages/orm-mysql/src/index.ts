@@ -238,7 +238,7 @@ export class MySqlOrmDriver extends SqlDriver {
     // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
     // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
     // mysql2's query() interpolates bindings client-side, so the server never sees a parameter
-    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity };
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity, concurrentTransactions: true };
   }
 
   public resolve() {

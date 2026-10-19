@@ -162,17 +162,17 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     });
 
     it('takes the domain lock with its first statement: an UPDATE of the authz_version row', async () => {
-      const sqlite = db as unknown as { executeOnDb(stmt: string, params: unknown[], ctx: unknown): Promise<unknown> };
-      const original = sqlite.executeOnDb;
+      const sqlite = db as unknown as { runStatement(stmt: string, params: unknown[], ctx: unknown): Promise<unknown> };
+      const original = sqlite.runStatement;
       const order: string[] = [];
-      sqlite.executeOnDb = function (this: unknown, stmt: string, params: unknown[], ctx: unknown) {
+      sqlite.runStatement = function (this: unknown, stmt: string, params: unknown[], ctx: unknown) {
         order.push(stmt);
         return original.call(this, stmt, params, ctx);
       };
       try {
         await backend.transaction('d1', async () => undefined);
       } finally {
-        sqlite.executeOnDb = original;
+        sqlite.runStatement = original;
       }
       const begin = order.findIndex((s) => /^BEGIN/i.test(s));
       expect(begin).to.be.greaterThan(-1);

@@ -196,6 +196,7 @@ export class PostgresOrmDriver extends SqlDriver {
       insertIdIsFirstOfBatch: false,
       // the Bind message counts parameters in an Int16
       maxBindParameters: 65535,
+      concurrentTransactions: true,
     };
   }
 

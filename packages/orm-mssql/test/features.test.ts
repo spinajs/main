@@ -39,4 +39,8 @@ describe('mssql supported features', function () {
 
     expect(insert.splitByDriverLimits().map((c) => c.Values.length)).to.deep.eq([699, 699, 102]);
   });
+
+  it('allows concurrent transactions', () => {
+    expect(driver.supportedFeatures().concurrentTransactions).to.eq(true);
+  });
 });

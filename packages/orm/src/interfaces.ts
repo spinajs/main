@@ -75,6 +75,9 @@ export interface ISupportedFeature {
 
   /** Most rows one `INSERT ... VALUES` may carry. Unset means no limit. */
   maxInsertRows?: number;
+
+  /** Can two outermost transactions be open at once? `false` makes `OrmDriver.transaction()` queue them. Unset means true. */
+  concurrentTransactions?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {

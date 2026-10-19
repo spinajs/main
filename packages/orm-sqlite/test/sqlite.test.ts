@@ -872,7 +872,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'executeOnDb');
+    const exSpy = sinon.spy(driver as any, 'runStatement');
 
     await orm.Migration.up();
 
@@ -918,7 +918,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'executeOnDb');
+    const exSpy = sinon.spy(driver as any, 'runStatement');
 
     try {
       await orm.Migration.up();
