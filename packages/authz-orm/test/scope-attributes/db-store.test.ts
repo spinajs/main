@@ -304,9 +304,14 @@ describe('DbScopeAttributeStore', function () {
 
       it('a row that holds no scalar, or no JSON, fails the read', async () => {
         await driver.insert().into(TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '[1]', updated_at: new Date() });
-        expect(await rejection(store.get(o1))).to.be.instanceOf(AuthzConfigError);
+        const notScalar = await rejection(store.get(o1));
+        expect(notScalar).to.be.instanceOf(AuthzConfigError);
+        expect(notScalar.message).to.equal('authz_scope_attribute row "bad": value_json holds [1], not a scalar');
         await driver.insert().into(TABLE).values({ scope_type: 'org', scope_id: 'o2', path: 'bad', value_json: 'gold', updated_at: new Date() });
-        expect(await rejection(store.get(o2))).to.be.instanceOf(Error);
+        const notJson = await rejection(store.get(o2));
+        expect(notJson).to.be.instanceOf(AuthzConfigError);
+        expect(notJson.message).to.equal('authz_scope_attribute row "bad": value_json holds "gold", not JSON');
+        expect(notJson.cause).to.be.instanceOf(SyntaxError);
       });
 
       it('reads where db.Aliases.authz points; without the alias a read fails naming it', async () => {

@@ -21,8 +21,19 @@ function textOf(v: ScopeAttributeLeaf): string | null {
 
 const isLeaf = (v: unknown): v is ScopeAttributeLeaf => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
 
-function leafOf(row: ScopeAttributeRecord): ScopeAttributeLeaf {
-  const v: unknown = row.value_json;
+/** A row as the driver returns it: value_json still the text the column holds. */
+interface StoredLeaf {
+  readonly path: string;
+  readonly value_json: unknown;
+}
+
+function leafOf(row: StoredLeaf): ScopeAttributeLeaf {
+  let v: unknown;
+  try {
+    v = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
+  } catch (err) {
+    throw new AuthzConfigError(`${SCOPE_ATTRIBUTE_TABLE} row ${JSON.stringify(row.path)}: value_json holds ${JSON.stringify(row.value_json)}, not JSON`, { cause: err });
+  }
   if (!isLeaf(v)) throw new AuthzConfigError(`${SCOPE_ATTRIBUTE_TABLE} row ${JSON.stringify(row.path)}: value_json holds ${JSON.stringify(v)}, not a scalar`);
   return v;
 }
@@ -90,8 +101,9 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     return RowsAffected;
   }
 
-  private async select(key: Key): Promise<ScopeAttributeRecord[]> {
-    return await selectFrom(ScopeAttributeRecord).columns(['path', 'value_json']).where(key);
+  // Raw rows: the @Json converter would fail the whole read on one row whose value_json is not JSON, with no path to name.
+  private async select(key: Key): Promise<StoredLeaf[]> {
+    return await selectFrom(ScopeAttributeRecord).columns(['path', 'value_json']).where(key).asRaw<StoredLeaf[]>();
   }
 
   /**
