@@ -1,0 +1,269 @@
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import 'mocha';
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Writable } from 'node:stream';
+
+import { AccessDenied, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import { userPrincipal } from '@spinajs/authz-testing';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { fsNative } from '@spinajs/fs';
+import type { IFsLocalOptions } from '@spinajs/fs';
+
+import { ALICE, BOB } from './support/acl-contract.js';
+import { useMiddleware } from './support/mw-setup.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+const CAROL = { type: 'user', id: 'carol' };
+
+const ENTRIES = {
+  'mw-own': { mode: 'enforce', stampOwner: true },
+  'mw-own2': { mode: 'enforce', stampOwner: true },
+  'mw-audit': { mode: 'audit', stampOwner: true },
+  'mw-up': { mode: 'enforce' },
+  'mw-off': { mode: 'off' },
+};
+
+const closed = (stream: Writable): Promise<void> => new Promise((resolve, reject) => stream.once('close', resolve).once('error', reject));
+
+/** A local provider that answers isDir as fsS3 does: a key is never a directory. */
+class KeyStoreFs extends fsNative<IFsLocalOptions> {
+  protected async doIsDir(): Promise<boolean> {
+    return false;
+  }
+}
+
+describe('authz-fs AuthzFsMiddleware: owner stamping', function () {
+  this.timeout(20000);
+  const s = useMiddleware(ENTRIES);
+
+  it('a file the principal creates gets its owner row; a path that existed gets none', async () => {
+    const own = s.local('mw-own', { 'old.txt': 'O' });
+    await own.write('mine.txt', 'x');
+    await own.write('old.txt', 'y');
+    expect(s.acl.owner('mw-own', 'mine.txt')).to.equal('user:alice');
+    expect(s.acl.owner('mw-own', 'old.txt')).to.equal(undefined);
+  });
+
+  it('stamps the principal the decision ran for (the inherit delegate)', async () => {
+    s.authz.speaker = () => ({ type: 'user', id: 'delegate' });
+    await s.local('mw-own').write('d.txt', 'x');
+    expect(s.acl.owner('mw-own', 'd.txt')).to.equal('user:delegate');
+  });
+
+  it('SYSTEM, UNATTENDED, anonymous and link principals own nothing', async () => {
+    const own = s.local('mw-own');
+    const principals = [SYSTEM, UNATTENDED, { ...userPrincipal('a1'), type: 'anonymous' }, { ...userPrincipal('l1'), type: 'link' }] as Principal[];
+    for (const [i, p] of principals.entries()) {
+      s.principal = p;
+      await own.write(`p${i}.txt`, 'x');
+    }
+    expect(s.acl.rows).to.deep.equal([]);
+  });
+
+  it('without stampOwner nothing is stamped', async () => {
+    await s.local('mw-up').write('n.txt', 'x');
+    expect(s.acl.rows).to.deep.equal([]);
+  });
+
+  it('an overwrite and an append keep the first owner; an append that creates the file stamps it', async () => {
+    const own = s.local('mw-own');
+    await own.write('a.txt', 'x');
+    s.principal = userPrincipal('bob');
+    await own.write('a.txt', 'y');
+    await own.append('a.txt', 'z');
+    await own.append('b.txt', 'z');
+    expect(s.acl.owner('mw-own', 'a.txt')).to.equal('user:alice');
+    expect(s.acl.owner('mw-own', 'b.txt')).to.equal('user:bob');
+  });
+
+  it('mkdir stamps a directory it creates, not an existing one', async () => {
+    const own = s.local('mw-own', { 'docs/a.txt': 'A' });
+    await own.mkdir('docs');
+    await own.mkdir('fresh');
+    expect(s.acl.owner('mw-own', 'docs')).to.equal(undefined);
+    expect(s.acl.owner('mw-own', 'fresh')).to.equal('user:alice');
+  });
+
+  it('upload, copy, zip and unzip stamp only the destination they create; ACL rows are not copied', async () => {
+    const own = s.local('mw-own', { 'docs/a.txt': 'A' });
+    const other = s.local('mw-own2');
+    await s.acl.grant({ fs: 'mw-own', path: 'docs/a.txt', subject: CAROL, relation: 'viewer' });
+    const localFile = join(s.dir, 'local.txt');
+    writeFileSync(localFile, 'L');
+    await own.upload(localFile, 'up.txt');
+    await own.copy('docs/a.txt', 'copy.txt', other);
+    await own.zip(['docs/a.txt'], own, 'a.zip');
+    await own.unzip('a.zip', 'unz', own);
+    expect(['up.txt', 'a.zip', 'unz'].map((p) => s.acl.owner('mw-own', p))).to.deep.equal(['user:alice', 'user:alice', 'user:alice']);
+    expect(s.acl.owner('mw-own2', 'copy.txt')).to.equal('user:alice');
+    expect(s.acl.rows.filter((r) => r.relation === 'viewer').map((r) => `${r.fs}:${r.path}`)).to.deep.equal(['mw-own:docs/a.txt']);
+  });
+
+  it('upload passes its options through: exclusive onto an existing file is ResourceDuplicated and the rows stay', async () => {
+    const own = s.local('mw-own', { 'old.txt': 'O' });
+    await s.acl.grant({ fs: 'mw-own', path: 'old.txt', subject: BOB, relation: 'owner' });
+    const localFile = join(s.dir, 'local.txt');
+    writeFileSync(localFile, 'L');
+    await expect(own.upload(localFile, 'old.txt', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    expect(s.acl.owner('mw-own', 'old.txt')).to.equal('user:bob');
+    await own.upload(localFile, 'new.txt', { exclusive: true });
+    expect(s.acl.owner('mw-own', 'new.txt')).to.equal('user:alice');
+  });
+
+  it("a zip archive's unlink() is an rm checked as fs:delete; it drops the archive's rows, and an fs in mode 'off' is not checked", async () => {
+    const own = s.local('mw-own', { 'docs/a.txt': 'A' });
+    const zipped = await own.zip(['docs/a.txt'], own, 'a.zip');
+    expect(s.acl.owner('mw-own', 'a.zip')).to.equal('user:alice');
+    s.authz.calls.length = 0;
+    await zipped.unlink();
+    expect(s.authz.keys()).to.deep.equal(['fs:delete file:mw-own:a.zip']);
+    expect(s.acl.owner('mw-own', 'a.zip')).to.equal(undefined);
+
+    const off = s.local('mw-off');
+    const elsewhere = await own.zip(['docs/a.txt'], off, 'b.zip');
+    s.authz.calls.length = 0;
+    s.authz.allow = () => false;
+    await elsewhere.unlink();
+    expect(s.authz.calls).to.deep.equal([]);
+    expect(existsSync(join(s.dir, 'mw-off', 'b.zip'))).to.equal(false);
+  });
+
+  it('a write the policy denied in audit mode, or allowed only conditionally, stamps nothing', async () => {
+    const audit = s.local('mw-audit');
+    s.authz.allow = () => false;
+    await audit.write('denied.txt', 'x');
+    s.authz.allow = () => 'conditional';
+    await audit.write('cond.txt', 'x');
+    expect(s.acl.rows).to.deep.equal([]);
+  });
+
+  it('writeStream stamps once the stream finished; a destroyed stream stamps nothing', async () => {
+    const own = s.local('mw-own');
+    const stream = (await own.writeStream('s.txt')) as Writable;
+    expect(s.acl.owner('mw-own', 's.txt')).to.equal(undefined);
+    const done = closed(stream);
+    stream.end('x');
+    await done;
+    expect(s.acl.owner('mw-own', 's.txt')).to.equal('user:alice');
+
+    const broken = (await own.writeStream('broken.txt')) as Writable;
+    const gone = new Promise((resolve) => broken.once('close', resolve));
+    broken.destroy();
+    await gone;
+    expect(s.acl.owner('mw-own', 'broken.txt')).to.equal(undefined);
+  });
+
+  it('a new path never inherits stale rows left at it or under it', async () => {
+    const own = s.local('mw-own');
+    for (const path of ['gone.txt', 'gonedir', 'gonedir/x.txt']) await s.acl.grant({ fs: 'mw-own', path, subject: { type: 'user', id: 'mallory' }, relation: 'owner' });
+    await own.write('gone.txt', 'x');
+    await own.mkdir('gonedir');
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['gone.txt user:alice', 'gonedir user:alice']);
+  });
+});
+
+describe('authz-fs AuthzFsMiddleware: rm, move and rename', function () {
+  this.timeout(20000);
+  const s = useMiddleware(ENTRIES);
+
+  const grant = (fs: string, path: string, subject = ALICE, relation = 'viewer') => s.acl.grant({ fs, path, subject, relation });
+
+  it('rm of a directory drops the rows at the path and under it, not siblings by prefix; a denied rm keeps them', async () => {
+    const own = s.local('mw-own', { 'd/a.txt': 'A', 'd/sub/b.txt': 'B', 'd-x.txt': 'X' });
+    for (const path of ['d', 'd/a.txt', 'd/sub/b.txt', 'd-x.txt']) await grant('mw-own', path);
+    s.authz.allow = (permission) => permission !== 'fs:delete';
+    await expect(own.rm('d')).to.be.rejectedWith(AccessDenied);
+    expect(s.acl.rows).to.have.length(4);
+    s.authz.allow = () => true;
+    await own.rm('d');
+    expect(s.acl.rows.map((r) => r.path)).to.deep.equal(['d-x.txt']);
+  });
+
+  it('rm of a file drops only the rows at its path', async () => {
+    const own = s.local('mw-own', { 'f.txt': 'F' });
+    for (const path of ['f.txt', 'f.txt/stale']) await grant('mw-own', path);
+    await own.rm('f.txt');
+    expect(s.acl.rows.map((r) => r.path)).to.deep.equal(['f.txt/stale']);
+  });
+
+  it('on a key store (isDir never true) rm and move take only the rows of the key, never of the keys under its prefix', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/a.txt': 'A', 'k/b.txt': 'B' }) });
+    for (const path of ['d', 'd/a.txt', 'k', 'k/b.txt']) await grant('mw-own', path);
+    await keys.rm('d');
+    await keys.move('k', 'm');
+    expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['d/a.txt', 'k/b.txt', 'm']);
+  });
+
+  it('SYSTEM is not checked but keeps the ACL in step', async () => {
+    const own = s.local('mw-own', { 'a.txt': 'A' });
+    await grant('mw-own', 'a.txt', ALICE, 'owner');
+    s.principal = SYSTEM;
+    s.authz.allow = () => false;
+    await own.rm('a.txt');
+    expect(s.acl.rows).to.deep.equal([]);
+    expect(s.authz.calls).to.deep.equal([]);
+  });
+
+  it('move and rename carry the rows to a new path, also onto another filesystem, and stamp no owner', async () => {
+    const own = s.local('mw-own', { 'a.txt': 'A', 'b.txt': 'B', 'c.txt': 'C' });
+    const other = s.local('mw-own2');
+    for (const path of ['a.txt', 'b.txt', 'c.txt']) await grant('mw-own', path, CAROL);
+    await own.move('a.txt', 'docs/a2.txt');
+    await own.rename('b.txt', 'b2.txt');
+    await own.move('c.txt', 'c2.txt', other);
+    expect(s.acl.rows.map((r) => `${r.fs}:${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['mw-own2:c2.txt user:carol', 'mw-own:b2.txt user:carol', 'mw-own:docs/a2.txt user:carol']);
+  });
+
+  it('a directory moved within a filesystem takes the rows under it along', async () => {
+    const own = s.local('mw-own', { 'd/a.txt': 'A', 'd/sub/b.txt': 'B' });
+    for (const path of ['d', 'd/a.txt', 'd/sub/b.txt']) await grant('mw-own', path);
+    await own.move('d', 'e');
+    expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['e', 'e/a.txt', 'e/sub/b.txt']);
+  });
+
+  it('a rename onto an existing file keeps its rows; the source rows go', async () => {
+    const own = s.local('mw-own', { 'a.txt': 'A', 'b.txt': 'B' });
+    await grant('mw-own', 'a.txt', ALICE, 'owner');
+    await grant('mw-own', 'b.txt', BOB, 'owner');
+    await own.rename('b.txt', 'a.txt');
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`)).to.deep.equal(['a.txt user:alice']);
+  });
+});
+
+describe('authz-fs AuthzFsMiddleware: ACL failures', function () {
+  this.timeout(20000);
+  const s = useMiddleware(ENTRIES);
+
+  it('a row update failing after the IO is logged at error and rethrown; the IO stays done', async () => {
+    const own = s.local('mw-own');
+    s.acl.failing.add('setOwnerIfAbsent');
+    await expect(own.write('f.txt', 'x')).to.be.rejectedWith('setOwnerIfAbsent failed');
+    expect(existsSync(join(s.dir, 'mw-own', 'f.txt'))).to.equal(true);
+    expect(s.errors).to.have.length(1);
+    expect(s.errors[0]).to.contain('write on mw-own:f.txt succeeded, but the file ACL was not updated');
+  });
+
+  it('a store failing before the IO stops the write', async () => {
+    s.acl.failing.add('deleteTree');
+    await expect(s.local('mw-own').write('g.txt', 'x')).to.be.rejectedWith('deleteTree failed');
+    expect(existsSync(join(s.dir, 'mw-own', 'g.txt'))).to.equal(false);
+  });
+
+  it("a failing stamp of a stream reaches the stream's error listeners, then close", async () => {
+    const own = s.local('mw-own');
+    s.acl.failing.add('setOwnerIfAbsent');
+    const stream = (await own.writeStream('s.txt')) as Writable;
+    const seen: unknown[] = [];
+    stream.on('error', (e) => seen.push(e));
+    const done = new Promise((resolve) => stream.once('close', resolve));
+    stream.end('x');
+    await done;
+    expect(String(seen[0])).to.contain('setOwnerIfAbsent failed');
+    expect(s.errors).to.have.length(1);
+  });
+});
