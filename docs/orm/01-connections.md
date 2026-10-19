@@ -153,6 +153,8 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `events` | `boolean` | The database supports scheduled events. |
 | `insertReturning` | `boolean` | A plain `INSERT` can echo inserted rows with `RETURNING` / `OUTPUT`. |
 | `insertIdIsFirstOfBatch` | `boolean` (optional, default `false`) | The identity reported after a multi-row insert is the key of the first row, with the others contiguous. |
+| `maxBindParameters` | `number` (optional, default `Infinity`) | Most bound parameters one statement may carry. `InsertQueryBuilder` splits a multi-row insert to stay within it. SQLite `32766`, PostgreSQL `65535`, MSSQL `2098`, MySQL `Infinity`. |
+| `maxInsertRows` | `number` (optional, default `Infinity`) | Most rows one `INSERT ... VALUES` may carry. MSSQL `1000`. |
 
 Insert and update responses are normalized to `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) by the connection's `ServerResponseMapper`. See [Architecture](12-architecture.md). To write a new driver, see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 

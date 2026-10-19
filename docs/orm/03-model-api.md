@@ -71,6 +71,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
 5. After execution, generated keys are written back onto every `ModelBase` row: from `RETURNING`, from `LastInsertId` for a single row, or from `LastInsertId + index` when the driver reports `insertIdIsFirstOfBatch`. Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
+6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order.
 
 ### Instance members
 

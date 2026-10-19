@@ -212,6 +212,7 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 | --- | --- | --- |
 | `InsertQueryBuilder` | `into(table, alias?)` | Sets the table. The second argument is passed to `setTable()` as the alias. |
 | | `values(row \| rows[])` | Sets the column list from the keys (the union of keys for an array) and appends one value row per object. |
+| | `splitByDriverLimits()` | The payload as one builder per statement within the driver's `maxBindParameters` and `maxInsertRows`; `[this]` when it fits one statement. Throws `OrmException` when a single row needs more parameters than the limit. |
 | | `orIgnore()` / `orReplace()` | Sets `Ignore` / `Replace`; the dialect emits its insert-or-ignore / replace form. |
 | | `onDuplicate(columns?)` | Upsert. Returns an `OnDuplicateQueryBuilder`. Without `columns`, a model-bound builder uses the model's unique columns. Sets `QueryContext.Upsert`. |
 | | `returning(columns)` | Asks the dialect to echo the inserted rows. Throws `NotSupported` when `supportedFeatures().insertReturning` is `false`. Sets `QueryContext.InsertReturning`. |
@@ -317,6 +318,7 @@ export class TenantMiddleware extends QueryMiddleware {
 - The soft-delete and archive filters are added to selects only. Updates and deletes built by `createQuery()` see deleted and archived rows.
 - `insert().into(table, x)` treats `x` as the table alias. Use `database()` for a schema.
 - `values()` resets the column list on each call and appends rows. Pass all rows to one `values([...])` call.
+- A multi-row insert larger than the driver's `maxBindParameters` or `maxInsertRows` runs as several statements, in order, inside one transaction: the caller's when one is open, otherwise its own. A failing statement rolls all of them back. The result sums `RowsAffected`, concatenates `Returning` in insert order and reports the last statement's `LastInsertId`. Query middlewares run once for the whole insert.
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
 - For a belongsTo relation without a callback, `whereExist(relation)` and `whereNotExists(relation)` both add `<ForeignKey> IS NOT NULL`.
 - `getSort()` returns only the first sort. `SqliteOrderByCompiler` in `@spinajs/orm-sqlite` reads `getSort()`, so on SQLite only the first `ORDER BY` column reaches the SQL. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).

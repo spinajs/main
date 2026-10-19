@@ -140,6 +140,7 @@ export class UpsertMsSqlDriver extends MsSqlOrmDriver {
 - **The stock `MERGE` writes unique column names unquoted** and joins several of them with `,` (`WHERE Email = ?,Tenant = ?`), which is invalid T-SQL. Use one unique column, or the compiler above.
 - **The stock `MERGE` needs a model.** It reads the model's primary key; `driver.insert().into('t').onDuplicate('Email')` without a model throws a `TypeError`.
 - **`SCOPE_IDENTITY()` is `NULL` after an update.** When `MERGE` updates, the identity row holds `ID: null`, and a mapper reports `LastInsertId: 0`.
+- **Large batches are split.** `maxBindParameters` is `2098` and `maxInsertRows` `1000`, so a multi-row insert becomes several statements of at most 1000 rows and 2098 parameters, run in one transaction.
 
 ## Best practices
 

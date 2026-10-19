@@ -69,6 +69,12 @@ export interface ISupportedFeature {
    * the batch key backfill rather than getting wrong keys.
    */
   insertIdIsFirstOfBatch?: boolean;
+
+  /** Most bound parameters one statement may carry. `InsertQueryBuilder` splits a multi-row insert to fit. Unset means no limit. */
+  maxBindParameters?: number;
+
+  /** Most rows one `INSERT ... VALUES` may carry. Unset means no limit. */
+  maxInsertRows?: number;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {

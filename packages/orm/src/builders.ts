@@ -101,13 +101,18 @@ export class Builder<T = any> implements IBuilder<T> {
       await middleware.beforeQueryExecution(query);
     }
 
-    const result = (await this._driver.execute(this)) as T;
+    const result = await this._executeOnDriver();
 
     for (const middleware of this._queryMiddlewares) {
       await middleware.afterQueryExecution?.(query, result);
     }
 
     return result;
+  }
+
+  /** The driver round trip of one execution; a builder that needs several statements overrides it. */
+  protected _executeOnDriver(): Promise<T> {
+    return this._driver.execute(this) as Promise<T>;
   }
 
   /**
@@ -1849,6 +1854,24 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   }
 }
 
+/**
+ * Folds the driver results of one insert run as several statements into what one statement
+ * would have returned: rows in insert order, counts summed, the last statement's identity value.
+ */
+export function mergeInsertResults(results: unknown[]): unknown {
+  if (results.every((r) => Array.isArray(r))) {
+    return (results as unknown[][]).flat();
+  }
+
+  const packets = results as Array<{ RowsAffected?: number; LastInsertId?: number; Returning?: unknown[] } | undefined>;
+
+  return {
+    RowsAffected: packets.reduce((sum, r) => sum + (r?.RowsAffected ?? 0), 0),
+    LastInsertId: packets[packets.length - 1]?.LastInsertId ?? 0,
+    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r!.Returning : [])),
+  };
+}
+
 @NewInstance()
 export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
@@ -2037,6 +2060,62 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     this.QueryContext = QueryContext.Upsert;
 
     return this.DuplicateQueryBuilder;
+  }
+
+  /**
+   * The payload as one builder per statement, each within the driver's `maxBindParameters` and
+   * `maxInsertRows`. A payload that fits one statement is this builder alone.
+   */
+  public splitByDriverLimits(): InsertQueryBuilder[] {
+    const features = this._driver.supportedFeatures();
+    const maxBindings = features.maxBindParameters ?? Infinity;
+    const perRow = Math.max(this._columns.length, 1);
+    // raw ON CONFLICT / ON DUPLICATE KEY columns bind once per statement, not once per row
+    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery) => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
+    const rowsPerStatement = Math.min(features.maxInsertRows ?? Infinity, Math.floor((maxBindings - reserved) / perRow));
+
+    if (this._values.length <= rowsPerStatement) {
+      return [this];
+    }
+
+    if (rowsPerStatement < 1) {
+      throw new OrmException(`one row of ${perRow} columns needs more than the ${maxBindings} bound parameters driver ${this._driver.Options.Driver} allows in a statement`);
+    }
+
+    const chunks: InsertQueryBuilder[] = [];
+    for (let i = 0; i < this._values.length; i += rowsPerStatement) {
+      chunks.push(this.withRows(this._values.slice(i, i + rowsPerStatement)));
+    }
+
+    return chunks;
+  }
+
+  protected _executeOnDriver(): Promise<IUpdateResult> {
+    const chunks = this.splitByDriverLimits();
+
+    if (chunks.length === 1) {
+      return super._executeOnDriver();
+    }
+
+    const run = async () => {
+      const results: unknown[] = [];
+      for (const chunk of chunks) {
+        results.push(await this._driver.execute(chunk));
+      }
+
+      return mergeInsertResults(results) as IUpdateResult;
+    };
+
+    // the statements are one insert to the caller: they commit or roll back together
+    return this._driver.CurrentTransaction ? run() : this._driver.transaction(run);
+  }
+
+  /** A shallow copy that compiles `rows` instead of the whole payload; it is never executed itself. */
+  private withRows(rows: any[][]): InsertQueryBuilder {
+    const chunk = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as InsertQueryBuilder;
+    chunk._values = rows;
+    chunk._executionPromise = null;
+    return chunk;
   }
 
   public toDB(): ICompilerOutput {

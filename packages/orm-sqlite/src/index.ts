@@ -205,7 +205,8 @@ export class SqliteOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false };
+    // SQLITE_MAX_VARIABLE_NUMBER of the SQLite that sqlite3 5.x bundles
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766 };
   }
 
   public async ping(): Promise<boolean> {

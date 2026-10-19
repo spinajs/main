@@ -194,6 +194,8 @@ export class PostgresOrmDriver extends SqlDriver {
       // With RETURNING every key comes back per row; the LAST_INSERT_ID batch walk is
       // MySQL's workaround for not having it.
       insertIdIsFirstOfBatch: false,
+      // the Bind message counts parameters in an Int16
+      maxBindParameters: 65535,
     };
   }
 
