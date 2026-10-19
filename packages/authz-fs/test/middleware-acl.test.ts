@@ -367,6 +367,30 @@ describe('authz-fs AuthzFsMiddleware: rm, move and rename', function () {
     expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['e', 'e/a.txt', 'e/sub/b.txt']);
   });
 
+  it('a path longer than the ACL holds, created outside the middleware, is removed, moved and renamed without a row update', async () => {
+    const long = `${'d'.repeat(200)}/${'e'.repeat(200)}/${'f'.repeat(120)}`;
+    const own = s.local('mw-own', { [`${long}/a.txt`]: 'A', [`${long}/b.txt`]: 'B', [`${long}/c.txt`]: 'C' });
+    await grant('mw-own', 'd'.repeat(200), BOB, 'owner');
+    await own.rm(`${long}/a.txt`);
+    await own.move(`${long}/b.txt`, 'b.txt');
+    await own.rename(`${long}/c.txt`, 'c.txt');
+    expect(existsSync(join(s.dir, 'mw-own', 'b.txt')) && existsSync(join(s.dir, 'mw-own', 'c.txt'))).to.equal(true);
+    expect(s.errors).to.deep.equal([]);
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`)).to.deep.equal([`${'d'.repeat(200)} user:bob`]);
+  });
+
+  it('a move onto a path longer than the ACL holds drops the source rows; a directory move drops the rows that would not fit', async () => {
+    const long = `${'d'.repeat(200)}/${'e'.repeat(200)}/${'f'.repeat(120)}`;
+    const own = s.local('mw-own', { 'a.txt': 'A', 'm/a.txt': 'M' });
+    const off = s.local('mw-off');
+    const deep = `m/${'x'.repeat(505)}`;
+    for (const path of ['a.txt', 'm', 'm/a.txt', deep]) await grant('mw-own', path, BOB, 'owner');
+    await own.move('a.txt', long, off);
+    await own.move('m', 'longer-name');
+    expect(s.errors).to.deep.equal([]);
+    expect(s.acl.rows.map((r) => `${r.fs}:${r.path}`).sort()).to.deep.equal(['mw-own:longer-name', 'mw-own:longer-name/a.txt']);
+  });
+
   it('a rename onto an existing file keeps its rows; the source rows go', async () => {
     const own = s.local('mw-own', { 'a.txt': 'A', 'b.txt': 'B' });
     await grant('mw-own', 'a.txt', ALICE, 'owner');

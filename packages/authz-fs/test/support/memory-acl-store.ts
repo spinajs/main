@@ -1,7 +1,7 @@
 import type { PrincipalRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
 
-import { FS_ACL_OWNER, FileAclStore } from '../../src/index.js';
+import { FS_ACL_LIMITS, FS_ACL_OWNER, FileAclStore } from '../../src/index.js';
 import type { FsAclRow } from '../../src/index.js';
 import { aclExpiry, aclFs, aclOwnerKey, aclPath, aclRelation, aclSubjectKey, checkMove, fits, isUnder, isWildcardKey, movedPath, subjectOfKey } from '../../src/acl/shared.js';
 
@@ -102,7 +102,7 @@ export class MemoryFileAclStore extends FileAclStore {
     if (fromFs === toFs && src === dst) return;
     checkMove(fromFs, src, toFs, dst);
     const moving = this.rows.filter((r) => r.fs === fromFs && isUnder(r.path, src));
-    const moved = moving.map((r) => ({ ...r, fs: toFs, path: fits(movedPath(src, dst, r.path), 'path') }));
+    const moved = moving.map((r) => ({ ...r, fs: toFs, path: movedPath(src, dst, r.path) })).filter((r) => r.path.length <= FS_ACL_LIMITS.path);
     const sources = new Set(moving.map((r) => r.path));
     if (fromFs === toFs && moved.some((m) => sources.has(m.path))) throw new InvalidArgument(`cannot move ${fromFs}:${src} onto ${dst}, which holds it`, 'to');
     this.remove((r) => moving.includes(r) || moved.some((m) => m.fs === r.fs && m.path === r.path && m.subjectKey === r.subjectKey && m.relation === r.relation));

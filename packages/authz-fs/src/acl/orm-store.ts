@@ -11,7 +11,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { chunk } from '@spinajs/util';
 
 import { FS_ACL_CONNECTION_KEY, FS_ACL_OWNER, fsAclConfig } from '../access-config/acl-config.js';
-import { FS_ACL_TABLE, aclExpiry, aclFs, aclOwnerKey, aclPath, aclPathHash, aclRelation, aclSubjectKey, checkMove, fits, isWildcardKey, movedPath, subjectOfKey } from './shared.js';
+import { FS_ACL_LIMITS, FS_ACL_TABLE, aclExpiry, aclFs, aclOwnerKey, aclPath, aclPathHash, aclRelation, aclSubjectKey, checkMove, fits, isWildcardKey, movedPath, subjectOfKey } from './shared.js';
 import { FileAclStore } from './store.js';
 import type { FsAclRow } from './store.js';
 
@@ -132,15 +132,16 @@ export class OrmFileAclStore extends FileAclStore {
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       const rows = await tree(tx, src.fs, src.path);
-      const moves = rows.map((row) => ({ row, path: fits(movedPath(src.path, dst.path, row.path), 'path') }));
+      const landing = rows.map((row) => ({ row, path: movedPath(src.path, dst.path, row.path) }));
+      // A row too long for the path column goes: what it named falls under the moved parents' rows.
+      const moves = landing.filter((m) => m.path.length <= FS_ACL_LIMITS.path);
       // Only a move onto an ancestor can land one moved row on another; no provider moves a directory there.
       const sources = new Set(rows.map((r) => r.path));
       if (src.fs === dst.fs && moves.some((m) => sources.has(m.path))) throw new InvalidArgument(`cannot move ${src.fs}:${src.path} onto ${dst.path}, which holds it`, 'to');
       const taken = new Set(moves.map((m) => rowKey(m.path, m.row)));
-      await deleteIds(
-        tx,
-        (await tree(tx, dst.fs, dst.path)).filter((r) => taken.has(rowKey(r.path, r))).map((r) => r.id),
-      );
+      const replaced = (await tree(tx, dst.fs, dst.path)).filter((r) => taken.has(rowKey(r.path, r))).map((r) => r.id);
+      const dropped = landing.filter((m) => !moves.includes(m)).map((m) => m.row.id);
+      await deleteIds(tx, [...replaced, ...dropped]);
       for (const m of moves) await tx.update().in(FS_ACL_TABLE).update({ fs: dst.fs, path: m.path, path_hash: aclPathHash(m.path) }).where({ id: m.row.id });
     });
   }

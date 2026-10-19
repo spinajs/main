@@ -169,6 +169,14 @@ export function aclStoreContract(storeOf: () => FileAclStore): void {
     expect(await present(other, 'p/q')).to.equal(true);
   });
 
+  it('moveTree drops the rows that would land on a path longer than 512 characters and moves the rest', async () => {
+    const deep = `m/${'x'.repeat(505)}`;
+    for (const path of ['m', 'm/a.txt', deep]) await s.grant(viewer(path));
+    await s.moveTree(fs, 'm', other, 'longer-name');
+    for (const path of ['longer-name', 'longer-name/a.txt']) expect(await present(other, path), path).to.equal(true);
+    for (const path of ['m', 'm/a.txt', deep]) expect(await present(fs, path), path).to.equal(false);
+  });
+
   it('moveTree refuses a move into its own subtree', async () => {
     await s.grant(viewer('p'));
     await expect(s.moveTree(fs, 'p', fs, 'p/q')).to.be.rejectedWith(InvalidArgument);

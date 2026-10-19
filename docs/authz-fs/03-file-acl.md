@@ -46,7 +46,7 @@ Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`.
 - **`copy`, `upload`, `zip`, `unzip`.** Only the owner row of a created destination is written; rows are not copied.
 - **`IZipResult.unlink()`** removes the archive with `rm` outside the zip action: it is checked as `fs:delete` (an owner grant lets the archive's creator remove it) and drops the archive's rows.
 - A row update that fails after the IO is logged at `error` and rethrown; the IO stays done.
-- Paths over 512 characters have no rows of their own; rows on their parents cover them.
+- Paths over 512 characters have no rows of their own; rows on their parents cover them. `rm`, `move` and `rename` of such a path update no rows. A move onto such a path drops the source rows, and a directory move drops the rows whose new path would exceed 512 characters.
 
 ## Best practices
 

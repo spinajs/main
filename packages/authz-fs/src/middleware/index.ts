@@ -67,6 +67,8 @@ const MOVES: ReadonlySet<string> = new Set(['move', 'rename']);
 const writes = (t: FsTarget): boolean => t.access.includes('write');
 const deletes = (t: FsTarget): boolean => t.access.includes('delete');
 const where = (t: FsTarget): string => `${t.fs.Name}:${t.path}`;
+/** No row can sit at a longer path, nor under it. */
+const holdsRows = (t: FsTarget): boolean => t.path.length <= FS_ACL_LIMITS.path;
 
 /**
  * Whether anything answers at the target's path, whatever its kind: a file, a directory, or keys under it as a
@@ -194,7 +196,7 @@ export class AuthzFsMiddleware extends FsMiddleware {
   private async applyRows(action: string, plan: Plan): Promise<void> {
     if (action === 'rm') {
       const store = await this.store();
-      for (const c of plan.checked) {
+      for (const c of plan.checked.filter((c) => holdsRows(c.target))) {
         if (c.dir) await store.deleteTree(c.target.fs.Name, c.target.path);
         else if (!c.shared) await store.deletePath(c.target.fs.Name, c.target.path);
       }
@@ -213,17 +215,18 @@ export class AuthzFsMiddleware extends FsMiddleware {
   /**
    * A destination that existed keeps its rows (first writer) and the source rows go; otherwise the source rows move
    * there, onto another filesystem too (one table): a directory's whole tree, anything else only its own rows. No
-   * owner is stamped: the rows travel with the file. A key whose prefix holds keys leaves its rows to the prefix.
+   * owner is stamped: the rows travel with the file. A key whose prefix holds keys leaves its rows to the prefix. A
+   * destination too long for a row gets none: the source rows go, its parents' rows cover it.
    */
   private async moveRows(plan: Plan): Promise<void> {
     const checked = plan.checked.find((c) => c.target.role === 'source');
     const source = checked?.target;
     const destination = plan.destination;
-    if (!source || !destination || checked?.shared === true) return;
+    if (!source || !destination || checked?.shared === true || !holdsRows(source)) return;
     if (source.fs.Name === destination.fs.Name && source.path === destination.path) return;
     const store = await this.store();
     const tree = checked?.dir === true;
-    if (plan.destinationExisted) await (tree ? store.deleteTree(source.fs.Name, source.path) : store.deletePath(source.fs.Name, source.path));
+    if (plan.destinationExisted || !holdsRows(destination)) await (tree ? store.deleteTree(source.fs.Name, source.path) : store.deletePath(source.fs.Name, source.path));
     else if (tree) await store.moveTree(source.fs.Name, source.path, destination.fs.Name, destination.path);
     else await store.movePath(source.fs.Name, source.path, destination.fs.Name, destination.path);
   }
