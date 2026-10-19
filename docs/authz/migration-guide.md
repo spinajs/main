@@ -607,8 +607,9 @@ Details you may need:
 - **MySQL and MSSQL**: default collations ignore case. Give identity, subject and hash columns a binary
   collation. A sub-second `authn.throttle` delay is not supported there.
 
-**The `users.Role` migrations (L2).** Three migrations in `@spinajs/authz-rbac`, on the `default`
-connection, run in the order of their timestamps:
+**The `users.Role` migrations (L2).** Three migrations in `@spinajs/authz-rbac` run in the order of
+their timestamps. The first runs on the `authz` connection (`db.Aliases.authz`), the other two on
+`default`:
 
 1. `AuthzRbac_2026_10_01_00_00_00` creates `authz_assignment`, `authz_rule`, `authz_rule_subject`,
    `authz_link` and `authz_version`.
@@ -647,6 +648,13 @@ first**, or with `{ all: true }`: `Migration.down(name)` acts only on the last a
 `down()` also deletes a copied row that someone granted again after the copy. Dates on SQLite are
 stored as local wall time (a repo-wide ORM issue), so run the process with a fixed time zone. MySQL
 and MSSQL are not tested.
+
+*Authz on another connection.* The copy and the drop read `users` and write or read
+`authz_assignment` through one connection, `default`. When `db.Aliases.authz` names another
+connection, they throw an `AuthzConfigError` that names `db.Aliases.authz` and change nothing as soon
+as they have work: users with roles to copy, a filled `users` table to check before the drop, or a
+rollback that reads or deletes assignments. A missing or empty `users` table still migrates. Map
+`db.Aliases.authz` to `default` for the upgrade; copying across connections is not supported yet.
 
 *Before and after.* Compare `SELECT count(*)` of users with a role against the number of distinct
 `subject_id` in `authz_assignment` where `source = 'users.Role'`. The migration prints no counts.

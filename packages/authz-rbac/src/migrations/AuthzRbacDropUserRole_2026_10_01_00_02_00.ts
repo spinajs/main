@@ -4,7 +4,7 @@ import { IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/o
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns } from '../stores/columns.js';
-import { configuredUsersColumns, countUsers, hasUsers, inTransaction, matchColumn, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import { configuredUsersColumns, countUsers, hasUsers, inTransaction, matchColumn, requireAuthzOn, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 
 const NAME = 'AuthzRbacDropUserRole_2026_10_01_00_02_00';
 const RESOLVE = `orm.Migration.resolve('${NAME}', 'rolled-back')`;
@@ -46,6 +46,9 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         return;
       }
 
+      const idColumn = matchColumn(names, configured.idColumn);
+      if (idColumn && filled) requireAuthzOn(connection, NAME);
+
       const q = connection.Container.resolve(IdentifierQuoter);
 
       // blocks writers of users (a 2.x instance still running) between the check and the drop; it
@@ -54,7 +57,6 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         await connection.schema().raw(`LOCK TABLE ${q.quote(USERS_TABLE)} IN SHARE MODE`);
       }
 
-      const idColumn = matchColumn(names, configured.idColumn);
       if (idColumn) {
         await this.assertCopied(connection, idColumn, roleColumn);
       } else if (filled) {
@@ -84,11 +86,13 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       if (matchColumn(names, configured.roleColumn)) return;
 
       const roleColumn = configured.roleColumn;
+      const idColumn = matchColumn(names, configured.idColumn);
+      if (idColumn && (await hasUsers(connection))) requireAuthzOn(connection, NAME);
+
       await connection.schema().alterTable(USERS_TABLE, (table) => {
         table.string(roleColumn, 256).notNull().default().value('');
       });
 
-      const idColumn = matchColumn(names, configured.idColumn);
       if (!idColumn) {
         if (await hasUsers(connection)) {
           this.log.warn({ migration: NAME, table: USERS_TABLE, column: configured.idColumn, configKey: USER_ROLES_ID_COLUMN_KEY, roleColumn }, '${migration}: table ${table} has no column ${column} (${configKey}); ${roleColumn} re-added empty');

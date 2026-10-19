@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns, subjectKeyOf, subjectToColumns } from '../stores/columns.js';
 import { bumpVersion } from '../stores/version.js';
-import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, requireAuthzOn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 import type { UsersColumns } from './users-table.js';
 
 export { USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY } from './users-table.js';
@@ -54,6 +54,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
           else rows.push(...this.assignmentsOf(id, user[roleColumn], createdAt));
         }
 
+        if (rows.length > 0) requireAuthzOn(connection, NAME);
         inserted += await this.insert(connection, rows);
 
         if (users.length < this.pageSize) break;
@@ -74,6 +75,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
    * rebuilds the column from every `$global` user assignment, so nothing else needs undoing here.
    */
   public async down(connection: OrmDriver): Promise<void> {
+    requireAuthzOn(connection, NAME);
     await inTransaction(connection, async () => {
       const result = await connection.del().from(AUTHZ_ASSIGNMENT_TABLE).where('source', USER_ROLES_SOURCE);
       if (rowsAffected(result) > 0) await bumpVersion({ driver: connection }, ROOT_DOMAIN, NAME);
