@@ -8,7 +8,9 @@ import { readParents } from '../../src/ancestors/store.js';
 import { stillThere } from '../../src/ancestors/targets.js';
 import { AccessResource, Parent, entryOf } from '../../src/index.js';
 import { findRows } from '../../src/rows.js';
-import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
+import { readAncestors } from '../../src/ancestors/read.js';
+import { rebuildNodes, removeNodes } from '../../src/ancestors/rebuild.js';
+import { ancestorLinks, createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 
@@ -107,6 +109,21 @@ describe('reads of many resources', function () {
         const { result, count } = await statements(db.driver(dialect), () => findRows(tasks()));
         expect(count).to.equal(1);
         expect(result.size).to.equal(COUNT);
+      });
+
+      it('writes and reads the ancestor rows of every task in one statement per step', async () => {
+        const d = db.driver(dialect);
+        // the tasks' parents, their projects' rows (none), the delete, the insert
+        expect((await statements(d, () => rebuildNodes(d, tasks()))).count).to.equal(4);
+
+        const { result, count } = await statements(d, () => readAncestors(tasks()));
+        expect(count).to.equal(1);
+        expect(result.size).to.equal(COUNT);
+        expect(result.get('task:2500')!.map((r) => [r.ancestor_type, r.ancestor_id, r.depth])).to.deep.equal([['project', 'p2500', 1]]);
+
+        // the rows below the tasks (none), the delete
+        expect((await statements(d, () => removeNodes(d, tasks()))).count).to.equal(2);
+        expect(await ancestorLinks(d)).to.deep.equal([]);
       });
     });
   }

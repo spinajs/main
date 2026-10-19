@@ -36,7 +36,7 @@ describe('authz:ancestors-verify / authz:ancestors-rebuild', function () {
   let io: ReturnType<typeof capture>;
 
   before(async () => {
-    db = await TestDb.open();
+    db = await TestDb.open({ other: true });
   });
 
   after(async () => {
@@ -92,5 +92,17 @@ describe('authz:ancestors-verify / authz:ancestors-rebuild', function () {
     await verify('nope');
     expect(io.err).to.deep.equal(["authz:ancestors: no @AccessResource model has type 'nope'"]);
     expect(io.code()).to.equal(1);
+  });
+
+  it('refuses a type whose connection is not the one authz_resource_ancestor is on', async () => {
+    await db.useAuthz('other');
+    try {
+      await rebuild('task');
+      expect(io.err).to.have.length(1);
+      expect(io.err[0]).to.match(/^authz:ancestors: Task_\d+_\d+ \(resource 'task'\) runs on connection "sqlite", but authz_resource_ancestor is on connection "other" \(db\.Aliases\.authz\)$/);
+      expect(io.code()).to.equal(1);
+    } finally {
+      await db.useAuthz('sqlite');
+    }
   });
 });
