@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { AccessDenied, AuthzConfigError, AuthzDomains, AuthzService, SYSTEM } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
-import { DI } from '@spinajs/di';
+import { Container, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { FsMiddleware } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
@@ -29,6 +29,8 @@ const ENTRIES = {
 const FILES = { 'docs/a.txt': 'A', 'docs/b.txt': 'B' };
 const named = (Name: string) => ({ Name }) as unknown as fs;
 
+class FsMwHostService {}
+
 describe('authz-fs AuthzFsMiddleware: registration', () => {
   it('is the FsMiddleware of order 100 that authz-fs registers in root', () => {
     expect(new AuthzFsMiddleware()).to.be.instanceOf(FsMiddleware);
@@ -36,8 +38,15 @@ describe('authz-fs AuthzFsMiddleware: registration', () => {
     expect(DI.RootContainer.getRegisteredTypes(FsMiddleware)).to.include(AuthzFsMiddleware);
   });
 
-  it('is off for every filesystem when its container resolved no Configuration', () => {
-    expect(new AuthzFsMiddleware({ container: DI.child() }).isEnabled(named('mw-up'))).to.equal(false);
+  it('is off for every filesystem when neither a Configuration nor an authz host is resolved', () => {
+    expect(new AuthzFsMiddleware({ container: new Container() }).isEnabled(named('mw-up'))).to.equal(false);
+  });
+
+  it('fails closed when an authz host is resolved without a Configuration', async () => {
+    const host = new Container();
+    host.register(FsMwHostService).as(AuthzService);
+    await host.resolve(AuthzService);
+    expect(() => new AuthzFsMiddleware({ container: host }).isEnabled(named('mw-up'))).to.throw(AuthzConfigError, /Configuration/);
   });
 
   it("is enabled per filesystem: off for mode 'off' and for a filesystem without an entry", async () => {

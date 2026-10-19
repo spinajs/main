@@ -1,4 +1,4 @@
-import { SYSTEM, currentPrincipal, definite, engineLog, thrownError } from '@spinajs/authz';
+import { AuthzConfigError, AuthzService, SYSTEM, currentPrincipal, definite, engineLog, thrownError } from '@spinajs/authz';
 import type { Decision, Permission, Principal } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
@@ -64,6 +64,15 @@ const deletes = (t: FsTarget): boolean => t.access.includes('delete');
 const where = (t: FsTarget): string => `${t.fs.Name}:${t.path}`;
 
 /**
+ * Whether anything answers at the target's path, whatever its kind: a file, a directory, or keys under it as a
+ * prefix. On a key store (S3) a key and the prefix of the same name share one ACL path, so a key written there must
+ * neither clear the folder's rows nor claim them.
+ */
+async function occupied(ctx: FsActionContext, t: FsTarget): Promise<boolean> {
+  return (await ctx.exists({ ...t, kind: 'file' })) || (await ctx.isDir(t)) || (await ctx.hasEntries(t));
+}
+
+/**
  * Checks every target of every fs action with the `authz.fs.<name>` entry of the target's own filesystem (fs
  * middleware design §2.1) and keeps the file ACL in step with what the action did.
  */
@@ -101,12 +110,14 @@ export class AuthzFsMiddleware extends FsMiddleware {
         planned.push(probed);
         continue;
       }
-      const existed = await ctx.exists(c.target);
-      if (!existed) await this.clearStale(ctx, c.target);
+      const existed = await occupied(ctx, c.target);
+      // Rows at a free path are stale (an rm outside the middleware, an update that failed): what is created there
+      // must not inherit them. Rows under it stay: they are cleared when their own path is created.
+      if (!existed) await (await this.store()).deletePath(c.target.fs.Name, c.target.path);
       planned.push({ ...probed, existed });
     }
     const destination = MOVES.has(ctx.action) ? ctx.targets.find(writes) : undefined;
-    const plan: Plan = { principal, checked: planned, ...(destination ? { destination, destinationExisted: await ctx.exists(destination) } : {}) };
+    const plan: Plan = { principal, checked: planned, ...(destination ? { destination, destinationExisted: await occupied(ctx, destination) } : {}) };
     ctx.state.set(PLAN, plan);
   }
 
@@ -127,9 +138,15 @@ export class AuthzFsMiddleware extends FsMiddleware {
     return this.options.container ?? DI.RootContainer;
   }
 
-  // Providers built without a Configuration (tools, other packages' unit tests) have no authz.fs entry either.
+  // Without a Configuration and an authz host (tools, other packages' unit tests) there is no authz.fs entry to
+  // enforce. A resolved AuthzService is the host (it resolves Configuration as it boots; AuthzDomains alone is not,
+  // it resolves without one): once it runs, a missing Configuration must not leave every filesystem unchecked.
   protected configOf(target: fs): FsAccessConfig {
-    return this.container.get(Configuration) ? fsAccessConfig(target.Name, this.container) : OFF;
+    if (this.container.get(Configuration)) return fsAccessConfig(target.Name, this.container);
+    if (this.container.isResolved(AuthzService)) {
+      throw new AuthzConfigError('authz.fs: an authz host is resolved but Configuration is not; await DI.resolve(Configuration) first');
+    }
+    return OFF;
   }
 
   private get log(): FsLog {
@@ -162,17 +179,6 @@ export class AuthzFsMiddleware extends FsMiddleware {
     const until = signingUntil({ asked, defaultTtlSeconds, maxTtlSeconds, now, decisions: c.decisions });
     const opts = ctx.args[0] !== null && typeof ctx.args[0] === 'object' ? (ctx.args[0] as object) : {};
     ctx.args[0] = { ...opts, until };
-  }
-
-  /**
-   * Rows at a path that does not exist are stale (an rm outside the middleware, an update that failed): a new file
-   * must not inherit them. Cleared before the IO, so rows others add there meanwhile stay theirs. A key store (S3)
-   * reports every prefix as a directory; there only the path's own rows go and the keys under it keep theirs.
-   */
-  private async clearStale(ctx: FsActionContext, target: FsTarget): Promise<void> {
-    const store = await this.store();
-    if (target.kind !== 'dir' && (await ctx.exists({ ...target, kind: 'dir' }))) await store.deletePath(target.fs.Name, target.path);
-    else await store.deleteTree(target.fs.Name, target.path);
   }
 
   private async applyRows(action: string, plan: Plan): Promise<void> {

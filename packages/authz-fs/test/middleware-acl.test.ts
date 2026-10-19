@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 
@@ -10,7 +10,7 @@ import type { Principal } from '@spinajs/authz';
 import { userPrincipal } from '@spinajs/authz-testing';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { fsNative } from '@spinajs/fs';
-import type { IFsLocalOptions } from '@spinajs/fs';
+import type { IFsLocalOptions, fs } from '@spinajs/fs';
 
 import { ALICE, BOB } from './support/acl-contract.js';
 import { useMiddleware } from './support/mw-setup.js';
@@ -30,10 +30,38 @@ const ENTRIES = {
 
 const closed = (stream: Writable): Promise<void> => new Promise((resolve, reject) => stream.once('close', resolve).once('error', reject));
 
-/** A local provider that answers isDir as fsS3 does: a key is never a directory. */
+/**
+ * A local provider that answers as fsS3 does: a key is never a directory, every prefix is one for dirExists, and a
+ * key may share its name with a prefix (such a key is kept in `shadowKeys`, as the disk holds the directory there).
+ */
 class KeyStoreFs extends fsNative<IFsLocalOptions> {
+  readonly shadowKeys = new Set<string>();
+
   protected async doIsDir(): Promise<boolean> {
     return false;
+  }
+
+  protected async doDirExists(): Promise<boolean> {
+    return true;
+  }
+
+  protected async doExists(path: string): Promise<boolean> {
+    return this.shadowKeys.has(path) || (!this.onDiskDir(path) && (await super.doExists(path)));
+  }
+
+  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    if (this.onDiskDir(path)) this.shadowKeys.add(path);
+    else await super.doWrite(path, data, encoding);
+  }
+
+  protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+    if (!this.onDiskDir(newPath)) return super.doMove(oldPath, newPath, dstFs);
+    await super.doRm(oldPath);
+    this.shadowKeys.add(newPath);
+  }
+
+  private onDiskDir(path: string): boolean {
+    return statSync(this.resolvePath(path), { throwIfNoEntry: false })?.isDirectory() === true;
   }
 }
 
@@ -158,12 +186,39 @@ describe('authz-fs AuthzFsMiddleware: owner stamping', function () {
     expect(s.acl.owner('mw-own', 'broken.txt')).to.equal(undefined);
   });
 
-  it('a new path never inherits stale rows left at it or under it', async () => {
+  it('a new path never inherits stale rows left at it; a row under it goes once its own path is created', async () => {
     const own = s.local('mw-own');
     for (const path of ['gone.txt', 'gonedir', 'gonedir/x.txt']) await s.acl.grant({ fs: 'mw-own', path, subject: { type: 'user', id: 'mallory' }, relation: 'owner' });
     await own.write('gone.txt', 'x');
     await own.mkdir('gonedir');
-    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['gone.txt user:alice', 'gonedir user:alice']);
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['gone.txt user:alice', 'gonedir user:alice', 'gonedir/x.txt user:mallory']);
+    await own.write('gonedir/x.txt', 'x');
+    expect(s.acl.owner('mw-own', 'gonedir/x.txt')).to.equal('user:alice');
+  });
+
+  it('a key written where keys sit under its prefix leaves the folder rows alone and claims nothing, with and without stampOwner', async () => {
+    for (const name of ['mw-own', 'mw-up']) {
+      const keys = new KeyStoreFs({ name, basePath: s.base(name, { 'd/a.txt': 'A' }) });
+      await s.acl.grant({ fs: name, path: 'd', subject: BOB, relation: 'owner' });
+      await s.acl.grant({ fs: name, path: 'd', subject: CAROL, relation: 'viewer' });
+      s.authz.allow = (permission, resource) => permission === 'fs:write' && resource === `file:${name}:d`;
+      await keys.write('d', 'key');
+      expect(keys.shadowKeys.has('d'), name).to.equal(true);
+      expect(s.acl.rows.filter((r) => r.fs === name).map((r) => `${r.path} ${r.subjectKey} ${r.relation}`).sort(), name).to.deep.equal(['d user:bob owner', 'd user:carol viewer']);
+    }
+  });
+
+  it('a fresh key with nothing under it is stamped on a key store', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/a.txt': 'A' }) });
+    await keys.write('fresh.txt', 'x');
+    expect(s.acl.owner('mw-own', 'fresh.txt')).to.equal('user:alice');
+  });
+
+  it('mkdir onto an existing file leaves its owner row in place', async () => {
+    const own = s.local('mw-own', { 'f.txt': 'F' });
+    await s.acl.grant({ fs: 'mw-own', path: 'f.txt', subject: BOB, relation: 'owner' });
+    await expect(own.mkdir('f.txt')).to.be.rejected;
+    expect(s.acl.owner('mw-own', 'f.txt')).to.equal('user:bob');
   });
 });
 
@@ -197,6 +252,15 @@ describe('authz-fs AuthzFsMiddleware: rm, move and rename', function () {
     await keys.rm('d');
     await keys.move('k', 'm');
     expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['d/a.txt', 'k/b.txt', 'm']);
+  });
+
+  it('a key moved onto a prefix that holds keys does not carry its rows there; its own rows go', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/a.txt': 'A', 'src.txt': 'S' }) });
+    await grant('mw-own', 'd', BOB, 'owner');
+    await grant('mw-own', 'src.txt', CAROL, 'owner');
+    await keys.move('src.txt', 'd');
+    expect(keys.shadowKeys.has('d')).to.equal(true);
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey} ${r.relation}`)).to.deep.equal(['d user:bob owner']);
   });
 
   it('SYSTEM is not checked but keeps the ACL in step', async () => {
@@ -249,8 +313,8 @@ describe('authz-fs AuthzFsMiddleware: ACL failures', function () {
   });
 
   it('a store failing before the IO stops the write', async () => {
-    s.acl.failing.add('deleteTree');
-    await expect(s.local('mw-own').write('g.txt', 'x')).to.be.rejectedWith('deleteTree failed');
+    s.acl.failing.add('deletePath');
+    await expect(s.local('mw-own').write('g.txt', 'x')).to.be.rejectedWith('deletePath failed');
     expect(existsSync(join(s.dir, 'mw-own', 'g.txt'))).to.equal(false);
   });
 
