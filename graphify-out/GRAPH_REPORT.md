@@ -1,17 +1,17 @@
 # Graph Report - rv-datetime  (2026-10-19)
 
 ## Corpus Check
-- 4587 files · ~3,020,930 words
+- 4587 files · ~3,020,894 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
 ## Summary
-- 49641 nodes · 132223 edges · 1676 communities (1154 shown, 522 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17203 edges (avg confidence: 0.94)
+- 49641 nodes · 132224 edges · 1676 communities (1154 shown, 522 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17204 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a442a56c`
+- Built from commit: `86f37a8f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -6224,7 +6224,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `packages_authz_lib_mjs_index` be split into smaller, more focused modules?**
   _Cohesion score 0.016709057510244454 - nodes in this community are weakly interconnected._
 - **Why does `Autoinject()` connect `NewInstance` to `stores.db.test.ts`, `OrmDriver`, `Get`, `Logger`, `db-mfa-store.ts`, `default-authn-service.ts`, `OrmException`, `packages_configuration_lib_mjs_index_d_config`, `orm/src/builders.ts`, `root.ts`, `message`, `ConfigurationSource`, `BasePolicy`, `Injectable`, `Param`, `di/test/di.test.ts`, `Metrics`, `http/src/interfaces.ts`, `SchemaProvider`, `ref_spinajs_exceptions`, `Class`, `authn-oidc/src/options/options.ts`, `memory-throttle.test.ts`, `durable-e2e.test.ts`, `Cli`, `SocketHandlerRegistry`, `SwaggerDocCache`, `StrategyBootingIdentityStore`, `default-authn-service.ts`, `SocketConnection`, `Log`, `CliCommand`, `EmailSend`, `n8b-harness.ts`, `owner-singleton.test.ts`, `fsFTP`, `actions.ts`, `FormFileUploader`, `SessionIssuer`, `DefaultAccountGuard`, `XlsxRenderer`, `queue-harness.ts`, `uploads.test.ts`, `IdentityRef`, `TelemetryController`, `guessLanguage`, `TelemetryMiddleware`, `Orm`, `ref_spinajs_di`, `SocketPrincipalSource`, `authn-oidc/test/hardening.test.ts`, `DefaultControllerCache`, `authn-keys/test/cli.test.ts`, `UserMetadataController`, `ServiceBootingIdentityStore`, `controller-model.test.ts`, `Security.ts`, `ConfigurationController`, `FrameworkConfiguration`, `child-chain.test.ts`, `EmailSender`, `DefaultSessionIssuer`, `packages_authn_lib_mjs_contracts_index`, `check-config-cli.test.ts`, `Req`, `ConfigFileValidator`, `http-socket/src/interfaces.ts`, `fsS3`, `OpenApiBuilder`, `src/login.ts`, `FromDbModel`, `StrategyBadPolicyConfiguration`, `Meta`, `SocketHub`, `autoinject-options.test.ts`, `BrowserFrameworkConfiguration`, `LongSpanRegistry`, `ref_spinajs_log`, `SocketServer`, `sse.ts`, `Autoinject`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
 - **Should `packages_log_common_lib_mjs_index_log` be split into smaller, more focused modules?**
   _Cohesion score 0.06415841584158416 - nodes in this community are weakly interconnected._
 - **Why does `AuthzConfigError` connect `admin/admin.ts` to `contracts/fields.ts`, `fakes.ts`, `stores.db.test.ts`, `Permission`, `behaviour/kit.test.ts`, `Security.ts`, `authorizer.ts`, `attributes.ts`, `db-harness.ts`, `actions.ts`, `compiler.ts`, `contracts/model.test.ts`, `DefaultAccountGuard`, `filter.test.ts`, `queue-harness.ts`, `functions.ts`, `authz-fs/test/api.test.ts`, `host/service.ts`, `push.ts`, `AuthzAdmin`, `ElectronRendererConfiguration`, `fs`, `Orm`, `JobModel`, `metadata/orm-store.ts`, `packages_authz_lib_mjs_index_authzconfigerror`, `http-socket/src/index.ts`, `packages_orm_lib_mjs_index_ormdriver`, `BasePolicy`?**
