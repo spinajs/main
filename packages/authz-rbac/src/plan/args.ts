@@ -1,4 +1,4 @@
-/** The term of design §6.2 (lane L8 decision 6). */
+/** The list-plan term an RBAC grant compiles to. */
 export const RBAC_ASSIGNMENT_PLAN_OP = 'rbac.assignment';
 
 export interface RbacPlanRole {

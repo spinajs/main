@@ -9,7 +9,7 @@ import { subjectKeyOf } from '../stores/columns.js';
 import { assignmentStore, honoured, optionalStore, roleIndex, setRolesOf, subjectTag } from './common.js';
 import type { RoleIndex } from './common.js';
 import { AdminMembershipStore } from './ports.js';
-import { isLive, isSetSubject } from './rows.js';
+import { isLiveAt, isSetSubject } from './rows.js';
 
 /** Above this many changed members a write tags `*`: a member's cached decisions carry only its own subject tag. */
 const MEMBERSHIP_TAG_LIMIT = 1000;
@@ -39,7 +39,7 @@ export async function memberSubjects(ctx: AdminContext, rows: readonly Pick<Assi
   return rows.filter((r) => setRolesOf(roles, r.role).length > 0).map((r) => r.subject);
 }
 
-const liveEntries = (rows: readonly MembershipRow[], now: Date): Map<string, string> => new Map(rows.filter((r) => isLive(r.expiresAt, now)).map((r) => [`${r.setKey}\u0000${r.expiresAt?.getTime() ?? ''}`, r.setKey]));
+const liveEntries = (rows: readonly MembershipRow[], now: Date): Map<string, string> => new Map(rows.filter((r) => isLiveAt(r.expiresAt, now)).map((r) => [`${r.setKey}\u0000${r.expiresAt?.getTime() ?? ''}`, r.setKey]));
 
 /**
  * Recomputes, inside the batch transaction, the closure rows of `touched` and of every member below them (a

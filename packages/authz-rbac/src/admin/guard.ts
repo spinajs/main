@@ -13,7 +13,7 @@ import { LINK_TYPE, assignmentStore, deniesPermission, grantClosure, grantingPer
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { membershipEdges } from './membership.js';
-import { isLive, isSetSubject } from './rows.js';
+import { isLiveAt, isSetSubject } from './rows.js';
 
 /** authz.admin.guard.keepHolders entry: every scope of `scopeType` keeps a live holder of `role`. */
 export interface KeepHolder {
@@ -78,7 +78,7 @@ const GUARDED: Readonly<Record<Kind, boolean>> = {
   'policy.delete': false,
   'scope.setAttributes': false,
   'scope.replaceAttributes': false,
-  // Design §6.6.2: guarded by its permission only.
+  // Guarded by its permission only.
   'scope.forget': false,
 };
 
@@ -115,7 +115,7 @@ interface Paths {
 type SetRow = Assignment & { readonly subject: Extract<AssignmentSubject, { set: unknown }> };
 type SetOf = Extract<AssignmentSubject, { set: unknown }>;
 
-/** A deny of privilegedPermission a command gives `subject` at `scope` (design §4.2: the guard counts it as a revoke). */
+/** A deny of privilegedPermission a command gives `subject` at `scope`; the guard counts it as a revoke. */
 interface Denial {
   readonly subject: AssignmentSubject;
   readonly scope: ResourceRef;
@@ -132,7 +132,7 @@ const isAccount = (s: AssignmentSubject): boolean => !isSetSubject(s) && !isLink
 const isAccountKey = (key: string): boolean => parseSetKey(key) === undefined && !key.startsWith(`${LINK_TYPE}:`) && !key.endsWith(':*');
 
 /**
- * The AdminGuard of authz.admin.guard.service (design §6.6.2, lane design §4.3). Runs inside the batch
+ * The AdminGuard of authz.admin.guard.service. Runs inside the batch
  * transaction, so it reads the batch's own earlier writes. Never injects AuthzService: it checks through
  * ctx.authz and RbacAdminFacts, reads the permission registry through ctx.authz's models or the container
  * (grantingPermissions), and reads authz.admin.guard on every call from the Configuration of the admin call's
@@ -170,7 +170,7 @@ export class DefaultAdminGuard extends AdminGuard {
       return;
     }
     for (const t of await this.granted(call, c)) {
-      // A deny role only takes permissions away (design §4.2).
+      // A deny role only takes permissions away.
       if (isDenyRoleDef(call.roles, t.role)) continue;
       const actor = principalKey(call.actor);
       const { via } = t;
@@ -318,7 +318,7 @@ export class DefaultAdminGuard extends AdminGuard {
 
     const until = 'expiresAt' in c ? readExpiry(c.expiresAt) : undefined;
     const removed = [
-      ...planned.revoke.filter((a) => isLive(a.expiresAt, ctx.now)),
+      ...planned.revoke.filter((a) => isLiveAt(a.expiresAt, ctx.now)),
       // Moving an expiry later takes nothing away; renewing a lapsed row is such a move.
       ...planned.expire.filter((a) => !(a.expiresAt != null && until != null && until.getTime() > a.expiresAt.getTime())),
     ];
@@ -372,7 +372,7 @@ export class DefaultAdminGuard extends AdminGuard {
   }
 
   /**
-   * Design §6.6.2: a row a command revokes, re-expires or edits holds no ladder role ranking above the actor's
+   * A row a command revokes, re-expires or edits holds no ladder role ranking above the actor's
    * own at the row scope, over the closure its grant is ranked on (grantClosure: extends, lower ladder roles,
    * implies). A removed or re-expired principal row also takes the roles of the subject sets it makes the
    * principal a member of; each is ranked the same way, over its closure at its own scope. Expired rows count.
@@ -541,7 +541,7 @@ export class DefaultAdminGuard extends AdminGuard {
 
   // ---- keep holders ----
 
-  /** authz.admin.guard.keepHolders (teams design §5): every scope the command takes a holder path from keeps a holder. */
+  /** authz.admin.guard.keepHolders: every scope the command takes a holder path from keeps a holder. */
   private async keepHolders(call: Call, c: AuthzCommand, removed: readonly Assignment[]): Promise<void> {
     const gone = new Set(removed.map((a) => a.id));
     for (const rule of call.cfg.keepHolders) {

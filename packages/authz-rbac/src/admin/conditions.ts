@@ -3,8 +3,8 @@ import { AuthzAdminFailure } from '@spinajs/authz';
 /**
  * A structural check of the Condition grammar (conditions/contracts.ts of the core), run before the
  * compile probe. The probe cannot reach the operators of a condition whose compile reads data first
- * (every scope.* condition), so without this a misspelt operator would be stored. Stand-in until L3
- * ships a condition validator; that validator should replace this file.
+ * (every scope.* condition), so without this a misspelt operator would be stored. Replace this file
+ * once the core ships a condition validator.
  */
 
 const OPS = new Set(['eq', 'ne', 'in', 'nin', 'lt', 'lte', 'gt', 'gte', 'like', 'glob', 'wildcard', 'null']);

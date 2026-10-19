@@ -34,7 +34,7 @@ export interface RuleRows {
   readonly subjects: readonly RuleSubjectRow[];
 }
 
-/** varchar lengths of design §9.1 (Postgres enforces them; SQLite does not). */
+/** varchar lengths of the rule tables (Postgres enforces them; SQLite does not). */
 const LEN = { id: 160, scopeType: 64, scopeId: 64, subjectType: 32, subjectId: 64, subjectRole: 128 } as const;
 
 /**

@@ -88,7 +88,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
   }
 
   /**
-   * Decision.roles is filled for every outcome (D-F5-8), so a check of any permission of the ladder answers;
+   * Decision.roles is filled for every outcome, so a check of any permission of the ladder answers;
    * a glob grant offers the registered permissions it matches.
    */
   async effectiveRole(actor: Principal, ladder: string, scope: ResourceRef, ctx: AdminContext): Promise<string | undefined> {
