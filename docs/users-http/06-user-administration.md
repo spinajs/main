@@ -45,7 +45,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 ### Create: `POST /users`
 
 1. `userActor(caller)` refuses anything but a signed-in user principal (`403`); `requireEveryUser(users:create)` refuses a conditional grant (`403`).
-2. `roleList()` normalises `Role` (one name or a list) to unique, trimmed names.
+2. `roleList()` (from `@spinajs/users`) normalises `Role` (one name or a list) to unique, trimmed names.
 3. `create()` of `@spinajs/users` creates the account **inactive** and without a password, grants the roles at GLOBAL through `AuthzAdmin` as the caller, and sends the owner an invite through authn's `PasswordService`. One refused role refuses the request; nothing is created.
 4. `UserAlreadyExists` becomes `409` with `parameter: [{ instancePath: '/Email', keyword: 'duplicate', ... }]` naming the clashing fields.
 5. `UserCreatedIncomplete` (a step after the role grants failed): the account exists, so the answer is still `200` with the account and `Incomplete: { resendInvite }`.
