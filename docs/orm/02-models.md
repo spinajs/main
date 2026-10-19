@@ -106,6 +106,22 @@ sequenceDiagram
 | `IsForeignKey` | `boolean` | Foreign key column. |
 | `ForeignKeyDescription` | `{ From, To, Table } \| null \| undefined` | Reflected foreign key. |
 
+### Column kinds
+
+`columnKind(column)` names what a column holds, whatever spelling its driver reports in `Type`
+(SQLite's declared type, Postgres' `udt_name`, MySQL's and MSSQL's `DATA_TYPE`): `'integer'`
+(`int`, `int4`, `bigint`, `serial`, `INTEGER`, ...), `'decimal'` (`numeric`, `decimal`, `real`,
+`float8`, `money`, ...), `'uuid'` (`uuid`, `uniqueidentifier`), `'text'` (`varchar`, `text`,
+`nvarchar`, `bpchar`, ...) or `'other'`. A size, `unsigned` or `zerofill` in the type is ignored;
+an empty `Type` falls back to `NativeType`.
+
+`lookupValue(column, text)` is the value to compare `column` with when a key arrives as text (a URL
+segment, an authz resource id). An integer column takes an integer literal, as a number while it is
+a safe integer and as text beyond `Number.MAX_SAFE_INTEGER`; a decimal column takes a decimal literal,
+as text; a uuid column takes a uuid. For any other text it returns `undefined`: leave that key out of
+the `where`/`whereIn`. Bound anyway, Postgres and MSSQL fail the query on the cast, and MySQL converts
+`'abc'` to `0` and matches that row. Text and other columns take the text as it is.
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |

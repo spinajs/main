@@ -9,6 +9,7 @@ export * from './primary-keys.js';
 export * from './resilience.js';
 export * from './metrics.js';
 export * from './schema.js';
+export * from './column-kind.js';
 export * from './schema-providers.js';
 export * from './statements.js';
 export * from './exceptions.js';
