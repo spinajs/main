@@ -2,7 +2,7 @@
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
-import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
+import { LockTableQueryCompiler, LockTableQueryBuilder, ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
 import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
@@ -451,5 +451,18 @@ export class PostgresCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _checkOption(): string {
     return this.checkOptionSql();
+  }
+}
+
+/** SHARE conflicts with the ROW EXCLUSIVE lock of every writer and with no reader's lock. */
+@NewInstance()
+@Inject(Container)
+export class PostgresLockTableQueryCompiler extends LockTableQueryCompiler {
+  constructor(protected container: Container, protected builder: LockTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    return [{ bindings: [], expression: `LOCK TABLE ${this.container.resolve(TableAliasCompiler).compile(this.builder)} IN SHARE MODE` }];
   }
 }

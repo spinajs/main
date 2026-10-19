@@ -42,6 +42,12 @@ describe('mssql dialect', function () {
     expect(quoter.quoteQualified('dbo.users')).to.eq('[dbo].[users]');
   });
 
+  it('locks a table with a shared table lock held to the end of the transaction', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.lockTable('users').toDB()).to.deep.eq([{ bindings: [], expression: 'SELECT COUNT(*) FROM [users] WITH (TABLOCK, HOLDLOCK)' }]);
+  });
+
   /**
    * `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE`,
    * `WITH RECURSIVE` and `CURRENT_DATE()` are not T-SQL. This driver registers none of

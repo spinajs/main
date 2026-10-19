@@ -1569,6 +1569,11 @@ export abstract class AlterTableQueryCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class LockTableQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput[];
+}
+
+@NewInstance()
 export abstract class TableExistsCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }

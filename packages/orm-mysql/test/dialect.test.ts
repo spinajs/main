@@ -52,6 +52,12 @@ describe('mysql dialect', function () {
     expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE `users` DROP COLUMN `Role`' }]);
   });
 
+  it('locks a table with a locking read of every row', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.lockTable('users').toDB()).to.deep.eq([{ bindings: [], expression: 'SELECT COUNT(*) FROM `users` LOCK IN SHARE MODE' }]);
+  });
+
   describe('set membership', () => {
     const statement = (values: any[], not = false) => driver.Container.resolve<InSetStatement>(InSetStatement, ['Role', values, not, undefined]);
 

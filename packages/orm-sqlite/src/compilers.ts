@@ -2,7 +2,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
+import { LockTableQueryCompiler, LockTableQueryBuilder, ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
 import { NotSupported } from '@spinajs/exceptions';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
@@ -398,5 +398,21 @@ export class SqliteCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _ifNotExists(): string {
     return this.builder.IfNotExists ? 'IF NOT EXISTS' : '';
+  }
+}
+
+/**
+ * Nothing to send. The driver holds this process's other writers while a transaction is open, and a write
+ * from another connection between this transaction's first read and its first write makes one of the two
+ * fail with SQLITE_BUSY instead of being lost.
+ */
+@NewInstance()
+export class SqliteLockTableQueryCompiler extends LockTableQueryCompiler {
+  constructor(protected builder: LockTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    return [];
   }
 }

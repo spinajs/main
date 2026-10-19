@@ -1,6 +1,6 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
+import { LockTableQueryCompiler, LockTableQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
@@ -343,5 +343,18 @@ export class MsSqlCreateViewCompiler extends SqlCreateViewQueryCompiler {
     }
 
     return option === true ? 'WITH CHECK OPTION' : this.unsupported(`WITH ${option} CHECK OPTION`);
+  }
+}
+
+/** TABLOCK takes a shared lock on the whole table; HOLDLOCK keeps it until the transaction ends. */
+@NewInstance()
+@Inject(Container)
+export class MsSqlLockTableQueryCompiler extends LockTableQueryCompiler {
+  constructor(protected container: Container, protected builder: LockTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    return [{ bindings: [], expression: `SELECT COUNT(*) FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)} WITH (TABLOCK, HOLDLOCK)` }];
   }
 }

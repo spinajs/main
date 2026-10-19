@@ -181,6 +181,19 @@ SQLite supports little beyond adding and renaming; see [SQLite `ALTER TABLE` lim
 | `CloneTableQueryBuilder` | `shallowClone(src, target)`, `deepClone(src, target, filter?)` | A shallow clone copies the structure. A deep clone also copies the rows, filtered by the `SelectQueryBuilder` callback when given. `deepClone` is `async`. |
 | `TableExistsQueryBuilder` | none | Used by `tableExists()`; each dialect registers its own `TableExistsCompiler`. |
 
+### Locking a table
+
+`lockTable(name)` returns a `LockTableQueryBuilder`. Awaited inside a transaction, it keeps other
+transactions from writing the table until this one ends; they can still read it. Awaited outside a
+transaction it rejects with `InvalidOperation`: the lock would end with the statement.
+
+| Driver | Statement |
+| --- | --- |
+| PostgreSQL | `LOCK TABLE "t" IN SHARE MODE` |
+| MySQL | ``SELECT COUNT(*) FROM `t` LOCK IN SHARE MODE``. The next-key locks keep inserts out only under `REPEATABLE READ`, and DDL ends the transaction, so the lock with it. |
+| MSSQL | `SELECT COUNT(*) FROM [t] WITH (TABLOCK, HOLDLOCK)` |
+| SQLite | nothing: the driver holds this process's other writers while a transaction is open, and when another connection writes between this transaction's read and its write, one of the two fails with `SQLITE_BUSY` |
+
 ## Views
 
 `createView(name, cb)` hands the callback a `CreateViewQueryBuilder`. Set the body with `as()`. A view without a body fails at compile time with `InvalidOperation`.
@@ -241,6 +254,7 @@ Which statements and clauses work depends on the connection's driver. A compiler
 | --- | --- | --- | --- |
 | `createEvent` / `dropEvent` (`supportedFeatures().events`) | yes | throws `MethodNotImplemented` | throws `MethodNotImplemented` |
 | `createDatabase` / `dropDatabase` | yes | throws `NotSupported` | yes, `charset()` throws `NotSupported` |
+| `lockTable` | locking read of every row | sends nothing | `TABLOCK, HOLDLOCK` read |
 | View `orReplace()` | `OR REPLACE` | throws | `OR ALTER` |
 | View `ifNotExists()`, `temporary()` | throws | yes | throws |
 | View `algorithm()`, `security()` | yes | throws | throws |
@@ -256,7 +270,7 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
 | `DefaultValueBuilder<T>` | Builds the `DEFAULT` clause of a column; `ColumnQueryBuilder.default()` resolves it with the column as its owner. | `SqlDefaultValueBuilder` from `@spinajs/orm-sql` | Register a subclass against `DefaultValueBuilder` in the driver's container. |
-| Schema compilers (`TableQueryCompiler`, `AlterTableQueryCompiler`, `ColumnQueryCompiler`, `IndexQueryCompiler`, `CreateViewCompiler`, `EventQueryCompiler`, ...) | Turn a builder into SQL. | The `Sql*` compilers of `@spinajs/orm-sql`, overridden per dialect | See [Architecture](12-architecture.md) and [overriding a compiler](../orm-sql/02-query-compilers.md#services-and-extension-points). |
+| Schema compilers (`TableQueryCompiler`, `AlterTableQueryCompiler`, `LockTableQueryCompiler`, `ColumnQueryCompiler`, `IndexQueryCompiler`, `CreateViewCompiler`, `EventQueryCompiler`, ...) | Turn a builder into SQL. | The `Sql*` compilers of `@spinajs/orm-sql`, overridden per dialect | See [Architecture](12-architecture.md) and [overriding a compiler](../orm-sql/02-query-compilers.md#services-and-extension-points). |
 | `ISupportedFeature` | `driver.supportedFeatures()`; `events` gates the event API. | Declared by each driver | Implement `supportedFeatures()` in a custom driver; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md#feature-flags). |
 
 ## Important behaviour

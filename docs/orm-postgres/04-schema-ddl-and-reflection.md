@@ -76,6 +76,7 @@ The DDL the schema builder compiles to on PostgreSQL, the DDL this driver refuse
 | `tableExists('users')` | `SELECT table_name FROM information_schema.tables WHERE table_name = ? AND table_schema = current_schema() LIMIT 1` | `PostgresTableExistsCompiler` |
 | `tableExists('users', 'sales')` | same, with `table_schema = ?` bound to `'sales'` | `PostgresTableExistsCompiler` |
 | `driver.truncate('users')` | `TRUNCATE TABLE "users"` | shared `SqlTruncateTableQueryCompiler` |
+| `schema().lockTable('users')` inside a transaction | `LOCK TABLE "users" IN SHARE MODE` | `PostgresLockTableQueryCompiler` |
 | `createView('v', (v) => v.orReplace().temporary().columns(['id']).security('INVOKER').checkOption('LOCAL').as(raw))` | `CREATE OR REPLACE TEMPORARY VIEW "v" ("id") WITH (security_invoker = true) AS ... WITH LOCAL CHECK OPTION` | `PostgresCreateViewCompiler` |
 | `createView(...).security('DEFINER')` | `WITH (security_invoker = false)` | `PostgresCreateViewCompiler` |
 | `createView(...).ifNotExists()` | throws `MethodNotImplemented('postgres does not support IF NOT EXISTS')` | `PostgresCreateViewCompiler` |

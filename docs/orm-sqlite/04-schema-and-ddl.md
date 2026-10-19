@@ -78,6 +78,7 @@ SQLite rejects two inline `PRIMARY KEY` constraints, so a key of several columns
 | --- | --- | --- | --- |
 | `driver.truncate(t)`, `Model.truncate()` | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | `DELETE FROM t`; the `AUTOINCREMENT` counter is **not** reset |
 | `schema().tableExists(t, schema?)` | `TableExistsCompiler` | `SqliteTableExistsCompiler` | `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`; `schema` is ignored |
+| `schema().lockTable(t)` | `LockTableQueryCompiler` | `SqliteLockTableQueryCompiler` | no statement; see [Locking a table](../orm/09-schema-builder.md#locking-a-table) |
 | `schema().createView(v, cb)` | `CreateViewCompiler` | `SqliteCreateViewCompiler` | `CREATE [TEMP] VIEW [IF NOT EXISTS] ...`; `orReplace()`, `algorithm()`, `security()`, `checkOption()` throw `MethodNotImplemented` |
 | `schema().createDatabase(d)` | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support CREATE DATABASE, ...')` |
 | `schema().dropDatabase(d)` | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support DROP DATABASE, delete the database file instead')` |

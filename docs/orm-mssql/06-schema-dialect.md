@@ -50,6 +50,7 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | Builder call | Class | T-SQL |
 | --- | --- | --- |
 | `schema().tableExists(name, database?)` | `MsSqlTableExistsCompiler` | `SELECT TOP(1) * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? [AND TABLE_CATALOG=?] ORDER BY TABLE_NAME`; `true` when a row comes back |
+| `schema().lockTable(name)` | `MsSqlLockTableQueryCompiler` | `SELECT COUNT(*) FROM [name] WITH (TABLOCK, HOLDLOCK)` |
 | `driver.index()...` | shared `SqlIndexQueryCompiler` | `CREATE [UNIQUE] INDEX [name] ON [table] ([cols]);` |
 | `schema().dropTable(name).ifExists()` | shared `SqlDropTableQueryCompiler` | `DROP TABLE IF EXISTS <table>` |
 | `driver.truncate(name)` | `SqlTruncateTableQueryCompiler` (registered explicitly) | `TRUNCATE TABLE <table>` |

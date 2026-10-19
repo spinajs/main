@@ -1,5 +1,5 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
+import { LockTableQueryCompiler, LockTableQueryBuilder, CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
 import { SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
@@ -79,5 +79,21 @@ export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     }
 
     return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO ${table}`;
+  }
+}
+
+/**
+ * `LOCK TABLES` would commit the open transaction. A locking read of every row takes next-key locks,
+ * which under REPEATABLE READ (the InnoDB default) keep writers out of the whole table until commit.
+ */
+@NewInstance()
+@Inject(Container)
+export class MySqlLockTableQueryCompiler extends LockTableQueryCompiler {
+  constructor(protected container: Container, protected builder: LockTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    return [{ bindings: [], expression: `SELECT COUNT(*) FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)} LOCK IN SHARE MODE` }];
   }
 }

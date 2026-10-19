@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -2729,6 +2729,33 @@ export class AlterTableQueryBuilder extends QueryBuilder {
   }
 }
 
+/**
+ * Keeps other transactions from writing the table until the current transaction ends; they can still
+ * read it. Each driver compiles it to its engine's lock, or to nothing where its transactions already
+ * exclude other writers.
+ */
+@NewInstance()
+export class LockTableQueryBuilder extends QueryBuilder<void> {
+  constructor(container: Container, driver: OrmDriver, name: string) {
+    super(container, driver, undefined);
+
+    this.setTable(name);
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  public toDB(): ICompilerOutput[] {
+    return this._container.resolve<LockTableQueryCompiler>(LockTableQueryCompiler, [this]).compile();
+  }
+
+  protected _executeOnDriver(): Promise<void> {
+    if (this._driver.CurrentTransaction === undefined) {
+      return Promise.reject(new InvalidOperation(`lockTable(${this.Table}) holds its lock until the transaction ends, so it needs one: await it inside driver.transaction()`));
+    }
+
+    return super._executeOnDriver();
+  }
+}
+
 @NewInstance()
 export class TableQueryBuilder extends QueryBuilder {
   public int: (name: string) => ColumnQueryBuilder;
@@ -3114,6 +3141,14 @@ export class SchemaQueryBuilder {
     const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
     callback.call(this, builder);
     return builder;
+  }
+
+  /**
+   * Keeps other transactions from writing `name` until the current transaction ends; they can still read it.
+   * Rejects with `InvalidOperation` when awaited outside a transaction.
+   */
+  public lockTable(name: string) {
+    return new LockTableQueryBuilder(this.container, this.driver, name);
   }
 
   public dropTable(name: string, schema?: string) {

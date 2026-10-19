@@ -74,6 +74,7 @@ Register when the engine supports the feature; leave out otherwise, so the featu
 | `OnDuplicateQueryCompiler` | `SqlOnDuplicateQueryCompiler` (`ON DUPLICATE KEY UPDATE`) | Write your own for `ON CONFLICT` or `MERGE`. |
 | `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | Needed by `createTable` and `alterTable`. Subclass for identity and type names. |
 | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | Override `_modify()` / `_rename()` / `IsStandaloneStatement` as needed. |
+| `LockTableQueryCompiler` | none | Return the engine's transaction-long share lock, or `[]` when its transactions already exclude other writers. See [Locking a table](../orm/09-schema-builder.md#locking-a-table). |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | SQLite uses `DELETE FROM`. |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `CURRENT_DATE()` is MySQL. |
@@ -97,6 +98,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `ColumnQueryCompiler` | `SqliteColumnCompiler` | shared | `MsSqlColumnQueryCompiler` | `PostgresColumnQueryCompiler` |
 | `AlterColumnQueryCompiler` | `SqliteAlterColumnQueryCompiler` | shared | — | `PostgresAlterColumnQueryCompiler` |
 | `AlterTableQueryCompiler` | shared | shared | — | shared |
+| `LockTableQueryCompiler` | `SqliteLockTableQueryCompiler` (sends nothing) | `MySqlLockTableQueryCompiler` | `MsSqlLockTableQueryCompiler` | `PostgresLockTableQueryCompiler` |
 | `TableQueryCompiler` | `SqliteTableQueryCompiler` | (SqlDriver) | `MsSqlTableQueryCompiler` | (SqlDriver) |
 | `OrderByQueryCompiler` | `SqliteOrderByCompiler` | (SqlDriver) | `MsSqlOrderByCompiler` | (SqlDriver) |
 | `DeleteQueryCompiler` | (SqlDriver) | (SqlDriver) | `MsSqlDeleteQueryCompiler` | (SqlDriver) |
