@@ -1,3 +1,4 @@
+import { describeError } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
@@ -33,7 +34,7 @@ import { ModelContext, NoConditionCompiler, l1Key, memo } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
 import type { Pipeline, Settled } from './run.js';
-import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, thrownError, validDate } from './vote.js';
+import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, faultVote, sanitizeFilter, sanitizeVote, thrownError, validDate } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
 

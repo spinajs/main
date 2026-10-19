@@ -3,6 +3,7 @@ import { AuthzAdminFailure, AuthzService, SYSTEM } from '@spinajs/authz';
 import type { AuthzAdmin } from '@spinajs/authz';
 import { CliCommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
+import { errorMessage } from '@spinajs/exceptions';
 
 // Registers the RBAC write handlers of AuthzAdmin: the CLI loads only the command modules.
 import '../admin/index.js';
@@ -50,5 +51,5 @@ export abstract class AuthzCliCommand extends CliCommand {
 
 export function describeError(e: unknown): string {
   if (e instanceof AuthzAdminFailure) return `${e.message} (${e.code}${e.field ? `, ${e.field}` : ''})`;
-  return e instanceof Error ? e.message : String(e);
+  return errorMessage(e);
 }

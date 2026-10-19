@@ -3,7 +3,7 @@ import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import { normalizeFieldGlobs, subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
 import type { Vote } from '../contracts/decision.js';
-import { describeError } from './vote.js';
+import { describeError } from '@spinajs/exceptions';
 
 export interface FieldResult {
   readonly read: readonly string[];

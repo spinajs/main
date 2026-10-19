@@ -1,10 +1,10 @@
 import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 
+import { errorClassOf } from '@spinajs/exceptions';
 import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
-import { errorClass } from '../support/guards.js';
 import { KeyRegistry } from '../contracts/keys.js';
 import type { KeyRecord } from '../contracts/keys.js';
 import { IdentityLinkStore } from '../contracts/link.js';
@@ -109,7 +109,7 @@ export class AccountLinkService extends AsyncService {
       await this.audit(ctx, { type: 'identity.link', outcome: 'success', ...holder, data: { provider: link.provider, link: link.id } });
       return { ok: true, link };
     } catch (err) {
-      return this.refuse(ctx, 'identity.link', 'store_error', holder, { error: errorClass(err) });
+      return this.refuse(ctx, 'identity.link', 'store_error', holder, { error: errorClassOf(err) });
     }
   }
 
@@ -132,7 +132,7 @@ export class AccountLinkService extends AsyncService {
         return { ok: true };
       });
     } catch (err) {
-      return this.refuse(ctx, 'identity.unlink', 'store_error', holder, { error: errorClass(err) });
+      return this.refuse(ctx, 'identity.unlink', 'store_error', holder, { error: errorClassOf(err) });
     }
   }
 

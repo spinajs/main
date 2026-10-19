@@ -1,6 +1,7 @@
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
+import { errorMessage } from '@spinajs/exceptions';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
@@ -30,7 +31,6 @@ interface EntryKey {
   readonly idem_key: string;
 }
 
-const describe = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const length = (s: string): number => [...s].length;
 
 /**
@@ -99,7 +99,7 @@ async function readTable<T>(driver: OrmDriver, table: string, migration: string,
     if (exists === true) throw e;
     const where = `${table} on connection ${JSON.stringify(driver.Options.Name)}`;
     const what = exists === false ? `table ${where} does not exist; migration ${migration} of @spinajs/authz-rbac creates it` : `cannot read ${where} (has migration ${migration} of @spinajs/authz-rbac run?)`;
-    throw new AuthzConfigError(`DbAuthzAdminBackend: ${what}: ${describe(e)}`, { cause: e });
+    throw new AuthzConfigError(`DbAuthzAdminBackend: ${what}: ${errorMessage(e)}`, { cause: e });
   }
 }
 

@@ -1,11 +1,12 @@
 import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { errorClassOf } from '@spinajs/exceptions';
 import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
-import { errorClass, isRef } from '../support/guards.js';
+import { isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { ImpersonationGuard } from '../contracts/impersonation.js';
@@ -170,7 +171,7 @@ export class AuthnImpersonationService extends AsyncService {
       return { ok: true, session: issued };
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
-      return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
+      return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClassOf(err) });
     }
   }
 
@@ -202,7 +203,7 @@ export class AuthnImpersonationService extends AsyncService {
       return issued;
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
-      return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
+      return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClassOf(err) });
     }
   }
 
@@ -280,7 +281,7 @@ export class AuthnImpersonationService extends AsyncService {
       if (isPlainObject(answer) && answer.ok === true) return null;
       return { reason: isPlainObject(answer) && isNonEmptyString(answer.code) ? answer.code : 'forbidden' };
     } catch (err) {
-      return { reason: 'guard_error', data: { error: errorClass(err) } };
+      return { reason: 'guard_error', data: { error: errorClassOf(err) } };
     }
   }
 

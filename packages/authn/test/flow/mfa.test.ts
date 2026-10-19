@@ -3,7 +3,7 @@ import 'mocha';
 import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
-import { ConfiguredMfaPolicy, DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource } from '../../src/index.js';
+import { ConfiguredMfaPolicy, DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolments, MfaStep, MfaStepNotListed, RoleSource, isMfaEnrolmentMismatch, isMfaStepNotListed, mfaEnrolmentRefusal } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -364,5 +364,23 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       const r = await p.service.authenticate({ kind: 'password', login: 'alice@example.test', password: 'Alice-Pass-1234' }, { now: new Date(), purpose: 'login' });
       assert.strictEqual(r.status, 'mfa_required', JSON.stringify(r));
     });
+  });
+});
+
+describe('isMfaStepNotListed and isMfaEnrolmentMismatch', () => {
+  it('match the class, also as another copy of the module declares it, and not an Error that only carries the name', () => {
+    // The cjs and the mjs build each declare the class.
+    const OtherCopy = class MfaStepNotListed extends Error {
+      constructor(readonly steps: readonly string[]) {
+        super('other copy');
+      }
+    };
+    const renamed = Object.assign(new Error('renamed'), { name: 'MfaEnrolmentMismatch', steps: ['totp'] });
+
+    assert.ok(isMfaStepNotListed(new MfaStepNotListed(['totp'])));
+    assert.ok(isMfaEnrolmentMismatch(new MfaEnrolmentMismatch(['totp'])));
+    assert.deepStrictEqual(mfaEnrolmentRefusal(new OtherCopy(['totp'])), { reason: 'mfa_step_not_listed', steps: ['totp'] });
+    assert.ok(!isMfaEnrolmentMismatch(renamed));
+    assert.ok(!isMfaStepNotListed(new MfaEnrolmentMismatch(['totp'])));
   });
 });

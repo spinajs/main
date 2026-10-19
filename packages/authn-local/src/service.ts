@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, errorClassOf } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
@@ -293,7 +293,7 @@ export class LocalPasswordService extends PasswordService {
         await this.mail(id, 'reset', this.resetTtlSeconds());
       }
     } catch (err) {
-      this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'The reset mail after the password expiry of ${identityType} ${identityId} failed: ${errorName}');
+      this.log().warn({ identityType: id.type, identityId: id.id, errorName: errorClassOf(err) }, 'The reset mail after the password expiry of ${identityType} ${identityId} failed: ${errorName}');
     }
   }
 
