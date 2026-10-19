@@ -4,8 +4,9 @@ import { OrmDriver } from '@spinajs/orm';
 
 import { PolicyStore } from '../contracts.js';
 import { AbacModel } from '../model/model.js';
-import { AUTHZ_POLICY_TABLE, DbPolicyStore, rowToPolicy } from '../model/stores/db.js';
+import { DbPolicyStore, rowToPolicy } from '../model/stores/db.js';
 import { MemoryPolicyStore } from '../model/stores/memory.js';
+import { AUTHZ_POLICY_TABLE } from '../model/stores/policy-record.js';
 
 export type WritablePolicyStore = MemoryPolicyStore | DbPolicyStore;
 

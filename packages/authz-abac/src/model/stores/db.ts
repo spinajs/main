@@ -5,8 +5,7 @@ import { OrmDriver } from '@spinajs/orm';
 
 import { PolicyStore } from '../../contracts.js';
 import { loadPolicy } from '../policies.js';
-
-export const AUTHZ_POLICY_TABLE = 'authz_policy';
+import { AUTHZ_POLICY_TABLE } from './policy-record.js';
 
 interface PolicyRow {
   id: string;
