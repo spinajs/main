@@ -2,18 +2,21 @@ import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { UniqueViolation } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
-import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
+import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns } from './columns.js';
 import type { ScopeRefColumns } from './columns.js';
+import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
-import { isUniqueViolation, pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { RuleRecord, RuleSubjectRecord, deleteFrom, fromDateTime, recordValues, toDateTime } from './records.js';
+import type { RuleFields, RuleSubjectFields } from './records.js';
 import { toRuleRows } from './rule-rows.js';
-import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
-import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE } from './tables.js';
-import { readVersion, bumpVersion } from './version.js';
+import type { RuleSubjectList } from './rule-rows.js';
+import { bumpVersion, readVersion } from './version.js';
 
 /** `AuthzAdmin.list({ kind: 'rules' })` without the kind. */
 export interface RuleListQuery {
@@ -37,17 +40,11 @@ export interface RuleForgetResult {
 /** The most rules one `list` call returns, with or without a page. */
 export const RULE_LIST_MAX_LIMIT = 1000;
 
-const SCOPE_BATCH = 250;
-const ID_BATCH = 500;
-const INSERT_BATCH = 100;
-
-type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: string; readonly created_by: string | null; readonly created_at: Date | string };
-
 /**
  * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
- * the rule is its `definition` JSON. It lives on the `authz` connection; writes run on
- * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27).
- * Registered by class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
+ * the rule is its `definition`. It lives on the `authz` connection; writes run on the `AuthzTx` of
+ * `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27). Registered by class
+ * name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
  */
 @PerChildInstance()
 @Injectable()
@@ -55,7 +52,6 @@ type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: strin
 export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   readonly name: string = 'DbRuleStore';
 
-  protected readonly scopeBatch: number = SCOPE_BATCH;
   protected readonly maxListLimit: number = RULE_LIST_MAX_LIMIT;
 
   constructor(protected readonly container: IContainer) {
@@ -67,21 +63,12 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * path ends in; so an empty path gives the GLOBAL rules.
    */
   async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
-    const scopes = uniqueScopes([...path, GLOBAL]);
-    const driver = await this.connection();
-    const rows: StoredRuleRow[] = [];
+    const query = RuleRecord.query();
+    whereScopes(query, uniqueScopes([...path, GLOBAL]));
+    whereLive(query, at);
 
-    for (let i = 0; i < scopes.length; i += this.scopeBatch) {
-      const query = driver.select().from(AUTHZ_RULE_TABLE);
-      whereScopes(query, scopes.slice(i, i + this.scopeBatch));
-      whereLive(query, at);
-      rows.push(...(await rulesOf(query)));
-    }
-
-    return this.rulesOf(
-      driver,
-      rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
-    );
+    const rows = await query;
+    return this.rulesOf(rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
   }
 
   async version(): Promise<string> {
@@ -90,37 +77,32 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** Expired rules too; null for an unknown id. */
   async byId(id: string): Promise<RuleDef | null> {
-    const driver = await this.connection();
-    const row = await ruleById(driver, id);
-    return row ? (await this.rulesOf(driver, [row]))[0] : null;
+    const row = await ruleById(id);
+    return row ? (await this.rulesOf([row]))[0] : null;
   }
 
   /** Inserts the rule, or replaces the one with its id (row and subject rows; the first `created_at` and `created_by` stay). */
   async put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void> {
-    const driver = await this.writeDriver(tx, `${this.name}.put`);
+    const where = `${this.name}.put`;
+    requireTransaction(RuleRecord, tx, where);
     const rows = toRuleRows(rule);
-    const { id, ...columns } = rows.rule;
+    const { id, expires_at, ...columns } = rows.rule;
+    const values = { ...columns, expires_at: toDateTime(expires_at) };
 
-    if (await this.existingRule(driver, id)) {
-      await driver.update().in(AUTHZ_RULE_TABLE).update(columns).where('id', id);
-      await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where('rule_id', id);
+    if (await this.existingRule(id)) {
+      await RuleRecord.update(recordValues<RuleRecord>(values)).where('id', id);
+      await deleteFrom(RuleSubjectRecord).where('rule_id', id);
     } else {
       try {
-        await driver.insert().into(AUTHZ_RULE_TABLE).values({ ...rows.rule, created_by: principalKey(actor), created_at: this.now() });
+        await RuleRecord.insert(recordValues<RuleRecord>({ id, ...values, created_by: principalKey(actor), created_at: toDateTime(this.now()) }));
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-        throw new AuthzAdminFailure('conflict', `${this.name}.put: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
+        if (!(err instanceof UniqueViolation)) throw err;
+        throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
       }
     }
 
-    for (let i = 0; i < rows.subjects.length; i += INSERT_BATCH) {
-      await driver
-        .insert()
-        .into(AUTHZ_RULE_SUBJECT_TABLE)
-        .values(rows.subjects.slice(i, i + INSERT_BATCH));
-    }
-
-    await bumpVersion({ driver }, this.domain());
+    await RuleSubjectRecord.insert(rows.subjects.map((s) => ({ ...s })));
+    await bumpVersion(tx, this.domain(), where);
   }
 
   /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
@@ -135,14 +117,15 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** Deletes the rule and its subject rows and returns it; unknown id ⇒ `not_found`. */
   async remove(id: string, tx: AuthzTx): Promise<RuleDef> {
-    const driver = await this.writeDriver(tx, `${this.name}.delete`);
-    const row = await ruleById(driver, id);
+    const where = `${this.name}.delete`;
+    requireTransaction(RuleRecord, tx, where);
+    const row = await ruleById(id);
     if (!row) throw new AuthzAdminFailure('not_found', `Rule ${JSON.stringify(id)} does not exist`, 'id');
 
-    const [rule] = await this.rulesOf(driver, [row]);
-    await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where('rule_id', id);
-    await driver.del().from(AUTHZ_RULE_TABLE).where('id', id);
-    await bumpVersion({ driver }, this.domain());
+    const [rule] = await this.rulesOf([row]);
+    await deleteFrom(RuleSubjectRecord).where('rule_id', id);
+    await deleteFrom(RuleRecord).where('id', id);
+    await bumpVersion(tx, this.domain(), where);
     return rule;
   }
 
@@ -158,27 +141,27 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * (`wrong_scope_type`).
    */
   async forgetScopeEntries(scope: ResourceRef, tx: AuthzTx): Promise<RuleForgetResult> {
-    requireScopeNode(scope, `${this.name}.forgetScope`, 'only a scope node can be forgotten');
-
-    const driver = await this.writeDriver(tx, `${this.name}.forgetScope`);
+    const where = `${this.name}.forgetScope`;
+    requireScopeNode(scope, where, 'only a scope node can be forgotten');
+    requireTransaction(RuleRecord, tx, where);
     const columns = scopeToColumns(scope);
 
-    const ruleRows = await rulesOf(driver.select().from(AUTHZ_RULE_TABLE).where(columns).orderBy('id'));
-    const rules = await this.rulesOf(driver, ruleRows);
-    for (let i = 0; i < ruleRows.length; i += ID_BATCH) {
-      const ids = ruleRows.slice(i, i + ID_BATCH).map((r) => r.id);
-      await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).whereIn('rule_id', ids);
-      await driver.del().from(AUTHZ_RULE_TABLE).whereIn('id', ids);
+    const ruleRows = await RuleRecord.query().where(columns).orderBy('id');
+    const rules = await this.rulesOf(ruleRows);
+    if (ruleRows.length > 0) {
+      const ids = ruleRows.map((r) => r.id);
+      await deleteFrom(RuleSubjectRecord).whereIn('rule_id', ids);
+      await deleteFrom(RuleRecord).whereIn('id', ids);
     }
 
     const setAtScope = { subject_type: columns.scope_type, subject_id: columns.scope_id };
-    const subjectRows = await subjectRowsOf(driver.select().from(AUTHZ_RULE_SUBJECT_TABLE).where(setAtScope).where('subject_role', '!=', ''));
-    if (subjectRows.length > 0) await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where(setAtScope).where('subject_role', '!=', '');
+    const subjectRows = await RuleSubjectRecord.query().where(setAtScope).where('subject_role', '!=', '');
+    if (subjectRows.length > 0) await deleteFrom(RuleSubjectRecord).where(setAtScope).where('subject_role', '!=', '');
 
-    await bumpVersion({ driver }, this.domain());
+    await bumpVersion(tx, this.domain(), where);
     return {
       rules,
-      subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),
+      subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list as RuleSubjectList, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),
     };
   }
 
@@ -198,41 +181,40 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** Rules oldest first; `window` undefined reads every match in one rule query. */
   private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly RuleDef[]; total: number }> {
-    const driver = await this.connection();
     const filtered = () => {
-      const query = driver.select().from(AUTHZ_RULE_TABLE);
+      const query = RuleRecord.query();
       if (scope) query.where(scopeToColumns(scope));
       return query;
     };
 
     if (!window) {
-      const items = await this.rulesOf(driver, await rulesOf(filtered().orderBy('created_at').orderBy('id')));
+      const items = await this.rulesOf(await filtered().orderBy('created_at').orderBy('id'));
       return { items, total: items.length };
     }
 
-    const total = Number(await filtered().selectCount());
+    const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
     const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
     if (window.offset > 0) query.skip(window.offset);
 
-    return { items: await this.rulesOf(driver, await rulesOf(query)), total };
+    return { items: await this.rulesOf(await query), total };
   }
 
-  protected existingRule(driver: OrmDriver, id: string): Promise<StoredRuleRow | undefined> {
-    return ruleById(driver, id);
+  protected existingRule(id: string): Promise<RuleRecord | undefined> {
+    return ruleById(id);
   }
 
-  /** The rows as rules, with their subject rows loaded in batches. */
-  private async rulesOf(driver: OrmDriver, rows: readonly StoredRuleRow[]): Promise<RuleDef[]> {
+  /** The rows as rules, with their subject rows read in one query. */
+  private async rulesOf(rows: readonly RuleFields[]): Promise<RuleDef[]> {
     if (rows.length === 0) return [];
 
-    const subjects = new Map<string, RuleSubjectRow[]>();
-    for (let i = 0; i < rows.length; i += ID_BATCH) {
-      const ids = rows.slice(i, i + ID_BATCH).map((r) => r.id);
-      for (const s of await subjectRowsOf(driver.select().from(AUTHZ_RULE_SUBJECT_TABLE).whereIn('rule_id', ids))) {
-        subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
-      }
+    const subjects = new Map<string, RuleSubjectFields[]>();
+    for (const s of await RuleSubjectRecord.query().whereIn(
+      'rule_id',
+      rows.map((r) => r.id),
+    )) {
+      subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
     }
 
     return rows.map((r) => rowToRule(r, subjects.get(r.id) ?? []));
@@ -244,8 +226,8 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-export function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
-  const def = JSON.parse(String(row.definition)) as Partial<RuleDef>;
+export function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+  const def = row.definition as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
 
@@ -253,10 +235,10 @@ export function rowToRule(row: RuleRow & { readonly definition: unknown }, subje
     ...def,
     ...(def.allow ? { allow: keep('allow', def.allow) } : {}),
     ...(def.subjects?.refs ? { subjects: { ...def.subjects, refs: keep('refs', def.subjects.refs) } } : {}),
-    id: String(row.id),
+    id: row.id,
     kind: row.kind as RuleDef['kind'],
-    scope: scopeFromColumns(String(row.scope_type), row.scope_id as string | null),
-    expiresAt: toDate(row.expires_at),
+    scope: scopeFromColumns(row.scope_type, row.scope_id),
+    expiresAt: fromDateTime(row.expires_at),
     source: 'db',
   };
 }
@@ -288,15 +270,7 @@ function whereScopes(query: IWhereBuilder<unknown>, scopes: readonly ScopeRefCol
   });
 }
 
-async function rulesOf(query: PromiseLike<unknown>): Promise<StoredRuleRow[]> {
-  return (await query) as StoredRuleRow[];
-}
-
-async function subjectRowsOf(query: PromiseLike<unknown>): Promise<RuleSubjectRow[]> {
-  return (await query) as RuleSubjectRow[];
-}
-
-async function ruleById(driver: OrmDriver, id: string): Promise<StoredRuleRow | undefined> {
-  const [row] = await rulesOf(driver.select().from(AUTHZ_RULE_TABLE).where('id', id));
+async function ruleById(id: string): Promise<RuleRecord | undefined> {
+  const [row] = await RuleRecord.query().where('id', id);
   return row;
 }

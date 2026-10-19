@@ -12,8 +12,8 @@ export interface RuleColumns {
   readonly kind: RuleDef['kind'];
   readonly scope_type: string;
   readonly scope_id: string;
-  /** The rule as JSON without `id`, `scope` and `expiresAt` (their columns hold them). */
-  readonly definition: string;
+  /** The rule without `id`, `scope` and `expiresAt` (their columns hold them). */
+  readonly definition: object;
   readonly expires_at: Date | null;
 }
 
@@ -22,16 +22,13 @@ export interface RuleSubjectRow extends SubjectColumns {
   readonly list: RuleSubjectList;
 }
 
-/** An `authz_rule` row as a driver returns it (datetimes as text on SQLite). */
-export type RuleRow = { readonly [K in keyof RuleColumns]: unknown } & { readonly created_by?: unknown; readonly created_at?: unknown };
-
 export interface RuleRows {
   readonly rule: RuleColumns;
   /** `allow` and `subjects.refs`, deduplicated, sorted by (list, type, id, role). */
   readonly subjects: readonly RuleSubjectRow[];
 }
 
-/** varchar lengths of design §9.1 (Postgres enforces them; SQLite does not). */
+/** varchar lengths of design §9.1, checked here so that every database refuses the same rules. */
 const LEN = { id: 160, scopeType: 64, scopeId: 64, subjectType: 32, subjectId: 64, subjectRole: 128 } as const;
 
 /**
@@ -62,7 +59,7 @@ export function toRuleRows(rule: Omit<RuleDef, 'source'>): RuleRows {
   for (const p of (rule.subjects?.refs ?? []) as readonly PrincipalRef[]) add('refs', 'subjects.refs', { type: p.type, id: p.id });
 
   return {
-    rule: { id: rule.id, kind: rule.kind, ...scope, definition: JSON.stringify(definition), expires_at: rule.expiresAt ?? null },
+    rule: { id: rule.id, kind: rule.kind, ...scope, definition, expires_at: rule.expiresAt ?? null },
     subjects: [...rows.values()].sort(compareRows),
   };
 }
