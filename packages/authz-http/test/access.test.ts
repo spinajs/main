@@ -298,7 +298,7 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
           public x() {}
         }
         return Twice;
-      }).to.throw(/declared twice on Twice.x/);
+      }).to.throw(AuthzConfigError, /declared twice on Twice.x/);
     });
 
     it("keeps the route @Access decision when the class @Access passes too", async () => {

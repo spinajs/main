@@ -1,5 +1,5 @@
 import { AuthzConfigError, GLOBAL, compileFieldGlobs, isPermission } from '@spinajs/authz';
-import type { AuthzDomains, AuthzService, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import type { AuthzService, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { Log } from '@spinajs/log';
 import { isPlainObject } from '@spinajs/util';
 
