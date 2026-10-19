@@ -119,22 +119,10 @@ export interface FsProviderSpec {
   readonly name: string;
   /** Files present at setup: path → content. */
   readonly files?: Readonly<Record<string, string>>;
-  /** Methods the provider has beyond the abstract `fs`, which no operation table maps. */
-  readonly extraMethods?: readonly string[];
-}
-
-/** An `FsPathResolver`: a path `<prefix><id>/…` of `fs` has the domain parent `{ type, id }`. */
-export interface FsResolverSpec {
-  /** The class name `authz.fs.<name>.resolver` refers to. */
-  readonly name: string;
-  readonly fs: string;
-  readonly prefix: string;
-  readonly type: ResourceType;
 }
 
 export interface FsWorld {
   readonly providers: readonly FsProviderSpec[];
-  readonly resolvers?: readonly FsResolverSpec[];
 }
 
 /** A `@Job(opts)` handler: it records `authz().current()` and checks each entry of `checks` as that principal. */
