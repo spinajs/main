@@ -1,6 +1,6 @@
 # Attachments
 
-Attachments name a file on a `@spinajs/fs` filesystem: local disk, S3 or any other provider. `EmailService.send()` reads each one through its filesystem as the caller, before the transport runs, so a filesystem guarded by `authz-fs` checks `fs:read` for the principal that sends the mail.
+Attachments name a file on a `@spinajs/fs` filesystem: local disk, S3 or any other provider. `EmailService.send()` reads each one through its filesystem as the caller, before the transport runs, so a filesystem whose `authz.fs.<name>.mode` is `enforce` or `audit` checks `fs:read` (through `AuthzFsMiddleware`, see [Checks on file actions](../authz-fs/02-checks-on-file-actions.md)) for the principal that sends the mail.
 
 ## How it works
 
@@ -58,7 +58,7 @@ export default {
 ## Important behaviour
 
 - **This holds for every transport**, `BlackHoleEmailSender` included: development and tests fail where production would.
-- **Deferred mails read attachments on delivery**, as the principal that queued them (`EmailSend` runs as initiator). A mail queued without one is refused on a guarded filesystem.
+- **Deferred mails read attachments on delivery**, as the principal that queued them (`EmailSend` runs as initiator). A mail queued without one is refused on a checked filesystem.
 - **A refused deferred read is retried** like any failed job, although the answer stays the same.
 - **Templates are not covered.** The transport reads templates in the same context; give template filesystems no `authz.fs` entry, because reset and invite mails run without a user.
 - **Downloaded copies are not deleted by this package.** For a remote provider, `download()` writes to the temp filesystem and its cleanup applies.
@@ -114,4 +114,4 @@ export class InvoiceMailer {
 - [Transports](02-transports.md): how a transport consumes `file`.
 - [Deferred sending](04-deferred-sending.md): `runAs: 'initiator'`.
 - [`@spinajs/fs`](../fs/README.md): providers, `download()` and the temp filesystem.
-- [`@spinajs/authz`](../authz/README.md): `fs:read` checks on guarded filesystems.
+- [`@spinajs/authz-fs`](../authz-fs/README.md): does the `fs:read` checks.

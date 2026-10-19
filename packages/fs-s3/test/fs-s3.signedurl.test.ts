@@ -58,6 +58,16 @@ describe('fsS3 signedUrl – unit tests', function () {
     expect(sign.called).to.be.false;
   });
 
+  it('signs the normalised key', async () => {
+    const sign = sinon.stub().resolves('https://signed');
+    const p = provider({ sign });
+
+    await p.signedUrl('/dir//a.txt');
+
+    expect((p.exists as sinon.SinonStub).calledOnceWithExactly('dir/a.txt')).to.be.true;
+    expect(sign.firstCall.args[0]).to.equal('dir/a.txt');
+  });
+
   it('getSignedUrl delegates to signedUrl with until', async () => {
     const sign = sinon.stub().resolves('https://signed');
     const until = DateTime.now().plus({ minutes: 5 });

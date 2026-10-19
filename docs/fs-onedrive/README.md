@@ -65,7 +65,7 @@ export async function checkOneDrive() {
 
 ## Related packages
 
-- [`@spinajs/fs`](../fs/README.md): the `fs` base class, `fsService` that creates providers from `fs.providers`, `getFs()`, `@FileSystem()` and `FsDecorator`.
+- [`@spinajs/fs`](../fs/README.md): the `fs` base class, `fsService` that creates providers from `fs.providers`, `getFs()`, `@FileSystem()` and `FsMiddleware`.
 - [`@spinajs/fs-s3`](../fs-s3/README.md): a complete remote provider; read it as a reference when implementing operations in a subclass.
 - `@spinajs/exceptions`: `MethodNotImplemented`, thrown by every file operation.
 - `@spinajs/configuration`: loads the provider entries from `fs.providers`.
