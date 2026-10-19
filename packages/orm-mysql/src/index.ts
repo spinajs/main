@@ -78,6 +78,9 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
+
+  /** The `SET time_zone` outcome of each pooled connection, keyed by the connection. */
+  private readonly sessionZones = new WeakMap<object, Promise<Error | null>>();
   // `_executionId` went with the per-driver query timing master centralised.
   // `TransactionStorage` is no longer declared here either — it moved up to OrmDriver so
   // ambient-connection propagation is part of the contract rather than a MySQL detail.
@@ -212,7 +215,7 @@ export class MySqlOrmDriver extends SqlDriver {
       // sight, is what makes `orm_pool_acquire_seconds` a real number instead of always zero.
       const acquireStart = process.hrtime.bigint();
 
-      this.Pool.getConnection((err, connection) => {
+      this.acquire((err, connection) => {
         const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
         this.observeAcquireSeconds(seconds);
 
@@ -222,12 +225,12 @@ export class MySqlOrmDriver extends SqlDriver {
         }
 
         let released = false;
-        run(connection, () => {
+        run(connection!, () => {
           if (released) {
             return;
           }
           released = true;
-          connection.release();
+          connection!.release();
         });
       });
     });
@@ -341,10 +344,35 @@ export class MySqlOrmDriver extends SqlDriver {
   /** NOW(), CURRENT_TIMESTAMP and TIMESTAMP columns follow the session zone, so every pooled connection runs in UTC. */
   protected pinSessionZone(pool: mysql.Pool): void {
     pool.on('connection', (connection) => {
-      connection.query("SET time_zone = '+00:00'", (err) => {
-        if (err) {
-          this.Log?.warn({ error: err, connection: this.Options.Name }, 'could not set the session time zone of ${connection} to UTC');
+      // Resolves to the error, not rejects: nobody may await it before the SET answers.
+      this.sessionZones.set(
+        connection,
+        new Promise((resolve) => connection.query("SET time_zone = '+00:00'", (err) => resolve(err ?? null))),
+      );
+    });
+  }
+
+  /**
+   * Takes a pooled connection once its session zone is UTC. A connection whose `SET time_zone` failed is destroyed
+   * and the acquire fails: a statement on it would read and stamp datetimes in the server's zone.
+   */
+  protected acquire(done: (err: Error | null, connection?: PoolConnection) => void): void {
+    this.Pool.getConnection((err, connection) => {
+      if (err) {
+        done(err);
+        return;
+      }
+
+      const pinned = this.sessionZones.get(connection) ?? Promise.resolve(null);
+      void pinned.then((zoneErr) => {
+        if (!zoneErr) {
+          done(null, connection);
+          return;
         }
+
+        this.sessionZones.delete(connection);
+        connection.destroy();
+        done(new Error(`could not set the session time zone of connection ${this.Options.Name} to UTC: ${zoneErr.message}`, { cause: zoneErr }));
       });
     });
   }
@@ -356,7 +384,7 @@ export class MySqlOrmDriver extends SqlDriver {
         this.pinSessionZone(this.Pool);
 
         // Test the pool connection
-        this.Pool.getConnection((err, connection) => {
+        this.acquire((err, connection) => {
           if (err) {
             // Clean up the pool if connection test fails
             this.Pool.end(() => {
@@ -366,7 +394,7 @@ export class MySqlOrmDriver extends SqlDriver {
           }
 
           // Release the test connection
-          connection.release();
+          connection!.release();
           this.setState(ConnectionState.Connected);
           resolve(this);
         });
@@ -485,11 +513,12 @@ export class MySqlOrmDriver extends SqlDriver {
 
   protected _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
     return new Promise((resolve, reject) => {
-      this.Pool.getConnection((err, connection) => {
+      this.acquire((err, acquired) => {
         if (err) {
           reject(err);
           return;
         }
+        const connection = acquired!;
 
         const begin = () => {
           connection.beginTransaction((err) => {

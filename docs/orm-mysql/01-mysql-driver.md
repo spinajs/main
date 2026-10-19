@@ -213,7 +213,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 ## Important behaviour
 
 - Importing the package registers both drivers. `DI.register(MySqlOrmDriver).as('orm-driver-mysql')` repeats what the decorator did; it is harmless.
-- `Encoding`, `Options` and `Pool.AcquireTimeout` are read by no code in this driver; without an override there is no TLS. The pool always passes `timezone: 'Z'` and sets `time_zone = '+00:00'` on every new connection, so `DATETIME` and `TIMESTAMP` values, `NOW()` and `CURRENT_TIMESTAMP` are UTC.
+- `Encoding`, `Options` and `Pool.AcquireTimeout` are read by no code in this driver; without an override there is no TLS. The pool always passes `timezone: 'Z'` and sets `time_zone = '+00:00'` on every new connection, so `DATETIME` and `TIMESTAMP` values, `NOW()` and `CURRENT_TIMESTAMP` are UTC. A connection on which that `SET` fails is destroyed and the statement or transaction that took it fails.
 - `decimalNumbers` stays off: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema.
 - `connect()` assigns a new pool without ending the previous one. A reconnect by `withReconnect()` or the health probe leaves the old pool's sockets open.
 - A failed `connect()` ends the new pool but keeps it as `this.Pool`. The next retry attempt fails with `mysql2`'s `Pool is closed.`, which has no code and is not retryable, so `withReconnect()` stops early. The next health tick reconnects.
