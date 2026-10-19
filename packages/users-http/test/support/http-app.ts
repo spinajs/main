@@ -8,14 +8,14 @@ import * as cs from 'cookie-signature';
 import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, explicitAppEnv } from '@spinajs/configuration';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
-import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 // Loading it registers the 3.0 authn layer (AuthnMiddleware, resolvers, route args) on the root container, as in an app.
 import '@spinajs/authn-http';
@@ -208,7 +208,7 @@ let seq = 0;
 
 function cookieName(): string {
   const config = DI.get(Configuration)!;
-  return sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, appEnvOf(config));
+  return sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, explicitAppEnv(config));
 }
 
 function release(): void {

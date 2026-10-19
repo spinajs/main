@@ -1,4 +1,4 @@
-import { explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration-common';
+import { explicitAppEnv } from '@spinajs/configuration-common';
 import type { AppEnvSource } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 
@@ -19,12 +19,6 @@ export const AUTHN_ENV_FALLBACK_WARNING = 'No app env is set (--env, APP_ENV or 
 
 /** What the boot checks read; `Configuration` is one. */
 export type AuthnConfigSource = AppEnvSource;
-
-/** @deprecated Use `explicitAppEnv` of `@spinajs/configuration`. */
-export const authnAppEnv: (config: AuthnConfigSource) => string | undefined = explicitAppEnv;
-
-/** @deprecated Use `isDevOrTestEnv` of `@spinajs/configuration`. */
-export const isLenientAuthnEnv: (env: string | undefined) => boolean = isDevOrTestEnv;
 
 /**
  * True when the configuration resolved development that no env source named (SR-16): `explicitAppEnv` then answers

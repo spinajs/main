@@ -1,11 +1,11 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS } from '@spinajs/authn/contracts';
-import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { checkThrottleParams } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
-import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Config, Configuration, explicitAppEnv, isDevOrTestEnv } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -103,8 +103,8 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     // A @Config read needs the container's Configuration resolved.
     if (this.fromConfiguration) await (this.options.container ?? DI.RootContainer).resolve(Configuration);
     if (isSecret(this.hashSecret())) return;
-    const env = authnAppEnv(booting);
-    if (!isLenientAuthnEnv(env)) {
+    const env = explicitAppEnv(booting);
+    if (!isDevOrTestEnv(env)) {
       throw new InvalidOption(`DbAuthnThrottle: authn.audit.hashKey.secret is not set; outside development and test (env ${JSON.stringify(env ?? 'unset')}) the throttle rows must be keyed with a secret of the app`);
     }
   }

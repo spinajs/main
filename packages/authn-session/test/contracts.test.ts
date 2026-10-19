@@ -212,7 +212,6 @@ const PUBLIC_EXPORTS = [
   'SlidingExpiration',
   'UserSession',
   'adaptLegacySession',
-  'appEnvOf',
   'assertSessionCookieSecret',
   'clearSessionCookie',
   'cookieMaxAge',
