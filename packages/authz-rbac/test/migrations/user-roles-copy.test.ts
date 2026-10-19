@@ -159,7 +159,7 @@ for (const kind of DB_KINDS) {
         expect(r.id).to.match(UUID);
         expect(r).to.deep.include({ subject_type: 'user', subject_role: '', scope_type: '$global', scope_id: '', tags: '', source: 'users.Role', expires_at: null, granted_by: null });
         expect(r.subject_key).to.eq(`user:${r.subject_id}`);
-        // SQLite keeps milliseconds; Postgres TIMESTAMP keeps microseconds
+        // SQLite's ISO text and Postgres TIMESTAMPTZ(3) both keep the milliseconds of the copy's Date
         expect(createdAt.get(r.id)).to.be.within(before.getTime() - 1, after.getTime() + 1);
       }
 
