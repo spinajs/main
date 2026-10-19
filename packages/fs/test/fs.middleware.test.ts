@@ -147,6 +147,33 @@ describe('fs middleware pipeline', function () {
     expect(result.fs.Name).to.equal('fs-temp');
   });
 
+  it('zip and unzip reject, never throw, when the default destination or its temp name fails', async () => {
+    class NoDestinations extends fsNative<IFsLocalOptions> {
+      protected zipDestination(): fs {
+        throw new InvalidOperation('no zip destination');
+      }
+      protected unzipDestination(): fs {
+        throw new InvalidOperation('no unzip destination');
+      }
+    }
+    const broken = new NoDestinations({ name: 'no-dst', service: 'fsNative', basePath: dir('./temp-nc') } as IFsLocalOptions);
+    const unnamed = new fsNative<IFsLocalOptions>({ name: 'no-name', service: 'fsNative', basePath: dir('./temp-nc') } as IFsLocalOptions);
+    unnamed.tmpname = () => {
+      throw new InvalidOperation('no temp name');
+    };
+    const calls: [() => Promise<unknown>, string][] = [
+      [() => broken.zip('z.txt'), 'no zip destination'],
+      [() => broken.unzip('a.zip'), 'no unzip destination'],
+      [() => local.zip('z.txt', unnamed), 'no temp name'],
+      [() => local.unzip('a.zip', undefined, unnamed), 'no temp name'],
+    ];
+    for (const [call, message] of calls) {
+      let pending: Promise<unknown> | undefined;
+      expect(() => (pending = call()), message).to.not.throw();
+      await expect(pending).to.be.rejectedWith(InvalidOperation, message);
+    }
+  });
+
   it('checks list as a dir target', async () => {
     await local.list('');
     expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local::dir:list:source']);

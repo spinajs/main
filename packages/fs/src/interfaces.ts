@@ -228,6 +228,15 @@ function assertNoActionOverrides(instance: object, base: object): void {
   checkedClasses.add(proto);
 }
 
+/** A public action returns a promise, so what fails before it reaches runAction rejects too. */
+function rejecting<R>(fn: () => Promise<R>): Promise<R> {
+  try {
+    return fn();
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
 export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
   constructor() {
     super();
@@ -395,13 +404,15 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * An entry `[path, entryName]` names the entry in the archive.
    */
   public zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const sources = Array.isArray(path) ? path : [path];
-    const dst = dstFs ?? this.zipDestination();
-    const specs: FsTargetSpec[] = sources.map((s) => ({ path: Array.isArray(s) ? s[0] : s, kind: 'file' as const, access: ['read' as const] }));
-    specs.push({ fs: dst, path: dstFile ?? dst.tmpname('.zip'), kind: 'file', access: ['write'], role: 'destination' });
-    return this.runAction('zip', specs, [], (targets) => {
-      const normalised = sources.map((s, i) => (Array.isArray(s) ? [targets[i].path, ...s.slice(1)] : targets[i].path));
-      return this.doZip(Array.isArray(path) ? normalised : (normalised[0] as string), dst, targets[targets.length - 1].path);
+    return rejecting(() => {
+      const sources = Array.isArray(path) ? path : [path];
+      const dst = dstFs ?? this.zipDestination();
+      const specs: FsTargetSpec[] = sources.map((s) => ({ path: Array.isArray(s) ? s[0] : s, kind: 'file' as const, access: ['read' as const] }));
+      specs.push({ fs: dst, path: dstFile ?? dst.tmpname('.zip'), kind: 'file', access: ['write'], role: 'destination' });
+      return this.runAction('zip', specs, [], (targets) => {
+        const normalised = sources.map((s, i) => (Array.isArray(s) ? [targets[i].path, ...s.slice(1)] : targets[i].path));
+        return this.doZip(Array.isArray(path) ? normalised : (normalised[0] as string), dst, targets[targets.length - 1].path);
+      });
     });
   }
 
@@ -411,16 +422,18 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @returns path to unzipped file
    */
   public unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
-    const dst = dstFs ?? this.unzipDestination();
-    return this.runAction(
-      'unzip',
-      [
-        { path: srcPath, kind: 'file', access: ['read'] },
-        { fs: dst, path: destPath ?? dst.tmpname(), kind: 'dir', access: ['write'], role: 'destination' },
-      ],
-      [],
-      ([s, d]) => this.doUnzip(s.path, d.path, dst),
-    );
+    return rejecting(() => {
+      const dst = dstFs ?? this.unzipDestination();
+      return this.runAction(
+        'unzip',
+        [
+          { path: srcPath, kind: 'file', access: ['read'] },
+          { fs: dst, path: destPath ?? dst.tmpname(), kind: 'dir', access: ['write'], role: 'destination' },
+        ],
+        [],
+        ([s, d]) => this.doUnzip(s.path, d.path, dst),
+      );
+    });
   }
 
   /**
