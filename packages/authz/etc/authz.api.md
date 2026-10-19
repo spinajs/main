@@ -668,7 +668,7 @@ export declare abstract class NativeFilter {
     abstract matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean>;
 }
 export interface NativeFilter {
-    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it (RFC E2-2). Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
+    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it. Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
     readonly principalInArgs?: boolean;
 }
 export interface ModelCapabilities {
@@ -935,11 +935,23 @@ export declare abstract class AuthzService extends AsyncService {
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;
 };
+/** The root domain: the DI root container. */
+export declare const ROOT_DOMAIN = "root";
+/** What AuthzDomains.create accepts as a domain name (a JSON schema / RegExp source). */
+export declare const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
+export interface DomainIdentity {
+    readonly name: string;
+    readonly parent?: string;
+}
 export declare abstract class AuthzDomains {
     abstract create(name: string, parent?: string): IContainer;
     abstract container(name: string): IContainer;
     abstract service(name: string): Promise<AuthzService>;
     abstract names(): readonly string[];
+    /** The domain a container belongs to; undefined for a container that is not a domain. */
+    abstract describe(container: IContainer): DomainIdentity | undefined;
+    /** Domain names from 'root' to `name`; throws AuthzConfigError for a domain that does not exist. */
+    abstract lineage(name: string): readonly string[];
 }
 export interface AccessSummary {
     readonly principal: PrincipalRef;
@@ -992,6 +1004,10 @@ export declare abstract class DecisionAudit {
         command?: unknown;
     }): void | Promise<void>;
 }
+
+// values
+const ROOT_DOMAIN = "root";
+const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ```
 
 ## Re-exported from other packages

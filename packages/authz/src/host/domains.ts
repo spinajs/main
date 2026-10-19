@@ -3,13 +3,12 @@ import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 
 import { AuthzConfigError } from '../contracts/errors.js';
-import { AuthzDomains, AuthzService } from '../contracts/service.js';
+import { AuthzDomains, AuthzService, DOMAIN_NAME_PATTERN, ROOT_DOMAIN } from '../contracts/service.js';
+import type { DomainIdentity } from '../contracts/service.js';
 import { engineLog, thrownError } from './log.js';
 import { configAt } from './config/domain-config.js';
 
-const DOMAIN_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
-
-const ROOT = 'root';
+const DOMAIN_NAME = new RegExp(DOMAIN_NAME_PATTERN);
 
 interface DomainRecord {
   readonly name: string;
@@ -19,11 +18,6 @@ interface DomainRecord {
   /** Services booting for this domain or attached to it; all are disposed with the domain. */
   readonly services: Set<AuthzService>;
   service?: AuthzService;
-}
-
-export interface DomainIdentity {
-  readonly name: string;
-  readonly parent?: string;
 }
 
 const q = (v: unknown): string => {
@@ -42,8 +36,8 @@ export function configuredParent(tree: unknown, name: string): string | undefine
 /** Domain names from 'root' to `name` by the configured parents: the lineage before the host has created its domains. */
 export function configuredLineage(tree: unknown, name: string): readonly string[] {
   const out = [name];
-  for (let d = name; d !== ROOT; ) {
-    const parent = configuredParent(tree, d) ?? ROOT;
+  for (let d = name; d !== ROOT_DOMAIN; ) {
+    const parent = configuredParent(tree, d) ?? ROOT_DOMAIN;
     // The schema checks each entry on its own; only the chain across entries can loop.
     if (out.includes(parent)) throw new AuthzConfigError(`The configured parents of authz domain ${q(name)} form a cycle`);
     out.unshift(parent);
@@ -66,11 +60,11 @@ export class DefaultAuthzDomains extends AuthzDomains {
 
   constructor(rootContainer: IContainer) {
     super();
-    this.records.set(ROOT, { name: ROOT, container: rootContainer, services: new Set() });
+    this.records.set(ROOT_DOMAIN, { name: ROOT_DOMAIN, container: rootContainer, services: new Set() });
   }
 
   create(name: string, parent?: string): IContainer {
-    if (name === ROOT) throw new AuthzConfigError(`Authz domain "root" is the root container; it cannot be created`);
+    if (name === ROOT_DOMAIN) throw new AuthzConfigError(`Authz domain "root" is the root container; it cannot be created`);
     if (typeof name !== 'string' || !DOMAIN_NAME.test(name)) throw new AuthzConfigError(`Invalid authz domain name ${q(name)}: expected 1 to 64 characters of [A-Za-z0-9_.-]`);
     if (this.records.has(name)) throw new AuthzConfigError(`Authz domain ${q(name)} already exists`);
     if (parent !== undefined && typeof parent !== 'string') throw new AuthzConfigError(`Authz domain ${q(name)}: parent must be a domain name, got ${q(parent)}`);
@@ -79,7 +73,7 @@ export class DefaultAuthzDomains extends AuthzDomains {
     if (parent !== undefined && configured !== undefined && parent !== configured) {
       throw new AuthzConfigError(`Authz domain ${q(name)}: parent ${q(parent)} differs from authz.domains.${name}.parent (${q(configured)})`);
     }
-    const parentName = parent ?? configured ?? ROOT;
+    const parentName = parent ?? configured ?? ROOT_DOMAIN;
     const owner = this.records.get(parentName);
     if (!owner) throw new AuthzConfigError(`Authz domain ${q(name)}: parent domain ${q(parentName)} does not exist`);
 
@@ -137,7 +131,7 @@ export class DefaultAuthzDomains extends AuthzDomains {
   lineage(name: string): readonly string[] {
     const out: string[] = [];
     for (let r = this.records.get(name); r; r = r.parent === undefined ? undefined : this.records.get(r.parent)) out.unshift(r.name);
-    if (out[0] !== ROOT) throw new AuthzConfigError(`Authz domain ${q(name)} does not exist`);
+    if (out[0] !== ROOT_DOMAIN) throw new AuthzConfigError(`Authz domain ${q(name)} does not exist`);
     return Object.freeze(out);
   }
 

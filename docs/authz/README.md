@@ -96,8 +96,10 @@ gets the `UNATTENDED` principal, and every check denies it (H2, B09). To act as 
 `authz().runAs(SYSTEM, reason, fn)`. `runAs` is audited with its reason. There is no switch that turns
 unattended into system.
 
-**Domain.** A child DI container with its own models and config. The root domain is `root`. Use a
-domain when a part of the app needs different models, such as the file system (B29).
+**Domain.** A child DI container with its own models and config. The root domain is `root`
+(`ROOT_DOMAIN`), and a domain name matches `DOMAIN_NAME_PATTERN`. Use a domain when a part of the app
+needs different models, such as the file system (B29). `AuthzDomains.describe(container)` names the
+domain a container is, and `lineage(name)` lists the domains from `root` down to `name`.
 
 ## Using the service
 
