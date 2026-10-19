@@ -3,12 +3,15 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, ClassInfo, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { DiRegistryMigrationSource, MIGRATION_DESCRIPTION_SYMBOL, MigrationSource, Orm, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
+import { DiRegistryMigrationSource, MIGRATION_DESCRIPTION_SYMBOL, MigrationSource, ModelHydrator, Orm, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
 
 import '../../src/migrations/index.js';
+
+/** Array.ofType of the @spinajs/di the tests resolve with, captured before a configuration load can re-patch it. */
+const { ofType, chainOf } = Array;
 
 export type DbKind = 'sqlite' | 'postgres';
 
@@ -138,6 +141,9 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
+  // If loading the configuration pulls in a second copy of @spinajs/di, it re-patches Array.ofType and a list first resolved
+  // after that comes back empty, so the hydrators are resolved before the boot.
+  DI.resolve(Array.ofType(ModelHydrator));
 
   const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;
@@ -164,6 +170,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
+    // Restores Array.ofType/chainOf if loading the configuration pulled in a second copy of @spinajs/di.
+    Object.assign(Array, { ofType, chainOf });
     orm = await container.resolve(Orm);
   } catch (err) {
     if (database) {

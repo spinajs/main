@@ -1,17 +1,17 @@
 # Graph Report - rv-datetime  (2026-10-19)
 
 ## Corpus Check
-- 4587 files · ~3,021,094 words
+- 4587 files · ~3,021,174 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
 ## Summary
-- 49642 nodes · 132227 edges · 1608 communities (1101 shown, 507 thin omitted)
+- 49642 nodes · 132228 edges · 1608 communities (1101 shown, 507 thin omitted)
 - Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17204 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7bd60f12`
+- Built from commit: `25386ea6`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5932,14 +5932,14 @@ Nodes (3): repository, type, url
 
 ## Knowledge Gaps
 - **1700 isolated node(s):** `@types/bunyan`, `@types/chai`, `@types/chai-as-promised`, `@types/chai-like`, `@types/chai-subset` (+1695 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 21039 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 21038 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **507 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Injectable()` connect `Injectable` to `SpineJsInternationalizationFromJson`, `RbacModel`, `queue/src/index.ts`, `admin/admin.ts`, `HTTP_STATUS_CODE`, `db-mfa-store.ts`, `orm/src/builders.ts`, `SessionIssuer`, `Test ledger: @spinajs/users`, `default-authn-service.ts`, `packages_configuration_lib_mjs_index_d_config`, `NewInstance`, `orm/src/interfaces.ts`, `PerfSink`, `QueryMiddleware`, `log-common/src/index.ts`, `root.ts`, `db-harness.ts`, `FileInfoService`, `real-ip.test.ts`, `BaseSocketController`, `SocketDispatcher`, `TotpService`, `lists/middleware.ts`, `Configuration`, `BasePath`, `AmqpQueueClient`, `ConfigVarProtocol`, `guard/middleware.ts`, `src/adapter.ts`, `contracts/model.test.ts`, `admin.test.ts`, `packages_di_lib_mjs_index_icontainer`, `PromMetricSink`, `authz-orm/src/registry.ts`, `di/test/di.test.ts`, `FallbackGroupTarget`, `packages_authz_lib_mjs_index_authzconfigerror`, `Metrics`, `authn-keys/test/harness.ts`, `ServerMiddleware`, `ILogArchiveContext`, `SchemaProvider`, `ref_spinajs_exceptions`, `packages_authz_lib_mjs_index_resourceref`, `flow/cookie.ts`, `memory-throttle.test.ts`, `Config`, `durable-e2e.test.ts`, `issuer.ts`, `default-authn-service.ts`, `SocketConnection`, `SqsQueueClient`, `email/src/index.ts`, `db-harness.ts`, `packages_orm_lib_mjs_index`, `Singleton`, `assignment-sql.ts`, `RendererOrmDriverBridge`, `fsFTP`, `actions.ts`, `FormFileUploader`, `DefaultEmailService`, `DefaultAccountGuard`, `XlsxRenderer`, `queue-harness.ts`, `ConfigVariable`, `uploads.test.ts`, `SessionExpirationProvider`, `AuthnService`, `ref_spinajs_di`, `StompQueueClient`, `TelemetryController`, `fsNative`, `DbTranslationSource`, `TelemetryMiddleware`, `Orm`, `metadata/orm-store.ts`, `email.deferred.test.ts`, `ref_spinajs_authz`, `PuppeteerRenderer`, `DynamoDbSessionProvider`, `SocketServer`, `HandlebarsRenderer`, `DbSessionStore`, `RedisSessionStore`, `.create`, `Profile`, `OrmNotFoundException`, `UserMetadataController`, `controller-model.test.ts`, `guard/index.ts`, `Initiator`, `Authentication`, `LocalPasswordService`, `group-service.ts`, `RequestStats`, `access-config/index.ts`, `PugRenderer`, `child-chain.test.ts`, `EmailSender`, `DefaultSessionIssuer`, `packages_authn_lib_mjs_contracts_index`, `packages_di_lib_mjs_index`, `GraphanaLokiLogTarget`, `OtlpLogTarget`, `QueueEvent`, `ConfigFileValidator`, `http-socket/src/interfaces.ts`, `Bootstrapper`, `fsService`, `fsS3`, `http-socket-common/test/common.test.ts`, `teamRef`, `TelemetryTokenPolicy`, `Meta`, `Permission`, `Csv`, `CurrentUserArg`, `SocketHub`, `invitations/mailer.ts`, `StubRenderer`, `autoinject-options.test.ts`, `PdfRenderer`, `http-socket/test/config-schema.test.ts`, `email-harness.ts`, `QueueChangeBus`, `validator.ts`, `ref_spinajs_log`, `TelemetryAccessPolicy`, `fs`, `SchemaSource`, `OtelTracing`, `SocketServer`, `QueueService`, `validateEntryValue`, `RbacChangeAudience`, `access/policy.ts`, `ThrowingRenderer`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1700 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `packages_authz_lib_mjs_index` be split into smaller, more focused modules?**
@@ -5949,6 +5949,6 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Logger` be split into smaller, more focused modules?**
   _Cohesion score 0.029701535786728486 - nodes in this community are weakly interconnected._
 - **Why does `Autoinject()` connect `NewInstance` to `Logger`, `cli/commands.test.ts`, `OrmDriver`, `SpineJsInternationalizationFromJson`, `Get`, `queue/src/index.ts`, `db-mfa-store.ts`, `default-authn-service.ts`, `InsertQueryBuilder`, `packages_configuration_lib_mjs_index_d_config`, `orm/src/interfaces.ts`, `root.ts`, `real-ip.test.ts`, `SocketDispatcher`, `TotpService`, `message`, `Configuration`, `BasePath`, `Injectable`, `Param`, `v3-app/app.ts`, `di/test/di.test.ts`, `Metrics`, `SchemaProvider`, `ref_spinajs_exceptions`, `Class`, `flow/cookie.ts`, `memory-throttle.test.ts`, `contracts/audit.test.ts`, `Cli`, `SwaggerDocCache`, `default-authn-service.ts`, `SocketConnection`, `Log`, `CliCommand`, `n8b-harness.ts`, `owner-singleton.test.ts`, `fsFTP`, `actions.ts`, `FormFileUploader`, `DefaultAccountGuard`, `XlsxRenderer`, `uploads.test.ts`, `AuthnService`, `OpenApiBuilder`, `TelemetryController`, `DbTranslationSource`, `TelemetryMiddleware`, `email.deferred.test.ts`, `ref_spinajs_authz`, `SocketServer`, `SwaggerService`, `DefaultControllerCache`, `OrmNotFoundException`, `UserMetadataController`, `ServiceBootingIdentityStore`, `controller-model.test.ts`, `Initiator`, `Security.ts`, `ref_spinajs_authz_testing`, `ConfigurationController`, `child-chain.test.ts`, `EmailSender`, `DefaultSessionIssuer`, `SqlCreateViewQueryCompiler`, `packages_authn_lib_mjs_contracts_index`, `check-config-cli.test.ts`, `ConfigFileValidator`, `http-socket/src/interfaces.ts`, `fsS3`, `OidcController`, `StrategyBadPolicyConfiguration`, `Meta`, `orm-sql/src/compilers.ts`, `SocketHub`, `autoinject-options.test.ts`, `QueueChangeBus`, `PerInstanceCheck`, `ref_spinajs_log`, `OtelTracing`, `SocketServer`, `access/policy.ts`, `Autoinject`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **Should `fakes.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.010660600383603194 - nodes in this community are weakly interconnected._
