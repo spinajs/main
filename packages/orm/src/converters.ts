@@ -1,6 +1,7 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
@@ -194,5 +195,79 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
       });
 
     return obj;
+  }
+}
+
+export type Int64Mode = 'string' | 'number' | 'bigint';
+
+export interface IInt64ConverterOptions {
+  as: Int64Mode;
+}
+
+const INT64_TEXT = /^-?\d+$/;
+
+function exactInt64(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new OrmException(`int64 value ${value} arrived from the driver as an unsafe number and has lost precision`);
+    }
+
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string' && INT64_TEXT.test(value.trim())) {
+    return BigInt(value.trim());
+  }
+
+  throw new OrmException(`int64 column holds a value that is not an integer: ${String(value)}`);
+}
+
+/**
+ * Reads a 64-bit integer column as one JS type whatever the driver returns: pg hands `int8` back
+ * as a string, sqlite3 and mysql2 as a number.
+ */
+export class Int64ValueConverter extends ValueConverter {
+  public toDB(value: unknown): string | number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+
+    if (typeof value === 'number' && Number.isSafeInteger(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && INT64_TEXT.test(value)) {
+      return value;
+    }
+
+    throw new InvalidArgument(`int64 value must be a safe integer, a decimal string or a bigint, got ${String(value)}`);
+  }
+
+  public fromDB(value: unknown, _rawData?: unknown, options?: IInt64ConverterOptions): string | number | bigint | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const exact = exactInt64(value);
+
+    switch (options?.as ?? 'string') {
+      case 'bigint':
+        return exact;
+      case 'number':
+        if (exact > BigInt(Number.MAX_SAFE_INTEGER) || exact < BigInt(Number.MIN_SAFE_INTEGER)) {
+          throw new OrmException(`int64 value ${exact} is beyond Number.MAX_SAFE_INTEGER; declare the column @Int64('string') or @Int64('bigint')`);
+        }
+        return Number(exact);
+      default:
+        return exact.toString();
+    }
   }
 }

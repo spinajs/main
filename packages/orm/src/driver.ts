@@ -3,7 +3,7 @@ import { Log } from '@spinajs/log-common';
 import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
-import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
@@ -124,6 +124,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(JsonValueConverter).as(JsonValueConverter);
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
+    this.Container.register(Int64ValueConverter).as(Int64ValueConverter);
   }
 
   /**

@@ -109,6 +109,7 @@ export class LedgerDriver extends SqlDriver {
 - Models registered after `ModelSchemaProvider.resolve()` ran are not in its map.
 - In this monorepo `@spinajs/http-swagger` is the consumer of `SchemaProvider`. Request validation reads `@Schema()` metadata and route argument schemas, not `ModelSchemaProvider`.
 - `@spinajs/http-swagger` publishes one component `<Name>` when both flavours agree. When they differ, the response keeps `<Name>` and the request becomes `<Name>Request`.
+- An `@Int64('number')` column is `{ type: 'integer' }` and an `@Int64('string')` or `@Int64('bigint')` column `{ type: 'string' }`, in both flavours and whatever the driver's `ResponseSchemaTypes` say about `bigint`.
 
 ## Best practices
 

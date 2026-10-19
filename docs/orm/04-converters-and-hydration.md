@@ -80,6 +80,7 @@ sequenceDiagram
 | `JsonValueConverter` | `OrmDriver.resolve()` | `JSON.stringify(value)` | Objects and arrays as-is, strings through `JSON.parse` |
 | `UuidConverter` | `OrmDriver.resolve()` | A dashed uuid to a 16-byte `Buffer`; empty values to `null` | A 16-byte value to the dashed 36-character form; other lengths returned as a string; empty values to `null` |
 | `UniversalValueConverter` | `OrmDriver.resolve()` | By the model's type column: `boolean` to `'true'`/`'false'`, `datetime`/`date`/`time` to ISO text, `number`/`float` to decimal text, `json` to JSON, anything else as-is | By the row's type column: the reverse, with dates read by `DateTime.fromISO` |
+| `Int64ValueConverter` | `OrmDriver.resolve()` | A `bigint` to decimal text, a safe integer as is, a decimal string as is; anything else throws `InvalidArgument` | Any driver form (string, number, bigint) to the decorator's `as`: `'string'` (default), `'number'` (throws `OrmException` beyond `Number.MAX_SAFE_INTEGER`) or `'bigint'`. A number that is not a safe integer throws `OrmException`: the driver already lost precision. |
 | `DatetimeValueConverter` | the driver (`SqlDatetimeValueConverter`, `MsSqlDatetimeValueConverter`) | luxon `DateTime` or `Date` to the dialect's datetime | Dialect datetime to `DateTime` |
 | `TimeValueConverter` | the driver (`SqlTimeValueConverter`) | `TimeSpan` to `HH:MM:SS` | `TIME` text to `TimeSpan` |
 | `BooleanValueConverter` | the driver (`SqlBooleanValueConverter`) | `1`/`0` in statements, a boolean when dehydrating | `true` for `1`, `true` or `'1'` |
@@ -113,6 +114,7 @@ Column lookup lowercases the native type, so only the lowercase keys match a col
 | `@DateTime()` | property typed `DateTime` (luxon) | none | Attaches `DatetimeValueConverter`. Throws `Error` when the design type is not `DateTime`, `InvalidArgument` when a converter is already attached. |
 | `@Bool()` | property typed `boolean` | none | Attaches `BooleanValueConverter`; also publishes the column as `boolean` in the JSON schema. Throws `InvalidArgument` for another type or a second converter. |
 | `@Json()` | property | none | Attaches `JsonValueConverter`, replacing any earlier converter. |
+| `@Int64(as = 'string')` | property typed `string`, `number` or `bigint` | `as`: `'string'`, `'number'` or `'bigint'` | Attaches `Int64ValueConverter` with `{ as }`, so a 64-bit integer column hydrates to the same JS type on every driver (pg returns `int8` as text, sqlite3 and mysql2 as a number). Throws `InvalidArgument` for another mode or a second converter. Named `Int64`, not `BigInt`, so it does not shadow the global. |
 | `@UniversalConverter(typeColumn?)` | property | `typeColumn`, default `'Type'` | Attaches `UniversalValueConverter` with `{ TypeColumn }`. |
 | `@Set()` | property typed as an array | none | Attaches `SetValueConverter`. Throws `Error` for a non-array type, `InvalidArgument` for a second converter. |
 | `@Uuid()` | property | none | Marks the column `Uuid` (a fresh uuid at construction) and attaches `UuidConverter`. |
@@ -179,6 +181,8 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - `whereInSet()` on a `@Set()` column throws `InvalidArgument` for a value containing `,` or `null`.
 - `SqliteModelToSqlConverter` leaves `undefined` columns out of the payload so table defaults apply; `StandardModelToSqlConverter` writes them. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
 - Converters and hydrators are shared instances. Keep them stateless.
+- `sqlite3` and `mysql2` return a 64-bit integer as a JS number, so a value beyond 2^53 is already rounded when it reaches `Int64ValueConverter`; the converter throws instead of returning it. On PostgreSQL every `int8` value arrives exact.
+- `toDB` also serves `dehydrate()`, so an `@Int64('bigint')` property serializes to JSON as decimal text.
 
 ## Best practices
 

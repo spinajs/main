@@ -73,7 +73,7 @@ export function buildModelJsonSchema(descriptor: IModelDescriptor, kind: ModelSc
     if (!col || col.Ignore || !col.Name || hidden.has(col.Name)) {
       continue;
     }
-    properties[col.Name] = columnToSchema(col, overrides, descriptor.Converters?.get(col.Name)?.Class);
+    properties[col.Name] = columnToSchema(col, overrides, descriptor.Converters?.get(col.Name)?.Class, descriptor.Converters?.get(col.Name)?.Options);
     if (!col.Nullable && !col.AutoIncrement) {
       required.push(col.Name);
     }
@@ -135,8 +135,9 @@ function isConverterNamed(ctor: unknown, name: string): boolean {
  * @param overrides - per-type shapes that win over the shared map ( response flavour only )
  * @param declaredConverter - converter class the model's decorators asked for, from
  *                            `descriptor.Converters` ( `@DateTime()`, `@CreatedAt()`, ... )
+ * @param declaredOptions - the `Options` the decorator stored next to that converter
  */
-function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown): any {
+function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown, declaredOptions?: { as?: string }): any {
   // The declared class wins over the resolved instance: a decorator is an explicit statement
   // about the property, while the instance is only there when the container had the converter
   // registered on that connection.
@@ -146,6 +147,12 @@ function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> =
 
   if (isConverterNamed(converter, 'BooleanValueConverter')) {
     schema.type = 'boolean';
+    delete schema.format;
+  }
+
+  // the decorator fixes the JS type, whatever type a driver reports for int8
+  if (isConverterNamed(converter, 'Int64ValueConverter')) {
+    schema.type = declaredOptions?.as === 'number' ? 'integer' : 'string';
     delete schema.format;
   }
 
