@@ -6,11 +6,11 @@ import { AuthzConfigError, SYSTEM, authzStorage, runWithPrincipal } from '@spina
 import type { Principal } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import type { ModelBase } from '@spinajs/orm';
-import { renderTemplate } from '@spinajs/log-common';
+import { DI } from '@spinajs/di';
+import { Log, renderTemplate } from '@spinajs/log-common';
 
 import { AccessGuardMiddleware } from '../src/guard/middleware.js';
 import { guardMode } from '../src/guard/env.js';
-import { ormLog } from '../src/host.js';
 import { AccessListMiddleware } from '../src/lists/middleware.js';
 import { AccessResource } from '../src/index.js';
 import { setMarks } from '../src/marker.js';
@@ -98,7 +98,8 @@ describe('authz-orm runtime guard', function () {
   it('in development, warns once per call site', async () => {
     env('development');
     process.env.APP_ENV = 'development';
-    const warn = sinon.stub(ormLog(), 'warn');
+    // ormLog().warnOnce writes through the registered Log's own warn.
+    const warn = sinon.stub(DI.resolve(Log, ['authz-orm']) as Log, 'warn');
     for (let i = 0; i < 3; i++) await as(alice, async () => await Task.query());
     await as(alice, async () => await Task.query());
     expect(warn.callCount).to.equal(2);

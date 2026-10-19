@@ -1,3 +1,4 @@
+import { UNSAFE_KEYS } from '@spinajs/util';
 import { FALSE, TRUE, simplify } from '../contracts/filter.js';
 import type { ResourceFilter, Value } from '../contracts/filter.js';
 import { AuthzConfigError } from '../contracts/errors.js';
@@ -5,7 +6,6 @@ import type { Principal, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL } from '../contracts/resource.js';
 
 const MAX_DEPTH = 1024;
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 const MISSING = Symbol('missing');
 
 type Node = Record<string, unknown>;
@@ -198,7 +198,7 @@ function resolve(from: unknown, path: readonly string[]): Value | typeof MISSING
   try {
     let v = from;
     for (const segment of path) {
-      if (UNSAFE_SEGMENTS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
+      if (UNSAFE_KEYS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
       v = (v as Record<string, unknown>)[segment];
     }
     if (v instanceof Date) {

@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -306,13 +306,20 @@ export class SqlJoinStatement extends JoinStatement {
   public Quoter: IdentifierQuoter;
 
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
+    // `this.constructor`, so a dialect subclass clones as itself, not as the MySQL spelling
+    const ctor = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
     return _carryQuoter(
-      new SqlJoinStatement({
+      new ctor({
         ...this._options,
         builder: (parent as SelectQueryBuilder) ?? this._options.builder,
       }),
       this,
     );
+  }
+
+  /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */
+  protected tableQualifier(driver: OrmDriver): string | undefined {
+    return driver.Options.Database;
   }
 
   public build(): IQueryStatementResult {
@@ -369,7 +376,7 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (sourceTableAlias) {
-      const sourceDb = sourceModelDriver.Options.Database;
+      const sourceDb = this.tableQualifier(sourceModelDriver);
       if (sourceDb) {
         sourceTable = `${this.Quoter.quote(sourceDb)}.${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
       } else {
@@ -378,7 +385,7 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (joinTableAlias) {
-      const joinDb = joinModelDriver.Options.Database;
+      const joinDb = this.tableQualifier(joinModelDriver);
       if (joinDb) {
         joinTable = `${this.Quoter.quote(joinDb)}.${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
       } else {

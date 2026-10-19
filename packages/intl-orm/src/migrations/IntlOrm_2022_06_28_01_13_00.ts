@@ -23,7 +23,8 @@ export class IntlOrm_2022_06_28_01_13_00 extends OrmMigration {
     await connection.index().unique().table('intl_translations').name('intl_translations_idx').columns(['Key', 'Lang']);
   }
 
-  // tslint:disable-next-line: no-empty
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public async down(_connection: OrmDriver): Promise<void> {}
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropTable('intl_translations');
+    await connection.schema().dropTable('intl_resources');
+  }
 }

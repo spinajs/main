@@ -2,7 +2,7 @@
 
 The MySQL and MariaDB driver for [`@spinajs/orm`](../orm/README.md), built on [`@spinajs/orm-sql`](../orm-sql/README.md) and `mysql2`. It ships `MySqlOrmDriver` (`orm-driver-mysql`) and `MySqlSSHOrmDriver` (`orm-driver-mysql-ssh`), which tunnels the pool through an SSH bastion.
 
-It does **not** pass `Encoding` or `Options` to `mysql2`: TLS, timezone and charset need a driver subclass ([example](01-mysql-driver.md#connection-setup-custom-implementation)). It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
+`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS, timezone and similar settings need no subclass. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
 
 ## Install
 
@@ -15,13 +15,13 @@ npm install @spinajs/orm @spinajs/orm-mysql
 | Feature | What it does |
 | --- | --- |
 | [MySQL driver](01-mysql-driver.md) | Connection pool, statement execution, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
-| [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, its limits and a multi-channel override. |
+| [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, one forwarded channel per pooled connection. |
 | [Transactions](03-transactions.md) | One pooled connection per transaction, savepoints, all four isolation levels, no retries inside. |
 | [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, contiguous batch keys, `INSERT IGNORE`, `REPLACE`, `ON DUPLICATE KEY UPDATE`, the response mapper. |
 | [Table reflection](05-table-reflection.md) | `tableInfo()`, `parseColumnDefault()`, `ResponseSchemaTypes`, the table-exists probe. |
 | [Schema, views and events](06-schema-views-and-events.md) | Column types, `ALTER TABLE`, views, scheduled events, non-transactional DDL. |
 | [Set membership and literal quoting](07-set-membership-and-literals.md) | `FIND_IN_SET`, backslash-escaped literals, backtick identifiers, and `sql_mode` variants. |
-| [Customizing the dialect](08-customizing-the-dialect.md) | Every class the driver registers, how to replace one per connection or everywhere, and how other packages detect MySQL. |
+| [Customizing the dialect](08-customizing-the-dialect.md) | Every class the driver registers, how to replace one per connection or everywhere, and what other packages read from the driver. |
 
 ## Quick start
 

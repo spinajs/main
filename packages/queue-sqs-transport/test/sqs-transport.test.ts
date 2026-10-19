@@ -3,7 +3,8 @@ import { DI } from '@spinajs/di';
 import { QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
-import { CreateQueueCommand, DeleteQueueCommand, GetQueueAttributesCommand, ReceiveMessageCommand, SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { CreateQueueCommand, DeleteMessageCommand, DeleteQueueCommand, GetQueueAttributesCommand, ReceiveMessageCommand, SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { SqsQueueClient } from '../src/connection.js';
 import { TestConfiguration, SQS_ENDPOINT, SQS_REGION, SQS_CREDENTIALS } from './common.js';
 
@@ -431,5 +432,126 @@ describe('sqs queue transport', function () {
       await sleep(600);
       expect(receiveCalls, 'receive fired after dispose - loop did not stop').to.equal(afterDispose);
     });
+  });
+});
+
+// No LocalStack here: the SQSClient is stubbed, so these run anywhere.
+describe('sqs queue transport ( stubbed SQS )', function () {
+  this.timeout(10000);
+
+  const FAKE_URL = 'http://localhost/000000000000/fake';
+
+  before(async () => {
+    DI.clearCache();
+    DI.register(TestConfiguration).as(Configuration);
+    await DI.resolve(Configuration);
+  });
+
+  function resolveClient(name: string, extra: Record<string, unknown> = {}) {
+    return DI.resolve(SqsQueueClient, [{ service: 'SqsQueueClient', name, options: { region: SQS_REGION }, ...extra }]);
+  }
+
+  // Each receive hands out the next of `bodies`, or none after a short wait.
+  function stubSqs(client: SqsQueueClient, bodies: string[], onDelete: () => Promise<void> = async () => undefined) {
+    const log = { deleted: [] as string[], deletedAtDestroy: -1 };
+    const sqs = (client as any).Sqs;
+    const destroy = sqs.destroy.bind(sqs);
+
+    sqs.send = async (command: any) => {
+      if (command instanceof ReceiveMessageCommand) {
+        const body = bodies.shift();
+        if (body !== undefined) {
+          return { Messages: [{ Body: body, ReceiptHandle: body }] };
+        }
+        await sleep(20);
+        return {};
+      }
+      if (command instanceof DeleteMessageCommand) {
+        await onDelete();
+        log.deleted.push(command.input.ReceiptHandle!);
+      }
+      return {};
+    };
+    sqs.destroy = () => {
+      log.deletedAtDestroy = log.deleted.length;
+      destroy();
+    };
+
+    return log;
+  }
+
+  it('resolves one client per connection name', async () => {
+    const a = await resolveClient('sqs-stub-same');
+    const b = await resolveClient('sqs-stub-same');
+    const c = await resolveClient('sqs-stub-other');
+
+    expect(a).to.equal(b);
+    expect(a).to.not.equal(c);
+    expect((a as any).resolved).to.be.true;
+
+    await a.dispose();
+    await c.dispose();
+  });
+
+  it('delivers every message type routed to one queue URL', async () => {
+    class SharedUrlA {}
+    class SharedUrlB {}
+
+    const client = await resolveClient('sqs-stub-shared', { defaultTopicChannel: FAKE_URL });
+    const bodies: string[] = [];
+    const log = stubSqs(client, bodies);
+    const seen: string[] = [];
+
+    // the same name filter QueueService.consume applies
+    for (const cls of [SharedUrlA, SharedUrlB]) {
+      await client.subscribe(cls as any, async (e) => {
+        if (e.Name === cls.name) {
+          seen.push(e.Name);
+        }
+      });
+    }
+
+    bodies.push(JSON.stringify({ Name: 'SharedUrlB' }));
+
+    await waitUntil(() => log.deleted.length === 1, 5000, 20);
+    expect(seen).to.deep.equal(['SharedUrlB']);
+
+    await client.dispose();
+  });
+
+  it('subscribe rejects when the message has no queue URL', async () => {
+    class NoRouteEvent {}
+
+    const client = await resolveClient('sqs-stub-no-url');
+
+    let error: unknown;
+    try {
+      await client.subscribe(NoRouteEvent as any, async () => undefined);
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).to.be.instanceOf(InvalidArgument);
+    expect((client as any).Subscriptions.size).to.equal(0);
+
+    await client.dispose();
+  });
+
+  it('dispose waits for an in-flight handler to ack before destroying the SQSClient', async () => {
+    const client = await resolveClient('sqs-stub-dispose');
+    let handling = false;
+    const log = stubSqs(client, [JSON.stringify({ Name: 'SlowJob' })], async () => {
+      await sleep(200);
+    });
+
+    await client.subscribe(FAKE_URL, async () => {
+      handling = true;
+      await sleep(200);
+    });
+
+    await waitUntil(() => handling, 5000, 10);
+    await client.dispose();
+
+    expect(log.deletedAtDestroy).to.equal(1);
   });
 });

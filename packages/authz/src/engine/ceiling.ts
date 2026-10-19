@@ -5,6 +5,7 @@ import { compilePermissionGlob, isPermissionGlob } from '../contracts/permission
 import type { Permission } from '../contracts/permission.js';
 import type { Ceiling, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL } from '../contracts/resource.js';
+import { isObject } from './internal/util.js';
 
 export interface CeilingOutcome {
   readonly denials: readonly DenyReason[];
@@ -27,8 +28,6 @@ const MALFORMED: CeilingOutcome = Object.freeze({ denials: Object.freeze([Object
 export const DENY_ALL_CEILING: Ceiling = Object.freeze({ permissions: Object.freeze([]) });
 
 class Malformed extends Error {}
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 /**
  * Reads every field once into a frozen, validated copy. `null` fields count

@@ -1,9 +1,11 @@
+import { compareCodePoints } from '@spinajs/util';
 import { ceilingHash, principalKey } from '../contracts/principal.js';
 import type { Ceiling, Principal, ResourceRef } from '../contracts/principal.js';
 import { isPermission } from '../contracts/permission.js';
 import type { Permission } from '../contracts/permission.js';
 import { resourceKey } from '../contracts/resource.js';
 import type { AuthorizationModel } from '../contracts/model.js';
+import { isObject } from './internal/util.js';
 
 // A collision in these keys would serve one principal another's cached
 // decision. Every function here answers undefined (do not cache) rather than
@@ -44,8 +46,6 @@ const canonical = <T>(f: () => T): T | undefined => {
   }
 };
 
-const isObject = (v: unknown): v is object => v !== null && typeof v === 'object';
-
 const isPlain = (v: object): boolean => {
   const proto = Object.getPrototypeOf(v);
   return proto === Object.prototype || proto === null;
@@ -53,18 +53,6 @@ const isPlain = (v: object): boolean => {
 
 // No prototype: an own '__proto__' key (JSON.parse keeps one) stays a key instead of hitting the setter.
 const record = (): Record<string, Json> => Object.create(null) as Record<string, Json>;
-
-// Surrogates (D800-DFFF) move above E000-FFFF, so UTF-16 units compare in code point order.
-const fixup = (c: number): number => (c >= 0xe000 ? c - 0x800 : c >= 0xd800 ? c + 0x2000 : c);
-const compareCodePoints = (x: string, y: string): number => {
-  const n = Math.min(x.length, y.length);
-  for (let i = 0; i < n; i++) {
-    const cx = x.charCodeAt(i);
-    const cy = y.charCodeAt(i);
-    if (cx !== cy) return fixup(cx) - fixup(cy);
-  }
-  return x.length - y.length;
-};
 
 /** Own enumerable data properties, read once; anything else (symbol key, accessor, hidden key) has no canonical form. */
 function ownData(o: object, b: Budget, ignore?: string): Map<string, unknown> {

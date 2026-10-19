@@ -35,6 +35,8 @@ export class UserSession implements ISession {
   }
 }
 
+const SWEEP_EVERY = 256;
+
 /**
  * Simple session storage in memory, for testing or a single instance.
  * Keeps live session objects (no serialization).
@@ -42,6 +44,8 @@ export class UserSession implements ISession {
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
+
+  private saves = 0;
 
   public async restore(sessionId: string): Promise<ISession | null> {
     const session = this.Sessions.get(sessionId);
@@ -64,6 +68,16 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     }
 
     this.Sessions.set(session.SessionId, session);
+
+    // An abandoned session is never restored again, so restore alone would never drop it.
+    this.saves += 1;
+    if (this.saves % SWEEP_EVERY === 0) {
+      for (const [key, row] of this.Sessions) {
+        if (this.isExpired(row)) {
+          this.Sessions.delete(key);
+        }
+      }
+    }
   }
 
   /** Update-only: writes Expiration and Data of a row that still exists, never re-creates a deleted one. */

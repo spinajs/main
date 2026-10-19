@@ -2,14 +2,16 @@ import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/au
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { compareStrings, uniqueBy } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns, toDate } from './columns.js';
 import type { ScopeRefColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { pageWindow, whereLive } from './queries.js';
 import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
 import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
 import { readVersion, bumpVersion } from './version.js';
@@ -43,9 +45,9 @@ const INSERT_BATCH = 100;
 type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: string; readonly created_by: string | null; readonly created_at: Date | string };
 
 /**
- * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
+ * `RuleStore` over `authz_rule` and `authz_rule_subject`: scoped DB rules, check-only:
  * the rule is its `definition` JSON. Reads use the `authz.rbac.connection` connection; writes run on
- * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27).
+ * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call.
  * Registered by class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
  */
 @PerChildInstance()
@@ -79,7 +81,7 @@ export class DbRuleStore extends AdminRuleStore {
 
     return this.rulesOf(
       driver,
-      rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+      rows.sort((a, b) => compareStrings(a.id, b.id)),
     );
   }
 
@@ -107,7 +109,7 @@ export class DbRuleStore extends AdminRuleStore {
       try {
         await driver.insert().into(AUTHZ_RULE_TABLE).values({ ...rows.rule, created_by: principalKey(actor), created_at: this.now() });
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
         throw new AuthzAdminFailure('conflict', `${this.name}.put: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
       }
     }
@@ -262,7 +264,7 @@ export class DbRuleStore extends AdminRuleStore {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-export function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
+function rowToRule(row: RuleRow & { readonly definition: unknown }, subjectRows: readonly RuleSubjectRow[]): RuleDef {
   const def = JSON.parse(String(row.definition)) as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
@@ -284,12 +286,7 @@ function subjectKey(list: string, s: { subject_type: string; subject_id: string;
 }
 
 function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
-  const seen = new Map<string, ScopeRefColumns>();
-  for (const r of refs) {
-    const c = scopeToColumns(r);
-    seen.set(JSON.stringify([c.scope_type, c.scope_id]), c);
-  }
-  return [...seen.values()];
+  return uniqueBy(refs.map(scopeToColumns), (c) => JSON.stringify([c.scope_type, c.scope_id]));
 }
 
 /** `(scope_type = ? AND scope_id IN (…)) OR …`, one group per type; row-value `IN` is not portable. */

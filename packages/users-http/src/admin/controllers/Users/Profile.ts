@@ -37,10 +37,16 @@ export class Profile extends BaseController {
   @Access('users:read', { fields: 'filter' })
   public async getUserProfile(@CurrentPrincipal() caller: Principal, @Param() login: string) {
     // The provider gets the row the decision was made on, not the identifier, so it cannot read another one.
-    // whereAnything ORs its columns, so the soft-delete filter may not hold for all of them.
+    // Looked up column by column (never by internal Id), so an all-digit login stays reachable and
+    // an account whose login equals another's email resolves the same way on every request.
     const user = await userRowFor(caller, 'users:read', async () => {
-      const found = await userModel().query().whereAnything(login).populate('Metadata').first();
-      return found && !found.DeletedAt ? found : undefined;
+      for (const column of ['Uuid', 'Login', 'Email'] as const) {
+        const found = await userModel().query().where(column, login).populate('Metadata').first();
+        if (found && !found.DeletedAt) {
+          return found;
+        }
+      }
+      return undefined;
     });
 
     // NOTE: awaited. Handing the pending promise to `Ok` serialized as an

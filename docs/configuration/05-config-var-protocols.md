@@ -4,9 +4,9 @@ A protocol turns a config string such as `fs-path://fs-temp/uploads` or `aws-sec
 
 ## How it works
 
-1. **Collect.** At the end of `FrameworkConfiguration.load()`, `loadProtocolVars()` resolves `Array.ofType(ConfigVarProtocol)` from the root container and indexes them by `Protocol`. With none registered it logs a warning and stops.
+1. **Collect.** At the end of `FrameworkConfiguration.load()`, `loadProtocolVars()` resolves `Array.ofType(ConfigVarProtocol)` in the configuration's container (the nearest one that registers any) and indexes them by `Protocol`. With none registered it logs a warning and stops.
 2. **Walk.** It walks the merged tree, objects and arrays, all branches in parallel.
-3. **Match.** For each string property that contains `://`:
+3. **Match.** For each string property or array element that contains `://`:
    1. a value starting with `http://`, `https://`, `ws://`, `wss://`, `ftp://`, `ftps://`, `file://`, `data://` or `blob://` is left alone;
    2. the value is matched against `<name>://<rest>`, where `<name>` is letters, digits and `-`;
    3. an unregistered `<name>://` logs a warning and the string stays.
@@ -56,7 +56,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Protocol | `ConfigVarProtocol` (abstract, an `AsyncService`), resolved as `Array.ofType` from the root container; singleton by default | none | `ConfigurationFsPathProtocol` (`fs-path://`, `@spinajs/configuration-fs-protocol`), `AwsSecretsManagerVarProtocol` (`aws-secrets://`) and `AwsParameterStoreVarProtocol` (`aws-parameters://`) (`@spinajs/configuration-aws-secretmanager-protocol`) | Extend `ConfigVarProtocol`, register with `@Injectable(ConfigVarProtocol)` in the root container before the configuration resolves. Two protocols with the same `Protocol` string: the later registration wins. |
+| Protocol | `ConfigVarProtocol` (abstract, an `AsyncService`), resolved as `Array.ofType` in the configuration's container; singleton by default | none | `ConfigurationFsPathProtocol` (`fs-path://`, `@spinajs/configuration-fs-protocol`), `AwsSecretsManagerVarProtocol` (`aws-secrets://`) and `AwsParameterStoreVarProtocol` (`aws-parameters://`) (`@spinajs/configuration-aws-secretmanager-protocol`) | Extend `ConfigVarProtocol`, register with `@Injectable(ConfigVarProtocol)` in the configuration's container (or an ancestor) before the configuration resolves. Two protocols with the same `Protocol` string: the later registration wins. |
 | Lazy value | `ConfigVar`, a plain class | none | none | Return `new ConfigVar(() => value)` from `getVar()`. |
 
 The contract:
@@ -137,10 +137,9 @@ export class TenantProtocol extends ConfigVarProtocol {
 ## Important behaviour
 
 - Protocols resolve only during `load()`. A protocol string written with `set()` or `merge()` stays a string.
-- Protocol strings inside arrays of strings are **not** resolved: `['vault://a', 'vault://b']` stays as written. Strings in objects inside arrays are resolved.
 - All protocol calls run in parallel. `getVar()` receives the tree as it is at that moment: another key's protocol string may still be unresolved. Read only plain values from it.
 - `getVar()` errors do not stop the boot: the raw `proto://...` string stays in the config, and a schema with a `format` or `pattern` is the place to catch it.
-- Protocols come from the root container, even for a configuration in a child container.
+- A child container that registers any `ConfigVarProtocol` uses only its own protocols; one that registers none uses those of the nearest ancestor that does.
 - A `ConfigVar` is read through a proxy, so `get('db.Password')` returns its value. Copying the section with `{ ...section }` or `JSON.stringify` reads every var. A `ConfigVar` directly under `system`, or as an array element, is returned as the `ConfigVar` object.
 - Schema validation reads only the vars whose keys the schema names; other vars stay lazy (see [Schema validation](06-schema-validation.md)).
 - The match needs a letter, digit or `-` name: `my_proto://x` is not a protocol string.
@@ -163,14 +162,6 @@ public get Protocol() {
 public get Protocol() {
   return 'vault://';
 }
-```
-
-```js
-// Don't: strings in arrays are not resolved
-export default { cache: { nodes: ['vault://redis/node-a', 'vault://redis/node-b'] } };
-
-// Do: wrap each value in an object
-export default { cache: { nodes: [{ host: 'vault://redis/node-a' }, { host: 'vault://redis/node-b' }] } };
 ```
 
 ## Examples

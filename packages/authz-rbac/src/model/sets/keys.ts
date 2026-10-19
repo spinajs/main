@@ -4,7 +4,7 @@ import { scopeFromColumns, subjectKeyOf } from '../../stores/columns.js';
 import { WILDCARD_ID } from './resolver.js';
 import type { SetSubject } from './resolver.js';
 
-// subjectKeyOf (L6): the type escapes '%' and ':', the id '%', '#' and '*' (the bare '*' id is the wildcard).
+// subjectKeyOf: the type escapes '%' and ':', the id '%', '#' and '*' (the bare '*' id is the wildcard).
 const unescapeType = (t: string): string => t.replace(/%3A/g, ':').replace(/%25/g, '%');
 const unescapeId = (id: string): string => id.replace(/%23/g, '#').replace(/%2A/g, '*').replace(/%25/g, '%');
 

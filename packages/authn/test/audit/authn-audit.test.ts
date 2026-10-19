@@ -226,6 +226,25 @@ describe('AuthnAudit', function () {
       expect(first).to.deep.equal(['token.use', 'token.use', 'token.use', 'token.use', 'token.use', 'key.use']);
     });
 
+    it('publishIn stamps at, ip and userAgent from the context and leaves out empty ones', async () => {
+      const a = await boot({});
+      const now = new Date('2026-10-03T11:00:00Z');
+      await a.publishIn({ now, ip: IP, userAgent: 'curl/8' }, { type: 'logout', outcome: 'success', identity: { type: 'user', id: 'u-1' } });
+      await a.publishIn({ now, ip: '', userAgent: '' }, { type: 'logout', outcome: 'failure' });
+      const [full, bare] = (await DI.resolve(FirstSink)).events;
+      expect(full).to.deep.include({ type: 'logout', outcome: 'success', at: now, ip: IP, userAgent: 'curl/8', identity: { type: 'user', id: 'u-1' } });
+      expect(bare).to.not.have.any.keys('ip', 'userAgent');
+      expect(bare.at.getTime()).to.equal(now.getTime());
+    });
+
+    it('publishIn never rejects because of a sink', async () => {
+      await withSinks([RejectingSink, ThrowingSink, LastSink], async () => {
+        const a = await boot({});
+        await a.publishIn({ now: new Date() }, { type: 'logout', outcome: 'success' });
+        expect(calls).to.include('LastSink:logout');
+      });
+    });
+
     it('hands all sinks the same frozen event', async () => {
       await withSinks([MutatingSink, LastSink], async () => {
         const a = await boot({});
@@ -437,6 +456,37 @@ describe('AuthnAudit', function () {
 
     it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {
       expect((DI.getRegisteredTypes(AuthnEventSink) ?? []).includes(LogAuthnAuditSink as never)).to.equal(true);
+    });
+  });
+
+  describe('over explicit sinks', () => {
+    it('delivers to every sink with the same rules: a failing or hanging sink neither rejects nor holds the caller', async () => {
+      const warnings: string[] = [];
+      const last = new LastSink();
+      const a = AuthnAudit.over([new RejectingSink(), new ThrowingSink(), new HangingSink(), last], { sinkTimeoutMs: 20, log: { warn: (_v: unknown, m?: string) => void warnings.push(String(m)) } as never });
+      const started = Date.now();
+      await a.publishIn({ now: new Date('2026-10-03T10:00:00Z'), ip: IP }, { type: 'login', outcome: 'success' });
+      expect(Date.now() - started).to.be.below(1000);
+      expect(calls).to.deep.equal(['RejectingSink:login', 'ThrowingSink:login', 'HangingSink:login', 'LastSink:login']);
+      expect(last.events[0]).to.deep.include({ type: 'login', ip: IP });
+      expect(Object.isFrozen(last.events[0])).to.equal(true);
+      expect(warnings).to.have.length(3);
+      expect(warnings.filter((w) => w.includes('timed out'))).to.have.length(1);
+    });
+
+    it('needs no container and no log', async () => {
+      const last = new LastSink();
+      await AuthnAudit.over([new ThrowingSink(), last]).publish(ev('logout'));
+      expect(last.events.map((e) => e.type)).to.deep.equal(['logout']);
+    });
+  });
+
+  describe('@spinajs/authn/audit', () => {
+    it('exports the AuthnAudit of the root entry, without the log sink', async () => {
+      const root = await import('@spinajs/authn');
+      const sub = await import('@spinajs/authn/audit');
+      expect(sub.AuthnAudit).to.equal(root.AuthnAudit);
+      expect(Object.keys(sub)).to.not.include('LogAuthnAuditSink');
     });
   });
 });

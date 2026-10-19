@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { UNSAFE_KEYS, deepFreeze, compareStrings } from '@spinajs/util';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { ResourceType } from '../contracts/principal.js';
@@ -46,7 +47,6 @@ export interface ParseConditionOptions {
   readonly where?: string;
 }
 
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 const ATTR_ROOTS: ReadonlySet<string> = new Set(['principal', 'actor', 'resource', 'env', 'scope']);
 // A row-to-row comparison has no residual form, so a value never refers to the resource.
 const VALUE_ROOTS: ReadonlySet<string> = new Set(['principal', 'actor', 'env', 'scope']);
@@ -227,7 +227,7 @@ function parsePath(text: string, roots: ReadonlySet<string>, at: string, fail: (
   if (!roots.has(root)) fail(`${JSON.stringify(text)} must start with ${[...roots].map((r) => (r === 'scope' ? 'scope.<type>' : r)).join(', ')}`, at);
   for (const s of parts) {
     if (s === '') fail(`${JSON.stringify(text)} has an empty segment`, at);
-    if (UNSAFE_SEGMENTS.has(s)) fail(`${JSON.stringify(text)} uses the reserved segment ${JSON.stringify(s)}`, at);
+    if (UNSAFE_KEYS.has(s)) fail(`${JSON.stringify(text)} uses the reserved segment ${JSON.stringify(s)}`, at);
   }
   if (root === 'scope') {
     if (parts.length < 3) fail(`${JSON.stringify(text)} must read scope.<type>.<path>`, at);
@@ -278,17 +278,9 @@ function merge(all: readonly ConditionFacts[]): ConditionFacts {
 
 function sortedUnique<T extends string>(xs: readonly T[]): readonly T[] {
   if (xs.length === 0) return EMPTY;
-  return Object.freeze([...new Set(xs)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+  return Object.freeze([...new Set(xs)].sort(compareStrings));
 }
 
 function freeze<T extends object>(x: T): T {
   return Object.freeze(x);
-}
-
-function deepFreeze<T>(v: T): T {
-  if (v !== null && typeof v === 'object') {
-    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
-    Object.freeze(v);
-  }
-  return v;
 }

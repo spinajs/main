@@ -7,8 +7,9 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { join, normalize, resolve } from 'path';
 
-import { User } from '../src/index.js';
+import { User, USER_COMMON_METADATA, getUser } from '../src/index.js';
 import { FindUser } from '../src/cli/FindUser.js';
+import { BanUser } from '../src/cli/BanUser.js';
 import { CreateUser } from '../src/cli/CreateUser.js';
 import { SYSTEM } from '@spinajs/authz';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -27,6 +28,8 @@ function dir(path: string) {
 describe('rbac cli commands', function () {
   this.timeout(15000);
 
+  let savedExitCode: typeof process.exitCode;
+
   before(() => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -34,6 +37,8 @@ describe('rbac cli commands', function () {
   });
 
   beforeEach(async () => {
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
@@ -44,6 +49,7 @@ describe('rbac cli commands', function () {
   });
 
   afterEach(() => {
+    process.exitCode = savedExitCode;
     sinon.restore();
     DI.clearCache();
   });
@@ -78,5 +84,22 @@ describe('rbac cli commands', function () {
 
     expect(error.calledOnce).to.eq(true);
     expect(await User.query().whereLogin('cli-bad').first()).to.not.exist;
+  });
+
+  it('rbac:user-ban takes the duration in minutes', async () => {
+    const cmd = await DI.resolve(BanUser);
+
+    await cmd.execute('test@spinajs.pl', true, 60, 'reason');
+
+    const user = await getUser('test@spinajs.pl');
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION]).to.eq(3600);
+  });
+
+  it('a failed command sets a non-zero exit code', async () => {
+    const cmd = await DI.resolve(FindUser);
+
+    await cmd.execute({ identifier: 'nobody@spinajs.pl' });
+
+    expect(process.exitCode).to.eq(1);
   });
 });

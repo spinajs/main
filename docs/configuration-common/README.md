@@ -10,7 +10,7 @@ It does **not** load configuration. The working `Configuration` service, the fil
 npm install @spinajs/configuration-common
 ```
 
-The only runtime dependency is `@spinajs/di`. The date variables also import `luxon`, which the package does not declare (see [Built-in variables](02-built-in-variables.md#important-behaviour)).
+The runtime dependencies are `@spinajs/di` and `luxon` (used by the date variables).
 
 ### Entry points
 

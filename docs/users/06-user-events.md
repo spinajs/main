@@ -43,8 +43,6 @@ All are `@Event()` classes extending `UserEvent` (itself a `QueueEvent`) and car
 | `UserImpersonationStarted` | `TargetUUID`; `UserUUID` is the impersonator | authn `impersonation.start` | `rbac-user-empty-queue` |
 | `UserImpersonationEnded` | `TargetUUID`; `UserUUID` is the impersonator | authn `impersonation.end` and `impersonation.expire` | `rbac-user-empty-queue` |
 
-`UserMetadataChange` and `UserPasswordExpired` are not exported from `@spinajs/users`; you can route them by name but not import them.
-
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
@@ -105,8 +103,7 @@ export async function upgradePlan(uuid: string, plan: string): Promise<User> {
 ## Important behaviour
 
 - By default nothing leaves the process for the routed events: their connection is a black hole. The unrouted ones go to `queue.default`.
-- `QueueService.consume(UserBanned, ...)` builds each delivered message with `DI.resolve(UserBanned)` and no arguments. `UserEvent`'s constructor reads `user.Uuid`, so it throws on every delivery. Register a factory for the event class in the consumer process (see the example below), or consume your own `QueueEvent` that does not take a user.
-- The event classes are not `@NewInstance()`; a consumer that resolves them without a factory gets a shared instance.
+- `QueueService.consume(UserBanned, ...)` builds each delivered message with `DI.resolve(UserBanned)` and no arguments, then hydrates it from the payload. `UserEvent` and the shipped events take their user arguments as optional, and `UserEvent` is `@NewInstance()`, so each delivery gets its own instance. Your own subclass must accept a missing constructor argument too.
 - `UserCreated.Metadata` is always empty: metadata may hold credentials that must not ride a queue payload.
 - `UserLoginFailed` never carries the credentials that failed, only the error class and the audit reason.
 - `create()` with a password also produces `UserPasswordChanged`: authn's `set` event does not tell a create from an admin set.
@@ -121,12 +118,25 @@ export async function upgradePlan(uuid: string, plan: string): Promise<User> {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the consumer cannot build a UserEvent without a user; this throws on every delivery
-await queue.consume<UserBanned>(UserBanned, async (e) => notifySupport(e.UserUUID), 'support');
+// Don't: a subclass whose constructor dereferences its argument throws on every delivery
+@Event()
+export class UserPlanUpgraded extends UserEvent {
+  public Plan: string;
+  constructor(user: User, plan: Plan) {
+    super(user);
+    this.Plan = plan.Name;
+  }
+}
 
-// Do: give DI a way to build an empty event, then consume
-DI.register(() => Object.create(UserBanned.prototype)).as(UserBanned);
-await queue.consume<UserBanned>(UserBanned, async (e) => notifySupport(e.UserUUID), 'support');
+// Do: the consumer builds the event with no arguments and hydrates it
+@Event()
+export class UserPlanUpgraded extends UserEvent {
+  public Plan: string;
+  constructor(user?: User, plan?: Plan) {
+    super(user);
+    if (plan) this.Plan = plan.Name;
+  }
+}
 ```
 
 ## Examples
@@ -143,9 +153,6 @@ interface Helpdesk {
 }
 
 export async function startAccountCleanup(helpdesk: Helpdesk): Promise<void> {
-  // UserEvent's constructor needs a user; delivered messages are hydrated onto an empty instance instead.
-  DI.register(() => Object.create(UserDeleted.prototype) as UserDeleted).as(UserDeleted);
-
   const queue = await DI.resolve(QueueService);
   await queue.consume<UserDeleted>(UserDeleted, async (event) => helpdesk.closeTicketsOf(event.UserUUID), 'helpdesk-cleanup');
 }

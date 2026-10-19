@@ -2,9 +2,9 @@ import type { Principal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 
 /**
- * Which roles a token may use (`authz.token.rolePolicy`, design §8.2, §18.3(g), B24). It only
+ * Which roles a token may use (`authz.token.rolePolicy`). It only
  * narrows: RBAC cuts every answer to the roles it was given, and those are never above the
- * owner's (B07).
+ * owner's.
  */
 export abstract class TokenRolePolicy {
   /**

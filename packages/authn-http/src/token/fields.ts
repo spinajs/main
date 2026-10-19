@@ -1,10 +1,9 @@
-import { BadRequestResponse, NotFound } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { NotFound } from '@spinajs/http';
+import type { BadRequestResponse, Request } from '@spinajs/http';
 import type { ResourceRef, TokenCreateOptions, TokenRecord, TokenScope } from '@spinajs/authn/contracts';
 import { isPlainObject, parseIsoInstant } from '@spinajs/util';
 
-import { REAUTH_PASSWORD_FIELD } from '../policies/v3/fresh-auth.js';
-import { NO_STORE } from '../v3/responses.js';
+import { NO_STORE, badRequest, instant } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 token routes. Every field is checked and capped before TokenService sees it. No
@@ -27,22 +26,10 @@ const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
 
 const onlyKeys = (v: Record<string, unknown>, allowed: readonly string[]): boolean => Object.keys(v).every((k) => allowed.includes(k));
 
-export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
-
 /** One answer for a foreign, an unknown and a malformed id, so the route tells nothing about other owners' tokens. */
 export const tokenNotFound = (): NotFound => new NotFound({ error: 'token_not_found', message: 'No such token' }, { Headers: [NO_STORE] });
 
 export const invalidExpiry = (): BadRequestResponse => badRequest('invalid_expiry', 'expiresAt must be an ISO 8601 instant after now and within the configured maximum lifetime');
-
-/** Removes the inline re-authentication from the body, as FreshAuth does, and returns it. */
-export function takeReauthPassword(req: Request): unknown {
-  const body: unknown = req.body;
-  if (!isPlainObject(body) || !(REAUTH_PASSWORD_FIELD in body)) return undefined;
-  const password = body[REAUTH_PASSWORD_FIELD];
-  delete body[REAUTH_PASSWORD_FIELD];
-  delete (req as { rawBody?: unknown }).rawBody;
-  return password;
-}
 
 export function expiryOf(value: unknown): Date | null {
   return parseIsoInstant(value) ?? null;
@@ -109,9 +96,6 @@ export function tokenRequestOf(req: Request): { opts: TokenCreateOptions } | { a
   return { opts: opts as TokenCreateOptions };
 }
 
-/** An instant to the second, as the token columns keep it. */
-const instant = (d: Date): string => new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString();
-
 function scopeEntry(s: TokenScope): Record<string, unknown> {
   return {
     ...(s.permissions !== undefined ? { permissions: [...s.permissions] } : {}),
@@ -131,7 +115,7 @@ export function tokenEntry(r: TokenRecord, now: Date): Record<string, unknown> {
     Scope: r.scope ? scopeEntry(r.scope) : null,
     CreatedAt: instant(r.createdAt),
     ExpiresAt: instant(r.expiresAt),
-    LastUsedAt: r.lastUsedAt ? instant(r.lastUsedAt) : null,
+    LastUsedAt: instant(r.lastUsedAt),
     LastUsedIp: r.lastUsedIp ?? null,
     Expired: r.expiresAt.getTime() <= now.getTime(),
   };

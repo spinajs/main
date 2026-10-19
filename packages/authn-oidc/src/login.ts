@@ -1,5 +1,6 @@
 import type { Log } from '@spinajs/log';
 import { _is_string, _max_length, _try_check_arg, escapeHtml } from '@spinajs/util';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, IdentityLinkStore, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
@@ -8,9 +9,6 @@ import type { OidcAccountLinks } from './links.js';
 import type { FlowCookie } from './flow/cookie.js';
 import type { OidcCallbackQuery } from './provider.js';
 import type { OidcCallbackPayload, OidcStrategy } from './strategy.js';
-
-/** The A02 answer, byte-equal to the login route's 401 body. */
-export const OIDC_FAILURE_BODY = Object.freeze({ error: Object.freeze({ code: 'E_AUTH_FAILED', message: 'login or password incorrect' }) });
 
 /** What the HTTP layer knows about the request. */
 export interface OidcRequest {
@@ -196,7 +194,7 @@ export class OidcLogin {
     if (!strategy || !this.d.linker || !this.d.links) return { ...NOT_FOUND, cookies: [] };
     const session = req.session;
     const restored = session && session.state === 'active' ? await this.d.sessions.restore(session.id) : null;
-    if (!session || !restored) return { status: 401, cookies: [], body: OIDC_FAILURE_BODY };
+    if (!session || !restored) return { status: 401, cookies: [], body: AUTHN_FAILURE_BODY };
     try {
       const subject = typeof req.query.subject === 'string' ? req.query.subject : undefined;
       const mine = (await this.d.links.list(restored.identity)).filter((l) => l.provider === strategy.name && (subject === undefined || l.subject === subject));
@@ -215,6 +213,6 @@ export class OidcLogin {
   public failure(req: Pick<OidcRequest, 'navigation'>, retryAfterSeconds?: number): OidcAnswer {
     const cookies = [clearFlowCookie(this.d.env)];
     const headers = retryAfterSeconds !== undefined ? { headers: { 'retry-after': String(retryAfterSeconds) } } : {};
-    return req.navigation ? { status: 303, location: this.d.redirects.failure, cookies, ...headers } : { status: 401, cookies, body: OIDC_FAILURE_BODY, ...headers };
+    return req.navigation ? { status: 303, location: this.d.redirects.failure, cookies, ...headers } : { status: 401, cookies, body: AUTHN_FAILURE_BODY, ...headers };
   }
 }

@@ -2,7 +2,7 @@
 
 An HTTP route that reports the status and progress of a queue job: `GET jobs/v1/:jobId/status`. A client emits a job, keeps the `JobId` that `QueueJob.emit()` returns, and polls this route until the job finishes.
 
-It does **not** track jobs itself: `@spinajs/queue` writes the `queue_jobs` row when a consumer picks the job up, and this route only reads it. It does **not** stream progress (no WebSocket, no server-sent events), and it does **not** track HTTP upload or download progress, whatever the `package.json` description says.
+It does **not** track jobs itself: `@spinajs/queue` writes the `queue_jobs` row when a consumer picks the job up, and this route only reads it. It does **not** stream progress (no WebSocket, no server-sent events), and it does **not** track HTTP upload or download progress.
 
 ## Install
 
@@ -14,7 +14,7 @@ The package needs:
 
 - `@spinajs/http`, with an authentication middleware that sets `req.storage.Principal`;
 - `@spinajs/queue` with job tracking, so `JobModel` rows exist in `queue_jobs`;
-- `@spinajs/authz-queue` imported by the app: it registers `JobModel` as the `job` resource and grants the `user` role `job:read` on the jobs it emitted.
+- `@spinajs/authz-queue/jobs` imported by the app: it registers `JobModel` as the `job` resource and grants the `user` role `job:read` on the jobs it emitted.
 
 Installing the package mounts the route: its config adds its `controllers` directory to `system.dirs.controllers`.
 

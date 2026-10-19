@@ -12,7 +12,7 @@ export class Event extends ModelBase {
   @Primary()
   public Id: number;
 
-  public Channel: string;
+  public Type: string;
 
   @CreatedAt()
   public CreatedAt: DateTime;

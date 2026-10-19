@@ -12,11 +12,13 @@ npm install @spinajs/util
 
 `args.ts` and `timespan.ts` import `luxon`. Install it next to the package (`npm install luxon`): `@spinajs/util` does not list it as a dependency.
 
-Everything is exported from the package root. Import by name:
+Everything except the crypto helpers is exported from the package root. Import by name:
 
 ```ts
 import { TimeSpan, ResiliencePipelineBuilder, _check_arg, sleep } from '@spinajs/util';
 ```
+
+The crypto helpers need `node:crypto`, so they live in the Node-only subpath `@spinajs/util/crypto`; the root never loads it.
 
 ## Features
 
@@ -34,7 +36,9 @@ import { TimeSpan, ResiliencePipelineBuilder, _check_arg, sleep } from '@spinajs
 | [Throttle](10-throttle.md) | `Throttle` and `MemoryThrottleStore`: flow rules, gates, counted keys, `onSuccess`, `keyId` |
 | [Custom throttle stores](11-custom-throttle-stores.md) | The `ThrottleStore` contract, writing a shared store, the `MemoryThrottleStore` limiter factory |
 | [Collections, objects and JSON](12-collections-objects-and-json.md) | `toArray`, `chunk`, `unique`, `sortedUnique`, `groupBy`, `tryGetHash`, `deepFreeze`, `frozenCopy`, `copyPlainData`, `deepEqual`, `deepMerge`, `getOwnPath`, Map/Set/Date-aware JSON, `stableStringify` |
-| [Strings, functions and type guards](13-strings-functions-and-type-guards.md) | `trimChar`, `truncate`, `asciiLower`, `escapeHtml`, `compareCodePoints`, `quote`, `parseIsoInstant`, `toEpochMs`, `thenMaybe`, `allMaybe`, `Lazy`, `once`, `memoize`, `isPromise`, `isStringArray`, `isDefined` |
+| [Strings, functions and type guards](13-strings-functions-and-type-guards.md) | `trimChar`, `truncate`, `asciiLower`, `escapeHtml`, `compareCodePoints`, `quote`, `parseIsoInstant`, `toEpochMs`, `thenMaybe`, `allMaybe`, `Lazy`, `once`, `memoize`, `isPromise`, `isThenable`, `isStringArray`, `isDefined` |
+| [Async helpers, caches and graphs](14-async-helpers-caches-and-graphs.md) | `onceAsync`, `memoizeAsync`, `singleFlight`, `KeyedMutex`, `TaskTracker`, `settleWithin`, `Deadline`, `RefreshingCache`, `LruTtlCache`, `BoundedMap`, `Clock`, `ListenerSet`, `findCycle`, `reachable` |
+| [Crypto helpers](14-crypto.md) | `@spinajs/util/crypto`: `sha256`, `hmacSha256`, `taggedHash`, constant-time comparison, strict base64url/base64/base32, `randomToken`, `processSecret`, `parseKeyMaterial` |
 
 ## Quick start
 

@@ -1,6 +1,6 @@
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
+import { AUTHZ_DEFAULTS, AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -36,7 +36,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
   protected Log: Log;
 
   // The schema has no default for this key; unset and null mean on.
-  @Config('authz.principals.anonymous.enabled', { defaultValue: true })
+  @Config('authz.principals.anonymous.enabled', { defaultValue: AUTHZ_DEFAULTS.principals.anonymous.enabled })
   protected AnonymousEnabled: boolean;
 
   @Autoinject(PrincipalSource)

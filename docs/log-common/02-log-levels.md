@@ -60,7 +60,7 @@ A browser is detected by `typeof window !== 'undefined'`.
 - `setLevel()` persists by default. In a browser, a level set from a debug panel stays until `resetLevel()` or until storage is cleared. Pass `persist = false` for a temporary change.
 - Persistence is per logger name. `child('x')` creates logger `<parent>.x`, which has its own key and no override.
 - `readPersistedLevel()` accepts any finite number, including `SILENT_LEVEL`. It does not check that the number is a `LogLevel`.
-- `createLogMessageObject()` looks the level up in `LogLevelStrings`. Writing an entry at `SILENT_LEVEL` or any other unmapped number throws a `TypeError`.
+- `createLogMessageObject()` looks the level up in `LogLevelStrings`. For `SILENT_LEVEL` or any other unmapped number, `Variables.level` is the number as a string (`'1000'`).
 - `Security` is `999`, far above `Fatal`. A rule with `level: 'fatal'` also routes security entries, unless it sets `maxLevel: 'fatal'`.
 
 ## Best practices

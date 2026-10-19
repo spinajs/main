@@ -22,10 +22,12 @@ describe('Math Helpers', () => {
 
     it('should divide numbers', () => {
       expect(mathHelpers.divide(10, 2)).to.equal(5);
+      expect(mathHelpers.divide(10, 0)).to.equal(0);
     });
 
     it('should calculate modulo', () => {
       expect(mathHelpers.modulo(10, 3)).to.equal(1);
+      expect(mathHelpers.modulo(10, 0)).to.equal(0);
     });
   });
 
@@ -110,6 +112,7 @@ describe('Math Helpers', () => {
     it('should calculate percentage', () => {
       expect(mathHelpers.percentage(25, 200)).to.equal(12.5);
       expect(mathHelpers.percentage(50, 100)).to.equal(50);
+      expect(mathHelpers.percentage(25, 0)).to.equal(0);
     });
   });
 

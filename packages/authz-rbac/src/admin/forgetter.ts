@@ -1,9 +1,9 @@
-import { ScopeForgetter } from '@spinajs/authz';
+import { ScopeForgetter, optionalAdminService } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { AssignmentSubject } from '../contracts.js';
-import { LINK_TYPE, event, linkTags, optionalStore } from './common.js';
+import { LINK_TYPE, event, linkTags } from './common.js';
 import { memberSubjects, refreshMemberships, subjectTags } from './membership.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 
@@ -21,7 +21,7 @@ export class RbacScopeForgetter extends ScopeForgetter {
     const touched: AssignmentSubject[] = [];
     let affected = 0;
 
-    const links = await optionalStore(ctx, AdminLinkStore);
+    const links = await optionalAdminService(ctx, AdminLinkStore);
     for (const l of (await links?.forgetScope(scope, tx)) ?? []) {
       affected++;
       touched.push({ type: LINK_TYPE, id: l.id });
@@ -29,7 +29,7 @@ export class RbacScopeForgetter extends ScopeForgetter {
       events.push(event(ctx, 'LinkRevoked', { id: l.id, scope: l.scope }));
     }
 
-    const assignments = await optionalStore(ctx, AdminAssignmentStore);
+    const assignments = await optionalAdminService(ctx, AdminAssignmentStore);
     const gone = (await assignments?.forgetScope(scope, tx)) ?? [];
     for (const a of gone) {
       affected++;
@@ -39,7 +39,7 @@ export class RbacScopeForgetter extends ScopeForgetter {
     }
     touched.push(...(await memberSubjects(ctx, gone)));
 
-    const rules = await optionalStore(ctx, AdminRuleStore);
+    const rules = await optionalAdminService(ctx, AdminRuleStore);
     for (const r of (await rules?.forgetScope(scope, tx)) ?? []) {
       affected++;
       tags.add(`rule:${r.id}`);

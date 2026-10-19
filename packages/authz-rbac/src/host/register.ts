@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzConfigError, AuthzContributor } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, AuthzContributor, LinkResolver } from '@spinajs/authz';
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 
@@ -27,12 +27,9 @@ export interface RegisteredRbac {
   readonly model: RbacModel;
   readonly contributor: RbacContributor;
   readonly service: RbacService;
-  /** authz-http's LinkResolver over `service`; see RbacLinkResolver for the binding. */
+  /** The LinkResolver over `service`, also registered as `LinkResolver`. */
   readonly linkResolver: RbacLinkResolver;
 }
-
-/** The name `check-config --explain-role` resolves the service by. */
-export const RBAC_SERVICE_NAME = 'RbacService';
 
 const instance =
   <T>(value: T): Factory<T> =>
@@ -42,10 +39,10 @@ const instance =
 /**
  * Wires RBAC into `container` (a domain's; the root for the CLI): the stores `authz.rbac.stores`
  * names (registerRbacStores), an RbacModel over them as an AuthorizationModel, its RbacContributor
- * as an AuthzContributor, and an RbacService, also under the name `RbacService` (the CLI's
- * `--explain-role`, RbacLinkResolver). Roles and assignments: one store each, required. Links: at
- * most one. Rules: at most one in-memory store and one other (design §8.5:
- * `['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
+ * as an AuthzContributor, an RbacService, and an RbacLinkResolver over it as the LinkResolver
+ * (authz-http reads the root container's). Roles and assignments: one store each, required. Links: at
+ * most one. Rules: at most one in-memory store and one other
+ * (`['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
  * @throws AuthzConfigError, before registering anything, for a store name registerRbacStores
  *   refuses, a missing roles or assignments store, too many stores of a kind, two rule stores of
  *   one sort, or `authz.rbac.rules` with no ConfigRuleStore to read them
@@ -80,7 +77,7 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
   ruleStoreParts(rules);
   const links = await store(LinkStore);
-  // Registered by authz-rbac's storage lane, possibly in a parent container.
+  // Registered by registerRbacStores, possibly in a parent container.
   const membership = container.hasRegistered(MembershipStore) ? ((await container.resolve(MembershipStore)) as MembershipStore) : undefined;
   const options: RbacModelOptions = {
     roles: (await store(RoleStore))!,
@@ -98,6 +95,7 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   container.register(instance(model)).as(AuthorizationModel);
   container.register(instance(contributor)).as(AuthzContributor);
   container.register(instance(service)).as(RbacService);
-  container.register(service).asValue(RBAC_SERVICE_NAME);
-  return { model, contributor, service, linkResolver: new RbacLinkResolver(service) };
+  const linkResolver = new RbacLinkResolver(service);
+  container.register(instance(linkResolver)).as(LinkResolver);
+  return { model, contributor, service, linkResolver };
 }

@@ -191,7 +191,7 @@ export interface IZipResult {
   asBase64(): string;
 
   // deletes zipped  file ( from temp filesystem )
-  unlink(): void;
+  unlink(): Promise<void>;
 }
 
 export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
@@ -233,7 +233,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * Returns hash of file
    *
    * @param srcPath file to calculate hash
-   * @param algo optional hash alghoritm, default is md5
+   * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
    */
   public async hash(path: string, algo?: string): Promise<string> {
     const hasher = DI.resolve<FileHasher>(FileHasher, [algo]);
@@ -352,7 +352,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * Returns hash of file
    *
    * @param srcPath file to calculate hash
-   * @param algo optional hash alghoritm, default is md5
+   * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
    */
   public static hash(path: URI, algo?: string): Promise<string> {
     return path.Fs.hash(path.Path, algo);

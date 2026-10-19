@@ -19,8 +19,9 @@ files, so a listed step could not be turned off. An app enables TOTP with:
 The import loads `@spinajs/authn-orm`, and with it authn-orm's migrations and
 DB stores. On an Orm whose `default` connection runs migrations at startup,
 the authn-orm data migration moves 2.x TOTP secrets into `authn_mfa`. The
-root entry of this package loads none of this; it uses only authn-orm's cipher,
-so rows the migration wrote decrypt under the same key. Without step 3, or
+root entry of this package loads none of this; it uses only authn-orm's cipher
+and `identityKey` (the side-effect-free `/cipher` and `/identity` subpaths), so
+rows the migration wrote decrypt under the same key. Without step 3, or
 another registered `MfaSecretStore`, the step fails with an error naming
 `MfaSecretStore`. Tests register `MemoryMfaSecretStore` as `MfaSecretStore`.
 
@@ -32,4 +33,5 @@ links stop working, and the 2.x failed-login count and lock go with
 The package ships no 2.x `rbac.twoFactorAuth` keys; move any of your own with `spinajs-authz-convert`.
 
 `authn:mfa-reset <login>` removes an account's enrolment and recovery codes and
-prints no secret.
+prints no secret. `authn:mfa-qr <secretOrUrl>` prints a QR code for a secret or an
+otpauth URL (`rbac:2fa-qr` remains an alias).

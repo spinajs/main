@@ -1,6 +1,7 @@
 import type { Decision } from '../contracts/decision.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { DecisionCache } from '../contracts/service.js';
+import { ENGINE_DEFAULTS } from './defaults.js';
 
 interface Entry {
   readonly decision: Decision;
@@ -22,7 +23,7 @@ export class LruDecisionCache extends DecisionCache {
 
   constructor(options: LruDecisionCacheOptions = {}) {
     super();
-    const maxEntries = options.maxEntries ?? 10000;
+    const maxEntries = options.maxEntries ?? ENGINE_DEFAULTS.cacheMaxEntries;
     if (typeof maxEntries !== 'number' || !Number.isInteger(maxEntries) || maxEntries < 1) {
       throw new AuthzConfigError(`LruDecisionCache: maxEntries must be an integer >= 1, got ${String(maxEntries)}`);
     }

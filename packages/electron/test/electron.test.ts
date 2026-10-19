@@ -6,6 +6,9 @@ import { Log } from "@spinajs/log-common";
 import { AuthzService, AuthzDomains, DefaultAuthzDomains, SYSTEM } from "@spinajs/authz";
 import type { Principal } from "@spinajs/authz";
 import { callOnOrmConnection, callService, callServiceSync } from "../src/ipc-calls.js";
+// Brings the window.ipc global declaration into the type-checked program.
+import type {} from "../src/renderer.js";
+import { ElectronRendererLogger } from "../src/electronRendererLogger.js";
 
 const runs: Array<{ principal: Principal; reason: string }> = [];
 
@@ -118,10 +121,14 @@ describe("electron IPC calls", () => {
   });
 
   describe("error paths", () => {
-    it("callService returns an Error for an unknown service", async () => {
-      const r = await callService("hello", "NoSuchService", []);
-      expect(r).to.be.instanceOf(Error);
-      expect((r as Error).message).to.match(/no service named: NoSuchService/);
+    it("callService throws for an unknown service", async () => {
+      let err: Error | undefined;
+      try {
+        await callService("hello", "NoSuchService", []);
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err?.message).to.match(/no service named: NoSuchService/);
     });
 
     it("callService throws for an unknown method", async () => {
@@ -144,7 +151,7 @@ describe("electron IPC calls", () => {
       expect(err?.message).to.match(/cause: nope/);
     });
 
-    it("callOnOrmConnection throws for an unknown connection and returns an Error for a failing call", async () => {
+    it("callOnOrmConnection throws for an unknown connection and for a failing call", async () => {
       let err: Error | undefined;
       try {
         await callOnOrmConnection("none", "query");
@@ -153,9 +160,13 @@ describe("electron IPC calls", () => {
       }
       expect(err?.message).to.match(/connection: none/);
 
-      const r = await callOnOrmConnection("bad", "query");
-      expect(r).to.be.instanceOf(Error);
-      expect(((r as Error).cause as Error).message).to.eq("boom");
+      err = undefined;
+      try {
+        await callOnOrmConnection("bad", "query");
+      } catch (e) {
+        err = e as Error;
+      }
+      expect((err?.cause as Error).message).to.eq("boom");
     });
 
     it("callServiceSync reports an unknown method through returnValue", () => {
@@ -170,5 +181,20 @@ describe("electron IPC calls", () => {
       expect(event.returnValue).to.be.instanceOf(Error);
       expect((event.returnValue as Error).message).to.match(/no service named: NoSuchService/);
     });
+  });
+});
+
+describe("electron renderer logger", () => {
+  after(() => {
+    Log.Loggers.delete("renderer-a");
+    Log.Loggers.delete("renderer-b");
+  });
+
+  it("gives each name its own logger and registers it in Log.Loggers", async () => {
+    const a = await DI.resolve(ElectronRendererLogger, ["renderer-a"]);
+    const b = await DI.resolve(ElectronRendererLogger, ["renderer-b"]);
+    expect(a.Name).to.eq("renderer-a");
+    expect(b.Name).to.eq("renderer-b");
+    expect(Log.Loggers.get("renderer-a")).to.equal(a);
   });
 });

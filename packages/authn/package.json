@@ -39,6 +39,16 @@
       "types": "./lib/mjs/throttle/store-throttle.d.ts",
       "import": "./lib/mjs/throttle/store-throttle.js",
       "require": "./lib/cjs/throttle/store-throttle.js"
+    },
+    "./nonces": {
+      "types": "./lib/mjs/nonces/index.d.ts",
+      "import": "./lib/mjs/nonces/index.js",
+      "require": "./lib/cjs/nonces/index.js"
+    },
+    "./audit": {
+      "types": "./lib/mjs/audit/authn-audit.d.ts",
+      "import": "./lib/mjs/audit/authn-audit.js",
+      "require": "./lib/cjs/audit/authn-audit.js"
     }
   },
   "typesVersions": {
@@ -60,6 +70,12 @@
       ],
       "store-throttle": [
         "lib/cjs/throttle/store-throttle.d.ts"
+      ],
+      "nonces": [
+        "lib/cjs/nonces/index.d.ts"
+      ],
+      "audit": [
+        "lib/cjs/audit/authn-audit.d.ts"
       ]
     }
   },

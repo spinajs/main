@@ -6,7 +6,7 @@ import { loadTokenRoleRules } from '@spinajs/authz-rbac';
 import type { TokenRoleRules } from '@spinajs/authz-rbac';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 // authn-token's TokenProfilePolicy, found by the name it registers under: importing authn-token would register its
@@ -17,15 +17,9 @@ interface ProfilePolicy {
   allowedProfiles(owner: IdentityRef): unknown;
 }
 
-/** Leaves out the bare abstract class a resolve of an unregistered type records under its own name (a string key is that name). */
-function implemented(token: Class<unknown> | string): boolean {
-  const bare = (t: unknown): boolean => (typeof token === 'string' ? (t as { name?: string }).name === token : t === token);
-  return (DI.RootContainer.getRegisteredTypes(token) ?? []).some((t) => !bare(t));
-}
-
 /** 404, as authn-http's token routes answer, while no TokenService is registered: no token can be created. */
 export function assertTokenRoutesOn(): void {
-  if (!implemented(TokenService as unknown as Class<TokenService>)) {
+  if (!DI.RootContainer.hasImplementation(TokenService)) {
     throw Object.assign(new ResourceNotFound('the token routes are off: no TokenService is registered'), { error: 'not_found' });
   }
 }
@@ -36,7 +30,7 @@ export function assertTokenRoutesOn(): void {
  * @throws Error when the policy answers anything but a list of role names
  */
 export async function offeredTokenProfiles(owner: IdentityRef): Promise<string[]> {
-  if (!implemented(PROFILE_POLICY)) return [];
+  if (!DI.RootContainer.hasImplementation(PROFILE_POLICY)) return [];
   const policy = (await DI.RootContainer.resolve<ProfilePolicy>(PROFILE_POLICY)) as ProfilePolicy;
   if (typeof policy?.allowedProfiles !== 'function') throw new Error(`users-http: the registered ${PROFILE_POLICY} has no allowedProfiles()`);
   const answer: unknown = await policy.allowedProfiles({ type: owner.type, id: owner.id });
@@ -54,7 +48,7 @@ export async function offeredTokenProfiles(owner: IdentityRef): Promise<string[]
  */
 export async function offeredTokenRoles(owner: Principal, accessDomain: string, profile?: string): Promise<string[]> {
   if (profile !== undefined && !(await offeredTokenProfiles(owner)).includes(profile)) return [];
-  if (!implemented(RoleSource as unknown as Class<RoleSource>)) return [];
+  if (!DI.RootContainer.hasImplementation(RoleSource)) return [];
 
   const source = (await DI.resolve(RoleSource)) as RoleSource;
   if (typeof source?.rolesOf !== 'function') throw new Error('users-http: the registered RoleSource has no rolesOf()');

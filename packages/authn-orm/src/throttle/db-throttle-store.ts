@@ -1,10 +1,10 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
 import type { BackoffParams } from '@spinajs/authn/contracts';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { OrmDriver, RawQuery, WhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 
-import { columnText, driverDialect, isDuplicate, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
-import type { Dialect } from '../support/sql.js';
+import { columnText, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_throttle';
 /** Each miss means another attempt won that key, so this bounds the parallel attempts one call waits behind. */
@@ -57,13 +57,11 @@ export interface DbThrottleStoreOptions {
 export class DbThrottleStore implements ThrottleStore {
   private readonly driver: OrmDriver;
   private readonly resetAfterMs: number;
-  private readonly dialect: Dialect;
   private attempts = 0;
 
   constructor(options: DbThrottleStoreOptions) {
     this.driver = options.driver;
     this.resetAfterMs = options.resetAfterMs;
-    this.dialect = driverDialect(options.driver);
   }
 
   public async attempt(_flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict> {
@@ -129,7 +127,6 @@ export class DbThrottleStore implements ThrottleStore {
   public async purge(nowMs: number): Promise<number> {
     const db = this.driver;
     const t = this.times(nowMs);
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const stale = (await db.select().from(TABLE).select('k').where('last_attempt_at', '<=', t.cutoff).where('next_allowed_at', '<=', t.now).orderBy('k').take(PURGE_BATCH)) as { k: string }[];
     if (stale.length === 0) return 0;
     return rowsAffected(
@@ -176,7 +173,7 @@ export class DbThrottleStore implements ThrottleStore {
       await db.insert().into(TABLE).values({ k: w.k, attempts: w.attempts, last_attempt_at: w.last, next_allowed_at: w.next, updated_at: t.now });
       return true;
     } catch (err) {
-      if (!isDuplicate(err)) throw err;
+      if (!(err instanceof ResourceDuplicated)) throw err;
     }
     const r = await db.update().in(TABLE).update({ attempts: w.attempts, last_attempt_at: w.last, next_allowed_at: w.next, updated_at: t.now }).where('k', w.k).where('next_allowed_at', '<=', t.now).where('last_attempt_at', '<=', t.cutoff);
     return rowsAffected(r) === 1;
@@ -258,11 +255,11 @@ export class DbThrottleStore implements ThrottleStore {
   }
 
   private withTimes<Q extends { select(column: string | RawQuery): Q }>(query: Q, column: string, alias: string): Q {
-    return selectTime(this.dialect, query, column, alias);
+    return selectTime(this.driver, query, column, alias);
   }
 
   private textOf(row: Record<string, unknown>, column: string, alias: string): string {
-    return columnText(this.dialect, row, column, alias) ?? String(row[alias] ?? row[column]);
+    return columnText(row, alias) ?? String(row[column]);
   }
 
   // Stale: idle for resetAfterMs and delaying nobody; a delay longer than that still runs to its end.

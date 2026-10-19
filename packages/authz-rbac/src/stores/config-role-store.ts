@@ -3,6 +3,7 @@ import { AuthzConfigError } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+import { deepFreeze, isStrictPlainObject, isStringArray, stableStringify } from '@spinajs/util';
 
 import { RoleStore } from '../contracts.js';
 import type { GrantDef, LadderDef, RoleDef } from '../contracts.js';
@@ -20,9 +21,6 @@ const ROLE_KEYS = ['ladder', 'extends', 'grants', 'revoke', 'implies', 'subjectS
 const GRANT_KEYS = ['permission', 'relation', 'on', 'fields', 'requiresTag', 'grantedAt'];
 const LADDER_KEYS = ['roles', 'resourceTypes'];
 
-const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
-const isNames = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
-
 /*
  * Floors for values the schema never saw (Configuration.set, the constructor seam). Each refuses a shape that would read
  * as a broader role or crash before the compile: a misspelt key drops the restriction it names, a `revoke` string
@@ -34,7 +32,7 @@ function refuse(bad: boolean, path: string, what: string): void {
 }
 
 function closed(v: unknown, keys: readonly string[], path: string): void {
-  refuse(!isPlain(v), path, 'must be an object');
+  refuse(!isStrictPlainObject(v), path, 'must be an object');
   const unknown = Object.keys(v as Raw).find((k) => !keys.includes(k));
   refuse(unknown !== undefined, `${path}.${unknown}`, 'is not a known key');
 }
@@ -49,7 +47,7 @@ function copy<T>(value: T): T {
 function grant(g: string | GrantDef, path: string): GrantDef {
   if (typeof g === 'string') return { permission: g };
   closed(g, GRANT_KEYS, path);
-  refuse(g.grantedAt !== undefined && !isNames(g.grantedAt), `${path}.grantedAt`, 'must be a list of scope types');
+  refuse(g.grantedAt !== undefined && !isStringArray(g.grantedAt), `${path}.grantedAt`, 'must be a list of scope types');
   return g;
 }
 
@@ -60,10 +58,10 @@ function grant(g: string | GrantDef, path: string): GrantDef {
 function role(name: string, entry: RoleEntry, path: string): RoleDef {
   closed(entry, ROLE_KEYS, path);
   const { revoke = [], grants = [], extends: parents = [], assignable = true, ...rest } = copy(entry);
-  refuse(!isNames(revoke), `${path}.revoke`, 'must be a list of permissions');
+  refuse(!isStringArray(revoke), `${path}.revoke`, 'must be a list of permissions');
   refuse(!Array.isArray(grants), `${path}.grants`, 'must be a list');
   refuse(typeof assignable !== 'boolean', `${path}.assignable`, 'must be true or false');
-  refuse(rest.scopeTypes !== undefined && !isNames(rest.scopeTypes), `${path}.scopeTypes`, 'must be a list of scope types');
+  refuse(rest.scopeTypes !== undefined && !isStringArray(rest.scopeTypes), `${path}.scopeTypes`, 'must be a list of scope types');
   refuse(rest.deny !== undefined && typeof rest.deny !== 'boolean', `${path}.deny`, 'must be true or false');
   const revoked = new Set(revoke);
   return {
@@ -78,35 +76,14 @@ function role(name: string, entry: RoleEntry, path: string): RoleDef {
 
 function ladder(name: string, entry: LadderEntry, path: string): LadderDef {
   closed(entry, LADDER_KEYS, path);
-  refuse(!isNames(entry.roles), `${path}.roles`, 'must be a list of roles');
-  refuse(entry.resourceTypes !== undefined && !isNames(entry.resourceTypes), `${path}.resourceTypes`, 'must be a list of resource types');
+  refuse(!isStringArray(entry.roles), `${path}.roles`, 'must be a list of roles');
+  refuse(entry.resourceTypes !== undefined && !isStringArray(entry.resourceTypes), `${path}.resourceTypes`, 'must be a list of resource types');
   return { name, ...copy(entry) };
 }
 
 function entries<T>(map: Readonly<Record<string, T>> | undefined, path: string): [string, T][] {
-  refuse(map !== undefined && !isPlain(map), path, 'must be an object');
+  refuse(map !== undefined && !isStrictPlainObject(map), path, 'must be an object');
   return Object.entries(map ?? {});
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
-  }
-  return value;
-}
-
-// Sorted keys, so reordering an object does not change the hash; list order does.
-function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
-  if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
-    const o = v as Raw;
-    const keys = Object.keys(o)
-      .filter((k) => o[k] !== undefined)
-      .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v ?? null);
 }
 
 /**
@@ -142,7 +119,7 @@ export class ConfigRoleStore extends RoleStore {
   async version(): Promise<string> {
     const { roles, ladders } = this.raw();
     return createHash('sha256')
-      .update(canonical({ roles: roles ?? {}, ladders: ladders ?? {} }))
+      .update(stableStringify({ roles: roles ?? {}, ladders: ladders ?? {} }))
       .digest('hex');
   }
 

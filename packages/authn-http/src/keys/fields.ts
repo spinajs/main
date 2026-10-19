@@ -6,9 +6,9 @@ import { isPlainObject } from '@spinajs/util';
 import { tooManyRequests } from '../password/fields.js';
 import type { TooManyRequestsResponse } from '../password/fields.js';
 import { refused } from '../policies/v3/errors.js';
-import { authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
-import { badRequest, expiryOf } from '../token/fields.js';
-import { NO_STORE } from '../v3/responses.js';
+import { activeSessionOf, authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
+import { expiryOf } from '../token/fields.js';
+import { NO_STORE, badRequest, instant } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 key routes. Every field is checked and capped before KeyRegistry sees it; no answer
@@ -36,8 +36,8 @@ export function keyManager(req: Request): Session {
   const principal = authenticatedPrincipal(req);
   if (!isSessionPrincipal(principal)) throw refused('session_required', 'this route needs a session, not a per-request credential');
   if (principal.authn?.impersonator !== undefined) throw refused('impersonating', 'this route cannot be used while impersonating another user');
-  const session = req.storage.AuthnSession;
-  if (session?.handle.state !== 'active' || session.identity.type !== 'user') throw refused('session_required', 'this route needs the session of a user');
+  const session = activeSessionOf(req, 'this route needs the session of a user');
+  if (session.identity.type !== 'user') throw refused('session_required', 'this route needs the session of a user');
   return session;
 }
 
@@ -100,9 +100,6 @@ export function keyLoginCredentialsOf(req: Request): Credentials | null {
   const signature = boundedString(bodyField(req, 'signature'), SIGNATURE_CAP);
   return keyId !== null && challengeId !== null && signature !== null ? { kind: 'key-challenge', keyId, challengeId, signature } : null;
 }
-
-/** An instant to the second, as authn_key keeps it. */
-const instant = (d: Date | undefined): string | null => (d ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);
 
 /** The wire shape of one key: public material only, revoked and expired keys marked, absent values null. */
 export function keyEntry(r: KeyRecord, now: Date): Record<string, unknown> {

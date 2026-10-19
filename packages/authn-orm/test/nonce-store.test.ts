@@ -163,7 +163,7 @@ for (const kind of DB_KINDS) {
     });
 
     it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const store = new DbNonceStore(undefined, { container: db.container });
+      const store = await db.container.resolve(DbNonceStore);
       expect(await store.claim('via-container', at(60), at(0))).to.eq(true);
       expect(await new DbNonceStore(db.driver).claim('via-container', at(60), at(0))).to.eq(false);
     });

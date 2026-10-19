@@ -1,9 +1,9 @@
-import { SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { SYSTEM, resourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { ModelBase } from '@spinajs/orm';
 
 import { ID_CHUNK, chunks } from './ancestors/table.js';
-import { idLookup, idText, refKey } from './ids.js';
+import { idLookup, idText } from './ids.js';
 import { classesOf, entryOf } from './registry.js';
 import type { ModelClass } from './registry.js';
 
@@ -31,14 +31,14 @@ export async function findRows(refs: readonly ResourceRef[]): Promise<Map<string
     for (const [type, ids] of byType) {
       for (const cls of classesOf(type)) {
         const entry = entryOf(cls)!;
-        const wanted = [...ids].filter((id) => !out.has(refKey({ type, id })));
+        const wanted = [...ids].filter((id) => !out.has(resourceKey({ type, id })));
         const values = wanted.map((id) => idLookup(cls, entry.idColumn, id)).filter((v) => v !== undefined);
         for (const part of chunks(values, ID_CHUNK)) {
           if (part.length === 0) continue;
           const rows = await (cls as Queryable).query().whereIn(entry.idColumn, part);
           for (const row of rows) {
             const id = idText((row as unknown as Record<string, unknown>)[entry.idColumn]);
-            if (id !== undefined && ids.has(id) && !out.has(refKey({ type, id }))) out.set(refKey({ type, id }), { model: cls, row });
+            if (id !== undefined && ids.has(id) && !out.has(resourceKey({ type, id }))) out.set(resourceKey({ type, id }), { model: cls, row });
           }
         }
       }

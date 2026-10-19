@@ -24,7 +24,7 @@ aws-parameters://<path>/*[?withDecryption=true|false][&default=<value>|&optional
 2. On its first call `getVar()` builds the `SSMClient` from `aws.parameterStore` in the raw config, without `cacheTtl`.
 3. `parseAwsPath()` splits the path; `warnUnknownParams()` logs every parameter other than `withDecryption`, `default`, `optional`; `parseBoolParam()` reads `withDecryption`.
 4. `TtlCache.resolve()`, keyed by name and `withDecryption`, returns a cached value or sends `GetParameterCommand({ Name, WithDecryption })`.
-5. A `StringList` parameter is split on `,` and returned as `string[]`. Any `#json.path` is ignored for it.
+5. A `StringList` parameter is split on `,` and returned as `string[]`. With `#json.path` the list is rejoined with `,` and parsed as JSON.
 6. With `#json.path`, `extractValue()` parses the value as JSON and returns the key. Otherwise the value is returned, or `''` when AWS returns none.
 7. A failed fetch goes to `resolveFallback()`, then is rethrown; `FrameworkConfiguration` logs it and keeps the raw string.
 
@@ -67,7 +67,7 @@ aws: {
 - `SecureString` values are decrypted by default. `?withDecryption=false` returns the ciphertext.
 - Every value is a string, except a `StringList`, which is a `string[]`. Numbers and booleans are not converted: `port` comes back as `'5432'`.
 - In hierarchy mode every leaf is the raw string, `StringList` values included; `#json.path` is ignored.
-- A tree where one name is both a leaf and a parent (`/app/db` and `/app/db/host`) keeps whichever AWS returns last; the other is lost.
+- A tree where one name is both a leaf and a parent (`/app/db` and `/app/db/host`) keeps the branch (`/app/db/host`) whatever order AWS returns them in; the leaf value is dropped.
 - The fallback of a hierarchy is a string: `?optional=true` on `/*` yields `''`, not `{}`.
 - The client is built once per protocol instance. Changes to `aws.parameterStore` take effect after a restart.
 - Names are case-sensitive and sent unchanged, so the single-parameter form does **not** add the leading `/` that hierarchy mode adds.
