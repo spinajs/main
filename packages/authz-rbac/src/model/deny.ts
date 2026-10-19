@@ -13,7 +13,7 @@ export function roleDenied(roles: readonly string[]): DenyReason {
 }
 
 /**
- * Design §4.2: a live assignment of a deny role naming the permission denies it at its scope and below,
+ * A live assignment of a deny role naming the permission denies it at its scope and below,
  * over every permit. On the path it denies the request (every row of a type-level one); off the path of a
  * type-level request it denies the rows under its scope.
  */

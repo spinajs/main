@@ -12,7 +12,7 @@ const RESOLVE = `orm.Migration.resolve('${NAME}', 'rolled-back')`;
 
 /**
  * Drops the 2.x `users.<roleColumn>` after `AuthzRbacUserRoles_2026_10_01_00_01_00` copied it
- * (design §9.2, H13). Refuses, changing nothing, while a users row holds a role that has no live
+ * (docs/authz/migration-guide.md, section 7). Refuses, changing nothing, while a users row holds a role that has no live
  * `$global` assignment of `user:<idColumn>`. `down()` re-adds the column and fills it from those
  * assignments, which is what a rollback to 2.x needs first. Roll back batch by batch (or with
  * `{ all: true }`) until this `down()` has run: `Migration.down(name)` acts only on the last

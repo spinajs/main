@@ -41,9 +41,9 @@ const ID_BATCH = 500;
 const TAG_RETRIES = 5;
 
 /**
- * `AssignmentStore` over `authz_assignment` (design §9.1). Reads use the `authz.rbac.connection`
+ * `AssignmentStore` over `authz_assignment`. Reads use the `authz.rbac.connection`
  * connection; writes run on the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the
- * store's domain in that transaction (B27). Registered by class name only; a domain uses it by
+ * store's domain in that transaction. Registered by class name only; a domain uses it by
  * registering it as `AdminAssignmentStore` and `AssignmentStore`.
  */
 @PerChildInstance()

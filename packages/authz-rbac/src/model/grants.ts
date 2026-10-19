@@ -64,7 +64,7 @@ interface Notes {
 const NONE: readonly never[] = Object.freeze([]);
 
 /**
- * @throws UnknownPermission for a literal grant (or an implied permission) the registry does not hold (B02)
+ * @throws UnknownPermission for a literal grant (or an implied permission) the registry does not hold
  * @throws AuthzConfigError for an invalid name or glob, a malformed grant, or `fields` on a permission without `fields: true`
  */
 export function compileGrants(graph: RoleGraph, registry: PermissionRegistry): GrantIndex {
@@ -179,7 +179,7 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
   return out;
 }
 
-/** The registered permissions a deny role names, never what they imply (lane decision 2). */
+/** The registered permissions a deny role names, never what they imply. */
 function deniedOf(role: RoleDef, registry: PermissionRegistry, notes: Notes): readonly Permission[] {
   const at = `Role '${role.name}' (source: ${role.source})`;
   const out: Permission[] = [];

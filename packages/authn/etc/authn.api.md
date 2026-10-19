@@ -551,6 +551,8 @@ export declare abstract class KeyRegistry {
     }): Promise<boolean>;
     /** For verifiers. Returns revoked and expired keys too, so the reason can be audited; accept a key only without revokedAt and before expiresAt. */
     abstract byId(kid: string): Promise<KeyRecord | null>;
+    /** Optional: records the key's last use after a successful verification. A failure here never fails the login. */
+    touch?(kid: string, at: Date): Promise<void>;
     /**
      * POST /auth/keys/challenge (anonymous, login) and the registration proof (an authenticated user).
      * A login challenge first counts against the 'login' flow's IP key; a refusal stores nothing. Every challenge stands alone, stored under its own id (with SecretStore:

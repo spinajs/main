@@ -77,9 +77,9 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   const sinks: AuthnEventSink[] = [events];
   const identities = new FakeIdentityStore();
   const sessions = new MemorySessionIssuer();
-  const registry = new DefaultKeyRegistry(store, secrets, throttle, AuthnAudit.over(sinks), options);
+  const registry = new DefaultKeyRegistry({ store, secrets, throttle, audit: AuthnAudit.over(sinks), options });
   const verifier = new StrictJwsVerifier();
-  const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options), new HttpSignatureStrategy(registry, nonces, options), new KeyChallengeStrategy(registry, secrets, options)];
+  const strategies = [new JwsAssertionStrategy({ registry, verifier, nonces, options }), new HttpSignatureStrategy({ registry, nonces, options }), new KeyChallengeStrategy({ registry, secrets, options })];
   const service = new FakeAuthnService({
     strategies,
     throttle,

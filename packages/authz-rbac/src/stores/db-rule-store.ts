@@ -44,9 +44,9 @@ const INSERT_BATCH = 100;
 type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: string; readonly created_by: string | null; readonly created_at: Date | string };
 
 /**
- * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
+ * `RuleStore` over `authz_rule` and `authz_rule_subject`: scoped DB rules, check-only:
  * the rule is its `definition` JSON. Reads use the `authz.rbac.connection` connection; writes run on
- * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27).
+ * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call.
  * Registered by class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
  */
 @PerChildInstance()
