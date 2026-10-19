@@ -92,4 +92,4 @@ export async function sendInvoiceNotice(customer: string, invoiceNo: string): Pr
 - [`@spinajs/di`](../di/README.md): registration and lifetimes of `EmailService` and `EmailSender`.
 - [`@spinajs/templates`](../templates/README.md): renders `IEmail.template` inside the SMTP transport.
 - [`@spinajs/users`](../users/README.md): registers `EmailPasswordMailer` and sends lifecycle mails through `EmailService`.
-- [`@spinajs/authz`](../authz/README.md): with `authz-fs`, attachment reads are permission-checked as the sending principal.
+- [`@spinajs/authz-fs`](../authz-fs/README.md): a filesystem whose `authz.fs.<name>.mode` is `enforce` or `audit` checks `fs:read` on attachments as the sending principal.

@@ -12,11 +12,11 @@ At boot, in `fsS3.resolve()`:
 
 On each call to `signedUrl(path, { until?, disposition? })`:
 
-1. Throws `InvalidOperation` (`no signer service configured`) when the provider has no `signer`.
+1. `doSignedUrl` throws `InvalidOperation` (`no signer service configured`) when the provider has no `signer`.
 2. Calls `exists(path)` (one `HeadObject`). Throws `IOFail` (`does not exists`) when the object is missing.
 3. Returns `Signer.sign(path, until)`.
 
-`getSignedUrl(path, until?)` is `signedUrl(path, { until })`.
+`signedUrl(path, { until?, disposition? })` and `getSignedUrl(path, until?)` are base methods of `fs` checked as `share`: [middlewares](../fs/07-middlewares.md) run first, and `fsS3` implements the protected `doSignedUrl` through the configured signer. `getSignedUrl(path, until?)` is `signedUrl(path, { until })`.
 
 ```mermaid
 sequenceDiagram
@@ -178,6 +178,7 @@ DI.register(ShortLivedS3Signer).as('S3UrlSigner');
 
 ## Important behaviour
 
+- **With `authz-fs` the effective `until` is capped.** It is `min(asked ?? now + defaultTtl, now + maxTtl, decision.validUntil)`: [Checks on file actions](../authz-fs/02-checks-on-file-actions.md).
 - **Each `signedUrl()` costs one `HeadObject`.** A page with 50 thumbnails sends 50 requests before signing.
 - **`disposition` is ignored** by both shipped signers.
 - **S3 presigned URLs last at most 7 days.** The presigner rejects a longer `until`.
@@ -196,11 +197,11 @@ DI.register(ShortLivedS3Signer).as('S3UrlSigner');
 
 ```ts
 // Don't: signing on a provider without `signer` throws InvalidOperation on every call
-const url = await getFs('uploads').signedUrl!(key);
+const url = await getFs('uploads').signedUrl(key);
 
 // Do: configure a signer on the provider whose files you link to
 // { service: 'fsS3', name: 'uploads', bucket: 'acme-uploads', signer: { service: 'S3UrlSigner' } }
-const url = await getFs('uploads').signedUrl!(key, { until: DateTime.now().plus({ minutes: 15 }) });
+const url = await getFs('uploads').signedUrl(key, { until: DateTime.now().plus({ minutes: 15 }) });
 ```
 
 ## Examples
@@ -233,10 +234,6 @@ import { DateTime } from 'luxon';
 export async function playbackUrl(videoKey: string, durationSeconds: number) {
   const videos = getFs('videos');
   const until = DateTime.now().plus({ seconds: durationSeconds + 15 * 60 });
-
-  if (!videos.signedUrl) {
-    throw new Error('videos provider cannot sign URLs');
-  }
 
   return videos.signedUrl(videoKey, { until });
 }
