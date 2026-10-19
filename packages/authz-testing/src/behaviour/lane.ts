@@ -233,13 +233,13 @@ export interface OrmHandle {
   rows(model: string): Promise<readonly Readonly<Record<string, unknown>>[]>;
 }
 
-/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content. */
-export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string };
+/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content; `{ exclusive }`: `upload` options, passed as they are. */
+export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string } | { readonly exclusive: boolean };
 
 /** fs facet: methods of `getFs(name)` called in the current ALS; a stream result is drained or ended by the handle. */
 export interface FsHandle {
   call(fs: string, method: string, args: readonly FsArg[]): Promise<unknown>;
-  /** `getFs(name)` is the provider instance fsService created, not a guard. */
+  /** `getFs(name)` is the provider instance fsService created, with no wrapper around it. */
   isRaw(fs: string): boolean;
 }
 
