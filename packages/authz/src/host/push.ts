@@ -8,7 +8,7 @@ import { AccessPushTransport, ChangeAudience } from '../contracts/service.js';
 import type { AccessChangedEvent, AuthzChange, ChangeBus } from '../contracts/service.js';
 import { resolveChain } from './di.js';
 import { engineLog, thrownError } from './log.js';
-import type { HostLog } from './log.js';
+import type { AuthzLog } from './log.js';
 
 /** The event name every push transport sends an AccessChangedEvent under (design §10.4). */
 export const AUTHZ_CHANGED_EVENT = 'authz.changed';
@@ -46,7 +46,7 @@ function readAudience(raw: unknown): Audience {
  */
 @Singleton()
 export class AccessChangeRouter {
-  protected log: HostLog = engineLog('authz-push');
+  protected log: Pick<AuthzLog, 'error'> = engineLog('authz-push');
 
   start(bus: ChangeBus, container: IContainer): () => void {
     const off: unknown = bus.subscribe((change) => {

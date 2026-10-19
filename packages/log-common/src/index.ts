@@ -3,7 +3,6 @@ import _ from "lodash";
 import { format } from "./format.js";
 import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
-import { consoleLog } from "./optional.js";
 
 export * from "./serializers.js";
 export * from "./template.js";
@@ -12,8 +11,6 @@ export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
 export * from "./persistence.js";
 export * from "./perf.js";
-export * from "./optional.js";
-export * from "./rate-limit.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 import type { ILogFilterOptions, LogFilter } from "./filters/filter.js";
@@ -451,9 +448,14 @@ export function createLogMessageObject(err: Error | string, message: string | an
   };
 }
 
+export const WARN_ONCE_MAX_KEYS = 1024;
+
 export abstract class Log extends SyncService {
   public static Loggers: Map<string, Log> = new Map();
   public static InternalLoggers: Map<string, Log> = new Map();
+
+  // Shared by every instance of a logger name: loggers are re-resolved per container, the warning is once per process.
+  protected static WarnedOnce: Set<string> = new Set();
 
   public Timers: Map<string, Date> = new Map<string, Date>();
   protected Targets: ILogTargetDesc[];
@@ -563,6 +565,7 @@ export abstract class Log extends SyncService {
       .then(() => Promise.all([...Log.Loggers.values()].map((l) => l.dispose())))
       .then(() => {
         Log.Loggers.clear();
+        Log.WarnedOnce.clear();
       })
       .then(() => {
         const internal = [...Log.InternalLoggers.values()];
@@ -649,6 +652,27 @@ export abstract class Log extends SyncService {
   public abstract success(fields: object, message?: string, ...args: any[]): void;
   public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
 
+  /**
+   * Writes the warning only the first time this process sees `key` on a logger of this name; returns whether it
+   * wrote. Up to {@link WARN_ONCE_MAX_KEYS} keys are remembered, oldest forgotten first; {@link Log.clearLoggers}
+   * forgets them all.
+   */
+  public warnOnce(key: string, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, err: Error, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, fields: object, message?: string, ...args: any[]): boolean;
+  public warnOnce(key: string, ...args: any[]): boolean {
+    const id = `${this.Name}\u0000${key}`;
+    if (Log.WarnedOnce.has(id)) {
+      return false;
+    }
+    (this.warn as (...a: unknown[]) => void)(...args);
+    if (Log.WarnedOnce.size >= WARN_ONCE_MAX_KEYS) {
+      Log.WarnedOnce.delete(Log.WarnedOnce.values().next().value as string);
+    }
+    Log.WarnedOnce.add(id);
+    return true;
+  }
+
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
 
   /**
@@ -676,44 +700,25 @@ export abstract class Log extends SyncService {
   }
 }
 
-export interface LoggerOptions {
-  /**
-   * While no {@link Log} is registered the property reads as {@link consoleLog} instead of throwing, and the logger
-   * is resolved on a later read. Type the property as {@link LogWriter}.
-   */
-  optional?: boolean;
-  variables?: Record<string, unknown>;
-}
-
-// A variables bag holding only these keys is read as options; the default Log factory drops variables anyway.
-const isLoggerOptions = (v: Record<string, unknown> | LoggerOptions | undefined): v is LoggerOptions =>
-  typeof v?.optional === "boolean" && Object.keys(v).every((k) => k === "optional" || k === "variables");
-
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables
  * @param name - name of logger
- * @param variablesOrOptions - optional log variables, or {@link LoggerOptions}
+ * @param variables - optional log variables
  */
-export function Logger(name: string, variablesOrOptions?: Record<string, unknown> | LoggerOptions) {
-  const options: LoggerOptions = isLoggerOptions(variablesOrOptions) ? variablesOrOptions : { variables: variablesOrOptions };
-  const variables = options.variables;
-
+export function Logger(name: string, variables?: Record<string, unknown>) {
   return (target: any, key: string): any => {
     let logger: Log;
 
     // property getter
     const getter = () => {
       if (!logger) {
-        if (!options.optional) {
-          logger = resolveLogger(name, variables);
-        } else if (!DI.check(Log)) {
-          return consoleLog;
+        const allLoggers = DI.get(Array.ofType(Log));
+        const found = allLoggers!.find((l) => l.Name === name);
+
+        if (found) {
+          logger = found;
         } else {
-          try {
-            logger = resolveLogger(name, variables);
-          } catch {
-            return consoleLog;
-          }
+          logger = DI.resolve(Log, [name, variables]);
         }
       }
       return logger;
@@ -726,12 +731,6 @@ export function Logger(name: string, variablesOrOptions?: Record<string, unknown
       configurable: false,
     });
   };
-}
-
-function resolveLogger(name: string, variables: Record<string, unknown> | undefined): Log {
-  const allLoggers = DI.get(Array.ofType(Log));
-  const found = allLoggers!.find((l) => l.Name === name);
-  return found ?? DI.resolve(Log, [name, variables]);
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;

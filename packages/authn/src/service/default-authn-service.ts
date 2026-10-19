@@ -180,9 +180,6 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
-  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
-  private static readonly warned = new Set<string>();
-
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -202,10 +199,9 @@ export class DefaultAuthnService extends AuthnService {
     await super.resolve();
   }
 
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private warnOnce(message: string): void {
-    if (DefaultAuthnService.warned.has(message)) return;
-    DefaultAuthnService.warned.add(message);
-    this.Log.warn(message);
+    this.Log.warnOnce(message, message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {

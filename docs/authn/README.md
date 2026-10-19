@@ -640,6 +640,7 @@ export default {
 | `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
 | `authn.http.*` | `authn-http`, `authn-oidc` | `trustProxy` (else `http.trustProxy`) for `ClientIp`, `CsrfOriginGuard` and the OIDC controller; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
+| `logger.filters` | `authn-http` (shipped) | Two `RateLimitFilter`s on the `authn-http` logger's `CsrfOriginGuard` refusal lines (`event: 'authn-http.csrf-refused'`): one line per (Origin, own origin) pair a minute, 20 a minute in all. The guard logs every refusal; these filters decide how many are written. See [log filters](../log/09-filters.md#ratelimitfilter). |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
 `http.cookie.secret`) are secret references (environment or a secret store), never inline values. The

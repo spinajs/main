@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { RecordingAudit, StaticModel, userPrincipal } from '@spinajs/authz-testing';
+import { RecordingAudit, StaticModel, TestLog, userPrincipal } from '@spinajs/authz-testing';
 import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
 import { DefaultAuthzAdmin, DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
@@ -163,16 +163,9 @@ describe('DefaultAuthzService', function () {
     it('boots with legacy rbac keys and warns once when rejectLegacyKeys is false', async () => {
       setConfig('rbac', { grants: { admin: ['*'] } });
       setConfig('authz.config', { rejectLegacyKeys: false });
-      const warned: string[] = [];
-      const original = console.warn;
-      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
-      try {
-        const svc = await rootService();
-        expect(svc.domain).to.equal('root');
-      } finally {
-        console.warn = original;
-      }
-      const legacy = warned.filter((w) => w.includes('rbac.grants'));
+      const svc = await rootService();
+      expect(svc.domain).to.equal('root');
+      const legacy = TestLog.messages('warn').filter((w) => w.includes('rbac.grants'));
       expect(legacy).to.have.length(1);
       expect(legacy[0]).to.contain('authz.rbac.roles').and.contain('spinajs-authz-convert');
     });
@@ -255,15 +248,8 @@ describe('DefaultAuthzService', function () {
       setConfig(['authz', 'domains', 'c1'], { disable: ['aa'] });
       const d = await domains();
       d.create('c1');
-      const warned: string[] = [];
-      const original = console.warn;
-      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
-      try {
-        expect((await d.service('c1')).models()).to.deep.equal([a]);
-      } finally {
-        console.warn = original;
-      }
-      expect(warned.some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
+      expect((await d.service('c1')).models()).to.deep.equal([a]);
+      expect(TestLog.messages('warn').some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
     });
 
     it('inits a model listed by root and child once; its init permissions are checkable in the child', async () => {
