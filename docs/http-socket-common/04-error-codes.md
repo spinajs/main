@@ -80,7 +80,7 @@ new SocketException(code: ErrorCode, message: string, options?: SocketExceptionO
 - `fromWire()` always returns a plain `SocketException`. A server-side subclass arrives on the client as its code, message and details only.
 - `cause` stays on the side that threw: it is not part of `toWire()`.
 - An unmapped error is never sent as-is. Outside production, `internal` also carries `details: { name, stack }`; in production only the `errorId`.
-- `isSocketError()` checks `code`, `message` and `retryable` only.
+- `isSocketError()` checks `code`, `message`, `retryable`, and `retryAfterMs` (finite number) and `errorId` (string) when present. `details` is not checked.
 
 ## Best practices
 

@@ -1,19 +1,14 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, SET_DELIMITER } from '@spinajs/orm';
 import { SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
-import { NotSupported } from '@spinajs/exceptions';
 
+/**
+ * Adds nothing to the shared statement: the bundled SQLite ( 3.39 and later ) runs RIGHT JOIN too.
+ * Kept as the sqlite join token so subclasses have a dialect-specific base.
+ */
 @NewInstance()
-export class SqlLiteJoinStatement extends SqlJoinStatement {
-  constructor(protected _options: IJoinStatementOptions) {
-    super(_options);
-
-    if (_options.method === JoinMethod.RIGHT || _options.method === JoinMethod.RIGHT_OUTER) {
-      throw new NotSupported(`join method ${_options.method} is not supported by sqlite driver`);
-    }
-  }
-}
+export class SqlLiteJoinStatement extends SqlJoinStatement {}
 
 /**
  * Membership test against a delimited `@Set()` column, SQLite dialect.

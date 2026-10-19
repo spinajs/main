@@ -82,6 +82,11 @@ describe('postgres views', function () {
     expect(toDriverStatement("a = ? AND b = 'x?'", [1])).to.eq("a = $1 AND b = 'x?'");
   });
 
+  it('toDriverStatement skips quoted literals and jsonb ?| ?& operators', () => {
+    expect(toDriverStatement("a = 'x?' AND b = ? AND c = ?", [1, 2])).to.eq("a = 'x?' AND b = $1 AND c = $2");
+    expect(toDriverStatement('"we?rd" = ? AND j ?| ? AND k ?& ?', [1, 2, 3])).to.eq('"we?rd" = $1 AND j ?| $2 AND k ?& $3');
+  });
+
   it('escapes an injection attempt and a backslash the same way pg.escapeLiteral does', () => {
     const quoter = driver.Container.resolve<LiteralQuoter>(LiteralQuoter);
 

@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import { DI } from '@spinajs/di';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { Orm } from '@spinajs/orm';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
@@ -21,7 +20,7 @@ export interface AbacModelOptions {
    * 'default'), and without that key a ConfigPolicyStore.
    */
   readonly stores?: readonly PolicyStore[];
-  /** Functions a policy condition may call, for the checks at load; default every ConditionFunction registered in root DI (the built-ins included). */
+  /** Functions a policy condition may call, for the checks at load; default every ConditionFunction the domain's container sees (the built-ins included). */
   readonly functions?: readonly ConditionFunction[];
   /** After a failed reload, the first retry waits this long (default 1000 ms), doubling up to 60 s. */
   readonly retryMs?: number;
@@ -87,7 +86,7 @@ export class AbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     this.registry = ctx.permissions;
-    if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions());
+    if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
     this.stores ??= storesFromConfig(this.name, ctx);
     // The registry is complete only after every model's init, so the index waits for the first applies().
     await this.load(false);
@@ -518,14 +517,8 @@ function fieldsOf(permits: readonly Entry[], denies: readonly Entry[]): FieldSet
   return { read: pick('read'), write: pick('write'), ...(hide.length > 0 ? { hide } : {}) };
 }
 
-/** Every ConditionFunction registered in root DI; the built-ins when DI holds none. */
-async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
-  const list = (await DI.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
-  return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
-}
-
 /** The stores `authz.<model>.stores` names (design §8.3); DbPolicyStore resolves its connection on first use. */
-export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
+export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config' | 'container'>): PolicyStore[] {
   const names = ctx.config<readonly string[]>('stores', ABAC_DEFAULT_STORES);
   const policies = ctx.config<readonly unknown[]>('policies', []);
   // A runtime Configuration.set skips the schema: a string would be spread into one policy per character.
@@ -536,7 +529,7 @@ export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'con
     if (name === 'DbPolicyStore') {
       const connection = ctx.config<string>('connection', ABAC_DEFAULT_CONNECTION);
       return new DbPolicyStore(async () => {
-        const driver = (await DI.resolve(Orm)).Connections.get(connection);
+        const driver = ((await ctx.container.resolve(Orm)) as Orm).Connections.get(connection);
         if (!driver) throw new AuthzConfigError(`authz.${model}.connection: no ORM connection named ${JSON.stringify(connection)}`);
         return driver;
       });

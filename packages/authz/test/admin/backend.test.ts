@@ -3,6 +3,7 @@ import 'mocha';
 
 import { AuthzConfigError, MemoryAuthzAdminBackend, memoryTx } from '@spinajs/authz';
 import type { AuthzCommandResult, AuthzTx, RememberedBatch } from '@spinajs/authz';
+import { installTestLog } from '@spinajs/authz-testing';
 
 const expect = chai.expect;
 
@@ -22,6 +23,10 @@ async function rejection(p: Promise<unknown>): Promise<Error> {
 }
 
 describe('MemoryAuthzAdminBackend', () => {
+  let uninstallLog: () => void;
+  before(() => (uninstallLog = installTestLog()));
+  after(() => uninstallLog());
+
   it('returns what the transaction returns and runs no undo on commit', async () => {
     const b = new MemoryAuthzAdminBackend();
     const undone: string[] = [];

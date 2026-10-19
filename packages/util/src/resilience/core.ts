@@ -142,12 +142,13 @@ export function _resolveShouldHandle<T>(shouldHandle?: ShouldHandle<T>): ShouldH
 
 /**
  * Runs an executor capturing its result or error into an {@link Outcome}.
+ * A thrown `undefined` is captured as an `Error`, so it still counts as a failure.
  */
 export async function _capture<T>(exec: Executor<T>, ctx: ResilienceContext): Promise<Outcome<T>> {
   try {
     return { Result: await exec(ctx) };
   } catch (error) {
-    return { Error: error };
+    return { Error: error === undefined ? new Error('Operation threw undefined') : error };
   }
 }
 

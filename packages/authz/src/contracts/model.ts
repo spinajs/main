@@ -1,3 +1,5 @@
+import type { IContainer } from '@spinajs/di';
+
 import type { Principal, PrincipalType, ResourceRef, ResourceType } from './principal.js';
 import type { Permission, PermissionDef, PermissionRegistry } from './permission.js';
 import type { FilterOp, ResourceFilter } from './filter.js';
@@ -29,6 +31,8 @@ export interface ModelCapabilities {
 
 export interface ModelInitContext {
   readonly domain: string;
+  /** The domain's container: resolve what the model needs (ConditionFunctions, Configuration, connections) here, not in root DI. */
+  readonly container: IContainer;
   readonly config: <T>(path: string, dflt?: T) => T; // reads authz.<model.name>.*
   readonly permissions: PermissionRegistry;
   registerPermissions(defs: readonly Omit<PermissionDef, 'source'>[]): void;

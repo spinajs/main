@@ -9,7 +9,7 @@ Every finished run of a `@Task()` method emits a queue event: `TaskSuccess` when
 3. `QueueEvent.emit()` builds the message with `Type: 'EVENT'`, `CreatedAt: now` and `Name` set to the class name (`'TaskSuccess'` or `'TaskFailed'`), and passes it to `QueueService.emit()`.
 4. `DefaultQueueService` runs every `QueueMessageHook.beforeEmit()`, then looks up `queue.routing.<Name>` to pick the connection, and sends the message there.
 5. The connection's `QueueClient` picks the channel: `queue.routing.<Name>.channel`, or the connection's `defaultTopicChannel`.
-6. A consumer that calls `QueueService.consume(TaskFailed, callback)` with a class of the same name receives it.
+6. A consumer that calls `QueueService.consume(TaskFailed, callback)` receives it.
 
 A run skipped because the mutex is held emits **no** event.
 
@@ -27,7 +27,7 @@ sequenceDiagram
 
 ## Events
 
-Both classes are `@Event()` subclasses of `QueueEvent`, defined in `src/events/`. They are **not** exported from `@spinajs/tasks`; see [Alert on failed tasks](#alert-on-failed-tasks).
+Both classes are `@Event()` subclasses of `QueueEvent`, exported from `@spinajs/tasks`; see [Alert on failed tasks](#alert-on-failed-tasks).
 
 | Event | Fields | Emitted when |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ Both classes are `@Event()` subclasses of `QueueEvent`, defined in `src/events/`
 
 Every message also carries the standard fields `Name`, `Type` and `CreatedAt`; see [Events and jobs](../queue/01-events-and-jobs.md#message-fields).
 
-`TaskName` is the name as passed to `@Task()`, untrimmed. `Reason` is read from `err.Message`, so it is `undefined` for a standard `Error`, whose text is in `message`.
+`TaskName` is the trimmed name passed to `@Task()`, the same as `__tasks.Name`. `Reason` is the thrown error's `message`.
 
 ## Configuration
 
@@ -79,7 +79,7 @@ Connection options other than `name`, `service` and the channel defaults depend 
 | Queue service | `QueueService`; singleton, resolved by `ev()` on every emit | `DefaultQueueService` | your `QueueService` | See [Queue service](../queue/09-queue-service.md). |
 | Transport | `QueueClient`, one instance per `queue.connections` entry, chosen by `service` | `BlackHoleQueueClient` for `task-empty-queue` | `AmqpQueueClient`, `SqsQueueClient`, `StompQueueClient`, your own | Point `queue.routing.TaskFailed` / `TaskSuccess` at another connection. |
 | Message hook | `QueueMessageHook`, resolved as a list (`Array.ofType`) on every emit | none | your hooks | `DI.register(MyHook).as(QueueMessageHook)`. Runs `beforeEmit()` for task events too. See [Message hooks](../queue/06-message-hooks.md). |
-| Event class | none: the package calls the static `emit()` and never resolves the class | `TaskSuccess`, `TaskFailed` (not exported) | a consumer-side class with the same name | Declare `@Event() class TaskFailed extends QueueEvent` in the consumer; routing and delivery match on the class name. |
+| Event class | none: the package calls the static `emit()` and never resolves the class | `TaskSuccess`, `TaskFailed` | a consumer-side class with the same name | Import the classes from `@spinajs/tasks` in the consumer, or declare a class with the same name; routing and delivery match on the class name. |
 
 ### Message hook: add the host name to task events
 
@@ -109,16 +109,16 @@ DI.register(TaskHostHook).as(QueueMessageHook);
 
 - **Nothing is delivered by default.** Both events go to `BlackHoleQueueClient` until you route them elsewhere.
 - **The emit is awaited inside the run.** A slow transport delays the task's promise. A failing `TaskSuccess` emit turns the run into a `TaskFailed`.
-- **A failing `TaskFailed` emit is swallowed** by the wrapper's `finally` block; nothing reports it except the transport's own logging.
+- **A failing `TaskFailed` emit rejects the task call**, after the lock is released and the history row is written.
 - **Events are fire-and-forget.** They are `QueueEvent`s, not jobs: no `queue_jobs` row, no retry, no result.
 - **Matching is by class name.** A consumer class must be named exactly `TaskFailed` or `TaskSuccess`; bundlers that rename classes break routing and delivery.
-- `Reason` is `undefined` for errors that have no `Message` property; see [Task decorator](01-task-decorator.md#important-behaviour).
+- `Reason` is `undefined` when the method throws something without a `message`, such as a string.
 
 ## Best practices
 
 - Route `TaskFailed` to a real transport in production and leave `TaskSuccess` in the black hole unless something reads it: one success event per run adds up.
-- Put the consumer-side event classes in one shared module so every service declares the same fields.
-- Read the failure text from your own logs (`TASKS` logger, `Cannot execute task`), which carries the full error, not from `Reason`.
+- Import `TaskFailed` and `TaskSuccess` from `@spinajs/tasks` in consumers instead of redeclaring them, so the fields stay in sync.
+- `Reason` carries only the message; read the stack from your own logs (`TASKS` logger, `Cannot execute task`).
 
 ## Patterns and antipatterns
 
@@ -126,12 +126,8 @@ DI.register(TaskHostHook).as(QueueMessageHook);
 // Don't: deep-import the package's event class; the package exports only ".", so this does not resolve
 import { TaskFailed } from '@spinajs/tasks/lib/mjs/events/TaskFailed.js';
 
-// Do: declare a class with the same name and fields in your app
-@Event()
-export class TaskFailed extends QueueEvent {
-  public TaskName: string;
-  public Reason: string;
-}
+// Do: import it from the package root
+import { TaskFailed } from '@spinajs/tasks';
 ```
 
 ## Examples
@@ -142,14 +138,8 @@ A monitoring worker consumes `TaskFailed` and posts a message to the ops chat. R
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Event, QueueEvent, QueueService } from '@spinajs/queue';
-
-// Same name and fields as the event @spinajs/tasks emits.
-@Event()
-export class TaskFailed extends QueueEvent {
-  public TaskName: string;
-  public Reason: string;
-}
+import { QueueService } from '@spinajs/queue';
+import { TaskFailed } from '@spinajs/tasks';
 
 export async function startTaskFailureAlerts(postToOpsChat: (text: string) => Promise<void>): Promise<void> {
   const queue = await DI.resolve(QueueService);
@@ -164,12 +154,8 @@ export async function startTaskFailureAlerts(postToOpsChat: (text: string) => Pr
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Event, QueueEvent, QueueService } from '@spinajs/queue';
-
-@Event()
-export class TaskSuccess extends QueueEvent {
-  public TaskName: string;
-}
+import { QueueService } from '@spinajs/queue';
+import { TaskSuccess } from '@spinajs/tasks';
 
 export const successfulRuns = new Map<string, number>();
 

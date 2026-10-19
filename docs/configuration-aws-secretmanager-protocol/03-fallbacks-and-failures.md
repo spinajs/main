@@ -37,8 +37,8 @@ db: {
 
 - A fallback applies to **any** fetch error: missing secret, missing credentials, `AccessDenied`, throttling. The warning in `InternalLogger` is the only trace of a real misconfiguration.
 - A fallback applies only to errors. A secret that exists but is empty resolves to `''`, not to the default.
-- A fallback does **not** cover `#json.path` on a value that is not valid JSON: that error comes after the fallback check and leaves the raw string.
-- A missing JSON key is not an error: `#json.path` returns `undefined` and the default is not used.
+- A fallback also covers `#json.path` on a value that is not valid JSON: `?default=` / `?optional=true` apply as for a failed fetch.
+- A missing JSON key is not an error: `#json.path` returns `''` and the default is not used.
 - Failures are never cached. Every later `load()` retries AWS.
 - The default value is decoded by `URLSearchParams`: `+` becomes a space, `%xx` is decoded, `&` ends the value. A `#` in it starts the JSON path, so encode it as `%23`.
 - The fallback value is always a string, also on a `/*` hierarchy.

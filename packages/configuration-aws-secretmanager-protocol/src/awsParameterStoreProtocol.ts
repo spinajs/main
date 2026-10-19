@@ -2,7 +2,7 @@ import { ConfigVarProtocol } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { SSMClient, GetParameterCommand, GetParametersByPathCommand } from '@aws-sdk/client-ssm';
 import { Injectable, Singleton } from '@spinajs/di';
-import { assignNested, createSdkLogger, DEFAULT_CACHE_TTL, extractValue, parseAwsPath, parseBoolParam, resolveFallback, TtlCache, warnUnknownParams } from './utils.js';
+import { assignNested, createSdkLogger, DEFAULT_CACHE_TTL, extractWithFallback, parseAwsPath, parseBoolParam, resolveFallback, TtlCache, warnUnknownParams } from './utils.js';
 
 @Singleton()
 @Injectable(ConfigVarProtocol)
@@ -101,12 +101,13 @@ export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
       throw err;
     }
 
-    if (Array.isArray(value)) {
-      return value;
+    if (jsonPath) {
+      const text = Array.isArray(value) ? value.join(',') : value;
+      return extractWithFallback(text, jsonPath, params, 'AwsParameterStoreVarProtocol', id) as string | number | boolean | object | undefined;
     }
 
-    if (jsonPath) {
-      return extractValue(value, jsonPath) as string | number | boolean | object | undefined;
+    if (Array.isArray(value)) {
+      return value;
     }
 
     // coalesce missing/empty values to empty string so config never keeps an undefined entry

@@ -1,7 +1,8 @@
 import { GLOBAL } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { _check_arg, _is_string, _non_empty, _one_of, _reg_match } from '@spinajs/util';
+import { _check_arg, _one_of } from '@spinajs/util';
 
+import { checkFsName } from '../metadata/meta.js';
 import { normalizeFsPath } from './paths.js';
 
 export type FsPathKind = 'file' | 'dir';
@@ -21,7 +22,7 @@ const isFsName = (name: unknown): name is string => typeof name === 'string' && 
 
 /** `{ type: 'fs', id: fsName }` for the root, else `{ type: kind, id: '<fsName>:<normalised path>' }`. */
 export function fsRef(fsName: string, path: string, kind: FsPathKind): ResourceRef {
-  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(fsName, 'fsName');
+  checkFsName(fsName);
   _check_arg(_one_of(['file', 'dir']))(kind, 'kind');
   const normalised = normalizeFsPath(path);
   return normalised === '' ? { type: 'fs', id: fsName } : { type: kind, id: `${fsName}:${normalised}` };

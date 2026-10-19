@@ -248,6 +248,24 @@ describe('http & controller tests', function () {
     });
   });
 
+  it('Created renders its html page', async () => {
+    const response = await req().get('responses/created').set('Accept', 'text/html').send();
+    expect(response).to.have.status(201);
+    expect(response).to.be.html;
+  });
+
+  it('@Accepts(JSON) lets */* through and answers 406 to an html-only client', async () => {
+    const any = await req().get('responses/acceptsJson').set('Accept', '*/*').send();
+    expect(any).to.have.status(200);
+
+    const list = await req().get('responses/acceptsJson').set('Accept', 'text/html, application/json;q=0.9').send();
+    expect(list).to.have.status(200);
+
+    const html = await req().get('responses/acceptsJson').set('Accept', 'text/html').send();
+    expect(html).to.have.status(406);
+    expect(html).to.be.html;
+  });
+
   it('Should return error 500', async () => {
     const response = await req().get('responses/testError').set('Accept', 'application/json').send();
     expect(response).to.have.status(500);

@@ -444,13 +444,13 @@ describe('owner-container singletons (DI-2)', () => {
     });
   });
 
-  describe('self records left by resolving an unregistered key', () => {
-    it('Array.chainOf lists the self record only while nobody registers the key', () => {
+  describe('resolving an unregistered key leaves no record', () => {
+    it('Array.chainOf lists nothing until somebody registers the key', () => {
       const child = DI.child();
-      const early = child.resolve(Late);
+      child.resolve(Late);
 
-      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([Late]);
-      expect((child.resolve(Array.chainOf(Late)) as Late[])[0]).to.equal(early);
+      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([]);
+      expect(child.resolve(Array.chainOf(Late))).to.deep.equal([]);
 
       DI.register(LateA).as(Late);
 
@@ -471,19 +471,7 @@ describe('owner-container singletons (DI-2)', () => {
       expect(single).to.equal(DI.resolve(Late));
       expect(listed[0]).to.equal(single);
       expect(early).to.not.equal(single);
-      expect(child.getRegisteredTypes(Late, false)).to.deep.equal([Late]);
-    });
-
-    it('clear() resets the implicit records', () => {
-      DI.resolve(Plain);
-      const registry = DI.RootContainer.Registry as unknown as { implicitKeys: Set<string> };
-      expect(registry.implicitKeys.has('Plain')).to.equal(true);
-
-      DI.clear();
-
-      expect(registry.implicitKeys.size).to.equal(0);
-      DI.register(Plain).asSelf();
-      expect(DI.RootContainer.Registry.ownsRegistration(Plain)).to.equal(true);
+      expect(child.getRegisteredTypes(Late, false)).to.equal(null);
     });
   });
 
@@ -526,7 +514,7 @@ describe('owner-container singletons (DI-2)', () => {
       expect(seen).to.deep.equal([child, child]);
     });
 
-    it('a type registered nowhere is created in the resolving container and recorded there', () => {
+    it('a type registered nowhere is created in the resolving container and not recorded', () => {
       const child = DI.child();
 
       const fromChild = child.resolve(Plain);
@@ -534,7 +522,7 @@ describe('owner-container singletons (DI-2)', () => {
 
       expect(fromChild).to.not.equal(fromRoot);
       expect(child.Cache.has(Plain)).to.equal(true);
-      expect(child.getRegisteredTypes(Plain, false)).to.deep.equal([Plain]);
+      expect(child.getRegisteredTypes(Plain, false)).to.equal(null);
       expect(child.Registry.ownsRegistration(Plain)).to.equal(false);
       expect(child.resolve(Plain)).to.equal(fromChild);
     });
@@ -548,7 +536,7 @@ describe('owner-container singletons (DI-2)', () => {
 
       const fromChild = child.resolve(PlainConsumer);
 
-      expect(DI.RootContainer.getRegisteredTypes(PlainConsumer, false)).to.deep.equal([PlainConsumer]);
+      expect(DI.RootContainer.getRegisteredTypes(PlainConsumer, false)).to.equal(null);
       expect(fromRoot.store).to.be.instanceOf(RootStore);
       expect(fromChild.store).to.be.instanceOf(ChildStore);
       expect(child.Cache.has(PlainConsumer)).to.equal(true);

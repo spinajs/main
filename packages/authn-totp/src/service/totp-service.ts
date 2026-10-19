@@ -1,10 +1,12 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
-import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
+import { AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 import { registered } from '../support/registered.js';
@@ -23,6 +25,7 @@ export interface TotpServiceDeps {
   readonly sessions?: SessionIssuer;
   readonly authn?: AuthnService;
   readonly throttle?: AuthnThrottle;
+  /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
   readonly sinks?: readonly AuthnEventSink[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
@@ -34,7 +37,7 @@ interface Resolved {
   readonly sessions: SessionIssuer;
   readonly authn: AuthnService;
   readonly throttle: AuthnThrottle;
-  readonly sinks: readonly AuthnEventSink[];
+  readonly audit: AuthnAuditor;
   readonly maxAgeSeconds: number;
 }
 
@@ -60,6 +63,9 @@ export class TotpService {
 
   @Config('authn.freshAuth.maxAgeSeconds')
   protected MaxAgeSeconds: number;
+
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
 
   constructor(private readonly deps: TotpServiceDeps = {}) {}
 
@@ -247,15 +253,11 @@ export class TotpService {
     await this.publish(ctx, { ...e, identity: c.identity, ...(c.facts.sessionHandle ? { session: c.facts.sessionHandle } : {}) });
   }
 
-  private async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const sinks = await this.need('sinks');
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of sinks) {
-      await sink.publish(event);
-    }
+  private async publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    await (await this.need('audit')).publishIn(ctx, e);
   }
 
-  /** Resolved on first use, one by one, so `adminReset` (the CLI) needs only the step and the sinks. */
+  /** Resolved on first use, one by one, so `adminReset` (the CLI) needs only the step and the audit. */
   private async need<K extends keyof Resolved>(key: K): Promise<Resolved[K]> {
     const hit = this.cache[key];
     if (hit !== undefined) {
@@ -279,8 +281,8 @@ export class TotpService {
         return d.authn ?? (await resolveOne(AuthnService)) ?? missing('AuthnService');
       case 'throttle':
         return d.throttle ?? (await resolveOne(AuthnThrottle)) ?? missing('AuthnThrottle');
-      case 'sinks':
-        return d.sinks ?? (registered(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
+      case 'audit':
+        return d.sinks ? AuthnAudit.over(d.sinks) : (this.Audit ?? missing('AuthnAudit'));
       case 'maxAgeSeconds':
         return d.maxAgeSeconds ?? this.MaxAgeSeconds;
     }

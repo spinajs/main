@@ -1,5 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
-import * as cs from 'cookie-signature';
+import { randomBytes } from 'node:crypto';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
@@ -15,11 +14,10 @@ import type * as express from 'express';
 
 import { AuthnPrincipalResolver } from '../api.js';
 import { publicOriginOf } from '../extractors/signature.js';
+import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
+import { contextOf } from '../v3/context.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
-
-// Domain-separated and cut short: sha256 of a raw session id is its storage key, which must not reach a log.
-const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
 
 function headersOf(req: Request): Record<string, string> {
   // From rawHeaders: req.headers keeps only the first of a repeated Authorization header.
@@ -123,7 +121,7 @@ export class AuthnMiddleware extends ServerMiddleware {
   protected async authenticate(req: Request, res: express.Response): Promise<void> {
     req.storage.AuthnSession = null;
     req.storage.AuthnPrincipal = null;
-    const ctx = this.contextOf(req);
+    const ctx = contextOf(req, 'request');
 
     const session = await this.restoreSession(req);
     req.storage.AuthnSession = session;
@@ -137,21 +135,16 @@ export class AuthnMiddleware extends ServerMiddleware {
     else if (session?.handle.state === 'active') req.storage.AuthnSession = null;
   }
 
-  protected contextOf(req: Request): AuthnContext {
-    const ip = req.storage.ClientIp;
-    const userAgent = req.headers['user-agent'];
-    return { ...(typeof ip === 'string' ? { ip } : {}), ...(typeof userAgent === 'string' ? { userAgent } : {}), now: new Date(), purpose: 'request' };
-  }
-
   /**
-   * The cookie as 2.x accepted it: signed by hand (http `_setCoockies`) in req.cookies, or `s:`-signed by express,
-   * which cookie-parser verifies into req.signedCookies (false for a bad signature).
+   * The `s:`-signed cookie http `_setCoockies` and express set, which cookie-parser verifies into req.signedCookies
+   * (false for a bad signature). It stays in req.cookies when the parser has no secret, and so does a cookie issued
+   * before the `s:` prefix; both are verified here.
    */
   protected async restoreSession(req: Request): Promise<Session | null> {
     const raw: unknown = req.cookies?.[this.CookieName];
     const signed: unknown = req.signedCookies?.[this.CookieName];
     let id: string | false | undefined;
-    if (typeof raw === 'string' && raw !== '') id = cs.unsign(raw, this.CookieSecret);
+    if (typeof raw === 'string' && raw !== '') id = unsignSessionCookie(raw, this.CookieSecret);
     else if (typeof signed === 'string' || signed === false) id = signed;
 
     if (id === false) {
@@ -164,7 +157,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     if (!id) return null;
 
     const restored = await this.Sessions.restore(id);
-    if (!restored) this.Log.warn({ session: logHash(id), ip: req.storage.ClientIp }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
+    if (!restored) warnNoLiveSession(this.Log, id, req.storage.ClientIp);
     // An issuer outside TypeScript may hand back a plain object; the typed reads need a Session.
     return restored ? resolveSession(this.Container, restored) : restored;
   }
