@@ -1,17 +1,17 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-19)
 
 ## Corpus Check
-- 4580 files · ~3,018,934 words
+- 4580 files · ~3,018,928 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
 ## Summary
-- 49608 nodes · 132057 edges · 1684 communities (1166 shown, 518 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17178 edges (avg confidence: 0.94)
+- 49608 nodes · 132056 edges · 1684 communities (1166 shown, 518 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17177 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f4980b05`
+- Built from commit: `509c113d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1563,7 +1563,7 @@
 6. `Get()` - 257 edges
 7. `Autoinject()` - 212 edges
 8. `Orm` - 192 edges
-9. `AuthzConfigError` - 187 edges
+9. `AuthzConfigError` - 186 edges
 10. `fs` - 174 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -6275,7 +6275,7 @@ Nodes (3): repository, type, url
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Injectable()` connect `Injectable` to `packages_di_lib_mjs_index_injectable`, `Features`, `authn-api-contract.test.ts`, `stores.db.test.ts`, `db-link-store.test.ts`, `FormFileUploader`, `config-role-store.test.ts`, `RbacModel`, `FileInfoService`, `arg-input-filter.test.ts`, `BasePolicy`, `AuthzConfigError`, `InvalidArgument`, `membership-teams.test.ts`, `orm/src/builders.ts`, `test/behaviour/harness.ts`, `test/hooks.test.ts`, `default-authn-service.ts`, `authz-rbac/src/admin/common.ts`, `NewInstance`, `lists/middleware.ts`, `PerfSink`, `registry/registry.ts`, `boolean`, `DefaultFileHasher`, `BaseSocketController`, `root.ts`, `DataValidator`, `BasePolicy`, `users/test/support/http-app.ts`, `Injectable`, `users-http/test/support/http-app.ts`, `AmqpQueueClient`, `TelemetryMiddleware`, `within.test.ts`, `Permission`, `real-ip.test.ts`, `ConfigVarProtocol`, `SocketServer`, `fsNative`, `fsFTP`, `FileTarget`, `Authentication`, `di/test/di.test.ts`, `DbMfaSecretStore`, `src/adapter.ts`, `SocketException`, `KeyChallengeStrategy`, `RendererOrmDriverBridge`, `FallbackGroupTarget`, `ModelBase`, `ModelSchemaProvider`, `SocketHub`, `ref_spinajs_authz`, `StompQueueClient`, `configuration-http/test/common.ts`, `AuthnContext`, `ConfigFileValidator`, `WhenRepeatedFilter`, `autoinject-options.test.ts`, `DbMfaStore`, `metadata/orm-store.ts`, `SessionExpirationProvider`, `QueueClient`, `QueryBuilder`, `ref_spinajs_di`, `assignment-sql.test.ts`, `Config`, `fsTemp`, `ConfigVarProtocol`, `RedisSessionStore`, `message`, `orm/src/orm.ts`, `authz-orm/src/host.ts`, `UserMetadataController`, `MySqlOrmDriver`, `fsOneDrive`, `ref_sinon`, `DbConfigValueConverter`, `issuer.ts`, `Configuration`, `c8.test.ts`, `access-config/index.ts`, `strategies/httpsig.ts`, `DefaultAccountGuard`, `DynamoDbSessionProvider`, `HandlebarsRenderer`, `Get`, `registry/orm-store.ts`, `DefaultEmailService`, `.compileToFile`, `authz-abac/test/admin/support.ts`, `invitations/service.ts`, `packages_authn_lib_mjs_contracts_index`, `LocalPasswordService`, `authz-fs/src/index.ts`, `TemplateRenderer`, `authn-oidc/test/acceptance.test.ts`, `Principal`, `GraphanaLokiLogTarget`, `FrameworkConfiguration`, `Metrics`, `DbSessionStore`, `ref_spinajs_validation`, `EmailSend`, `Singleton`, `test/support/world.ts`, `ref_chai`, `DbAuthnThrottle`, `PdfRenderer`, `FallbackGroupTarget`, `PostgresOrmDriver`, `TotpService`, `Bootstrapper`, `UsersHttpOfferTokenService`, `fsService`, `fsS3`, `IdentityRef`, `awsParameterStoreProtocol.ts`, `packages_exceptions_lib_mjs_index`, `Initiator`, `teamRef`, `FilterModelRouteArg`, `authn-keys/test/harness.ts`, `EmailSender`, `src/dto/index.ts`, `email.deferred.test.ts`, `SpineJsInternationalizationFromJson`, `Csv`, `db-mfa-store.ts`, `BrowserFrameworkConfiguration`, `StubRenderer`, `packages_exceptions_lib_mjs_index_invalidargument`, `nonce-store.ts`, `authz-fs/test/api.test.ts`, `invitations/mailer.ts`, `UserController`, `FromDbModel`, `authn-token/test/v3/cli.test.ts`, `sse.ts`, `queue-harness.ts`, `child-chain.test.ts`, `SocketConnection`, `DbTranslationSource`, `AuthzAdmin`, `DbMfaEnrolments`, `ISelectQueryBuilder`, `OtelTracing`, `JobModel`, `ThrowingRenderer`, `CurrentUserArg`, `team-service.ts`, `guessLanguage`, `SchemaSource`, `upgrade-migration.test.ts`, `LongSpanRegistry`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
+  _High betweenness centrality (0.065) - this node is a cross-community bridge._
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1700 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `model/evaluate.ts` be split into smaller, more focused modules?**

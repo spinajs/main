@@ -116,10 +116,11 @@ are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same tex
 
 Other authz-rbac migrations:
 
-- `AuthzRbacUserRoles_2026_10_01_00_01_00` copies the 2.x comma list in `users.Role` into
-  `$global` assignments with `source='users.Role'`.
-- `AuthzRbacDropUserRole_2026_10_01_00_02_00` drops `users.Role`. It refuses while a role in the
-  column has no live assignment, and `down()` rebuilds the column.
+- `AuthzRbacUserRoles_2026_10_01_00_01_00` (on `authz`) copies the 2.x comma list in `users.Role`,
+  read on `default`, into `$global` assignments with `source='users.Role'`.
+- `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`, where `users` is) drops `users.Role`. It
+  refuses while a role in the column has no live assignment on `authz`, and `down()` rebuilds the
+  column.
 - `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00` creates `authz_admin_idempotency`: PK
   `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`, `created_at`.
 

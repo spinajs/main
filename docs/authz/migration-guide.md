@@ -608,8 +608,8 @@ Details you may need:
   collation. A sub-second `authn.throttle` delay is not supported there.
 
 **The `users.Role` migrations (L2).** Three migrations in `@spinajs/authz-rbac` run in the order of
-their timestamps. The first runs on the `authz` connection (`db.Aliases.authz`), the other two on
-`default`:
+their timestamps. The first two run on the `authz` connection (`db.Aliases.authz`, default
+`default`); the drop runs on `default`, where the `users` table is:
 
 1. `AuthzRbac_2026_10_01_00_00_00` creates `authz_assignment`, `authz_rule`, `authz_rule_subject`,
    `authz_link` and `authz_version`.
@@ -621,7 +621,8 @@ their timestamps. The first runs on the `authz` connection (`db.Aliases.authz`),
 with `source = 'users.Role'`. The subject is `user:<idColumn>` with `idColumn` defaulting to
 `Uuid`, not `Id`, because 3.0 user principals are `user:<Uuid>`. The design says `users.Id`; the code
 differs. A rerun adds nothing, because the unique index `authz_assignment_uq` ignores a repeated row.
-It runs in one transaction and bumps `authz_version` of the root domain when it inserted rows.
+It reads `users` on `default`, inserts on `authz` in one transaction with its migration record, and
+bumps `authz_version` of the root domain when it inserted rows.
 
 - A `users` row whose id column is null or empty is skipped and its roles are not copied. The
   migration logs a warning with the count.
@@ -637,9 +638,10 @@ column when you revoked it on purpose. Then run
 `orm.Migration.resolve('AuthzRbacDropUserRole_2026_10_01_00_02_00', 'rolled-back')` and migrate
 again. It also refuses when the id column is not unique (it counts the rows its walk saw against the
 table count), when the table has rows but no id column, and warns about rows with roles but a null id
-(those roles are lost with the column). On PostgreSQL it takes a `SHARE` lock on `users` between the
-check and the drop, which stops a 2.x node that still writes users. Then it runs
-`ALTER TABLE users DROP COLUMN <roleColumn>`.
+(those roles are lost with the column). It reads the assignments on `authz`. Between the check and the
+drop it locks `users` against writers with `schema().lockTable()` (a `SHARE` lock on PostgreSQL; SQLite
+needs none), which stops a 2.x node that still writes users. Then it drops the column with
+`alterTable(...).dropColumn()`, in one transaction with its migration record on `default`.
 
 *Rollback.* The drop's `down()` re-adds `<roleColumn>` as `varchar(256) NOT NULL DEFAULT ''` (2.x
 had no default) and fills it from each user's live `$global` roles, sorted and joined with `,`. The
@@ -649,12 +651,10 @@ first**, or with `{ all: true }`: `Migration.down(name)` acts only on the last a
 stored as local wall time (a repo-wide ORM issue), so run the process with a fixed time zone. MySQL
 and MSSQL are not tested.
 
-*Authz on another connection.* The copy and the drop read `users` and write or read
-`authz_assignment` through one connection, `default`. When `db.Aliases.authz` names another
-connection, they throw an `AuthzConfigError` that names `db.Aliases.authz` and change nothing as soon
-as they have work: users with roles to copy, a filled `users` table to check before the drop, or a
-rollback that reads or deletes assignments. A missing or empty `users` table still migrates. Map
-`db.Aliases.authz` to `default` for the upgrade; copying across connections is not supported yet.
+*Authz on another connection.* When `db.Aliases.authz` names another connection than `default`, the
+copy reads `users` on `default` and writes on `authz`, and the drop reads the assignments on `authz`
+and alters `users` on `default`. Each commits with its own migration record; no transaction spans the
+two connections, and none is needed, since each migration only reads the other one.
 
 *Before and after.* Compare `SELECT count(*)` of users with a role against the number of distinct
 `subject_id` in `authz_assignment` where `source = 'users.Role'`. The migration prints no counts.

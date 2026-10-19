@@ -387,10 +387,8 @@ authz: {
   points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`, which wins over the package
   default. A write whose transaction runs on another connection is refused. `authz.rbac.connection` and
   `authz.admin.connection` are gone: setting either fails boot with an `AuthzConfigError` that names
-  `db.Aliases.authz`. The `users.Role` copy and drop migrations still run on `default` and read the
-  authz tables there: when `db.Aliases.authz` names another connection and they have rows to copy or
-  check, they throw an `AuthzConfigError` and change nothing. Map the alias to `default` while they run;
-  they do not work across connections yet.
+  `db.Aliases.authz`. The `users.Role` copy runs on `authz` and reads `users` on `default`; the drop runs
+  on `default` and reads the assignments on `authz`.
 - **Registering.** A store class registers under its class name only.
   `registerRbacStores(container, configuration)` registers the classes that `authz.rbac.stores`
   names under their ports (`RoleStore`, `AssignmentStore`, `RuleStore`, `LinkStore`) and, for the DB
