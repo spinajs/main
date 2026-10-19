@@ -47,7 +47,7 @@ Every method below is bound by `Orm`. Before `Orm` resolves, or on a class witho
 | `first(callback?)` | `Promise<model>` | First row ordered by primary key ascending. Without a key it orders by `Unique` columns, then `@CreatedAt`, then `@UpdatedAt`. `callback` receives the builder. |
 | `last(callback?)` | `Promise<model>` | As `first()`, descending. |
 | `newest(callback?)` / `oldest(callback?)` | `Promise<model>` | First row by `@CreatedAt` descending / ascending. Throws `OrmException` when the model has no `@CreatedAt`. |
-| `count(callback?)` | `Promise<number>` | `COUNT(*)`; `0` when nothing matches. |
+| `count(callback?)` | `Promise<number>` | `COUNT(*)` as a `number` on every driver (PostgreSQL's `bigint` count text is converted); `0` when nothing matches. |
 | `exists(pk)` | `Promise<boolean>` | Selects only the key columns of the row with this key. With `pk === null` it checks whether the table has any row. |
 | `insert(data, behaviour?)` | `Promise<IInsertResult>` | Inserts one model, one plain object or an array. See [Insert](#insert). |
 | `update(data)` | update builder | `UPDATE ... SET data`. Every value whose column has a converter (`@Json`, `@DateTime`, `@Set`, `@Uuid`, ...) is converted the way `insert()` converts it; `null`, `undefined` and keys without a column are bound as they are. A `@DateTime` column accepts ISO 8601 and SQL-format (`YYYY-MM-DD HH:mm:ss`) strings; any other string makes `update(data)` throw `InvalidArgument` synchronously, before a builder exists. Chain a `where()`: an update without one throws `InvalidArgument` too, but that rejects when the builder is awaited. Throws `OrmException` when `data` is a `ModelBase`. |

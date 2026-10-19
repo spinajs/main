@@ -1628,9 +1628,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
+    // postgres returns COUNT(*) as a bigint string
     return this.count(column, as).takeFirst()
-      .asRaw<{ [key: string]: number }>()
-      .then((x) => x ? x[a] : 0);
+      .asRaw<{ [key: string]: number | string }>()
+      .then((x) => (x ? Number(x[a]) : 0));
   }
 
   public sum(column: string, as?: string): this {

@@ -124,7 +124,7 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | `distinct()` | `SELECT DISTINCT`. Throws `InvalidOperation` when the column list is empty or starts with `*`. |
 | `min` / `max` / `sum` / `avg(column, as?)` | Adds an aggregate column. |
 | `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as`. |
-| `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the number, or `0`. |
+| `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the count as a `number` on every driver, or `0`. |
 | `asRaw<T>()` | Executes and resolves with the driver rows, skipping builder middlewares and hydration. |
 | `getColumns()` | The column statements. |
 
