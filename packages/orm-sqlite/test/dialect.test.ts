@@ -4,8 +4,8 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, Orm, QueryContext, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
+import { InvalidArgument, MethodNotImplemented, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, Orm, OrmException, QueryContext, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 
 import { SqliteOrmDriver } from '../src/index.js';
 import { SqliteInSetStatement } from '../src/statements.js';
@@ -155,5 +155,181 @@ describe('sqlite dialect', function () {
 
       expect(() => statement.build()).to.throw(InvalidArgument, /delimiter/);
     });
+  });
+
+  const failure = async (pending: PromiseLike<unknown>): Promise<any> => {
+    try {
+      await pending;
+    } catch (err) {
+      return err;
+    }
+    throw new Error('expected a rejection');
+  };
+
+  const rows = async (sql: string) => (await connection.executeOnDb(sql, [], QueryContext.Select)) as any[];
+
+  describe('compiled statements', () => {
+    beforeEach(async () => {
+      await connection.executeOnDb(`CREATE TABLE prices (Sku TEXT PRIMARY KEY, Price INTEGER, Note TEXT)`, [], QueryContext.Schema);
+      await connection.insert().into('prices').values([
+        { Sku: 'A', Price: 1, Note: 'a' },
+        { Sku: 'B', Price: 2, Note: 'b' },
+      ]);
+    });
+
+    it('upserts every conflicting row with its own values', async () => {
+      await connection
+        .insert()
+        .into('prices')
+        .values([
+          { Sku: 'A', Price: 10, Note: 'a' },
+          { Sku: 'B', Price: 20, Note: 'b' },
+        ])
+        .onDuplicate('Sku')
+        .update(['Price']);
+
+      expect((await rows('SELECT Sku, Price FROM prices ORDER BY Sku')).map((r) => r.Price)).to.deep.eq([10, 20]);
+    });
+
+    it('keeps the existing row when an upsert names no columns to update', async () => {
+      await connection.insert().into('prices').values({ Sku: 'A', Price: 10, Note: 'a' }).onDuplicate('Sku');
+
+      expect((await rows(`SELECT Price FROM prices WHERE Sku = 'A'`))[0].Price).to.eq(1);
+    });
+
+    it('leaves out a column no row supplies, so the table default applies', async () => {
+      await connection.insert().into('prices').values([{ Sku: 'C', Price: 3, Note: undefined }]);
+
+      expect((await rows(`SELECT Note FROM prices WHERE Sku = 'C'`))[0].Note).to.eq(null);
+    });
+
+    it('skips rows without a limit', async () => {
+      const result = await connection.select().from('prices').orderBy('Sku').skip(1);
+
+      expect((result as any[]).map((r) => r.Sku)).to.deep.eq(['B']);
+    });
+
+    it('orders by every sort column', () => {
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('prices').orderBy('Price').orderByDescending('Sku');
+
+      expect((qb.toDB() as any).expression).to.match(/ORDER BY `Price` ASC, `Sku` DESC$/);
+    });
+
+    it('runs a RIGHT JOIN', async () => {
+      const result = await connection
+        .select()
+        .from('dialect_users')
+        .rightJoin({ joinTable: 'prices', joinTableAlias: 'prices', joinTableForeignKey: 'Sku', sourceTablePrimaryKey: 'Login', joinTableDriver: connection });
+
+      expect(result as any[]).to.have.lengthOf(2);
+    });
+  });
+
+  describe('schema', () => {
+    it('creates a column with a charset, a comment and a string default holding a quote', async () => {
+      await connection.schema().createTable('notes', (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.string('Body').notNull().charset('utf8').comment('free text').default().value("it's");
+      });
+      await connection.executeOnDb(`INSERT INTO notes DEFAULT VALUES`, [], QueryContext.Insert);
+
+      expect((await rows('SELECT Body FROM notes'))[0].Body).to.eq("it's");
+    });
+
+    it('refuses history tracking instead of ignoring it', () => {
+      expect(() =>
+        connection
+          .schema()
+          .createTable('tracked', (table) => {
+            table.int('Id').primaryKey();
+            table.trackHistory();
+          })
+          .toDB(),
+      ).to.throw(NotSupported);
+    });
+
+    it('runs every statement of a multi-statement raw schema query', async () => {
+      await connection.executeOnDb(`CREATE TABLE raw_a (x); CREATE TABLE raw_b (x)`, [], QueryContext.Schema);
+
+      expect(await rows(`SELECT name FROM sqlite_master WHERE name IN ('raw_a', 'raw_b') ORDER BY name`)).to.have.lengthOf(2);
+    });
+
+    it('keeps the sqlite3 error of a failed schema statement', async () => {
+      const err = await failure(connection.executeOnDb(`CREATE TABLE dialect_users (x)`, [], QueryContext.Schema));
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect(err.inner.code).to.eq('SQLITE_ERROR');
+    });
+  });
+
+  describe('errors', () => {
+    beforeEach(async () => {
+      await connection.executeOnDb(`CREATE TABLE accounts (Id INTEGER PRIMARY KEY AUTOINCREMENT, Email TEXT NOT NULL UNIQUE)`, [], QueryContext.Schema);
+      await connection.insert().into('accounts').values({ Email: 'a@b.c' });
+    });
+
+    it('reports a duplicate on a RETURNING insert as ResourceDuplicated', async () => {
+      const err = await failure(connection.insert().into('accounts').values({ Email: 'a@b.c' }).returning(['Id']));
+
+      expect(err).to.be.instanceOf(ResourceDuplicated);
+      expect(err.inner.code).to.eq('SQLITE_CONSTRAINT');
+    });
+
+    it('does not report a NOT NULL violation as a duplicate', async () => {
+      const err = await failure(connection.executeOnDb(`INSERT INTO accounts (Email) VALUES (NULL)`, [], QueryContext.Insert));
+
+      expect(err).to.be.instanceOf(OrmException);
+      expect(err).to.not.be.instanceOf(ResourceDuplicated);
+    });
+  });
+
+  describe('transactions', () => {
+    beforeEach(async () => {
+      await connection.executeOnDb(`CREATE TABLE ledger (Amount INTEGER)`, [], QueryContext.Schema);
+    });
+
+    it('runs concurrent outermost transactions one after another', async () => {
+      await Promise.all([
+        connection.transaction(async () => connection.insert().into('ledger').values({ Amount: 10 })),
+        connection.transaction(async () => connection.insert().into('ledger').values({ Amount: -10 })),
+      ]);
+
+      expect(await rows('SELECT Amount FROM ledger')).to.have.lengthOf(2);
+    });
+
+    it('keeps a write made outside an open transaction out of its rollback', async () => {
+      let opened!: () => void;
+      const outside = new Promise<void>((resolve) => (opened = resolve)).then(() => connection.executeOnDb(`INSERT INTO ledger (Amount) VALUES (2)`, [], QueryContext.Insert));
+
+      await failure(
+        connection.transaction(async () => {
+          await connection.insert().into('ledger').values({ Amount: 1 });
+          opened();
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          throw new Error('rollback');
+        }),
+      );
+      await outside;
+
+      expect((await rows('SELECT Amount FROM ledger')).map((r) => r.Amount)).to.deep.eq([2]);
+    });
+  });
+
+  describe('table reflection', () => {
+    it('marks every single-column unique index, by exact column name, and quotes the table name', async () => {
+      await connection.executeOnDb(`CREATE TABLE "user list" (Id INTEGER PRIMARY KEY, UserId INTEGER UNIQUE, Email TEXT UNIQUE)`, [], QueryContext.Schema);
+
+      const columns = await connection.tableInfo('user list');
+
+      expect(columns.filter((c) => c.Unique).map((c) => c.Name)).to.deep.eq(['UserId', 'Email']);
+    });
+  });
+
+  it('fails the ping once the database handle no longer works', async () => {
+    expect(await connection.ping()).to.eq(true);
+
+    await new Promise((resolve) => (connection as any).Db.close(resolve));
+
+    expect(await connection.ping()).to.eq(false);
   });
 });

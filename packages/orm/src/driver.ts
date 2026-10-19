@@ -4,7 +4,9 @@ import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, Iso
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
+import { SqlExpressions } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
@@ -65,6 +67,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {};
 
+  /** Most bound parameters one statement may carry. Drivers set their server's limit. */
+  public readonly MaxBindings: number = Number.POSITIVE_INFINITY;
+
+  /** Most rows one `INSERT … VALUES` may list. Drivers set their server's limit. */
+  public readonly MaxInsertRows: number = Number.POSITIVE_INFINITY;
+
   /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
    * a transaction.
@@ -124,6 +132,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(JsonValueConverter).as(JsonValueConverter);
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
+    this.Container.register(SqlExpressions).as(SqlExpressions);
   }
 
   /**
@@ -191,6 +200,27 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   protected isRetryableError(err: unknown): boolean {
     return isRetryableErrorCode(err);
+  }
+
+  /**
+   * True when `err`, as the database client threw it, is a unique or primary key violation.
+   * Drivers override with their server's codes; the default recognises none.
+   */
+  protected isUniqueViolation(_err: unknown): boolean {
+    return false;
+  }
+
+  /**
+   * The error a failed statement rejects with: a unique or primary key violation, found in
+   * `err` or the errors it wraps, becomes {@link ResourceDuplicated}; anything else is `err` itself.
+   */
+  protected translateError(err: unknown): unknown {
+    // a driver may already map its own duplicates (sqlite inserts do)
+    if (err instanceof ResourceDuplicated) return err;
+    for (let e = err, depth = 0; e && depth < 5; e = (e as { inner?: unknown }).inner, depth++) {
+      if (this.isUniqueViolation(e)) return new ResourceDuplicated((e as Error).message, err);
+    }
+    return err;
   }
 
   /**
@@ -516,6 +546,20 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
     await this._runAfterCommit(ctx.afterCommit ?? []);
     return result;
+  }
+
+  /**
+   * Inside a transaction, keeps other writers off `table` until it ends; readers go on.
+   * Drivers implement it; the default throws `NotSupported`.
+   */
+  public async lockTableShared(table: string): Promise<void> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot lock table ${table}`);
+  }
+
+  protected assertInTransaction(operation: string): void {
+    if (!this.CurrentTransaction) {
+      throw new InvalidOperation(`${operation} must run inside a transaction`);
+    }
   }
 
   /**

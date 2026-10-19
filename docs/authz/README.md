@@ -202,8 +202,9 @@ export default {
   L2) and the RBAC assignment cache, so an assignment revoked on another node is never honoured from
   a cache. Role definitions and rules may still come from the model's snapshots until the change bus
   delivers a change. The answer is still stored for ordinary checks. One call can ask the same with
-  `authz().check({ ..., fresh: true })`. Access plans of a fresh `list: true` permission skip the
-  plan cache and read assignments fresh too. `filterNow` (the sync path) answers `undefined`
+  `authz().check({ ..., fresh: true })`. Access plans of a fresh `list: true` permission neither
+  read nor store the plan cache, pass `ListPlanRequest.fresh` to the models (RBAC reads assignments
+  fresh), and run a model's nested checks fresh. `filterNow` (the sync path) answers `undefined`
   for a fresh permission on the RBAC model, whose fresh read is IO; use `filter`. `AuthzAdmin` checks the actor's permission fresh, and so does
   its escalation guard when it reads the actor's rank. Use it for deletes, sharing, payouts and admin
   actions; every fresh check reads the store.
@@ -284,7 +285,7 @@ authz: {
 - **Teams.** `authz_subject_membership` holds the transitive closure of subject sets, so nested teams
   cost one indexed read. The RBAC write handlers recompute it in the batch's transaction for
   `set.addMember`, `set.removeMember` and grants, revokes and expiry changes of `subjectSet` roles. A chain deeper than
-  `authz.rbac.maxSetDepth` (default 8) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
+  `authz.rbac.maxSetDepth` (default 8, at most 64) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
   membership lives while any path to the set lives.
 
 `RbacService` offers `rolesOf(principal, at)`, `grantsOf(role)` and `covers(…)`.
@@ -333,7 +334,8 @@ authz: {
   with its own `reason`. Each rule may filter by `scope`, `resourceTypes`, `subjects`
   (`principalTypes`, `actorTypes`, `refs`, `rank`) and `when`, and may carry `expiresAt` (a `Date`, or a
   date-time string with a zone; one without a zone fails boot).
-- **Rule stores.** `ConfigRuleStore` reads `authz.rbac.rules`; `DbRuleStore` holds rules written through
+- **Rule stores.** `ConfigRuleStore` reads `authz.rbac.rules`, and reads it again once the list is replaced
+  (`Configuration.set`), as `ConfigRoleStore` does for roles; `DbRuleStore` holds rules written through
   `AuthzAdmin` (`rule.put`). The RBAC model reads at most one of each. Rules in config with no
   `ConfigRuleStore` named fail boot, so they are never dropped without a word.
 - **Share links.** `AuthzAdmin` creates a link (`link.create`) and returns its token once. A request
@@ -398,7 +400,7 @@ failure they print one line and set the exit code to 1.
 | `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
 | `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
 | `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
-| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads it on `authz.rbac.connection` (else `default`), so map `DbDecisionAudit`'s `authz-audit` connection to the same database ([ORM](#orm-spinajsauthz-orm)). |
+| `authz:check-config [--explain-role <role>]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. The report of unattended queries is `authz:audit-unattended` in `@spinajs/authz-orm` ([ORM](#orm-spinajsauthz-orm)). |
 | `authz:membership-verify` | Recomputes `authz_subject_membership` from the assignments and reports missing, extra and changed rows; exit code 1 on any difference. |
 | `authz:membership-rebuild` | Rewrites `authz_subject_membership` from the assignments. |
 
@@ -491,8 +493,14 @@ Rules that matter:
   delegation the models see the delegate as the principal and the agent as the actor.
 
 Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`) and
-`authz.abac.connection` (default `default`). Policy writes go through `AuthzAdmin` (`policy.put`,
-`policy.delete`). The app registers the model itself ([Wiring the models](#wiring-the-models)).
+`authz.abac.connection` (default `default`, looked up in the `Orm` of the domain's container). Policy
+writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
+([Wiring the models](#wiring-the-models)).
+
+A policy condition may call every `ConditionFunction` the domain's container sees: its own
+registrations and those of its ancestors, root included (`registeredFunctions(container)`). RBAC rule
+conditions are checked the same way. `ModelInitContext.container` is that container; a model resolves
+what it needs there, not in root DI.
 
 **Lists.** For a `list: true` permission the ABAC model decides its policies before the query, from
 the principal, the actor and the request env (MFA, time, IP): a permit that holds lists every row, a
@@ -621,6 +629,47 @@ export class Folder extends ModelBase {
   Register models before the authz domain boots.
 - `DbDecisionAudit` (`@spinajs/authz-orm/audit`) writes `authz_audit` on the connection named
   `authz-audit`; `DbScopeAttributeStore` keeps `authz_scope_attribute`.
+- `authz:audit-unattended` counts the `authz_audit` rows with the reason `unattended`, by resource
+  type, the most frequent first. It reads the table on the `authz-audit` connection, the one
+  `DbDecisionAudit` writes, and fails when the ORM has no such connection or the table does not
+  exist. It replaces `authz:check-config --unattended` (authz-rbac), which read `authz.rbac.connection`.
+
+**Plan term compilers.** A `PlanTermSql` (`op`, `toSql(args, row)`) renders one term of a list plan
+against a `SqlRowContext`: `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`,
+`ancestorTable`, `relation('owner' | 'self')`, `now`, and `expressions`. `expressions` is a
+`SqlRowExpressions` from the connection's driver (its `SqlExpressions`, see
+[SQL helpers](../orm/17-sql-helpers.md#dialect-expressions)):
+
+| Member | Returns |
+|---|---|
+| `castText(expression, length?)` | `expression` as text; `length` bounds the type where the dialect needs one |
+| `contains(haystack, needle)` | a `SqlFragment`, true where `needle` occurs in `haystack` |
+
+A driver without `SqlExpressions` fails the query with `NotSupported`. Bind `row.now` as a `Date`:
+each driver binds it the way it stores datetimes, SQLite through its `DatetimeValueConverter`.
+
+```ts
+import { PlanTermSql } from '@spinajs/authz';
+import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+
+// a listPlan term { op: 'myapp.label', args: { label: 'urgent' } } over a comma-wrapped labels column
+export class LabelSql extends PlanTermSql {
+  readonly op = 'myapp.label';
+  toSql(args: unknown, row: SqlRowContext): SqlFragment {
+    return row.expressions.contains({ sql: row.rowColumn('labels'), bindings: [] }, { sql: '?', bindings: [`,${(args as { label: string }).label},`] });
+  }
+}
+```
+
+*Migration.* `SqlRowContext.dialect` is gone; spell dialect SQL through `row.expressions`.
+
+```ts
+// before
+const id = row.dialect === 'mysql' ? `CAST(${row.rowColumn('id')} AS CHAR(64))` : `CAST(${row.rowColumn('id')} AS TEXT)`;
+
+// after
+const id = row.expressions.castText(row.rowColumn('id'), 64);
+```
 
 Full reference: `packages/authz-orm/README.md`.
 
@@ -722,9 +771,9 @@ brackets):
 authz: {
   admin: {
     guard: {
-      service: 'DefaultAdminGuard',          // authz-rbac ships these defaults
+      service: 'DefaultAdminGuard',          // authz-rbac ships these two defaults
       privilegedPermission: 'users:update',
-      protectSystemRole: true,
+      protectSystemRole: true,               // the switches default to true (core schema)
       preventEscalation: true,
       preventSelfLockout: true,
       preventLastPrivilegedRemoval: true,

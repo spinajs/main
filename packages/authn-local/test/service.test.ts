@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -595,6 +596,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.register(DefaultBackoffThrottle).as(AuthnThrottle);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(DiRecordingMailer).as(PasswordMailer);
+    DI.uncache(AuthnAudit);
     await DI.resolve(Configuration);
   });
 
@@ -613,6 +615,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.uncache(MemorySecretStore);
     DI.uncache(DiRecordingMailer);
     DI.uncache(Configuration);
+    DI.uncache(AuthnAudit);
     DI.uncache(IdentityStore);
     DI.uncache(PasswordCredentialStore);
     DI.uncache(SessionIssuer);

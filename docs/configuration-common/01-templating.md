@@ -10,10 +10,10 @@ type ConfVariables = { message?: string } & { [key: string]: unknown };
 ## How it works
 
 1. `format()` checks `customVars.message`. When it is a non-empty string, it formats `message` first, with the same `customVars`, so `message` can carry its own placeholders.
-2. `_format()` loads the global variables once per process: on the first call it resolves `DI.resolve(Array.ofType(ConfigVariable))` and stores each by its `Name`. See [Custom variables](03-custom-variables.md).
-3. Conditional blocks `${?name}...${/name}` are evaluated against `customVars` only. A block is kept when the value is not `undefined`, `null` or `''`; otherwise the block and everything in it is removed.
+2. `_format()` resolves the global variables with `DI.resolve(Array.ofType(ConfigVariable))` and indexes each by its `Name`. The index is rebuilt only when DI returns a different collection (a new registration, or `DI.clearCache()`). See [Custom variables](03-custom-variables.md).
+3. Conditional blocks `${?name}...${/name}` are evaluated against `customVars` only. A block is kept when the value is not `undefined`, `null`, `''` or `false`; otherwise the block and everything in it is removed.
 4. Every remaining `${name}` and `${name:option}` is replaced, in order of appearance:
-   - `name` found in `customVars` with a truthy value: the custom value is used (rules below).
+   - `name` found in `customVars` with a value other than `undefined` or `null`: the custom value is used (rules below).
    - otherwise the global variable named `name` is used: `variable.Value(option ?? null)`.
    - otherwise the placeholder becomes `''`.
 5. The result is returned. `format()` never throws for unknown names; a throwing `ConfigVariable.Value()` or custom function propagates.
@@ -24,7 +24,7 @@ type ConfVariables = { message?: string } & { [key: string]: unknown };
 | --- | --- |
 | `${name}` | value of `name` |
 | `${name:option}` | value of `name` with `option`; the option runs up to the next `}` and may contain `:` (`${time:HH:mm}`) |
-| `${?name}...${/name}` | render the content only when the custom var `name` is set; `name` is `[a-zA-Z0-9_]+` |
+| `${?name}...${/name}` | render the content only when the custom var `name` is set and not `''` or `false`; `name` is `[a-zA-Z0-9_]+` |
 
 A name is any run of characters other than `:` and `}` (`${electron-path:exe}` is valid). Placeholders do not nest.
 
@@ -32,10 +32,12 @@ A name is any run of characters other than `:` and `}` (`${electron-path:exe}` i
 
 | Value in `customVars` | `${x}` | `${x:opt}` |
 | --- | --- | --- |
-| string or number | the value, every occurrence; `$&`, `` $` `` and other replacement patterns stay literal | a property of the string: `''` for most options |
+| string, number or boolean | `String(value)`, every occurrence (`0`, `false` and `''` included) | a property of the value: `''` for most options |
 | function | `fn(null)` | `fn('opt')` |
 | object | `String(obj)` (`[object Object]`) | `obj.opt`, or `obj.opt()` when it is a function; `''` when missing |
-| `0`, `false`, `''`, `null`, `undefined` | treated as absent: falls through to the global variable of the same name, else `''` | same |
+| `null`, `undefined` | treated as absent: falls through to the global variable of the same name, else `''` | same |
+
+Inserted values are literal: `$&`, `` $` `` and other `String.replace` patterns in a custom value, function result, object property or global variable value are not expanded.
 
 Custom values win over global variables of the same name, which makes per-call overrides possible (`format({ hostname: 'web-01' }, '${hostname}')`).
 
@@ -50,11 +52,10 @@ Custom values win over global variables of the same name, which makes per-call o
 
 ## Important behaviour
 
-- **Global variables are cached forever.** The first `format()` call snapshots the registered `ConfigVariable`s into a module-level map. A variable registered later, even after `DI.clearCache()`, is never seen. Import every variable module before the first `format()`.
-- **Falsy custom values are treated as absent.** `format({ count: 0 }, '${count}')` returns `''`, and `format({ user: '' }, '${user}')` returns the OS user name. Pass numbers as strings (`String(count)`).
-- **Conditional blocks and substitution disagree on falsy values.** `${?flag}` keeps its block for `0` and `false`, but `${flag}` inside it renders `''`.
+- **Global variables are looked up on every call.** A `ConfigVariable` registered after the first `format()` is used by the next call.
+- **Only `null` and `undefined` custom values are absent.** `format({ count: 0 }, '${count}')` returns `'0'`, and `format({ user: '' }, '${user}')` returns `''`, not the OS user name.
+- **Conditional blocks hide `false` but keep `0`.** `${?flag}` drops its block for `undefined`, `null`, `''` and `false`; a `0` is a value and the block renders.
 - **Conditional blocks only read `customVars`.** `${?env}` or `${?hostname}` never render, because globals are not consulted.
-- **Function and object values are not escaped.** Unlike string values, a function result or object property that contains `$&` or `` $` `` is interpreted by `String.replace`: `format({ err: { message: 'a$&b' } }, '${err:message}')` returns `a${err:message}b`.
 - **`message` is formatted twice.** Its placeholders are expanded before it is inserted, so user input in `message` that contains `${env:SECRET}` is expanded too. Do not put untrusted text in `message`; put it in another key.
 - **Options on string values do not work.** `format({ user: 'bob' }, '${user:upper}')` returns `''`.
 - **Root container only.** `format()` resolves variables from the global `DI`; a `ConfigVariable` registered in a child container is invisible.
@@ -73,14 +74,6 @@ format({ message: req.body.comment }, '${datetime} ${message}');
 
 // Do: keep untrusted text in its own key; only `message` is formatted recursively
 format({ message: 'comment received', comment: req.body.comment }, '${datetime} ${message}: ${comment}');
-```
-
-```ts
-// Don't: a falsy number is treated as absent and renders ''
-format({ retries: 0 }, 'retries=${retries}');
-
-// Do
-format({ retries: String(0) }, 'retries=${retries}');
 ```
 
 ## Examples

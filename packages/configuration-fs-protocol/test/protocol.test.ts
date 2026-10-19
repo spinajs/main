@@ -47,6 +47,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         ],
       },
       test: 'fs-path://fs-temp/somepath',
+      multi: 'fs-path://fs-temp/a/b',
 
       nested: {
         array: [
@@ -120,6 +121,7 @@ describe('fs protocol test', function () {
 
     // fs-path://fs-temp/<path> resolves to <fs-temp basePath>/<path>
     expect(c.get<string>('test')).to.eq(join(dir('./temp'), 'somepath'));
+    expect(c.get<string>('multi')).to.eq(join(dir('./temp'), 'a', 'b'));
     expect(c.get<string>('nested.fs.path')).to.eq(join(dir('./temp'), 'somepath2'));
     expect((c.get<any[]>('nested.array')[0] as any).path).to.eq(join(dir('./temp'), 'somepath3'));
   });

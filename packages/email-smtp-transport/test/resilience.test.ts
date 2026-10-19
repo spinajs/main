@@ -128,6 +128,24 @@ describe('smtp resilience pipeline', function () {
     expect(t.calls).to.equal(1);
   });
 
+  it('applies the timeout to each attempt and retries a timed-out one', async () => {
+    const t = fakeTransporter((n) => (n === 1 ? new Promise<any>(() => undefined) : Promise.resolve({ messageId: 'ok-3' })));
+
+    const sender = makeSender({ retries: 1, delay: 1, timeout: 100 }, t);
+
+    await expect(sender.send(textEmail())).to.be.fulfilled;
+    expect(t.calls).to.equal(2);
+  });
+
+  it('does not retry a permanent 5xx rejection', async () => {
+    const t = fakeTransporter(() => Promise.reject(Object.assign(new Error('550 mailbox unavailable'), { responseCode: 550 })));
+
+    const sender = makeSender({ retries: 2, delay: 1, timeout: 1000 }, t);
+
+    await expect(sender.send(textEmail())).to.be.rejectedWith('550 mailbox unavailable');
+    expect(t.calls).to.equal(1);
+  });
+
   it('emits no retries on immediate success ( exactly one attempt )', async () => {
     const t = fakeTransporter(() => Promise.resolve({ messageId: 'ok-2' }));
 

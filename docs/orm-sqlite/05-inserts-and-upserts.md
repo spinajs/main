@@ -10,8 +10,10 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
    - `.onDuplicate(columns?)` switches to `QueryContext.Upsert` and returns an `OnDuplicateQueryBuilder`. Without `columns`, the conflict target is the model's columns flagged `Unique`. `.update(columns)` names the columns to overwrite.
 2. **Compile.** `toDB()` resolves `InsertQueryCompiler`: `SqliteInsertQueryCompiler.compile()` joins `into()`, `columns()`, `values()`, `upsort()` and `returning()`:
    - `into()`: ``INSERT [OR IGNORE] [OR REPLACE] INTO `table` ``.
-   - `columns()` / `values()` (inherited from `SqlInsertQueryCompiler`): an auto-increment primary key is left out when no row supplies it, else rendered `NULL` in the rows that do not; `null` renders `NULL`; `undefined` renders `DEFAULT`.
-   - `upsort()`: when `onDuplicate()` was called and `orReplace()` was not, resolves `OnDuplicateQueryCompiler`: `SqliteOnDuplicateQueryCompiler`, which emits `ON CONFLICT(<target>) DO UPDATE SET col = ?, ... RETURNING <cols|*>;`.
+   - `columns()` / `values()`: an auto-increment primary key is left out when no row supplies it, else rendered `NULL` in the rows that do not; `null` renders `NULL`. SQLite has no `DEFAULT` inside `VALUES`, so `undefined` is handled per column:
+     - no row supplies the column: it is left out, and the table default applies;
+     - some rows supply it: the others render `NULL` when the column is known (model inserts) to be nullable without a default; otherwise compiling throws `InvalidArgument('insert into <t>: a row has no value for column <c> ...')`.
+   - `upsort()`: when `onDuplicate()` was called and `orReplace()` was not, resolves `OnDuplicateQueryCompiler`: `SqliteOnDuplicateQueryCompiler`, which emits ``ON CONFLICT(`target`) DO UPDATE SET `col` = excluded.`col`, ... RETURNING <cols|*>;``. `excluded.col` is the row being inserted, so each conflicting row of a multi-row upsert gets its own values. Without `update()` it emits `DO NOTHING`. A `RawQuery` in `update()` is copied as is, with its bindings.
    - `returning()`: ``RETURNING `a`,`b` `` (or `*`), skipped when an upsert clause is present, because `ON CONFLICT` already carries one.
 3. **Execute.** `executeOnDb()` uses `run()` for `Insert` and `all()` for `InsertReturning` and `Upsert` (see [Result shapes](01-connection.md#result-shapes)).
 4. **Map.** Model inserts resolve `ServerResponseMapper` (`SqliteServerResponseMapper`) and call `read(result, pkNames)`:
@@ -34,7 +36,7 @@ The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step
 
 ## Configuration
 
-No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead.
+No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead.
 
 ## Services and extension points
 
@@ -45,57 +47,47 @@ All registered by `SqliteOrmDriver.resolve()` in the connection's child containe
 | Insert compiler | `InsertQueryCompiler`, new instance, constructor `(container, builder)` | `SqliteInsertQueryCompiler` (exported) | `SqlInsertQueryCompiler` from `@spinajs/orm-sql` (no `RETURNING`, MySQL `IGNORE`) | Subclass; override `compile()`, `into()`, `returning()`, `upsort()`, `values()`, `columns()`, `autoIncrementPlaceholder()`. |
 | Upsert compiler | `OnDuplicateQueryCompiler`, new instance, constructor `(builder: OnDuplicateQueryBuilder)` | `SqliteOnDuplicateQueryCompiler` (exported) | `SqlOnDuplicateQueryCompiler` (MySQL `ON DUPLICATE KEY UPDATE`) | Subclass; override `compile()`. |
 | Insert response | `ServerResponseMapper`, new instance | `SqliteServerResponseMapper` (exported) | none; the base class throws `MethodNotImplemented` | Subclass `SqliteServerResponseMapper`; override `read(data, pkNames?)`. |
-| Model to row | `ModelToSqlConverter`, new instance | `SqliteModelToSqlConverter` (**not exported**) | `StandardModelToSqlConverter` from `@spinajs/orm` | Extend `StandardModelToSqlConverter` and drop `undefined` values yourself, or extend `ModelToSqlConverter`. |
+| Model to row | `ModelToSqlConverter`, new instance | `SqliteModelToSqlConverter` (exported) | `StandardModelToSqlConverter` from `@spinajs/orm` | Subclass `SqliteModelToSqlConverter`; override `toSql(model)`. |
 | Plain object to row | `ObjectToSqlConverter`, new instance, registered by `OrmDriver.resolve()` | `StandardObjectToSqlConverter` | | Used by `Model.insert()` with plain objects; it already leaves out `undefined`. |
 
 ### Upsert compiler: custom implementation
 
-`SqliteOnDuplicateQueryCompiler` binds the **first** row's values for every updated column, so a multi-row upsert writes row 1's values into every conflicting row. SQLite's `excluded.<col>` refers to the row being inserted; use it instead.
+Keep the newer of two timestamps on conflict instead of overwriting it, by adding a `WHERE` to the `DO UPDATE`.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { OnDuplicateQueryCompiler, OrmException, RawQuery } from '@spinajs/orm';
-import { escapeIdentifier } from '@spinajs/orm-sql';
+import { OnDuplicateQueryCompiler } from '@spinajs/orm';
 import { SqliteOnDuplicateQueryCompiler, SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @NewInstance()
-export class ExcludedUpsertCompiler extends SqliteOnDuplicateQueryCompiler {
+export class NewerWinsUpsertCompiler extends SqliteOnDuplicateQueryCompiler {
   public compile() {
-    const target = this._builder.getColumn();
-    if (target.length === 0) {
-      throw new OrmException(`no unique or primary key columns defined in table ${this._builder.getParent().Table}`);
+    const output = super.compile();
+
+    // only rows that carry an UpdatedAt column get the guard
+    if (!output.expression.includes('DO UPDATE') || !this._builder.getColumnsToUpdate().includes('UpdatedAt')) {
+      return output;
     }
 
-    const updates: Array<string | RawQuery> = this._builder.getColumnsToUpdate() ?? [];
-    const set = updates.map((c) => (typeof c === 'string' ? `${escapeIdentifier(c)} = excluded.${escapeIdentifier(c)}` : c.Query));
-    const bindings = updates.flatMap((c) => (typeof c === 'string' ? [] : c.Bindings ?? []));
-
-    const returning = this._builder.getReturning();
-    const cols = returning[0] === '*' ? '*' : returning.map((c) => escapeIdentifier(c)).join(',');
-    const action = set.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${set.join(',')}`;
-
-    return {
-      bindings,
-      expression: `ON CONFLICT(${target.map((c) => escapeIdentifier(c)).join(',')}) ${action} RETURNING ${cols};`,
-    };
+    return { ...output, expression: output.expression.replace(' RETURNING ', ' WHERE excluded.`UpdatedAt` > `UpdatedAt` RETURNING ') };
   }
 }
 
-@Injectable('orm-driver-sqlite-upsert')
+@Injectable('orm-driver-sqlite-newer-wins')
 @NewInstance()
-export class UpsertSqliteDriver extends SqliteOrmDriver {
+export class NewerWinsSqliteDriver extends SqliteOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(ExcludedUpsertCompiler).as(OnDuplicateQueryCompiler);
+    this.Container.register(NewerWinsUpsertCompiler).as(OnDuplicateQueryCompiler);
   }
 }
 ```
 
-With no `update()` call it emits `DO NOTHING` instead of failing on an undefined column list.
+A skipped update returns no `RETURNING` row for that conflict.
 
 ### Insert compiler: custom implementation
 
-A multi-row insert whose rows set different columns renders `DEFAULT` for the gaps, which SQLite rejects with `near "DEFAULT": syntax error`. Fail early with a message that names the problem.
+Refuse inserts that leave a column out of some rows, even where the driver could render `NULL`, so a batch never stores `NULL` by accident.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -109,9 +101,9 @@ export class UniformRowsInsertCompiler extends SqliteInsertQueryCompiler {
     const columns = this._builder.getColumns();
     const ragged = this._builder.Values.findIndex((row) => row.some((value) => value === undefined));
 
-    if (ragged !== -1) {
+    if (ragged !== -1 && this._builder.Values.length > 1) {
       const missing = columns.filter((_c, i) => this._builder.Values[ragged][i] === undefined).map((c) => String((c as ColumnStatement).Column));
-      throw new InvalidArgument(`insert into ${this._builder.Table}: row ${ragged} has no value for ${missing.join(', ')}; sqlite has no DEFAULT inside VALUES`);
+      throw new InvalidArgument(`insert into ${this._builder.Table}: row ${ragged} has no value for ${missing.join(', ')}`);
     }
 
     return super.compile();
@@ -161,22 +153,19 @@ The mapper runs for model inserts and unit-of-work saves; a raw `driver.insert()
 
 ### Model to row: custom implementation
 
-Trim text before every model insert and update. `SqliteModelToSqlConverter` is not exported, so extend `StandardModelToSqlConverter` and repeat its one SQLite rule: leave `undefined` out.
+Trim text before every model insert and update. Extending `SqliteModelToSqlConverter` keeps its SQLite rule: `undefined` is left out.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ModelBase, ModelToSqlConverter, StandardModelToSqlConverter } from '@spinajs/orm';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { ModelBase, ModelToSqlConverter } from '@spinajs/orm';
+import { SqliteModelToSqlConverter, SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-export class TrimmingModelToSqlConverter extends StandardModelToSqlConverter {
+export class TrimmingModelToSqlConverter extends SqliteModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
     const row = super.toSql(model) as Record<string, unknown>;
 
     for (const [column, value] of Object.entries(row)) {
-      if (value === undefined) {
-        // sqlite has no DEFAULT inside VALUES; leave the column out so the table default applies
-        delete row[column];
-      } else if (typeof value === 'string') {
+      if (typeof value === 'string') {
         row[column] = value.trim();
       }
     }
@@ -200,36 +189,35 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 - `RETURNING` rows arrive in insert order, which is how a batch of `auto`-key models gets one key each.
 - `LastInsertId` of a plain `Insert` is `sqlite3`'s `lastID`: the **last** row id of the statement.
 - For `uuid` and `assigned` keys `LastInsertId` means nothing: SQLite's internal row id on a plain insert, `0` from `RETURNING` rows. The model keeps the key it generated; check `RowsAffected` for success.
-- `SqliteOnDuplicateQueryCompiler` binds the first row's values: a multi-row upsert overwrites every conflicting row with row 1's values. `ExcludedUpsertCompiler` above fixes it.
-- `onDuplicate()` without `update()` fails while compiling (`getColumnsToUpdate()` is undefined).
+- A multi-row upsert updates each conflicting row with its own values (`excluded.col`).
+- `onDuplicate()` without `update()` emits `DO NOTHING`: a conflicting row is kept as it is and returns no `RETURNING` row.
 - `onDuplicate()` without a target and with no `Unique` model column throws `OrmException('no unique or primary key columns defined in table <t>')`.
-- Conflict-target and `SET` column names are not quoted.
+- Conflict-target and `SET` column names are quoted with the `IdentifierQuoter`.
 - `orReplace()` deletes the conflicting row and inserts a new one: its other columns take defaults, and `ON DELETE` actions fire if foreign keys are enforced.
 - `orIgnore()` with `returning()` returns no row for a skipped insert.
-- A multi-row insert whose rows set different columns renders `DEFAULT` and fails with `near "DEFAULT": syntax error`. Batch model inserts hit this when one model leaves a nullable column `undefined` and another sets it.
-- `SQLITE_CONSTRAINT` becomes `ResourceDuplicated` only for `QueryContext.Insert`; `InsertReturning` and `Upsert` raise `OrmException`.
+- A multi-row insert whose rows set different columns renders `NULL` for the gaps only when the column is known to be nullable without a default (model inserts); a raw `driver.insert()` with such gaps throws `InvalidArgument`, because the driver cannot tell what the table default is.
+- A unique or primary-key violation (`UNIQUE constraint failed`) rejects with `ResourceDuplicated` for `Insert`, `InsertReturning` and `Upsert` alike. Other `SQLITE_CONSTRAINT` failures (`NOT NULL`, `CHECK`) stay `OrmException`. See [Errors](01-connection.md#errors).
 
 ## Best practices
 
 - Name the conflict target in `onDuplicate('Sku')` instead of relying on `Unique` metadata.
-- Upsert one row per statement, or register `ExcludedUpsertCompiler`, when several rows can conflict.
 - Give every row of a batch the same set of columns; use `null` for "no value", not `undefined`.
 - Use `returning(['Id'])` on raw inserts when you need the keys; `LastInsertId` only gives the last one.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: both conflicting rows get Price 10 (row 1's value)
-await driver.insert().into('prices').values([{ Sku: 'A', Price: 10 }, { Sku: 'B', Price: 20 }]).onDuplicate('Sku').update(['Price']);
-
-// Do: one statement per row (or register ExcludedUpsertCompiler)
+// Don't: one statement per row; a multi-row upsert gives every row its own values
 for (const row of [{ Sku: 'A', Price: 10 }, { Sku: 'B', Price: 20 }]) {
   await driver.insert().into('prices').values(row).onDuplicate('Sku').update(['Price']);
 }
+
+// Do
+await driver.insert().into('prices').values([{ Sku: 'A', Price: 10 }, { Sku: 'B', Price: 20 }]).onDuplicate('Sku').update(['Price']);
 ```
 
 ```ts
-// Don't: row 1 has no Note, so it renders DEFAULT, which sqlite rejects
+// Don't: row 1 has no Note; a raw insert cannot tell the table default, so it throws InvalidArgument
 await driver.insert().into('tickets').values([{ Title: 'Printer' }, { Title: 'VPN', Note: 'urgent' }]);
 
 // Do
@@ -266,7 +254,7 @@ import { OrmDriver } from '@spinajs/orm';
 export async function upsertPrice(sku: string, price: number) {
   const driver = DI.resolve<OrmDriver>('OrmConnection', ['main'])!;
 
-  // INSERT INTO `prices` (`Sku`,`Price`) VALUES (?,?) ON CONFLICT(Sku) DO UPDATE SET Price = ? RETURNING *;
+  // INSERT INTO `prices` (`Sku`,`Price`) VALUES (?,?) ON CONFLICT(`Sku`) DO UPDATE SET `Price` = excluded.`Price` RETURNING *;
   return await driver.insert().into('prices').values({ Sku: sku, Price: price }).onDuplicate('Sku').update(['Price']);
 }
 ```

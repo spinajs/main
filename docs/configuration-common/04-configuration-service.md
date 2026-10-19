@@ -23,7 +23,7 @@
 | Type | Shape | Used by |
 | --- | --- | --- |
 | `ConfigurationOptions` | `{ app?, appBaseDir?, cfgCustomPaths?, watchFileChanges? }` | the `FrameworkConfiguration` constructor |
-| `IConfigLike` | `{ [key: string]: unknown; onConfigLoad(config): Promise<IConfigLike> \| undefined }` | `RootConfig`, `ConfigurationSource.Load()` |
+| `IConfigLike` | `{ [key: string]: unknown; onConfigLoad?(config): Promise<IConfigLike> \| undefined }` | `RootConfig`, `ConfigurationSource.Load()` |
 | `IConfigurable` | `{ configure(this: Configuration): void }` | a top-level config section with a `configure` hook |
 | `IConfigEntryOptions` | `{ defaultValue?, required? }`, augmentable | `@Config(path, options)` in `@spinajs/configuration` |
 | `IConfigurationSchema` | `{ $configurationModule: string }` | JSON schemas that validate one config section |
@@ -211,7 +211,6 @@ export function sensitivePaths(): string[] {
 
 ## Important behaviour
 
-- **`IConfigLike` requires `onConfigLoad`.** The member is not optional, so an object literal does not type-check as `IConfigLike`. Cast it: `{ http: { port: 80 } } as unknown as IConfigLike`, as `JobGrantSource` does; a `Record<string, unknown>` or `{}` casts directly.
 - **`get()` returns `undefined`, not `null`, for a missing key** in `FrameworkConfiguration`, despite the contract comment.
 - **`configure()` runs once.** It is called from `resolve()`, not from a later `load()`.
 - **`mergeSource()` in `FrameworkConfiguration` does not merge.** It loads the source and appends it to the source list, but the loaded values reach the live config only on the next `load()`. `BrowserFrameworkConfiguration.mergeSource()` merges immediately.

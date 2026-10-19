@@ -17,12 +17,12 @@ They translate with [`@spinajs/intl`](../intl/01-translating-text.md). `__` and 
 
 | Helper | Usage | Result |
 | --- | --- | --- |
-| `__` | `{{__ "Reset password"}}` | The phrase in the render language; falls back as `Intl.__()` does |
+| `__` | `{{__ "Hello %s" name}}` | The phrase in the render language, extra arguments filling its placeholders; falls back as `Intl.__()` does |
 | `__n` | `{{__n "%d unread messages" unread}}` | The plural form for `unread` in the render language; see [Plural forms](../intl/02-plural-forms.md) |
 | `__l` | `{{__l "language.name"}}` | The phrase in every loaded locale, as an array (renders comma-joined) |
 | `__h` | `{{__h "language.name"}}` | One `{ index: value }` object per locale; see [Translating text](../intl/01-translating-text.md#important-behaviour) |
 
-`__` takes exactly one argument. `{{__ "Hello %s" name}}` throws a `TypeError`: the second argument takes the place of Handlebars' `options`. Use `{{__ "Hello"}} {{name}}`, or a [custom helper](03-custom-helpers-and-partials.md#translate-a-phrase-with-placeholders).
+`__` passes every argument after the phrase to `Intl.__()`, so `{{__ "Hello %s, you have %d new orders" user.name count}}` fills the `util.format` placeholders.
 
 ## Comparison and logic
 
@@ -62,11 +62,11 @@ They translate with [`@spinajs/intl`](../intl/01-translating-text.md). `__` and 
 | `__textRight` | `{{__textRight label 20}}` | Right-aligned in 20 columns; cut when longer |
 | `__textCenter` | `{{__textCenter label 20}}` | Centered in 20 columns, extra space on the right; cut when longer |
 | `stripHtml` | `{{stripHtml description}}` | Tags removed with `<[^>]*>` |
-| `escapeHtml` | `{{{escapeHtml snippet}}}` | `&`, `<`, `>`, `"`, `'` escaped |
+| `escapeHtml` | `{{escapeHtml snippet}}` | `&`, `<`, `>`, `"`, `'` escaped once, as a `SafeString`, so `{{ }}` does not escape it again |
 | `slugify` | `{{slugify "Hello World!"}}` | `hello-world` |
 | `camelCase`, `snakeCase`, `kebabCase` | `{{snakeCase "helloWorld"}}` | `helloWorld`, `hello_world`, `hello-world` |
 
-`null` and `undefined` arguments become `""` in every text helper except `__textRight` and `__textCenter`.
+`null` and `undefined` arguments become `""` in every text helper.
 
 ## Math
 
@@ -76,9 +76,9 @@ Non-numeric arguments count as `0`.
 | --- | --- | --- |
 | `add`, `multiply`, `sum` | `{{add subtotal shipping tax}}` | Sum or product of any number of arguments |
 | `subtract` | `{{subtract total discount}}` | `a - b` |
-| `divide` | `{{divide total count}}` | `a / b`; a divisor of `0` is replaced by `1` |
-| `modulo` | `{{modulo @index 3}}` | `a % b`; a divisor of `0` is replaced by `1` |
-| `percentage` | `{{percentage done total}}` | `value / total * 100`; a total of `0` is replaced by `1` |
+| `divide` | `{{divide total count}}` | `a / b`; `0` when the divisor is `0` |
+| `modulo` | `{{modulo @index 3}}` | `a % b`; `0` when the divisor is `0` |
+| `percentage` | `{{percentage done total}}` | `value / total * 100`; `0` when the total is `0` |
 | `abs`, `round`, `floor`, `ceil`, `sqrt` | `{{round rating}}` | `Math.*` |
 | `pow` | `{{pow 2 10}}` | `1024` |
 | `toFixed` | `{{toFixed price 2}}` | A string with 2 decimals |
@@ -99,11 +99,11 @@ Date arguments accept a JS `Date`, a luxon `DateTime` or an ISO 8601 string. For
 | `formatDate` | `{{formatDate createdAt "dd.MM.yyyy HH:mm"}}` | Formatted date; an unparsable string is returned as is; other types give `""` |
 | `now` | `{{now "yyyy"}}` | Current time, formatted, or ISO without a format |
 | `dateRelative` | `{{dateRelative lastLoginAt}}` | `2 days ago`, `in 3 hours` |
-| `dateAdd`, `dateSubtract` | `{{dateAdd createdAt 14 "days"}}` | ISO string; units `year(s)`, `month(s)`, `week(s)`, `day(s)`, `hour(s)`, `minute(s)`, `second(s)`; an unknown unit means days |
+| `dateAdd`, `dateSubtract` | `{{dateAdd createdAt 14 "days"}}` | ISO string; units `year(s)`, `month(s)`, `week(s)`, `day(s)`, `hour(s)`, `minute(s)`, `second(s)`; an unknown or missing unit means days |
 | `dateDiff` | `{{dateDiff start end "hours"}}` | Whole units from the first date to the second, rounded down; default unit `days` |
-| `dateBefore`, `dateAfter` | `{{#if (dateBefore dueAt (now))}}` | Compares by `dateDiff` in whole days |
+| `dateBefore`, `dateAfter` | `{{#if (dateBefore dueAt (now))}}` | Compares the exact instants; `false` when either date is invalid |
 | `dateBetween` | `{{#if (dateBetween day start end)}}` | `start` before `day` and `day` before `end` |
-| `dateStartOf`, `dateEndOf` | `{{dateStartOf day "month"}}` | ISO string; units `year`, `month`, `week`, `day`, `hour`, `minute`, `second`; an unknown unit means day |
+| `dateStartOf`, `dateEndOf` | `{{dateStartOf day "month"}}` | ISO string; units `year`, `month`, `week`, `day`, `hour`, `minute`, `second`; an unknown or missing unit means day |
 | `dateISO` | `{{dateISO createdAt}}` | ISO string; an unparsable string is returned as is |
 | `timestamp`, `unixTimestamp` | `{{timestamp createdAt}}` | Milliseconds / seconds since epoch; now without an argument |
 | `fromTimestamp` | `{{fromTimestamp ts "dd.MM.yyyy"}}` | Formatted date from milliseconds, or ISO without a format |
@@ -119,11 +119,9 @@ Date arguments accept a JS `Date`, a luxon `DateTime` or an ISO 8601 string. For
 ## Important behaviour
 
 - **Dates and numbers do not follow the render language.** `formatDate`, `dateRelative` and month names use luxon's default locale; `formatNumber` and `currency` default to `en-US`. Pass `@root.lang` to `formatNumber` and `currency`; for dates, add a [custom helper](03-custom-helpers-and-partials.md#format-dates-in-the-render-language).
-- **`dateBefore` misses differences under a day.** `dateDiff` rounds down, so two times on the same day 2 hours apart give `dateBefore` `false` while `dateAfter` on the reversed pair gives `true`.
-- **Output is HTML-escaped.** `{{escapeHtml x}}` escapes twice (`&amp;lt;`); use `{{{escapeHtml x}}}`. `{{split ...}}` and `{{__l ...}}` render arrays comma-joined.
-- **Division by zero does not fail.** `{{divide 10 0}}` renders `10`.
-- **`__textRight` and `__textCenter` need a string.** A number or `null` throws a `TypeError`.
-- **Missing required arguments can throw.** `{{dateAdd createdAt 5}}` throws: the unit position receives Handlebars' `options` object.
+- **Output is HTML-escaped.** Helper results under `{{ }}` are escaped, except `escapeHtml`, which returns a `SafeString`. `{{split ...}}` and `{{__l ...}}` render arrays comma-joined.
+- **Division by zero does not fail.** `{{divide 10 0}}` renders `0`.
+- **Missing required arguments can throw.** `{{dateAdd createdAt}}` throws: the amount position receives Handlebars' `options` object.
 - **luxon `DateTime` values must come from the same luxon copy.** The helpers test `instanceof DateTime`; a value from another installed copy renders `""`. ISO strings and `Date` always work.
 - **Helpers are global.** They are registered on the default `handlebars` module, so code elsewhere in the process that uses that module sees them too.
 
@@ -137,19 +135,19 @@ Date arguments accept a JS `Date`, a luxon `DateTime` or an ISO 8601 string. For
 ## Patterns and antipatterns
 
 ```handlebars
-{{!-- Don't: escapeHtml output is escaped again by {{ }} --}}
-<pre>{{escapeHtml code}}</pre>
+{{!-- Don't: triple braces skip escaping --}}
+<pre>{{{code}}}</pre>
 
 {{!-- Do: plain {{ }} already escapes --}}
 <pre>{{code}}</pre>
 ```
 
 ```handlebars
-{{!-- Don't: __ takes one argument; this throws --}}
-{{__ "Hello %s" name}}
+{{!-- Don't: a split phrase cannot change word order in translation --}}
+{{__ "Hello"}} {{name}}
 
 {{!-- Do --}}
-{{__ "Hello"}} {{name}}
+{{__ "Hello %s" name}}
 ```
 
 ## Examples

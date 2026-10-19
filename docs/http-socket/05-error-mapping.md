@@ -5,7 +5,7 @@ Every failure reaches the client in one shape, `SocketError`: `{ code, message, 
 ## How it works
 
 1. A command handler, a stage, a handshake check, an event, a hook or a stream source throws.
-2. `SocketErrorMapper.toWire(error, context)` looks up a mapping: `resolveSocketErrorMapping()` walks the error's constructor and its prototype chain, and matches each **class name** against the names registered with `@HandleSocketException`.
+2. `SocketErrorMapper.toWire(error, context)` looks up a mapping: `resolveSocketErrorMapping()` walks the error's constructor and its prototype chain, and matches each class against the classes registered with `@HandleSocketException`.
 3. A mapping is found: `new Mapping().map(error)` returns the `SocketError`. A mapping that throws turns into `internal`.
 4. No mapping, or a thrown non-`Error` value: `internal()` logs the error with a new `errorId` (a UUID) and returns `internal`.
    - With `configuration.isProduction`, the message is `Internal server error` and there are no details.
@@ -44,7 +44,7 @@ The pipeline's own refusals are `SocketException`s: `deadline_exceeded` (retryab
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `SocketErrorMapping` | Not in DI: a module-level map from exception class name to mapping class, filled by `@HandleSocketException`; a new instance per mapped error (`new Mapping()`) | The ten mappings in the table | Your mapping; `codeMapping(code)` builds a plain one | `@HandleSocketException(MyError)` on a `SocketErrorMapping` subclass. The last registration for a class name wins, so you can also remap a built-in exception |
+| `SocketErrorMapping` | Not in DI: a module-level map from exception class to mapping class, filled by `@HandleSocketException`; a new instance per mapped error (`new Mapping()`) | The ten mappings in the table | Your mapping; `codeMapping(code)` builds a plain one | `@HandleSocketException(MyError)` on a `SocketErrorMapping` subclass. The last registration for a class wins, so you can also remap a built-in exception |
 | `SocketErrorMapper` | `SocketErrorMapper` (self), singleton | `SocketErrorMapper` | Your subclass | Override `toWire()` or `internal()`; `DI.register(Mine).as(SocketErrorMapper)` before `SocketServer` resolves |
 
 ### `SocketErrorMapping`: map your own exception

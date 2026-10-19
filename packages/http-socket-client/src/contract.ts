@@ -14,7 +14,7 @@ export interface TypedSocketClient<C extends ContractShape> {
   readonly state: ConnectionState;
   connect(): void;
   disconnect(): void;
-  close(): void;
+  close(): Promise<void>;
   command<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: CommandOptions): Promise<CommandResult<C, N>>;
   durable<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: DurableCommandOptions): Promise<CommandResult<C, N>>;
   stream<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: StreamOptions): AsyncIterableIterator<StreamItem<C, N>>;

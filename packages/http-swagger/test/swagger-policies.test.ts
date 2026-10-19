@@ -47,7 +47,7 @@ describe('Swagger policy extraction', function () {
   });
 
   it('should NOT set x-policies on controllers without any @Policy decorators', () => {
-    const op = spec.paths['/pets/'].get;
+    const op = spec.paths['/pets'].get;
     expect(op['x-policies']).to.be.undefined;
   });
 

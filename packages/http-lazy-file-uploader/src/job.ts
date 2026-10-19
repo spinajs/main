@@ -1,5 +1,5 @@
 import { IOFail } from '@spinajs/exceptions';
-import { getFs } from '@spinajs/fs';
+import { fs, getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
@@ -26,16 +26,8 @@ export class LazyUploadJob extends QueueJob {
       'COPY: ${path}, fs: ${sourceFs} dst: ${targetFs}, deleteAfterUpload: ${deleteAfterUpload}',
     );
 
-    const sFs = getFs(this.SourceFilesystem);
-    const tFs = getFs(this.ToFilesystem);
-
-    if (!sFs) {
-      throw new IOFail(`Filesystem ${this.SourceFilesystem} not exists, pleas check your configuration`);
-    }
-
-    if (!tFs) {
-      throw new IOFail(`Filesystem ${this.ToFilesystem} not exists, pleas check your configuration`);
-    }
+    const sFs = this.getFilesystem(this.SourceFilesystem);
+    const tFs = this.getFilesystem(this.ToFilesystem);
 
     this.Log.timeStart(`[COPY] ${this.Path}`);
 
@@ -53,5 +45,21 @@ export class LazyUploadJob extends QueueJob {
     this.Log.trace({ path: this.Path, sourceFs: this.SourceFilesystem, targetFs: this.ToFilesystem, ms: d }, 'Copied ${path} from ${sourceFs} to ${targetFs} in ${ms}ms');
 
     return 'finished';
+  }
+
+  protected getFilesystem(name: string) {
+    let provider: fs | undefined;
+
+    try {
+      provider = getFs(name);
+    } catch (err) {
+      throw new IOFail(`Filesystem ${name} not exists, pleas check your configuration`, err);
+    }
+
+    if (!provider) {
+      throw new IOFail(`Filesystem ${name} not exists, pleas check your configuration`);
+    }
+
+    return provider;
   }
 }

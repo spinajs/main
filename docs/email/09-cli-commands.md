@@ -36,9 +36,9 @@ spinajs email-send -c main -f billing@acme.com -t ops@acme.com -s "Usage report"
 | `-m, --model [model]` | no | `model` | Path to a JSON file with template data. |
 | `-ct, --content [content]` | no | `text` | Plain-text body when there is no template. |
 | `-df, --deferred` | no | | Queue the mail instead of sending it. |
-| `-sd, --schedule-delay` | no | `schedule.delay` | Declared without a value placeholder, see below. |
-| `-sc, --schedule-cron` | no | `schedule.cron` | Declared without a value placeholder, see below. |
-| `-sr, --schedule-repeat` | no | `schedule.repeat` | Declared without a value placeholder, see below. |
+| `-sd, --schedule-delay [delay]` | no | `schedule.delay` | Delay in milliseconds. |
+| `-sc, --schedule-cron [cron]` | no | `schedule.cron` | Cron entry. |
+| `-sr, --schedule-repeat [count]` | no | `schedule.repeat` | Number of repeats. |
 
 ## Configuration
 
@@ -54,8 +54,7 @@ spinajs email-send -c main -f billing@acme.com -t ops@acme.com -s "Usage report"
 
 ## Important behaviour
 
-- **`email-send` exits normally on failure.** The error is logged, not thrown; check the log, not the exit code, in scripts.
-- **The schedule options take no value.** `-sd`, `-sc` and `-sr` are declared as boolean flags, so they cannot carry a delay, cron entry or count.
+- **`email-send` logs the error and rethrows it**, so a failed send is not reported as success.
 - **`email-send` always sets `schedule`** (with `undefined` fields when no schedule option is given).
 - **`email-server` keeps running** while the queue subscription is open.
 

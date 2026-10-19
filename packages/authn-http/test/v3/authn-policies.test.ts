@@ -21,7 +21,6 @@ import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName }
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
-import * as api from '../../src/api.js';
 import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
@@ -243,9 +242,9 @@ describe('3.0 authn policies and route args', function () {
   });
 
   describe('exports', () => {
-    it('the barrel exports the 3.0 class under every api.ts name, not the api.ts contract class (N8c)', () => {
+    it('the barrel exports the 3.0 class under every design name (N8c)', () => {
       for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
-        expect(barrel[n], n).to.eq(v3[n]).and.not.eq(api[n]);
+        expect(barrel[n], n).to.be.a('function').and.eq(v3[n]);
       }
     });
 

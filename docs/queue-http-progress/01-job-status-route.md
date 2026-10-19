@@ -100,7 +100,7 @@ The route reads `JobModel` of `@spinajs/queue` (connection `queue`). It writes n
 | Field | Type | Source column | Present when |
 | --- | --- | --- | --- |
 | `jobId` | `string` | `JobId` | always |
-| `status` | `JobStatus \| 'queued'` | `Status` | always; the route never answers `queued` |
+| `status` | `JobStatus` | `Status` | always |
 | `progress` | `number` | `Progress` | always |
 | `result` | `unknown` | `Result` | the column is not null |
 | `phase` | `string` | `Phase` | the column is not null |

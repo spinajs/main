@@ -44,7 +44,7 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `intl.defaultLocale` | `string` | `'en'` (package config file) | A loaded locale | Returned by `defaultLanguage()` and by `guessLanguage()` when the store has no language |
+| `intl.defaultLocale` | `string` | `'en'` (package config file and code fallback) | A loaded locale | Returned by `defaultLanguage()` and by `guessLanguage()` when the store has no language |
 | `intl.queryParameter` | `string` | `'lang'` | Any name | Read by `@spinajs/intl-http`: query parameter, then cookie, then `x-<name>` header |
 
 ## Services and extension points
@@ -89,7 +89,7 @@ runJob({ email: 'anna@example.com', language: 'pl' }).then((mail) => console.log
 
 - **Only `guessLanguage()` reads the store.** `Intl.__()`, `__n()` and the global `__` use `CurrentLocale`, never the request language. Pass `guessLanguage()` explicitly.
 - **`DI.get`, not `DI.resolve`.** `guessLanguage()` sees the store only when some code has already resolved `AsyncLocalStorage` from DI. A store created with `new AsyncLocalStorage()` is invisible to it.
-- **No default without the config key.** `guessLanguage()` and `defaultLanguage()` read `intl.defaultLocale` with no code default; without the package config file loaded they return `undefined`. `Intl` itself falls back to `'en'`.
+- **`'en'` without the config key.** `guessLanguage()` and `defaultLanguage()` fall back to `'en'` when `intl.defaultLocale` is not set, like `Intl` itself.
 - **Helpers resolve late.** `__translate()` and the others call `DI.get(Intl)!` on every call; before `Intl` is resolved they throw a `TypeError`.
 - `guessLanguage(lang)` returns `lang` unchecked, even when no table exists for it; `Intl` then falls back to the `CurrentLocale` table.
 - In browsers and Electron renderers `AsyncLocalStorage` is not a function, so `guessLanguage()` returns the argument or `intl.defaultLocale`.

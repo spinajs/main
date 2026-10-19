@@ -9,11 +9,11 @@
 3. **`resolve()`.** `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the driver's child container `this.Container`. `SqlDriver.resolve()` registers the shared `Sql*` classes. `SqliteOrmDriver.resolve()` then registers the SQLite classes listed in [Extending the driver](07-extending-the-driver.md#what-sqliteormdriverresolve-registers).
 4. **`connect()`.**
    1. Expands `Options.Filename` with `format({}, ...)` from `@spinajs/configuration`, so the path may hold configuration placeholders.
-   2. Opens the writer handle, `new sqlite3.Database(filename)`, read-write and create.
+   2. Closes the writer handle left by an earlier `connect()` (a health-check reconnect), then opens the writer handle, `new sqlite3.Database(filename)`, read-write and create.
    3. On an open error it drops the handle without closing it and rejects with the `sqlite3` error (`SQLITE_CANTOPEN` for a missing directory or an unreadable file).
    4. `openReadPool()` opens the read-only handles. See [Read handle pool](02-read-pool.md).
    5. Sets `State` to `ConnectionState.Connected`.
-5. **Execute.** `SqlDriver.execute()` compiles the builder and calls `executeOnDb(stmt, params, queryContext)`. `executeOnDb()` picks a handle with `handleFor(queryContext)` and calls the `sqlite3` method listed in [Result shapes](#result-shapes).
+5. **Execute.** `SqlDriver.execute()` compiles the builder and calls `executeOnDb(stmt, params, queryContext)`. `executeOnDb()` picks a handle with `handleFor(queryContext)` and calls the `sqlite3` method listed in [Result shapes](#result-shapes). A statement for the writer sent from outside an open transaction waits until that transaction ends (see [Transactions](03-transactions.md)). `SQLITE_BUSY` outside a transaction is retried, see [Errors](#errors).
 6. **`disconnect()`.** Stops the health check, sets `State` to `Disconnected`, closes every read handle, then closes the writer. A close error rejects.
 
 `executeOnDb()` throws `Error('cannot execute sqlite statement, no db connection avaible')` when called before `connect()` or after `disconnect()`.
@@ -27,18 +27,22 @@
 | `InsertReturning` | `all()` | `{ RowsAffected: rows.length, LastInsertId: 0, Returning: rows }` |
 | `Upsert` | `all()` | the `RETURNING` row array |
 | `Update`, `Delete` | `run()` | `{ RowsAffected: changes }` |
-| `Schema`, `Transaction`, anything else | `run()` | `undefined` |
+| `Schema` without bindings | `exec()`: every statement of the string | `undefined` |
+| `Schema` with bindings, `Transaction`, anything else | `run()`: the first statement only | `undefined` |
 
 `SqliteServerResponseMapper` turns the insert shapes into `DbServerResponse`; see [Inserts, upserts and `RETURNING`](05-inserts-and-upserts.md).
 
 ### Errors
 
-| Context | Error | Notes |
+`executeOnDb()` rejects a failed statement with the error `toDbError()` builds; `SqlDriver.execute()` then passes it through `translateError()`:
+
+| Failure | Error | Notes |
 | --- | --- | --- |
-| `Insert` with `SQLITE_CONSTRAINT` | `ResourceDuplicated` from `@spinajs/exceptions` | Any constraint: `UNIQUE`, `NOT NULL`, `CHECK`, `FOREIGN KEY`. The `sqlite3` error is the exception's message. |
-| `Insert` with any other code | `OrmException('Failed to execute query', ...)` | The `sqlite3` error is in `inner`; `query` and `bindings` are set. |
-| `Select`, `Upsert`, `InsertReturning`, `Update`, `Delete` | `OrmException('Failed to execute query', ...)` | Constraint violations included: no `ResourceDuplicated` here. |
-| `Schema`, `Transaction` | `OrmException('Failed to execute query: <sql>, bindings: <list>')` | The `sqlite3` error and its `code` are not kept. |
+| `Insert`, `InsertReturning`, `Upsert` with `SQLITE_CONSTRAINT: UNIQUE constraint failed` | `ResourceDuplicated` from `@spinajs/exceptions` | Raised by `toDbError()` in `executeOnDb()` itself. Duplicate `UNIQUE` or `PRIMARY KEY` value. The message is the `sqlite3` message; the `sqlite3` error is in `inner`. |
+| Any other statement with `UNIQUE constraint failed`, eg. an update | `ResourceDuplicated` | Raised by `SqlDriver.execute()`: `isUniqueViolation()` finds the `sqlite3` error inside the `OrmException`, which becomes `inner`. A direct `executeOnDb()` call rejects with the `OrmException`. |
+| Any other error, in any context | `OrmException('Failed to execute query', ...)` | `NOT NULL`, `CHECK` and `FOREIGN KEY` violations included. The `sqlite3` error is in `inner` (`inner.code`, eg. `SQLITE_CONSTRAINT`); `query` and `bindings` are set. |
+
+`SQLITE_BUSY` is in `RETRYABLE_ERROR_CODES`. Outside a transaction, a statement that fails with it after `sqlite3`'s own 1000 ms busy timeout runs again on the same handle, up to `Resilience.MaxRetries` times, waiting `Resilience.RetryDelay` doubled per attempt and capped at `Resilience.MaxRetryDelay`. The database is not reopened. Inside a transaction it fails on the first attempt.
 
 ### Table reflection
 
@@ -51,7 +55,7 @@
 | `PrimaryKey` | `pk > 0`; every column of a composite key |
 | `AutoIncrement` | the only key column, `pk = 1`, declared `INTEGER` |
 | `DefaultValue` | `dflt_value`, passed through the value converter registered for the lower-cased type in `__orm_db_value_converters__` when there is one |
-| `Unique` | `PRAGMA index_list` / `PRAGMA index_info` |
+| `Unique` | the column is the only column of a unique index (`PRAGMA index_list` / `PRAGMA index_info`); a column of a composite unique index is not `Unique` |
 | `IsForeignKey`, `ForeignKeyDescription` | `PRAGMA foreign_key_list` (`From`, `Table`, `To`) |
 | `Schema` | the `schema` argument, else `Options.Database` |
 | `MaxLength` | always `-1` |
@@ -67,11 +71,14 @@ Keys under `db.Connections[]`. Keys shared by all drivers are described in [Conn
 | `db.Connections[].Filename` | `string` | required | file path, `:memory:`, `''` | Database file, expanded with `format()` (`${env:NAME}`, `${cwd}`, ...). `''` is an anonymous temporary database. The parent directory must exist. |
 | `db.Connections[].Pool.Max` | `number` | `10` | `>= 1` | Writer plus read-only handles: `Max - 1` read handles. See [Read handle pool](02-read-pool.md). |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated `Pool.Max`. |
-| `db.Connections[].Resilience.HealthCheckInterval` | `number` | `30000` | ms, `0` disables | Interval of the health probe. On SQLite the probe only checks that the writer handle exists. |
+| `db.Connections[].Resilience.HealthCheckInterval` | `number` | `30000` | ms, `0` disables | Interval of the health probe. On SQLite the probe reads `PRAGMA schema_version` on the writer handle. |
+| `db.Connections[].Resilience.MaxRetries` | `number` | `5` | `>= 0` | Retries of a statement that failed with `SQLITE_BUSY` outside a transaction. |
+| `db.Connections[].Resilience.RetryDelay` | `number` | `200` | ms | First wait before a `SQLITE_BUSY` retry; doubles each attempt. |
+| `db.Connections[].Resilience.MaxRetryDelay` | `number` | `5000` | ms | Upper bound of that wait. |
 | `db.Connections[].Migration.*` | | | | Read by the migration service; see [Migrations](../orm/10-migrations.md). |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases, eg. `` `$users$` ``. |
 
-Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`, `Resilience.MaxRetries`, `Resilience.RetryDelay`, `Resilience.MaxRetryDelay`. `Database` is only copied into reflected `Schema` fields.
+Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`. `Database` is only copied into reflected `Schema` fields.
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
@@ -115,13 +122,17 @@ Overridable members of `SqliteOrmDriver`:
 
 | Member | Visibility | Default behaviour | Override to |
 | --- | --- | --- | --- |
-| `connect()` | public | open writer, open read pool, set `Connected` | configure every handle (busy timeout, pragmas) after `super.connect()` |
+| `connect()` | public | close a previous writer, open writer, open read pool, set `Connected` | configure every handle (busy timeout, pragmas) after `super.connect()` |
 | `disconnect()` | public | close read pool, then writer | flush or checkpoint before `super.disconnect()` |
-| `executeOnDb(stmt, params, context)` | public | send on `handleFor(context)`, shape the result, wrap errors | map more errors, add tracing |
+| `execute(builder)` | public | rebuild the table for an `alterTable()` that modifies columns (see [Schema and DDL](04-schema-and-ddl.md#alter-table-limitations)), else `SqlDriver.execute()` | intercept other builders |
+| `executeOnDb(stmt, params, context)` | public | wait for an open transaction when sent from outside it, retry `SQLITE_BUSY`, convert `Date` bindings, send on `handleFor(context)`, shape the result, wrap errors with `toDbError()` | add tracing |
+| `toDbError(err, stmt, params, context)` | protected | `ResourceDuplicated` for a duplicate key on an insert, else `OrmException` with the error in `inner` | map more errors |
+| `isUniqueViolation(err)` | protected | `SQLITE_CONSTRAINT` with `UNIQUE constraint failed`; `SqlDriver.execute()` then rejects with `ResourceDuplicated` for any statement | map more errors to `ResourceDuplicated` |
+| `lockTableShared(table)` | public | `DELETE FROM <table> WHERE 0` inside the transaction: takes the `RESERVED` lock | leave as is |
 | `handleFor(context)` | protected | writer for non-`Select` and inside transactions, else round-robin read handle | route differently; see [Read handle pool](02-read-pool.md#services-and-extension-points) |
 | `openReadPool(filename)`, `closeReadPool()` | protected | open `Max - 1` read-only handles / close them | change how read handles open |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }` | leave as is; the core picks key read-back from it |
-| `ping()` | public | `true` while the writer handle exists | run a real query (`SELECT 1`) for the health probe |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false }` | leave as is; the core picks key read-back from it |
+| `ping()` | public | `PRAGMA schema_version` on the writer; `false` without a writer or when it fails | probe something else |
 | `tableInfo(name, schema?)` | public | `PRAGMA` reflection above | read extra metadata, eg. column collations |
 | `poolMetrics()` | public | `{ Size: writer + read handles, InUse: 0, Waiting: 0 }` | report other gauges |
 | `Db`, `ReadPool` | protected fields | the `sqlite3.Database` writer and the read handles | use from a subclass |
@@ -132,7 +143,7 @@ Subclass the driver when a connection needs something done to every handle or ev
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -150,18 +161,6 @@ export class PatientSqliteDriver extends SqliteOrmDriver {
     return this;
   }
 
-  public async ping(): Promise<boolean> {
-    if (!this.Db) {
-      return false;
-    }
-
-    try {
-      await this.executeOnDb('SELECT 1', [], QueryContext.Select);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 export class PatientConfiguration extends FrameworkConfiguration {
@@ -185,13 +184,12 @@ export class PatientConfiguration extends FrameworkConfiguration {
 - A failed open rejects promptly with the `sqlite3` error. `Orm` then wraps it in `OrmException('Failed to connect to database for connection <Name> ...')` with the original as `inner`.
 - SQLite creates the file, not its directory. A missing directory fails with `SQLITE_CANTOPEN`.
 - `:memory:` and `''` give a database that exists only while the connection is open. Every `Orm` boot starts empty, so migrations run every time.
-- `ping()` returns `true` whenever the writer handle object exists. The health probe does not detect a deleted or corrupted file.
-- `executeOnDb()` never calls `withReconnect()`. `SQLITE_BUSY` is in `RETRYABLE_ERROR_CODES`, but a statement still busy after `sqlite3`'s 1000 ms busy timeout fails on the first attempt; `Resilience.MaxRetries` has no effect on SQLite. Raise the busy timeout instead (see the sample above).
-- `Schema` and `Transaction` statements use `sqlite3`'s `run()`, which executes only the **first** statement of a string. `schema().raw('A; B')` runs `A` and silently skips `B`.
-- `Schema` and `Transaction` errors lose the `sqlite3` error object: catch on the message, not on `code` or `inner`.
-- Unique violations raise `ResourceDuplicated` only on plain inserts. A model insert with an `auto` key uses `RETURNING` (`QueryContext.InsertReturning`) and raises `OrmException` instead.
-- `tableInfo()` marks a column `Unique` when its name is a substring of a column in the **last** unique index it reads; with several unique indexes, earlier ones are lost, and a column named `Id` matches a unique `UserId`.
-- `tableInfo()` interpolates the table name into `PRAGMA table_info(<name>)` unquoted.
+- `ping()` reads `PRAGMA schema_version` on the writer, so the health probe fails on a closed handle and on a file that is not a database. A failed probe makes the core call `connect()` again, which closes the old writer first.
+- `SQLITE_BUSY` outside a transaction is retried with `Resilience.MaxRetries` / `RetryDelay` / `MaxRetryDelay`, on the same handle. Each attempt already waits `sqlite3`'s busy timeout (1000 ms), so raise the timeout (see the sample above) to wait longer per attempt.
+- `Schema` statements without bindings run with `sqlite3`'s `exec()`, so `schema().raw('A; B')` runs both. With bindings, and for `Transaction` statements, `run()` executes only the first statement of the string.
+- Only unique and primary-key violations become `ResourceDuplicated`, on inserts, upserts and updates alike. A `NOT NULL` or `CHECK` failure shares the `SQLITE_CONSTRAINT` code but stays `OrmException`.
+- A `Date` binding is written as the connection's `DatetimeValueConverter` writes it, in raw SQL too. `sqlite3` alone would bind it as epoch milliseconds, which never equals a stored datetime.
+- `tableInfo()` marks a column `Unique` when a unique index covers that column alone, because `onDuplicate()` without columns uses the `Unique` columns as its conflict target. Name a composite target explicitly: `onDuplicate(['A', 'B'])`. Table and index names are quoted in the `PRAGMA` calls.
 - `tableInfo()` tolerates a missing `__orm_db_value_converters__` map: during the boot migration pass, before `Orm` registers converters, `DefaultValue` keeps the raw value.
 - `OrmException` messages read `at undefined@undefined`, because SQLite has no `User` or `Host`.
 
@@ -200,26 +198,28 @@ export class PatientConfiguration extends FrameworkConfiguration {
 - Import the package for its side effect (`import '@spinajs/orm-sqlite'`) in the module that boots `Orm`. Without the import, `Orm` throws `ORM connection driver orm-driver-sqlite not registerd`.
 - Create the database directory before `Orm` resolves, eg. with `fs.mkdirSync(dir, { recursive: true })`.
 - Use `Filename: ':memory:'` for tests; each `DI.resolve(Orm)` gets a clean database.
-- Catch `ResourceDuplicated` for duplicate plain inserts, and `OrmException` with `inner.code === 'SQLITE_CONSTRAINT'` for model inserts with an `auto` key.
-- Send multi-statement raw SQL one statement per `raw()` call.
+- Catch `ResourceDuplicated` for a duplicate key, on any insert, upsert or update. Do not treat `inner.code === 'SQLITE_CONSTRAINT'` as a duplicate: `NOT NULL`, `CHECK` and foreign keys report it too.
+- Send raw SQL that needs bindings one statement per `raw()` call.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: run() executes only the first statement; the index is never created
-await driver.schema().raw('CREATE TABLE audit (Id INTEGER PRIMARY KEY, Note TEXT); CREATE INDEX audit_note ON audit (Note)');
+// Don't: with bindings the statement runs through run(), which executes only the first statement
+await driver.schema().raw('INSERT INTO audit (Note) VALUES (?); INSERT INTO audit (Note) VALUES (?)', ['a', 'b']);
 
 // Do
-await driver.schema().raw('CREATE TABLE audit (Id INTEGER PRIMARY KEY, Note TEXT)');
-await driver.schema().raw('CREATE INDEX audit_note ON audit (Note)');
+await driver.schema().raw('INSERT INTO audit (Note) VALUES (?)', ['a']);
+await driver.schema().raw('INSERT INTO audit (Note) VALUES (?)', ['b']);
 ```
 
 ```ts
-// Don't: SqliteOrmDriver never retries, so these keys do nothing against SQLITE_BUSY
-{ Name: 'main', Driver: 'orm-driver-sqlite', Filename: './data/app.sqlite', Resilience: { MaxRetries: 8, RetryDelay: 50 } }
+// Don't: retrying inside a transaction is refused, so MaxRetries does not help a long transaction
+await driver.transaction(async () => importEverything(driver));
 
-// Do: let SQLite wait for the lock itself (busy timeout on every handle, see PatientSqliteDriver)
-{ Name: 'main', Driver: 'orm-driver-sqlite-patient', Filename: './data/app.sqlite' }
+// Do: commit in small transactions; a busy statement outside one is retried per Resilience
+for (const batch of batches) {
+  await driver.transaction(async () => importBatch(driver, batch));
+}
 ```
 
 ## Examples
@@ -228,7 +228,7 @@ await driver.schema().raw('CREATE INDEX audit_note ON audit (Note)');
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { OrmDriver, OrmException } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 
 export async function signUp(email: string): Promise<'created' | 'duplicate'> {
@@ -238,13 +238,8 @@ export async function signUp(email: string): Promise<'created' | 'duplicate'> {
     await driver.insert().into('accounts').values({ Email: email });
     return 'created';
   } catch (err) {
-    // plain inserts map SQLITE_CONSTRAINT to ResourceDuplicated
+    // the unique index on Email; a NOT NULL failure is rethrown
     if (err instanceof ResourceDuplicated) {
-      return 'duplicate';
-    }
-
-    // RETURNING inserts (model inserts with an auto key) carry the sqlite3 error in inner
-    if (err instanceof OrmException && (err.inner as { code?: string } | undefined)?.code === 'SQLITE_CONSTRAINT') {
       return 'duplicate';
     }
 

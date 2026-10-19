@@ -82,4 +82,9 @@ describe('http & controller tests', function () {
     let response = await req().get('responses/testLangAllowedLanguages?lang=de_dddd').set('Accept', 'application/json').send();
     expect(response).to.have.status(400);
   });
+
+  it('Default language outside allowed languages should fail', async () => {
+    let response = await req().get('responses/testLangDefaultNotAllowed').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+  });
 });

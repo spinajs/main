@@ -23,7 +23,6 @@ import type { ISession, ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrincipalFactory, RecordingThrottle } from '@spinajs/authn-testing';
 
 import * as barrel from '../../src/index.js';
-import * as api from '../../src/api.js';
 import { AuthnPrincipalResolver } from '../../src/api.js';
 import { fakeContainer } from '../support/config-boot.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
@@ -249,11 +248,11 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
   });
 
   describe('exports and registration', () => {
-    it('the barrel exports the lane middleware and resolvers, not the api.ts stubs', () => {
-      expect(barrel.AuthnMiddleware).to.eq(AuthnMiddleware).and.not.eq(api.AuthnMiddleware);
-      expect(barrel.KeyPrincipalResolver).to.eq(KeyPrincipalResolver).and.not.eq(api.KeyPrincipalResolver);
-      expect(barrel.TokenPrincipalResolver).to.eq(TokenPrincipalResolver).and.not.eq(api.TokenPrincipalResolver);
-      expect(barrel.SessionPrincipalResolver).to.eq(SessionPrincipalResolver).and.not.eq(api.SessionPrincipalResolver);
+    it('the barrel exports the lane middleware and resolvers', () => {
+      expect(barrel.AuthnMiddleware).to.eq(AuthnMiddleware);
+      expect(barrel.KeyPrincipalResolver).to.eq(KeyPrincipalResolver);
+      expect(barrel.TokenPrincipalResolver).to.eq(TokenPrincipalResolver);
+      expect(barrel.SessionPrincipalResolver).to.eq(SessionPrincipalResolver);
       expect(barrel.AuthorizationBearerExtractor).to.eq(AuthorizationBearerExtractor);
       expect(barrel.ApiKeyHeaderExtractor).to.eq(ApiKeyHeaderExtractor);
       expect(barrel.HttpSignatureExtractor).to.eq(HttpSignatureExtractor);

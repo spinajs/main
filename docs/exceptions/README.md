@@ -2,7 +2,7 @@
 
 The shared exception classes of the framework: one base class, `Exception`, and fifteen semantic subclasses such as `ResourceNotFound`, `Forbidden` and `InvalidArgument`. Every `@spinajs/*` package throws these, and `@spinajs/http` turns each one into an HTTP status.
 
-The package has **no** DI services, configuration or runtime code beyond the classes. It does **not** map exceptions to HTTP responses; `@spinajs/http` does that, keyed by class name.
+The package has **no** DI services, configuration or runtime code beyond the classes and a few helpers for caught values. It does **not** map exceptions to HTTP responses; `@spinajs/http` does that, keyed by class name.
 
 ## Install
 
@@ -17,6 +17,7 @@ npm install @spinajs/exceptions
 | [Exception classes](01-exception-classes.md) | The `Exception` base, the fifteen semantic subclasses, their constructors and the HTTP status each one gets. |
 | [Domain exceptions](02-domain-exceptions.md) | Subclass a semantic exception to name the rule that failed, carry a stable code and keep the inherited HTTP status. |
 | [HTTP error mapping](03-http-error-mapping.md) | Map an exception class to an HTTP response through `@HandleException` and the `__http_error_map__` DI map; add or override a mapping. |
+| [Error helpers](04-error-helpers.md) | Describe a caught value of unknown type (`errorClassOf`, `errorMessage`, `describeError`, `toError`) and test its class across cjs and mjs copies (`isErrorOf`). |
 
 ## Quick start
 

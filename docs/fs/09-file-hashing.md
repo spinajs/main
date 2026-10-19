@@ -7,7 +7,7 @@
 1. `provider.hash(path, algo?)` resolves `DI.resolve(FileHasher, [algo])` and calls `hasher.hash(provider.resolvePath(path))`.
 2. `fileHash(path)` resolves `FileHasher` with no arguments and hashes an absolute local path.
 3. The default `DefaultFileHasher` takes the algorithm from its first constructor argument, else `fs.hasher.defaultAlgorithm`, else `sha256`.
-4. `PerInstanceCheck` keeps one instance per algorithm: `__checkInstance__` compares the requested algorithm (or the configured default) with the instance's `Algorithm`.
+4. `PerInstanceCheck` keeps one instance per algorithm and `HashOptions`: `__checkInstance__` compares the requested algorithm (or the configured default) with the instance's `Algorithm`, and the requested `HashOptions` with the instance's.
 5. Each call checks the algorithm against `crypto.getHashes()` and throws `IOFail` (`Unsupported hash algorithm`) when it is not there.
 6. `hash()` throws `IOFail` when the file does not exist, then streams the file through the hash. Read errors become `IOFail`.
 
@@ -129,8 +129,6 @@ export class StrongFileHasher extends DefaultFileHasher {
 
 ## Important behaviour
 
-- The JSDoc of `fs.hash()` names `md5` as default; the real default is `fs.hasher.defaultAlgorithm`, then `sha256`.
-- The default instance cache keys on the algorithm only. Two resolves with the same algorithm and different `HashOptions` return the first instance.
 - A replacement without `PerInstanceCheck` is a singleton: the algorithm of the first `fs.hash(path, algo)` call then applies to every later call.
 - The inherited `hash()` of a provider hashes `resolvePath(path)`, a local path. Providers without local paths override `hash()` (see [Custom providers](06-custom-providers.md)).
 - `fsTemp.hash()` forwards to its backend's `hash()`.

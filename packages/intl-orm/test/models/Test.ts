@@ -1,7 +1,7 @@
 import { TestRelOneToMany } from './TestRelOneToMany.js';
 import { Translatable } from './../../src/model.js';
 import { Translate } from './../../src/decorators.js';
-import { Primary, Connection, Model, HasMany, ModelBase } from '@spinajs/orm';
+import { Primary, Connection, Model, HasMany, ModelBase, Relation } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 
 export interface Test extends Translatable {}
@@ -23,5 +23,5 @@ export class Test extends ModelBase {
   public Text: string;
 
   @HasMany(TestRelOneToMany)
-  public Data: TestRelOneToMany[];
+  public Data: Relation<TestRelOneToMany, Test>;
 }

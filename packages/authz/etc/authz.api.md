@@ -658,6 +658,7 @@ export * from "./admin.js";
 ## src/contracts/model.ts
 
 ```ts
+import type { IContainer } from "@spinajs/di";
 import type { Principal, PrincipalType, ResourceRef, ResourceType } from "./principal.js";
 import type { Permission, PermissionDef, PermissionRegistry } from "./permission.js";
 import type { FilterOp, ResourceFilter } from "./filter.js";
@@ -684,6 +685,8 @@ export interface ModelCapabilities {
 }
 export interface ModelInitContext {
     readonly domain: string;
+    /** The domain's container: resolve what the model needs (ConditionFunctions, Configuration, connections) here, not in root DI. */
+    readonly container: IContainer;
     readonly config: <T>(path: string, dflt?: T) => T;
     readonly permissions: PermissionRegistry;
     registerPermissions(defs: readonly Omit<PermissionDef, "source">[]): void;
@@ -843,6 +846,13 @@ export interface ListPlanRequest {
     /** Set for a consistency `fresh` permission, as `DecisionRequest.fresh`. */
     readonly fresh?: boolean;
 }
+/** SQL that each dialect spells its own way, from the connection's driver. */
+export interface SqlRowExpressions {
+    /** `expression` as text; `length` bounds the type where the dialect needs one. */
+    castText(expression: string, length?: number): string;
+    /** True where `needle` occurs in `haystack`. */
+    contains(haystack: SqlFragment, needle: SqlFragment): SqlFragment;
+}
 /** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
 export interface SqlRowContext {
     readonly type: ResourceType;
@@ -855,7 +865,7 @@ export interface SqlRowContext {
         readonly typeColumn?: string;
     } | undefined;
     readonly now: Date;
-    readonly dialect: "sqlite" | "postgres" | "mysql" | "mssql";
+    readonly expressions: SqlRowExpressions;
 }
 export interface SqlFragment {
     readonly sql: string;

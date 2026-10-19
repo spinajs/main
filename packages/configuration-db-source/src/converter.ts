@@ -41,6 +41,7 @@ export class DbConfigValueConverter extends UniversalValueConverter {
       case 'range':
         return Number(value).toString();
       case 'manyOf':
+      case 'json':
         return JSON.stringify(value);
       case 'boolean':
         return this.toBool(value) ? 'true' : 'false';
@@ -101,7 +102,16 @@ export class DbConfigValueConverter extends UniversalValueConverter {
       return (model as any)[options.TypeColumn];
     }
 
-    // no model context (eg. update partials) - infer from the runtime value
+    // no model context (eg. a static insert of a plain object) - infer from the runtime value
+    if (DateTime.isDateTime(value)) {
+      return 'datetime';
+    }
+    if (_.isArray(value) && value.length > 0 && value.every((x) => DateTime.isDateTime(x))) {
+      return 'datetime-range';
+    }
+    if (_.isObject(value)) {
+      return 'json';
+    }
     return (typeof value).toLowerCase();
   }
 }

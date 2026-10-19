@@ -1,4 +1,3 @@
-import { NewInstance } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import type { Principal, Session } from '@spinajs/authn/contracts';
@@ -48,7 +47,6 @@ export class NoSession extends BasePolicy {
 }
 
 /** Passes only without an authn principal; a pending session passes, so a half-finished login can start over. */
-@NewInstance()
 export class NotLoggedPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
@@ -63,7 +61,6 @@ export class NotLoggedPolicy extends BasePolicy {
  * Fails when the authn principal came from a per-request credential (API token, JWT, key or signature): no credential mints or
  * manages credentials. Told apart by `authn.sessionHandle`, not by `authn.method`, which would need a list of every credential method.
  */
-@NewInstance()
 export class NoTokenAuthPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
@@ -76,7 +73,6 @@ export class NoTokenAuthPolicy extends BasePolicy {
 }
 
 /** Fails while impersonating (principal.authn.impersonator is set): routes that hand out lasting credentials need the account owner. */
-@NewInstance()
 export class NoImpersonationPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;

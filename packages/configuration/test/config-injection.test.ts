@@ -35,6 +35,11 @@ class Room {
   public Speaker: Speaker;
 }
 
+class OptionalRoom {
+  @AutoinjectService('feature.speaker', Speaker, { optional: true })
+  public Speaker: Speaker | undefined;
+}
+
 class Plain {
   @Config('feature.value')
   public Value: string;
@@ -180,6 +185,24 @@ describe('@Config reads the Configuration of the container that built the instan
       c.register(sharedConfiguration({ feature: { speaker: 'Quiet' } })).as(Configuration);
 
       expect(() => c.resolve(Room)).to.throw(InvalidOperation, /feature.speaker/);
+    });
+
+    it('fails with InvalidOperation naming the path when the value is empty', async () => {
+      const s = await scenario();
+      const c = child(undefined, s);
+      c.register(sharedConfiguration({ feature: { speaker: '' } })).as(Configuration);
+      await c.resolve(Configuration);
+
+      expect(() => c.resolve(Room)).to.throw(InvalidOperation, /feature.speaker is empty/);
+    });
+
+    it('leaves the property undefined for an optional injection with an empty value', async () => {
+      const c = child(undefined, await scenario());
+      c.register(sharedConfiguration({ feature: {} })).as(Configuration);
+      c.register(OptionalRoom).asSelf();
+      await c.resolve(Configuration);
+
+      expect((await c.resolve(OptionalRoom)).Speaker).to.equal(undefined);
     });
   });
 });
