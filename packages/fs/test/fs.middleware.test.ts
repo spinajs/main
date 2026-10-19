@@ -10,7 +10,7 @@ import { InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/
 import '@spinajs/templates-pug';
 
 import { TestConfiguration, dir } from './common.js';
-import { FsBootstrapper, FsMiddleware, fs, fsNative, fsService, getFs } from '../src/index.js';
+import { FsBootstrapper, FsMiddleware, fs, fsNative, fsService, getFs, publishedFs } from '../src/index.js';
 import type { FsActionContext, IFsLocalOptions } from '../src/index.js';
 
 chai.use(chaiAsPromised);
@@ -145,6 +145,13 @@ describe('fs middleware pipeline', function () {
       }
     }
     expect(() => new BadFs({ name: 'bad', service: 'fsNative', basePath: dir('./temp-nc') } as IFsLocalOptions)).to.throw(InvalidOperation, /BadFs overrides read; implement doRead instead/);
+  });
+
+  it('publishes the provider instances themselves', () => {
+    const published = publishedFs('fs-temp-nc-local');
+    expect(published).to.equal(local);
+    expect(published!.constructor.name).to.equal('fsNative');
+    expect(publishedFs('fs-temp-nc')!.constructor.name).to.equal('fsTemp');
   });
 });
 

@@ -664,17 +664,6 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 }
 
 /**
- * Wraps every configured fs provider. fsService first publishes every raw provider, so
- * providers that look up a backend by name in their own resolve() get the raw one, then
- * replaces each entry with the result of the decorators, run in ascending `order`.
- * When a decorator throws, every provider is unpublished and fsService fails to resolve.
- */
-export abstract class FsDecorator {
-  abstract readonly order: number;
-  abstract decorate(instance: fs, config: IProviderConfiguration): fs;
-}
-
-/**
  * File information service, obtain file props, metadata etc.
  * Eg. movie resolution, image, codec etc. if possible
  */
