@@ -4,6 +4,7 @@ import { DI, Injectable, Singleton } from '@spinajs/di';
 import { ChangeBus, engineLog, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
+import { isStringArray } from '@spinajs/util';
 
 interface WireChange {
   domain?: unknown;
@@ -23,7 +24,7 @@ export class AuthzChangeEvent extends QueueEvent {
 export function reviveChange(raw: unknown): AuthzChange | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const c = raw as WireChange;
-  if (!Array.isArray(c.tags) || !c.tags.every((t) => typeof t === 'string')) return undefined;
+  if (!isStringArray(c.tags)) return undefined;
   if (c.domain !== undefined && typeof c.domain !== 'string') return undefined;
 
   let actor: AuthzChange['actor'];

@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { quote as q } from '@spinajs/util';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import { AuthzDomains, AuthzService, DOMAIN_NAME_PATTERN, ROOT_DOMAIN } from '../contracts/service.js';
@@ -31,13 +32,6 @@ interface DomainRecord {
   boot?: DomainBoot;
 }
 
-const q = (v: unknown): string => {
-  try {
-    return typeof v === 'string' ? JSON.stringify(v) : String(v);
-  } catch {
-    return Object.prototype.toString.call(v);
-  }
-};
 
 /** The parent `authz.domains.<name>.parent` names in the authz tree. */
 export function configuredParent(tree: unknown, name: string): string | undefined {

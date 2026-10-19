@@ -1,4 +1,5 @@
 import type { Principal } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 /**
  * Whether `role` passes the principal's `ceiling.roles`: the assigned role's own name, never a role
@@ -17,6 +18,6 @@ export function withinCeiling(s: { readonly ceilingRoles?: ReadonlySet<string> }
 export function ceilingRoles(principal: Principal): ReadonlySet<string> | undefined {
   const roles: unknown = principal.ceiling?.roles;
   if (roles === undefined || roles === null) return undefined;
-  if (!Array.isArray(roles) || !roles.every((r) => typeof r === 'string')) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
+  if (!isStringArray(roles)) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
   return new Set(roles);
 }

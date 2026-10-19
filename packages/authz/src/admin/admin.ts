@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzTx } from '../contracts/admin.js';
@@ -22,6 +23,7 @@ import type { AdminConfig, AdminPermissionMap } from './config.js';
 import type { AdminCallContext } from './context.js';
 import { requirePermitted } from './permit.js';
 import { AuthzAdminReader } from './ports.js';
+import { isObject } from '../engine/internal/util.js';
 // The default AuthzEventSink registration.
 import './sink.js';
 
@@ -46,14 +48,6 @@ interface Env {
   readonly audit: DecisionAudit | undefined;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const q = (v: unknown): string => {
-  try {
-    return typeof v === 'string' ? JSON.stringify(v) : String(v);
-  } catch {
-    return Object.prototype.toString.call(v);
-  }
-};
 const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
 const typeName = (t: unknown): string => (typeof t === 'function' && typeof t.name === 'string' ? t.name : '');
 const className = (v: unknown): string => (isObject(v) ? typeName(v.constructor) : '') || q(v);
@@ -77,14 +71,6 @@ function redact<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
   } finally {
     seen.delete(value);
   }
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
-  }
-  return value;
 }
 
 /** Thrown inside the transaction to roll it back; never leaves execute. */
@@ -236,7 +222,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     // One frozen copy: the command checked is the command applied, audited and evented.
     const list: readonly AuthzCommand[] = commands.map((c, i) => {
       try {
-        return deepFreeze(structuredClone(c));
+        return deepFreeze<AuthzCommand>(structuredClone(c));
       } catch (e) {
         throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${describeError(e)}`, String(i));
       }

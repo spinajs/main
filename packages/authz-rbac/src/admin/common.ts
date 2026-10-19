@@ -6,7 +6,7 @@ import type { AssignmentSubject } from '../contracts.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 import { copyPrincipalRef, isSetSubject } from './rows.js';
 
-export const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+export { isPlainObject } from '@spinajs/util';
 export const quote = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
 // ---- stores ----

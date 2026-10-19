@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance, Service } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
+import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AccessDenied, AuthzConfigError } from '../contracts/errors.js';
 import { AuthorizationModel, Combinator, NativeFilter } from '../contracts/model.js';
@@ -35,6 +36,7 @@ import { engineLog, thrownError } from './log.js';
 import type { AuthzLog } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
 import { AccessChangeRouter } from './push.js';
+import { isObject } from '../engine/internal/util.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
 import './bus.js';
 import './audit.js';
@@ -78,22 +80,7 @@ const users = new WeakMap<AuthorizationModel, Set<DefaultAuthzService>>();
 // Every DecisionCache an Authorizer ever used: a rebuilt Authorizer must never adopt one (it may hold the old entries).
 const usedCaches = new WeakSet<object>();
 
-const q = (v: unknown): string => {
-  try {
-    return typeof v === 'string' ? JSON.stringify(v) : String(v);
-  } catch {
-    return Object.prototype.toString.call(v);
-  }
-};
 const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
-  }
-  return value;
-}
 const modelName = (m: unknown): string | undefined => (isObject(m) && typeof m.name === 'string' ? m.name : undefined);
 
 @PerChildInstance()

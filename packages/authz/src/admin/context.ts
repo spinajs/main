@@ -5,6 +5,7 @@ import type { AdminContext } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL } from '../contracts/resource.js';
+import { isObject } from '../engine/internal/util.js';
 
 /**
  * What DefaultAuthzAdmin passes as AdminContext; handlers, guards and validators may read the extra fields.
@@ -17,7 +18,6 @@ export interface AdminCallContext extends AdminContext {
   readonly dryRun: boolean;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const isRecord = (v: unknown): v is Record<string, unknown> => isObject(v) && !Array.isArray(v);
 
 function callContext(ctx: AdminContext, what: string): AdminCallContext {

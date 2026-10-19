@@ -4,6 +4,7 @@ import type { ResourceRef, RuleDef } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+import { deepFreeze, toEpochMs } from '@spinajs/util';
 
 import { RuleStore } from '../contracts.js';
 
@@ -68,14 +69,14 @@ export function readRuleDefs(rules: readonly unknown[], source = 'config'): read
       refuse(!isPlain(given), at, 'a rule must be an object');
       const scope = r.scope === undefined ? GLOBAL : r.scope;
       floor(given as Raw, scope, at);
-      return deepFreeze({ ...r, scope, source: r.source ?? source, ...expiry(r.expiresAt, at) });
+      return deepFreeze({ ...r, scope, source: r.source ?? source, ...expiry(r.expiresAt, at) }, { skipDates: true });
     }),
   );
 }
 
 function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
   if (value === undefined || value === null) return value === null ? { expiresAt: null } : {};
-  const ms = typeof value === 'string' ? (WITH_TIMEZONE.test(value) ? Date.parse(value) : NaN) : Object.prototype.toString.call(value) === '[object Date]' ? Date.prototype.getTime.call(value) : NaN;
+  const ms = typeof value === 'string' ? (WITH_TIMEZONE.test(value) ? Date.parse(value) : NaN) : (toEpochMs(value) ?? NaN);
   if (Number.isNaN(ms)) throw new AuthzConfigError(`${at}: expiresAt must be a date or an ISO date-time string with a timezone`);
   return { expiresAt: new Date(ms) };
 }
@@ -127,12 +128,4 @@ export class ConfigRuleStore extends RuleStore {
     const rules = configuration ? configuration.get<readonly unknown[] | undefined>(['authz', 'rbac', 'rules']) : this.Rules;
     return rules === undefined ? NO_RULES : rules;
   }
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value) && !(value instanceof Date)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) deepFreeze(v);
-  }
-  return value;
 }

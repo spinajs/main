@@ -4,6 +4,7 @@ import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
+import { compareStrings, uniqueBy } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
@@ -80,7 +81,7 @@ export class DbRuleStore extends AdminRuleStore {
 
     return this.rulesOf(
       driver,
-      rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+      rows.sort((a, b) => compareStrings(a.id, b.id)),
     );
   }
 
@@ -285,12 +286,7 @@ function subjectKey(list: string, s: { subject_type: string; subject_id: string;
 }
 
 function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
-  const seen = new Map<string, ScopeRefColumns>();
-  for (const r of refs) {
-    const c = scopeToColumns(r);
-    seen.set(JSON.stringify([c.scope_type, c.scope_id]), c);
-  }
-  return [...seen.values()];
+  return uniqueBy(refs.map(scopeToColumns), (c) => JSON.stringify([c.scope_type, c.scope_id]));
 }
 
 /** `(scope_type = ? AND scope_id IN (…)) OR …`, one group per type; row-value `IN` is not portable. */

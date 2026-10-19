@@ -5,14 +5,13 @@ import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 
 import { AuthzDomains, DefaultAuthzDomains, DefaultAuthzService, InProcessChangeBus, LogDecisionAudit, SystemClock } from '@spinajs/authz';
+import { isPlainObject as isRecord } from '@spinajs/util';
 
 import { TestLog, installTestLog } from './log.js';
 
 type Path = string | readonly string[];
 
 const segments = (path: Path): string[] => (Array.isArray(path) ? [...path] : (path as string).split('.').filter((s) => s !== ''));
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /** In-memory Configuration over a plain object; paths are dotted strings or segment arrays. */
 export class TestConfiguration extends Configuration {

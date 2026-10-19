@@ -64,7 +64,7 @@ export function shuffler(seed: number): <T>(items: readonly T[]) => T[] {
 
 export const identityOrder = <T>(items: readonly T[]): T[] => [...items];
 
-export const isThenable = (v: unknown): v is PromiseLike<unknown> => v !== null && (typeof v === 'object' || typeof v === 'function') && typeof (v as { then?: unknown }).then === 'function';
+export { isThenable } from '@spinajs/util';
 
 export const isFilterOp = (op: unknown): boolean => typeof op === 'string' && ((CORE_FILTER_OPS as readonly string[]).includes(op) || /^native:\S+$/.test(op));
 

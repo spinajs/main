@@ -1,5 +1,6 @@
 import type { DecisionRequest, EvaluationContext, Principal } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { isStringArray } from '@spinajs/util';
 
 import type { RbacExtension, RbacInput } from '../model/evaluate.js';
 import type { RbacModelOptions } from '../model/model.js';
@@ -59,6 +60,6 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
 function ceilingRoleList(principal: Principal): readonly string[] | undefined {
   const roles: unknown = principal.ceiling?.roles;
   if (roles === undefined || roles === null) return undefined;
-  if (!Array.isArray(roles) || !roles.every((r) => typeof r === 'string')) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
+  if (!isStringArray(roles)) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
   return roles;
 }

@@ -2,6 +2,7 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { SYSTEM, UNATTENDED, engineLog } from '@spinajs/authz';
 import type { Ceiling, HostLog, Principal } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 import type { Initiator } from '../api.js';
 
 /**
@@ -12,8 +13,6 @@ import type { Initiator } from '../api.js';
 export abstract class InitiatorPrincipalFactory {
   abstract principalOf(initiator: Initiator): Promise<Principal>;
 }
-
-const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
 // null counts as absent, as in the engine's ceiling reader.
 function reviveDate(v: unknown): Date | undefined {
@@ -27,11 +26,11 @@ export function reviveCeiling(raw: unknown): Ceiling | undefined {
   const c: Record<string, unknown> = Object.fromEntries(Object.entries(raw as object).filter(([, v]) => v !== null));
   const out: { -readonly [K in keyof Ceiling]: Ceiling[K] } = {};
   if (c.roles !== undefined) {
-    if (!isStrings(c.roles)) return undefined;
+    if (!isStringArray(c.roles)) return undefined;
     out.roles = [...c.roles];
   }
   if (c.permissions !== undefined) {
-    if (!isStrings(c.permissions)) return undefined;
+    if (!isStringArray(c.permissions)) return undefined;
     out.permissions = [...c.permissions];
   }
   if (c.resources !== undefined) {

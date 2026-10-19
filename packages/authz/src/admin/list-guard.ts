@@ -5,6 +5,7 @@ import type { AdminContext, AuthzCommand } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { Principal } from '../contracts/principal.js';
 import { adminContainer } from './context.js';
+import { isObject } from '../engine/internal/util.js';
 
 /**
  * Design §7 at write time: the model that owns the data a policy.put or rule.put changes says whether
@@ -17,7 +18,6 @@ export abstract class ListSupportGuard {
 
 const FIELD: Readonly<Record<string, string>> = Object.freeze({ 'policy.put': 'policy', 'rule.put': 'rule' });
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const className = (v: unknown): string => (isObject(v) && typeof v.constructor === 'function' ? v.constructor.name : String(v));
 
 @Singleton()

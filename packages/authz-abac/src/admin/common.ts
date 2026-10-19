@@ -1,6 +1,7 @@
 import { AuthzConfigError, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, Policy, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { OrmDriver } from '@spinajs/orm';
+import { deepFreeze as freeze, isPlainObject } from '@spinajs/util';
 
 import { PolicyStore } from '../contracts.js';
 import { AbacModel } from '../model/model.js';
@@ -11,7 +12,7 @@ export type WritablePolicyStore = MemoryPolicyStore | DbPolicyStore;
 
 export const quote = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
-export const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+export { isPlainObject };
 
 /**
  * The one writable PolicyStore registered in the domain (a MemoryPolicyStore or a DbPolicyStore); config
@@ -88,10 +89,4 @@ export function policyChanged(ctx: AdminContext, p: { readonly id: string; reado
 }
 
 /** Stored memory rows are shared with readers and the model; freezing them keeps a caller from changing the store behind its version. */
-export function deepFreeze<T>(v: T): T {
-  if (v !== null && typeof v === 'object' && !(v instanceof Date) && !Object.isFrozen(v)) {
-    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
-    Object.freeze(v);
-  }
-  return v;
-}
+export const deepFreeze = <T>(v: T): Readonly<T> => freeze(v, { skipDates: true });

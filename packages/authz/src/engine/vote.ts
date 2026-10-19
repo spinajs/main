@@ -2,6 +2,9 @@ import { FALSE, TRUE, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { DenyReason, FieldSet, TraceStep, Vote } from '../contracts/decision.js';
 import type { ResourceRef } from '../contracts/principal.js';
+import { isObject } from './internal/util.js';
+
+export { deepFreeze } from '@spinajs/util';
 
 const MAX_FILTER_DEPTH = 256;
 const MAX_DATA_DEPTH = 32;
@@ -31,8 +34,6 @@ export const budget = (n: number): Budget => ({ left: n });
 
 /** Which non-structural ops a filter may hold; `'*'` = any well-formed op. */
 export type OpPolicy = ReadonlySet<string> | '*';
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 const isPlain = (v: object): boolean => {
   const proto = Object.getPrototypeOf(v);
@@ -323,11 +324,4 @@ function copyValue(v: unknown, depth: number, path: Set<object>, strict: boolean
 // defineProperty: a '__proto__' key from parsed JSON stays an own data key instead of hitting the setter.
 function define(o: Record<string, unknown>, k: string, value: unknown): void {
   Object.defineProperty(o, k, { value, enumerable: true, writable: true, configurable: true });
-}
-
-export function deepFreeze<T>(v: T, seen = new Set<unknown>()): T {
-  if (v === null || typeof v !== 'object' || seen.has(v)) return v;
-  seen.add(v);
-  for (const x of Object.values(v as object)) deepFreeze(x, seen);
-  return Object.freeze(v);
 }

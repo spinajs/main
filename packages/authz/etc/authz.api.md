@@ -620,11 +620,6 @@ const FALSE = Object.freeze({
 });
 const SIMPLIFIED = new WeakSet<object>();
 const MISSING = Symbol("missing");
-const UNSAFE_SEGMENTS = new Set([
-    "__proto__",
-    "prototype",
-    "constructor"
-]);
 const filterHashTesting = {
     hash: (f: ResourceFilter): number | null => {
     },

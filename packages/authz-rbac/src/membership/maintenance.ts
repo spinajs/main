@@ -1,4 +1,5 @@
 import type { AuthzTx } from '@spinajs/authz';
+import { sortedUnique } from '@spinajs/util';
 
 import { honoured, setRolesOf } from '../admin/role-index.js';
 import type { RoleIndex } from '../admin/role-index.js';
@@ -59,7 +60,7 @@ export async function diffMemberships(s: MembershipSources): Promise<MembershipD
 /** Rewrites every member's rows inside `tx`; returns the number of rows written. */
 export async function rebuildMemberships(s: MembershipSources, tx: AuthzTx): Promise<number> {
   const expected = await expectedMemberships(s);
-  const keys = [...new Set([...(await s.memberships.memberKeys()), ...expected.keys()])].sort();
+  const keys = sortedUnique([...(await s.memberships.memberKeys()), ...expected.keys()]);
   let written = 0;
   for (const k of keys) {
     const rows = expected.get(k) ?? [];

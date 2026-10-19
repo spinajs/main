@@ -1,5 +1,7 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
+import { compareStrings, isThenable, thenMaybe as after } from '@spinajs/util';
+import type { MaybePromise } from '@spinajs/util';
 
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
@@ -349,7 +351,7 @@ function newState(input: RbacInput, ceiling: boolean): RbacState {
 function canonicalOrder(terms: readonly ResourceFilter[]): ResourceFilter[] {
   return terms
     .map((t) => [JSON.stringify(t), t] as const)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => compareStrings(a, b))
     .map(([, t]) => t);
 }
 
@@ -390,15 +392,6 @@ export interface RbacSources {
   readonly onRefusedAssignment?: RbacInput['onRefusedAssignment'];
 }
 
-type Maybe<T> = T | PromiseLike<T>;
-
-const isThenable = <T>(v: Maybe<T> | undefined): v is PromiseLike<T> => typeof (v as { then?: unknown } | null | undefined)?.then === 'function';
-
-/** Runs `next` on the value now, or once the promise resolves. */
-function after<T, U>(value: Maybe<T>, next: (value: T) => Maybe<U>): Maybe<U> {
-  return isThenable(value) ? Promise.resolve(value).then(next) : next(value);
-}
-
 /**
  * The IO phase: subjects, their assignments, the path, then what the extensions gather. Answered
  * synchronously when no source needs IO: the subjects and assignments come back as values (a
@@ -428,7 +421,7 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
 
 const withConfig = (stored: readonly Assignment[], config: readonly Assignment[]) => ({ assignments: [...stored, ...config], ...(config.length > 0 ? { config } : {}) });
 
-function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
+function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): MaybePromise<RbacInput> {
   const extensions = sources.extensions ?? [];
   if (from === 0) input = { ...input, ...rbacTables(extensions, input.roles, input.grants) };
   for (let i = from; i < extensions.length; i++) {

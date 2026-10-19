@@ -1,3 +1,5 @@
+import { compareStrings, isPlainObject as isObject, isStringArray, sortedUnique } from '@spinajs/util';
+
 /** The list-plan term an RBAC grant compiles to. */
 export const RBAC_ASSIGNMENT_PLAN_OP = 'rbac.assignment';
 
@@ -27,9 +29,7 @@ export interface RbacAssignmentPlanArgs {
 const ARG_KEYS = ['subjects', 'membership', 'memberKeys', 'roles', 'global'];
 const ROLE_KEYS = ['role', 'scopeTypes', 'tag', 'descendantsOnly', 'relation'];
 
-const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const sorted = (list: readonly string[]): readonly string[] => Object.freeze([...new Set(list)].sort(byCodePoint));
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const sorted = (list: readonly string[]): readonly string[] => Object.freeze(sortedUnique(list));
 
 /** Canonical args: equal plans are equal JSON (cache keys, statement caches). */
 export function rbacPlanArgs(a: RbacAssignmentPlanArgs): RbacAssignmentPlanArgs {
@@ -38,7 +38,7 @@ export function rbacPlanArgs(a: RbacAssignmentPlanArgs): RbacAssignmentPlanArgs 
     const role: RbacPlanRole = Object.freeze({ role: r.role, ...(r.scopeTypes ? { scopeTypes: sorted(r.scopeTypes) } : {}), ...(r.tag !== undefined ? { tag: r.tag } : {}), ...(r.descendantsOnly ? { descendantsOnly: true } : {}), ...(r.relation ? { relation: r.relation } : {}) });
     roles.set(JSON.stringify(role), role);
   }
-  const list = [...roles].sort(([x], [y]) => byCodePoint(x, y)).map(([, r]) => r);
+  const list = [...roles].sort(([x], [y]) => compareStrings(x, y)).map(([, r]) => r);
   return Object.freeze({ subjects: sorted(a.subjects), membership: a.membership, memberKeys: sorted(a.memberKeys), roles: Object.freeze(list), global: a.global });
 }
 
@@ -50,7 +50,7 @@ export function parseRbacPlanArgs(args: unknown): RbacAssignmentPlanArgs {
   if (!isObject(args)) return fail('args must be an object');
   const unknown = Object.keys(args).filter((k) => !ARG_KEYS.includes(k));
   if (unknown.length > 0) fail(`unknown args key(s) ${unknown.join(', ')}`);
-  const names = (v: unknown, what: string): string[] => (Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '') ? (v as string[]) : fail(`${what} must be an array of non-empty strings`));
+  const names = (v: unknown, what: string): string[] => (isStringArray(v, { nonEmpty: true }) ? v : fail(`${what} must be an array of non-empty strings`));
   if (typeof args.membership !== 'boolean') fail('membership must be a boolean');
   if (typeof args.global !== 'boolean') fail('global must be a boolean');
   if (!Array.isArray(args.roles)) fail('roles must be an array');

@@ -1,5 +1,6 @@
 import { AuthzConfigError, resourceKey } from '@spinajs/authz';
 import type { PermissionRegistry } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import type { ImpliedRole, RoleDef } from '../../contracts.js';
 import { withinCeiling } from '../ceiling.js';
@@ -68,7 +69,7 @@ function ownImplies(name: string, def: RoleDef, defs: ReadonlyMap<string, RoleDe
       if (!defs.has(e.role)) throw new AuthzConfigError(`${at} implies unknown role '${e.role}' (${RULE})`);
       const where = `${at}: implies '${e.role}'`;
       if (typeof e.at !== 'string' || !AT.has(e.at)) throw new AuthzConfigError(`${where} needs at: 'self-and-descendants' or 'descendants'`);
-      if (e.tags !== undefined && !isNameList(e.tags)) throw new AuthzConfigError(`${where}: tags must be an array of tag names`);
+      if (e.tags !== undefined && !isStringArray(e.tags, { nonEmpty: true })) throw new AuthzConfigError(`${where}: tags must be an array of tag names`);
       if (e.bypass !== undefined && !(Array.isArray(e.bypass) && e.bypass.every((b) => BYPASS.has(b as string)))) throw new AuthzConfigError(`${where}: bypass may list only 'restrict' and 'cap' (never the ceiling)`);
       return Object.freeze({
         role: e.role,
@@ -133,5 +134,3 @@ export class ImpliesExtension implements RbacExtension {
 }
 
 export const impliesExtension: RbacExtensionFactory = () => new ImpliesExtension();
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');

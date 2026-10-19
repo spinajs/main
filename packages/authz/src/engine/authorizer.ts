@@ -1,3 +1,4 @@
+import { quote, compareStrings } from '@spinajs/util';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -37,6 +38,7 @@ import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreez
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
 import { ENGINE_DEFAULTS } from './defaults.js';
+import { isObject } from './internal/util.js';
 
 /**
  * summary() and covers() check at most this many permissions (one check per
@@ -283,15 +285,7 @@ const INVALID_REQUEST: DenyReason = Object.freeze({ code: 'invalid_request' });
 const MISSING_ROW: RowLoad = Object.freeze({ kind: 'missing' });
 const FAILED_ROW: RowLoad = Object.freeze({ kind: 'failed' });
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const quote = (v: unknown): string => {
-  try {
-    return typeof v === 'string' ? JSON.stringify(v) : String(v);
-  } catch {
-    return Object.prototype.toString.call(v);
-  }
-};
-const byName = (a: Vote, b: Vote): number => (a.model < b.model ? -1 : a.model > b.model ? 1 : 0);
+const byName = (a: Vote, b: Vote): number => compareStrings(a.model, b.model);
 
 export class Authorizer {
   readonly domain: string;
@@ -767,7 +761,7 @@ export class Authorizer {
     const defs = this.registry
       .all()
       .filter((d) => ref.type === GLOBAL_TYPE || d.types.includes(ref.type))
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      .sort((a, b) => compareStrings(a.name, b.name));
     if (defs.length <= MAX_SUMMARY_PERMISSIONS) return { defs, truncated: false };
     this.logAt('warn', { operation: what, resource: resourceKey(ref), count: defs.length, limit: MAX_SUMMARY_PERMISSIONS }, 'Authz domain ${domain}: ${operation} at ${resource} has ${count} permissions to check, more than the limit of ${limit}');
     return { defs: defs.slice(0, MAX_SUMMARY_PERMISSIONS), truncated: true };

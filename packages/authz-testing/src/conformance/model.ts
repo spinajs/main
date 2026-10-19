@@ -3,6 +3,7 @@ import * as fc from 'fast-check';
 
 import { PermissionRegistry, compareDenyReasons, isPermission, resourceKey, simplify } from '@spinajs/authz';
 import type { AuthorizationModel, DecisionRequest, DenyReason, EvaluationContext, NativeFilter, Permission, PermissionDef, Principal, RelationResolver, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import { fakeEvaluationContext, fakeModelInitContext } from '../context.js';
 import type { FakeEvaluationContextOptions, FakeModelInitContext } from '../context.js';
@@ -337,7 +338,7 @@ function voteHonesty(p: Prepared, v: Vote, req: DecisionRequest): void {
   else if (v.fields !== undefined) {
     for (const k of ['read', 'write', 'hide'] as const) {
       const list = v.fields[k];
-      check(list === undefined || (Array.isArray(list) && list.every((x) => typeof x === 'string')), `${where}: fields.${k} is not a list of field names`);
+      check(list === undefined || isStringArray(list), `${where}: fields.${k} is not a list of field names`);
     }
   }
   if (!cap.needsSubject) check(!reasonCodes(v).includes('needs_subject'), `${where}: needsSubject is false, but the vote says needs_subject`);
@@ -401,9 +402,9 @@ function capabilitiesCheck<S>(factory: ModelFactory<S>, opts: ModelConformanceOp
             check(Array.isArray(cap.residuals) && cap.residuals.every(isFilterOp), () => `residuals ${show(cap.residuals)} must be filter ops (core or native:<name>)`);
             check(['always', 'after-preload', 'never'].includes(cap.sync), `sync ${show(cap.sync)} is not 'always' | 'after-preload' | 'never'`);
             check(typeof cap.fields === 'boolean' && typeof cap.needsSubject === 'boolean', 'fields and needsSubject must be booleans');
-            check(cap.principalTypes === undefined || (Array.isArray(cap.principalTypes) && cap.principalTypes.every((t) => typeof t === 'string')), 'principalTypes must be a list of types');
+            check(cap.principalTypes === undefined || isStringArray(cap.principalTypes), 'principalTypes must be a list of types');
             const rt = cap.resourceTypes;
-            check(rt === undefined || rt === '*' || (Array.isArray(rt) && rt.every((t) => typeof t === 'string')), `resourceTypes ${show(rt)} must be '*' or a list of types`);
+            check(rt === undefined || rt === '*' || isStringArray(rt), `resourceTypes ${show(rt)} must be '*' or a list of types`);
 
             const defs = new Map<Permission, PermissionDef>();
             for (const d of [...p.registry.all(), ...p.init.registered.permissions]) defs.set(d.name, d);
