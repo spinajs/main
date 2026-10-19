@@ -34,6 +34,12 @@ describe('authz-fs config: fsAclConfig', () => {
     expect(fsAclConfig(child)).to.deep.equal({ connection: 'acl', relations: ['owner', 'viewer', 'reviewer'] });
   });
 
+  it("puts 'owner' in front of a list without it", async () => {
+    child = await configuredChild(undefined);
+    configurationOf(child).set(['authz', 'fsAcl'], { relations: ['viewer'] });
+    expect(fsAclConfig(child).relations).to.deep.equal(['owner', 'viewer']);
+  });
+
   it('freezes the result', async () => {
     child = await configuredChild(undefined);
     const cfg = fsAclConfig(child);

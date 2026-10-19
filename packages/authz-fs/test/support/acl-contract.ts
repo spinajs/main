@@ -59,6 +59,37 @@ export function aclStoreContract(storeOf: () => FileAclStore): void {
     expect(await s.holds(fs, ['a.txt'], ['user:alice'], 'viewer', MUCH_LATER)).to.equal(false);
   });
 
+  it('a row does not hold at exactly its expiresAt', async () => {
+    await s.grant(viewer('a.txt', ALICE, { expiresAt: LATER }));
+    expect(await s.holds(fs, ['a.txt'], ['user:alice'], 'viewer', LATER)).to.equal(false);
+  });
+
+  it('keeps paths exact and case-sensitive', async () => {
+    await s.grant(viewer('Docs/a.txt', ALICE));
+    await s.grant(viewer('docs/a.txt', BOB));
+    expect((await s.list(fs, 'Docs/a.txt')).map((r) => r.subject)).to.deep.equal([ALICE]);
+    expect((await s.list(fs, 'docs/a.txt')).map((r) => r.subject)).to.deep.equal([BOB]);
+    expect(await s.holds(fs, ['docs/a.txt'], ['user:alice'], 'viewer', NOW)).to.equal(false);
+    expect(await s.holds(fs, ['docs/a.txt'], ['user:bob'], 'viewer', NOW)).to.equal(true);
+    await s.moveTree(fs, 'docs', fs, 'moved');
+    expect(await present(fs, 'Docs/a.txt')).to.equal(true);
+    expect(await present(fs, 'moved/a.txt')).to.equal(true);
+    await s.grant(viewer('docs/b.txt'));
+    await s.deleteTree(fs, 'docs');
+    expect(await present(fs, 'docs/b.txt')).to.equal(false);
+    expect(await present(fs, 'Docs/a.txt')).to.equal(true);
+  });
+
+  it('moveTree matches LIKE wildcards literally: a_b and 100% move only themselves', async () => {
+    for (const path of ['a_b/in.txt', 'axb/x.txt', '100%/in.txt', '100x/y.txt']) await s.grant(viewer(path));
+    await s.moveTree(fs, 'a_b', fs, 'to1');
+    await s.moveTree(fs, '100%', fs, 'to2');
+    expect(await present(fs, 'to1/in.txt')).to.equal(true);
+    expect(await present(fs, 'to2/in.txt')).to.equal(true);
+    for (const path of ['a_b/in.txt', '100%/in.txt']) expect(await present(fs, path), path).to.equal(false);
+    for (const path of ['axb/x.txt', '100x/y.txt']) expect(await present(fs, path), path).to.equal(true);
+  });
+
   it('grant is idempotent on (fs, path, subject, relation) and list decodes every subject form', async () => {
     await s.grant(viewer('a.txt', ALICE, { grantedBy: 'user:root' }));
     await s.grant(viewer('a.txt', ALICE, { expiresAt: LATER }));
