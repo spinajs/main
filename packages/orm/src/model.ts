@@ -438,8 +438,8 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param value - value to compare
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
@@ -1106,7 +1106,10 @@ export abstract class HistoricalModel implements IHistoricalModel {
 }
 
 
-export const MODEL_STATIC_MIXINS = {
+/** Bound to each model class at registration (orm.ts), so `this` is the class. */
+const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
+
+export const MODEL_STATIC_MIXINS = staticMixins({
   getModelDescriptor(): IModelDescriptor {
     const dsc = _descriptor(this);
 
@@ -1653,7 +1656,7 @@ export const MODEL_STATIC_MIXINS = {
   async transaction<T extends typeof ModelBase, R>(this: T, callback: (trx: OrmDriver) => Promise<R>, options?: ITransactionOptions): Promise<R> {
     return this.getModelDescriptor().Driver!.transaction(callback, options);
   }
-};
+});
 
 export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {
   return new model();
