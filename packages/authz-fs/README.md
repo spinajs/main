@@ -174,7 +174,7 @@ earliest of:
 - the `validUntil` of the `fs:share` decision (an expiring grant), when it has one.
 
 So a URL nobody asked a lifetime for lives 900 s at most, whatever the caps or grants say. Now is the
-`AuthzClock` of the filesystem's domain. The rule also holds in `audit`. An asked `until` that is not a valid
+`AuthzClock` the filesystem's domain booted with (the system time before that boot). The rule also holds in `audit`. An asked `until` that is not a valid
 luxon `DateTime` is an `InvalidArgument`; the guard signs a copy of it, in its zone.
 
 The S3 signer turns `until` into a lifetime with the wall clock (`diffNow`). With a custom `AuthzClock` that
