@@ -230,7 +230,10 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   };
   const log = guard.env.log;
   const afterIo = await planMetadata(method, metadataPath, {
-    error: (fields, template) => (log.error ?? log.warn).call(log, { ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template),
+    error: (fields, template) => {
+      if (log.error) log.error({ ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template);
+      else log.warn({ ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template);
+    },
     warn: (fields, template) => log.warn({ ...fields, fsName: guard.name }, 'authz.fs.${fsName}: ' + template),
     timeoutMs: guard.env.metadataTimeoutMs,
   });

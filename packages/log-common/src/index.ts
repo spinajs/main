@@ -413,7 +413,7 @@ export interface ILogTargetDesc {
   filters?: LogFilter[];
 }
 
-export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
+export function createLogMessageObject(err: Error | string, message: string | any[] | undefined, level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   // `log.error(err)` ( no message ) is a legal overload, and it used to render
   // an EMPTY `${message}`. Fall back to the error's own message so a bare
   // error-only call still says something.

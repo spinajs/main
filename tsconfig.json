@@ -32,7 +32,6 @@
     // is ready - do not remove casually.
     "strictPropertyInitialization": false,
     "strictFunctionTypes": false,
-    "strictBindCallApply": false,
     "useUnknownInCatchVariables": false,
     "noImplicitThis": false
   }
