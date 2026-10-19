@@ -449,11 +449,15 @@ password, a token or a reset code never comes back in a response or lands in a l
 - **Paths are normalised on every provider** (`normalizeFsPath` from `@spinajs/fs`, against `fs.BasePath`). A path that
   climbs above the root, holds a NUL byte, is a drive or UNC path outside the base path, or has a segment holding `:`
   or ending in `.` or a space (Win32 aliases) throws `InvalidArgument` (400) before any IO, with or without
-  middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working
-  directory without one.
+  middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working directory without one. Without a
+  `basePath`, an absolute path outside the working directory maps under it on POSIX (`/etc/passwd` is
+  `<cwd>/etc/passwd`) and, as a drive path, throws `InvalidArgument` on Windows.
+- `upload(srcPath, …)` reads the local `srcPath` unchecked by contract: middlewares check only the destination. Never
+  pass a user-controlled `srcPath`.
 - `FsMiddleware` (new) runs `before` and `after` every public file method of every provider, in ascending `order`.
   Register it by class (`@Injectable(FsMiddleware)`): while a factory or an instance is registered, every file action
-  throws `InvalidOperation`. Middlewares are resolved on each action, so import order against `fsService` does not matter. A middleware sees the targets (normalised path,
+  throws `InvalidOperation`. Middlewares are resolved on each action, so import order against `fsService` does not
+  matter. A middleware sees the targets (normalised path,
   `file` or `dir`, access, role), the other arguments as `ctx.args`, and unchecked `ctx.exists()`, `ctx.isDir()` and
   `ctx.hasEntries()` probes. Calls a provider makes inside an action skip middlewares. `fs.middlewareTimeoutMs`
   (default 30000) bounds the `after` hooks of a `writeStream`.
