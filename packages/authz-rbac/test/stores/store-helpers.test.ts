@@ -9,7 +9,8 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, toDate, transactionDriver, VersionRecord } from '../../src/index.js';
+import * as rbac from '../../src/index.js';
+import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, toDate, VersionRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { statementsOf } from '../support/statements.js';
 
@@ -119,10 +120,15 @@ describe('store helpers', () => {
     });
   });
 
-  describe('transactionDriver (D-L2-1)', () => {
-    it('refuses a tx without an OrmDriver', () => {
-      expect(() => transactionDriver({ driver: {} }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
-      expect(() => transactionDriver({ driver: undefined }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
+  describe('connection plumbing', () => {
+    it('is gone: the records and requireTransaction replace it', () => {
+      for (const name of ['transactionDriver', 'storeTransactionDriver', 'storeConnection', 'authzConnection', 'RBAC_CONNECTION_KEY', 'ADMIN_CONNECTION_KEY']) expect(rbac, name).to.not.have.property(name);
+      expect(rbac).to.have.property('requireTransaction');
+    });
+
+    it('requireTransaction refuses a tx without an OrmDriver', () => {
+      expect(() => requireTransaction(VersionRecord, { driver: {} }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
+      expect(() => requireTransaction(VersionRecord, { driver: undefined }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
     });
   });
 });

@@ -373,14 +373,8 @@ for (const kind of DB_KINDS) {
         });
 
         it("bumps that domain's version, not root's", async () => {
-          const driver = db.driver;
-          class InDomain extends DbAssignmentStore {
-            protected override connection(): Promise<OrmDriver> {
-              return Promise.resolve(driver);
-            }
-          }
 
-          await inTx((tx) => new InDomain(domain).assign({ subject: alice, role: 'editor', scope: P1 }, root, tx));
+          await inTx((tx) => new DbAssignmentStore(domain).assign({ subject: alice, role: 'editor', scope: P1 }, root, tx));
 
           expect(await version(`l2_t3_${kind}`)).to.eq('1');
           expect(await version('root')).to.eq('0');

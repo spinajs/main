@@ -304,13 +304,7 @@ for (const kind of DB_KINDS) {
         });
 
         it("bumps and reads that domain's version, not root's", async () => {
-          const driver = db.driver;
-          class InDomain extends DbRuleStore {
-            protected override connection(): Promise<OrmDriver> {
-              return Promise.resolve(driver);
-            }
-          }
-          const s = new InDomain(domain);
+          const s = new DbRuleStore(domain);
           await inTx((tx) => s.put(restrict('r1', F1), root, tx));
 
           expect(await s.version()).to.eq('1');
