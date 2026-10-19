@@ -1,10 +1,12 @@
 import { engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
-import { findColumn, IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { findColumn, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
+import { recordDriver } from '../stores/context.js';
+import { AssignmentRecord } from '../stores/records.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns } from '../stores/columns.js';
-import { configuredUsersColumns, countUsers, hasUsers, inTransaction, requireAuthzOn, splitRoles, subjectIdOf, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import { configuredUsersColumns, countUsers, hasUsers, inTransaction, splitRoles, subjectIdOf, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 
 const NAME = 'AuthzRbacDropUserRole_2026_10_01_00_02_00';
 const RESOLVE = `orm.Migration.resolve('${NAME}', 'rolled-back')`;
@@ -15,7 +17,8 @@ const RESOLVE = `orm.Migration.resolve('${NAME}', 'rolled-back')`;
  * `$global` assignment of `user:<idColumn>`. `down()` re-adds the column and fills it from those
  * assignments, which is what a rollback to 2.x needs first. Roll back batch by batch (or with
  * `{ all: true }`) until this `down()` has run: `Migration.down(name)` acts only on the last
- * applied batch.
+ * applied batch. It alters `users` on the connection it runs on and reads the assignments where
+ * `db.Aliases.authz` points.
  */
 @Migration('default')
 export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
@@ -46,25 +49,18 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         return;
       }
 
-      const idColumn = findColumn(info, configured.idColumn)?.Name;
-      if (idColumn && filled) requireAuthzOn(connection, NAME);
-
-      const q = connection.Container.resolve(IdentifierQuoter);
-
       // blocks writers of users (a 2.x instance still running) between the check and the drop; it
-      // does not block authz_assignment writes. SQLite needs nothing, its single writer is this transaction
-      if (connection.Options.Driver === 'orm-driver-postgres') {
-        await connection.schema().raw(`LOCK TABLE ${q.quote(USERS_TABLE)} IN SHARE MODE`);
-      }
+      // does not block authz_assignment writes
+      await connection.schema().lockTable(USERS_TABLE);
 
+      const idColumn = findColumn(info, configured.idColumn)?.Name;
       if (idColumn) {
         await this.assertCopied(connection, idColumn, roleColumn);
       } else if (filled) {
         throw new Error(`${NAME}: cannot check the ${USERS_TABLE}.${roleColumn} copy: table ${USERS_TABLE} has no column ${configured.idColumn} (${USER_ROLES_ID_COLUMN_KEY}); its columns are ${names.join(', ')}; nothing was changed`);
       }
 
-      // the ORM's dropColumn() emits the name unquoted, which Postgres folds to lower case
-      await connection.schema().raw(`ALTER TABLE ${q.quote(USERS_TABLE)} DROP COLUMN ${q.quote(roleColumn)}`);
+      await connection.schema().alterTable(USERS_TABLE, (table) => table.dropColumn(roleColumn));
     });
   }
 
@@ -85,13 +81,11 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       if (findColumn(info, configured.roleColumn)) return;
 
       const roleColumn = configured.roleColumn;
-      const idColumn = findColumn(info, configured.idColumn)?.Name;
-      if (idColumn && (await hasUsers(connection))) requireAuthzOn(connection, NAME);
-
       await connection.schema().alterTable(USERS_TABLE, (table) => {
         table.string(roleColumn, 256).notNull().default().value('');
       });
 
+      const idColumn = findColumn(info, configured.idColumn)?.Name;
       if (!idColumn) {
         if (await hasUsers(connection)) {
           this.log.warn({ migration: NAME, table: USERS_TABLE, column: configured.idColumn, configKey: USER_ROLES_ID_COLUMN_KEY, roleColumn }, '${migration}: table ${table} has no column ${column} (${configKey}); ${roleColumn} re-added empty');
@@ -105,7 +99,6 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       for (;;) {
         const users = await this.page(connection, idColumn, roleColumn, after);
         const roles = await this.liveGlobalRoles(
-          connection,
           users.map((u) => subjectIdOf(u[idColumn])),
           at,
         );
@@ -143,7 +136,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
     for (;;) {
       const users = await this.page(connection, idColumn, roleColumn, after);
       const ids = users.map((u) => subjectIdOf(u[idColumn])).filter((id) => id.trim() !== '');
-      const granted = await this.liveGlobalRoles(connection, ids, at);
+      const granted = await this.liveGlobalRoles(ids, at);
       visited += users.length;
 
       for (const user of users) {
@@ -189,12 +182,12 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
     }
   }
 
-  /** Roles per subject id from live `$global` principal assignments of `user:<id>`. */
-  private async liveGlobalRoles(connection: OrmDriver, ids: string[], at: Date): Promise<Map<string, Set<string>>> {
+  /** Roles per subject id from live `$global` principal assignments of `user:<id>`, read where `db.Aliases.authz` points. */
+  private async liveGlobalRoles(ids: string[], at: Date): Promise<Map<string, Set<string>>> {
     const roles = new Map<string, Set<string>>();
     if (ids.length === 0) return roles;
 
-    const rows = (await connection
+    const rows = (await recordDriver(AssignmentRecord)
       .select()
       .columns(['subject_id', 'role'])
       .from(AUTHZ_ASSIGNMENT_TABLE)

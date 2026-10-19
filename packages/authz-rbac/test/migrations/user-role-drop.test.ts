@@ -8,7 +8,7 @@ import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
 import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
-import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { bootDb, BootOptions, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { versionOf } from '../support/version.js';
 
 chai.use(chaiAsPromised);
@@ -146,8 +146,8 @@ for (const kind of DB_KINDS) {
 
     let db: TestDb | undefined;
 
-    async function boot(ctx: Mocha.Context, config: Record<string, string> = {}): Promise<TestDb> {
-      db = await bootDb(ctx, kind, 'user_role_drop', { migrate: false });
+    async function boot(ctx: Mocha.Context, config: Record<string, string> = {}, options: BootOptions = {}): Promise<TestDb> {
+      db = await bootDb(ctx, kind, 'user_role_drop', { migrate: false, ...options });
       const configuration = await db.container.resolve(Configuration);
       for (const [key, value] of Object.entries(config)) configuration.set(key, value);
       return db;
@@ -566,6 +566,55 @@ for (const kind of DB_KINDS) {
       await new AuthzRbacDropUserRole_2026_10_01_00_02_00().down(db.driver);
 
       expect(await rolesByUser(db.driver)).to.deep.eq({ [A]: '', [B]: 'admin', [C]: 'user, admin.users' });
+    });
+
+    describe('with db.Aliases.authz on another connection', () => {
+      const elsewhere: BootOptions = { second: true, authzOnSecond: true };
+
+      it('checks the assignments where authz points and drops the column on its own connection', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+
+        await db.orm.Migration.up();
+
+        expect((await status(db)).pending).to.eq(false);
+        expect(await columnNames(db.driver)).to.deep.eq(['Id', 'Uuid', 'Email', 'Login', 'IsActive', 'CreatedAt']);
+        expect(pairs(await assignments(db.second!))).to.deep.eq([`user:${B}=admin`, `user:${C}=admin.users`, `user:${C}=user`]);
+      });
+
+      it('refuses when the authz connection lacks a copied role, and changes nothing', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await copy(db);
+        await db.second!.del().from('authz_assignment').where({ subject_id: C, role: 'user' });
+
+        await expect(db.orm.Migration.up()).to.be.rejectedWith(`1 user/role pair(s) have no live $global assignment (user:${C} user)`);
+        expect(await columnNames(db.driver)).to.include('Role');
+      });
+
+      it('down() refills the column from the authz connection', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await db.orm.Migration.up();
+        await grant(db.second!, { subject_id: A, role: 'editor' });
+
+        await db.orm.Migration.down(DROP);
+
+        expect(await rolesByUser(db.driver)).to.deep.eq({ [A]: 'editor', [B]: 'admin', [C]: 'admin.users,user' });
+      });
+
+      it('drops the column of an empty users table', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+
+        await db.orm.Migration.up();
+
+        expect(await columnNames(db.driver)).to.deep.eq(['Id', 'Uuid', 'Email', 'Login', 'IsActive', 'CreatedAt']);
+        expect(await assignments(db.second!)).to.deep.eq([]);
+      });
     });
 
     it('is exported next to the copy migration', () => {

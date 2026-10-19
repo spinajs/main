@@ -1,9 +1,5 @@
-import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { OrmDriver } from '@spinajs/orm';
-
-import { recordDriver } from '../stores/context.js';
-import { VersionRecord } from '../stores/records.js';
 
 /** The 2.x `users` table the role copy reads and the drop alters; shared by both migrations, not exported by the package. */
 export const USERS_TABLE = 'users';
@@ -67,13 +63,6 @@ export function countUsers(connection: OrmDriver): Promise<number> {
 
 export async function hasUsers(connection: OrmDriver): Promise<boolean> {
   return (await countUsers(connection)) > 0;
-}
-
-/** Both migrations read `users` and the authz tables through the one connection they run on. */
-export function requireAuthzOn(connection: OrmDriver, migration: string): void {
-  const authz = recordDriver(VersionRecord);
-  if (authz === connection) return;
-  throw new AuthzConfigError(`${migration}: the authz tables are on connection ${JSON.stringify(authz.Options.Name)} (db.Aliases.${AUTHZ_CONNECTION}), but the users.Role migrations run on the default connection ${JSON.stringify(connection.Options.Name)} and cannot yet read or write across connections; set db.Aliases.${AUTHZ_CONNECTION} to the default connection while they run. Nothing was changed`);
 }
 
 /** Runs `body` in the transaction in scope on `connection`, else in a new one. */
