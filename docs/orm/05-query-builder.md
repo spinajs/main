@@ -76,7 +76,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(column, value)` | `column = ?` | `null` value emits `column IS NULL`. `undefined` or `NaN` throws `InvalidArgument`. |
 | `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
-| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
+| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. TypeScript types it as `IWhereBuilder<T>` without a `this:` annotation, also under `noImplicitThis`. |
 | `where(true)` / `where(false)` | `TRUE` / `FALSE` | |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
@@ -86,7 +86,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(null)` / `where(undefined)` (single argument) | nothing | No-op. |
 | `orWhere(...)` / `andWhere(...)` | `OR` / `AND` before the next statement | Same argument forms as `where()`. The connector applies to the next statement only. |
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
-| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
+| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | `column` is a name or a `Wrap`: `whereNull(Wrapper.Date('ClosedAt'))` tests the wrapped expression. |
 | `whereNot(column, value)` | `column != ?` | |
 | `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
@@ -401,7 +401,7 @@ await query.where('Status', 'cancelled');
 ### List a customer's overdue or large unpaid orders, newest first
 
 ```ts sample
-import { Connection, IWhereBuilder, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
 
 @Connection('default')
 @Model('orders')
@@ -420,8 +420,8 @@ export class Order extends ModelBase<Order> {
 
 export async function ordersNeedingAttention(customerId: number, page: number): Promise<Order[]> {
   return await Order.where('CustomerId', customerId)
-    .where(function (this: IWhereBuilder<Order[]>) {
-      this.where('Status', 'overdue').orWhere(function (this: IWhereBuilder<Order[]>) {
+    .where(function () {
+      this.where('Status', 'overdue').orWhere(function () {
         this.where('Status', 'unpaid').where('Total', '>=', 1000);
       });
     })
