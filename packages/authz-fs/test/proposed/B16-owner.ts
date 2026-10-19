@@ -1,9 +1,12 @@
+import assert from 'node:assert/strict';
+
 import { SYSTEM } from '@spinajs/authz';
 import { fixtureDsl, laneSteps, userPrincipal } from '@spinajs/authz-testing';
-import type { Case, World } from '@spinajs/authz-testing';
+import type { Case, DoStep, World } from '@spinajs/authz-testing';
+import type { IZipResult } from '@spinajs/fs';
 
 const { assignment, combine, extension, role } = fixtureDsl;
-const { as, fsCall } = laneSteps;
+const { as, fsCall, laneHandle } = laneSteps;
 
 const alice = userPrincipal('alice');
 const bob = userPrincipal('bob');
@@ -11,14 +14,14 @@ const DENIED = { throws: 'AccessDenied' } as const;
 const UPLOADS = [{ type: 'fs', id: 'uploads' }];
 
 /**
- * Design §8.2's owner grant: every user may write in uploads, and reads and deletes only what they own.
- * The harness registers the MemoryFileMetadataStore the config names (one per case).
+ * Design §8.2's owner grant: every user may write in uploads, and reads and deletes only what they own. The harness
+ * registers one MemoryFileAclStore per suite, emptied per case.
  */
 const ownerWorld: World = {
   permissions: [],
   principals: { alice, bob },
   combine: combine('deny-overrides', 'rbac'),
-  config: { fs: { uploads: { mode: 'enforce', metadata: 'MemoryFileMetadataStore', stampOwner: true } } },
+  config: { fs: { uploads: { mode: 'enforce', stampOwner: true } } },
   rbac: {
     roles: [
       role('user', [
@@ -34,6 +37,25 @@ const ownerWorld: World = {
 
 const read = (path: string, expect: 'resolves' | typeof DENIED) => fsCall('uploads', 'read', [path], expect);
 const write = (path: string) => fsCall('uploads', 'write', [path, 'x'], 'resolves');
+
+// IZipResult.unlink() is an rm of the archive outside the zip action; the case's steps share the result here.
+const archive: { zipped?: IZipResult } = {};
+
+const zipTo = (name: string): DoStep => ({
+  note: `zip b.txt into ${name}, keeping the result`,
+  do: async (ctx) => {
+    archive.zipped = (await laneHandle(ctx, 'fs').call('uploads', 'zip', [['b.txt'], { fs: 'uploads' }, name])) as IZipResult;
+  },
+});
+
+const unlinkArchive = (outcome: 'resolves' | 'denied'): DoStep => ({
+  note: `the archive's unlink() ${outcome === 'resolves' ? 'removes it' : 'is AccessDenied'}`,
+  do: async () => {
+    assert.ok(archive.zipped, 'zipTo ran first');
+    if (outcome === 'resolves') await archive.zipped.unlink();
+    else await assert.rejects(archive.zipped.unlink(), (e: unknown) => e instanceof Error && e.name === 'AccessDenied');
+  },
+});
 
 const cases: Case[] = [
   {
@@ -51,6 +73,10 @@ const cases: Case[] = [
   {
     name: 'rm drops the owner: a file SYSTEM writes later at that path is not the old owner’s',
     steps: [as('alice', write('a.txt'), fsCall('uploads', 'rm', ['a.txt'], 'resolves')), as(SYSTEM, write('a.txt')), as('alice', read('a.txt', DENIED))],
+  },
+  {
+    name: "a zip archive alice creates is stamped with her: bob cannot unlink() it, she can",
+    steps: [as('alice', write('b.txt'), zipTo('a.zip')), as('bob', unlinkArchive('denied')), as('alice', unlinkArchive('resolves'))],
   },
   {
     name: 'only the owner deletes; a denied rm keeps the file and its owner',
@@ -73,6 +99,10 @@ const cases: Case[] = [
     steps: [as('alice', write('a.txt')), as('bob', write('b.txt'), fsCall('uploads', 'rename', ['b.txt', 'a.txt'], 'resolves'), read('a.txt', DENIED), fsCall('uploads', 'rm', ['a.txt'], DENIED)), as('alice', read('a.txt', 'resolves'))],
   },
   {
+    name: 'the owner of a directory owns what is written under it (a row on a directory covers its subtree)',
+    steps: [as('alice', fsCall('uploads', 'mkdir', ['alice-dir'], 'resolves')), as('bob', write('alice-dir/bob.txt'), read('alice-dir/bob.txt', 'resolves')), as('alice', read('alice-dir/bob.txt', 'resolves'))],
+  },
+  {
     name: "moving a directory onto another user's directory does not take it over, so its files cannot be deleted",
     steps: [
       as('alice', fsCall('uploads', 'mkdir', ['alice-dir'], 'resolves'), write('alice-dir/secret.txt')),
@@ -90,13 +120,13 @@ const cases: Case[] = [
   },
 ];
 
-/** B16.fs-owner: the owner grant of design §8.2 through the real RBAC model, the fs guard and a metadata store (L7 task 5). */
+/** B16.fs-owner: the owner grant of design §8.2 through the real RBAC model, AuthzFsMiddleware and the file ACL. */
 export const B16Owner = extension('B16', [
   {
     name: 'fs-owner',
     facets: ['engine', 'host', 'rbac', 'fs'],
     lanes: ['L7'],
-    note: 'Design §8.2 and study §9.2 "Per file owner": fs:read with relation owner on fs:uploads. The guard stamps the principal as owner after a write (D10) and the owner relation of FsResourceAdapter reads it from the FileMetadataStore; a conditional permit never passes (D13).',
+    note: 'Design §8.2 and study §9.2 "Per file owner": fs:read with relation owner on fs:uploads. AuthzFsMiddleware writes an owner row for the first writer of a path, FsAclRelation reads it from the file ACL (a row on a directory covers what is under it); a conditional permit never passes (D13). IZipResult.unlink() is an rm of the archive, checked like any other.',
     world: ownerWorld,
     cases,
   },
