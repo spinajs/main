@@ -7,13 +7,13 @@ import { join, normalize, resolve } from 'node:path';
 import { inspect } from 'node:util';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, explicitAppEnv } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
 import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 import type { IdentityRef, Principal } from '@spinajs/authn/contracts';
-import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
@@ -221,7 +221,7 @@ export const config = (): Configuration => DI.get(Configuration)!;
 
 export function cookieName(): string {
   const c = config();
-  return sessionCookieName(c.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, appEnvOf(c));
+  return sessionCookieName(c.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, explicitAppEnv(c));
 }
 
 export const logLines = (): string[] => (DI.get(MemoryTarget) as MemoryTarget | undefined)?.getRecords().map((r) => JSON.stringify(r)) ?? [];

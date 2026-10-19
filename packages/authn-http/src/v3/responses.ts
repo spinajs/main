@@ -1,9 +1,10 @@
+import { explicitAppEnv } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import type { SessionHandle } from '@spinajs/authn/contracts';
-import { appEnvOf, clearSessionCookie, sessionCookie } from '@spinajs/authn-session';
+import { clearSessionCookie, sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
 import { AUTHN_FAILURE } from '../policies/v3/errors.js';
@@ -34,10 +35,10 @@ const cookieConfig = (config: Configuration): ISessionCookieConfig => config.get
  * browser-session cookie (N8a-D7), with the flags of the app env, an absent env counting as production (SR-16).
  */
 export function authnSessionCookie(config: Configuration, handle: SessionHandle): ICookie {
-  return sessionCookie(handle.id, cookieConfig(config), undefined, appEnvOf(config)) as ICookie;
+  return sessionCookie(handle.id, cookieConfig(config), undefined, explicitAppEnv(config)) as ICookie;
 }
 
 /** The expired session cookie that clears it in the browser, for the `Coockies` response option. */
 export function authnClearedSessionCookie(config: Configuration): ICookie {
-  return clearSessionCookie(cookieConfig(config), appEnvOf(config)) as ICookie;
+  return clearSessionCookie(cookieConfig(config), explicitAppEnv(config)) as ICookie;
 }

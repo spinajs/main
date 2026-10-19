@@ -1,15 +1,8 @@
-import { normalizeEnvironment } from '@spinajs/configuration-common';
 import { _custom, _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
 export const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-
-/** Development and test relax https and cookie flags; an absent or unknown env is production. */
-export function isRelaxedEnv(env: string | null | undefined): boolean {
-  const normalized = normalizeEnvironment(env);
-  return normalized === 'dev' || normalized === 'test';
-}
 
 export interface UrlRules {
   /** http allowed too (development and test). */

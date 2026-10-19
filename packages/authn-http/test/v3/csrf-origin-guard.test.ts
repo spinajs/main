@@ -4,14 +4,14 @@ import sinon from 'sinon';
 import { renderTemplate } from '@spinajs/log-common';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration, explicitAppEnv } from '@spinajs/configuration';
 import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
 import * as barrel from '../../src/index.js';
@@ -133,7 +133,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     for (const [path, value] of Object.entries(DEFAULTS)) config.set(path, value);
     await startServer();
 
-    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), appEnvOf(config));
+    cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), explicitAppEnv(config));
   });
 
   after(async () => {

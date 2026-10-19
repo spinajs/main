@@ -5,7 +5,7 @@ import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from '@spi
 
 import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieOptions } from '../src/index.js';
 
-const configOf = (appEnv: unknown, own?: string): Configuration => ({ Env: own, get: (path: string) => (path === 'process.env.APP_ENV' ? appEnv : undefined) }) as unknown as Configuration;
+const configOf = (appEnv: unknown, own?: string): Configuration => ({ NamedEnv: own, get: (path: string) => (path === 'process.env.APP_ENV' ? appEnv : undefined) }) as unknown as Configuration;
 
 describe('authn-session shares the authn env helpers', () => {
   it('has one public cookie secret', () => {

@@ -2,13 +2,13 @@ import { createHash } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration, explicitAppEnv } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
-import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
+import { assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { AUTHENTICATION_FAILED, SocketPrincipalSource } from '@spinajs/http-socket';
 import type { ISocketHandshake, ISocketRevalidation, SocketRevalidationResult } from '@spinajs/http-socket';
@@ -40,7 +40,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
   @Autoinject(SessionPrincipalResolver)
   protected Resolver!: SessionPrincipalResolver;
 
-  // appEnvOf reads the Configuration's Env for the SR-16 "no env named" rule, which @Config cannot give
+  // explicitAppEnv reads the Configuration's NamedEnv for the SR-16 "no env named" rule, which @Config cannot give
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
 
@@ -99,7 +99,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
    * values, whatever cookie parser the app's http stack uses.
    */
   protected sessionId(handshake: ISocketHandshake): string | null {
-    const env = appEnvOf(this.Configuration);
+    const env = explicitAppEnv(this.Configuration);
     const value = handshake.cookies[sessionCookieName(this.SessionCookie ?? {}, env)];
     if (typeof value !== 'string' || value === '') {
       return null;

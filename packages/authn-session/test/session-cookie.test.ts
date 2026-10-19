@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { appEnvOf, assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, sessionCookie, sessionCookieMaxAge, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
+import { Configuration, explicitAppEnv } from '@spinajs/configuration';
+import { assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, sessionCookie, sessionCookieMaxAge, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
 import shipped from '../src/config/session.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
 
@@ -219,12 +219,12 @@ describe('shipped session cookie configuration', () => {
   }
 });
 
-describe('appEnvOf', () => {
+describe('explicitAppEnv', () => {
   afterEach(() => uncacheOwned());
 
   it('SR-16 the env the deployment resolved, not NODE_ENV, reaches the cookie builder', async () => {
     await withNodeEnv(undefined, () => withSessionConfig({ process: { env: { APP_ENV: 'staging' } } }));
-    const env = appEnvOf(DI.get(Configuration)!);
+    const env = explicitAppEnv(DI.get(Configuration)!);
     const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, DateTime.now().plus({ minutes: 30 }), env));
 
     expect(cookie.Name).to.equal('__Host-ssid');
@@ -240,13 +240,13 @@ describe('appEnvOf', () => {
   it('reads the app env the configuration resolved', async () => {
     await withSessionConfig({ process: { env: { APP_ENV: 'staging' } } });
 
-    expect(appEnvOf(DI.get(Configuration)!)).to.equal('staging');
+    expect(explicitAppEnv(DI.get(Configuration)!)).to.equal('staging');
   });
 
   it('returns undefined when the configuration has no app env', () => {
     const config = { get: (): undefined => undefined } as unknown as Configuration;
 
-    expect(appEnvOf(config)).to.equal(undefined);
+    expect(explicitAppEnv(config)).to.equal(undefined);
   });
 
   describe('with no env source (SR-16)', () => {
@@ -269,7 +269,7 @@ describe('appEnvOf', () => {
       const config = DI.get(Configuration)!;
       expect(config.get('process.env.APP_ENV'), 'the configuration fell back on its own').to.equal('development');
 
-      const env = appEnvOf(config);
+      const env = explicitAppEnv(config);
       expect(env).to.equal(undefined);
       const cookie = sessionCookie(RAW_ID, { ...(shipped.authn.session.cookie as ISessionCookieConfig), domain: 'example.com' }, in30(), env);
       expect(cookie.Name).to.equal('__Host-ssid');
@@ -284,7 +284,7 @@ describe('appEnvOf', () => {
       for (const k of ['NODE_ENV', 'APP_ENV']) {
         process.env[k] = 'production';
         try {
-          expect(appEnvOf(config), k).to.equal(undefined);
+          expect(explicitAppEnv(config), k).to.equal(undefined);
         } finally {
           delete process.env[k];
         }
@@ -294,7 +294,7 @@ describe('appEnvOf', () => {
     it('an explicit development env still relaxes the cookie', async () => {
       process.env.APP_ENV = 'development';
       await withSessionConfig({});
-      const env = appEnvOf(DI.get(Configuration)!);
+      const env = explicitAppEnv(DI.get(Configuration)!);
       expect(env).to.equal('development');
 
       const cookie = sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, in30(), env);
@@ -305,14 +305,14 @@ describe('appEnvOf', () => {
     it('takes NODE_ENV or the APP_ENV of a DI-registered process.env as a named env', async () => {
       process.env.NODE_ENV = 'development';
       await withSessionConfig({});
-      expect(appEnvOf(DI.get(Configuration)!)).to.equal('development');
+      expect(explicitAppEnv(DI.get(Configuration)!)).to.equal('development');
       delete process.env.NODE_ENV;
 
       const registered = DI.get<Record<string, unknown>>('process.env');
       DI.register({ APP_ENV: 'development' }).asValue('process.env', true);
       try {
         await withSessionConfig({});
-        expect(appEnvOf(DI.get(Configuration)!)).to.equal('development');
+        expect(explicitAppEnv(DI.get(Configuration)!)).to.equal('development');
       } finally {
         DI.uncache('process.env');
         if (registered) DI.register(registered).asValue('process.env');

@@ -264,9 +264,10 @@ authn: {
 
   **With no app env set, authn treats the deployment as production** (SR-16). The configuration still
   falls back to `development` when `--env`, `APP_ENV` and `NODE_ENV` are all missing, but the authn
-  core, the cookie builders and `authn-oidc` read that as "no env"
-  (`packages/authn/src/service/boot/env.ts`): the cookie is `Secure` and `__Host-` prefixed, and the
-  public cookie secret fails boot. Only an env source that names development or test relaxes them.
+  core, the cookie builders and `authn-oidc` read that as "no env" (`explicitAppEnv` of
+  `@spinajs/configuration`): the cookie is `Secure` and `__Host-` prefixed, and the public cookie secret
+  fails boot. Only an env source that names development or test when the configuration loads relaxes
+  them; one set later does not.
   Set `APP_ENV` or `NODE_ENV` explicitly in every deployment; the core warns when it fell back.
 
   The cookie is a browser-session cookie (no `Max-Age`); idle and absolute timeouts are enforced on the
