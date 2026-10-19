@@ -38,6 +38,8 @@ The schema builder (`driver.schema()`, migrations) compiles through SQLite's own
 
 Emitted in this order, each only when set: `UNSIGNED`, `CHARACTER SET '<x>'`, `COLLATE '<x>'`, `NOT NULL`, `DEFAULT ...`, `COMMENT '<x>'`, `PRIMARY KEY` (single-column key only), `AUTOINCREMENT`, `UNIQUE`.
 
+`caseSensitive()` emits nothing: a SQLite column compares with `BINARY` unless it declares another collation.
+
 SQLite rejects `CHARACTER SET` in any position, and `COMMENT` after any constraint (`NOT NULL`, `DEFAULT`). Do not call `charset()` or `comment()` on SQLite columns.
 
 ### Default values

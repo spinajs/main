@@ -2278,6 +2278,7 @@ export class ColumnQueryBuilder {
   public Comment: string;
   public Charset: string;
   public Collation: string;
+  public CaseSensitive: boolean;
   public NotNull: boolean;
   public Type: ColumnType;
   public Args: any[];
@@ -2297,6 +2298,7 @@ export class ColumnQueryBuilder {
     this.AutoIncrement = false;
     this.NotNull = false;
     this.Collation = '';
+    this.CaseSensitive = false;
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
@@ -2353,6 +2355,16 @@ export class ColumnQueryBuilder {
 
   public collation(collation: string) {
     this.Collation = collation;
+
+    return this;
+  }
+
+  /**
+   * Compares the column's values exactly, with the dialect's binary collation: case and accent variants are
+   * different values. An explicit `collation()` wins.
+   */
+  public caseSensitive() {
+    this.CaseSensitive = true;
 
     return this;
   }

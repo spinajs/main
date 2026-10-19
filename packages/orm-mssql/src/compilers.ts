@@ -261,6 +261,19 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
 
     // MSSQL usess this expression for AUTO_INCREMENT
     this._statementsMappings.autoincrement = () => `IDENTITY(1,1)`;
+    // A binary collation on VARCHAR limits it to code page 1252; NVARCHAR keeps every character.
+    this._statementsMappings.string = (column: ColumnQueryBuilder) => `${column.CaseSensitive ? 'N' : ''}VARCHAR(${column.Args[0] ? column.Args[0] : 255})`;
+    // T-SQL takes a collation name, not a string literal.
+    this._statementsMappings.collation = (name: string) => `COLLATE ${assertCharsetName(name, 'collation')}`;
+  }
+
+  /** T-SQL has no column character set: the collation carries the code page. */
+  protected charsetName(): string {
+    return this.builder.Charset;
+  }
+
+  protected collationName(): string {
+    return this.builder.Collation || (this.builder.CaseSensitive ? 'Latin1_General_100_BIN2' : '');
   }
 }
 

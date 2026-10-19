@@ -103,6 +103,7 @@ Every modifier returns the column builder, except `default()`.
 | `primaryKey()` | Marks the column as (part of) the primary key. |
 | `comment(text)` | Column comment. |
 | `charset(name)`, `collation(name)` | Column character set and collation. |
+| `caseSensitive()` | The dialect's binary collation, so case and accent variants are different values: MySQL `CHARACTER SET '<charset>' COLLATE '<charset>_bin'` (`<charset>` is `charset()` or `utf8mb4`), PostgreSQL `COLLATE "C"`, MSSQL `COLLATE Latin1_General_100_BIN2` with a `string()` column written `NVARCHAR(n)`, SQLite nothing (its default `BINARY` is exact). An explicit `collation()` wins. MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. |
 | `default()` | Returns a `DefaultValueBuilder`; each of its methods returns the column builder. |
 
 | `DefaultValueBuilder` method | Default value |

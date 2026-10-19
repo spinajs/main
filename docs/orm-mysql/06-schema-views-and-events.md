@@ -22,6 +22,8 @@
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | `CREATE EVENT ... ON SCHEDULE ...`, `DROP EVENT [IF EXISTS]` |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | `LIMIT ? [OFFSET ?]` (an offset alone writes `LIMIT 18446744073709551615 OFFSET ?`), `WITH RECURSIVE` |
 
+`caseSensitive()` on a column without `collation()` writes `CHARACTER SET '<charset>' COLLATE '<charset>_bin'`, where `<charset>` is the column's `charset()` or `utf8mb4`. With `collation()` the given collation is written instead. The `_bin` collations are PAD SPACE: `'a'` and `'a '` compare equal.
+
 ### Column types
 
 | Schema builder type | MySQL |
