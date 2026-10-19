@@ -1,12 +1,12 @@
 import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController, HTTP_STATUS_CODE } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
 import { toArray } from '@spinajs/util';
 
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
-import { BadRequest } from '@spinajs/exceptions';
+import { ExpectedResponseUnacceptable } from '@spinajs/exceptions';
 import * as express from 'express';
 
 
@@ -262,7 +262,7 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
  */
 export function Hydrator(hydrator: Constructor<ArgHydrator>, ...options: any[]) {
   return (target: any) => {
-    if (!Reflect.getMetadata('custom:arg_hydrator', target)) {
+    if (!Reflect.getOwnMetadata('custom:arg_hydrator', target)) {
       Reflect.defineMetadata(
         'custom:arg_hydrator',
         {
@@ -341,7 +341,7 @@ export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any
 
 /**
  * 
- * Checks if incoming request is proper type ( accepts proper content type ) and throws BadRequest if not
+ * Checks if incoming request is proper type ( accepts proper content type ) and answers 406 Not Acceptable if not
  * 
  * @param accepts 
  * @returns 
@@ -356,7 +356,7 @@ export function Accepts(accepts: HttpAcceptHeaders) {
       const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route);
 
       if (!(Args & accepts)) {
-        throw new BadRequest(`Accepted content type ${accepts} is not supported`, HTTP_STATUS_CODE.NOT_ACCEPTABLE);
+        throw new ExpectedResponseUnacceptable(`Accepted content type ${accepts} is not supported`);
       }
 
     }
@@ -546,7 +546,7 @@ export function JsonFile(options?: IUploadOptions) {
  * @param options - upload options
  */
 export function Form(options?: IFormOptions) {
-  return Route(Parameter(ParameterType.FromForm, options));
+  return Route(Parameter(ParameterType.FromForm, null, options));
 }
 
 /**
@@ -604,10 +604,11 @@ export function Res() {
 }
 
 /**
+ * Records a `ParameterType.FromModel` parameter.
  *
- * Parameter taken from model
- *
- * @param options - upload options
+ * @deprecated no package registers a `FromModel` handler, so the route answers 500.
+ * Use `@FromModel()` or `@AsModel()` from `@spinajs/orm-http`.
+ * @param model - model class
  */
 export function Model(model: Constructor<any>) {
   return Route(Parameter(ParameterType.FromModel, null, { type: model }));

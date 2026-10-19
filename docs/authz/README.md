@@ -202,8 +202,9 @@ export default {
   L2) and the RBAC assignment cache, so an assignment revoked on another node is never honoured from
   a cache. Role definitions and rules may still come from the model's snapshots until the change bus
   delivers a change. The answer is still stored for ordinary checks. One call can ask the same with
-  `authz().check({ ..., fresh: true })`. Access plans of a fresh `list: true` permission skip the
-  plan cache and read assignments fresh too. `filterNow` (the sync path) answers `undefined`
+  `authz().check({ ..., fresh: true })`. Access plans of a fresh `list: true` permission neither
+  read nor store the plan cache, pass `ListPlanRequest.fresh` to the models (RBAC reads assignments
+  fresh), and run a model's nested checks fresh. `filterNow` (the sync path) answers `undefined`
   for a fresh permission on the RBAC model, whose fresh read is IO; use `filter`. `AuthzAdmin` checks the actor's permission fresh, and so does
   its escalation guard when it reads the actor's rank. Use it for deletes, sharing, payouts and admin
   actions; every fresh check reads the store.
@@ -491,8 +492,14 @@ Rules that matter:
   delegation the models see the delegate as the principal and the agent as the actor.
 
 Config keys: `authz.abac.policies`, `authz.abac.stores` (`ConfigPolicyStore`, `DbPolicyStore`) and
-`authz.abac.connection` (default `default`). Policy writes go through `AuthzAdmin` (`policy.put`,
-`policy.delete`). The app registers the model itself ([Wiring the models](#wiring-the-models)).
+`authz.abac.connection` (default `default`, looked up in the `Orm` of the domain's container). Policy
+writes go through `AuthzAdmin` (`policy.put`, `policy.delete`). The app registers the model itself
+([Wiring the models](#wiring-the-models)).
+
+A policy condition may call every `ConditionFunction` the domain's container sees: its own
+registrations and those of its ancestors, root included (`registeredFunctions(container)`). RBAC rule
+conditions are checked the same way. `ModelInitContext.container` is that container; a model resolves
+what it needs there, not in root DI.
 
 **Lists.** For a `list: true` permission the ABAC model decides its policies before the query, from
 the principal, the actor and the request env (MFA, time, IP): a permit that holds lists every row, a

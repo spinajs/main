@@ -41,7 +41,7 @@ A registration tells the container which class, factory or value to hand out for
 | `asSelf()` | Registers a class under its own name; throws `BindException('cannot register as self non class')` for a factory or a value |
 | `asValue(key, override = false)` | Stores the object as is in the cache under `key`; see [Values and value maps](09-values-and-value-maps.md) |
 | `asMapValue(key, hashKey)` | Adds the object to a `Map` cached under `key`, at `hashKey` |
-| `singleInstance()` | Meant to force the singleton lifetime; it does **not** change the lifetime (see Important behaviour). Throws `BindException` for a factory |
+| `singleInstance()` | Forces the singleton lifetime, also over a `@NewInstance()` decorator (see Important behaviour). Throws `BindException` for a factory |
 
 All methods return the binder, so calls chain: `DI.register(SmtpMailer).as(Mailer).asSelf()`.
 
@@ -110,7 +110,7 @@ console.log(clock.now().toISOString(), DI.getRegisteredTypes(Clock).map((t) => t
 ## Important behaviour
 
 - `@Injectable` always registers in the root container, at import time. Import order decides which of two `@Injectable(Base)` classes a single `resolve(Base)` returns.
-- `singleInstance()` sets the lifetime on a fresh copy of the class descriptor, so it has no effect. A class without lifetime decorators is a singleton anyway; a `@NewInstance()` class stays new-instance.
+- `singleInstance()` writes the lifetime into the class's own descriptor, so it applies in every container that resolves the class, not only the one you called `register()` on.
 - Resolving a class that is registered nowhere records it in the resolving container's registry under its own name (except `@NewInstance()` classes). After `DI.resolve(Report)`, `DI.check(Report)` is `true`.
 - `unregister()` matches by name in every list of the registry. It does not touch the cache: call `uncache(key)` too, or the old instance keeps coming back.
 - Registration is synchronous and never builds anything. An error in a constructor shows up on the first resolve, not on register.

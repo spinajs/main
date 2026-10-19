@@ -12,7 +12,7 @@ export const MODEL_STATIC_MIXINS = {
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
     if (!modelDescriptor) {
-      throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
+      throw new OrmException(`Model ${(this as any).name} has no descriptor`);
     }
 
     if(modelDescriptor.FilterableColumns === undefined){
@@ -32,7 +32,7 @@ export const MODEL_STATIC_MIXINS = {
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
     if (!modelDescriptor) {
-      throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
+      throw new OrmException(`Model ${(this as any).name} has no descriptor`);
     }
 
     if (modelDescriptor.FilterableColumns === undefined){

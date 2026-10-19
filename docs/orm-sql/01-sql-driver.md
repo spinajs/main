@@ -11,7 +11,7 @@
    1. `builder.toDB()` compiles to one `ICompilerOutput` or an array (multi-statement DDL). See [Query compilers](02-query-compilers.md).
    2. `logQuery()` writes the SQL at `trace` to the connection's own `orm-driver-<Name>` logger.
    3. `Perf.measure('orm.query', ...)` wraps `executeOnDb(expression, bindings, builder.QueryContext)`, labelled `driver` and `context`, with `sql` and `bindings` as fields.
-   4. An array is sent with `Promise.all`, one `executeOnDb()` per entry.
+   4. An array is sent one `executeOnDb()` per entry, sequentially and in order; the first failure stops the rest.
 5. **Result.** The promise resolves with what `executeOnDb()` returned for that `QueryContext` (rows or a status object). The builder hydrates models and runs after-hooks.
 
 Errors: a throw while compiling (inside `toDB()`) or logging is logged at `error` with the model name and query context, then re-thrown. A rejected `executeOnDb()` promise is returned as is, not logged here.
@@ -94,7 +94,7 @@ A driver that leaves one of these out makes that feature fail on first use rathe
 - Every registration is per connection. Two connections on different dialects coexist in one process because each driver owns its own child container.
 - A registration made after `super.resolve()` replaces the one `SqlDriver` made; one made before is replaced by it.
 - `execute()` is synchronous up to the returned promise: only compile errors land in its `catch`. Log database errors in `executeOnDb()` or wrap them in `OrmException`, as the shipped drivers do.
-- Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent with `Promise.all`. A pooled driver may run the statements on different connections in any order; do not rely on statement order unless your `executeOnDb()` serializes.
+- Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent sequentially in compile order. Outside a transaction a pooled driver may still use a different connection per statement.
 - `logQuery()` uses `this.Log?.trace(...)`: a driver used before `resolve()` has no logger and logs nothing instead of failing.
 - `Perf.measure('orm.query')` shares the `perf` logger with other spans. Route query logs by `orm-driver-<Name>`, not by `perf`.
 - The converters `SqlDriver` registers (`SqlDatetimeValueConverter`, `SqlBooleanValueConverter`, ...) are not exported from `@spinajs/orm-sql`. See [Value converters and default values](05-value-converters-and-defaults.md).

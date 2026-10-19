@@ -1,6 +1,6 @@
 # Custom XLSX renderer
 
-`XlsxRenderer` fills the `.xlsx` slot of the `TemplateRenderer` list that `Templates` dispatches to. Replace it or subclass it to read `fs://` templates, create the output folder, report progress, return the workbook in memory, or add your own cell commands.
+`XlsxRenderer` fills the `.xlsx` slot of the `TemplateRenderer` list that `Templates` dispatches to. Replace it or subclass it to report progress, return the workbook in memory, or add your own cell commands.
 
 ## How it works
 
@@ -35,22 +35,19 @@
 - Register before the first `DI.resolve(Templates)`. `Templates` is a singleton and keeps the renderer array it was built with.
 - Do not decorate a replacement with `@Injectable(TemplateRenderer)` while `XlsxRenderer` is still registered: both claim `.xlsx` and `Templates` keeps using `XlsxRenderer`, the first one registered.
 
-### Serve templates from `fs://` and create the output folder
+### Report progress
 
-Subclass `XlsxRenderer` when you keep its rendering and add steps around it. This one accepts `fs://` URIs, creates the output folder and reports a final progress snapshot to `options.onProgress`.
+Subclass `XlsxRenderer` when you keep its rendering and add steps around it. This one reports a final progress snapshot to `options.onProgress`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { IRenderOptions, RenderPhase, TemplateRenderer, Templates, ensureParentDir } from '@spinajs/templates';
+import { IRenderOptions, RenderPhase, TemplateRenderer, Templates } from '@spinajs/templates';
 import { XlsxRenderer } from '@spinajs/templates-xlsx';
 
 export class FsXlsxRenderer extends XlsxRenderer {
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
     const startedAt = Date.now();
-    const localTemplate = await this.resolveLocalPath(template);
-
-    ensureParentDir(filePath);
-    await super.renderToFile(localTemplate, model, filePath, language);
+    await super.renderToFile(template, model, filePath, language);
 
     const callback = options?.onProgress;
     if (callback) {
@@ -134,7 +131,7 @@ This command writes a number as a formatted amount: `#! MONEY invoice.total PLN`
 ```ts sample
 import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { TemplateRenderer, Templates, ensureParentDir } from '@spinajs/templates';
+import { TemplateRenderer, Templates } from '@spinajs/templates';
 import { XlsxRenderer } from '@spinajs/templates-xlsx';
 import { Renderer } from 'xlsx-renderer';
 import { CellTemplatePool } from 'xlsx-renderer/lib/CellTemplatePool.js';
@@ -197,7 +194,7 @@ Give a subclass its own `Type` to keep `XlsxRenderer` and add a variant you pick
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
-import { TemplateRenderer, Templates, ensureParentDir } from '@spinajs/templates';
+import { TemplateRenderer, Templates } from '@spinajs/templates';
 import { XlsxRenderer } from '@spinajs/templates-xlsx';
 
 @Injectable(TemplateRenderer)

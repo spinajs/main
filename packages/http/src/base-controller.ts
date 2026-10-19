@@ -53,7 +53,7 @@ export abstract class BaseController extends AsyncService implements IController
   /**
    * Base path for all controller routes eg. my/custom/path/
    *
-   * It can be defined via `@BasePath` decorator, defaults to controller name without `Controller` part.
+   * It can be defined via `@BasePath` decorator, defaults to the lower-cased class name ( `UsersController` → `userscontroller` ).
    */
   public get BasePath(): string {
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();

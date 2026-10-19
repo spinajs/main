@@ -35,7 +35,7 @@
 | Puppeteer renderer | `TemplateRenderer` list, plus its own class; `@PerInstanceCheck()` in the shipped renderers | none here | `PdfRenderer` (`.pdf`, `templates.pdf`), `ImageRenderer` (`.png` or `.<type>`, `templates.image`) | Subclass `PuppeteerRenderer`; register with `@Injectable(TemplateRenderer)` |
 | Shipped renderer for an extension | `TemplateRenderer` list; the first match wins | `PdfRenderer` for `.pdf` | Your subclass | `DI.unregister(PdfRenderer)`, then register your subclass, before `Templates` is first resolved |
 | Page setup hooks | protected methods of `PuppeteerRenderer` | see the table below | your overrides | Override in a subclass and call `super` where it makes sense |
-| Per-options instances | `IInstanceCheck.__checkInstance__()` | `JSON.stringify(instanceOptions) === JSON.stringify(creationOptions)` | your override | Override `instanceOptions` or `__checkInstance__()` |
+| Per-options instances | `IInstanceCheck.__checkInstance__()` | `JSON.stringify(instanceOptions) === JSON.stringify(creationOptions?.[0])` | your override | Override `instanceOptions` or `__checkInstance__()` |
 
 ### Protected hooks
 
@@ -44,14 +44,14 @@
 | `performRender(page, filePath)` | abstract | Write your output |
 | `renderContentToFile(filePath, opts, prepare)` | The whole flow; `prepare(page, port, markLoading)` fills the page | Wrap `prepare` to set up the page before content loads (request interception, cookies, emulation) |
 | `configurePageTimeouts(page)` | `setDefaultNavigationTimeout()` and `setDefaultTimeout()` from config | Set other per-page defaults |
-| `armRenderWatchdog(page)` | Closes the page after `renderTimeout`; returns a canceller | Change what happens on timeout, eg. a metric |
+| `armRenderWatchdog(page)` | Closes the page after `renderTimeout` (never when it is `0`); returns a canceller | Change what happens on timeout, eg. a metric |
 | `addPageEventListeners(page)` | Logs console, page errors, responses, failed requests; returns a cleanup function | Add listeners; return a cleanup that also runs the base cleanup |
 | `injectBaseHref(html, baseUrl)` | Adds `<base href>` for raw HTML | Rewrite asset URLs differently |
 | `warnIfSlow(filePath, duration)` | Warns above `renderDurationWarning` | Report slow renders elsewhere |
 | `closePage(page)` | `page.close()`, errors downgraded to warnings | Keep pages for a page pool |
 | `assetServer` getter | One `LocalAssetServer` per renderer | Supply your own server; see [Local asset server](05-local-asset-server.md) |
 | `browserPool` getter | One `BrowserPool` per renderer | Supply your own pool; see [Browser pool](04-browser-pool.md) |
-| `renderTimeoutMs` getter | `renderTimeout` or `30000` | Compute the timeout per renderer |
+| `renderTimeoutMs` getter | `renderTimeout`, or `30000` when unset | Compute the timeout per renderer |
 
 Public methods you can also override: `renderToFile()`, `renderHtmlToFile()`, `render()` (throws `NotSupported`) and `dispose()` (closes the browser pool, then `super.dispose()`).
 
@@ -104,7 +104,7 @@ void archiveDashboard('2026-09').finally(() => DI.dispose());
 
 ### One renderer per set of options
 
-The shipped renderers take their Puppeteer options (`PDFOptions`, `ScreenshotOptions`) as a constructor argument and are `@PerInstanceCheck()`. Follow the same shape when your output has per-call options: return them from `instanceOptions`, give the constructor argument a default, and compare against the first element of the options array in `__checkInstance__()`.
+The shipped renderers take their Puppeteer options (`PDFOptions`, `ScreenshotOptions`) as a constructor argument and are `@PerInstanceCheck()`. Follow the same shape when your output has per-call options: return them from `instanceOptions` and give the constructor argument a default. The inherited `__checkInstance__()` compares them with the first element of the options array.
 
 ```ts sample
 import { Page, ScreenshotOptions } from 'puppeteer';
@@ -134,11 +134,6 @@ export class ThumbnailRenderer extends PuppeteerRenderer {
 
   protected get instanceOptions() {
     return this.size;
-  }
-
-  public __checkInstance__(creationOptions: unknown[]): boolean {
-    // the container passes the whole options array; compare its first element
-    return JSON.stringify(this.size) === JSON.stringify(creationOptions?.[0]);
   }
 
   protected async performRender(page: Page, filePath: string): Promise<void> {
@@ -226,11 +221,11 @@ Blocked requests count as `resourcesFailed` in [render progress](02-render-progr
 - `Templates` takes the **first** registered renderer for an extension. A second `@Injectable(TemplateRenderer)` class with `.pdf` is never picked while `PdfRenderer` is registered.
 - `DI.unregister(PdfRenderer)` removes it from every key, including its own class key. Register your subclass `.as(PdfRenderer)` so code that resolves `PdfRenderer` directly, like the `render-pdf` CLI and `@spinajs/queue-templates-pdf`, gets it too.
 - The renderer in the `Templates` list is resolved without constructor options. `PdfRenderer` there prints with Puppeteer's default `PDFOptions`; `ImageRenderer` takes a PNG with default `ScreenshotOptions`.
-- The inherited `__checkInstance__()` compares `instanceOptions` with the **whole** options array the container passes (`[options]`), so it never matches when you resolve with options. `DI.resolve(PdfRenderer, [opts])` therefore builds a new renderer, with its own Chromium, on every call after the first, and only the first one is cached and closed by `DI.dispose()`. Keep the instance you resolve and `dispose()` it yourself, or override `__checkInstance__()` as in the thumbnail example.
+- The inherited `__checkInstance__()` compares `instanceOptions` with the first element of the options array the container passes (`[options]`). DI caches only the first instance, so a later `DI.resolve(PdfRenderer, [opts])` with the same options reuses it, while each resolve with another option set builds a new renderer, with its own Chromium, that `DI.dispose()` does not close. Keep those instances and `dispose()` them yourself.
 - Give constructor options a default. `Templates` resolves the renderer without options; when that happens first, its instance is the one cached for later `DI.resolve()` calls to match against.
 - `Extension` doubles as `ServiceName`. Two renderers with the same extension are indistinguishable for code that maps renderers by name.
 - `performRender()` runs after `page.setContent()` resolves, ie. after the `load` event. Wait for anything your page draws later (`page.waitForFunction()`, `page.waitForSelector()`).
-- `renderToFile()` always compiles `<name>.pug`. To use another engine, compile the HTML yourself and call `renderHtmlToFile()`, or override `renderToFile()`.
+- `renderToFile()` compiles `<name>.pug` for a path ending in an output extension. A path ending in another registered engine's extension is compiled by that engine as is; you can also compile the HTML yourself and call `renderHtmlToFile()`.
 
 ## Best practices
 

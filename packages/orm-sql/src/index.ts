@@ -39,17 +39,22 @@ export abstract class SqlDriver extends OrmDriver {
       const labels = { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) };
 
       if (Array.isArray(compiled)) {
-        // TODO: rethink this cast
-        return Promise.all(
-          compiled.map((c) => {
+        // Statements must run in order (e.g. CREATE TABLE before dependent INSERT);
+        // a pooled driver would otherwise spread them over connections concurrently.
+        return (async () => {
+          const results: unknown[] = [];
+          for (const c of compiled) {
             this.logQuery(c.expression!, c.bindings!, builder);
 
-            return Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
-              labels,
-              fields: { sql: c.expression, bindings: c.bindings },
-            });
-          }),
-        ) as any;
+            results.push(
+              await Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
+                labels,
+                fields: { sql: c.expression, bindings: c.bindings },
+              }),
+            );
+          }
+          return results;
+        })() as any;
       } else {
         this.logQuery(compiled.expression!, compiled.bindings!, builder);
 

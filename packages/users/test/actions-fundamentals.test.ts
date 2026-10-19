@@ -14,7 +14,8 @@ import * as sinon from 'sinon';
 import { expect } from 'chai';
 
 import './migration/rbac.migration.js';
-import { DefaultQueueService } from '@spinajs/queue';
+import { DefaultQueueService, QueueEvent } from '@spinajs/queue';
+import { UserBanned, UserImpersonationStarted } from '../src/events/index.js';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { UserCreated } from '../src/events/UserCreated.js';
 import { DateTime } from 'luxon';
@@ -261,5 +262,16 @@ describe('actions fundamentals ( imperative helpers )', function () {
       expect(evt.Email).to.eq('evt@spinajs.pl');
       expect(evt.Login).to.eq('evt-login');
     });
+  });
+
+  // QueueService.consume() builds each delivered message this way before hydrating it.
+  it('user events resolve without a user, one instance per delivery', () => {
+    for (const type of [UserBanned, UserCreated, UserImpersonationStarted]) {
+      const first = DI.resolve<QueueEvent>(type);
+      first.hydrate({ UserUUID: 'delivered-uuid' });
+
+      expect(first.UserUUID, type.name).to.eq('delivered-uuid');
+      expect(DI.resolve(type), type.name).to.not.eq(first);
+    }
   });
 });

@@ -57,6 +57,15 @@ describe('notes example ( server and client end to end )', function () {
     expect(error).to.deep.include({ code: 'unauthenticated', message: 'authentication required' });
   });
 
+  it('keeps auth.required when only another auth key is overridden', async () => {
+    await server.close();
+    server = await startNotesServer({ socket: { auth: { revalidateMs: 5000 } } });
+    const notes = connect('nobody');
+
+    const error = await new Promise<SocketError>((resolve) => notes.on('auth_required', resolve));
+    expect(error.code).to.equal('unauthenticated');
+  });
+
   it('opens a document as the signed-in user, and validates the payload', async () => {
     const notes = connect('alice-token');
     await online(notes);

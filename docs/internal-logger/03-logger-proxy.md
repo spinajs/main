@@ -5,9 +5,9 @@
 ## How it works
 
 1. Code builds or resolves a proxy with a name: `DI.resolve(InternalLoggerProxy, ['CLI'])` or `new InternalLoggerProxy('CLI')`.
-2. A level call, eg. `proxy.warn({ path }, 'Missing ${path}')`, calls `InternalLogger.warn(fields, template, proxy.Name, ...args)`. The same [call forms](01-logging-api.md#call-forms) apply, with the name filled in.
+2. A level call, eg. `proxy.warn({ path }, 'Missing ${path}')`, builds an entry named `proxy.Name` with the proxy's variables and passes it to `InternalLogger.writeLogEntry()`. The call forms are those of `Log`: `(message, ...args)`, `(err, message, ...args)` and `(fields, template, ...args)`.
 3. `InternalLogger` buffers the entry or forwards it to the `__log__` logger, as in [Logging API](01-logging-api.md#how-it-works).
-4. `proxy.write(entry)` copies the proxy's variables into `entry.Variables`, calls `InternalLogger.writeLogEntry(entry)` and resolves to an empty array.
+4. `proxy.write(entry)` routes a copy of the entry with the proxy's variables added (the entry's own fields win) through `InternalLogger.writeLogEntry()` and resolves to an empty array.
 
 Because forwarding goes through `InternalLogger`, a proxy taken early in boot reaches the real logger once `Configuration` is resolved and `__log__` is registered.
 
@@ -15,11 +15,11 @@ Because forwarding goes through `InternalLogger`, a proxy taken early in boot re
 
 | Member | Behaviour |
 | --- | --- |
-| `new InternalLoggerProxy(name, variables?, parent?)` | `name` becomes `Name` and the `logger` variable of every entry. `variables` and `parent` are stored but not used |
-| `trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal`, `security` | Forward to the matching `InternalLogger` method with `Name` |
-| `write(entry)` | Merges `addVariable()` values into `entry.Variables` (they win on conflict), routes the entry, returns `Promise.allSettled([])` |
-| `addVariable(name, value)` | Stores a variable used by `write()` only; level methods ignore it |
-| `child(name, variables?)` | Returns the same proxy; `name` and `variables` are ignored |
+| `new InternalLoggerProxy(name, variables?, parent?)` | `name` becomes `Name` and the `logger` variable of every entry. `variables` are added to every entry; `parent` is stored but not used |
+| `trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal`, `security` | Build an entry with `Name` and the proxy's variables, then route it through `InternalLogger.writeLogEntry()` |
+| `write(entry)` | Routes a copy of the entry with the proxy's variables added (the entry's fields win on conflict), returns `Promise.allSettled([])` |
+| `addVariable(name, value)` | Stores a variable added to every later entry |
+| `child(name, variables?)` | Returns a new proxy named `<Name>.<name>` with the parent's variables plus `variables` |
 | `timeStart(name)`, `timeEnd(name)` | Measures milliseconds between the two calls; `timeEnd` returns `0` for an unknown timer. A running timer is not restarted |
 | `getLevel`, `setLevel`, `enableAll`, `disableAll`, ... | Inherited from `Log`. They change the stored level but do not filter: the level methods have no guard |
 | `Targets` | Declared, never set |
@@ -36,72 +36,45 @@ Because forwarding goes through `InternalLogger`, a proxy taken early in boot re
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `InternalLoggerProxy` | `InternalLoggerProxy`; not decorated, so the default singleton lifetime; the constructor options are the name, variables and parent | `InternalLoggerProxy` | none shipped | `DI.register(MyProxy).as(InternalLoggerProxy)` before the first resolve. Subclass to add a lifetime, variables or child loggers |
+| `InternalLoggerProxy` | `InternalLoggerProxy`; `@NewInstance()`, so every resolve builds a new proxy; the constructor options are the name, variables and parent | `InternalLoggerProxy` | none shipped | `DI.register(MyProxy).as(InternalLoggerProxy)` before the first resolve |
 
 Every place above resolves the class by type, so a registration under `InternalLoggerProxy` changes all of them.
 
 ### Proxy: custom implementation
 
-The default proxy is a singleton: the first resolved name is reused for every later name. A subclass with `@NewInstance()` gives each caller its own name. This one also makes `child()` and constructor variables work.
+Subclass the proxy to add fields to every entry it builds. Here each pre-boot message carries the process id.
 
 ```ts sample
 import { DI, NewInstance } from '@spinajs/di';
 import { InternalLoggerProxy } from '@spinajs/internal-logger';
-import { ILogEntry, Log, LogVariables } from '@spinajs/log-common';
+import { Log } from '@spinajs/log-common';
 
 @NewInstance()
-export class NamedInternalLoggerProxy extends InternalLoggerProxy {
+export class PidInternalLoggerProxy extends InternalLoggerProxy {
   constructor(name: string, variables?: Record<string, unknown>, parent?: Log) {
-    super(name, variables, parent);
-    Object.entries(variables ?? {}).forEach(([key, value]) => this.addVariable(key, value));
-  }
-
-  public child(name: string, variables?: LogVariables): Log {
-    return new NamedInternalLoggerProxy(`${this.Name}.${name}`, { ...this.Variables, ...variables }, this);
-  }
-
-  public write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {
-    // Entry fields win over the proxy's variables, unlike the default.
-    entry.Variables = { ...this.Variables, ...entry.Variables };
-    return super.write(entry);
+    super(name, { pid: process.pid, ...variables }, parent);
   }
 }
 
 // Register before anything resolves InternalLoggerProxy, eg. at the top of the entry module.
-DI.register(NamedInternalLoggerProxy).as(InternalLoggerProxy);
+DI.register(PidInternalLoggerProxy).as(InternalLoggerProxy);
 
 const cliLog = DI.resolve(InternalLoggerProxy, ['CLI']);
-const reflectionLog = DI.resolve(InternalLoggerProxy, ['reflection']);
-
 cliLog.info({}, 'Starting');
-reflectionLog.info({}, 'Scanning modules');
 ```
 
-`write()` here applies only to entries passed to `write()` directly. The level methods still go straight to `InternalLogger`, so override them too if `addVariable()` values must reach every entry.
+`child()` returns a plain `InternalLoggerProxy`; it still carries `pid`, because a child copies its parent's variables.
 
 ## Important behaviour
 
-- The default proxy resolves as a singleton. `DI.resolve(InternalLoggerProxy, ['CLI'])` followed by `DI.resolve(InternalLoggerProxy, ['reflection'])` returns the `CLI` proxy twice, in the root and in child containers. `new InternalLoggerProxy(name)` always builds a fresh one.
-- `addVariable()` and constructor `variables` do **not** reach entries from `info()`, `warn()` and the other level methods.
-- `child()` returns the same proxy, so a child logger writes under the parent's name.
+- Every `DI.resolve(InternalLoggerProxy, [name])` builds a new proxy with that name; the container does not cache it. `@spinajs/log` caches its proxies in `Log.InternalLoggers` itself.
+- In the level methods the proxy's variables override `level`, `logger` and `message` when they use those keys, as in `@spinajs/log`; fields passed to the call override the proxy's variables.
 - Registering an unmodified `InternalLoggerProxy` as the `__log__` sink causes infinite recursion; see [Log sink](04-log-sink.md#patterns-and-antipatterns).
 
 ## Best practices
 
 - Resolve the framework `Log` when one is registered and fall back to the proxy, as `@spinajs/cli` does: `DI.check(Log) ? DI.resolve(Log, [name]) : DI.resolve(InternalLoggerProxy, [name])`.
-- Prefer `new InternalLoggerProxy(name)` over `DI.resolve(InternalLoggerProxy, [name])` when you need a specific name and do not want to depend on the registered lifetime.
-- Pass fields per call rather than through `addVariable()`.
-
-## Patterns and antipatterns
-
-```ts
-// Don't: with the default singleton, `jobsLog` is the proxy named 'CLI'
-// when anything resolved InternalLoggerProxy with 'CLI' first.
-const jobsLog = DI.resolve(InternalLoggerProxy, ['Jobs']);
-
-// Do
-const jobsLog = new InternalLoggerProxy('Jobs');
-```
+- Pass fields per call for values that change per message; use `addVariable()` or `child()` for values shared by every message.
 
 ## Examples
 

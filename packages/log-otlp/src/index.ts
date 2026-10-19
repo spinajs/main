@@ -107,6 +107,11 @@ export interface IOtlpTargetOptions extends ICommonTargetOptions {
 }
 
 /**
+ * Constructor input: the fields the constructor defaults may be omitted.
+ */
+export type OtlpTargetCreateOptions = Omit<IOtlpTargetOptions, "interval" | "bufferSize" | "maxBufferSize" | "timeout"> & Partial<Pick<IOtlpTargetOptions, "interval" | "bufferSize" | "maxBufferSize" | "timeout">>;
+
+/**
  * Internal buffered record: the log entry plus the wall-clock event time
  * captured at `write()` time, as an OTLP nanosecond string.
  */
@@ -118,14 +123,14 @@ export interface IOtlpRecord {
 /**
  * An OTLP `AnyValue`. Only one field is set at a time.
  */
-interface IOtlpAnyValue {
+export interface IOtlpAnyValue {
   stringValue?: string;
   boolValue?: boolean;
   intValue?: string;
   doubleValue?: number;
 }
 
-interface IOtlpKeyValue {
+export interface IOtlpKeyValue {
   key: string;
   value: IOtlpAnyValue;
 }
@@ -136,8 +141,9 @@ interface IOtlpKeyValue {
  *
  * - string  -> `{ stringValue }`
  * - boolean -> `{ boolValue }`
- * - integer number -> `{ intValue: String(v) }`
- * - non-integer number -> `{ doubleValue: v }`
+ * - safe integer number -> `{ intValue: String(v) }`
+ * - other finite number -> `{ doubleValue: v }`
+ * - `NaN` / `Infinity` -> `{ stringValue: String(v) }` ( JSON would turn them into `null` )
  * - anything else ( object / array / bigint / etc. ) -> `{ stringValue: safeStringify(v) }`
  */
 export function anyValue(v: unknown): IOtlpAnyValue {
@@ -150,7 +156,10 @@ export function anyValue(v: unknown): IOtlpAnyValue {
   }
 
   if (typeof v === "number") {
-    return Number.isInteger(v) ? { intValue: String(v) } : { doubleValue: v };
+    if (Number.isSafeInteger(v)) {
+      return { intValue: String(v) };
+    }
+    return Number.isFinite(v) ? { doubleValue: v } : { stringValue: String(v) };
   }
 
   return { stringValue: safeStringify(v) };
@@ -189,6 +198,11 @@ export function toLogRecord(record: IOtlpRecord): Record<string, unknown> {
     }
 
     const value = vars[key];
+
+    // createLogMessageObject always sets `error`, to undefined when nothing was logged.
+    if (value === undefined) {
+      continue;
+    }
 
     // The serializer registry turns a logged `Error` into a plain
     // `{ name, message, stack, ... }` record. Emit the OTel exception.* semantic
@@ -250,13 +264,15 @@ export function toOtlp(batch: IOtlpRecord[], resource?: Record<string, string | 
   };
 }
 
+const OTLP_TARGET_LOGGER = "LogOtlpTarget";
+
 // we mark per instance check because we can have multiple otlp targets for
 // different endpoints/logs but we dont want to create the writer twice for the
 // same one.
 @PerInstanceCheck()
 @Injectable("OtlpLogTarget")
 export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IInstanceCheck {
-  @Logger("LogOtlpTarget")
+  @Logger(OTLP_TARGET_LOGGER)
   protected Log: Log;
 
   /**
@@ -272,6 +288,12 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
    */
   protected Overflowed = false;
 
+  /**
+   * Set by dispose(): the queue is stopped, so a failed final export must go to
+   * OnDropped instead of being requeued.
+   */
+  protected Disposed = false;
+
   protected AxiosInstance: AxiosInstance;
 
   /**
@@ -280,8 +302,8 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
    */
   protected RetryPipeline: ResiliencePipeline<void>;
 
-  constructor(options: IOtlpTargetOptions) {
-    super(options);
+  constructor(options: OtlpTargetCreateOptions) {
+    super(options as IOtlpTargetOptions);
 
     // Config-driven targets ( resolved through the logger config ) nest their
     // settings under an `options` sub-object ( like FileTarget ), while direct
@@ -302,7 +324,13 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
   }
 
   __checkInstance__(creationOptions: IOtlpTargetOptions[]): boolean {
-    return this.Options.name === creationOptions[0].name;
+    const def = creationOptions?.[0];
+    if (!def) {
+      return false;
+    }
+
+    const endpoint = ((def as any).options as Partial<IOtlpTargetOptions> | undefined)?.endpoint ?? def.endpoint;
+    return this.Options.name === def.name && this.Options.endpoint === endpoint;
   }
 
   public resolve(): void {
@@ -328,7 +356,8 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         ShouldHandle: (o) => o.Error !== undefined && isRetryableOtlpError(o.Error),
         DelayGenerator: ({ Outcome }) => {
           const ms = retryAfterMs(Outcome.Error);
-          return ms !== undefined ? TimeSpan.fromMilliseconds(ms) : undefined;
+          // a custom delay bypasses MaxDelay, and a long wait would stall the single flush slot and dispose()
+          return ms !== undefined ? TimeSpan.fromMilliseconds(Math.min(ms, 5000)) : undefined;
         },
       })
       .build();
@@ -365,6 +394,12 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       return;
     }
 
+    // the target's own diagnostics would feed back into it: every export logs a
+    // trace line, which is exported on the next tick, forever
+    if (data.Variables?.logger === OTLP_TARGET_LOGGER) {
+      return;
+    }
+
     // capture the event time now ( wall-clock ms -> OTLP nanosecond string )
     const record: IOtlpRecord = {
       entry: data,
@@ -381,16 +416,18 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
   }
 
   public async dispose() {
+    this.Disposed = true;
     // stop the flush timer and perform a final best-effort flush.
-    await this.Queue.shutdown();
+    await this.Queue?.shutdown();
   }
 
   /**
    * Export a single batch to the OTLP endpoint. Wired as the queue's `onFlush`.
    *
    * MUST resolve ( never reject ) so shutdown()/forceFlush() cannot reject: on a
-   * retryable-exhausted failure the batch is requeued at the front, on a
-   * non-retryable error it is dropped and surfaced via HasError/Error.
+   * retryable-exhausted failure the batch is requeued at the front ( or, after
+   * dispose(), dropped ), on a non-retryable error it is dropped and surfaced
+   * via HasError/Error.
    */
   protected async send(batch: IOtlpRecord[]): Promise<void> {
     const payload = toOtlp(batch, this.Options.resource, this.Options.scopeName);
@@ -414,7 +451,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       this.HasError = true;
       this.Error = err as Error;
 
-      if (isRetryableOtlpError(err)) {
+      if (isRetryableOtlpError(err) && !this.Disposed) {
         // retryable but exhausted: put the batch back at the front so the next
         // flush retries it. The queue enforces the maxQueue cap ( dropping the
         // oldest + onOverflow ) so the retry buffer never grows without bound.
@@ -423,7 +460,8 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         return;
       }
 
-      // permanent error ( eg. 400 malformed, 401 bad auth ): retrying forever
+      // permanent error ( eg. 400 malformed, 401 bad auth ) or a failed final
+      // flush during dispose(): retrying forever
       // would only hide a config problem. Drop the batch and surface it, but
       // first spill each undelivered entry to the fallback ( if a wrapper wired
       // one ) so a durable target catches exactly what was not delivered.
@@ -431,7 +469,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         this.OnDropped?.(rec.entry);
       }
 
-      this.Log.error({ error: err, records: batch.length }, "Cannot export log records to OTLP target - dropping ${records} records because the error is non-retryable.");
+      this.Log.error({ error: err, records: batch.length }, "Cannot export log records to OTLP target - dropping ${records} records because the error is non-retryable or the target is disposed.");
     }
   }
 }

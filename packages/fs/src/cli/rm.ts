@@ -18,6 +18,7 @@ export class FsRmCommand extends CliCommand {
       this.Log.success({ path, fsName }, 'Removed ${path} from filesystem ${fsName}');
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot remove ${path} from ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

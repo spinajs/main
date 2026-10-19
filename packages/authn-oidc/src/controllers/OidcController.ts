@@ -1,5 +1,6 @@
 import type * as express from 'express';
-import { Autoinject, DI } from '@spinajs/di';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -59,8 +60,11 @@ export class OidcController extends BaseController {
   @Logger('authn-oidc')
   protected Log: Log;
 
-  protected flow: OidcLogin | undefined;
+  protected flow: Promise<OidcLogin> | undefined;
   protected warnedHttpOrigin = false;
+
+  @Autoinject(Container)
+  protected Container!: IContainer;
 
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
@@ -126,17 +130,26 @@ export class OidcController extends BaseController {
     return origin;
   }
 
-  protected env: string | undefined;
+  protected get env(): string | undefined {
+    return this.Providers.env;
+  }
 
-  protected async login(): Promise<OidcLogin> {
-    if (this.flow) return this.flow;
+  protected login(): Promise<OidcLogin> {
+    // A failed build is not kept, so the next request retries it.
+    this.flow ??= this.buildLogin().catch((e: unknown) => {
+      this.flow = undefined;
+      throw e;
+    });
+    return this.flow;
+  }
+
+  protected async buildLogin(): Promise<OidcLogin> {
     const providers = this.Providers;
-    this.env = providers.env;
     const cookieConfig = this.SessionCookie;
-    this.flow = new OidcLogin({
+    return new OidcLogin({
       strategies: providers.strategies(),
-      // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
-      service: await DI.resolve(AuthnService),
+      // Not injected: an eager AuthnService builds its checked neighbours, missing in apps without them.
+      service: await this.Container.resolve(AuthnService),
       sessions: this.Sessions,
       redirects: providers.options.redirects,
       env: providers.env,
@@ -146,6 +159,5 @@ export class OidcController extends BaseController {
       links: this.Links ?? null,
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)), error: (...args: unknown[]) => this.Log?.error(...(args as Parameters<Log['error']>)) },
     });
-    return this.flow;
   }
 }

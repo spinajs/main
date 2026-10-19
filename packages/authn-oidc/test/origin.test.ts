@@ -8,8 +8,11 @@ import { fakeContainer, readingFrom } from './support/config-boot.js';
 
 describe('authn-oidc request origin', () => {
   class Probe extends OidcController {
+    protected override get env(): string {
+      return 'test';
+    }
+
     public origin(req: Request): string {
-      this.env = 'test';
       return this.originOf(req);
     }
   }

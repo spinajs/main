@@ -50,7 +50,7 @@ describe('Swagger @Access extraction', function () {
   });
 
   it('should keep alternatives and a non-root domain', () => {
-    const op = spec.paths['/access/'].post;
+    const op = spec.paths['/access'].post;
     expect(op['x-authz-permission']).to.deep.equal(['test:create', 'test:import']);
     expect(op['x-authz-domain']).to.equal('tenant');
     expect(op.description).to.match(/`test:create`\s+or\s+`test:import`/);
@@ -75,7 +75,7 @@ describe('Swagger @Access extraction', function () {
   });
 
   it('should NOT emit x-authz-* on controllers without @Access', () => {
-    const op = spec.paths['/pets/'].get;
+    const op = spec.paths['/pets'].get;
     expect(Object.keys(op).filter((k) => k.startsWith('x-authz-'))).to.deep.equal([]);
     expect(op.description ?? '').to.not.include('**Access:**');
   });

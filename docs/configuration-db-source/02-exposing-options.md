@@ -18,7 +18,7 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 4. **After `Orm` resolved**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
    1. `normalizeFileEntryOptions()` runs synchronously, so a misdeclared file entry throws out of the `@Config` decorator or `DI.register()` call.
    2. The row is inserted and its metadata synced as in step 3.
-   3. The stored row is read back and `Configuration.set(path, row.Value ?? defaultValue)` updates the live configuration.
+   3. The stored row is read back and `Configuration.set(path, row.Value ?? defaultValue)` updates the live configuration. A row whose `Exposed` flag an admin cleared is left out, as the source does.
    4. With `watch: true` the slug joins the watched set and arms the timer if it was idle.
    5. Errors are logged as `Failed to sync exposed config option ... with db`, not thrown.
 5. Registrations made before `Orm` resolves are skipped by the step 4 handler (`DI.has(Orm)` is false) and handled in step 3.
@@ -122,7 +122,7 @@ export async function senderOf(channel: string): Promise<string> {
 - **`Default` is overwritten.** A changed `defaultValue` in code updates `Default` on the next start, never `Value`.
 - **Column limits apply.** A `Slug` longer than 64 characters or a `Group` longer than 32 fails the insert on strict databases; the error is logged, not thrown.
 - **Missing `type` fails the insert.** `Type` is `NOT NULL`; the insert error is logged and the option keeps its `defaultValue`.
-- **Late sync ignores `Exposed`.** Step 4.3 copies the stored `Value` into the configuration even when an admin cleared `Exposed`; the source would skip that row on the next load.
+- **Late sync respects `Exposed`.** Step 4.3 skips a row whose `Exposed` flag an admin cleared, so the configuration keeps the value it had.
 - **Writes are fire-and-forget.** Step 3 does not block the `Orm` resolve; rows may land a moment later.
 
 ## Best practices

@@ -7,6 +7,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { IOFail } from '@spinajs/exceptions';
 import '../src/index.js';
 
 const expect = chai.expect;
@@ -110,6 +111,18 @@ describe('templates', () => {
     const result = await t.render(dir('templates/text.handlebars'), { hello: 'world' });
     expect(result).to.eq('       world        \r\n               world\r\n');
 
+  });
+
+  it('should pass extra __ arguments to placeholders', async () => {
+    const t = await tp();
+    const result = await t.render(dir('templates/placeholder.handlebars'), { hello: 'world' }, 'en');
+
+    expect(result).to.eq('hello world');
+  });
+
+  it('should reject a template with a syntax error at compile time', async () => {
+    const t = await tp();
+    await expect(t.render(dir('templates/broken.handlebars'), { hello: 'world' })).to.be.rejectedWith(IOFail);
   });
 
   it('should not mutate the caller model', async () => {

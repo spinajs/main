@@ -9,8 +9,6 @@ const usersHttp = {
   system: {
     dirs: {
       controllers: [dir('controllers'), dir('admin/controllers')],
-      locales: [dir('locales')],
-      views: [dir('views')],
     },
   },
   authz: {

@@ -31,6 +31,23 @@ export class UserMetadataController extends BaseController {
     @Autoinject(UserMetadataService)
     protected Metadata: UserMetadataService;
 
+    // Declared before `:user/metadata` so `GET /user/metadata/metadata` reaches this route, not readUserMeta.
+    /**
+     * Get own metadata entry by key
+     * Retrieves a single metadata entry by key for the signed-in user.
+     * @security cookieAuth
+     * @param key Metadata key to retrieve
+     * @returns {IUserMetadataEntry} Single own metadata entry by key
+     * @response 401 Unauthorized — no signed-in principal
+     * @response 403 Forbidden — not a user principal, or no `user.metadata:read` on the entry
+     * @response 404 Metadata key not found, or the key is reserved
+     */
+    @Get("metadata/:key")
+    @Access('user.metadata:read')
+    public async getMeta(@Req() req: Request, @CurrentUser() user: User, @Param() key: string) {
+        return new Ok(await this.Metadata.getByKey(ownMetadata(req, user), key));
+    }
+
     /**
      * List metadata for a specific user
      * Returns a paginated, filtered, and ordered list of metadata entries for the given user.
@@ -174,22 +191,6 @@ export class UserMetadataController extends BaseController {
         filter?: IFilterRequest,
     ) {
         return new Ok(await this.Metadata.list(ownMetadata(req, user), pagination, order, filter));
-    }
-
-    /**
-     * Get own metadata entry by key
-     * Retrieves a single metadata entry by key for the signed-in user.
-     * @security cookieAuth
-     * @param key Metadata key to retrieve
-     * @returns {IUserMetadataEntry} Single own metadata entry by key
-     * @response 401 Unauthorized — no signed-in principal
-     * @response 403 Forbidden — not a user principal, or no `user.metadata:read` on the entry
-     * @response 404 Metadata key not found, or the key is reserved
-     */
-    @Get("metadata/:key")
-    @Access('user.metadata:read')
-    public async getMeta(@Req() req: Request, @CurrentUser() user: User, @Param() key: string) {
-        return new Ok(await this.Metadata.getByKey(ownMetadata(req, user), key));
     }
 
     /**

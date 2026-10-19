@@ -7,13 +7,13 @@
 Startup:
 
 1. A logger reads its `targets` and `rules` config and calls `DI.resolve("OtlpLogTarget", [targetDef])` for each target with `type: "OtlpLogTarget"`.
-2. DI asks every cached `OtlpLogTarget` `__checkInstance__([targetDef])`. An instance with the same `name` is returned as is; otherwise a new one is built. All loggers that route to target `"Otlp"` share one instance.
+2. DI asks every cached `OtlpLogTarget` `__checkInstance__([targetDef])`. An instance with the same `name` and `endpoint` is returned as is; otherwise a new one is built. All loggers that route to target `"Otlp"` share one instance.
 3. The constructor merges defaults (`interval`, `bufferSize`, `maxBufferSize`, `timeout`, `scopeName`) with the definition, then copies the nested `options` object over the result.
 4. DI calls `resolve()`. It creates the axios client (`baseURL` = `endpoint`, `Content-Type: application/json` plus your `headers`, `timeout`), the retry pipeline and the `BatchQueue`.
 
 Each log call:
 
-1. The logger calls `OtlpLogTarget.write(entry)`. A target with `enabled: false` returns at once.
+1. The logger calls `OtlpLogTarget.write(entry)`. A target with `enabled: false` returns at once, and so does an entry from the target's own `LogOtlpTarget` logger.
 2. `write()` wraps the entry in an `IOtlpRecord` with `timeUnixNano` = `Date.now()` in nanoseconds, and calls `BatchQueue.enqueue()` without awaiting it.
 3. The queue flushes when it holds `bufferSize` records, and every `interval` ms on a timer.
 4. The flush calls `send(batch)`. It builds the payload with `toOtlp()` and POSTs it to `/v1/logs` through the retry pipeline.
@@ -86,7 +86,7 @@ The retry policy (5 retries, exponential backoff from 1 s to 5 s, jitter) is fix
 Resolution details:
 
 - The logger resolves targets by string, `DI.resolve(def.type, [def])`. The **last** class registered under a name wins.
-- `__checkInstance__(creationOptions)` compares `this.Options.name` with `creationOptions[0].name`. Two definitions with the same `name` share one instance, even when their `options` differ: the first one built wins.
+- `__checkInstance__(creationOptions)` compares `this.Options.name` and `this.Options.endpoint` with `creationOptions[0]` (its `options.endpoint`, or `endpoint` for a flat definition). It returns `false` when no options are passed, so a new instance is built.
 - `Log.flush()`, `Log.flushAll()` and `Log.clearLoggers()` call `forceFlush()` on the target. The DI container calls `dispose()` on teardown.
 
 Public members a user can rely on:
@@ -101,14 +101,12 @@ Public members a user can rely on:
 
 ## Important behaviour
 
-- **Self-logging.** The target logs through its own logger named `LogOtlpTarget`: a `trace` line after every successful export, `warn` on buffer overflow, `error` on failed exports. A `"*"` rule that routes those levels to the OTLP target feeds them back into it. With `level: "trace"`, every export enqueues one more record, so the target exports at least once per `interval` forever. Add a `final` rule for `LogOtlpTarget` before `"*"`, as in the [quick start](README.md#quick-start).
-- **Same name, same instance.** Two target definitions named `"Otlp"` with different endpoints resolve to one instance, configured by whichever was built first. Give every OTLP target a unique `name`.
+- **Self-logging.** The target logs through its own logger named `LogOtlpTarget`: a `trace` line after every successful export, `warn` on buffer overflow, `error` on failed exports. `write()` ignores entries from that logger, so a `"*"` rule never feeds them back into the OTLP export. Route `LogOtlpTarget` to another target, as in the [quick start](README.md#quick-start), to see them.
+- **Same name and endpoint, same instance.** Two target definitions with the same `name` and `endpoint` resolve to one instance, configured by whichever was built first. Rules still refer to targets by `name`, so give every OTLP target a unique `name`.
 - **Event time is capture time.** `timeUnixNano` and `observedTimeUnixNano` both come from `Date.now()` inside `write()`, in millisecond precision.
 - **`write()` is fire-and-forget.** It returns `void` and never rejects, so `RetryingTarget` has no effect on this target. Failures surface through `HasError`, the target's own logger and `OnDropped`.
 - **No endpoint validation.** A missing or malformed `endpoint` fails every export with an error that has no HTTP response. That counts as retryable, so batches are retried and requeued until `maxBufferSize` drops them.
-- **`dispose()` before `resolve()` throws.** `dispose()` calls `this.Queue.shutdown()` without a guard; `forceFlush()` is guarded.
-- **`__checkInstance__` needs options.** `DI.resolve("OtlpLogTarget")` with no options array throws a `TypeError` once one instance is cached.
-- **Interface typing.** `IOtlpTargetOptions` declares `interval`, `bufferSize`, `maxBufferSize` and `timeout` as required, although the constructor defaults them. Pass them all when you call `new OtlpLogTarget(...)` from TypeScript.
+- **Constructor typing.** `IOtlpTargetOptions` describes the merged `Options`, so `interval`, `bufferSize`, `maxBufferSize` and `timeout` are required there. The constructor takes `OtlpTargetCreateOptions`, where they are optional and defaulted.
 
 ## Best practices
 
@@ -121,11 +119,10 @@ Public members a user can rely on:
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the target's own trace and error lines are routed back into it,
-// so it keeps exporting its own "Wrote buffered messages" record.
+// Don't: the target ignores its own entries, so its diagnostics are not exported and you never see them.
 rules: [{ name: '*', level: 'trace', target: 'Otlp' }]
 
-// Do: send the target's diagnostics to the console only, then route everything else.
+// Do: send the target's diagnostics to the console, then route everything else.
 rules: [
   { name: 'LogOtlpTarget', level: 'warn', target: 'Console', final: true },
   { name: '*', level: 'trace', target: 'Otlp' },
@@ -133,7 +130,7 @@ rules: [
 ```
 
 ```ts
-// Don't: both definitions resolve to ONE instance; the second endpoint is never used.
+// Don't: rules refer to targets by name, so 'Otlp' cannot select one of the two.
 targets: [
   { name: 'Otlp', type: 'OtlpLogTarget', options: { endpoint: 'http://collector-a:4318' } },
   { name: 'Otlp', type: 'OtlpLogTarget', options: { endpoint: 'http://collector-b:4318' } },
