@@ -16,7 +16,7 @@ import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spin
 import type { Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, Session, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, Session, SessionIssuer } from '@spinajs/authn';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SignedRequest, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISession, ISessionCookieConfig } from '@spinajs/authn-session';
@@ -161,7 +161,7 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, AuthenticationStrategy, 'SuiteTokenStrategy', tokenStrategy);
   bind(child, AuthenticationStrategy, 'SuiteKeyStrategy', keyStrategy);
-  await registerAuthnHttpV3(child);
+  registerAuthnHttpV3(child);
   return { child, identities, principals, guard, issuer, store, throttle, tokens, jws, signatures, tokenStrategy, keyStrategy, ctxs };
 }
 
@@ -940,7 +940,7 @@ describe('AuthnMiddleware units', () => {
       };
     };
     const withService = <T extends AuthnPrincipalResolver>(r: T, svc: unknown) => {
-      Object.defineProperty(r, 'Container', { value: { resolve: async (t: unknown) => (t === AuthnService ? svc : null) } });
+      Object.defineProperty(r, 'Authn', { value: async () => svc });
       return r;
     };
     const ctx: AuthnContext = { now: new Date(), purpose: 'login', ip: '10.1.1.1' };
@@ -979,15 +979,11 @@ describe('AuthnMiddleware units', () => {
     it('M1 a session that yields nothing never asks the store about service or agent identities', async () => {
       const ended: IdentityRef[] = [];
       const asked: IdentityRef[] = [];
-      const parts = new Map<unknown, unknown>([
-        [IdentityStore, { status: async (id: IdentityRef) => (asked.push(id), id.type === 'user' ? { exists: true, active: true, banned: true, deleted: false } : Promise.reject(new Error('not a user'))) }],
-      ]);
+      const identities = { status: async (id: IdentityRef) => (asked.push(id), id.type === 'user' ? { exists: true, active: true, banned: true, deleted: false } : Promise.reject(new Error('not a user'))) };
+      const impersonation = { principalOf: async () => null, endFor: async (id: IdentityRef) => (ended.push(id), 0) };
       const res = new SessionPrincipalResolver();
-      Object.defineProperty(res, 'Container', {
-        value: {
-          resolve: async (t: unknown) => parts.get(t) ?? { principalOf: async () => null, endFor: async (id: IdentityRef) => (ended.push(id), 0) },
-        },
-      });
+      Object.defineProperty(res, 'Identities', { value: async () => identities });
+      Object.defineProperty(res, 'Impersonation', { value: async () => impersonation });
       const active = (identity: IdentityRef, impersonator?: IdentityRef) => ({ storage: { AuthnSession: new Session({ handle: { id: 'x', state: 'active' }, identity, facts: FACTS(impersonator ? { impersonator } : {}) }) } }) as unknown as Request;
       expect(await res.resolve(active({ type: 'service', id: 's1' }, { type: 'agent', id: 'a1' }), null, ctx)).to.eq(null);
       expect(asked).to.deep.eq([]);

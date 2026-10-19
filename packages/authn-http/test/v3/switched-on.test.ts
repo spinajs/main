@@ -70,7 +70,7 @@ const BODY = `
   const tokenAuthMiddlewareExported = 'TokenAuthMiddleware' in pkg;
   const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
   const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f)) : null;
-  await pkg.registerAuthnHttpV3();
+  pkg.registerAuthnHttpV3();
   console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, barrelIsV3, orders, bridgeExported, tokenAuthMiddlewareExported, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
 `;
 

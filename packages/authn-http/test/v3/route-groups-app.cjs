@@ -159,7 +159,7 @@ async function main() {
   bind(contracts.AuthnThrottle, 'RouteGroupsThrottle', throttle);
   bind(contracts.AuthnEventSink, 'RouteGroupsEventSink', events);
   bind(contracts.AuthenticationStrategy, 'RouteGroupsPasswordStrategy', strategy);
-  await (await loadFile(join(PKG_ROOT, 'lib', FORMAT, 'v3', 'register.js'))).registerAuthnHttpV3();
+  (await loadFile(join(PKG_ROOT, 'lib', FORMAT, 'v3', 'register.js'))).registerAuthnHttpV3();
 
   for (const p of PACKAGES) {
     if (p === 'local') await load('@spinajs/authn-local');

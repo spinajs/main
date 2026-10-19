@@ -1,4 +1,3 @@
-import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { ServerMiddleware, parseTrustProxy, trustedClientAddress } from '@spinajs/http';
@@ -17,7 +16,6 @@ export function proxyTrustOf(own: unknown, shared: unknown): ProxyTrust {
  * Order 1. Writes req.storage.ClientIp: the socket address, or the client address behind trusted proxy hops only
  * (authn.http.trustProxy, else http.trustProxy; none ⇒ the socket address) (A05).
  */
-@Injectable(ServerMiddleware)
 export class ClientIp extends ServerMiddleware {
   @Config('authn.http.trustProxy')
   protected OwnTrust: unknown;

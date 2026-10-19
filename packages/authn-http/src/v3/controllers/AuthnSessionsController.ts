@@ -1,7 +1,8 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, NotFound, Ok, Param, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { AuthnAudit } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
@@ -20,11 +21,11 @@ import { publishAuthnEvent } from '../routes.js';
 @BasePath('user')
 @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
 export class AuthnSessionsController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
-
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
 
   /**
    * List own sessions
@@ -59,7 +60,7 @@ export class AuthnSessionsController extends BaseController {
     const session = this.own(req);
     const ended = typeof handle === 'string' && (await this.Sessions.revokeHandle(session.identity, handle));
     if (!ended) return new NotFound({ error: 'session_not_found', message: 'No such session' });
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
+    await publishAuthnEvent(this.Audit, req, { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
     const current = handle === session.facts.sessionHandle;
     return new Ok(null, { Coockies: current ? [authnClearedSessionCookie(this._cfg)] : [], Headers: [NO_STORE] });
   }
@@ -73,7 +74,7 @@ export class AuthnSessionsController extends BaseController {
   public async revokeOthers(@Req() req: Request) {
     const session = this.own(req);
     const revoked = await this.Sessions.revokeAll(session.identity, { except: session.handle });
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
+    await publishAuthnEvent(this.Audit, req, { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
     return new Ok({ Revoked: revoked }, { Headers: [NO_STORE] });
   }
 

@@ -1,15 +1,17 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { ICookie, Request } from '@spinajs/http';
-import { AuthnService, KeyRegistry, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn';
+import { AuthnResponseExtension, AuthnService, KeyRegistry, SessionIssuer } from '@spinajs/authn/contracts';
 import type { KeyChallengeResult } from '@spinajs/authn/contracts';
 
 import { challengeAnswer, challengeRequestOf, challengeThrottled, keyEntry, keyLoginCredentialsOf, keyManager, keyNotFound, keyRequestOf, kidOf, registerRefusal } from '../../keys/fields.js';
 import { KeyRoutesOn } from '../../keys/gate.js';
 import { isAuthnFailed } from '../../policies/v3/errors.js';
+import { FreshAuthVerifier } from '../../policies/v3/fresh-auth.js';
 import { takeReauthPassword } from '../../token/fields.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, auditEnded, contextOf, stampClient } from '../routes.js';
 
@@ -28,11 +30,25 @@ import { answerFor, auditEnded, contextOf, stampClient } from '../routes.js';
 @BasePath('/')
 @Policy(KeyRoutesOn)
 export class AuthnKeysController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
-
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
+
+  // Lazy: apps that list no key strategy register no KeyRegistry.
+  @Autoinject(KeyRegistry, { lazy: true })
+  protected Registry!: Lazy<KeyRegistry>;
+
+  // Lazy: an eager AuthnService builds its checked neighbours, missing in apps without them.
+  @Autoinject(AuthnService, { lazy: true })
+  protected Authn!: Lazy<AuthnService>;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
+
+  @Autoinject(FreshAuthVerifier)
+  protected FreshAuth!: FreshAuthVerifier;
+
+  @Autoinject(Array.ofType(AuthnResponseExtension), { lazy: true })
+  protected Extensions!: Lazy<AuthnResponseExtension[]>;
 
   /**
    * List own keys
@@ -43,7 +59,7 @@ export class AuthnKeysController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
     const session = keyManager(req);
-    const records = await (await this.registry()).list(session.identity);
+    const records = await (await this.Registry()).list(session.identity);
     const now = new Date();
     return new Ok(
       records.map((r) => keyEntry(r, now)),
@@ -70,14 +86,14 @@ export class AuthnKeysController extends BaseController {
     try {
       // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
       // a password while the gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
+      await this.FreshAuth.verify(req, undefined, password);
     } catch (err) {
       if (isAuthnFailed(err)) return authnFailureResponse();
       throw err;
     }
     const parsed = keyRequestOf(req, new Date());
     if ('answer' in parsed) return parsed.answer;
-    const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
+    const result = await (await this.Registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
     if (!result.ok) return registerRefusal(result.code);
     return new Ok(keyEntry(result.key, new Date()), { Headers: [NO_STORE] });
   }
@@ -93,7 +109,7 @@ export class AuthnKeysController extends BaseController {
   public async revoke(@Req() req: Request, @Param() kid: string) {
     const session = keyManager(req);
     const id = kidOf(kid);
-    const revoked = id !== null && (await (await this.registry()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
+    const revoked = id !== null && (await (await this.Registry()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
     if (!revoked) return keyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -112,7 +128,7 @@ export class AuthnKeysController extends BaseController {
   public async challenge(@Req() req: Request) {
     const parsed = challengeRequestOf(req);
     if ('answer' in parsed) return parsed.answer;
-    const registry = await this.registry();
+    const registry = await this.Registry();
     let result: KeyChallengeResult;
     if (parsed.purpose === 'register') {
       const session = keyManager(req);
@@ -139,15 +155,14 @@ export class AuthnKeysController extends BaseController {
     const held = req.storage.AuthnSession;
     if (held) {
       await sessions.revoke(held.handle);
-      await auditEnded(this.Container, req, held, 'session.revoke', 'login');
+      await auditEnded(this.Audit, req, held, 'session.revoke', 'login');
     }
     const cleared: ICookie[] = held ? [authnClearedSessionCookie(this._cfg)] : [];
 
     const credentials = keyLoginCredentialsOf(req);
     if (credentials === null) return authnFailureResponse(undefined, cleared);
 
-    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
-    const authn = await this.Container.resolve(AuthnService);
+    const authn = await this.Authn();
     const result = await authn.authenticate(credentials, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {
@@ -157,11 +172,6 @@ export class AuthnKeysController extends BaseController {
     if (!result.session) return authnFailureResponse(undefined, cleared);
     await stampClient(sessions, result.session, req);
     const principal = await authn.principalOf(result);
-    return new Ok(await answerFor(this.Container, 'login', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
-  }
-
-  protected async registry(): Promise<KeyRegistry> {
-    // Per call: apps that list no key strategy register no KeyRegistry.
-    return await this.Container.resolve(KeyRegistry);
+    return new Ok(await answerFor(this.Extensions, 'login', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
   }
 }

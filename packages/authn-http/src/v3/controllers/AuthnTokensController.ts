@@ -1,14 +1,15 @@
-import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
 import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
+import { FreshAuthVerifier } from '../../policies/v3/fresh-auth.js';
 import { TOKEN_ID_CAP, badRequest, invalidExpiry, takeReauthPassword, tokenEntry, tokenNotFound, tokenRequestOf } from '../../token/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { boundedString, contextOf } from '../routes.js';
 
@@ -26,8 +27,12 @@ import { boundedString, contextOf } from '../routes.js';
 @BasePath('user')
 @Policy(TokenServiceRegistered)
 export class AuthnTokensController extends BaseController {
-  @Autoinject(Container)
-  protected Container!: IContainer;
+  // Lazy: apps that list no token strategy register no TokenService.
+  @Autoinject(TokenService, { lazy: true })
+  protected Tokens!: Lazy<TokenService>;
+
+  @Autoinject(FreshAuthVerifier)
+  protected FreshAuth!: FreshAuthVerifier;
 
   /**
    * List own tokens
@@ -38,7 +43,7 @@ export class AuthnTokensController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
     const session = activeSession(req);
-    const records = await (await this.service()).list(session.identity);
+    const records = await (await this.Tokens()).list(session.identity);
     const now = new Date();
     return new Ok(
       records.map((r) => tokenEntry(r, now)),
@@ -66,7 +71,7 @@ export class AuthnTokensController extends BaseController {
     try {
       // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
       // a password while the gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
+      await this.FreshAuth.verify(req, undefined, password);
     } catch (err) {
       // The thrown error's body carries a stack outside production; login's answer never does.
       if (isAuthnFailed(err)) return authnFailureResponse();
@@ -75,7 +80,7 @@ export class AuthnTokensController extends BaseController {
     const parsed = tokenRequestOf(req);
     if ('answer' in parsed) return parsed.answer;
 
-    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(req, 'request', session.handle));
+    const result = await (await this.Tokens()).create(session.identity, parsed.opts, contextOf(req, 'request', session.handle));
     if (!result.ok) {
       return result.code === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles, profile or scope are not allowed for this token');
     }
@@ -93,14 +98,9 @@ export class AuthnTokensController extends BaseController {
   public async revoke(@Req() req: Request, @Param() uuid: string) {
     const session = activeSession(req);
     const id = boundedString(uuid, TOKEN_ID_CAP);
-    const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
+    const revoked = id !== null && (await (await this.Tokens()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
-  }
-
-  protected async service(): Promise<TokenService> {
-    // Per call: apps that list no token strategy register no TokenService.
-    return await this.Container.resolve(TokenService);
   }
 }
 

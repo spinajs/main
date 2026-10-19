@@ -91,5 +91,6 @@ never reaches a model copy or a request log. Answers:
 When a route sets a `maxAgeSeconds` stricter than the configured one, the
 policy verifies the password through `reauthenticate` itself: `check` would
 pass a session that is fresh under the longer window. Routes that take the
-password in their own body (role switch, impersonation) call
-`assertFreshAuth(container, req, maxAgeSeconds, password)` directly.
+password in their own body (role switch, impersonation) run the same check
+through an injected `FreshAuthVerifier`; other code calls
+`assertFreshAuth(container, req, maxAgeSeconds, password)`.

@@ -1,5 +1,5 @@
-import { Container, Inject, Injectable } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { AccountLinkService } from '@spinajs/authn';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityLink, SessionHandle } from '@spinajs/authn/contracts';
 
@@ -18,20 +18,18 @@ export abstract class OidcAccountLinks {
   abstract unlink(session: SessionHandle, linkId: string, ctx: AuthnContext, reauth?: Credentials): Promise<{ readonly ok: boolean }>;
 }
 
-/** The core's AccountLinkService, resolved in the container that resolves this adapter. */
+/** The core's AccountLinkService, resolved in the container that builds this adapter. */
 @Injectable(OidcAccountLinks)
-@Inject(Container)
 export class CoreOidcAccountLinks extends OidcAccountLinks {
-  constructor(protected readonly container: IContainer) {
-    super();
-  }
+  // Lazy: AccountLinkService needs IdentityStore, which apps may not register.
+  @Autoinject(AccountLinkService, { lazy: true })
+  protected Links!: Lazy<AccountLinkService>;
 
-  // Per call: AccountLinkService needs IdentityStore, which apps may not register.
   public async link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext, reauth?: Credentials): Promise<OidcLinkResult> {
-    return (await this.container.resolve(AccountLinkService)).link(session, external, ctx, reauth);
+    return (await this.Links()).link(session, external, ctx, reauth);
   }
 
   public async unlink(session: SessionHandle, linkId: string, ctx: AuthnContext, reauth?: Credentials): Promise<{ readonly ok: boolean }> {
-    return (await this.container.resolve(AccountLinkService)).unlink(session, linkId, ctx, reauth);
+    return (await this.Links()).unlink(session, linkId, ctx, reauth);
   }
 }

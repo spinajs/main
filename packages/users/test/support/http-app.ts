@@ -346,6 +346,8 @@ export async function stopUsersHttpApp(): Promise<void> {
   await DI.get(PrincipalMiddleware)?.dispose();
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
+  // authn-http's principal resolvers and fresh-auth verifier keep the services they resolved first.
+  for (const key of ['AuthnPrincipalResolver', 'KeyPrincipalResolver', 'TokenPrincipalResolver', 'SessionPrincipalResolver', 'FreshAuthVerifier']) DI.RootContainer.uncache(key);
   resetAuthnCaseServices();
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);

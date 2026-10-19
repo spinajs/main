@@ -120,7 +120,7 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthnEventSink, 'PolicySuiteEventSink', events);
   // The scanned 3.0 controllers cache a root MfaSatisfied, which reads the root's MfaPolicy; the suite needs its own.
   child.register(MfaSatisfied).asSelf();
-  await registerAuthnHttpV3(child);
+  registerAuthnHttpV3(child);
   return { child, identities, passwords, issuer, throttle, step, tokens, passwordStrategy, events };
 }
 
@@ -647,10 +647,10 @@ describe('3.0 authn policies and route args', function () {
       expect(() => v3.FromSession(42 as unknown as string)).to.throw(/key/);
     });
 
-    it('registerAuthnHttpV3 registers the route args in the root container, where @spinajs/http resolves them by name', () => {
+    it('registerAuthnHttpV3 registers the route args in the container it is given; loading the package put them in the root, where @spinajs/http resolves them by name', () => {
       for (const c of [AuthnIdentityArg, AuthnSessionArg, AuthnSessionIdArg, AuthnSessionDataArg]) {
         expect(DI.RootContainer.hasRegistered(c.name), c.name).to.eq(true);
-        expect(s.child.hasRegistered(c.name, false), c.name).to.eq(false);
+        expect(s.child.hasRegistered(c.name, false), c.name).to.eq(true);
       }
     });
   });

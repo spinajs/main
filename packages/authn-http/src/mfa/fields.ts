@@ -1,7 +1,8 @@
-import type { IContainer } from '@spinajs/di';
+import type { Lazy } from '@spinajs/di';
 import { Conflict, ForbiddenResponse, Unauthorized } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
-import { IdentityStore } from '@spinajs/authn/contracts';
+import type { AuthnAudit } from '@spinajs/authn';
+import type { IdentityStore } from '@spinajs/authn/contracts';
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
@@ -21,7 +22,7 @@ export const codeField = (req: Request): string | null => boundedString(bodyFiel
  * answer for a password that can never verify. The field leaves the body, as FreshAuth removes it, and TotpService
  * verifies the credentials only when an active session is not fresh: one check, counted in the reauth throttle.
  */
-export async function reauthOf(container: IContainer, req: Request, session: Session): Promise<{ credentials?: Credentials } | { answer: Response }> {
+export async function reauthOf(identities: Lazy<IdentityStore>, audit: Lazy<AuthnAudit>, req: Request, session: Session): Promise<{ credentials?: Credentials } | { answer: Response }> {
   const password = bodyField(req, REAUTH_PASSWORD_FIELD);
   if (password !== undefined) {
     delete (req.body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
@@ -32,13 +33,13 @@ export async function reauthOf(container: IContainer, req: Request, session: Ses
   if (password.length <= PASSWORD_HARD_CAP) {
     if (session.handle.state !== 'active') return {};
     // As assertFreshAuth: IdentityStore.findByLogin takes an email, so display's email names the identity.
-    const { email } = await (await container.resolve(IdentityStore)).display(session.identity);
+    const { email } = await (await identities()).display(session.identity);
     if (typeof email === 'string' && email !== '') return { credentials: { kind: 'password', login: email, password } };
     reason = 'no_login';
   }
   // Core never sees these attempts, so it cannot audit them.
   const { sessionHandle } = session.facts;
-  await publishAuthnEvent(container, req, { type: 'reauth', outcome: 'failure', reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+  await publishAuthnEvent(audit, req, { type: 'reauth', outcome: 'failure', reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
   return { answer: authnFailureResponse() };
 }
 

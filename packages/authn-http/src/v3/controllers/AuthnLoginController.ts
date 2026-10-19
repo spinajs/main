@@ -1,10 +1,11 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import type { IContainer, Lazy } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Post, Req } from '@spinajs/http';
 import type { ICookie, Request } from '@spinajs/http';
-import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn';
+import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
@@ -24,6 +25,16 @@ export class AuthnLoginController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
+  // Lazy: an eager AuthnService builds its checked neighbours, missing in apps without them.
+  @Autoinject(AuthnService, { lazy: true })
+  protected Authn!: Lazy<AuthnService>;
+
+  @Autoinject(AuthnAudit, { lazy: true })
+  protected Audit!: Lazy<AuthnAudit>;
+
+  @Autoinject(Array.ofType(AuthnResponseExtension), { lazy: true })
+  protected Extensions!: Lazy<AuthnResponseExtension[]>;
+
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
@@ -41,7 +52,7 @@ export class AuthnLoginController extends BaseController {
     const held = req.storage.AuthnSession;
     if (held) {
       await sessions.revoke(held.handle);
-      await auditEnded(this.Container, req, held, 'session.revoke', 'login');
+      await auditEnded(this.Audit, req, held, 'session.revoke', 'login');
     }
     const cleared: ICookie[] = held ? [authnClearedSessionCookie(this._cfg)] : [];
 
@@ -50,8 +61,7 @@ export class AuthnLoginController extends BaseController {
     const password = boundedString(bodyField(req, 'password', 'Password'), PASSWORD_HARD_CAP);
     if (login === null || password === null) return authnFailureResponse(undefined, cleared);
 
-    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
-    const authn = await this.Container.resolve(AuthnService);
+    const authn = await this.Authn();
     const result = await authn.authenticate({ kind: 'password', login, password }, contextOf(req, 'login'));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
     if (result.status === 'mfa_required') {
@@ -62,7 +72,7 @@ export class AuthnLoginController extends BaseController {
     if (!result.session) return authnFailureResponse(undefined, cleared);
     await stampClient(sessions, result.session, req);
     const principal = await authn.principalOf(result);
-    return new Ok(await answerFor(this.Container, 'login', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
+    return new Ok(await answerFor(this.Extensions, 'login', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
   }
 
   /**
@@ -78,7 +88,7 @@ export class AuthnLoginController extends BaseController {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
     await this.Sessions.revoke(session.handle);
-    await auditEnded(this.Container, req, session, 'logout', 'logout');
+    await auditEnded(this.Audit, req, session, 'logout', 'logout');
     return new Ok(null, {
       Coockies: [authnClearedSessionCookie(this._cfg)],
       Headers: [{ Name: 'Clear-Site-Data', Value: '"cache", "cookies", "storage"' }, NO_STORE],
@@ -94,7 +104,7 @@ export class AuthnLoginController extends BaseController {
   @Get('/')
   public async whoami(@Req() req: Request) {
     const principal = req.storage.AuthnPrincipal;
-    if (principal?.authenticated === true) return new Ok(await answerFor(this.Container, 'whoami', principal), { Headers: [NO_STORE] });
+    if (principal?.authenticated === true) return new Ok(await answerFor(this.Extensions, 'whoami', principal), { Headers: [NO_STORE] });
     const session = req.storage.AuthnSession;
     if (session?.handle.state === 'pending') return new Ok({ MfaRequired: await pendingSteps(this.Container, session, this.MfaPolicyService) }, { Headers: [NO_STORE] });
     throw unauthenticated('this route needs an authenticated caller');

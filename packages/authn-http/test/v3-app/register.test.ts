@@ -16,10 +16,21 @@ describe('registerAuthnHttpV3', () => {
         extractors: (child.getRegisteredTypes(CredentialExtractor, false) ?? []).length,
         resolvers: (child.getRegisteredTypes(AuthnPrincipalResolver, false) ?? []).length,
       });
-      await registerAuthnHttpV3(child);
+      registerAuthnHttpV3(child);
       expect(count()).to.deep.eq({ middlewares: 1, extractors: 3, resolvers: 3 });
-      await registerAuthnHttpV3(child);
+      registerAuthnHttpV3(child);
       expect(count()).to.deep.eq({ middlewares: 1, extractors: 3, resolvers: 3 });
+    } finally {
+      await child.dispose();
+    }
+  });
+
+  it('registers every middleware and route arg in the container it is given, synchronously', async () => {
+    const child = DI.RootContainer.child();
+    try {
+      expect(registerAuthnHttpV3(child)).to.eq(undefined);
+      expect((child.getRegisteredTypes(ServerMiddleware, false) ?? []).map((t) => t.name)).to.include.members(['ClientIp', 'CsrfOriginGuard', 'AuthnMiddleware']);
+      for (const arg of ['AuthnIdentityArg', 'AuthnSessionArg', 'AuthnSessionIdArg', 'AuthnSessionDataArg']) expect(child.hasRegistered(arg, false), arg).to.eq(true);
     } finally {
       await child.dispose();
     }
