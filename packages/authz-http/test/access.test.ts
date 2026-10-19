@@ -199,9 +199,9 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
     });
 
     it('refuses an empty permission list, a malformed permission and an empty reason when the module loads', () => {
-      expect(() => Access([])).to.throw(/at least one permission/);
+      expect(() => Access([])).to.throw(AuthzConfigError, /at least one permission/);
       expect(() => Access('not a permission')).to.throw();
-      expect(() => Unscoped(' ')).to.throw(/reason/);
+      expect(() => Unscoped(' ')).to.throw(AuthzConfigError, /reason/);
     });
   });
 

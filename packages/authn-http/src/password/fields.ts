@@ -3,7 +3,7 @@ import type { Request } from '@spinajs/http';
 import type { PasswordViolation } from '@spinajs/authn/contracts';
 
 import { PASSWORD_HARD_CAP } from '../policies/v3/fresh-auth.js';
-import { NO_STORE } from '../v3/responses.js';
+import { NO_STORE, badRequest } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 password routes. Every string is capped at PASSWORD_HARD_CAP before a service sees
@@ -22,8 +22,6 @@ export const secretField = (req: Request): string | null => boundedString(bodyFi
 
 /** The current password of a change (2.x `OldPassword`), or null. */
 export const oldPasswordField = (req: Request): string | null => boundedString(bodyField(req, 'oldPassword', 'OldPassword'), PASSWORD_HARD_CAP);
-
-export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
 
 /** 400 with the policy violations; they say nothing about the account. */
 export const passwordRejected = (violations: readonly PasswordViolation[]): BadRequestResponse =>

@@ -1,4 +1,3 @@
-import type { Log } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -24,6 +23,7 @@ import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceili
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
+import type { AuthzLog } from '../host/log.js';
 import type { VoteTruths } from './reasons.js';
 import { cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { mergeAttributes, schemaIndex } from './attributes.js';
@@ -58,8 +58,6 @@ const MAX_PRELOADED = 10_000;
 let generations = 0;
 const nextGeneration = (): number => ++generations;
 
-export type EngineLog = Pick<Log, 'error' | 'warn' | 'debug'>;
-
 export interface AuthorizerOptions {
   readonly domain: string;
   readonly models: readonly AuthorizationModel[];
@@ -79,7 +77,7 @@ export interface AuthorizerOptions {
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
   readonly clock?: () => Date;
-  readonly log?: EngineLog;
+  readonly log?: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   readonly config?: {
     readonly modelTimeoutMs?: number;
     readonly maxDelegation?: number;
@@ -272,7 +270,7 @@ const GLOBAL_TYPE: ResourceType = '$global';
 const CORE = 'core';
 const ENGINE_FAULT: DenyReason = Object.freeze({ code: 'model_error' });
 const DELEGATE_PRIORITY = 200;
-const NO_LOG: EngineLog = Object.freeze({ error() {}, warn() {}, debug() {} });
+const NO_LOG: Pick<AuthzLog, 'error' | 'warn' | 'debug'> = Object.freeze({ error() {}, warn() {}, debug() {} });
 const NO_FIELDS: Fields = Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) });
 const NO_ROLES: Readonly<Record<string, string>> = Object.freeze({});
 const GLOBAL_ANCESTORS: readonly ResourceRef[] = Object.freeze([GLOBAL]);
@@ -322,7 +320,7 @@ export class Authorizer {
   private readonly attributeStore: ScopeAttributeStore | undefined;
   private readonly conditions: ConditionCompiler;
   private readonly clock: () => Date;
-  private readonly log: EngineLog;
+  private readonly log: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   private readonly auditSink: DecisionAudit | undefined;
   private readonly config: EngineConfig;
   private readonly allFields: Fields;
@@ -461,13 +459,14 @@ export class Authorizer {
     const gate = this.principalGate(principal);
     if (gate.kind === 'system') return ALL_PLAN;
     if (gate.kind === 'deny') return nonePlan(gate.reason);
-    const run = this.newRun(false, scope);
+    const fresh = def.consistency === 'fresh';
+    const run: Run = fresh ? { ...this.newRun(false, scope), fresh: true } : this.newRun(false, scope);
     const delegation = this.delegation(gate.principal, undefined, run.delegationBudget);
     if (delegation.denial) return nonePlan(delegation.denial);
     if (delegation.intersect !== undefined) return nonePlan({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey });
-    // Env facts are not in the key, so a call with a caller env is never memoised.
-    const key = env === undefined ? this.planKey(gate.principal, def, type, run) : undefined;
-    const hit = key === undefined || def.consistency === 'fresh' ? undefined : this.cachedPlan(key, run);
+    // Env facts are not in the key, so a call with a caller env is never memoised; a fresh plan is never read back.
+    const key = env === undefined && !fresh ? this.planKey(gate.principal, def, type, run) : undefined;
+    const hit = key === undefined ? undefined : this.cachedPlan(key, run);
     if (hit) return hit;
     const built = await this.buildPlan(delegation, def, type, this.envOf(env, run.instant), run);
     if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
@@ -946,7 +945,7 @@ export class Authorizer {
     const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
     if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
     const runAs = d.principal;
-    const fresh = def.consistency === 'fresh' ? { fresh: true } : {};
+    const fresh = run.fresh === true ? { fresh: true } : {};
     const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
@@ -2041,7 +2040,7 @@ export class Authorizer {
     return now;
   }
 
-  private logAt(level: keyof EngineLog, fields: Record<string, unknown>, template: string): void {
+  private logAt(level: 'error' | 'warn' | 'debug', fields: Record<string, unknown>, template: string): void {
     try {
       this.log[level]({ domain: this.domain, ...fields }, template);
     } catch {

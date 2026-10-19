@@ -11,8 +11,9 @@
 
 | Token | MySQL registers | Emits |
 | --- | --- | --- |
-| `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` |
-| `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column, rename and changed column |
+| `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [CHARACTER SET utf8mb4 COLLATE utf8mb4_bin] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] ``; the binary collation comes from `exact()` |
+| `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column (`` DROP COLUMN `c` ``), rename and changed column |
+| `IndexQueryCompiler` | `SqlIndexQueryCompiler` (from `SqlDriver`) | `` CREATE [UNIQUE] INDEX `i` ON `t` (...) ``, or `` DROP INDEX `i` ON `t` `` after `drop()` |
 | `AlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` | `ADD <column> [AFTER x]`, `MODIFY <column>`, `RENAME COLUMN a TO b` |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP`; `value(v)`; `raw(q)` |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <table>` |
@@ -34,7 +35,7 @@
 | `date`, `dateTime`, `time`, `timestamp` | the same names |
 | `enum(name, values)` | `ENUM('a','b')` |
 | `set(name, values)` | `SET('a','b')` |
-| `json` | `JSON` |
+| `json` | `JSON` (`supportedFeatures().nativeJson` is `true`) |
 | `binary(name, n?)` | `BINARY(n)`, default `255` |
 | `uuid(name)` | `BINARY(16)`, written by `UuidConverter` |
 | `tinyblob`, `mediumblob`, `longblob` | the same names |
@@ -91,7 +92,7 @@ Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` (not exported) | | Extend `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
+| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` | | Extend `MySqlCreateViewCompiler`, or `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
 | Column compiler | `ColumnQueryCompiler`; constructor `(builder: ColumnQueryBuilder)` | `SqlColumnQueryCompiler` | | Extend `SqlColumnQueryCompiler`, override `compile()`; register `.as(ColumnQueryCompiler)`. `SqlTableQueryCompiler` resolves it once per column. |
 | Alter compilers | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | | Extend; `SqlAlterColumnQueryCompiler` has one hook per alteration type. See [Query compilers](../orm-sql/02-query-compilers.md). |
 | Default values | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | Extend and override `date()` / `dateTime()`; register `.as(DefaultValueBuilder)`. |

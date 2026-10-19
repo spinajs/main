@@ -32,7 +32,7 @@ export class RuleRowsError extends Error {
   }
 }
 
-export const DEFAULT_THRESHOLD_PRIORITY = 600;
+const DEFAULT_THRESHOLD_PRIORITY = 600;
 
 const rulesOf = (s: RbacState, kind: CompiledRule['def']['kind']) => (s.input.rules ?? []).filter((a) => a.rule.def.kind === kind);
 
@@ -46,7 +46,7 @@ function refuseRowDependent(s: RbacState): void {
  * assignments made at that node or above it; undefined when there is no such node or assignment
  * ("no role = below every role").
  */
-export function rankAtNode(s: RbacState, ladder: string, at: ResourceType): number | undefined {
+function rankAtNode(s: RbacState, ladder: string, at: ResourceType): number | undefined {
   const path = s.input.path;
   const index = path.findIndex((n) => n.type === at && n.id != null);
   if (index < 0) return undefined;
@@ -106,7 +106,7 @@ function reachedRank(s: RbacState, role: string, ladder: string): number | undef
 }
 
 /** The type a cap's `assignments.subjectTypes` sees: a principal's type, or for a set the type of its scope (`{ set: group.member @ group:g1 }` is a 'group'). */
-export const subjectTypeOf = (subject: LiveAssignment['assignment']['subject']): string => ('set' in subject ? subject.set.scope.type : subject.type);
+const subjectTypeOf = (subject: LiveAssignment['assignment']['subject']): string => ('set' in subject ? subject.set.scope.type : subject.type);
 
 /**
  * Step 3 (B35). Every matching cap clamps the rank of the assignments it selects on its ladder to
@@ -210,7 +210,7 @@ function rowsMeeting(s: RbacState, ladder: CompiledLadder, minRank: number): Res
   return underTerm(s.scoped.filter(meets), s.input.request.resource.type);
 }
 
-export function thresholdReason(rule: CompiledRule): DenyReason {
+function thresholdReason(rule: CompiledRule): DenyReason {
   const reason = rule.def.reason;
   return reason ? { ...reason, priority: reason.priority ?? DEFAULT_THRESHOLD_PRIORITY } : { code: 'threshold', rule: rule.def.id, priority: DEFAULT_THRESHOLD_PRIORITY };
 }

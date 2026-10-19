@@ -11,7 +11,7 @@ import { entryOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { rowContext } from './context.js';
-import { quoterOf } from './dialect.js';
+import { quoterOf } from './quoter.js';
 import { renderPlan, withinSql } from './render.js';
 import type { Rendered } from './render.js';
 

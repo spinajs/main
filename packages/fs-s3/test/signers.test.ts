@@ -74,6 +74,14 @@ describe('URL signing – unit tests', function () {
       expect(url).to.include('X-Amz-Expires');
     });
 
+    it('should sign for the bucket of each provider that resolves it', async () => {
+      const first = await DI.resolve<S3BucketSigner>('S3UrlSigner', [{ bucket: 'bucket-one', s3Client }]);
+      const second = await DI.resolve<S3BucketSigner>('S3UrlSigner', [{ bucket: 'bucket-two', s3Client }]);
+
+      expect(await second.sign('k.txt')).to.include('bucket-two');
+      expect(await first.sign('k.txt')).to.include('bucket-one');
+    });
+
     it('should clamp expired until to 1 second minimum', async () => {
       const until = DateTime.now().minus({ hours: 1 });
       const url = await signer.sign('test-key.txt', until);

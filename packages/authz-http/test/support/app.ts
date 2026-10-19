@@ -7,11 +7,11 @@ import chaiHttp from 'chai-http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { ArgInputFilter, BaseController, Controllers, DataTransformer, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { testHost } from '@spinajs/authz-testing';
 
-import { PrincipalMiddleware } from '../../src/index.js';
+import { AuthzFieldTransformer, AuthzInputFieldFilter, ExplainPolicy, PrincipalMiddleware } from '../../src/index.js';
 
 chai.use(chaiHttp);
 
@@ -108,5 +108,7 @@ export async function stopApp(): Promise<void> {
   // Middlewares keep what they resolved at boot (PrincipalMiddleware: the root AuthzService uninstallHost disposes).
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
+  // Root singletons that hold the AuthzDomains uninstallHost uncaches.
+  for (const type of [AuthzInputFieldFilter, ArgInputFilter, AuthzFieldTransformer, DataTransformer, ExplainPolicy] as Class<unknown>[]) DI.uncache(type);
   await testHost.uninstallHost();
 }

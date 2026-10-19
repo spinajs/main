@@ -45,7 +45,7 @@ export class ResourceMissingResponse extends Response {
 
 - The map is keyed by class name and walked from the thrown class up. A subclass of `OrmNotFoundException` without its own entry also answers `404`.
 - Messages reach the client: `Resource not found` from `@FromModel()`, `<Model> referenced by '<field>' not found` from `@Relation()`. Outside production the stack is attached as well.
-- `OrmException` (for example `primary key cannot be null` from `DbModelHydrator`) is not mapped and answers `500`.
+- `OrmException` is not mapped and answers `500`.
 
 ## Best practices
 

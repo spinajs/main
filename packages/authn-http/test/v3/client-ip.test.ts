@@ -11,10 +11,9 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 import * as barrel from '../../src/index.js';
-import * as api from '../../src/api.js';
 import { ClientIp } from '../../src/middleware/client-ip.js';
 import { AUTHN_PROBE_PATH } from './probe.js';
-import { TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
+import { TestConfiguration, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
 const SPOOF = '198.51.100.66';
 
@@ -31,7 +30,7 @@ async function releaseHttpServer(): Promise<void> {
 
 async function startServer(): Promise<void> {
   await DI.resolve(Controllers);
-  await (await DI.resolve(HttpServer)).start();
+  await startHttpServer();
 }
 
 /** Restarts the server so ClientIp reads the given trust settings when the middleware is built. */
@@ -90,8 +89,8 @@ describe('ClientIp (A05, SR-03)', function () {
     DI.uncache(Orm);
   });
 
-  it('the barrel exports the lane ClientIp, registered as a ServerMiddleware, not the api.ts stub', () => {
-    expect(barrel.ClientIp).to.eq(ClientIp).and.not.eq(api.ClientIp);
+  it('the barrel exports the lane ClientIp, registered as a ServerMiddleware', () => {
+    expect(barrel.ClientIp).to.eq(ClientIp);
     expect(new ClientIp().Order).to.eq(1);
     expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(ClientIp);
   });

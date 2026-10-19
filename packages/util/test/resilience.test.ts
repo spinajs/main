@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument } from '@spinajs/exceptions';
 import {
   ResiliencePipelineBuilder,
   PredicateBuilder,
@@ -14,6 +14,7 @@ import {
   HedgingException,
   CircuitBreakerManualControl,
   TimeSpan,
+  concurrencyLimiterStrategy,
 } from '../src/index.js';
 
 chai.use(chaiAsPromised);
@@ -157,6 +158,10 @@ describe('resilience', () => {
   });
 
   describe('timeout', () => {
+    it('rejects an empty Timeout when the strategy is added', () => {
+      expect(() => new ResiliencePipelineBuilder<string>().addTimeout('')).to.throw(InvalidArgument);
+    });
+
     it('passes through fast operations', async () => {
       const pipeline = new ResiliencePipelineBuilder<string>().addTimeout(TimeSpan.fromSeconds(1)).build();
       const res = await pipeline.execute(() => Promise.resolve('fast'));
@@ -254,6 +259,16 @@ describe('resilience', () => {
       } finally {
         clock.restore();
       }
+    });
+
+    it('a call finishing after the circuit opened does not open it again', async () => {
+      let opened = 0;
+      const pipeline = new ResiliencePipelineBuilder<string>()
+        .addCircuitBreaker({ FailureRatio: 0.5, MinimumThroughput: 2, OnOpened: () => void opened++ })
+        .build();
+
+      await Promise.allSettled([1, 2, 3, 4].map(() => pipeline.execute(() => Promise.reject(new IOFail('down')))));
+      expect(opened).to.eq(1);
     });
 
     it('manual isolate rejects with IsolatedCircuitException', async () => {
@@ -386,6 +401,27 @@ describe('resilience - edge cases', () => {
       }
     });
 
+    it('stops retrying with a zero delay once the signal aborts', async () => {
+      const controller = new AbortController();
+      let calls = 0;
+      const pipeline = new ResiliencePipelineBuilder<string>().addRetry({ MaxRetryAttempts: 5, Delay: 0 }).build();
+      const run = pipeline.execute(
+        () => {
+          calls++;
+          controller.abort();
+          return Promise.reject(new IOFail('boom'));
+        },
+        { Signal: controller.signal },
+      );
+      await expect(run).to.be.rejected;
+      expect(calls).to.eq(1);
+    });
+
+    it('treats a thrown undefined as a failure', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>().addRetry({ MaxRetryAttempts: 1, Delay: 0 }).build();
+      await expect(pipeline.execute(() => Promise.reject(undefined))).to.be.rejectedWith('Operation threw undefined');
+    });
+
     it('DelayGenerator overrides the computed backoff', async () => {
       const clock = sinon.useFakeTimers();
       try {
@@ -423,6 +459,11 @@ describe('resilience - edge cases', () => {
       }
     });
 
+    it('treats a thrown undefined as a failure', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>().addHedging({ MaxHedgedAttempts: 1, Delay: 0 }).build();
+      await expect(pipeline.execute(() => Promise.reject(undefined))).to.be.rejectedWith('Operation threw undefined');
+    });
+
     it('HedgingException is an Error subtype', () => {
       expect(new HedgingException('x')).to.be.instanceOf(Error);
     });
@@ -450,6 +491,41 @@ describe('resilience - edge cases', () => {
     it('accepts a bare number as the permit limit', async () => {
       const pipeline = new ResiliencePipelineBuilder<string>().addConcurrencyLimiter(2).build();
       expect(await pipeline.execute(() => Promise.resolve('ok'))).to.eq('ok');
+    });
+
+    it('counts active, queued, peak and runs', async () => {
+      const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 2, QueueLimit: Infinity });
+      const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+      const gates: (() => void)[] = [];
+      const runs = [1, 2, 3, 4, 5].map((i) => pipeline.execute(() => new Promise<string>((r) => gates.push(() => r(`r${i}`)))));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(limiter.stats.active).to.eq(2);
+      expect(limiter.stats.queued).to.eq(3);
+      expect(limiter.stats.runs).to.eq(2);
+
+      while (gates.length || limiter.stats.active) {
+        gates.shift()?.();
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(await Promise.all(runs)).to.deep.eq(['r1', 'r2', 'r3', 'r4', 'r5']);
+      expect(limiter.stats.peak).to.eq(2);
+      expect(limiter.stats.runs).to.eq(5);
+      expect(limiter.stats.active).to.eq(0);
+      expect(limiter.stats.queued).to.eq(0);
+    });
+
+    it('does not count a rejected execution as a run', async () => {
+      const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 1 });
+      const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+      let release!: () => void;
+      const first = pipeline.execute(() => new Promise<string>((r) => (release = () => r('ok'))));
+      await expect(pipeline.execute(() => Promise.resolve('x'))).to.be.rejectedWith(RateLimiterRejectedException);
+      release();
+      await first;
+      expect(limiter.stats.runs).to.eq(1);
+      expect(limiter.stats.peak).to.eq(1);
     });
   });
 

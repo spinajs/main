@@ -40,14 +40,14 @@ db: {
 
 ## Schema
 
-`OrmEventTransportInitial_2022_06_28_01_13_00` is decorated `@Migration('orm-event-transport')`. Its `down()` is empty, so a rollback leaves all four tables in place.
+`OrmEventTransportInitial_2022_06_28_01_13_00` is decorated `@Migration('orm-event-transport')`. Its `down()` drops all four tables.
 
 ### `orm_event_transport__event`
 
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `Id` | `int`, primary key, auto increment | Event key. |
-| `Type` | `string`, not null | Message type. The `Event` model has no `Type` property; it declares `Channel` instead. |
+| `Type` | `string`, not null | Message type, mapped by `Event.Type`. |
 | `CreatedAt` | `dateTime`, default now | Insert time. |
 | `Value` | `text` | Message body as JSON. |
 
@@ -61,12 +61,12 @@ db: {
 
 ### `orm_event_transport__queue`
 
-Junction table between subscribers and events. It has no primary key and no index.
+Junction table between subscribers and events. Its primary key is the pair of both key columns.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `orm_event_transport__subscribers_Id` | `int` | Subscriber key. |
-| `orm_event_transport__event_Id` | `int` | Event key. |
+| `orm_event_transport__subscribers_Id` | `int`, not null, primary key | Subscriber key. |
+| `orm_event_transport__event_Id` | `int`, not null, primary key | Event key. |
 | `Ack` | `dateTime` | Acknowledgement time; `NULL` while pending. |
 
 ### `orm_event_transport__job`
@@ -80,7 +80,7 @@ No model maps this table and no planned code writes it.
 | `Value` | `text`, not null | Job body. |
 | `Result` | `text` | Job result. |
 | `CreatedAt` | `dateTime`, not null, default now | Insert time. |
-| `FinishedAt` | `dateTime`, not null, default now | Finish time; set at insert by the default. |
+| `FinishedAt` | `dateTime` | Finish time; `NULL` until the job finishes. |
 
 ### Models
 
@@ -88,9 +88,9 @@ All three are `ModelBase` subclasses decorated `@Connection('orm-event-transport
 
 | Model | Table | Properties |
 | --- | --- | --- |
-| `Event` | `orm_event_transport__event` | `@Primary() Id`, `Channel`, `@CreatedAt() CreatedAt: DateTime`, `@Json() Value` |
-| `Subscriber` | `orm_event_transport__subscribers` | `@Primary() Id`, `@Primary() Name`, `@HasManyToMany(Queue, Event) Events: ManyToManyRelationList<Event, Subscriber>` |
-| `Queue` | `orm_event_transport__queue` | `@BelongsTo('Event') Event: SingleRelation<Event>`, `@BelongsTo('Subscriber') Subscriber: SingleRelation<Subscriber>`, `Ack: boolean` |
+| `Event` | `orm_event_transport__event` | `@Primary() Id`, `Type`, `@CreatedAt() CreatedAt: DateTime`, `@Json() Value` |
+| `Subscriber` | `orm_event_transport__subscribers` | `@Primary() Id`, `Name`, `@HasManyToMany(Queue, Event) Events: ManyToManyRelationList<Event, Subscriber>` |
+| `Queue` | `orm_event_transport__queue` | `@BelongsTo('Event') Event: SingleRelation<Event>`, `@BelongsTo('Subscriber') Subscriber: SingleRelation<Subscriber>`, `Ack: DateTime \| null` |
 
 ## Services and extension points
 
@@ -99,16 +99,13 @@ The package registers nothing in DI: no `@Injectable`, no `DI.register()` call, 
 ## Important behaviour
 
 - The migration never runs. `Orm` finds migrations through `system.dirs.migrations` or through classes registered by an `import`; this package provides neither. See [Migrations](../orm/10-migrations.md).
-- The models and the schema disagree. An `Event` insert sends `Channel`, a column the table lacks, and omits the not-null `Type`.
-- `Subscriber` declares `@Primary()` on both `Id` and `Name`, so the ORM treats the key as composite, while the table's key is `Id` alone.
-- `Queue.Ack` is typed `boolean`; the column is `dateTime`.
-- The junction table has no key, so the ORM cannot update or delete one `Queue` row by key.
-- `package.json` lists no dependency on `@spinajs/queue` and none on `luxon`, which `Event` imports.
+- The `Queue` model declares no `@Primary()` property, so the ORM cannot update or delete one `Queue` row by key, although the table has one.
+- `package.json` lists no dependency on `@spinajs/queue`; only the commented-out transport needs it.
 
 ## Best practices
 
 - Do not depend on this package for message delivery: emitted messages go nowhere. Configure a working transport in `queue.connections`, such as `@spinajs/queue-stomp-transport`, or a custom `QueueClient`.
-- When you reuse this schema, give the junction table a key and use one `dateTime` acknowledgement column on both the table and the model.
+- When you reuse this schema, map the junction key columns on the `Queue` model with `@Primary()` so single rows can be acknowledged through the ORM.
 
 ## Related
 

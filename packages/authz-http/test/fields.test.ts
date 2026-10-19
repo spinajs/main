@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { DI } from '@spinajs/di';
 import type { DecisionRequest } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Body, BodyField, FormField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -122,8 +123,9 @@ class FieldRoutes extends BaseController {
 
   @Get('transform')
   @Access('user:read', { domain: D })
-  public transform(@Req() req: Request) {
-    return new Ok(new AuthzFieldTransformer().transform(structuredClone(ROW), req));
+  public async transform(@Req() req: Request) {
+    const transformer = (await DI.resolve(AuthzFieldTransformer)) as AuthzFieldTransformer;
+    return new Ok(transformer.transform(structuredClone(ROW), req));
   }
 }
 

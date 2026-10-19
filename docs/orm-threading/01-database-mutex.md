@@ -20,14 +20,14 @@ Every method trims `Name` and throws `InvalidArgument` for an empty name. An emp
 1. `OrmMutex.acquire()` reads the row with `this.get(options.Name)`.
 2. When there is no row, it calls `this.create(options)`, which inserts an unlocked row owned by the tenant.
 3. When the row is locked by another tenant, it returns `{ Locked: false, Mutex: null }` without writing.
-4. Otherwise it runs `UPDATE __mutex__ SET Locked = true, Tenant = <tenant> WHERE Name = <name>`.
-5. It returns `Locked: true` when that update changed exactly one row, with `Mutex` set to the row read in step 1 and the new `Tenant`.
+4. Otherwise it runs `UPDATE __mutex__ SET Locked = true, Tenant = <tenant>, Updated_at = <now>` as a compare-and-set on the state read in step 1: `WHERE Name = <name> AND Locked = false` for a free row, `WHERE Name = <name> AND Tenant = <tenant>` for a row the tenant already holds.
+5. It returns `Locked: true` when that update changed exactly one row, with `Mutex` set to the lock as it is now (`Locked: true`, the new `Tenant` and `Updated_at`). When another tenant got there first, the update changes nothing and it returns `{ Locked: false, Mutex: null }`.
 
 The same tenant acquiring a lock it already holds gets `Locked: true` again. The lock is not counted: one `release()` frees it.
 
 ### `release(options, deleteOnClose?)`
 
-1. Without `deleteOnClose`: `UPDATE __mutex__ SET Locked = false WHERE Name = <name> AND Tenant = <tenant>`.
+1. Without `deleteOnClose`: `UPDATE __mutex__ SET Locked = false, Updated_at = <now> WHERE Name = <name> AND Tenant = <tenant>`.
 2. With `deleteOnClose: true`: `DELETE FROM __mutex__ WHERE Name = <name> AND Tenant = <tenant>`.
 3. It returns `true` when exactly one row changed. Another tenant's release changes nothing and returns `false`.
 
@@ -36,7 +36,8 @@ The same tenant acquiring a lock it already holds gets `Locked: true` again. The
 1. `OrmMutex.wait()` starts a `setInterval` with `threading.mutex.checkInterval` ms.
 2. On each tick it reads the row with `this.get(name)`.
 3. It resolves `true` when the row is unlocked, and `false` when `timeout` ms have passed.
-4. It rejects when the read throws, or when the row does not exist.
+4. A name with no row, or one deleted while waiting, counts as free: it resolves `true`.
+5. It rejects when the read throws.
 
 `wait()` does not take the lock. Call `acquire()` after it resolves.
 
@@ -45,7 +46,7 @@ The same tenant acquiring a lock it already holds gets `Locked: true` again. The
 | Method | SQL | Returns |
 | --- | --- | --- |
 | `create(options)` | `__mutex__.getOrCreate(name, { Name, Tenant })` | The row as a plain object (`dehydrate()`). An existing row is returned as is, owner unchanged. |
-| `delete(options)` | `DELETE ... WHERE Name = <name> AND Tenant = <tenant>` | `true` when one row was deleted. Deletes a locked row too. |
+| `delete(options)` | `DELETE ... WHERE Name = <name> AND Tenant = <tenant> AND Locked = false` | `true` when one row was deleted. A locked row is kept and the call returns `false`. |
 | `get(name)` | `__mutex__.get(name)` | The `__mutex__` model instance, or `undefined` when there is no row. |
 
 ```mermaid
@@ -96,17 +97,17 @@ this.Config = _.merge(this.Config, {
 ## Important behaviour
 
 - **No expiry.** A lock stays held until its tenant releases it. A process that crashes while holding a lock leaves it locked forever; clean it up by hand or with a job, see [Release stale locks](03-mutex-table-and-migration.md#release-stale-locks).
-- **`acquire()` is not atomic.** It reads the row, then updates it with `WHERE Name = <name>` only. Two tenants that read an unlocked row at the same moment both get `Locked: true`. Use [`AtomicOrmMutex`](02-custom-mutex-backends.md#ormmutex-atomic-acquire) when that matters.
+- **`acquire()` is a compare-and-set.** Of two tenants that read a free row at the same moment, only the one whose `UPDATE ... WHERE Locked = false` changes the row gets `Locked: true`.
 - **The default tenant is shared.** Every process of one app has the same `app.name`, so without an explicit `Tenant` they all count as the same owner: a second process acquires a lock the first one holds. Pass a per-process `Tenant`.
 - An unlocked row owned by another tenant is taken over: `acquire()` writes the new `Tenant`.
-- `LockResult.Mutex` holds the row as it was **before** the update: for a lock taken just now, `Mutex.Locked` is `false`. Read `result.Locked` instead.
+- `LockResult.Mutex` is a plain `MutexLock` with the state after the update. It is `null` when the lock was not granted.
 - `release()` of an unlocked row by its owner returns `true`.
-- `delete()` and `release(..., true)` delete a locked row; the abstract `Mutex` docs say "if its not locked", `OrmMutex` does not check.
+- `delete()` refuses a locked row, even the caller's own; release it first, or use `release(..., true)`, which deletes the owner's row whether it is locked or not.
 - `wait()` polls the database; the first check runs after one interval, not immediately. Without `timeout`, or with `0`, it waits forever.
-- `wait()` on a name with no row, or one deleted while waiting, rejects with a `TypeError`.
+- `wait()` on a name with no row, or one deleted while waiting, resolves `true`.
 - `Name` and `Tenant` are `VARCHAR(32)` columns. Longer values are truncated or rejected, depending on the database.
 - `get()` returns `undefined`, not `null`, for a missing lock, and a model instance rather than a plain `MutexLock`.
-- `acquire()` and `release()` update through a static `update()` query, which does not set `Updated_at`. It keeps its creation time.
+- `acquire()` and `release()` set `Updated_at`, so a lock's age is the time since it was last taken or released.
 
 ## Best practices
 
@@ -228,7 +229,7 @@ export class StockRecalculation extends AsyncService {
 
 ## Related
 
-- [Custom mutex backends](02-custom-mutex-backends.md): make `acquire()` atomic, set a per-process tenant, or swap the backend.
+- [Custom mutex backends](02-custom-mutex-backends.md): set a per-process tenant, or swap the backend.
 - [Mutex table and migration](03-mutex-table-and-migration.md): the table behind every lock.
 - [`@spinajs/threading`](../threading/README.md): the `Mutex` contract, the `mutex_*` helpers and `criticalSection()`.
 - [Connections](../orm/01-connections.md): `db.DefaultConnection`, the connection the table lives on.

@@ -1,15 +1,6 @@
 import { DI } from '@spinajs/di';
-import { AuthzConfigError, AuthzDomains, AuthzService, DecisionAudit, DefaultAuthzDomains, readDomainConfig } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, DecisionAudit, DefaultAuthzDomains, readDomainConfig } from '@spinajs/authz';
 import type { DomainConfig } from '@spinajs/authz';
-
-/** The booted AuthzService of a domain; `authz()` would throw before the domain's first resolve. */
-export async function domainService(domain: string): Promise<AuthzService> {
-  if (domain === 'root') {
-    return (await DI.resolve(AuthzService)) as AuthzService;
-  }
-  const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-  return domains.service(domain);
-}
 
 /** `domain`'s configuration as its service booted with it; before that boot, merged from `authz`, the caller's `authz` section. */
 export function domainConfig(authz: unknown, domains: DefaultAuthzDomains, domain: string): DomainConfig {

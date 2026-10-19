@@ -16,6 +16,9 @@ type ProgressMessage = Extract<WorkerMessage, { type: 'progress' }>;
 
 let tmpCounter = 0;
 
+/** Temp PDFs of renders in flight, so a signal handler can remove them. */
+export const activeTempFiles = new Set<string>();
+
 /**
  * Bootstrap the worker's DI/config. With an inline `config` a Configuration is
  * registered from it; otherwise the ambient Configuration is resolved (the
@@ -59,6 +62,8 @@ export async function renderPdfToProvider(req: IRenderRequest, onProgress: (m: P
 
   const tmp = join(tmpdir(), `spinajs-pdf-${process.pid}-${Date.now()}-${tmpCounter++}.pdf`);
 
+  activeTempFiles.add(tmp);
+
   try {
     await renderer.renderHtmlToFile(html, tmp, {
       assetBasePath: req.assetBasePath,
@@ -70,6 +75,7 @@ export async function renderPdfToProvider(req: IRenderRequest, onProgress: (m: P
 
     return req.output;
   } finally {
+    activeTempFiles.delete(tmp);
     await unlink(tmp).catch(() => {
       /* temp may not exist if the render failed before writing */
     });

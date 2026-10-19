@@ -2,18 +2,16 @@
 
 `translate(lang)` on a model select builder loads the `intl_resources` rows for every model in the result and writes them into the translated properties. It is a prototype extension: importing `@spinajs/intl-orm` adds it to every `SelectQueryBuilder`.
 
-> In the current source this path throws. See [Important behaviour](#important-behaviour). Use [`Translatable.translate()`](01-translatable-models.md) per entity until it is fixed.
-
 ## How it works
 
 1. Importing `@spinajs/intl-orm` assigns `translate` to `SelectQueryBuilder.prototype` and declares `translate()`, `translated` and `AllowTranslate` on `ISelectQueryBuilder<T>` with `declare module '@spinajs/orm'`.
 2. `query.translate(lang)` checks its target:
-   - `query.Owner` is an `IntlModelRelation` (the internal query that reads `intl_resources`): returns `undefined`.
-   - `query.Model` is unset (`driver.select()` and other raw builders): returns `undefined`.
-3. It sets `query.translated = true`, so [`IntlQueryMiddleware`](04-automatic-translation.md) leaves the builder alone.
-4. It resolves an [`IntlModelRelation`](03-translation-relation.md) from the builder's container and calls its `execute()`.
-5. For every relation already on the builder (`populate()` called earlier), it calls `relation.executeOnQuery()` with a callback that calls `translate(lang)`.
-6. It appends the `IntlModelRelation` to the builder's relations and returns the builder.
+   - `query.Owner` is an `IntlModelRelation` (the internal query that reads `intl_resources`): returns the builder unchanged.
+   - `query.Model` is unset (`driver.select()` and other raw builders), or `query.translated` is already set: returns the builder unchanged.
+3. It sets `query.translated = true`, so [`IntlQueryMiddleware`](04-automatic-translation.md) and later `translate()` calls leave the builder alone.
+4. For every relation already on the builder (`populate()` called earlier), it calls `relation.execute()` with a callback that calls `translate(lang)` on the relation query.
+5. When the model has at least one `@Translate` column, it resolves an [`IntlModelRelation`](03-translation-relation.md) from the builder's container, calls its `execute()` and appends it to the builder's relations. A model without `@Translate` columns gets no `intl_resources` query.
+6. It returns the builder.
 7. When the query runs, the driver compiles it; `IntlModelRelation.compile()` adds an `IntlModelMiddleware` to the builder.
 8. After hydration, `IntlModelMiddleware.afterHydration()` reads `intl_resources` for the hydrated primary keys, the model name and `lang`, assigns each `Value` to its `Column` and calls `setLanguage(lang)` on each model.
 
@@ -73,25 +71,23 @@ The general pattern, with its caveats, is in [Scopes and builder extensions](../
 
 ## Important behaviour
 
-- **Throws in the current source.** `translate()` resolves `IntlModelRelation` with `[lang, orm, this, descriptor, owner]`, one argument more than its constructor takes after the injected `Container`. The relation receives the `Orm` instance as its query, and `compile()` fails with `TypeError: this._query.middleware is not a function`.
-- **Recurses with relations.** Step 5 runs the callback on the relation's parent query, which is the same builder, and `translate()` does not check `translated`. A builder with any `populate()` throws `RangeError: Maximum call stack size exceeded`.
-- On a raw builder, or on the internal `intl_resources` query, `translate()` returns `undefined`, not the builder. Chaining (`driver.select().from('x').translate('en_GB').first()`) throws.
+- On a raw builder, or on the internal `intl_resources` query, `translate()` does nothing and returns the builder, so chaining still works but nothing is translated.
 - Only relations added before `translate()` are visited. Call `populate()` first.
 - The `intl_resources` query matches `ResourceId` with `===` against the first primary key column. A model whose key is not a number gets no values.
-- Every model in the result gets `setLanguage(lang)`. A model that does not extend `Translatable` has no `setLanguage()` and the hydration throws.
+- Every model in the result gets `setLanguage(lang)` when it has that method. A model with `@Translate` columns that does not extend `Translatable` gets its values but no `Language`.
 - A row without a translation keeps its base-table value. There is no fallback language.
 - The `intl_resources` query runs once per translated builder, after the main query; it is not a join.
 
 ## Best practices
 
-- Translate per entity with [`Translatable.translate()`](01-translatable-models.md) while the query path is broken; it runs one small query per entity.
+- Prefer `translate()` on the query over [`Translatable.translate()`](01-translatable-models.md) per entity: the query runs one `intl_resources` select for the whole result, the entity method one per entity.
 - Call `translate()` only on queries of models that extend `Translatable`.
 - Call `translate()` last in the chain, after `where()` and `populate()`, and before `first()` or `await`.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: driver.select() has no Model, so translate() returns undefined and .first() throws
+// Don't: driver.select() has no Model, so translate() does nothing and the row keeps its base values
 const row = await driver.select().from('products').where('Id', 1).translate('en_GB').first();
 
 // Do: query through the model
@@ -125,7 +121,7 @@ export async function activeProducts(lang: string): Promise<Product[]> {
 }
 ```
 
-### Translate entity by entity while the query path is broken
+### Translate entity by entity
 
 ```ts sample
 import { Connection, Model, Primary } from '@spinajs/orm';

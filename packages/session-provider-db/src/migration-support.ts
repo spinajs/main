@@ -9,41 +9,12 @@ import { OrmDriver } from '@spinajs/orm';
  */
 
 /**
- * Driver names (the `@Injectable(...)` keys the mysql package registers, which
- * is what `db.Connections[n].Driver` carries) whose dialect understands
- * `ALTER TABLE ... MODIFY <col> <type>` and has a native `JSON` column type.
- *
- * This gate is not decoration. `MODIFY` is MySQL/MariaDB syntax - MSSQL spells
- * it `ALTER COLUMN` and has no `JSON` type at all, sqlite has neither - so
- * emitting the statement anywhere else is a syntax error, i.e. a FAILED
- * migration, i.e. `assertNoFailed()` blocking every future migration on that
- * connection. Every other dialect stores the payload as text and the read path
- * (`decodeSessionData`) already handles the string shape, so skipping there is
- * not a compromise: there is genuinely nothing to converge.
- */
-const MYSQL_DRIVERS = ['orm-driver-mysql', 'orm-driver-mysql-ssh'];
-
-/**
  * The text-family native types a legacy `user_sessions.Data` can carry. A
  * column of any of these is the state the JSON conversion exists to fix;
  * anything else (`json` on a converged or fresh database, or something nobody
  * anticipated) is left alone.
  */
 const TEXT_FAMILY = ['text', 'tinytext', 'mediumtext', 'longtext', 'varchar', 'nvarchar'];
-
-/**
- * True when the connection speaks MySQL's DDL dialect. See {@link MYSQL_DRIVERS}.
- *
- * @param connection - the migration's connection
- */
-export function isMySqlDialect(connection: OrmDriver): boolean {
-  return MYSQL_DRIVERS.includes(connection.Options?.Driver);
-}
-
-/** True on the sqlite driver, which has no MODIFY and needs a table rebuild to change a constraint. */
-export function isSqliteDialect(connection: OrmDriver): boolean {
-  return connection.Options?.Driver === 'orm-driver-sqlite';
-}
 
 /**
  * Reduces a driver-reported `NativeType` to its bare type name, lower-cased.

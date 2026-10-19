@@ -1,12 +1,12 @@
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
-import { ADMIN_CONNECTION_KEY } from '../../stores/context.js';
+import { ADMIN_CONNECTION_KEY, rbacConnection } from '../../stores/context.js';
 
 const VERSION_TABLE = 'authz_version';
 const VERSION_MIGRATION = 'AuthzRbac_2026_10_01_00_00_00';
@@ -246,9 +246,6 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     const container = this.opts.container ?? DI.RootContainer;
     const name = this.opts.connection ?? this.Connection;
     if (name === undefined || name === null) throw new AuthzConfigError(`DbAuthzAdminBackend: ${ADMIN_CONNECTION_KEY} is not set`);
-    const orm = (await container.resolve(Orm)) as Orm;
-    const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`DbAuthzAdminBackend: ${ADMIN_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
-    return driver;
+    return rbacConnection(container, name, `DbAuthzAdminBackend: ${ADMIN_CONNECTION_KEY}`);
   }
 }

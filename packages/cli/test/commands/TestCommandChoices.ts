@@ -5,6 +5,7 @@ import { CliCommand } from './../../src/interfaces.js';
 @Command({ nameAndArgs: 'choice-cmd', description: 'choices command' })
 @Argument({ name: 'color', required: true, choices: ['red', 'green'] })
 @Option({ flags: '-s, --size <size>', required: false, choices: ['s', 'm', 'l'] })
+@Option({ flags: '-l, --level <level>', required: false, choices: ['1', '2'], parser: (v) => parseInt(v, 10) })
 export class TestCommandChoices extends CliCommand {
   public execute(_color: string, _options: unknown): Promise<void> {
     return Promise.resolve();

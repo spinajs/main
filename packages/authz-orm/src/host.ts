@@ -1,5 +1,5 @@
 import { AUTHZ_AUDIT_SERVICE_KEY, AuthzDomains, DecisionAudit, DefaultAuthzDomains, authzStorage, configuredLineage, engineLog, pickNamed, readDomainConfig, thrownError } from '@spinajs/authz';
-import type { DomainConfig, HostLog, Principal, ResourceType } from '@spinajs/authz';
+import type { DomainConfig, AuthzLog, Principal, ResourceType } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
@@ -75,8 +75,8 @@ export function storageUnscoped(): string | undefined {
   return typeof reason === 'string' && reason !== '' ? reason : undefined;
 }
 
-let log: HostLog | undefined;
+let log: AuthzLog | undefined;
 
-export function ormLog(): HostLog {
+export function ormLog(): AuthzLog {
   return (log ??= engineLog('authz-orm'));
 }

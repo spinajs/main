@@ -18,7 +18,6 @@ import type { Decision } from '../contracts/decision.js';
 import type { AccessPlan } from '../contracts/plan.js';
 import { ConditionCompiler } from '../conditions/contracts.js';
 import { Authorizer } from '../engine/authorizer.js';
-import type { EngineLog } from '../engine/authorizer.js';
 import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
@@ -33,6 +32,7 @@ import { pickNamed, resolveChain } from './di.js';
 import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
+import type { AuthzLog } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
 import { AccessChangeRouter } from './push.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
@@ -113,7 +113,7 @@ export class DefaultAuthzService extends AuthzService {
   private bootSubscription: (() => void) | undefined;
   /** Tags of the changes published while booting, applied once the boot ends. */
   private buffered: (readonly string[])[] | undefined;
-  private readonly log: EngineLog = engineLog('authz');
+  private readonly log: AuthzLog = engineLog('authz');
 
   /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
   @Config('authz')
@@ -429,7 +429,7 @@ export class DefaultAuthzService extends AuthzService {
     const modelRelations: RelationResolver[] = [];
     const modelFilters: NativeFilter[] = [];
     for (const model of models) {
-      const record = await this.initModel(where, name, model, registry, register, fresh);
+      const record = await this.initModel(where, name, container, model, registry, register, fresh);
       modelRelations.push(...record.relations);
       modelFilters.push(...record.nativeFilters);
     }
@@ -529,7 +529,7 @@ export class DefaultAuthzService extends AuthzService {
     });
   }
 
-  private async initModel(where: string, domain: string, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
+  private async initModel(where: string, domain: string, container: IContainer, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
     const source = `model:${model.name}`;
     const existing = inits.get(model);
     if (existing) {
@@ -556,6 +556,7 @@ export class DefaultAuthzService extends AuthzService {
     };
     const ctx: ModelInitContext = Object.freeze({
       domain,
+      container,
       permissions: registry,
       config: <T>(path: string, dflt?: T): T => {
         const v = configAt(this.Config, [model.name, ...String(path).split('.')]);

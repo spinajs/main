@@ -21,6 +21,9 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   protected Options!: IConfiguratioDbSourceConfig;
 
+  /** True when `Connect()` opened a driver connection of its own instead of borrowing the ORM's. */
+  protected OwnsConnection = false;
+
   @Autoinject(DbConfigValueConverter)
   protected Converter!: DbConfigValueConverter;
 
@@ -32,10 +35,12 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
     this.Configuration = configuration;
-    this.Options = this.Configuration.get('configuration_db_source', {
+    // schema defaults are applied only after all sources ran, so a partial object must be completed here
+    this.Options = {
       connection: 'default',
       table: 'configuration',
-    });
+      ..._.omitBy(this.Configuration.get<Partial<IConfiguratioDbSourceConfig>>('configuration_db_source', {}), _.isUndefined),
+    };
 
     try {
       await this.Connect();
@@ -49,6 +54,20 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       return {}  as IConfigLike;
     }
 
+    try {
+      return await this.LoadEntries();
+    } finally {
+      if (this.OwnsConnection) {
+        try {
+          await this.Connection.disconnect();
+        } catch (err) {
+          InternalLogger.warn({ error: err, connection: this.Options.connection }, 'Failed to close configuration source connection ${connection}', 'configuration-db-source');
+        }
+      }
+    }
+  }
+
+  protected async LoadEntries(): Promise<IConfigLike> {
     let tableExists = false;
     try {
       tableExists = await this.CheckTable();
@@ -117,6 +136,8 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     InternalLogger.trace({ connection: dbConnection }, 'Using db connection ${connection}', 'Configuration-db-source');
 
+    this.OwnsConnection = false;
+
     // create or get connection
     if (DI.has(Orm)) {
       this.Connection = DI.get(Orm)!.Connections.get(dbConnection)!;
@@ -140,6 +161,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       }
 
       this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+      this.OwnsConnection = true;
 
       try {
         await this.Connection.connect();
