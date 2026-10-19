@@ -1,0 +1,71 @@
+import { expect } from 'chai';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import 'mocha';
+
+const run = promisify(execFile);
+
+/**
+ * A process that has not resolved an Orm, as a cli command is: imports the built packages (`npm run compile` of orm
+ * and orm-sqlite first) and declares a model with the decorators called by hand.
+ */
+async function freshProcess(body: string): Promise<Record<string, string>> {
+  const script = [
+    "import { DI } from '@spinajs/di';",
+    "import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';",
+    "import '@spinajs/log';",
+    "import { Connection, Model, ModelBase, Orm, OrmNotResolved, modelDriver, ormConnection, ormReady } from '@spinajs/orm';",
+    "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
+    'const { ofType, chainOf } = Array;',
+    'class Doc extends ModelBase {}',
+    "Connection('sqlite')(Doc);",
+    "Model('doc')(Doc);",
+    'class Config extends FrameworkConfiguration {',
+    '  async resolve() {',
+    '    await super.resolve();',
+    "    this.Config.logger = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };",
+    "    this.Config.db = { Connections: [{ Name: 'sqlite', Driver: 'orm-driver-sqlite', Filename: ':memory:' }] };",
+    '  }',
+    '}',
+    'DI.register(Config).as(Configuration);',
+    "DI.register(SqliteOrmDriver).as('orm-driver-sqlite');",
+    'await DI.resolve(Configuration);',
+    // a second @spinajs/di loaded with the configuration re-patches Array.ofType (see authz-rbac test/support/db.ts)
+    'Object.assign(Array, { ofType, chainOf });',
+    'const result = {};',
+    'const attempt = (name, fn) => { try { fn(); result[name] = "returned"; } catch (e) { result[name] = `${e instanceof OrmNotResolved ? "OrmNotResolved" : e.constructor.name}: ${e.message}`; } };',
+    body,
+    "console.log('RESULT ' + JSON.stringify(result));",
+    'process.exit(0);',
+  ].join('\n');
+
+  const { stdout } = await run(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000 });
+  const line = stdout.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
+  expect(line, stdout).to.be.a('string');
+  return JSON.parse(line!.slice('RESULT '.length));
+}
+
+describe('sqlite model driver helpers in a process that has not resolved the Orm', function () {
+  this.timeout(120_000);
+
+  it('modelDriver and ormConnection say the Orm is not resolved, not that the connection is missing', async () => {
+    const result = await freshProcess(['attempt("model", () => modelDriver(Doc));', 'attempt("connection", () => ormConnection("sqlite"));'].join('\n'));
+
+    expect(result).to.deep.eq({
+      model: 'OrmNotResolved: Doc: the Orm has not created its connections yet; await ormReady() first',
+      connection: 'OrmNotResolved: the Orm has not created its connections yet; await ormReady() first',
+    });
+  });
+
+  it('ormReady resolves the Orm once for concurrent callers, after which the model has its driver', async () => {
+    const result = await freshProcess(
+      [
+        'await Promise.all([ormReady(), ormReady()]);',
+        'const orm = await DI.resolve(Orm);',
+        'attempt("model", () => { if (modelDriver(Doc) !== orm.Connections.get("sqlite")) throw new Error("another driver"); });',
+      ].join('\n'),
+    );
+
+    expect(result).to.deep.eq({ model: 'returned' });
+  });
+});

@@ -113,6 +113,23 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 | `_getEntity(idOrEntity, Model, fresh?)` | Returns `() => getEntity(...)`. |
 | `_insert(behaviour?)` / `_update(data?)` / `_insertOrUpdate()` / `_delete()` | Return `(model) => insertModel(...)` and so on, for composing pipelines. |
 
+### Driver and transaction helpers
+
+For code that runs outside the model statics: migrations, which run before the Orm installs the statics, and
+stores that must refuse a write outside their transaction.
+
+| Function | Behaviour |
+| --- | --- |
+| `ormReady()` | Resolves the Orm unless one already created its connections; concurrent callers share one resolve. Await it before the first model call in a process that may not have booted the Orm (a cli command). |
+| `ormConnection(name)` | The driver of connection `name`, an alias from `db.Aliases` included. |
+| `modelDriver(Model)` | The driver `Model`'s queries run on; a transaction open on it is the one they join. Works inside migrations. |
+| `deleteFrom(Model)` | A `DeleteQueryBuilder` on `Model`'s table to narrow with `where()`; `Model.destroy()` takes primary keys only. |
+| `requireModelConnection(Model, driver)` | Returns `driver` when it is `Model`'s driver; throws `NotAnOrmDriver` or `ConnectionMismatch`. |
+| `requireModelTransaction(Model, driver)` | Returns `driver` when it is an `OrmDriver` with a transaction open in this async context on `Model`'s connection. Checks in this order: `NotAnOrmDriver`, `TransactionRequired`, the connection errors below, `ConnectionMismatch`. |
+
+`ormConnection`, `modelDriver` and the functions built on them throw `OrmNotResolved` before an Orm created
+its connections and `OrmConnectionMissing` (with `connection`) when no connection or alias has the name.
+
 ### Types and results
 
 | Type | Meaning |
@@ -140,6 +157,9 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
 | `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
 | `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
+| `OrmNotResolved` | `ormConnection()`, `modelDriver()` and the helpers built on them before an Orm created its connections. Extends `OrmException`. |
+| `OrmConnectionMissing` | The same helpers when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
+| `NotAnOrmDriver`, `TransactionRequired`, `ConnectionMismatch` | `requireModelConnection()` / `requireModelTransaction()`. `ConnectionMismatch` carries `table`, `expected` (the model's connection) and `actual` (the given driver's). All extend `OrmException`. |
 
 ## Services and extension points
 

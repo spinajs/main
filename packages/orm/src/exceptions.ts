@@ -72,3 +72,26 @@ export class ConstraintViolation extends OrmException {
     this.columns = info.columns;
   }
 }
+
+/** A model or connection was used before an Orm created its connections. */
+export class OrmNotResolved extends OrmException {}
+
+export class OrmConnectionMissing extends OrmException {
+  constructor(message: string, public readonly connection: string) {
+    super(message);
+  }
+}
+
+export class NotAnOrmDriver extends OrmException {}
+
+export class TransactionRequired extends OrmException {}
+
+export class ConnectionMismatch extends OrmException {
+  /**
+   * @param expected - the connection `table` is on
+   * @param actual - the connection of the driver that was given
+   */
+  constructor(message: string, public readonly table: string, public readonly expected: string, public readonly actual: string) {
+    super(message);
+  }
+}
