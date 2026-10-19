@@ -35,7 +35,7 @@ The `browser` export of the package contains only `use` and `delegate`.
 | Scan logger | `Log` resolved with the name `reflection` when registered, else `InternalLoggerProxy` | `InternalLoggerProxy` until `@spinajs/log` is imported | Register a `Log` or `InternalLoggerProxy` subclass. See [Scan services](03-scan-services.md#logger-custom-implementation) |
 | Module loader | Value `__module_loader__` in the root container | none: `import()` or `require()` | `DI.register(loader).asValue('__module_loader__')`. See [Scan services](03-scan-services.md#module-loader-custom-implementation) |
 | Scanned class lifetime | The scanned class itself, resolved by type in the root container | Singleton | `@NewInstance()`, `@PerChildInstance()`, `AsyncService`. See [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md) |
-| Export picked per file | The `typeMatcher` argument | First export key | A function `(fileName) => exportName`. See [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md#type-matcher) |
+| Exports taken per file | The `typeMatcher` argument | Every exported class | A function `(fileName, exportKey) => exportName`. See [Choosing and resolving scanned classes](02-choosing-and-resolving-scanned-classes.md#type-matcher) |
 | Discovery source | Your abstract class, `@Injectable(Base)` per implementation, injected as a list | none in this package | See [Pluggable discovery sources](04-pluggable-discovery-sources.md) |
 | Mixed-in behaviour | `@use(...)` on a class | none | Pass classes or object literals. See [Mixins](05-mixins.md) |
 

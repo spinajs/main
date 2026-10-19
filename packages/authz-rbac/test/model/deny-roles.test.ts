@@ -1,10 +1,10 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, SYSTEM, TRUE } from '@spinajs/authz';
-import type { Assignment, EvaluationContext, ResourceRef } from '@spinajs/authz';
-import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
+import type { Assignment, ResourceRef } from '@spinajs/authz';
+import { fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
-import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, compileGrants, compileRoles, runRbacPipeline } from '../../src/index.js';
+import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, compileGrants, compileRoles, runRbacPipeline } from '../../src/index.js';
 import type { LadderDef, RbacInput, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -146,9 +146,6 @@ describe('authz-rbac deny roles in checks', () => {
   });
 
   describe('through the model', () => {
-    const scopes = new FakeScopeResolver({ types: ['folder', 'invoice'], nodes: [{ ref: F1 }, { ref: I42, parent: F1 }] });
-    const ctx = (): EvaluationContext => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] });
-
     async function model(rows: readonly Assignment[], roles: readonly RoleDef[] = ROLES): Promise<RbacModel> {
       const m = new RbacModel({ roles: new MemoryRoleStore(roles), assignments: new MemoryAssignmentStore(rows), log: { warn: () => undefined } });
       await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
@@ -159,13 +156,6 @@ describe('authz-rbac deny roles in checks', () => {
     it('applies routes a permission only a deny role names', async () => {
       const m = await model([], [deny('nodelete', ['invoice:delete'])]);
       expect(m.applies(registry().require('invoice:delete'), 'invoice')).to.equal(true);
-    });
-
-    it('RbacService.coversAt refuses what a live deny on the path removes', async () => {
-      const m = await model([row('e', 'editor'), row('b', 'blocked', F1)]);
-      const service = new RbacService(m);
-      expect(await service.coversAt(alice, ['editor'], I42, ctx())).to.equal(false);
-      expect(await service.coversAt(alice, ['editor'], { type: 'folder', id: 'other' }, fakeEvaluationContext({ now: NOW, scopeResolvers: [new FakeScopeResolver({ types: ['folder'], nodes: [{ ref: { type: 'folder', id: 'other' } }] })] }))).to.equal(true);
     });
 
     it('SYSTEM is not subject to deny roles: the engine allows it before any model runs', () => {

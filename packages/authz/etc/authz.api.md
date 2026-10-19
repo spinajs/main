@@ -457,6 +457,8 @@ export interface Decision {
     readonly domain: string;
     readonly trace?: Trace;
 }
+/** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
+export declare function definite(decision: Decision): boolean;
 export interface TraceStep {
     readonly by: "core" | string;
     readonly step: string;
@@ -511,9 +513,6 @@ export declare class AccessDenied extends Forbidden {
 }
 export declare class Unauthenticated extends AuthenticationFailed {
     constructor(message?: string, inner?: Error | unknown);
-}
-export declare class NeedsAsync extends Error {
-    constructor(message?: string, options?: ErrorOptions);
 }
 ```
 
@@ -658,6 +657,7 @@ export * from "./admin.js";
 ## src/contracts/model.ts
 
 ```ts
+import type { IContainer } from "@spinajs/di";
 import type { Principal, PrincipalType, ResourceRef, ResourceType } from "./principal.js";
 import type { Permission, PermissionDef, PermissionRegistry } from "./permission.js";
 import type { FilterOp, ResourceFilter } from "./filter.js";
@@ -670,7 +670,7 @@ export declare abstract class NativeFilter {
     abstract matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean>;
 }
 export interface NativeFilter {
-    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it (RFC E2-2). Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
+    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it. Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
     readonly principalInArgs?: boolean;
 }
 export interface ModelCapabilities {
@@ -684,6 +684,8 @@ export interface ModelCapabilities {
 }
 export interface ModelInitContext {
     readonly domain: string;
+    /** The domain's container: resolve what the model needs (ConditionFunctions, Configuration, connections) here, not in root DI. */
+    readonly container: IContainer;
     readonly config: <T>(path: string, dflt?: T) => T;
     readonly permissions: PermissionRegistry;
     registerPermissions(defs: readonly Omit<PermissionDef, "source">[]): void;
@@ -843,6 +845,13 @@ export interface ListPlanRequest {
     /** Set for a consistency `fresh` permission, as `DecisionRequest.fresh`. */
     readonly fresh?: boolean;
 }
+/** SQL that each dialect spells its own way, from the connection's driver. */
+export interface SqlRowExpressions {
+    /** `expression` as text; `length` bounds the type where the dialect needs one. */
+    castText(expression: string, length?: number): string;
+    /** True where `needle` occurs in `haystack`. */
+    contains(haystack: SqlFragment, needle: SqlFragment): SqlFragment;
+}
 /** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
 export interface SqlRowContext {
     readonly type: ResourceType;
@@ -855,7 +864,7 @@ export interface SqlRowContext {
         readonly typeColumn?: string;
     } | undefined;
     readonly now: Date;
-    readonly dialect: "sqlite" | "postgres" | "mysql" | "mssql";
+    readonly expressions: SqlRowExpressions;
 }
 export interface SqlFragment {
     readonly sql: string;
@@ -928,11 +937,23 @@ export declare abstract class AuthzService extends AsyncService {
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;
 };
+/** The root domain: the DI root container. */
+export declare const ROOT_DOMAIN = "root";
+/** What AuthzDomains.create accepts as a domain name (a JSON schema / RegExp source). */
+export declare const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
+export interface DomainIdentity {
+    readonly name: string;
+    readonly parent?: string;
+}
 export declare abstract class AuthzDomains {
     abstract create(name: string, parent?: string): IContainer;
     abstract container(name: string): IContainer;
     abstract service(name: string): Promise<AuthzService>;
     abstract names(): readonly string[];
+    /** The domain a container belongs to; undefined for a container that is not a domain. */
+    abstract describe(container: IContainer): DomainIdentity | undefined;
+    /** Domain names from 'root' to `name`; throws AuthzConfigError for a domain that does not exist. */
+    abstract lineage(name: string): readonly string[];
 }
 export interface AccessSummary {
     readonly principal: PrincipalRef;
@@ -985,6 +1006,10 @@ export declare abstract class DecisionAudit {
         command?: unknown;
     }): void | Promise<void>;
 }
+
+// values
+const ROOT_DOMAIN = "root";
+const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ```
 
 ## Re-exported from other packages

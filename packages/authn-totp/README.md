@@ -33,4 +33,5 @@ links stop working, and the 2.x failed-login count and lock go with
 The package ships no 2.x `rbac.twoFactorAuth` keys; move any of your own with `spinajs-authz-convert`.
 
 `authn:mfa-reset <login>` removes an account's enrolment and recovery codes and
-prints no secret.
+prints no secret. `authn:mfa-qr <secretOrUrl>` prints a QR code for a secret or an
+otpauth URL (`rbac:2fa-qr` remains an alias).

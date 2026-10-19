@@ -1,6 +1,6 @@
 # Custom mutex backends
 
-Every lock goes through one DI token: the abstract `Mutex` class from `@spinajs/threading`. `OrmMutex` is one implementation of it. Extend `OrmMutex` to change one behaviour, such as an atomic `acquire()` or a per-process tenant, or register your own `Mutex` subclass to keep locks somewhere else.
+Every lock goes through one DI token: the abstract `Mutex` class from `@spinajs/threading`. `OrmMutex` is one implementation of it. Extend `OrmMutex` to change one behaviour, such as a per-process tenant, or register your own `Mutex` subclass to keep locks somewhere else.
 
 ## How it works
 
@@ -22,7 +22,7 @@ Classes that inject `Mutex` with `@Autoinject(Mutex)` take the same path.
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `Mutex` | `Mutex` (abstract class, `@spinajs/threading`); singleton by default; resolved by type with `DI.resolve(Mutex)` on every helper call | none registered | `OrmMutex` (`@spinajs/orm-threading`); your subclass | Replace: `DI.register(MyMutex).as(Mutex)` before the first resolve. Extend: subclass `OrmMutex` and override any public method. |
-| `OrmMutex` | not registered by the package; you register it as `Mutex` | `OrmMutex` | `AtomicOrmMutex`, `ProcessTenantMutex` (examples below) | Override `acquire`, `release`, `create`, `delete`, `get` or `wait`. Protected members: `AppName` (`app.name`), `MutexWaitInterval` (`threading.mutex.checkInterval`). |
+| `OrmMutex` | not registered by the package; you register it as `Mutex` | `OrmMutex` | `ProcessTenantMutex` (example below) | Override `acquire`, `release`, `create`, `delete`, `get` or `wait`. Protected members: `AppName` (`app.name`), `MutexWaitInterval` (`threading.mutex.checkInterval`). |
 
 ### `Mutex` contract
 
@@ -44,59 +44,6 @@ A replacement implements all six abstract methods:
 Register before anything resolves `Mutex`: before the first `mutex_*` call and before any service that injects it is built. `@spinajs/tasks` calls `mutex_acquire()` when a task runs, so a registration in your app's startup code, before tasks are scheduled, is in time.
 
 The last registration wins. Registering a subclass after `DI.register(OrmMutex).as(Mutex)` replaces it for every later resolve.
-
-### `OrmMutex`: atomic acquire
-
-`OrmMutex.acquire()` checks and updates in two queries, so two processes can both take a free lock. This subclass moves the check into the `UPDATE`: only a row that is still unlocked changes. It also stamps `Updated_at`, which the stock class leaves at the creation time, so stale locks can be found.
-
-```ts sample
-import { DI } from '@spinajs/di';
-import { DateTime } from 'luxon';
-import { ModelBase } from '@spinajs/orm';
-import { LockResult, Mutex, MutexLockOptions, mutex_acquire, mutex_release } from '@spinajs/threading';
-import { OrmMutex, __mutex__ } from '@spinajs/orm-threading';
-
-// __mutex__ declares a required constructor argument, which the static model API rejects under strictNullChecks.
-const MutexTable = __mutex__ as unknown as typeof ModelBase & (new (data?: Partial<__mutex__>) => __mutex__);
-
-export class AtomicOrmMutex extends OrmMutex {
-  public async acquire(options: MutexLockOptions): Promise<LockResult> {
-    const name = options.Name.trim();
-    const tenant = options.Tenant?.trim() || this.AppName;
-
-    await this.create({ Name: name, Tenant: tenant });
-
-    const taken = await MutexTable.update({ Locked: true, Tenant: tenant, Updated_at: DateTime.now() }).where({ Name: name, Locked: false });
-    const current = await MutexTable.get(name);
-
-    if (taken.RowsAffected === 1) {
-      return { Locked: true, Mutex: current };
-    }
-
-    // Re-entrant like OrmMutex: the holder acquiring again keeps its lock.
-    return { Locked: current.Locked && current.Tenant === tenant, Mutex: current };
-  }
-}
-
-DI.register(AtomicOrmMutex).as(Mutex);
-
-export async function settleDailyPayouts(settle: () => Promise<void>): Promise<void> {
-  const options = { Name: 'daily-payouts', Tenant: `payouts-${process.pid}` };
-  const lock = await mutex_acquire(options);
-
-  if (!lock.Locked) {
-    return;
-  }
-
-  try {
-    await settle();
-  } finally {
-    await mutex_release(options);
-  }
-}
-```
-
-The `WHERE Locked = false` clause makes the database the referee: of two concurrent updates, one changes the row and the other changes nothing.
 
 ### `OrmMutex`: one tenant per process
 
@@ -264,10 +211,10 @@ Other backends, such as Redis, follow the same shape: implement the six methods,
 ```ts
 // Don't: register after something already called mutex_acquire(); that call used whatever was registered then
 await mutex_acquire({ Name: 'warmup', Tenant: tenant });
-DI.register(AtomicOrmMutex).as(Mutex);
+DI.register(ProcessTenantMutex).as(Mutex);
 
 // Do: register in startup code, before the first lock
-DI.register(AtomicOrmMutex).as(Mutex);
+DI.register(ProcessTenantMutex).as(Mutex);
 await mutex_acquire({ Name: 'warmup', Tenant: tenant });
 ```
 

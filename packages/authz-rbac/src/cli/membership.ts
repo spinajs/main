@@ -6,7 +6,7 @@ import type { Class } from '@spinajs/di';
 import { DbAuthzAdminBackend } from '../admin/db/backend.js';
 import { loadRoleIndex } from '../admin/common.js';
 import { AdminAssignmentStore, AdminMembershipStore } from '../admin/ports.js';
-import { readMaxSetDepth } from '../membership/closure.js';
+import { maxSetDepthOf } from '../membership/closure.js';
 import type { MembershipRow } from '../membership/closure.js';
 import type { MembershipSources } from '../membership/maintenance.js';
 import { rbacStoreNames } from '../stores/defaults.js';
@@ -41,7 +41,7 @@ export abstract class MembershipCliCommand extends AuthzCliCommand {
       assignments: await store(AdminAssignmentStore, 'assignments'),
       memberships: await store(AdminMembershipStore, 'membership'),
       backend: new DbAuthzAdminBackend(),
-      maxDepth: readMaxSetDepth(configuration.get(['authz', 'rbac', 'maxSetDepth'])),
+      maxDepth: await maxSetDepthOf(root),
     };
   }
 }

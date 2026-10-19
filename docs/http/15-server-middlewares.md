@@ -140,7 +140,7 @@ DI.register(QuietAccessLog).as(AccessLog);
 - `before()` runs once at startup. Configuration read there is fixed for the life of the server.
 - `Compression` is on by default and the default `http.middlewares` also contain `compression()`. The second one skips bodies that are already encoded.
 - `Array.ofType` drops `@NewInstance()` registrations: a server middleware decorated `@NewInstance()` never runs.
-- `RequestStorage`, `RequestId` and `ResponseTime` are not exported from the package entry and have no configuration switch. `@RequestId()`, `@Ip()`, the access log and every middleware that reads `req.storage` depend on them.
+- `RequestStorage`, `RequestId` and `ResponseTime` have no configuration switch; the package entry exports them as `RequestStorage`, `RequestIdMiddleware` and `ResponseTime`. `@RequestId()`, `@Ip()`, the access log and every middleware that reads `req.storage` depend on them.
 
 ## Best practices
 

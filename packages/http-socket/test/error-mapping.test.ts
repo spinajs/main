@@ -126,6 +126,13 @@ describe('socket error mapping', function () {
     expect(mapper.toWire(new SocketException('unavailable', 'restarting'), 'test')).to.deep.equal({ code: 'unavailable', message: 'restarting', retryable: true });
   });
 
+  it('does not map an unrelated class that shares the name of a mapped exception', () => {
+    const Same = { Forbidden: class Forbidden extends Error {} }.Forbidden;
+
+    expect(resolveSocketErrorMapping(new Same('x'))).to.equal(null);
+    expect(mapper.toWire(new Same('x'), 'test').code).to.equal('internal');
+  });
+
   it('maps anything else to internal with an errorId it logs', () => {
     const log = sinon.spy((mapper as unknown as { Log: { error: (...args: unknown[]) => void } }).Log, 'error');
     const wire = mapper.toWire(new Error('kaput'), 'command docs.open');

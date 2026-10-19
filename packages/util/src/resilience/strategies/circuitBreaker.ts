@@ -148,6 +148,12 @@ export function circuitBreakerStrategy<T>(options: CircuitBreakerStrategyOptions
     const outcome = await _capture(next, ctx);
     const isFailure = await shouldHandle(outcome);
 
+    // The state may have moved on while the call ran ( another call opened the circuit, or
+    // ManualControl isolated / reset it ); a stale outcome must not drive the state machine.
+    if (state !== trialState) {
+      return _unwrap(outcome);
+    }
+
     if (trialState === 'HalfOpen') {
       halfOpenTrialInProgress = false;
       if (isFailure) {

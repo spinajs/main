@@ -59,13 +59,13 @@ export class LinkPrincipalSource extends PrincipalSource {
 
     const companion = req.storage?.Principal;
     // Per call: apps bind the resolver over registerRbac's service at the root domain's boot, after this source is built.
-    if ((DI.getRegisteredTypes(LinkResolver) ?? []).length === 0) {
+    const resolver = (await DI.RootContainer.resolveOptional(LinkResolver)) as LinkResolver | undefined;
+    if (!resolver) {
       if (!this.warned) this.Log.warn('a request carries a share link token, but no LinkResolver is registered; links deny everything');
       this.warned = true;
       return deadLinkPrincipal(companion);
     }
 
-    const resolver = (await DI.resolve(LinkResolver)) as LinkResolver;
     return resolver.principal(token, companion);
   }
 

@@ -82,7 +82,7 @@ export class FailFastLogBootstrapper extends Bootstrapper {
 
 - **Uncaught exceptions do not crash the process** once `LogBotstrapper` has run outside tests: its handler logs `fatal` and returns. Decide whether that is what you want.
 - `beforeExit` runs only on a clean drain of the event loop. `process.exit()`, signals and crashes skip it: call `await Log.flushAll()` yourself in those paths.
-- A file target's rotation timer is not `unref()`'d, so with a `FileTarget` the event loop does not drain and `beforeExit` does not fire until the target is disposed.
+- File target timers (flush, rotation) are `unref()`'d, so a `FileTarget` does not keep the event loop alive and `beforeExit` still fires.
 - `flush()` does not dispose; targets stay usable after it.
 - `Log.clearLoggers()` disposes the internal logger proxies but does not empty `Log.InternalLoggers`, so a later resolve before configuration returns a disposed proxy.
 - Without the bootstrap loop, entries get no ambient context and the perf rollup has no scope, but logging itself works.

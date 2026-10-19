@@ -16,19 +16,6 @@ const authzHttp = {
       controllers: dirWithParent('controllers'),
     },
   },
-  authz: {
-    http: {
-      /** Header-token service principals: `{ name, header, token, attributes? }`; `token` may list several for rotation. */
-      services: [] as unknown[],
-      /** Never registered in production (H19, B41). */
-      explainRoute: { enabled: false, permission: 'authz:explain' },
-      links: { query: 'link', header: 'X-Authz-Link', cookie: null as string | null },
-      /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
-      access: { domain: 'root' },
-      /** GET /user/access/events: the oldest stream of a principal is closed past this many. */
-      events: { maxStreamsPerPrincipal: 5 },
-    },
-  },
 };
 
 export default authzHttp;

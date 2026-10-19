@@ -22,7 +22,7 @@
 | `templates.pdf.renderTimeout` | `number` (ms) | `30000` | `> 0` | `page.setDefaultTimeout()` and the watchdog that closes the page of a render running longer |
 | `templates.pdf.renderDurationWarning` | `number` (ms) | not set | `> 0` | A render longer than this logs a `warn`. Not set means no warning |
 | `templates.pdf.debug.close` | `boolean` | `true` (not set) | `false` | `false` keeps each rendered page open and disables both timeouts, for inspection with `headless: false` |
-| `templates.pdf.options` | `object` | `{}` | none | Present in the shipped config file but **not read** by any code. Pass `PDFOptions` to the renderer instead |
+| `templates.pdf.options` | `object` | `{}` | none | Default `PDFOptions` for every render. Options the renderer is resolved with override these keys |
 | `system.dirs.cli` | `string[]` | appends `node_modules/@spinajs/templates-pdf/lib/<mjs\|cjs>/cli` under `WORKSPACE_ROOT_PATH ?? cwd`, and the same path one directory up | Directory paths | Makes the [`render-pdf` command](05-render-pdf-command.md) discoverable |
 
 ```ts

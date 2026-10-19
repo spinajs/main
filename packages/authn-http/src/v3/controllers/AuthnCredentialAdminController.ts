@@ -9,12 +9,11 @@ import type { AuthnContext, CredentialAdminAction, IdentityRef, PrincipalRef } f
 import { guardRefusal, invalidSendReset, sendResetOf, targetNotFound, targetOf } from '../../admin/fields.js';
 import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../admin/gate.js';
 import { PasswordServiceRegistered } from '../../password/gate.js';
-import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
-import { authenticatedPrincipal } from '../../policies/v3/principal.js';
-import { takeReauthPassword } from '../../token/fields.js';
+import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { activeSessionOf, authenticatedPrincipal } from '../../policies/v3/principal.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
-import { NO_STORE, authnFailureResponse } from '../responses.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
+import { NO_STORE } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 
 type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; readonly target: IdentityRef; readonly ctx: AuthnContext };
@@ -121,18 +120,9 @@ export class AuthnCredentialAdminController extends BaseController {
 
   /** Fresh auth, the target, `fields`, then the guard: the answer of the first that refuses, or what the effect needs. */
   protected async admit(req: Request, uuid: unknown, action: CredentialAdminAction, fields?: () => unknown): Promise<Admitted> {
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
-    const password = takeReauthPassword(req);
-    try {
-      // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
-      // a password while a gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
-    } catch (err) {
-      // The thrown error's body carries a stack outside production; login's answer never does.
-      if (isAuthnFailed(err)) return { answer: authnFailureResponse() };
-      throw err;
-    }
+    const session = activeSessionOf(req);
+    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    if ('answer' in fresh) return fresh;
     const target = targetOf(uuid);
     if (!target) return { answer: targetNotFound() };
     const invalid = fields?.();

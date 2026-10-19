@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/queue-http-progress",
   "version": "2.0.549",
-  "description": "HTTP request progress tracking utility for SpineJS. Provides real-time progress updates for file uploads and downloads, integrating with SpineJS HTTP controllers.",
+  "description": "Job status route for SpinaJS queue jobs: GET jobs/v1/:jobId/status returns the status, progress and result of one queue job.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -20,10 +20,9 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile && npm run copy",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
-    "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -63,10 +62,7 @@
     "@spinajs/queue": "2.0.549",
     "@spinajs/reflection": "2.0.549",
     "@spinajs/fs": "2.0.549",
-    "@spinajs/templates": "2.0.549",
-    "@spinajs/templates-pug": "2.0.549",
-    "@spinajs/validation": "2.0.549",
-    "swagger-ui-dist": "^5.0.0"
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/authz-orm": "3.0.0-alpha.0",
@@ -75,6 +71,6 @@
     "@spinajs/fs": "2.0.549",
     "@spinajs/orm": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
-    "cpx": "1.5.0"
+    "@types/luxon": "^3.6.1"
   }
 }

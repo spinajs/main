@@ -54,4 +54,28 @@ describe('Metrics ( telemetry-common )', () => {
 
     expect(() => m.defineMetrics('dup', [{ name: 'x', help: 'h', type: 'gauge' }])).to.not.throw();
   });
+
+  it('collectDefault can be called twice', () => {
+    const m = DI.resolve(Metrics);
+    m.collectDefault();
+    expect(() => m.collectDefault()).to.not.throw();
+  });
+
+  it('a failing defineMetrics leaves the registry as it was', async () => {
+    const m = DI.resolve(Metrics);
+    const first = m.defineMetrics('atomic', [{ name: 'a', help: 'a', type: 'counter' }]);
+    (first['a'] as any).inc(3);
+
+    expect(() =>
+      m.defineMetrics('atomic', [
+        { name: 'b', help: 'b', type: 'counter' },
+        { name: 'a', help: 'a', type: 'counter' },
+        { name: 'c', help: 'c', type: 'bogus' as any },
+      ]),
+    ).to.throw(/unknown metric type/);
+
+    const out = await m.render();
+    expect(out).to.not.contain('atomic_b');
+    expect(out).to.contain('atomic_a 3');
+  });
 });
