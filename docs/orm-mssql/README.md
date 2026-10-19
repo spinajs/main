@@ -2,7 +2,7 @@
 
 The Microsoft SQL Server driver for [`@spinajs/orm`](../orm/README.md). `MsSqlOrmDriver` extends `SqlDriver` from [`@spinajs/orm-sql`](../orm-sql/README.md), sends statements through the `mssql` package, and registers the T-SQL compilers, quoters and converters a connection needs.
 
-It does **not** register a `ServerResponseMapper`, so model inserts, `save()` and upserts throw after the row is written. [Inserts and upserts](04-inserts-and-upserts.md) has the mapper to register. It does **not** create tables with T-SQL column types either: column types use the shared MySQL spelling (see [Schema dialect](06-schema-dialect.md)).
+Column types it does not map to T-SQL keep the shared MySQL spelling (see [Schema dialect](06-schema-dialect.md)).
 
 ## Install
 
@@ -17,10 +17,10 @@ npm install @spinajs/orm @spinajs/orm-mssql
 | [Connection and configuration](01-configuration.md) | Registers the `orm-driver-mssql` driver; connection keys, the `mssql` pool, TLS options, `ping()`, `tableInfo()` |
 | [Executing statements](02-executing-statements.md) | `executeOnDb()`: backtick stripping, `?` to `@p0` rewriting with `toNamedParameters()`, result shapes per `QueryContext` |
 | [Transactions](03-transactions.md) | Four isolation levels, `SAVE TRANSACTION` savepoints, `IMsSqlTransactionContext` |
-| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MERGE` upserts, no `INSERT IGNORE`, and the missing `ServerResponseMapper` |
-| [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, single-column `ORDER BY`, `DELETE TOP`, `CHARINDEX` set membership, `N'...'` literals |
-| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, databases, views, table existence, unsupported schema features |
-| [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime`; `MssqlModelDehydrator` |
+| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE` |
+| [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, multi-column `ORDER BY`, `DELETE TOP (n)`, `CHARINDEX` set membership, `N'...'` literals |
+| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, column defaults, `ALTER TABLE` / `ALTER COLUMN` / `sp_rename`, databases, views, table existence, unsupported schema features |
+| [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime` |
 | [Extending the driver](08-extending-the-driver.md) | Every DI token the driver registers, how to subclass `MsSqlOrmDriver`, replace one token, or replace the driver everywhere |
 
 ## Quick start
@@ -71,13 +71,14 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Behaviour | MSSQL |
 | --- | --- |
 | Driver string | `orm-driver-mssql` |
-| `ServerResponseMapper` | Not registered: model inserts throw. Register one, see [Inserts and upserts](04-inserts-and-upserts.md). |
+| `ServerResponseMapper` | `MsSqlServerResponseMapper`, reads `SCOPE_IDENTITY()` |
 | `RETURNING` | Not supported: `returning()` throws `NotSupported` |
 | Batch key backfill | Not supported (`insertIdIsFirstOfBatch: false`) |
-| `INSERT IGNORE` | Throws `OrmException` |
-| Upsert | `MERGE ... WITH (HOLDLOCK)` |
-| Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; needs `ORDER BY`; `skip()` alone does nothing |
-| Multi-column `ORDER BY` | Only the first sort is rendered |
+| `INSERT IGNORE`, `INSERT OR REPLACE` | Throw `OrmException` |
+| Upsert | `MERGE ... WITH (HOLDLOCK)` on the unique columns |
+| Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; `ORDER BY (SELECT NULL)` when the query has no sort |
+| Column changes | `ALTER COLUMN` for type, collation and nullability; renames through `sp_rename`; no `AFTER` |
+| Multi-column `ORDER BY` | Every sort is rendered |
 | Identifier quoting | `[brackets]`; every backtick is stripped before sending |
 | Alias separator | `#` |
 | Table naming | `[database].[schema].[table]` |

@@ -10,9 +10,10 @@ Subscribing:
 
 1. `DefaultQueueService.consume(MessageClass, callback?, subscriptionId?, durable?)` calls `client.subscribe(MessageClass, handler, subscriptionId, durable ?? <@Event durable option>)` on every connection the class is routed to.
 2. `subscribe(channelOrMessage, callback, subscriptionId?, durable?)` takes the channel string, or the channels of the class from `getChannelForMessage()`. For each channel:
-   - a channel this client already tracks is skipped with the warning `Channel <channel> already subscribed !`;
+   - the same channel string or message class subscribed twice is skipped with the warning `Channel <channel> already subscribed !`;
    - `durable` without `subscriptionId` throws `InvalidArgument('subscriptionId cannot be empty if using durable subscriptions')`;
-   - otherwise it records a descriptor (channel, callback, id, durable) and, when connected, calls `applySubscription()`; when not connected, the descriptor waits for the next connect.
+   - a channel this client already tracks for another message class gets the new handler added to its descriptor; no second broker subscription is made;
+   - otherwise it records a descriptor (channel, handlers, id, durable) and, when connected, calls `applySubscription()`; when not connected, the descriptor waits for the next connect.
 3. `applySubscription(desc)` subscribes with the headers `ack: client-individual` and `activemq.prefetchSize: 1`, plus `id: <subscriptionId>` when given and `activemq.subscriptionName: <subscriptionId>` when durable.
 4. Every connect (`onConnect`) runs `applySubscription()` again for every tracked descriptor, because `stompjs` does not restore subscriptions after a drop.
 
@@ -20,12 +21,12 @@ Receiving one message:
 
 1. The body is parsed as JSON. A body that does not parse goes to `handleUnparseableMessage()`, which dead-letters it to `defaultQueueDeadLetterChannel`.
 2. A string `CreatedAt` becomes a luxon `DateTime`.
-3. The callback runs. When it resolves, the message is acked.
-4. When it rejects, `handleFailedMessage(message, qMessage, desc, err)` decides:
+3. Every handler tracked for the channel runs. When all of them resolve, the message is acked.
+4. When one rejects, `handleFailedMessage(message, qMessage, desc, err)` decides:
    - **event** (`Type !== 'JOB'`): logged as a warning and acked, so it is dropped;
-   - **job with retries left** (`x-retry-count` header, default `0`, is below `RetryCount`): the body is published again to the same channel with `x-retry-count` plus one, `persistent: true`, the original `priority` and `correlation-id`, and `AMQ_SCHEDULED_DELAY: retryBackoff(attempt)` when that is above `0`. Then the original is acked. When that publish throws, the original is nacked;
+   - **job with retries left** (`x-retry-count` header, default `0`, is below `RetryCount`): the body is published again to the same channel with `x-retry-count` plus one, `persistent: true`, the original `priority` and `correlation-id`, and `AMQ_SCHEDULED_DELAY: retryBackoff(attempt)` when that is above `0`. The original is acked once the broker sends a receipt for that publish. When the publish throws or no receipt comes within `ReceiptTimeout`, the original is nacked;
    - **job with no retries left**: `deadLetter()` with the channel from `getDeadLetterChannelForMessage()`.
-5. `deadLetter(message, dlq, channel, reason, attempt?)` publishes the body to `dlq` with `persistent: true`, `x-original-destination: <channel>`, `x-error: <err.message>` and `x-retry-count`, then acks the original. With no dead-letter channel it acks and drops the message with a warning. When the publish throws, it nacks.
+5. `deadLetter(message, dlq, channel, reason, attempt?)` publishes the body to `dlq` with `persistent: true`, `x-original-destination: <channel>`, `x-error: <err.message>` and `x-retry-count`, then acks the original once the broker sends a receipt. With no dead-letter channel it acks and drops the message with a warning. When the publish throws or no receipt comes within `ReceiptTimeout`, it nacks.
 
 ```mermaid
 sequenceDiagram
@@ -40,10 +41,12 @@ sequenceDiagram
   else event fails
     C->>B: ACK (dropped)
   else job fails, n < RetryCount
-    C->>B: SEND /queue/invoices (x-retry-count: n+1, AMQ_SCHEDULED_DELAY)
+    C->>B: SEND /queue/invoices (x-retry-count: n+1, AMQ_SCHEDULED_DELAY, receipt)
+    B-->>C: RECEIPT
     C->>B: ACK original
   else job fails, retries exhausted
-    C->>B: SEND dead-letter channel (x-original-destination, x-error)
+    C->>B: SEND dead-letter channel (x-original-destination, x-error, receipt)
+    B-->>C: RECEIPT
     C->>B: ACK original
   end
 ```
@@ -193,18 +196,18 @@ export class AlertingStompClient extends StompQueueClient {
 
 ## Important behaviour
 
-- **One subscription per channel per connection.** Subscriptions are keyed by channel. Two message classes routed to the same channel on one connection: the second `consume()` is skipped with a warning, and the first class's handler receives both. `QueueService` ignores a message whose `Name` does not match and resolves, so the transport acks it: the second class's messages are lost. `unsubscribe()` of either class removes the shared subscription. Give every consumed class its own channel.
+- **One subscription per channel per connection.** Subscriptions are keyed by channel. Message classes routed to the same channel on one connection share one broker subscription: every message runs every class's handler, and `QueueService` skips the ones whose `Name` does not match. The subscription id and durability of the first `subscribe()` on the channel apply to all of them. `unsubscribe(MessageClass)` removes that class's handler and drops the broker subscription with the last one; `unsubscribe(channel)` drops it at once. When one handler rejects, the failure policy below applies to the message, and a retry runs every handler again.
 - Prefetch is `1` with `client-individual` acks: ActiveMQ sends the next message on a subscription only after the current one is acked. Handlers on one subscription run one at a time.
-- A retry is a new message: the original is acked after the retry is published. The retry publish does not wait for a broker receipt, so a broker that loses it loses the job.
+- A retry is a new message: the original is acked after the broker confirms the retry publish with a receipt. A receipt that arrives after `ReceiptTimeout` leaves the retry on the broker and the nacked original is redelivered too: the job runs twice.
 - A retry keeps `priority` and `correlation-id` but drops the original `AMQ_SCHEDULED_*` headers, so a cron job does not schedule itself again on retry. It is always sent `persistent`.
 - A job routed to a `/topic/...` channel is retried on that topic: every subscriber gets the retry. Route jobs to `/queue/...` channels.
 - Events are never retried or dead-lettered. `queue.deduplicate` and job tracking in `QueueService` apply to jobs only.
 - The transport counts attempts in the `x-retry-count` header; `QueueService` counts them in the `queue_jobs` row and marks it `dead` when they run out. Both use `RetryCount`, so they agree.
 - An unparseable body uses only `defaultQueueDeadLetterChannel`; route-level dead-letter channels do not apply because the message name is unknown.
-- When a publish to the retry or dead-letter channel throws, the original is nacked and the broker's redelivery policy takes over.
+- When a publish to the retry or dead-letter channel throws or times out, the original is nacked and the broker's redelivery policy takes over.
 - A durable subscription is identified by ActiveMQ through `client-id` plus `activemq.subscriptionName`. The `client-id` comes from the [client factory](05-client-factory-and-client-id.md); keep `app.name`, `APP_ENV` and the connection `name` stable, or a restart creates a new durable subscription and the old one keeps collecting messages.
 - `unsubscribe(channelOrClass, removeDurable = true)` sends `UNSUBSCRIBE` with `activemq.subscriptionName`, which deletes the durable subscription on the broker. Without `removeDurable` it only stops consuming; the broker keeps storing messages for it.
-- `unsubscribe(channel, true)` on a durable subscription while the socket is down throws a `TypeError` from `stompjs` and keeps the descriptor, so the subscription comes back on reconnect. A plain `unsubscribe()` while down only forgets the descriptor.
+- `unsubscribe()` while the socket is down only forgets the descriptor, so the subscription is not replayed on reconnect. With `removeDurable` it logs a warning: no `UNSUBSCRIBE` can be sent, so the broker keeps the durable subscription.
 
 ## Best practices
 

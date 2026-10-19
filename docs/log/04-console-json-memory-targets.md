@@ -19,12 +19,12 @@ All four read their options **flat** on the target definition.
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `logger.targets[].layout` (`ConsoleTarget`) | `string` | default layout | see [Layouts](03-layouts.md) | Line format. |
-| `logger.targets[].theme` (`ConsoleTarget`) | `object` | none | | Declared on `IColoredConsoleTargetOptions`, **ignored**: colors are fixed (below). |
+| `logger.targets[].theme` (`ConsoleTarget`) | `object` keyed by level | `DEFAULT_THEME` | per level: a style name or an array of names (`red`, `brightRed`, `bgRed`, `bgBrightRed`, ... for the eight ANSI colors, `gray`, `bgGray`, `bold`, `dim`, `italic`, `underline`, `inverse`) | Per-level colors, merged over `DEFAULT_THEME`. Unknown names are ignored. |
 | `logger.targets[].stream` (`JsonTarget`) | `string` | `'stdout'` | `'stdout'`, `'stderr'` | Output stream. |
 | `logger.targets[].limit` (`MemoryTarget`) | `number` | `100` | `>= 1` | Entries kept; the oldest are dropped first. |
 | `logger.targets[].enabled` | `boolean` | `true` | | `false`: never constructed by config routing. |
 
-`ConsoleTarget` colors: `trace` and `debug` gray, `info` white, `success` white on green, `warn` yellow, `error` red, `fatal` white on red, `security` yellow on red. `DEFAULT_THEME` is exported but not used by the target.
+`ConsoleTarget` default colors (`DEFAULT_THEME`): `trace` and `debug` gray, `info` white, `success` white on green, `warn` yellow, `error` red, `fatal` white on red, `security` yellow on red.
 
 A `JsonTarget` line:
 

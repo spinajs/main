@@ -2,7 +2,6 @@ import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
 
 import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
-import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityRef } from '../contracts/credentials.js';
 import { errorClass } from '../support/guards.js';
 import { KeyRegistry } from '../contracts/keys.js';
@@ -106,7 +105,7 @@ export class AccountLinkService extends AsyncService {
       if (taken) return await this.refuse(ctx, 'identity.link', sameRef(taken.identity, holder.identity) ? 'already_linked' : 'linked_elsewhere', holder);
       // The store's unique (provider, subject) index decides a race between two links of one subject; its error lands below.
       const link = await this.Links.link(holder.identity, external);
-      await this.audit(ctx, { type: 'identity.link', outcome: 'success', ...holder, data: { provider: link.provider, link: link.id } });
+      await this.Auditor.publishIn(ctx, { type: 'identity.link', outcome: 'success', ...holder, data: { provider: link.provider, link: link.id } });
       return { ok: true, link };
     } catch (err) {
       return this.refuse(ctx, 'identity.link', 'store_error', holder, { error: errorClass(err) });
@@ -128,7 +127,7 @@ export class AccountLinkService extends AsyncService {
         if (!target) return this.refuse(ctx, 'identity.unlink', 'unknown_link', h);
         if (!(await this.hasOtherCredential(h.identity, own.length - 1, ctx.now))) return this.refuse(ctx, 'identity.unlink', 'last_credential', h);
         await this.Links.unlink(target.id);
-        await this.audit(ctx, { type: 'identity.unlink', outcome: 'success', ...h, data: { provider: target.provider, link: target.id } });
+        await this.Auditor.publishIn(ctx, { type: 'identity.unlink', outcome: 'success', ...h, data: { provider: target.provider, link: target.id } });
         return { ok: true };
       });
     } catch (err) {
@@ -161,11 +160,7 @@ export class AccountLinkService extends AsyncService {
   }
 
   private async refuse(ctx: AuthnContext, type: LinkEvent, reason: string, holder?: Holder, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
-    await this.audit(ctx, { type, outcome: 'failure', reason, ...(holder ?? {}), ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type, outcome: 'failure', reason, ...(holder ?? {}), ...(data ? { data } : {}) });
     return { ok: false };
-  }
-
-  private audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

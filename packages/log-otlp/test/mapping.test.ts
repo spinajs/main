@@ -97,6 +97,12 @@ describe("OTLP mapping - toOtlp", () => {
     expect(keys).to.not.include("message");
     expect(keys).to.not.include("level");
   });
+
+  it("emits no attribute for an undefined variable", () => {
+    const payload: any = toOtlp([record(2, { level: "INFO", message: "m", error: undefined })]);
+    const keys = payload.resourceLogs[0].scopeLogs[0].logRecords[0].attributes.map((a: any) => a.key);
+    expect(keys).to.not.include("error");
+  });
 });
 
 describe("OTLP anyValue", () => {
@@ -104,6 +110,11 @@ describe("OTLP anyValue", () => {
   it("boolean", () => expect(anyValue(false)).to.deep.eq({ boolValue: false }));
   it("integer number", () => expect(anyValue(42)).to.deep.eq({ intValue: "42" }));
   it("non-integer number", () => expect(anyValue(3.14)).to.deep.eq({ doubleValue: 3.14 }));
+  it("integer outside the safe range -> doubleValue", () => expect(anyValue(1e21)).to.deep.eq({ doubleValue: 1e21 }));
+  it("NaN / Infinity -> stringValue", () => {
+    expect(anyValue(NaN)).to.deep.eq({ stringValue: "NaN" });
+    expect(anyValue(-Infinity)).to.deep.eq({ stringValue: "-Infinity" });
+  });
   it("object -> stringValue via safeStringify", () => {
     expect(anyValue({ a: 1 })).to.deep.eq({ stringValue: '{"a":1}' });
   });

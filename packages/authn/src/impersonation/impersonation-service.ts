@@ -3,7 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
-import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
+import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
@@ -34,8 +34,6 @@ export interface ImpersonationConfig {
 }
 
 type About = { readonly identity?: IdentityRef; readonly actor?: PrincipalRef; readonly session?: string };
-
-type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
 
 type Denial = { readonly reason: string; readonly data?: Readonly<Record<string, unknown>> };
 
@@ -120,7 +118,7 @@ export class AuthnImpersonationService extends AsyncService {
       // The session stop hands back is a new row whose store lifetime starts again; the login bounds it.
       if (this.beyondLifetime(stored.facts, ctx)) {
         await this.Sessions.revoke(stored.handle);
-        await this.audit(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
+        await this.Auditor.publishIn(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
         return null;
       }
       if (await this.statusRefusal(stored.identity)) return null;
@@ -166,7 +164,7 @@ export class AuthnImpersonationService extends AsyncService {
         await this.Sessions.revoke(issued);
         return await this.refuseStart(ctx, 'revoked', about);
       }
-      await this.audit(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
+      await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
       return { ok: true, session: issued };
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
@@ -198,7 +196,7 @@ export class AuthnImpersonationService extends AsyncService {
         await this.Sessions.revoke(issued);
         return await this.refuseStop(ctx, 'revoked', about);
       }
-      await this.audit(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
+      await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
       return issued;
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
@@ -287,7 +285,7 @@ export class AuthnImpersonationService extends AsyncService {
   private async end(ctx: AuthnContext, stored: Session, type: AuthnEventType, reason: string, data?: Readonly<Record<string, unknown>>): Promise<null> {
     await this.Sessions.revoke(stored.handle);
     const impersonator = stored.facts.impersonator;
-    await this.audit(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
     return null;
   }
 
@@ -300,16 +298,12 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
-    await this.audit(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
     return { ok: false };
   }
 
   private async refuseStop(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<null> {
-    await this.audit(ctx, { type: 'impersonation.end', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
     return null;
-  }
-
-  private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

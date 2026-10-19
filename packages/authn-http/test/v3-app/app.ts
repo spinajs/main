@@ -282,13 +282,13 @@ export class Client {
   /** The raw session id behind the signed cookie value. */
   public get sessionId(): string | null {
     if (this.cookie === null) return null;
-    const id = cs.unsign(this.cookie, COOKIE_SECRET);
+    const id = this.cookie.startsWith('s:') ? cs.unsign(this.cookie.slice(2), COOKIE_SECRET) : false;
     return id === false ? null : id;
   }
 }
 
 /** The signed cookie value for a raw session id, as the server sets it. */
-export const signed = (rawId: string): string => cs.sign(rawId, COOKIE_SECRET);
+export const signed = (rawId: string): string => 's:' + cs.sign(rawId, COOKIE_SECRET);
 
 let users = 0;
 

@@ -27,6 +27,7 @@ export class FsMvCommand extends CliCommand {
       );
     } catch (err) {
       this.Log.error({ error: err, src }, 'Cannot move ${src}');
+      process.exitCode = 1;
     }
   }
 }

@@ -73,7 +73,7 @@ sequenceDiagram
 - The first registered renderer wins an extension or a type. Registration order is module import order. A second renderer for `.handlebars` is never picked while the first one stays registered.
 - `Renderers` is filled once, when `Templates` is first resolved. Import every renderer module before that; a renderer registered later is ignored by the existing `Templates` instance.
 - `render()` and `renderToFile()` need an extension in the path. `templates.render('mail/welcome', ...)` throws `InvalidOperation`, because `extname()` returns an empty string.
-- `getRendererFor()` is typed `TemplateRenderer` but returns `undefined` when no renderer matches. Check the result.
+- `getRendererFor()` is typed `TemplateRenderer | undefined` and returns `undefined` when no renderer matches. Check the result.
 - A failed render is still recorded as a perf span with `error` set, and the error is rethrown. See [Performance measurement](../log/15-performance-measurement.md).
 - The perf field `template` holds the template path, never the model.
 

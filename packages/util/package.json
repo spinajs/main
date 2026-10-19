@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./crypto": {
+      "types": "./lib/mjs/crypto/index.d.ts",
+      "import": "./lib/mjs/crypto/index.js",
+      "require": "./lib/cjs/crypto/index.js"
     }
   },
   "type": "module",
@@ -52,7 +57,8 @@
   },
   "dependencies": {
     "@spinajs/exceptions": "2.0.549",
-    "glob-to-regexp": "^0.4.1"
+    "glob-to-regexp": "^0.4.1",
+    "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

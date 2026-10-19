@@ -7,9 +7,9 @@ Fill an Excel workbook template with a model and write the result to a new `.xls
 1. You call `Templates.renderToFile(template, model, filePath)` with a template ending in `.xlsx`, or `Templates.compileToFile(template, 'xlsx', model, filePath)`.
 2. `Templates` picks the renderer: by extension (`.xlsx`) for `renderToFile()`, by type (`xlsx`) for `compileToFile()`. No match throws `InvalidOperation`.
 3. `Templates` wraps the call in a `Perf.measure()` span (`template.render` or `template.compile`, label `engine: xlsx`) and, when `options.redact` is set, redacts secrets from a thrown error.
-4. `XlsxRenderer.renderToFile()` checks the template with `fs.existsSync()`. A missing file throws `IOFail`.
+4. `XlsxRenderer.renderToFile()` resolves the template to a local path (`fs://` URIs are downloaded) and checks it with `fs.existsSync()`. A missing file throws `IOFail`.
 5. It creates a new `xlsx-renderer` `Renderer` and calls `renderFromFile(template, model)`, which loads the workbook with `exceljs` and evaluates every template cell against `model`.
-6. It writes the rendered workbook to `filePath` with `workbook.xlsx.writeFile()`, replacing an existing file.
+6. It creates the parent folder of `filePath` if needed and writes the rendered workbook with `workbook.xlsx.writeFile()`, replacing an existing file.
 7. It logs the render time at `trace` level on the `renderer` logger and resolves with `void`.
 
 ```mermaid
@@ -21,7 +21,7 @@ sequenceDiagram
   participant Disk
   App->>Templates: renderToFile('report.xlsx', model, out)
   Templates->>XlsxRenderer: renderToFile(template, model, out)
-  XlsxRenderer->>Disk: existsSync(template)
+  XlsxRenderer->>Disk: resolveLocalPath + existsSync(template)
   XlsxRenderer->>XR: new Renderer().renderFromFile(template, model)
   XR-->>XlsxRenderer: exceljs Workbook
   XlsxRenderer->>Disk: workbook.xlsx.writeFile(out)
@@ -77,19 +77,17 @@ Any other cell, including formulas and styles, is copied as it is. Cells startin
 ## Important behaviour
 
 - **No in-memory output.** `Templates.render('x.xlsx', …)` and `Templates.compile(…, 'xlsx', …)` reject with `NotSupported`. Render to a file and read it back when you need a `Buffer`.
-- **Local paths only.** The template must be a path `fs.existsSync()` accepts, absolute or relative to `process.cwd()`. `system.dirs.templates` is not searched, and an `fs://` URI fails with `IOFail`.
-- **The output folder must exist.** `XlsxRenderer` does not create the parent folder of `filePath`; `exceljs` fails with `ENOENT` when it is missing. An existing file is overwritten.
+- **Local paths and `fs://` URIs.** A bare path must be one `fs.existsSync()` accepts, absolute or relative to `process.cwd()`; `system.dirs.templates` is not searched. An `fs://` URI is downloaded to local storage first. A missing file throws `IOFail`.
+- **The output folder is created.** `XlsxRenderer` creates the parent folder of `filePath` when it is missing. An existing file is overwritten.
 - **No cache.** Every render loads and parses the template again, regardless of `templates.cache.mode`.
 - **`language` and `options.onProgress` are ignored.** Translate in the model before rendering. `options.redact` still works, because the `Templates` facade applies it.
 - **Each render is independent.** A new `xlsx-renderer` `Renderer` is created per call, so concurrent renders do not share state.
 - **Missing model values do not fail.** `xlsx-renderer` writes an empty cell and prints a `console.warn`, outside the SpinaJS logger.
-- The render-time trace uses a timer keyed by the template path. Two concurrent renders of the same template share one timer, and a failed render leaves its timer open, so the next render of that template reports a wrong time.
 
 ## Best practices
 
 - Call `templates.renderToFile()` with the `.xlsx` extension in the template name; use `compileToFile(…, 'xlsx', …)` only when the template file has another extension.
 - Build absolute template paths (`path.join(templatesDir, 'sales-report.xlsx')`) so the render does not depend on the process working directory.
-- Create the output folder with `ensureParentDir(filePath)` from `@spinajs/templates` before rendering, or install the subclass from [Custom XLSX renderer](02-custom-xlsx-renderer.md#serve-templates-from-fs-and-create-the-output-folder).
 - Shape the model for the sheet: flat arrays of rows for `FOR_EACH`, formatted strings for dates and money. `xlsx-renderer` has no formatting helpers.
 
 ## Patterns and antipatterns
@@ -103,15 +101,6 @@ await templates.renderToFile('./templates/sales-report.xlsx', model, output);
 const bytes = await readFile(output);
 ```
 
-```ts
-// Don't: the parent folder may not exist, exceljs then fails with ENOENT
-await templates.renderToFile(template, model, `./exports/${tenant}/sales.xlsx`);
-
-// Do
-ensureParentDir(output);
-await templates.renderToFile(template, model, output);
-```
-
 ## Examples
 
 ### Export an invoice list as an Excel attachment
@@ -119,7 +108,7 @@ await templates.renderToFile(template, model, output);
 ```ts sample
 import '@spinajs/templates-xlsx';
 import { DI } from '@spinajs/di';
-import { Templates, ensureParentDir } from '@spinajs/templates';
+import { Templates } from '@spinajs/templates';
 import { readFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -135,8 +124,6 @@ export async function buildInvoiceExport(month: string, invoices: InvoiceRow[]):
   const templates = await DI.resolve(Templates);
   const template = join(process.cwd(), 'templates', 'invoices.xlsx');
   const output = join(tmpdir(), 'invoice-exports', `invoices-${month}.xlsx`);
-
-  ensureParentDir(output);
 
   try {
     // invoices.xlsx holds `## month`, `#! FOR_EACH invoice invoices`, `## invoice.no`, ... and `#! END_LOOP invoice`
@@ -165,6 +152,6 @@ export async function renderStockReport(templatePath: string, output: string, it
 
 ## Related
 
-- [Custom XLSX renderer](02-custom-xlsx-renderer.md): add `fs://` sources, an output folder, progress or custom cell commands.
+- [Custom XLSX renderer](02-custom-xlsx-renderer.md): add progress or custom cell commands.
 - [`@spinajs/templates`](../templates/README.md): the `Templates` facade and `IRenderOptions`.
 - [`@spinajs/intl`](../intl/README.md): configuration `Templates` needs to resolve.

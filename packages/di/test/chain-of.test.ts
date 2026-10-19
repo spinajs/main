@@ -127,6 +127,34 @@ describe('Array.chainOf', () => {
     expect([...child.resolve(Consumer).models.keys()]).to.deep.equal(['Rbac', 'Abac', 'FsAbac']);
   });
 
+  it('@Autoinject(Array.ofType(T)) injects the nearest list, mapped with mapFunc', () => {
+    @Injectable()
+    class Consumer {
+      @Autoinject(Array.ofType(Model))
+      public models: Model[];
+
+      @Autoinject(Array.ofType(Model), { mapFunc: (m: Model) => m.constructor.name })
+      public byName: Map<string, Model>;
+    }
+
+    const child = rootAndChild();
+    child.register(Consumer).asSelf();
+    const consumer = child.resolve(Consumer);
+
+    expect(consumer.models.map((m) => m.constructor)).to.deep.equal([FsAbac]);
+    expect([...consumer.byName.keys()]).to.deep.equal(['FsAbac']);
+  });
+
+  it('@Autoinject(Array.ofType(T)) needs an array or map property', () => {
+    expect(() => {
+      class Consumer {
+        @Autoinject(Array.ofType(Model))
+        public model: Model;
+      }
+      return Consumer;
+    }).to.throw('@Autoinject(Array.ofType(Model)) needs an array or map property');
+  });
+
   it('@Inject(Array.chainOf(T)) passes the chain to the constructor', () => {
     @Inject(Array.chainOf(Model))
     class Consumer {

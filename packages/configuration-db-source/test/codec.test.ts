@@ -108,6 +108,15 @@ describe('DbConfigValueConverter', function () {
       expect(back.map((x) => x.day)).to.deep.equal([24, 25]);
     });
 
+    it('serializes objects, arrays and dates without a model', () => {
+      const noModel = (value: any) => converter.toDB(value, undefined as any, undefined as any, OPTS);
+
+      expect(noModel({ a: 1 })).to.equal('{"a":1}');
+      expect(noModel(['a', 'b'])).to.equal('["a","b"]');
+      expect(noModel(DateTime.fromISO('2026-06-24T13:05:09.000Z').toUTC())).to.equal('2026-06-24T13:05:09.000Z');
+      expect(noModel([DateTime.fromISO('2026-06-24T00:00:00.000Z').toUTC(), DateTime.fromISO('2026-06-25T00:00:00.000Z').toUTC()])).to.equal('2026-06-24T00:00:00.000Z;2026-06-25T00:00:00.000Z');
+    });
+
     it('passes null / undefined through untouched', () => {
       expect(toDb(null, 'datetime')).to.equal(null);
       expect(toDb(undefined, 'number')).to.equal(undefined);

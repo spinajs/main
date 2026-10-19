@@ -6,7 +6,7 @@ The `templates.csv` config section sets the CSV format for every render: delimit
 
 1. `Csv.Options` is a `@Config('templates.csv')` property. It has no default, so with no section it is `undefined`.
 2. Each `Csv.render()` reads `Options` again; the getter asks the current `Configuration`, so a changed value applies from the next render.
-3. `Csv.render()` builds the parser options as `{ fields: model.fields, ...Options }`. Keys from config are applied **after** the model's `fields`.
+3. `Csv.render()` builds the parser options as `{ ...Options, fields: model.fields }`. The model's `fields` are applied **after** the config keys, so they always win.
 4. json2csv fills the unset options with its defaults (table below) and converts the rows.
 
 ## Configuration
@@ -23,7 +23,7 @@ The `templates.csv` config section sets the CSV format for every render: delimit
 | `templates.csv.ndjson` | `boolean` | `false` | `true`, `false` | Parse string or byte `data` as newline-delimited JSON |
 | `templates.csv.transforms` | `((row) => object \| object[])[]` | `[]` | functions | Run on each row before cells are read; returning an array emits several rows |
 | `templates.csv.formatters` | object of `(value) => string` | json2csv formatters | keys `header`, `string`, `number`, `boolean`, `bigint`, `undefined`, `symbol`, `function`, `object` | Turn a cell value of that type into text; `header` formats header labels |
-| `templates.csv.fields` | `string[]` or json2csv field objects | unset | | **Overrides the model's `fields` for every render.** Leave it unset |
+| `templates.csv.fields` | `string[]` or json2csv field objects | unset | | Ignored; the model's `fields` always win |
 
 Functions (`transforms`, `formatters`) need a JS or TS config file; a JSON source cannot carry them.
 
@@ -80,7 +80,7 @@ transforms: [(order: { id: number; lines: { sku: string; qty: number }[] }) =>
 
 - The options apply to **every** `.csv` render in the app. For a second format, register a second renderer instead of switching config; see [Extending and replacing the CSV renderer](03-csv-renderer-service.md).
 - There is no per-call option: `IJsonToCsvOptions` carries only `fields` and `data`.
-- `templates.csv.fields` wins over the model's `fields`, because config is spread after it.
+- `templates.csv.fields` is ignored, because the model's `fields` are applied after the config.
 - A changed `templates.csv` value takes effect on the next render; no restart is needed.
 - `eol` defaults to the host's line ending, so the same code gives different bytes on Windows and Linux.
 - `defaultValue` replaces `undefined` and missing values; a `null` value goes to the `object` formatter and becomes an empty cell.
@@ -95,7 +95,7 @@ transforms: [(order: { id: number; lines: { sku: string; qty: number }[] }) =>
 ## Patterns and antipatterns
 
 ```ts
-// Don't: fields in config replace the columns every caller passes
+// Don't: fields in config are ignored, columns come from the model
 templates: { csv: { fields: ['id', 'total'] } }
 
 // Do: keep columns in the model, format in config

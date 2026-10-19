@@ -1,8 +1,10 @@
 import { NotSupported, IOFail } from '@spinajs/exceptions';
-import { TemplateRenderer } from '@spinajs/templates';
+import { TemplateRenderer, ensureParentDir } from '@spinajs/templates';
 import { Injectable } from '@spinajs/di';
 import { Renderer } from 'xlsx-renderer';
 import * as fs from 'fs';
+
+let renderId = 0;
 
 @Injectable(TemplateRenderer)
 export class XlsxRenderer extends TemplateRenderer {
@@ -15,19 +17,29 @@ export class XlsxRenderer extends TemplateRenderer {
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, _language?: string): Promise<void> {
-    if (!fs.existsSync(template)) {
+    const localTemplate = await this.resolveLocalPath(template);
+    if (!fs.existsSync(localTemplate)) {
       throw new IOFail(`File for template at path ${template} not exists`);
     }
 
     this.Log.trace({ template }, 'Rendering xlsx template ${template}');
-    this.Log.timeStart(`XlsxTemplate.render.start.${template}`);
 
-    const renderer = new Renderer();
-    const result = await renderer.renderFromFile(template, model);
+    // unique per call: concurrent renders of one template must not share a timer
+    const label = `XlsxTemplate.render.start.${template}.${++renderId}`;
+    this.Log.timeStart(label);
 
-    await result.xlsx.writeFile(filePath);
+    try {
+      const renderer = new Renderer();
+      const result = await renderer.renderFromFile(localTemplate, model);
 
-    const time = this.Log.timeEnd(`XlsxTemplate.render.start.${template}`);
+      ensureParentDir(filePath);
+      await result.xlsx.writeFile(filePath);
+    } catch (err) {
+      this.Log.timeEnd(label);
+      throw err;
+    }
+
+    const time = this.Log.timeEnd(label);
     this.Log.trace({ template, time }, 'Rendering xlsx template ${template} ended, (${time} ms)');
   }
 

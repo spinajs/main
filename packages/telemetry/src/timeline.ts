@@ -60,10 +60,12 @@ export class Timeline {
    * Open the bucket for `now` and expire buckets older than `length` buckets.
    */
   public tick(now: number = Date.now()): void {
-    const current = this.keyFor(now);
-    this.ensureBucket(current);
+    this.ensureBucket(this.keyFor(now));
+    this.expire(now);
+  }
 
-    const oldest = current - this.length + 1;
+  private expire(now: number): void {
+    const oldest = this.keyFor(now) - this.length + 1;
     for (const key of [...this.buckets.keys()]) {
       if (key < oldest) this.buckets.delete(key);
     }
@@ -81,11 +83,15 @@ export class Timeline {
   }
 
   /**
-   * A plain-object snapshot of every live bucket, keyed by bucket key.
+   * A plain-object snapshot of every live bucket, keyed by bucket key. Rates
+   * are per-second over the bucket width. When `now` is given, stale buckets
+   * are expired against it first, so an idle period does not leave them visible.
    */
-  public toJSON(): ITimelineSnapshot {
+  public toJSON(now?: number): ITimelineSnapshot {
+    if (now !== undefined) this.expire(now);
     const out: ITimelineSnapshot = {};
     for (const [key, stats] of this.buckets) {
+      stats.updateRates(this.bucketMs);
       out[String(key)] = stats.toJSON();
     }
     return out;

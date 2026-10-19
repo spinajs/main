@@ -90,7 +90,7 @@ export class MaintenanceController extends BaseController {
 ## Important behaviour
 
 - The handlers `metricsHandler()` and `statsHandler()` are unguarded. The access check lives on the controllers; an app that mounts the handlers owns its own auth.
-- `statsHandler()` writes `{ all, timeline }` like `/telemetry/stats` but does not update the rates; `req_rate` and `err_rate` are whatever the last `/telemetry/stats` call left.
+- `statsHandler()` writes `{ all, timeline }` like `/telemetry/stats` and refreshes the lifetime rates the same way.
 - `new Ok(body, { StatusCode: 503 })` answers 200: `Response.execute()` overwrites the status with the class's own code. Use `ServiceUnavailable`.
 - The DTO classes are never instantiated. They exist so `@Schema()` registers each schema under the class name.
 - A slot that cannot be honoured makes the whole controller fail to register, probes included. The app does not start with an open route.

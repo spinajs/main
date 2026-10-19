@@ -3,6 +3,7 @@ import type { Permission, PermissionDef, RelationResolver, ResourceRef, Resource
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
+import { basePathOf as providerBasePath, publishedFs } from '../guard/shared.js';
 import { FsOwnerRelation } from '../metadata/owner.js';
 import { FS_OPERATIONS, fsOperationPermissions } from '../operations/index.js';
 import { FS_PERMISSIONS } from '../permissions/index.js';
@@ -75,9 +76,6 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
 
   // Read from the published provider instance, so refOf does no IO; a guard proxy passes Options through.
   protected basePathOf(fsName: string): string | undefined {
-    const providers: unknown = this.container.get('__file_provider_instance__');
-    if (!(providers instanceof Map)) return undefined;
-    const basePath: unknown = (providers.get(fsName) as { Options?: { basePath?: unknown } } | undefined)?.Options?.basePath;
-    return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
+    return providerBasePath(publishedFs(this.container, fsName));
   }
 }

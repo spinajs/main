@@ -15,5 +15,13 @@ export class ProcessFiles extends CliCommand {
   public async execute(): Promise<void> {
     this.Log.success(`Start processing lazy file upload ...`);
     await this.Queue.consume(LazyUploadJob);
+
+    // consume() returns once subscribed and @spinajs/cli exits the process when execute() resolves
+    await new Promise<void>((resolve) => {
+      process.once('SIGINT', resolve);
+      process.once('SIGTERM', resolve);
+    });
+
+    await this.Queue.stopConsuming(LazyUploadJob);
   }
 }

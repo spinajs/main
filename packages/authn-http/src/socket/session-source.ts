@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import * as cs from 'cookie-signature';
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
@@ -14,9 +12,8 @@ import { AUTHENTICATION_FAILED, SocketPrincipalSource } from '@spinajs/http-sock
 import type { ISocketHandshake, ISocketRevalidation, SocketRevalidationResult } from '@spinajs/http-socket';
 
 import { SessionPrincipalResolver } from '../resolvers/session.js';
-
-// AuthnMiddleware's: sha256 of a raw session id is its storage key, which must not reach a log.
-const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
+import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
+import { clientContext } from '../v3/context.js';
 
 /**
  * The browser session cookie as a socket principal: AuthnMiddleware's restore and SessionPrincipalResolver for a handshake.
@@ -66,7 +63,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
 
     const restored = await this.Sessions.restore(rawId);
     if (!restored) {
-      this.Log.warn({ session: logHash(rawId), ip: handshake.address }, 'Session cookie names no live session (expired or unknown): session ${session}, ip ${ip}');
+      warnNoLiveSession(this.Log, rawId, handshake.address);
       return null;
     }
     const session = resolveSession(this.Container, restored);
@@ -106,7 +103,7 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
     }
 
     assertSessionCookieSecret(this.CookieSecret, env);
-    const id = cs.unsign(value.startsWith('s:') ? value.slice(2) : value, this.CookieSecret);
+    const id = unsignSessionCookie(value.startsWith('s:') ? value.slice(2) : value, this.CookieSecret);
     if (id === false) {
       this.Log.warn({ cookie: logHash(value), ip: handshake.address }, 'Rejected a socket session cookie with an invalid signature: cookie ${cookie}, ip ${ip}');
       return null;
@@ -116,7 +113,6 @@ export class SessionSocketPrincipalSource extends SocketPrincipalSource {
   }
 
   protected context(handshake: ISocketHandshake): AuthnContext {
-    const userAgent = handshake.headers['user-agent'];
-    return { ip: handshake.address, ...(typeof userAgent === 'string' ? { userAgent } : {}), now: new Date(), purpose: 'request' };
+    return clientContext(handshake.address, handshake.headers['user-agent'], 'request');
   }
 }

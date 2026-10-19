@@ -81,6 +81,7 @@ describe('mssql views', function () {
   it('toNamedParameters rewrites only as many placeholders as it is given', () => {
     expect(toNamedParameters('a = ? AND b = ?', 2)).to.eq('a = @p0 AND b = @p1');
     expect(toNamedParameters("a = ? AND b = 'x?'", 1)).to.eq("a = @p0 AND b = 'x?'");
+    expect(toNamedParameters("b = 'it''s ?' AND [c?] = ?", 1)).to.eq("b = 'it''s ?' AND [c?] = @p0");
   });
 
   it('refuses a value with a backtick, which executeOnDb would strip from the statement', () => {

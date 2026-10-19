@@ -123,7 +123,7 @@ See [Module loading](../di/13-module-loading.md) for the loader contract.
 ## Important behaviour
 
 - **Everything is read from the root container.** Registering a configuration, logger or loader in a child container has no effect on scans.
-- **`Configuration` is not built by the scan.** When it was never resolved, the scan's `Promise` rejects with a `TypeError`.
+- **`Configuration` is not built by the scan.** When it was never resolved, the scan's `Promise` rejects with a `ReflectionException`.
 - **The logger choice is made per scan.** A scan that starts before `@spinajs/log` is imported logs through `InternalLoggerProxy` for its whole run.
 - **A registered loader takes over every module load,** not only scans: configuration files, migrations and translations go through it too.
 

@@ -128,7 +128,7 @@ DI.register(TrimmingFromQuery).as(FromQuery);
 
 - The lookup is by name. Two packages that both register a handler class named `CurrentUserArg` collide: the last registration wins. Prefix the class name with your package.
 - `Priority` sorts all parameters of the route, not only yours. A handler that reads what another handler stored in `callData.Payload` needs a lower `Priority` than that handler.
-- `FromQuery` and `FromParams` return a new `Payload` holding only their own value. A handler after them loses earlier `Payload` entries, such as the parsed multipart form.
+- `FromQuery`, `FromParams` and the form handlers keep the incoming `Payload` and add their own entry (`Query.Args`, `Param.Args`, `Form`); `Query.Args` and `Param.Args` collect the values of every `@Query()` and `@Param()` that ran before. Do the same in your handler.
 - A handler that throws stops the request; the exception goes to the [error handler](11-error-handling.md). Throw `BadRequest`, `Forbidden` or `ValidationFailed` to get 400 or 403.
 - `tryHydrateParam()` expects `param.Name` to be set; it is set at startup from the controller cache.
 - `Array.ofType` lists drop `@NewInstance()` registrations, but route argument handlers are resolved one by one by name, so `@NewInstance()` handlers work.

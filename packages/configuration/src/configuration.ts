@@ -20,11 +20,11 @@ import {
   ConfigVarProtocol,
   ConfigVar,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, IContainer, Injectable, DI } from '@spinajs/di';
+import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
 import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
-import config from './config/configuration.js';
+import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
@@ -40,9 +40,19 @@ const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
 // The target of each lazy-var proxy load() builds, by proxy: copying a proxy property by property would load every var.
 const LAZY_TARGETS = new WeakMap<object, object>();
 
+// Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
+let keepUnresolvedVars = false;
+
+const isUnresolved = (v: unknown) => v instanceof ConfigVar && (v.get() ?? null) === null;
+
 function withLazyVars<T extends object>(obj: T): T {
   const proxy = new Proxy(obj, {
     get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
+    set: (o: any, prop, value) => {
+      // A var that is not ready yet reads as null; its coercion ('' for a string) must not replace it for good.
+      if (!(keepUnresolvedVars && isUnresolved(o[prop]))) o[prop] = value;
+      return true;
+    },
   });
   LAZY_TARGETS.set(proxy, obj);
   return proxy;
@@ -166,7 +176,17 @@ export class FrameworkConfiguration extends Configuration {
    */
   public get<T>(path: string[] | string, defaultValue?: T): T {
     if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
-    return _.get(this.Config, path, defaultValue) as T;
+    const value = _.get(this.Config, path, defaultValue) as T;
+    if (value === null && defaultValue !== undefined && this.isUnresolvedVar(path)) return defaultValue;
+    return value;
+  }
+
+  private isUnresolvedVar(path: string[] | string) {
+    const segments = _.toPath(path);
+    if (segments.length === 0) return false;
+    const parent: unknown = segments.length === 1 ? this.Config : _.get(this.Config, segments.slice(0, -1));
+    const target = typeof parent === 'object' && parent !== null ? (LAZY_TARGETS.get(parent) as Record<string, unknown> | undefined) : undefined;
+    return target !== undefined && isUnresolved(target[segments[segments.length - 1]]);
   }
 
   // A schema applied after boot cannot fail the boot; reading the value it refused, or a part of it, must still fail.
@@ -238,11 +258,6 @@ export class FrameworkConfiguration extends Configuration {
     InternalLogger.info({ appBaseDir: this.AppBaseDir }, 'App base dir is ${appBaseDir}', 'Configuration');
 
     this.initValidator();
-    this.applyAppDirs();
-
-    // add default configuration of this module
-    // so we dont need to import it
-    this.set('configuration', config);
 
     /**
      * Load and validate data from cfg sources
@@ -295,14 +310,19 @@ export class FrameworkConfiguration extends Configuration {
 
   private async loadTree() {
     this.Config = {};
+    this.NamedEnv = this.Env ?? this.Container.get<NodeJS.ProcessEnv>('process.env')?.APP_ENV ?? process.env.NODE_ENV;
 
     // add env variables to config
-    const env = DI.get<NodeJS.ProcessEnv>('process.env');
+    const env = this.Container.get<NodeJS.ProcessEnv>('process.env');
+    const appEnv = this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development';
     this.set('process.env', {
       ...process.env,
       ...env,
-      APP_ENV: this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+      APP_ENV: appEnv,
     });
+
+    // Defaults of this module, which sources may override. The flags follow the APP_ENV that selects the config files.
+    _.mergeWith(this.Config, _.cloneDeep(config), { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, mergeArrays);
 
     InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
@@ -322,11 +342,12 @@ export class FrameworkConfiguration extends Configuration {
      * eg. when custom modules have config and dont want to use files
      * eg. in webpack environment
      */
+    // Merged at the root: merge() writes nothing at a key no source defines.
     this.Container.resolve(Array.ofType<IConfigLike>('__configuration__')).forEach((c: IConfigLike) => {
-      Object.keys(c).forEach((k) => {
-        this.merge(k, c[`${k}`]);
-      });
+      _.mergeWith(this.Config, c, mergeArrays);
     });
+
+    this.applyAppDirs();
 
     // load config vars from various protocols
     await this.loadProtocolVars();
@@ -362,7 +383,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected async loadProtocolVars() {
-    const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
+    const configProtocols = await this.Container.resolve(Array.ofType(ConfigVarProtocol));
 
     if (!configProtocols || configProtocols.length === 0) {
       InternalLogger.warn(`No configuration protocols registered`, 'Configuration');
@@ -379,13 +400,53 @@ export class FrameworkConfiguration extends Configuration {
     // Build common web protocol prefix set for fast checking
     const webProtocolSet = new Set(COMMON_WEB_PROTOCOLS.map(p => p.toLowerCase()));
 
+    const resolveString = async (obj: { [key: string]: unknown }, key: string, val: string, currentPath: string[]) => {
+      // Quick check: does it contain ://?
+      const protocolIndex = val.indexOf('://');
+      if (protocolIndex === -1) {
+        return;
+      }
+
+      // Extract potential protocol (everything before ://)
+      const potentialProtocol = val.substring(0, protocolIndex + 3).toLowerCase();
+
+      // Skip common web protocols using Set lookup (O(1))
+      if (webProtocolSet.has(potentialProtocol)) {
+        return;
+      }
+
+      // Use regex only if we passed initial checks
+      PROTOCOL_REGEXP.lastIndex = 0;
+      const match = PROTOCOL_REGEXP.exec(val);
+      if (!match) {
+        return;
+      }
+
+      // O(1) protocol lookup using Map
+      const protocol = protocolMap.get(match[1]);
+
+      if (!protocol) {
+        InternalLogger.warn({ protocol: match[1] }, 'Protocol ${protocol} used in configuration is not registered.', 'Configuration');
+        return;
+      }
+
+      const fullPath = [...currentPath, key].join('.');
+      try {
+        obj[key] = await protocol.getVar(match[2], this.Config);
+      } catch (err) {
+        InternalLogger.error({ error: err, key: fullPath, protocol: protocol.Protocol, value: val }, 'Error loading configuration var for key ${key} using protocol ${protocol}, value: ${value}', 'Configuration');
+      }
+    };
+
     const iterate = async (obj: { [key: string]: unknown }, currentPath: string[] = []) => {
       if (!obj) {
         return;
       }
 
       if (Array.isArray(obj)) {
-        await Promise.all(obj.map((c, index) => iterate(c, [...currentPath, `[${index}]`])));
+        await Promise.all(
+          obj.map((c, index) => (typeof c === 'string' ? resolveString(obj, String(index), c, currentPath) : iterate(c, [...currentPath, `[${index}]`]))),
+        );
         return;
       }
 
@@ -393,45 +454,7 @@ export class FrameworkConfiguration extends Configuration {
       const objectEntries = pickObjects(obj);
 
       // Process strings in parallel
-      await Promise.all(
-        stringEntries.map(async ([key, val]) => {
-          // Quick check: does it contain ://? 
-          const protocolIndex = val.indexOf('://');
-          if (protocolIndex === -1) {
-            return;
-          }
-
-          // Extract potential protocol (everything before ://)
-          const potentialProtocol = val.substring(0, protocolIndex + 3).toLowerCase();
-
-          // Skip common web protocols using Set lookup (O(1))
-          if (webProtocolSet.has(potentialProtocol)) {
-            return;
-          }
-
-          // Use regex only if we passed initial checks
-          PROTOCOL_REGEXP.lastIndex = 0;
-          const match = PROTOCOL_REGEXP.exec(val);
-          if (!match) {
-            return;
-          }
-
-          // O(1) protocol lookup using Map
-          const protocol = protocolMap.get(match[1]);
-
-          if (!protocol) {
-            InternalLogger.warn({ protocol: match[1] }, 'Protocol ${protocol} used in configuration is not registered.', 'Configuration');
-            return;
-          }
-
-          const fullPath = [...currentPath, key].join('.');
-          try {
-            obj[key] = await protocol.getVar(match[2], this.Config);
-          } catch (err) {
-            InternalLogger.error({ error: err, key: fullPath, protocol: protocol.Protocol, value: val }, 'Error loading configuration var for key ${key} using protocol ${protocol}, value: ${value}', 'Configuration');
-          }
-        }),
-      );
+      await Promise.all(stringEntries.map(([key, val]) => resolveString(obj, key, val, currentPath)));
 
       // Process nested objects in parallel
       await Promise.all(objectEntries.map(([key, val]) => iterate(val, [...currentPath, key])));
@@ -564,7 +587,7 @@ export class FrameworkConfiguration extends Configuration {
     // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
     // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
     // value whose copy passes gets its defaults and coercion.
-    if (this.Validator.validate(s, copyForCheck(config)) && this.Validator.validate(s, config)) {
+    if (this.Validator.validate(s, copyForCheck(config)) && this.validateInPlace(s, config)) {
       return { errors: [], violations: [] };
     }
 
@@ -581,6 +604,15 @@ export class FrameworkConfiguration extends Configuration {
       violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
     }
     return { errors, violations };
+  }
+
+  private validateInPlace(s: IConfigurationSchema, config: unknown): boolean {
+    keepUnresolvedVars = true;
+    try {
+      return this.Validator.validate(s, config);
+    } finally {
+      keepUnresolvedVars = false;
+    }
   }
 
   protected initValidator() {
@@ -656,8 +688,9 @@ export class FrameworkConfiguration extends Configuration {
       return;
     }
 
-    for (const prop of Object.keys(this.get(['system', 'dirs'], []))) {
-      this.get<string[]>(['system', 'dirs', prop]).push(this.dir(`/${this.RunApp}/${prop}`));
+    for (const prop of Object.keys(this.get(['system', 'dirs'], {}))) {
+      const dirs = this.get<unknown>(['system', 'dirs', prop]);
+      if (Array.isArray(dirs)) dirs.push(this.dir(`/${this.RunApp}/${prop}`));
     }
   }
 

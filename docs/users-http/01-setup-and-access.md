@@ -39,8 +39,6 @@ Keys this package ships:
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `system.dirs.controllers` | `string[]` | adds `<pkg>/lib/<mjs\|cjs>/controllers` and `<pkg>/lib/<mjs\|cjs>/admin/controllers` | directories | Where the controller scan finds this package's controllers. The path starts at `WORKSPACE_ROOT_PATH`, or the working directory. |
-| `system.dirs.locales` | `string[]` | adds `<pkg>/lib/<mjs\|cjs>/locales` | directories | Declared; the package ships no locale files. |
-| `system.dirs.views` | `string[]` | adds `<pkg>/lib/<mjs\|cjs>/views` | directories | Declared; the package ships no views. |
 | `authz.permissions['users:read']` | object | `{ fields: true }` | permission definition | Read accounts on the admin routes. Grants may carry a field set; responses are cut to it. |
 | `authz.permissions['users:create']` | object | `{}` | permission definition | Create accounts. |
 | `authz.permissions['users:update']` | object | `{ fields: true }` | permission definition | Update login, email and roles; activate, unban; end one session. |

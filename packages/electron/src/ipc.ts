@@ -12,5 +12,8 @@ export default function exposeIpcBridge() {
 
   ipcMain.on("__spinajsIpcBridge:callSync", (event: IpcMainEvent, method: string, service: string, ...args) => callServiceSync(event, method, service, ...args));
 
-  log().info(`Electron main process exposed spinajs IPC bridge !`);
+  // Runs at import time: before @spinajs/log registers a Log, resolving it would build the abstract one.
+  if (DI.check(Log)) {
+    log().info(`Electron main process exposed spinajs IPC bridge !`);
+  }
 }

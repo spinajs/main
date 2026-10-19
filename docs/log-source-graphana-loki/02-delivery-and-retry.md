@@ -52,7 +52,7 @@ sequenceDiagram
 | Base delay | `1 s`, exponential: 1, 2, 4, 8, 16 s |
 | Jitter | on: each delay is a random value between 0.5x and 1.5x |
 | Delay cap | `5 s` |
-| `Retry-After` header | when present, its delay replaces the computed one and is **not** capped |
+| `Retry-After` header | when present, its delay replaces the computed one, capped at the `5 s` delay cap |
 | Attempt timeout | `options.timeout` (default `1000` ms) per HTTP request |
 
 `retryAfterMs(error)` reads `Retry-After` as delta-seconds (`5`, `"5"`) or as an HTTP date, and returns milliseconds (never negative). It returns `undefined` when the header is missing or unreadable.
@@ -120,7 +120,7 @@ export function attachPaymentsLoki() {
 
 - `send()` resolves on every push failure, so `forceFlush()`, `log.flush()` and `dispose()` do not reject because Loki is down.
 - Retries run inside one flush. With the defaults a fully failing flush takes up to about 25 s (6 attempts of 1 s plus delays capped at 5 s). New entries buffer meanwhile, up to `maxBufferSize`.
-- A `Retry-After` delay is not capped. `Retry-After: 3600` stalls flushing of this target for an hour per retry, and `dispose()` waits for it.
+- A `Retry-After` delay is capped at `5 s`, so `Retry-After: 3600` waits 5 s per retry.
 - HTTP `500` is permanent: the batch is dropped, not retried.
 - A request that reached Loki but timed out is retried, so its lines can arrive twice.
 - A requeued batch keeps its original `n_timestamp` values and goes out with the next flush.
