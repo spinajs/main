@@ -86,17 +86,19 @@ export class SqliteOrmDriver extends SqlDriver {
   // `Perf.measure('orm.query', ...)` around SqlDriver.execute — its only caller is gone.
 
   /**
-   * Picks the handle for a query. Everything that mutates, changes schema, or runs inside a
-   * transaction stays on the single writer handle — scattering a transaction's statements across
-   * handles would run them outside the transaction, and a read handle cannot see uncommitted
-   * writes made on the writer.
+   * Whether a query runs on the writer handle. Everything that mutates, changes schema, or runs
+   * inside a transaction stays on the single writer handle — scattering a transaction's statements
+   * across handles would run them outside the transaction, and a read handle cannot see uncommitted
+   * writes made on the writer. `handleFor` and the writer gate in `executeOnDb` both follow it, so
+   * override this rather than `handleFor` to change the routing.
    */
-  protected handleFor(queryContext: QueryContext): sqlite3.Database {
-    if (this.ReadPool.length === 0 || queryContext !== QueryContext.Select) {
-      return this.Db;
-    }
+  protected usesWriter(queryContext: QueryContext): boolean {
+    return this.ReadPool.length === 0 || queryContext !== QueryContext.Select || this.TransactionStorage.getStore() !== undefined;
+  }
 
-    if (this.TransactionStorage.getStore()) {
+  /** Picks the handle for a query: the writer when `usesWriter` says so, otherwise the next read handle. */
+  protected handleFor(queryContext: QueryContext): sqlite3.Database {
+    if (this.usesWriter(queryContext)) {
       return this.Db;
     }
 
@@ -124,7 +126,7 @@ export class SqliteOrmDriver extends SqlDriver {
    * for them.
    */
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
-    if (this.TransactionStorage.getStore() !== undefined || (this.ReadPool.length > 0 && queryContext === QueryContext.Select)) {
+    if (this.TransactionStorage.getStore() !== undefined || !this.usesWriter(queryContext)) {
       return this.runStatement(stmt, params, queryContext);
     }
 

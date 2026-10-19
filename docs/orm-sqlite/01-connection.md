@@ -120,7 +120,8 @@ Overridable members of `SqliteOrmDriver`:
 | `disconnect()` | public | close read pool, then writer | flush or checkpoint before `super.disconnect()` |
 | `executeOnDb(stmt, params, context)` | public | hold an outside writer statement while a transaction is open, then `runStatement()` | add tracing; call `super.executeOnDb()` |
 | `runStatement(stmt, params, context)` | protected | send on `handleFor(context)`, shape the result, wrap errors; never held | map more errors |
-| `handleFor(context)` | protected | writer for non-`Select` and inside transactions, else round-robin read handle | route differently; see [Read handle pool](02-read-pool.md#services-and-extension-points) |
+| `usesWriter(context)` | protected | `true` for non-`Select`, inside transactions and when there are no read handles; side-effect free | route differently; both `handleFor()` and the writer gate in `executeOnDb()` follow it, so they stay in sync. See [Read handle pool](02-read-pool.md#services-and-extension-points) |
+| `handleFor(context)` | protected | the writer when `usesWriter(context)`, else round-robin read handle | pick among read handles differently; to send a query to the writer, override `usesWriter()` instead, or the writer gate does not hold it |
 | `openReadPool(filename)`, `closeReadPool()` | protected | open `Max - 1` read-only handles / close them | change how read handles open |
 | `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766, concurrentTransactions: false }` | leave as is; the core picks key read-back from it |
 | `ping()` | public | `true` while the writer handle exists | run a real query (`SELECT 1`) for the health probe |
