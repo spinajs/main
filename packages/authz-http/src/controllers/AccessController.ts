@@ -3,9 +3,9 @@ import type { Request } from '@spinajs/http';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Autoinject } from '@spinajs/di';
+import { AuthzDomains } from '@spinajs/authz';
 import { _check_arg, _is_array, _max_length } from '@spinajs/util';
 
-import { domainService } from '../domains.js';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
 import { MAX_ACCESS_CHECKS, answerClientChecks } from '../client-access/checks.js';
 import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
@@ -26,10 +26,13 @@ export class AccessController extends BaseController {
   @Autoinject(SseAccessPushTransport)
   protected Transport: SseAccessPushTransport;
 
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
+
   @Get('/')
   @Policy(HasPrincipal)
   public async summary(@Req() req: Request) {
-    const authz = await domainService(this.AccessDomain);
+    const authz = await this.Domains.service(this.AccessDomain);
     return new Ok(await authz.summary(req.storage.Principal!));
   }
 
@@ -38,8 +41,8 @@ export class AccessController extends BaseController {
   @Policy(HasPrincipal)
   public async checks(@Req() req: Request, @Body() checks: unknown[]) {
     _check_arg(_is_array(), _max_length(MAX_ACCESS_CHECKS))(checks, 'checks');
-    const authz = await domainService(this.AccessDomain);
-    return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, log: this.Log }));
+    const authz = await this.Domains.service(this.AccessDomain);
+    return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, domains: this.Domains, log: this.Log }));
   }
 
   /** `authz.changed` server-sent events for the caller (design §10.4); authenticated only, as the socket transport. */

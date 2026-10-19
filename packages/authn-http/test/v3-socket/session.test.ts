@@ -227,11 +227,12 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
   });
 
   describe('cookie rules shared with AuthnMiddleware', () => {
-    it("accepts the `s:` form of express's signed cookies and refuses it with a wrong signature", async () => {
+    it("accepts the `s:` form http sets and the unprefixed form it set before, and refuses a wrong signature", async () => {
       const u = await seedUser();
       const c = await loggedIn(u);
 
-      expect((await who({ cookie: `s:${c.cookie}` })).who).to.deep.include({ id: u.ref.id, source: 'session' });
+      expect((await who({ cookie: c.cookie! })).who).to.deep.include({ id: u.ref.id, source: 'session' });
+      expect((await who({ cookie: c.cookie!.slice(2) })).who).to.deep.include({ id: u.ref.id, source: 'session' });
       expect((await who({ cookie: `s:${c.sessionId}.forged-signature` })).who).to.deep.equal(UNATTENDED_WHO);
     });
 

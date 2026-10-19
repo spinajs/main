@@ -11,7 +11,7 @@
 3. The container builds `RedisSessionStore` once (singleton) and awaits `RedisSessionStore.resolve()`:
    - `createClient()` builds `new Redis(authn.session.redis ?? {})`;
    - `sweepLegacy()` indexes rows written by 2.x (see [2.x sessions and the boot sweep](02-legacy-session-sweep.md)). The boot waits for Redis here.
-4. `RedisSessionStore.dispose()` calls `Client.disconnect()`.
+4. `RedisSessionStore.dispose()` calls `Client.quit()`, so commands already sent finish first, and falls back to `disconnect()` when `quit()` fails.
 
 ### Save, `save(session)`
 
@@ -79,7 +79,7 @@ sequenceDiagram
 
 ### Truncate, `truncate()`
 
-`SCAN` with `MATCH <keyPrefix>session:*` in batches of 500, then `DEL` of each batch. It never runs `FLUSHDB`, and keys outside the store's prefix stay.
+`SCAN` with `MATCH` on the session rows and on both index-set patterns (built from `sessionKey()` and `indexKey()`, behind the escaped `keyPrefix`) in batches of 500, then `DEL` of each batch. It never runs `FLUSHDB`, and keys outside the store's prefix stay.
 
 ## Configuration
 
@@ -163,13 +163,13 @@ A 2.x row has `UserId` instead of `Subject`, `Impersonator` and `State`; its ide
 - **`save` is an upsert without a compare.** It overwrites whatever the key holds. Only `touch` is guarded.
 - **Revocation catches races.** `deleteBySubject` repeats until a pass finds nothing new, so a rotation that saves a new id during a ban is ended too.
 - **Index sets heal themselves.** A member whose row is gone, unreadable or owned by another subject is removed the next time `listBySubject` or `deleteBySubject` reads that set. Nothing scans the sets in the background.
-- **One bad row does not break revocation.** In lookups, the sweep and `touch`, an unparseable value is skipped with a warning, and undecodable `Data` reads as an empty map with the row's own `Subject` kept.
+- **One bad row does not break revocation.** In lookups, the sweep and `touch`, an unparseable value is skipped with a warning that names the session id, and undecodable `Data` reads as an empty map with the row's own `Subject` kept.
 - **`restore` is strict.** A value that is not JSON, or `Data` that does not decode, throws out of `restore`, and so out of the issuer's restore.
 - **Every boot scans the whole prefix.** `resolve()` runs `sweepLegacy()`, which `SCAN`s every `session:*` key and `MGET`s each batch. Boot time grows with the number of stored sessions.
 - **A Redis outage fails the boot.** `resolve()` waits for the sweep; when Redis is unreachable, the sweep fails once ioredis gives up the command (`maxRetriesPerRequest`).
-- **Connection errors go to the console.** The client gets no `error` listener, so ioredis prints them as unhandled error events; they do not reach the `redis-session-store` logger.
+- **Connection errors are logged.** `resolve()` attaches an `error` listener to the client that writes to the `redis-session-store` logger.
 - **No Cluster.** `MULTI` spans keys in different hash slots, and `SCAN` reads one node.
-- **`truncate()` deletes every `session:*` key under the prefix,** including 2.x `session:user:*` sets. With an empty `keyPrefix` it also deletes `session:*` keys another application wrote to the same database.
+- **`truncate()` deletes every key matching the session-row and index-set patterns under the prefix (`session:*` by default),** including 2.x `session:user:*` sets. With an empty `keyPrefix` it also deletes `session:*` keys another application wrote to the same database.
 
 ## Best practices
 

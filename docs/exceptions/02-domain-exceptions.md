@@ -37,7 +37,7 @@ An exact registration for `InvoiceLocked` wins over the inherited `Forbidden` on
 
 `Exception` has no hooks or abstract members. A subclass customizes three things in its constructor:
 
-- `name`: set `this.name = new.target.name`. `Exception` leaves it as `'Error'`.
+- `name`: `Exception` already sets it to `new.target.name`; assign it only to override.
 - Public fields: every own enumerable field is spread into the HTTP error body. Use them for the client contract, for example a `code`.
 - Private context: define it with `Object.defineProperty(this, key, { value, enumerable: false })` so the HTTP body and `JSON.stringify` skip it.
 
@@ -74,19 +74,19 @@ try {
   }
   if (err instanceof Forbidden) {
     console.log(JSON.stringify({ ...err, message: err.message }));
-    // {"code":"paid","name":"InvoiceLocked","message":"invoice 12 is locked: paid"}
+    // {"code":"paid","message":"invoice 12 is locked: paid"}
   }
 }
 ```
 
-Thrown from a controller, `InvoiceLocked` answers 403 with `code`, `name` and `message` in the body, and without `invoice`.
+Thrown from a controller, `InvoiceLocked` answers 403 with `code` and `message` in the body, and without `invoice`.
 
 ## Important behaviour
 
 - The HTTP mapping matches by class **name**, not by identity. A domain class named like a mapped class (your own `BadRequest`) takes that class's status, whatever it extends.
 - Two domain classes with the same name in different packages share one map entry.
 - A minifier that renames classes breaks the lookup; a renamed exception misses the map and answers 500.
-- `this.name = new.target.name` makes `name` an own enumerable field, so it appears in the HTTP body. That is what `@spinajs/authz` and `@spinajs/teams` do.
+- `Exception` defines `name` as a non-enumerable own field, so it does not appear in the HTTP body. Assigning `this.name = new.target.name` in a subclass (as `@spinajs/authz` and `@spinajs/teams` do) keeps it non-enumerable and is redundant.
 - A constructor parameter property (`public readonly code`) is enumerable. A `declare` field plus `Object.defineProperty(..., { enumerable: false })` keeps a value out of the body.
 
 ## Best practices

@@ -10,7 +10,7 @@ Write `fs-path://<provider>/<path>` anywhere in configuration to get the absolut
 4. `ConfigurationFsPathProtocol.getVar(rest)` gets the part after `fs-path://` and returns a `ConfigVar` at once. Nothing is resolved yet. The configuration stores the `ConfigVar` in place of the string.
 5. `load()` wraps every object that holds a `ConfigVar` in a proxy whose getter calls `ConfigVar.get()`.
 6. On each read (`Configuration.get()`, a `@Config()` property, a property access on a config object), `ConfigVar.get()` runs the resolver while it has no truthy cached value:
-   1. It splits `rest` with `/^(.*)\/(.*)/` into a provider name and a path. The match is greedy: the split is at the **last** `/`.
+   1. It splits `rest` with `/^([^/]*)\/(.*)/` into a provider name and a path. The split is at the **first** `/`, so the path part may hold several segments.
    2. `getFs(name)` resolves the `__file_provider__` factory, which returns the provider instance `fsService` registered under that name.
    3. `provider.resolvePath(path)` returns the result.
 7. A string result is cached for the life of the `ConfigVar`. Any failure logs a warning and returns `null`, and the next read tries again.
@@ -50,7 +50,7 @@ Value forms:
 | --- | --- | --- | --- |
 | `fs-path://fs-data/invoices` | `fs-data` | `invoices` | `/var/lib/billing/invoices` |
 | `fs-path://fs-data/` | `fs-data` | `''` | `/var/lib/billing` |
-| `fs-path://fs-data/invoices/2026` | `fs-data/invoices` | `2026` | `null` (unknown provider) |
+| `fs-path://fs-data/invoices/2026` | `fs-data` | `invoices/2026` | `/var/lib/billing/invoices/2026` |
 | `fs-path://fs-data` | none | none | `null` (invalid format) |
 | `fs-path:///invoices` | `''` | `invoices` | `null` (provider not found) |
 
@@ -80,7 +80,6 @@ const config = {
 - **Lazy, with retry.** `fsService` registers providers after `Configuration` is resolved. A read before that returns `null` and logs `Cannot resolve fs-path variable ... yet`. The same read succeeds once `fsService` is resolved.
 - **Cached once truthy.** `ConfigVar` caches only truthy values. After the first string result, later changes to the provider do not change the value.
 - **Every failure is `null`, never an exception.** An unknown provider name, a path that escapes `basePath` (`IOFail`) and a provider without local paths (`MethodNotImplemented`) all log the same warning and return `null` on every read. A typo in the provider name never fails the boot.
-- **Split at the last `/`.** `fs-path://fs-data/invoices/2026` asks for provider `fs-data/invoices` and returns `null`. Use one path segment, or the subclass in [Replacing or extending the protocol](02-replacing-or-extending-the-protocol.md).
 - **Default values do not apply.** `Configuration.get('invoices.archiveDir', '/tmp')` returns `null`, not `'/tmp'`, while the value is unresolved: `_.get` uses the default only for `undefined`.
 - **Schema validation can erase the value.** `FrameworkConfiguration.validate()` runs before `fsService`, with `coerceTypes: true`. If the module schema types the key as `string`, Ajv coerces the unresolved `null` to `''` and writes it over the `ConfigVar`. The key then stays `''` forever. A key typed `['string', 'null']` keeps the `ConfigVar`.
 - **Strings directly in arrays are not resolved.** `exportDirs: ['fs-path://fs-logs/audit']` stays the raw string. Wrap each entry in an object: `[{ dir: 'fs-path://fs-logs/audit' }]`.
@@ -93,7 +92,7 @@ const config = {
 - Read `fs-path://` keys through `@Config()` or `Configuration.get()` at use time, in `resolve()` or later, not in a constructor.
 - Resolve `fsService` before the first component that needs the path, so the first read already returns a string.
 - In a module schema, type `fs-path://` keys as `['string', 'null']`.
-- Keep the path part to one segment, or end it with `/` to get the provider base path itself.
+- End the value with `/` to get the provider base path itself.
 
 ## Patterns and antipatterns
 

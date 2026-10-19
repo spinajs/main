@@ -197,6 +197,14 @@ describe('templates cache modes', () => {
     expect(StubRenderer.CompileCount).to.eq(1);
   });
 
+  it('concurrent first renders should compile once', async () => {
+    const t = await setup('cache');
+
+    await Promise.all([t.render('fs://test/stub.test-tpl', {}), t.render('fs://test/stub.test-tpl', {})]);
+
+    expect(StubRenderer.CompileCount).to.eq(1);
+  });
+
   it('revalidate mode should recompile only after the source changes', async () => {
     const t = await setup('revalidate');
 

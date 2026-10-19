@@ -398,6 +398,15 @@ export class SocketServer extends AsyncService {
   protected async identify(handshake: ISocketHandshake): Promise<ISocketAuthState> {
     const sources = [...this.Sources].sort((a, b) => a.order - b.order);
 
+    // revalidation finds the source by name, so two sources sharing one would revalidate against the wrong one
+    const names = new Set<string>();
+    for (const source of sources) {
+      if (names.has(source.name)) {
+        throw new AuthzConfigError(`socket principal source name ${source.name} is registered twice`);
+      }
+      names.add(source.name);
+    }
+
     for (const source of sources) {
       const principal = await source.authenticate(handshake);
       // no credential yields SYSTEM or UNATTENDED; authz-http's PrincipalMiddleware refuses them the same way ( design §14.1 )

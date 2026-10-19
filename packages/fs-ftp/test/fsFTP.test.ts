@@ -98,6 +98,34 @@ describe('fs ftp basic tests', function () {
     expect(files).to.include('test.txt');
   });
 
+  it('should detect directories', async () => {
+    const ftp = await f();
+    expect(await ftp.dirExists('sub')).to.be.true;
+    expect(await ftp.isDir('sub')).to.be.true;
+    expect(await ftp.isDir('notexists')).to.be.false;
+  });
+
+  it('should copy file into new subfolder', async () => {
+    const ftp = await f();
+    await ftp.copy('sub/test.txt', 'copied/test.txt');
+    expect(await ftp.read('copied/test.txt', 'utf-8')).to.eq('hello world');
+  });
+
+  it('should move file from subfolder to another fs', async () => {
+    const ftp = await f();
+    const ft = await fl();
+    await ftp.move('copied/test.txt', 'moved.txt', ft);
+    expect(await ftp.exists('copied/test.txt')).to.be.false;
+    expect(await ft.exists('moved.txt')).to.be.true;
+    await ft.rm('moved.txt');
+  });
+
+  it('should remove directories', async () => {
+    const ftp = await f();
+    await ftp.rm('copied');
+    expect(await ftp.dirExists('copied')).to.be.false;
+  });
+
   it('should remove files', async () => {
     const ftp = await f();
     await ftp.rm('test.txt');

@@ -64,14 +64,14 @@ export class DbSecretStore extends SecretStore {
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
     if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
     const nowMs = checkedMs(new Date(), 'DbSecretStore.redeem: the clock');
-    const { driver, dialect } = await this.connection.get();
+    const { driver } = await this.connection.get();
     await this.purgeNowAndThen(nowMs);
 
     const q = driver.select().from(TABLE).select('id').select('identity').select('purpose');
-    const rows = (await selectTime(dialect, q, 'expires_at', 'expires_text').where('secret_hash', sha256hex(raw)).where('identity', key).where('purpose', purpose).whereNull('used_at')) as Record<string, unknown>[];
+    const rows = (await selectTime(driver, q, 'expires_at', 'expires_text').where('secret_hash', sha256hex(raw)).where('identity', key).where('purpose', purpose).whereNull('used_at')) as Record<string, unknown>[];
     // MySQL and MSSQL default collations ignore case: the binding to identity and purpose is checked exactly here.
     const row = rows.find((r) => r.identity === key && r.purpose === purpose);
-    if (!row || !this.liveInNode(columnText(dialect, row, 'expires_at', 'expires_text'), nowMs)) return false;
+    if (!row || !this.liveInNode(columnText(row, 'expires_text'), nowMs)) return false;
 
     const now = sqlTime(nowMs);
     const claimed = await driver.update().in(TABLE).update({ used_at: now }).where('id', String(row.id)).whereNull('used_at').where('expires_at', '>', now);
@@ -86,7 +86,6 @@ export class DbSecretStore extends SecretStore {
       this.whereNotNull('used_at');
       this.orWhere('expires_at', '<=', t);
     };
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const ids = ((await driver.select().from(TABLE).select('id').where(done).orderBy('id').take(PURGE_BATCH)) as { id: string }[]).map((r) => r.id);
     if (ids.length === 0) return 0;
     return rowsAffected(await driver.del().from(TABLE).whereIn('id', ids).where(done));

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
@@ -22,7 +22,6 @@ const recordsUse = (s: unknown): s is TokenUseRecorder => typeof (s as Partial<T
  * without any I/O and the dispatch passes it on.
  */
 @Injectable(AuthenticationStrategy)
-@Inject(TokenService)
 export class TokenStrategy extends AuthenticationStrategy {
   public readonly name = 'token';
   public readonly kinds: readonly string[] = ['bearer'];
@@ -40,13 +39,13 @@ export class TokenStrategy extends AuthenticationStrategy {
   @Logger('authn-token')
   protected Log: Log;
 
-  constructor(protected readonly tokens: TokenService) {
-    super();
-  }
+  @Autoinject(TokenService, { check: true })
+  protected Tokens: TokenService;
 
-  /** Fails boot on a token format over the size cap. TokenService is injected, so a missing IdentityStore already failed. */
+  /** Fails boot on a token format over the size cap. */
   public async resolve(): Promise<void> {
     checkTokenSize(this.Prefix, this.Length);
+    await super.resolve();
   }
 
   /** N1's CredentialSelector hook: true only for a bearer value in this strategy's format. */
@@ -101,7 +100,7 @@ export class TokenStrategy extends AuthenticationStrategy {
       return { ok: false, reason: 'unsupported_credentials' };
     }
 
-    const v = await this.tokens.validate(token, ctx);
+    const v = await this.Tokens.validate(token, ctx);
     if (!v.ok) {
       return { ok: false, reason: v.reason };
     }
@@ -120,7 +119,7 @@ export class TokenStrategy extends AuthenticationStrategy {
 
   /** Awaited, so tests and fake time see the write; a failure costs the stamp, never the request. */
   protected async stamp(token: TokenRecord | undefined, ctx: AuthnContext): Promise<void> {
-    if (!recordsUse(this.tokens) || !token?.id) {
+    if (!recordsUse(this.Tokens) || !token?.id) {
       return;
     }
 
@@ -130,7 +129,7 @@ export class TokenStrategy extends AuthenticationStrategy {
       if (last !== undefined && last >= ctx.now.getTime() - interval * 1000) {
         return;
       }
-      await this.tokens.touch(token.id, ctx, interval);
+      await this.Tokens.touch(token.id, ctx, interval);
     } catch (err) {
       this.Log.error({ error: err, tokenId: token.id }, 'Could not stamp the last use of access token ${tokenId}');
     }

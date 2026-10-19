@@ -1,8 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
-import { Authorizer, AuthzConfigError, CONDITION_UNKNOWN, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
+import { Authorizer, AuthzConfigError, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, Policy, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
 
 import { AbacModel, ConfigPolicyStore, MemoryPolicyStore } from '../../src/index.js';
 
@@ -72,6 +73,29 @@ describe('authz-abac: AbacModel', () => {
       await modelWith([{ ...policy('p2'), when: { fn: 'nope' } } as Policy]).catch((e) => (error = e));
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.match(/abac policy "p2" when: unknown condition function "nope"/);
+    });
+
+    it('knows a condition function registered only in the domain container, and refuses one registered nowhere', async () => {
+      class Weekday extends ConditionFunction {
+        readonly name = 'weekday';
+        evaluate(): boolean {
+          return true;
+        }
+      }
+      const weekday = [policy('wd', { when: { fn: 'weekday' } })];
+      const domain = DI.RootContainer.child();
+      try {
+        domain.register(Weekday).as(ConditionFunction);
+        const m = new AbacModel({ stores: [new MemoryPolicyStore(weekday)] });
+        await m.init(fakeModelInitContext({ permissions: registry(), container: domain }));
+        expect(m.applies(registry().require('file:read'), 'file')).to.equal(true);
+        let error: unknown;
+        await modelWith(weekday).catch((e) => (error = e));
+        expect(error).to.be.instanceOf(AuthzConfigError);
+        expect((error as Error).message).to.match(/abac policy "wd" when: unknown condition function "weekday"/);
+      } finally {
+        await domain.dispose();
+      }
     });
 
     it('says sync always only for static, unconditional, unscoped policies', async () => {

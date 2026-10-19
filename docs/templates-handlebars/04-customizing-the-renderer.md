@@ -25,7 +25,7 @@
 | `Type` | `HandlebarsRenderer` | `'handlebars'` | Name the engine for `Templates.compile(path, type, ...)` |
 | `Extension` | `HandlebarsRenderer` | `'.handlebars'` | Serve another extension, eg. `.hbs` |
 | `resolve()` | `HandlebarsRenderer` | Registers the built-in helpers, then `super.resolve()` | Register more helpers or partials after `await super.resolve()`, so they win over built-ins |
-| `compile(template)` | `HandlebarsRenderer` | `resolveContent()`, empty check (`IOFail`), `Handlebars.compile(content, Options)` | Pre-process the source, compile with another environment, or wrap the delegate to pass `RuntimeOptions` |
+| `compile(template)` | `HandlebarsRenderer` | `resolveContent()`, empty check (`IOFail`), syntax check with `Handlebars.precompile()` (`IOFail`), `Handlebars.compile(content, Options)` | Pre-process the source, compile with another environment, or wrap the delegate to pass `RuntimeOptions` |
 | `buildContext(model, language)` | `HandlebarsRenderer` | `_.merge({}, model ?? {}, { lang: language })` | Add values every template sees |
 | `Options` | `HandlebarsRenderer` | `@Config('templates.handlebars')` | Read it, or adjust it in `compile()` |
 | `resolveLanguage(language?)` | `CompiledTemplateRenderer` | Argument, else `guessLanguage()`, else `defaultLanguage()` | Pick the language another way, eg. from the model |

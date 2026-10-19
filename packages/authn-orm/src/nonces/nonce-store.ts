@@ -1,10 +1,11 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { NonceStore } from '@spinajs/authn/contracts';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import { OrmDriver } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
-import { checkedMs, checkedText, isDuplicate, rowsAffected, sqlTime } from '../support/sql.js';
+import { checkedMs, checkedText, rowsAffected, sqlTime } from '../support/sql.js';
 
 export { NonceStore } from '@spinajs/authn/contracts';
 export { MemoryNonceStore } from '@spinajs/authn/nonces';
@@ -48,7 +49,7 @@ export class DbNonceStore extends NonceStore {
         await driver.insert().into(TABLE).values({ k: key, expires_at: expires });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
       }
       if (rowsAffected(await driver.update().in(TABLE).update({ expires_at: expires }).where('k', key).where('expires_at', '<=', t)) === 1) {
         return true;
@@ -63,7 +64,6 @@ export class DbNonceStore extends NonceStore {
   public async purge(now: Date = new Date()): Promise<number> {
     const t = sqlTime(checkedMs(now, 'DbNonceStore.purge: now'));
     const { driver } = await this.connection.get();
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const keys = ((await driver.select().from(TABLE).select('k').where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)) as { k: string }[]).map((r) => r.k);
     if (keys.length === 0) return 0;
     return rowsAffected(await driver.del().from(TABLE).whereIn('k', keys).where('expires_at', '<=', t));

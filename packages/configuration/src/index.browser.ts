@@ -13,3 +13,4 @@ export * from './decorators.js';
 export * from './exception.js';
 export * from './fp.js';
 export * from './configuration.browser.js';
+export { merge, mergeArrays } from './util-common.js';

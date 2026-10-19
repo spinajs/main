@@ -36,7 +36,7 @@ A controller whose `file` is a placeholder such as `<dynamic>` (added with `Cont
 | Route declaration | Documented path |
 | --- | --- |
 | `@BasePath('invoices')` + `@Get(':id')` | `/invoices/{id}` |
-| `@BasePath('invoices')` + `@Get('/')` | `/invoices/` |
+| `@BasePath('invoices')` + `@Get('/')` | `/invoices` (as the runtime mounts it) |
 | `@BasePath('/')` + `@Get('health')` | `/health` |
 | `@BasePath('invoices')` + `@Get()` on `archive()` | `/invoices/archive` (method name) |
 | no `@BasePath` on `InvoicesController` | `/invoicescontroller/...` (lowercased class name, as the runtime mounts it) |
@@ -73,7 +73,8 @@ Standard codes and their components: `400` `BadRequest`, `401` `Unauthorized`, `
 | `{Type}` | Schema |
 | --- | --- |
 | `string` | `{ type: 'string' }` |
-| `number`, `integer` | `{ type: 'number' }` |
+| `number` | `{ type: 'number' }` |
+| `integer` | `{ type: 'integer' }` |
 | `boolean` | `{ type: 'boolean' }` |
 | `object` | `{ type: 'object' }` |
 | `array` | array of strings |
@@ -94,7 +95,7 @@ A route that returns a file is documented as a binary body, not as JSON. The cla
 
 - Each `@example` becomes one entry in `examples`, keyed by its `<caption>` or `example_<n>`.
 - The value is parsed as JSON; text that is not JSON stays a string.
-- A route with a request body gets them on `requestBody.content['application/json']`. A route without a body gets them on the `200` response.
+- A route with a request body gets them on the body's media type (`application/json`, `application/xml` or `multipart/form-data`). A route without a body gets them on the `200` response.
 
 ## Security
 
@@ -112,7 +113,6 @@ Scopes cannot be written in the tag; every scheme gets an empty scope list.
 - JSDoc is read from `.d.ts` files. Without them (`declaration: false`), hashing the missing file throws `IOFail` and the build fails. With `removeComments: true`, routes have no summaries, tags or responses.
 - Only the first class tag names the controller's routes; `@tags A, B` on a class does not put the routes under `B`.
 - Only the controller tags go into the top-level `tags` list. Tags named only on methods still work in Swagger UI, without a description.
-- `@example` on a multipart route is dropped: it is attached to `application/json`, which a multipart body does not have.
 - `@response <code> text` with a code outside the standard list gets no content schema.
 
 ## Best practices

@@ -4,7 +4,7 @@ import { Argument, Command } from '@spinajs/cli';
 import { RbacCliCommand } from './RbacCliCommand.js';
 import { deleteUser } from '../actions.js';
 
-@Command('rbac:user-delete', 'Deletes user from database permanently')
+@Command('rbac:user-delete', 'Soft-deletes user and ends its sessions and tokens')
 @Argument('idOrUuid',true, 'numeric id or uuid')
 export class DeleteUser extends RbacCliCommand {
   @Logger('rbac')
@@ -20,6 +20,7 @@ export class DeleteUser extends RbacCliCommand {
       } else {
         this.Log.error({ error: e, user: idOrUuid }, 'Error while deleting user ${user}');
       }
+      process.exitCode = 1;
     }
   }
 }

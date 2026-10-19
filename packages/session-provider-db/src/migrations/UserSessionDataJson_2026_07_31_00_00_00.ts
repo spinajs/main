@@ -1,9 +1,9 @@
 import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
-import { columnNativeType, isMySqlDialect, isTextFamily } from '../migration-support.js';
+import { columnNativeType, isTextFamily } from '../migration-support.js';
 
 /**
- * Converts an EXISTING text-typed `user_sessions.Data` to a native MySQL `json`
- * column, so the read path receives a parsed object graph instead of text.
+ * Converts an EXISTING text-typed `user_sessions.Data` to the driver's native
+ * `json` column, so the read path receives a parsed object graph instead of text.
  *
  * Databases created before the create-path migration
  * (`UserSessionDBSqlMigration_2022_06_28_01_20_00`) declared `json` - i.e. every
@@ -41,13 +41,12 @@ import { columnNativeType, isMySqlDialect, isTextFamily } from '../migration-sup
  *
  * An unreadable probe skips too - see `columnNativeType`.
  *
- * 3. Dialect gate: MySQL only
- * ------------------------------
- * `MODIFY` and the `JSON` type are MySQL's. A text-family `Data` on MSSQL
- * (`nvarchar`) or sqlite (`TEXT`) passes guard 2 and would then be handed
- * syntax its server rejects - the same failed-migration outage guard 2 exists to
- * prevent. Those dialects keep a text column and the read path keeps decoding a
- * string, which is exactly what `decodeSessionData` does with it.
+ * 3. Native JSON only
+ * -------------------
+ * A driver without a JSON type of its own (`supportedFeatures().nativeJson`
+ * unset: sqlite, MSSQL) stores `json()` as text anyway, so a text-family `Data`
+ * there is already converged and the read path keeps decoding a string, which
+ * is exactly what `decodeSessionData` does with it.
  *
  * 4. The wipe
  * -----------
@@ -68,17 +67,12 @@ import { columnNativeType, isMySqlDialect, isTextFamily } from '../migration-sup
  * by some engines for a table involved in foreign keys, and there is no volume
  * here to make the difference worth having.
  *
- * 5. ONE statement, not three
- * ----------------------------
- * `alterTable()` compiles one `ICompilerOutput` per modified column and
- * `SqlDriver.execute` wraps the array in `Promise.all` - three concurrent
- * `ALTER TABLE`s on three pooled connections against one table. A partial
- * failure leaves the table half-converted AND the migration marked failed. The
- * raw escape hatch (`schema().raw`, compiled by `SqlRawSchemaQueryCompiler`,
- * registered by every SQL driver via `orm-sql`) sends exactly one statement.
- * The `CreatedAt`/`Expiration` widening that used to ride along here now lives
- * in its own migration (`UserSessionTimestamps_2026_07_31_00_00_01`), because it
- * is a cast that cannot fail and must stay independently applicable.
+ * 5. Data alone
+ * ------------
+ * `alterTable()` runs one statement per altered column, concurrently. Only
+ * `Data` is altered here; the `CreatedAt`/`Expiration` widening that used to
+ * ride along lives in its own migration (`UserSessionTimestamps_2026_07_31_00_00_01`),
+ * because it is a cast that cannot fail and must stay independently applicable.
  */
 @Migration('session-provider-connection')
 export class UserSessionDataJson_2026_07_31_00_00_00 extends OrmMigration {
@@ -95,18 +89,16 @@ export class UserSessionDataJson_2026_07_31_00_00_00 extends OrmMigration {
       return;
     }
 
-    if (!isMySqlDialect(connection)) {
+    if (!connection.supportedFeatures().nativeJson) {
       return;
     }
 
     await connection.schema().raw('DELETE FROM user_sessions');
 
-    // Identifiers are backtick-quoted: this statement is MySQL-only by
-    // construction (guard 3), so portability of the quoting style is not a
-    // constraint, and quoting removes any question about `Data` being a MySQL
-    // keyword. `NOT NULL` is restated because MODIFY replaces the WHOLE column
-    // definition - omitting it would silently make the column nullable.
-    await connection.schema().raw('ALTER TABLE `user_sessions` MODIFY `Data` JSON NOT NULL');
+    // NOT NULL restated: MySQL's MODIFY replaces the whole column definition.
+    await connection.schema().alterTable('user_sessions', (table) => {
+      table.json('Data').notNull().modify();
+    });
   }
 
   /**
@@ -132,10 +124,12 @@ export class UserSessionDataJson_2026_07_31_00_00_00 extends OrmMigration {
 
     const dataType = await columnNativeType(connection, 'user_sessions', 'Data');
 
-    if (dataType !== 'json' || !isMySqlDialect(connection)) {
+    if (dataType === null || isTextFamily(dataType) || !connection.supportedFeatures().nativeJson) {
       return;
     }
 
-    await connection.schema().raw('ALTER TABLE `user_sessions` MODIFY `Data` TEXT NOT NULL');
+    await connection.schema().alterTable('user_sessions', (table) => {
+      table.text('Data').notNull().modify();
+    });
   }
 }

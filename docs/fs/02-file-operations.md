@@ -98,12 +98,12 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
 ## Zip and unzip
 
 - `paths` is a path, or an array of paths and `[sourcePath, entryName]` tuples.
-- A plain path to a directory is added recursively; anything else is added as one file named after the **base name** of its path or `entryName`.
+- A plain path to a directory is added recursively; anything else is added as one file named after the **base name** of its path, or after `entryName` as given (folders included).
 - Every source must exist. Otherwise `zip()` throws one `IOFail` listing all missing paths.
 - `fsNative.zip()` writes to `dstFs`, or to the provider named `fs-temp` when you pass none. `fsTemp.zip()` writes to itself.
 - `dstFile` defaults to `<uuid>.zip`.
 - `IZipResult` gives `fs` (the destination), `asFilePath()`, `asStream(encoding?)`, `asBase64()` and `unlink()`. The first three read the local path, so they need a destination with local paths.
-- `unlink()` is typed `void` but `fsNative` returns a promise from it: `await` it.
+- `unlink()` returns a promise: `await` it.
 - `unzip()` extracts into `dstFs` (or the same provider) at `destPath`, or a new UUID directory, and returns its resolved path.
 
 ## Important behaviour

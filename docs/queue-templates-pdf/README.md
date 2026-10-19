@@ -30,7 +30,7 @@ It needs a configured queue (a transport and the `queue_jobs` table, see [`@spin
 
 | Extension point | DI token and lifetime | Default | Page |
 | --- | --- | --- | --- |
-| The job class | `RenderPdfJob`, resolved by `QueueService.consume()` per delivery; singleton unless the class says otherwise | `RenderPdfJob` | [Extending `RenderPdfJob`](05-extending-render-pdf-job.md) |
+| The job class | `RenderPdfJob`, resolved by `QueueService.consume()` per delivery; `@NewInstance()` | `RenderPdfJob` | [Extending `RenderPdfJob`](05-extending-render-pdf-job.md) |
 | Worker process | `RenderPdfJob.spawnWorker()` (protected) | `fork()` of the shipped `render-worker.js` | [Custom worker entry](06-custom-worker-entry.md) |
 | Worker request | `RenderPdfJob.buildRequest()` (protected) | the job's payload fields | [Extending `RenderPdfJob`](05-extending-render-pdf-job.md#add-defaults-to-every-request) |
 | Render core | `renderPdfToProvider()` (function) | used by the shipped worker | [Render worker](03-render-worker.md) |

@@ -76,7 +76,7 @@ describe('Swagger API', function () {
       const spec = JSON.parse(result.text);
 
       // Pet controller routes
-      expect(spec.paths).to.have.property('/pets/');
+      expect(spec.paths).to.have.property('/pets');
       expect(spec.paths).to.have.property('/pets/{id}');
 
       // Status controller routes
@@ -88,8 +88,8 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      expect(spec.paths['/pets/']).to.have.property('get');
-      expect(spec.paths['/pets/']).to.have.property('post');
+      expect(spec.paths['/pets']).to.have.property('get');
+      expect(spec.paths['/pets']).to.have.property('post');
       expect(spec.paths['/pets/{id}']).to.have.property('get');
       expect(spec.paths['/pets/{id}']).to.have.property('put');
       expect(spec.paths['/pets/{id}']).to.have.property('delete');
@@ -100,13 +100,13 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const listPets = spec.paths['/pets/'].get;
+      const listPets = spec.paths['/pets'].get;
       expect(listPets.summary).to.equal('List all pets');
 
       const getPet = spec.paths['/pets/{id}'].get;
       expect(getPet.summary).to.equal('Get a pet by ID');
 
-      const createPet = spec.paths['/pets/'].post;
+      const createPet = spec.paths['/pets'].post;
       expect(createPet.summary).to.equal('Create a new pet');
     });
 
@@ -114,7 +114,7 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const listPets = spec.paths['/pets/'].get;
+      const listPets = spec.paths['/pets'].get;
       expect(listPets.description).to.include('paginated list');
 
       const getPet = spec.paths['/pets/{id}'].get;
@@ -146,7 +146,7 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const listPets = spec.paths['/pets/'].get;
+      const listPets = spec.paths['/pets'].get;
       expect(listPets.parameters).to.be.an('array');
 
       const pageParam = listPets.parameters.find((p: any) => p.name === 'page');
@@ -175,7 +175,7 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const createPet = spec.paths['/pets/'].post;
+      const createPet = spec.paths['/pets'].post;
       expect(createPet.requestBody).to.exist;
       expect(createPet.requestBody.content).to.have.property('application/json');
     });
@@ -210,7 +210,7 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const listPets = spec.paths['/pets/'].get;
+      const listPets = spec.paths['/pets'].get;
       const pageParam = listPets.parameters.find((p: any) => p.name === 'page');
       expect(pageParam.description).to.equal('Page number for pagination');
 
@@ -460,7 +460,7 @@ describe('Swagger API', function () {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
 
-      const op = spec.paths['/pets/'].get;
+      const op = spec.paths['/pets'].get;
       expect(op.security).to.be.undefined;
     });
   });

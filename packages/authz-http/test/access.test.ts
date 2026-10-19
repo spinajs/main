@@ -199,9 +199,9 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
     });
 
     it('refuses an empty permission list, a malformed permission and an empty reason when the module loads', () => {
-      expect(() => Access([])).to.throw(/at least one permission/);
+      expect(() => Access([])).to.throw(AuthzConfigError, /at least one permission/);
       expect(() => Access('not a permission')).to.throw();
-      expect(() => Unscoped(' ')).to.throw(/reason/);
+      expect(() => Unscoped(' ')).to.throw(AuthzConfigError, /reason/);
     });
   });
 
@@ -298,7 +298,7 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
           public x() {}
         }
         return Twice;
-      }).to.throw(/declared twice on Twice.x/);
+      }).to.throw(AuthzConfigError, /declared twice on Twice.x/);
     });
 
     it("keeps the route @Access decision when the class @Access passes too", async () => {
@@ -347,12 +347,15 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
     });
 
     it('is not audited while the domain turns audit.unscoped off', async () => {
-      testHost.config().set(['authz', 'domains', D, 'audit'], { unscoped: false });
+      // The audit follows the config the domain's service booted with.
+      await domain.dispose();
+      domain = await createDomain(D, { permissions: PERMISSIONS, model: { votes }, domain: { audit: { unscoped: false } } });
       try {
         await app.request().get('/acc/reports').set('x-user', 'alice');
         expect(domain.audit.of('unscoped')).to.deep.eq([]);
       } finally {
-        testHost.config().unset(['authz', 'domains', D, 'audit']);
+        await domain.dispose();
+        domain = await createDomain(D, { permissions: PERMISSIONS, model: { votes } });
       }
     });
   });

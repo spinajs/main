@@ -32,7 +32,7 @@ const INDEX_VALUES = [
   'OIDC_FLOW_COOKIE_BASE_NAME', 'OIDC_FLOW_COOKIE_MAX_LENGTH', 'OIDC_FLOW_FUTURE_SKEW_SECONDS', 'OIDC_FLOW_TTL_SECONDS', 'OIDC_HOST_PATTERN',
   'OIDC_HTTP_MAX_BODY_BYTES', 'OIDC_HTTP_TIMEOUT_MS', 'OIDC_PRESETS', 'OIDC_PRESET_IDS', 'OIDC_PROVIDER_NAME_PATTERN', 'OIDC_RESERVED_PARAMS', 'OIDC_SEGMENT_PATTERN',
   'OIDC_SIGNING_ALGORITHMS', 'OidcAccountLinks', 'OidcBootstrapper', 'OidcDiscovery', 'OidcHttpClient', 'OidcJwks', 'OidcLogin', 'OidcProvider', 'OidcProviders',
-  'OidcStrategy', 'appEnvOf', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
+  'OidcStrategy', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
   'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
   'stateClaim', 'validateIdToken', 'buildOidcOptions',
