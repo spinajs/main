@@ -35,7 +35,8 @@ module.exports = {
       name: 'not-to-unresolvable',
       severity: 'error',
       from: {},
-      to: { couldNotResolve: true },
+      // Platform-specific optional packages: only one of them is installed on a given OS.
+      to: { couldNotResolve: true, pathNot: '^exiftool-vendored[.](exe|pl)$' },
     },
     {
       name: 'no-deprecated-core',

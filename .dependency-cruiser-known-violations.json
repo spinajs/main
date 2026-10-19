@@ -4857,19 +4857,6 @@
   },
   {
     "type": "dependency",
-    "from": "packages/fs/src/file-info.ts",
-    "to": "exiftool-vendored.pl",
-    "unresolvedTo": "exiftool-vendored.pl",
-    "dependencyTypes": [
-      "unknown"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "not-to-unresolvable"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "packages/electron/src/ipc.ts",
     "to": "node_modules/electron/index.js",
     "unresolvedTo": "electron",
