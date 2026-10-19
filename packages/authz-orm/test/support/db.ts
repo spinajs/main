@@ -5,11 +5,15 @@ import '@spinajs/orm-postgres';
 import { DI } from '@spinajs/di';
 import { Connection, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 
 import { unregisterResource } from '../../src/registry.js';
 
 export type Dialect = 'sqlite' | 'postgres';
+
+/** A connection of the test ORM: a dialect, or `other`, a second SQLite `:memory:` database. */
+export type ConnectionName = Dialect | 'other';
 
 export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
@@ -55,7 +59,7 @@ export class TestDb {
   }
 
   /** `database`: a throwaway Postgres database to use instead of the shared one, run with its own jit setting. */
-  static async open(opts: { postgres?: boolean; database?: string } = {}): Promise<TestDb> {
+  static async open(opts: { postgres?: boolean; database?: string; other?: boolean } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -65,6 +69,7 @@ export class TestDb {
     }
     const cfg = testHost.config();
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }];
+    if (opts.other) connections.push({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' });
     // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
     // that name on the search path makes the joined and the unqualified spelling one table.
     const database = opts.database ?? POSTGRES.Database;
@@ -103,10 +108,16 @@ export class TestDb {
     }
   }
 
-  driver(dialect: Dialect = 'sqlite'): OrmDriver {
-    const d = this.orm.Connections.get(dialect);
-    if (!d) throw new Error(`TestDb: no connection ${dialect}`);
+  driver(name: ConnectionName = 'sqlite'): OrmDriver {
+    const d = this.orm.Connections.get(name);
+    if (!d) throw new Error(`TestDb: no connection ${name}`);
     return d;
+  }
+
+  /** Points the alias `authz` at `name`, where the authz records then read and write, and reloads every model's columns from its connection. */
+  async useAuthz(name: ConnectionName): Promise<void> {
+    this.orm.Connections.set(AUTHZ_CONNECTION, this.driver(name));
+    await this.orm.reloadTableInfo();
   }
 
   raw(sql: string, params: unknown[] = [], dialect: Dialect = 'sqlite'): Promise<any> {

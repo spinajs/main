@@ -5,8 +5,10 @@ import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
+import { AncestorRecord } from '../ancestors/record.js';
 import { driverOf } from '../ids.js';
-import { classesOf } from '../registry.js';
+import { recordDriver, requireConnection } from '../records.js';
+import { classesOf, nameOf } from '../registry.js';
 
 /** The ORM is resolved when the command runs (the Cli boots only the command); tests set `Orm`. */
 export abstract class AuthzOrmCliCommand extends CliCommand {
@@ -16,13 +18,11 @@ export abstract class AuthzOrmCliCommand extends CliCommand {
     return (this.Orm ??= (await DI.resolve(Orm)) as Orm);
   }
 
-  /** The connection of the type's first registered class, else the ORM's default. */
-  protected async driverFor(type: string): Promise<OrmDriver> {
+  /** The connection of the type's first registered class, which must be the one authz_resource_ancestor is on; that one for a type without a class. */
+  protected driverFor(type: string): OrmDriver {
     const cls = classesOf(type)[0];
-    if (cls) return driverOf(cls);
-    const d = (await this.orm()).Connections.get('default');
-    if (!d) throw new Error('authz:ancestors: the ORM has no default connection');
-    return d;
+    if (!cls) return recordDriver(AncestorRecord);
+    return requireConnection(AncestorRecord, driverOf(cls), `authz:ancestors: ${nameOf(cls)} (resource '${type}')`);
   }
 
   protected out(line = ''): void {

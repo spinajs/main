@@ -4,7 +4,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 
-import { AUTHZ_RESOURCE_ANCESTOR_TABLE, AuthzResourceAncestor_2026_10_14_00_00_00, chunks } from '../../src/ancestors/index.js';
+import { AUTHZ_RESOURCE_ANCESTOR_TABLE, AuthzResourceAncestor_2026_10_14_00_00_00 } from '../../src/ancestors/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { ancestorLinks, createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
@@ -28,11 +28,6 @@ describe('authz_resource_ancestor migration', function () {
   it('is registered on the authz connection, as the RBAC migration', () => {
     expect(DI.getRegisteredTypes('__migrations__')).to.include(AuthzResourceAncestor_2026_10_14_00_00_00);
     expect((AuthzResourceAncestor_2026_10_14_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal('authz');
-  });
-
-  it('chunks a list', () => {
-    expect(chunks([1, 2, 3, 4, 5], 2)).to.deep.equal([[1, 2], [3, 4], [5]]);
-    expect(chunks([], 2)).to.deep.equal([]);
   });
 
   for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {

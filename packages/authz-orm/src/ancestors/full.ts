@@ -3,9 +3,10 @@ import type { ResourceRef, ResourceType } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { idText, tableOf } from '../ids.js';
+import { selectFrom } from '../records.js';
 import { classesOf, entryOf, typesAbove } from '../registry.js';
 import { closeOver } from './closure.js';
-import { ANCESTOR_COLUMNS, AUTHZ_RESOURCE_ANCESTOR_TABLE } from './table.js';
+import { AncestorRecord } from './record.js';
 import type { AncestorRow } from './table.js';
 
 const linkKey = (r: AncestorRow): string => `${r.resource_type}:${r.resource_id}>${r.ancestor_type}:${r.ancestor_id}`;
@@ -57,19 +58,13 @@ export async function expectedRows(driver: OrmDriver, type: ResourceType): Promi
   return out;
 }
 
-export async function actualRows(driver: OrmDriver, type: ResourceType): Promise<AncestorRow[]> {
-  const rows = (await driver
-    .select()
-    .from(AUTHZ_RESOURCE_ANCESTOR_TABLE)
-    .columns([...ANCESTOR_COLUMNS])
-    .where('resource_type', type)) as Record<string, unknown>[];
-  return rows.map((r) => ({ resource_type: String(r.resource_type), resource_id: String(r.resource_id), ancestor_type: String(r.ancestor_type), ancestor_id: String(r.ancestor_id), depth: Number(r.depth) }));
+export async function actualRows(type: ResourceType): Promise<AncestorRow[]> {
+  return await selectFrom(AncestorRecord).where('resource_type', type);
 }
 
 /** Resource types that have rows in the table. */
-export async function listedTypes(driver: OrmDriver): Promise<ResourceType[]> {
-  const rows = (await driver.select().from(AUTHZ_RESOURCE_ANCESTOR_TABLE).columns(['resource_type']).distinct()) as Record<string, unknown>[];
-  return rows.map((r) => String(r.resource_type));
+export async function listedTypes(): Promise<ResourceType[]> {
+  return (await selectFrom(AncestorRecord).columns(['resource_type']).distinct()).map((r) => r.resource_type);
 }
 
 export interface RowDiff {

@@ -137,9 +137,9 @@ Index on `(scope_type, scope_id)`.
 
 | Table | Migration | Content |
 |---|---|---|
-| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | On connection `authz`: PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes |
-| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | On connection `authz`: PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at` |
-| `authz_scope_attribute_version` | same file | Single row: `id`, `version` |
+| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | On connection `authz`: PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes. Read and written through `AncestorRecord` (`ancestors/record.ts`) |
+| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | On connection `authz`: PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at`. Read and written through `ScopeAttributeRecord` (`scope-attributes/records.ts`); `value_json` is a `@Json` column |
+| `authz_scope_attribute_version` | same file | Single row: `id`, `version`. Read and written through `ScopeAttributeVersionRecord` |
 | `authz_audit` | `audit/AuthzAudit_2026_10_01_00_00_00.ts` | On connection `authz-audit`: `id`, `at`, `kind`, `principal`, `permission`, `resource`, `reason`, `trace`; index on `at` |
 
 ### authz-fs
@@ -335,7 +335,7 @@ grant, tag, provenance, threshold, residual.
 There are no per-row ACL rows. Access to one resource comes from:
 
 - an `authz_assignment` at that resource or at one of its ancestors. The engine walks
-  `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:65-97`) and path ancestors
+  `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:62-86`) and path ancestors
   for files;
 - a relation check on a grant: `@Owner` and `@Self` columns on ORM models
   (`authz-orm/src/relations.ts`), or the owner in `fs_object` (`authz-fs/src/metadata/owner.ts`);

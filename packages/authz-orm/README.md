@@ -20,7 +20,8 @@ ORM alias `authz` (`db.Aliases.authz`, which this package's config maps to `defa
 of the resource tables: the list filter joins them with `authz_assignment` (and, for `@Parent`,
 `authz_resource_ancestor`), and a delete forgets the row's scopes through the same driver. The domain boot
 refuses every `@AccessResource` model on another connection (`AuthzConfigError` naming each model and its
-connection), with or without `@Parent`.
+connection), with or without `@Parent`. A write of such a model, and `authz:ancestors-verify` or
+`authz:ancestors-rebuild` for its type, fail the same way before they touch a row.
 
 ## Declaring resources
 
@@ -230,7 +231,12 @@ the last one registered, so loading the module would silently replace the log au
 ## Scope attributes
 
 `DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
-(`scope.setAttributes`, `scope.replaceAttributes`).
+(`scope.setAttributes`, `scope.replaceAttributes`). `new DbScopeAttributeStore()` takes no options:
+it reads and writes on the alias `authz`, and a write runs only inside the `AuthzAdmin` transaction on
+that connection (`AuthzConfigError` otherwise). A read resolves the Orm first when nothing has (a cli
+process). Register the one instance under both `ScopeAttributeStore` and `WritableScopeAttributeStore`.
+Every write first updates the single row of `authz_scope_attribute_version`; its row lock queues
+concurrent writers of the same database.
 
 ## Config
 

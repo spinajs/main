@@ -1,5 +1,5 @@
 import { AuthzConfigError, resourceKey } from '@spinajs/authz';
-import { extractModelDescriptor } from '@spinajs/orm';
+import { extractModelDescriptor, lookupValue } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { nameOf } from './registry.js';
@@ -15,25 +15,13 @@ export function idText(value: unknown): string | undefined {
   return undefined;
 }
 
-const NUMERIC = /int|serial|number|numeric|decimal|real|float|double/i;
-const UUID_TYPE = /^(uuid|uniqueidentifier)$/i;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const INTEGER = /^-?(0|[1-9][0-9]*)$/;
-
 /**
- * The value to look `id` up by in `column`, or undefined when no row can have it: binding 'abc'
- * against an integer or uuid column is a cast error on PostgreSQL, not a miss.
+ * The value to look `id` up by in `column`, or undefined when no row can have it. Such an id is left out
+ * of the query rather than bound: binding it fails the cast on some databases and matches a coerced key on others.
  */
 export function idLookup(model: ModelClass, column: string, id: string): string | number | undefined {
   const c = extractModelDescriptor(model as never)?.Columns?.find((x) => x.Name === column);
-  const type = String(c?.NativeType ?? c?.Type ?? '');
-  if (UUID_TYPE.test(type)) return UUID.test(id) ? id : undefined;
-  if (NUMERIC.test(type)) {
-    if (!INTEGER.test(id)) return undefined;
-    const n = Number(id);
-    return Number.isSafeInteger(n) ? n : id;
-  }
-  return id;
+  return c ? lookupValue(c, id) : id;
 }
 
 export function tableOf(model: ModelClass): string {

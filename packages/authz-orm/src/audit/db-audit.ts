@@ -7,7 +7,7 @@ import { AUDIT_TABLE, AuthzAuditEntry } from './model.js';
 
 type AuditRecord = Parameters<DecisionAudit['record']>[0];
 
-// Postgres refuses a value longer than its varchar column, which would lose the whole row.
+// A value longer than its column fails the whole insert on some databases, and the row would be lost.
 const fit = (s: string, max: number): string => {
   const chars = Array.from(s);
   return chars.length <= max ? s : chars.slice(0, max).join('');
