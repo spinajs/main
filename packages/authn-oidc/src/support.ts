@@ -1,9 +1,7 @@
 import { normalizeEnvironment } from '@spinajs/configuration-common';
 import { _custom, _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 
-export const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-export const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+export { deepFreeze, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 /** Development and test relax https and cookie flags; an absent or unknown env is production. */
 export function isRelaxedEnv(env: string | null | undefined): boolean {
@@ -38,14 +36,4 @@ export function checkedUrl(value: unknown, rules: UrlRules): URL | null {
     return null;
   }
   return url;
-}
-
-export function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const v of Object.values(value)) {
-      deepFreeze(v);
-    }
-  }
-  return value;
 }

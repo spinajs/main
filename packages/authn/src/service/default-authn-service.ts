@@ -4,7 +4,7 @@ import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configur
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 
-import { isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
+import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
 import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
@@ -69,10 +69,7 @@ const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_c
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-// ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
-const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
-
-const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && foldAscii(stored) === foldAscii(verified);
+const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 

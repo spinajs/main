@@ -2,7 +2,7 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { JwsSigner } from '@spinajs/authn/contracts';
 import type { JwsClaims, JwsKey, JwsSignOptions } from '@spinajs/authn/contracts';
-import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
+import { _is_string, _non_empty, _try_check_arg, isNonNegativeInt } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { decodeB64url, encodeB64url } from '../jwk/base64url.js';
 import { checkPublicJwk, isValidKid } from '../jwk/keys.js';
@@ -23,8 +23,6 @@ interface SigningKey {
   readonly publicKey: JwsKey;
   readonly privateKey: KeyObject;
 }
-
-const isUint = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 function signingKey(jwk: PrivateJwk): SigningKey {
   const where = `signing key ${JSON.stringify(jwk?.kid)}`;
@@ -84,7 +82,7 @@ export class LocalJwsSigner extends JwsSigner {
     if (!hasTyp) {
       throw new InvalidArgument('a JWS needs a typ');
     }
-    if (typeof claims.iss !== 'string' || typeof claims.aud !== 'string' || !isUint(claims.iat) || !isUint(claims.exp) || claims.exp <= claims.iat) {
+    if (typeof claims.iss !== 'string' || typeof claims.aud !== 'string' || !isNonNegativeInt(claims.iat) || !isNonNegativeInt(claims.exp) || claims.exp <= claims.iat) {
       throw new InvalidArgument('claims need string iss and aud, and integer iat < exp in Unix seconds');
     }
     const header = JSON.stringify({ alg: key.publicKey.alg, kid, typ: opts.typ });

@@ -7,6 +7,7 @@ import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Credentials, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
+import { isPlainObject } from '@spinajs/util';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
@@ -26,9 +27,9 @@ const USER_AGENT_CAP = 512;
 /** The first of `names` the JSON body carries. */
 export function bodyField(req: Request, ...names: string[]): unknown {
   const body: unknown = req.body;
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) return undefined;
+  if (!isPlainObject(body)) return undefined;
   for (const name of names) {
-    const value = (body as Record<string, unknown>)[name];
+    const value = body[name];
     if (value !== undefined) return value;
   }
   return undefined;

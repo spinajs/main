@@ -209,6 +209,8 @@ export function tokenRoutesSuite(): void {
       expect(expiryOf('2028-02-29T23:59:59.5+02:00')?.toISOString()).to.eq('2028-02-29T21:59:59.500Z');
       expect(expiryOf('2026-10-05T10:00Z')?.toISOString()).to.eq('2026-10-05T10:00:00.000Z');
       expect(expiryOf('2026-10-05T10:00:00-03:30')?.toISOString()).to.eq('2026-10-05T13:30:00.000Z');
+      expect(expiryOf('2026-10-05T10:00:00.123456789Z')?.toISOString()).to.eq('2026-10-05T10:00:00.123Z');
+      expect(expiryOf('2026-10-05T10:00:00.1234567890Z')).to.eq(null);
     });
 
     it('a malformed or over-long field answers 400 with a stable code and mints nothing', async () => {
