@@ -720,8 +720,8 @@ Full reference: `packages/authz-orm/README.md`.
 
 ### File system (`@spinajs/authz-fs`)
 
-- A file system with no `authz.fs.<name>` entry, or with `mode: 'off'`, is never checked, and `getFs`
-  returns the provider itself (H9, B28). `mode: 'enforce'` checks `fs:read`, `fs:stat`, `fs:list`,
+- `getFs` always returns the provider itself (H9, B28). A file system with no `authz.fs.<name>` entry,
+  or with `mode: 'off'`, is never checked. `mode: 'enforce'` checks `fs:read`, `fs:stat`, `fs:list`,
   `fs:write`, `fs:delete` or `fs:share` on every path and throws `AccessDenied`; `mode: 'audit'`
   checks, warns and goes on. Each target uses the mode of its own file system.
 - A path is the resource `{ type: 'file' | 'dir', id: '<fs name>:<path>' }`; its ancestors are the

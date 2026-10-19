@@ -23,7 +23,7 @@
 - The check always enforces, whatever the filesystem's mode, even for `off` and `audit`.
 - `fs:manage` lets the holder grant any configured relation, `owner` included. A policy that gives owners `fs:*` lets them re-delegate.
 - System code that needs unchecked writes uses [`FileAclStore`](07-acl-store.md) directly.
-- A row granted on a path that does not exist yet is cleared as stale when the path is created through the middleware.
+- A row granted on a path that does not exist yet is cleared as stale when the path is created through the middleware on a checked (not `off`) filesystem.
 
 ## Examples
 
@@ -38,7 +38,7 @@ export async function shareWithTeam(folder: string, teamId: string): Promise<voi
   await new FsAcl().grant(
     'uploads',
     folder,
-    { set: { role: 'member', scope: { type: 'team', id: teamId } } },
+    { set: { role: 'team.member', scope: { type: 'team', id: teamId } } },
     'viewer',
     { expiresAt: week },
   );

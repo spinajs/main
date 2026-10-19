@@ -20,10 +20,10 @@
 | `list(fs, path)` | `FsAcl.list`: the rows at exactly `path`, expired ones included. |
 | `grant(row)` | `FsAcl.grant`. Idempotent on `(fs, path, subject, relation)`: a second grant replaces `expiresAt` and `grantedBy`. |
 | `revoke(fs, path, subjectKey, relation)` | `FsAcl.revoke`. |
-| `ownerOf(fs, path)` | The principal of the oldest `owner` row at exactly `path`; `null` without one. |
+| `ownerOf(fs, path)` | The principal of the oldest `owner` row at exactly `path`; `null` without one. `authz-fs` does not call it; it is for your own code. |
 | `setOwnerIfAbsent(fs, path, owner)` | `AuthzFsMiddleware` with `stampOwner`: first writer wins. |
-| `deleteTree(fs, path)` | The rows at `path` and under it; `''` takes the whole filesystem. Used for stale rows and for `rm` of a directory. |
-| `deletePath(fs, path)` | The rows at exactly `path`. Used for `rm` of a file. |
+| `deleteTree(fs, path)` | The rows at `path` and under it; `''` takes the whole filesystem. Used for stale rows, for `rm` of a directory and when a `move` or `rename` lands on an occupied destination. |
+| `deletePath(fs, path)` | The rows at exactly `path`. Used for `rm` of a file and when a `move` or `rename` lands on an occupied destination. |
 | `moveTree(fromFs, from, toFs, to)` | `move` and `rename` of a directory: rows at `from` and under it move; a moved row replaces an equal one. |
 | `movePath(fromFs, from, toFs, to)` | `move` and `rename` of anything else: only the rows at exactly `from`. |
 
@@ -74,7 +74,7 @@ export class MemoryFileAclStore extends FileAclStore {
   }
 
   async setOwnerIfAbsent(fs: string, path: string, owner: PrincipalRef): Promise<void> {
-    if (!(await this.ownerOf(fs, path))) await this.grant({ fs, path, subject: owner, relation: 'owner' });
+    if (!this.rows.some((r) => r.fs === fs && r.path === path && r.relation === 'owner')) await this.grant({ fs, path, subject: owner, relation: 'owner' });
   }
 
   async deleteTree(fs: string, path: string): Promise<void> {
@@ -114,7 +114,7 @@ export async function shareAndRead(): Promise<void> {
 ## Important behaviour
 
 - `AuthzFsMiddleware` and `FsAclRelation` read paths and keys exactly: a store must compare them case-sensitively, as `OrmFileAclStore` does with binary collation.
-- A store that cannot hold a 512-character path or a 200-character subject key must refuse it, as `OrmFileAclStore` does with `InvalidArgument`.
+- A store must hold paths up to 512 characters and subject keys up to 200, and refuse longer ones, as `OrmFileAclStore` does with `InvalidArgument`.
 - `holds` must ignore expired rows (`expiresAt` before `at`).
 
 ## Related

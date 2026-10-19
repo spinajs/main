@@ -5,7 +5,7 @@
 ## How it works
 
 1. `fsAccessConfig(fsName, container?)` reads `authz.fs.<fsName>` on every call. A filesystem without an entry is `off`.
-2. `AuthzFsMiddleware.isEnabled(fs)` is `true` when the mode is not `off`. For `off` no check, probe or ACL update runs.
+2. `AuthzFsMiddleware.isEnabled(fs)` is `true` when the mode is not `off`. An action whose every filesystem is `off` runs no check, probe or ACL update. A `move` into an `off` filesystem still moves the rows, and the destination is probed.
 3. Each target of an action uses the entry of its own filesystem. In `copy(src, dst, dstFs)` the source can be `enforce` while `dstFs` is `audit` or `off`.
 4. A missing `Configuration` while an `AuthzService` runs throws `AuthzConfigError`: the middleware fails closed.
 
@@ -14,7 +14,7 @@
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.fs.<name>.mode` | `string` | none, required in an entry | `off`, `audit`, `enforce` | `off`: no checks. `audit`: check, warn on a denial, go on. `enforce`: a denial or a conditional permit throws `AccessDenied` (403). |
-| `authz.fs.<name>.domain` | `string` | `root` | a domain from `authz.domains` | The authz domain the checks run in. It must exist, else `AuthzConfigError` at boot or first use; authz-fs never creates one. |
+| `authz.fs.<name>.domain` | `string` | `root` | a domain from `authz.domains` | The authz domain the checks run in. It must exist, else `AuthzConfigError` on first use; authz-fs never creates one. |
 | `authz.fs.<name>.stampOwner` | `boolean` | `false` | `true`, `false` | A path an action creates gets an `owner` row for the first writer. |
 | `authz.fs.<name>.list` | `string` | `dir` | `dir`, `each` | `dir`: `list` needs `fs:list` on the directory. `each`: each entry also needs `fs:stat`. |
 | `authz.fs.<name>.signedUrl.defaultTtlSeconds` | `number` | `900` | greater than `0` | Lifetime of a signed URL when the caller asks for none. |

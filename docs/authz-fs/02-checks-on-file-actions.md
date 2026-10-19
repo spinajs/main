@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. A caller invokes a public method of a provider, for example `getFs('uploads').read('a.txt')`. The fs core builds one target per path and calls `AuthzFsMiddleware.before(ctx)` (order 100) when `isEnabled(fs)` is `true`.
+1. A caller invokes a public method of a provider, for example `getFs('uploads').read('a.txt')`. The fs core builds one target per path and calls `AuthzFsMiddleware.before(ctx)` (order 100) when `isEnabled(fs)` is `true` for the filesystem of any target (a `copy` from an `off` filesystem into an `enforce` one runs it).
 2. `before` takes the principal from the async context, else `UNATTENDED`. `SYSTEM` passes unchecked.
 3. A written path longer than 512 characters throws `InvalidArgument` before any IO: the ACL cannot hold it.
 4. For each enabled target and each access of that target, the permission `fs:<access>` is checked on the ref from `fsRef(fs, path, kind)` with the subject `fsRow`, in the domain of the target's filesystem. `enforce` calls `assert`; a decision that is not definite (allowed with a residual other than `TRUE`) is `AccessDenied`. `audit` calls `check` and warns.

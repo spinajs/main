@@ -16,8 +16,15 @@ rights in the ORM table `fs_acl`.
 
 ## Tests
 
-`npm test` runs every suite; `test/behaviour.test.ts` runs the kit's B28 on fsNative, fsTemp and fsS3. The `s3`
-suites need localstack at `AUTHZ_FS_S3_ENDPOINT` (default `http://localhost:4566`;
-`docker run --rm -d -p 4566:4566 -e SERVICES=s3 localstack/localstack`): without it they are skipped with a message,
-with `AUTHZ_FS_S3=required` they fail. The ORM store suite runs on SQLite, and on Postgres and MySQL with
+`npm run test` runs the behaviour fixture B28 once per provider kind, in suites titled `local` (fsNative), `temp`
+(fsTemp over fsNative) and `s3` (fsS3). The `s3` suites need localstack at `AUTHZ_FS_S3_ENDPOINT` (default
+`http://localhost:4566`):
+
+```sh
+docker run --rm -d -p 4566:4566 -e SERVICES=s3 localstack/localstack
+```
+
+Without it they are skipped with a message. Set `AUTHZ_FS_S3=required` (the release gate job does) to make an
+unreachable localstack fail them instead. Cases that cannot hold on S3 for a provider reason are listed, with the
+reason, as pending tests (`test/support/on-s3.ts`). The ORM store suite runs on SQLite, and on Postgres and MySQL with
 `AUTHZ_FS_DB=postgres,mysql` and the orm packages' test containers.

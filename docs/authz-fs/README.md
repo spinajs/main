@@ -26,7 +26,9 @@ Import the package before the first file action. The import registers `AuthzFsMi
 
 ## Quick start
 
-An `uploads` filesystem in `enforce` mode. Users own what they create and may write and read their own files.
+An `uploads` filesystem in `enforce` mode. Every user may create files in `uploads/avatars`; the first writer becomes the owner and is the only one who may read the file back.
+
+A relation grant covers existing paths only: a path has no owner row before its first write. So creation needs a plain `fs:write` grant, and the `owner` grant takes over once the file exists. `defaultRoles` gives the role to users created through `@spinajs/users`; grant it to existing users with `AuthzAdmin` or `spinajs users create --roles`.
 
 ```ts sample
 import { runWithPrincipal } from '@spinajs/authz';
@@ -36,12 +38,15 @@ import { getFs } from '@spinajs/fs';
 export const config = {
   authz: {
     fs: { uploads: { mode: 'enforce', stampOwner: true } },
-    roles: {
-      user: {
-        grants: [
-          { permission: 'fs:write', relation: 'owner', on: [{ type: 'fs', id: 'uploads' }] },
-          { permission: 'fs:read', relation: 'owner', on: [{ type: 'fs', id: 'uploads' }] },
-        ],
+    rbac: {
+      defaultRoles: ['user'],
+      roles: {
+        user: {
+          grants: [
+            { permission: 'fs:write', on: [{ type: 'dir', id: 'uploads:avatars' }] },
+            { permission: 'fs:read', relation: 'owner', on: [{ type: 'fs', id: 'uploads' }] },
+          ],
+        },
       },
     },
   },
