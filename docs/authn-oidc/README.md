@@ -122,7 +122,8 @@ The controller has the fixed prefix `auth/oidc`. It does not follow `authn.http.
 | `POST /auth/oidc/:provider/link` | Starts linking for the current session. Needs an active session and a same-origin request (`Sec-Fetch-Site` `same-origin` or `none`). It is a `POST` with the session cookie, so `authn-http`'s CSRF origin guard (A22) checks it before the route runs: a cross-site start could link another site's account to this identity. The route also refuses a `Sec-Fetch-Site` value other than `same-origin` or `none`. |
 | `DELETE /auth/oidc/:provider/link` | Removes the identity's link to this provider. `?subject=` names one when the identity holds several. 204 on success, 401 without a session, 404 when nothing is linked, 409 when several subjects match and none is named, 403 when the core refuses (the last usable credential). |
 
-**Answers.** Every failure is the login failure: 401 with the `E_AUTH_FAILED` body of the login route,
+**Answers.** Every failure is the login failure: 401 with the body of the login route
+(`AUTHN_FAILURE_BODY` of `@spinajs/authn/contracts`, `{ error: { code: 'E_AUTH_FAILED', message }, message }`),
 plus `Retry-After` when throttled. A browser navigation goes to `redirects.failure` instead (303), with
 no reason in the URL. On success a browser gets a small same-site page that moves it on to the return
 path, and other clients get a 303. The reason is a `SameSite=Strict` session cookie: it does not travel
@@ -143,8 +144,9 @@ redirect URI, mode and, for linking, the session binding). The nonce and the PKC
 the seed. The server needs no key of its own. A flow lives 10 minutes. `state` is claimed once in
 `authn_nonce`, before any call to the provider, so a replayed callback fails.
 
-The tables `authn_nonce` and `authn_identity` come from `authn-orm` (`DbNonceStore`,
-`DbIdentityLinkStore`). The strategy also needs `AuthnService` and a `SessionIssuer`.
+States are claimed in the `NonceStore` contract of `@spinajs/authn`. The tables `authn_nonce` and
+`authn_identity` come from `authn-orm` (`DbNonceStore`, `DbIdentityLinkStore`); the package itself does not
+depend on `authn-orm`, so the app imports it. The strategy also needs `AuthnService` and a `SessionIssuer`.
 
 ## Linking
 
