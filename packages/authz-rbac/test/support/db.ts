@@ -116,8 +116,8 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-  // A checkout nested in another one loads a second @spinajs/di through the outer node_modules configs, which re-patches
-  // Array.ofType; a list first resolved after that comes back empty, so the hydrators are resolved before the boot.
+  // If loading the configuration pulls in a second copy of @spinajs/di, it re-patches Array.ofType and a list first resolved
+  // after that comes back empty, so the hydrators are resolved before the boot.
   DI.resolve(Array.ofType(ModelHydrator));
 
   const migration = { OnStartup: options.migrate ?? true };

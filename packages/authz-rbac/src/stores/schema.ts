@@ -174,8 +174,6 @@ export const AUTHZ_RBAC_CONFIGURATION_SCHEMA = {
     },
     migration: { type: 'object', properties: { roleColumn: name, idColumn: name } },
     links: { type: 'object', properties: { secret: { type: 'string', minLength: LINK_SECRET_MIN_LENGTH } } },
-    // Accepted only so the authz boot can refuse it, naming its replacement (checkRemovedConnectionKeys).
-    connection: {},
     // Levels a membership walk may climb (design §4.3); a deeper nesting is refused when written (set_too_deep).
     maxSetDepth: { type: 'integer', minimum: 1, maximum: 64, default: DEFAULT_MAX_SET_DEPTH },
   },
