@@ -1,5 +1,5 @@
 import { AuthzConfigError, resourceKey } from '@spinajs/authz';
-import { extractModelDescriptor, lookupValue } from '@spinajs/orm';
+import { extractModelDescriptor, findColumn, lookupValue } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { nameOf } from './registry.js';
@@ -20,7 +20,7 @@ export function idText(value: unknown): string | undefined {
  * of the query rather than bound: binding it fails the cast on some databases and matches a coerced key on others.
  */
 export function idLookup(model: ModelClass, column: string, id: string): string | number | undefined {
-  const c = extractModelDescriptor(model as never)?.Columns?.find((x) => x.Name === column);
+  const c = findColumn(extractModelDescriptor(model as never)?.Columns, column);
   return c ? lookupValue(c, id) : id;
 }
 

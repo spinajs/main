@@ -51,6 +51,8 @@ describe('authz-orm ids', function () {
         expect(idLookup(Keyed, 'amount', '4.2')).to.equal('4.2');
         expect(idLookup(Keyed, 'code', 'abc')).to.equal('abc');
         expect(idLookup(Keyed, 'missing', 'abc')).to.equal('abc');
+        expect(idLookup(Keyed, 'ID', 'abc'), 'a name that differs in case only').to.equal(undefined);
+        expect(idLookup(Keyed, 'ID', '42')).to.equal(42);
         if (dialect === 'postgres') {
           expect(idLookup(Keyed, 'ref', 'abc')).to.equal(undefined);
           expect(idLookup(Keyed, 'ref', REF)).to.equal(REF);
