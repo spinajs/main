@@ -41,7 +41,8 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `autoIncrement()` | `IDENTITY(1,1)` | yes |
 | `primaryKey()` | ` PRIMARY KEY` (added by the table compiler) | yes |
 | `unique()` | `UNIQUE` on the column **and** in the table-level `UNIQUE(...)` | yes; creates two unique constraints |
-| `unsigned()`, `charset()`, `comment()` | `UNSIGNED`, `CHARACTER SET '...'`, `COMMENT '...'` | no |
+| `unsigned()`, `comment()` | `UNSIGNED`, `COMMENT '...'` | no |
+| `charset()` | nothing: T-SQL has no column character set, the collation carries the code page | yes |
 | `collation(name)` | `COLLATE name`, unquoted; a name outside `[A-Za-z0-9_]` throws `InvalidArgument` | yes |
 | `caseSensitive()` | `COLLATE Latin1_General_100_BIN2`, unless `collation()` names one; a `string()` column becomes `NVARCHAR(n)`, since a binary collation on `VARCHAR` limits it to code page 1252 | yes; `=` still ignores trailing blanks |
 | `default()` | see [Important behaviour](#important-behaviour) | fails |
@@ -73,7 +74,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor. |
+| Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor, and override `charsetName()` / `collationName()` to change the character set and collation clauses. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
 | Column defaults | `DefaultValueBuilder` | **none** | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
@@ -107,6 +108,12 @@ export class TsqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.dateTime = () => 'DATETIME2';
     // T-SQL has no column comments; an empty entry is dropped from the definition
     this._statementsMappings.comment = () => '';
+  }
+
+  // T-SQL has no column character set: skip charset(). collationName() is the matching hook
+  // for what a column's COLLATE clause says (it also supplies the binary collation of caseSensitive())
+  protected charsetName(): string {
+    return '';
   }
 }
 
