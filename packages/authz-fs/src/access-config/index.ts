@@ -7,6 +7,7 @@ import { isPlainObject } from '@spinajs/util';
 import { show } from '../checks.js';
 
 export * from './schema.js';
+export * from './acl-config.js';
 
 export type FsAccessMode = 'off' | 'audit' | 'enforce';
 
