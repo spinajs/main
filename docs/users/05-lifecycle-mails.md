@@ -150,8 +150,8 @@ export async function askToConfirmEmailAgain(uuid: string, confirmUrl: string): 
 ## Important behaviour
 
 - The lifecycle mails are **queued** (`EmailSend` job). Never put a secret in the `model`: it would be stored in the queue.
-- The shipped `connection` is `rbac-email-connection`, which no package defines. Without a connection of that name, or an override, every action fails at its mail step.
-- The default `.pug` templates live in the package's `src/templates/` folder. The package publishes only `lib/`, and the build does not copy them; put templates with these names (or your own) into your `email.templateFs` filesystem.
+- The shipped `connection` is `rbac-email-connection`, which no package defines. Without a connection of that name, or an override, the actions still succeed, but every queued `EmailSend` job fails in the worker and no lifecycle mail is delivered.
+- The default `.pug` templates are published in `lib/templates/` (`node_modules/@spinajs/users/lib/templates`). Nothing points a filesystem at them: copy them, or your own templates with these names, into your `email.templateFs` filesystem, or point that filesystem at the folder.
 - `template` and `subject` are validated even when `enabled` is `false`. A disabled entry still needs both strings.
 - A mail failure in an action surfaces **after** the state change is stored; for `create()` it becomes `UserCreatedIncomplete`.
 - The template model is `user.toJSON()`; metadata keys that `dehydrateWithRelations()` hides are not in it.

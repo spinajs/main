@@ -31,7 +31,7 @@ Full documentation: [`docs/configuration-http`](../../docs/configuration-http/RE
 Every route is guarded by `@Access` (`@spinajs/authz-http`): 401 without a principal, 403 without the
 permission. The checks are type-level. Row limits come from the ORM: the package registers `DbConfig` as the
 `configuration` access resource (`registerAccessResource`), so a conditional grant limits the list and the
-entries `GET` and `PATCH` load. A principal that may update but not read gets 403 on `PATCH`, because the
+entries `GET` and `PATCH` load. A principal that may update but not read gets 404 on `PATCH`, because the
 entry load needs `configuration:read`.
 
 Incoming values are validated against the entry `Type` and `Meta` constraints

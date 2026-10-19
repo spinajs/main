@@ -100,7 +100,7 @@ void startChat(4200);
 
 ## Important behaviour
 
-- `INotesServerOptions.socket` is spread **shallowly** into `http.socket`. Passing `socket: { auth: { revalidateMs: 5000 } }` replaces the example's whole `auth` object, so `auth.required` falls back to the package default `false` and handshakes without a demo token run as `UNATTENDED`. Pass the full object: `socket: { auth: { required: true, revalidateMs: 5000 } }`.
+- `INotesServerOptions.socket` is merged two levels deep into `http.socket`: `socket: { auth: { revalidateMs: 5000 } }` keeps the example's `auth.required: true`. Set `auth: { required: false }` explicitly to allow anonymous handshakes.
 - The merge into the loaded configuration is deep: keys `onLoad()` leaves out keep their source values.
 - A stream request with `credits` above `http.socket.streams.maxCredits` (16 here) is refused with `invalid_argument`. The client default window, `DEFAULT_STREAM_CREDITS`, is 8.
 - With `verbose` off, the rule level is `trace` into a `BlackHoleTarget`: every log entry is built and dropped.
@@ -113,11 +113,11 @@ void startChat(4200);
 ## Patterns and antipatterns
 
 ```ts
-// Don't: replaces the example's auth object; auth.required becomes false
+// Keeps the example's auth.required: true
 await startNotesServer({ socket: { auth: { revalidateMs: 5_000 } } });
 
-// Do: restate every key of the nested object you override
-await startNotesServer({ socket: { auth: { required: true, revalidateMs: 5_000 } } });
+// Anonymous handshakes need an explicit opt-out
+await startNotesServer({ socket: { auth: { required: false } } });
 ```
 
 ## Related

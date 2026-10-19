@@ -81,7 +81,7 @@ proto.filter = function (this: SelectQueryBuilder, filters?: IFilterEntry[] | nu
 - Statics are copied once, on the first `Orm` resolve. A key added after that is not on the models.
 - A model class not in `orm.Models` has none of the statics; `.filter()` on its builder then fails unless you pass the columns.
 - The typings for `filterColumns()`, `filterSchema()` and `filter()` exist as soon as you import the package, before the statics do. Calling them before the ORM resolves type-checks and throws `TypeError` at run time.
-- `ISelectQueryBuilder.filter()` and `IFilterRequest.filters` are typed `IFilter[]`, though nested groups (`IFilterGroup`) are accepted at run time.
+- `ISelectQueryBuilder.filter()` and `IFilterRequest.filters` are typed `IFilterEntry[]`: plain conditions (`IFilter`) and nested groups (`IFilterGroup`).
 - `filter()` on a model's static side is `async` and returns rows, not a builder. Use `Model.select().filter(...)` when you need to chain.
 
 ## Best practices

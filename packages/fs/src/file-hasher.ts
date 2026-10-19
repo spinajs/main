@@ -3,6 +3,7 @@ import { Config } from '@spinajs/configuration';
 import crypto, { BinaryToTextEncoding } from 'crypto';
 import fs from 'node:fs';
 import { IOFail } from '@spinajs/exceptions';
+import _ from 'lodash';
 import { FileHasher } from './interfaces.js';
 
 /**
@@ -18,9 +19,9 @@ const DEFAULT_ALGORITHM = 'sha256';
  * given it falls back to the value configured under `fs.hasher.defaultAlgorithm`,
  * and finally to {@link DEFAULT_ALGORITHM} ( sha256 ).
  *
- * Instances are cached per algorithm via {@link PerInstanceCheck} /
- * {@link __checkInstance__}, so resolving the same algorithm twice reuses the
- * same hasher while different algorithms get distinct instances.
+ * Instances are cached per algorithm and hash options via {@link PerInstanceCheck} /
+ * {@link __checkInstance__}, so resolving the same arguments twice reuses the
+ * same hasher while different ones get distinct instances.
  */
 @Injectable(FileHasher)
 @PerInstanceCheck()
@@ -38,18 +39,18 @@ export class DefaultFileHasher extends FileHasher {
   /**
    * Per-instance cache predicate used by {@link PerInstanceCheck}.
    *
-   * Returns `true` when this instance was created for the algorithm requested in
-   * `creationOptions`. The requested algorithm is resolved exactly like the
-   * constructor does ( explicit arg, else the configured default ), so cached
-   * instances match reliably.
+   * Returns `true` when this instance was created for the algorithm and hash
+   * options requested in `creationOptions`. The requested algorithm is resolved
+   * exactly like the constructor does ( explicit arg, else the configured
+   * default ), so cached instances match reliably.
    *
    * @param creationOptions constructor arguments the container is resolving with
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public __checkInstance__(creationOptions: any): boolean {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    const requestedAlgo = creationOptions?.[0] ?? this.ConfiguredAlgorithm;
-    return this.Algorithm === requestedAlgo;
+    const requestedAlgo = creationOptions?.[0] || this.ConfiguredAlgorithm;
+    return this.Algorithm === requestedAlgo && _.isEqual(this.HashOptions, creationOptions?.[1]);
   }
 
   /**

@@ -93,8 +93,12 @@ const jobId = await scheduleRenderPdf(payload);
 The worker re-bootstraps the app configuration by default (it runs in the app's
 config environment: same config sources / cwd, so it resolves the same
 `templates.pdf` launch args and fs providers). For environments where that is not
-possible, pass an inline `config` object in the payload and the worker will
-bootstrap from it instead.
+possible, pass an inline `config` object in the payload: it is deep-merged over the
+loaded configuration (arrays are concatenated), it does not replace it.
+
+The worker only loads `@spinajs/fs` itself, so it supports the `fsNative` and `fsTemp`
+providers. Providers from other packages (`fsS3`, `fsFTP`, `fsOneDrive`) need a
+[custom worker entry](../../docs/queue-templates-pdf/06-custom-worker-entry.md) that imports them.
 
 ## How it works
 

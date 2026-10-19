@@ -15,39 +15,41 @@
  *   node lib/mjs/examples/01-getting-started.js
  */
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, ConfigurationSource, FrameworkConfiguration, StaticConfigurationSource } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 // side-effect import: registers the bootstrapper, source, model & migration
 import '@spinajs/configuration-db-source';
 
-class AppConfig extends FrameworkConfiguration {
-  public onLoad(): unknown {
-    return {
-      // which connection / table the db source should read from
-      configuration_db_source: {
-        connection: 'default', // 'default' resolves to db.DefaultConnection
-        table: 'configuration',
-      },
-      db: {
-        DefaultConnection: 'sqlite',
-        Connections: [
-          {
-            Driver: 'orm-driver-sqlite',
-            Name: 'sqlite',
-            Filename: './db.sqlite',
-            // create the `configuration` table on startup
-            Migration: { OnStartup: true },
-          },
-        ],
-      },
-    };
-  }
-}
+// FrameworkConfiguration.onLoad() is merged after every source ran, too late for the
+// db source; a source with an Order below 999 provides the connection in time.
+const AppConfigSource = StaticConfigurationSource(
+  {
+    // which connection / table the db source should read from
+    configuration_db_source: {
+      connection: 'default', // 'default' resolves to db.DefaultConnection
+      table: 'configuration',
+    },
+    db: {
+      DefaultConnection: 'sqlite',
+      Connections: [
+        {
+          Driver: 'orm-driver-sqlite',
+          Name: 'sqlite',
+          Filename: './db.sqlite',
+          // create the `configuration` table on startup
+          Migration: { OnStartup: true },
+        },
+      ],
+    },
+  },
+  0,
+);
 
 async function main() {
-  DI.register(AppConfig).as(Configuration);
+  DI.register(FrameworkConfiguration).as(Configuration);
+  DI.register(AppConfigSource).as(ConfigurationSource);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
 
   // run framework bootstrappers (db source registers its DI hooks here)

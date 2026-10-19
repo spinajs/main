@@ -7,8 +7,8 @@
 Starting:
 
 1. Importing `@spinajs/telemetry-otel` runs `@Singleton()` and `@Injectable()` on `OtelTracing`, which registers it in the root container under its own class name.
-2. `await DI.resolve(OtelTracing)` builds the singleton. It is an `AsyncService`, so `resolve()` returns a `Promise`. Its `resolve()` does nothing beyond the `AsyncService` default; it does **not** start tracing.
-3. Your code calls `OtelTracing.start( processorOverride? )`. It returns at once when `otel.enabled` is `false` or a provider already exists.
+2. `await DI.resolve(OtelTracing)` builds the singleton. It is an `AsyncService`, so `resolve()` returns a `Promise`. Its `resolve()` calls `start()` once the `Configuration` it injects is resolved.
+3. `OtelTracing.start( processorOverride? )` runs from `resolve()`; call it yourself to pass a `processorOverride`. It returns at once when `otel.enabled` is `false` or a provider already exists.
 4. `start()` builds the resource with `resourceFromAttributes()`: `service.name` from `otel.serviceName`, then every entry of `otel.resourceAttributes` (an entry named `service.name` overrides the first).
 5. `start()` picks the span processor: `processorOverride` when given, else `new BatchSpanProcessor(new OTLPTraceExporter({ url: otel.endpoint }))`.
 6. `start()` creates `new NodeTracerProvider({ resource, spanProcessors: [processor] })`, keeps it in a private field and logs `otel tracing started` at `info` on the `otel` logger. `active` is now `true`.
@@ -128,12 +128,12 @@ More variants are in [Customizing the tracing service](04-customizing-the-tracin
 
 ## Important behaviour
 
-- **Nothing starts on its own.** `otel.enabled: true` without a `start()` call exports nothing. No bootstrapper in the package calls `start()`.
+- **`resolve()` starts tracing.** Resolving `OtelTracing` with `otel.enabled: true` creates the provider. A later `start( processorOverride )` is ignored while the provider exists.
 - **`start()` reads the config once.** `otel.enabled`, `otel.endpoint`, `otel.serviceName` and `otel.resourceAttributes` are read when the provider is built. Changing them later has no effect until `dispose()` and a new `start()`.
 - **The configuration must be resolved before `start()`.** `@Config` properties read it on access and throw `InvalidOperation` while the container's `Configuration` is unresolved.
 - **The provider is private.** It is not set as the OTel global and no context manager is registered. Auto-instrumentation (`@opentelemetry/instrumentation-http` and others) and `trace.getTracer()` do not reach it.
 - **`withSpan()` does not make its span active.** It calls `startSpan()`, not `startActiveSpan()`, and no context manager is registered. A span started inside `fn` is a new root span, not a child. Pass the span along, or use [`LongSpanRegistry.childSpan()`](02-long-lived-spans.md) for explicit parenting.
-- **Disabled means "no own provider", not "no spans at all".** Without a provider, `tracer()` returns `trace.getTracer(name)` from the OTel global. That is a no-op tracer, unless another library registered a global provider; then spans go there.
+- **Disabled means "no own provider", not "no spans at all".** Without a provider, `tracer()` returns a no-op tracer that is independent of the OTel global, so a provider another library registered globally never receives these spans.
 - **A tracer taken before `start()` stays a no-op.** `tracer()` resolves the provider at call time; a tracer stored in a field before `start()` never records.
 - **Export is batched.** `BatchSpanProcessor` exports on its own timer. Spans of a process that exits without `flush()` or `dispose()` are lost.
 - **`withSpan()` uses one fixed tracer name**, `spinajs`. Call `tracer('<your-scope>')` for spans that must carry your instrumentation scope.
@@ -141,7 +141,7 @@ More variants are in [Customizing the tracing service](04-customizing-the-tracin
 
 ## Best practices
 
-- Resolve `Configuration`, then `OtelTracing`, then call `start()` once in your entry point, before handlers run. Or register the auto-start subclass from the custom implementation above.
+- Resolve `OtelTracing` in your entry point, before handlers run; it starts itself. Call `start( processorOverride )` before that only to override the processor.
 - Keep `otel.enabled` off in tests and local runs; turn it on per environment in config, not with code branches.
 - Call `await tracing.flush()` at the end of short-lived CLI commands and jobs; the batch timer does not fire before the process exits.
 - Use `otel.resourceAttributes` for `deployment.environment` and `service.version`: every span then carries them without per-call attributes.

@@ -2,10 +2,12 @@ import { PlanTermSql } from '@spinajs/authz';
 import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
+import { PostgresSqlExpressions } from '@spinajs/orm-postgres';
+import { SqliteSqlExpressions } from '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import 'mocha';
 
-import { RbacAssignmentSql, parsePrincipalSubjectKey, parseRbacPlanArgs, rbacAssignmentSql, rbacPlanArgs, sqliteDateTime } from '../../src/index.js';
+import { RbacAssignmentSql, parsePrincipalSubjectKey, parseRbacPlanArgs, rbacAssignmentSql, rbacPlanArgs } from '../../src/index.js';
 import type { RbacAssignmentPlanArgs } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -14,7 +16,9 @@ const expect = chai.expect;
 
 const NOW = new Date('2026-10-14T12:00:00.000Z');
 const OWNER = { column: 'owner_id' };
-const row = (dialect: SqlRowContext['dialect'] = 'postgres', relation: SqlRowContext['relation'] = (name) => (name === 'owner' ? OWNER : undefined)): SqlRowContext => ({ type: 'task', rowId: 'CAST(t.id AS TEXT)', rowColumn: (c) => `t.${c}`, ancestorTable: 'authz_resource_ancestor', relation, now: NOW, dialect });
+const POSTGRES = new PostgresSqlExpressions();
+const SQLITE = new SqliteSqlExpressions();
+const row = (expressions: SqlRowContext['expressions'] = POSTGRES, relation: SqlRowContext['relation'] = (name) => (name === 'owner' ? OWNER : undefined)): SqlRowContext => ({ type: 'task', rowId: 'CAST(t.id AS TEXT)', rowColumn: (c) => `t.${c}`, ancestorTable: 'authz_resource_ancestor', relation, now: NOW, expressions });
 const args = (over: Partial<RbacAssignmentPlanArgs> = {}): RbacAssignmentPlanArgs => rbacPlanArgs({ subjects: ['user:alice'], membership: false, memberKeys: [], roles: [{ role: 'editor' }], global: false, ...over });
 
 const LIVE = (a: string) => `(${a}.expires_at IS NULL OR ${a}.expires_at > ?)`;
@@ -45,23 +49,22 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
     });
 
     it('descendantsOnly leaves the direct branch out; qualifiers group per role', () => {
-      const out = rbacAssignmentSql(args({ roles: [{ role: 'lead', descendantsOnly: true }, { role: 'pm', scopeTypes: ['project'] }, { role: 'paid', tag: 'gold' }] }), row('sqlite'));
+      const out = rbacAssignmentSql(args({ roles: [{ role: 'lead', descendantsOnly: true }, { role: 'pm', scopeTypes: ['project'] }, { role: 'paid', tag: 'gold' }] }), row(SQLITE));
       expect(out.sql).to.contain("authz_s.scope_type IN (?)");
       expect(out.sql).to.contain('instr(authz_s.tags, ?) > 0');
       expect(out.bindings).to.include(',gold,');
       expect(out.sql.split('EXISTS (SELECT 1 FROM authz_assignment authz_s WHERE')[1]).to.not.contain("'lead'");
     });
 
-    it('dialects differ only in the tag test and the now binding', () => {
-      const tagged = (dialect: SqlRowContext['dialect']) => rbacAssignmentSql(args({ roles: [{ role: 'paid', tag: 'gold' }] }), row(dialect)).sql;
-      expect(tagged('postgres')).to.contain('strpos(authz_s.tags, ?) > 0');
-      expect(tagged('mysql')).to.contain('LOCATE(?, authz_s.tags) > 0');
-      expect(tagged('mssql')).to.contain('CHARINDEX(?, authz_s.tags) > 0');
-      expect(rbacAssignmentSql(args(), row('sqlite')).bindings[2]).to.equal(sqliteDateTime(NOW));
+    it('takes the tag test from the connection and binds now as a Date', () => {
+      const tagged = (expressions: SqlRowContext['expressions']) => rbacAssignmentSql(args({ roles: [{ role: 'paid', tag: 'gold' }] }), row(expressions)).sql;
+      expect(tagged(POSTGRES)).to.contain('strpos(authz_s.tags, ?) > 0');
+      expect(tagged(SQLITE)).to.contain('instr(authz_s.tags, ?) > 0');
+      expect(rbacAssignmentSql(args(), row(SQLITE)).bindings[2]).to.equal(NOW);
     });
 
     it('deny: the single EXISTS shape of design §6.2 with the membership sub-query', () => {
-      const out = rbacAssignmentSql(args({ subjects: ['user:alice'], membership: true, memberKeys: ['user:alice'], roles: [{ role: 'blocked' }], global: true }), row('postgres'));
+      const out = rbacAssignmentSql(args({ subjects: ['user:alice'], membership: true, memberKeys: ['user:alice'], roles: [{ role: 'blocked' }], global: true }), row(POSTGRES));
       expect(out.sql).to.equal(
         'EXISTS (SELECT 1 FROM authz_assignment authz_d WHERE (authz_d.subject_key IN (?) OR authz_d.subject_key IN (SELECT authz_m.set_key FROM authz_subject_membership authz_m WHERE authz_m.member_key IN (?) AND (authz_m.expires_at IS NULL OR authz_m.expires_at > ?))) AND authz_d.role IN (?) AND (authz_d.expires_at IS NULL OR authz_d.expires_at > ?) AND ((authz_d.scope_type = ? AND authz_d.scope_id = CAST(t.id AS TEXT)) OR EXISTS (SELECT 1 FROM authz_resource_ancestor authz_a WHERE authz_a.resource_type = ? AND authz_a.resource_id = CAST(t.id AS TEXT) AND authz_a.ancestor_type = authz_d.scope_type AND authz_a.ancestor_id = authz_d.scope_id) OR authz_d.scope_type = ?))',
       );
@@ -78,9 +81,9 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       const plain = rbacAssignmentSql(owned, row());
       expect(plain.sql).to.contain('(authz_s.role = ? AND t.owner_id IN (?))');
       expect(plain.bindings).to.include.members(['member', 'alice']);
-      const typed = rbacAssignmentSql(owned, row('postgres', () => ({ column: 'owner_id', typeColumn: 'owner_type' })));
+      const typed = rbacAssignmentSql(owned, row(POSTGRES, () => ({ column: 'owner_id', typeColumn: 'owner_type' })));
       expect(typed.sql).to.contain('(authz_s.role = ? AND ((t.owner_type = ? AND t.owner_id = ?)))');
-      expect(rbacAssignmentSql(owned, row('postgres', () => undefined)).sql).to.equal('(1 = 0)');
+      expect(rbacAssignmentSql(owned, row(POSTGRES, () => undefined)).sql).to.equal('(1 = 0)');
       expect(parsePrincipalSubjectKey('user:%2A')).to.deep.equal({ type: 'user', id: '*' });
       expect(parsePrincipalSubjectKey('user:*')).to.equal(undefined);
       expect(parsePrincipalSubjectKey('team:t1#member')).to.equal(undefined);
@@ -98,8 +101,8 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
     let db: TestDb;
     const run = (sql: string, bindings: readonly unknown[] = []) => rawQuery(db.driver, sql, [...bindings], QueryContext.Schema);
     const ids = async (where: SqlFragment): Promise<number[]> => ((await rawQuery(db.driver, `SELECT t.id FROM task t WHERE ${where.sql} ORDER BY t.id`, [...where.bindings])) as { id: number }[]).map((r) => r.id);
-    const past = sqliteDateTime(new Date(NOW.getTime() - 3_600_000));
-    const sqlite = row('sqlite');
+    const past = new Date(NOW.getTime() - 3_600_000);
+    const sqlite = row(SQLITE);
     const permit = (over: Partial<RbacAssignmentPlanArgs>) => rbacAssignmentSql(args(over), sqlite);
 
     before(async function () {

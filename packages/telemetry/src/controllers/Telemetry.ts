@@ -62,7 +62,7 @@ export class TelemetryController extends BaseController {
 
     return new Ok({
       all: stats.toJSON(),
-      timeline: this.Store.Timeline.toJSON(),
+      timeline: this.Store.Timeline.toJSON(Date.now()),
     });
   }
 
@@ -80,7 +80,7 @@ export class TelemetryController extends BaseController {
   @TelemetryAccess('timeline')
   public async getTimeline(@Query() buckets?: string) {
     const timeline = this.Store.Timeline;
-    const snapshot = timeline.toJSON();
+    const snapshot = timeline.toJSON(Date.now());
 
     let keys = Object.keys(snapshot)
       .map((k) => Number(k))

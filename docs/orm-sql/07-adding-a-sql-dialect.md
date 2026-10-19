@@ -44,7 +44,10 @@ sequenceDiagram
 | `executeOnDb(stmt, params, context)` | Send one statement; return by `QueryContext`. | `PostgresOrmDriver._executeOnDbOnce()`: placeholders, pool or transaction connection, `OrmException` |
 | `connect()`, `disconnect()` | Open, test, set state; stop health check, close. | `PostgresOrmDriver`, `MySqlOrmDriver` |
 | `ping()` | `true` when a trivial query succeeds. Bypass `withReconnect()`. | `MySqlOrmDriver.ping()`: `SELECT 1` through `_executeOnDbOnce()` |
-| `supportedFeatures()` | `{ events, insertReturning, insertIdIsFirstOfBatch? }` | all four drivers |
+| `supportedFeatures()` | `{ events, insertReturning, insertIdIsFirstOfBatch?, nativeJson? }` | all four drivers |
+| `isUniqueViolation(err)` | `true` for the client's unique or primary-key violation, so `execute()` rejects with `ResourceDuplicated`. Recognise only those: a `NOT NULL` or `CHECK` failure is not a duplicate. | PostgreSQL `code === '23505'`, MySQL `errno === 1062`, MSSQL `number` `2627` / `2601`, SQLite `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` |
+| `MaxBindings`, `MaxInsertRows` | The server's parameters per statement and rows per `VALUES` list, read by `insertChunked()` and `deleteChunked()`. | `MaxBindings`: SQLite `32766`, MySQL and PostgreSQL `65535`, MSSQL `2000`. `MaxInsertRows`: MSSQL `1000` |
+| `lockTableShared(table)` | Keep other writers off `table` until the transaction ends. Start with `this.assertInTransaction('lockTableShared')`. | PostgreSQL `LOCK TABLE ... IN SHARE MODE`, MySQL `SELECT ... FOR SHARE` |
 | `SupportedIsolationLevels` | Levels the engine honours. | SQLite `['SERIALIZABLE']`, the others all four |
 | `tableInfo(name, schema?)` | `IColumnDescriptor[]`, or `null` for a missing table. | SQLite `PRAGMA table_info`, MySQL / MSSQL / PostgreSQL `information_schema` |
 | `_begin`, `_commit`, `_rollback`, `_dispose` | Open, end and release a transaction. | MySQL / PostgreSQL carry a pooled connection on the context |
@@ -61,6 +64,7 @@ Mandatory, because `SqlDriver` has no portable implementation:
 | --- | --- | --- |
 | `IdentifierQuoter` | Every compiler and statement quotes through it. | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`), `BracketIdentifierQuoter`, `DoubleQuoteIdentifierQuoter` |
 | `LiteralQuoter` | View and event bodies. | `SqlLiteralQuoter` or a subclass |
+| `SqlExpressions` | Stores and migrations that write raw SQL resolve it; the base `OrmDriver.resolve()` registers throws `NotSupported` from every method. | `SqliteSqlExpressions`, `MySqlSqlExpressions`, `MsSqlSqlExpressions`, `PostgresSqlExpressions`; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `ServerResponseMapper` | Turns your insert result into `DbServerResponse`. The base `read()` throws `MethodNotImplemented`. | one per driver |
 | `TableExistsCompiler` | Migrations and `createTableIfAbsent` ask it. | one per driver |
 | `LimitQueryCompiler` | The select and delete compilers resolve it. | `SqlLimitQueryCompiler` or your own |
@@ -73,11 +77,11 @@ Register when the engine supports the feature; leave out otherwise, so the featu
 | --- | --- | --- |
 | `OnDuplicateQueryCompiler` | `SqlOnDuplicateQueryCompiler` (`ON DUPLICATE KEY UPDATE`) | Write your own for `ON CONFLICT` or `MERGE`. |
 | `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | Needed by `createTable` and `alterTable`. Subclass for identity and type names. |
-| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | Override `_modify()` / `_rename()` / `IsStandaloneStatement` as needed. |
+| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | Override `_add()` / `_modify()` / `_rename()` / `IsStandaloneStatement` on the column compiler and `_rename()` on the table compiler as needed; throw `NotSupported` for what the engine lacks. |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | SQLite uses `DELETE FROM`. |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `CURRENT_DATE()` is MySQL. |
-| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTableHistoryQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`, triggers with `DELIMITER`). |
+| `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTableHistoryQueryCompiler` | MySQL syntax (`CREATE TABLE ... LIKE`, triggers). |
 
 Override shared registrations the engine cannot run: `InsertQueryCompiler` (`RETURNING`, `OUTPUT`, `INSERT IGNORE`), `OrderByQueryCompiler`, `TableAliasCompiler` (schema prefix), `CreateDatabaseCompiler` / `DropDatabaseCompiler`, `InSetStatement`, `JoinStatement`, `DatetimeValueConverter`.
 
@@ -95,8 +99,10 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `InsertQueryCompiler` | `SqliteInsertQueryCompiler` | `MySqlInsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `PostgresInsertQueryCompiler` |
 | `OnDuplicateQueryCompiler` | `SqliteOnDuplicateQueryCompiler` | shared | `MsSqlOnDuplicateQueryCompiler` (`MERGE`) | `PostgresOnDuplicateQueryCompiler` |
 | `ColumnQueryCompiler` | `SqliteColumnCompiler` | shared | `MsSqlColumnQueryCompiler` | `PostgresColumnQueryCompiler` |
-| `AlterColumnQueryCompiler` | `SqliteAlterColumnQueryCompiler` | shared | — | `PostgresAlterColumnQueryCompiler` |
-| `AlterTableQueryCompiler` | shared | shared | — | shared |
+| `AlterColumnQueryCompiler` | `SqliteAlterColumnQueryCompiler` | shared | `MsSqlAlterColumnQueryCompiler` | `PostgresAlterColumnQueryCompiler` |
+| `AlterTableQueryCompiler` | shared | shared | `MsSqlAlterTableQueryCompiler` (`sp_rename`) | shared |
+| `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | (SqlDriver) | (SqlDriver) | `PostgresIndexQueryCompiler` |
+| `SqlExpressions` | `SqliteSqlExpressions` | `MySqlSqlExpressions` | `MsSqlSqlExpressions` | `PostgresSqlExpressions` |
 | `TableQueryCompiler` | `SqliteTableQueryCompiler` | (SqlDriver) | `MsSqlTableQueryCompiler` | (SqlDriver) |
 | `OrderByQueryCompiler` | `SqliteOrderByCompiler` | (SqlDriver) | `MsSqlOrderByCompiler` | (SqlDriver) |
 | `DeleteQueryCompiler` | (SqlDriver) | (SqlDriver) | `MsSqlDeleteQueryCompiler` | (SqlDriver) |
@@ -120,6 +126,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `insertReturning` | `true`: the ORM asks for primary keys with `RETURNING` and assigns them. `false`: `InsertQueryBuilder.returning()` throws `NotSupported`. | `true` | `false` | `false` | `true` |
 | `insertIdIsFirstOfBatch` | `true`: after a multi-row `INSERT ... VALUES`, `LastInsertId` is the first row's key and the rest follow contiguously, so keys are backfilled. Optional, defaults to `false`. | `false` | `true` | `false` | `false` |
 | `events` | Whether `EventQueryBuilder` is supported. | `false` | `true` | `false` | `false` |
+| `nativeJson` | Whether the engine has a JSON column type; without it `json()` is stored as text. Migrations branch on it. Optional, defaults to `false`. | `false` | `true` | `false` | `true` |
 | `SupportedIsolationLevels` | `transaction(cb, { isolation })` rejects a level not listed. Empty rejects every explicit level. | `['SERIALIZABLE']` | all four | all four | all four |
 
 Declare only what the engine guarantees: a wrong `insertIdIsFirstOfBatch` assigns wrong keys to models.
@@ -134,7 +141,7 @@ Declare only what the engine guarantees: a wrong `insertIdIsFirstOfBatch` assign
 - `tableInfo()` must fill `NativeType`: the orphan-policy resolver treats an empty `NativeType` as unknown and refuses to act on that column.
 - Returning `null` from `tableInfo()` for a missing table lets migrations create it. `MySqlOrmDriver.tableInfo()` throws instead, which is why its tests set `Migration.OnStartup: true`.
 - Placeholder translation sees the whole statement text, quoted literals included. `PostgresOrmDriver` and `MsSqlOrmDriver` rewrite only as many `?` as there are bindings; a `?` beyond that count stays as text.
-- A multi-statement result is sent with `Promise.all`. If the engine needs DDL in order, serialize inside `executeOnDb()`.
+- A multi-statement result is sent sequentially in compile order.
 
 ## Best practices
 
@@ -204,10 +211,12 @@ import {
   QueryContext,
   RawQuery,
   ServerResponseMapper,
+  SqlExpressions,
   TableExistsCompiler,
   TableExistsQueryBuilder,
   TruncateTableQueryCompiler,
 } from '@spinajs/orm';
+import type { SqlFragment } from '@spinajs/orm';
 import {
   SqlColumnQueryCompiler,
   SqlCreateViewQueryCompiler,
@@ -251,6 +260,24 @@ export class AnsiIdentifierQuoter extends IdentifierQuoter {
 export class AnsiLiteralQuoter extends SqlLiteralQuoter {
   protected quoteBoolean(value: boolean): string {
     return value ? 'TRUE' : 'FALSE';
+  }
+}
+
+export class AnsiSqlExpressions extends SqlExpressions {
+  public castText(expression: string): string {
+    return `CAST(${expression} AS TEXT)`;
+  }
+
+  public datetimeText(expression: string): string {
+    return `CAST(${expression} AS TEXT)`;
+  }
+
+  public contains(haystack: SqlFragment, needle: SqlFragment): SqlFragment {
+    return { sql: `strpos(${haystack.sql}, ${needle.sql}) > 0`, bindings: [...haystack.bindings, ...needle.bindings] };
+  }
+
+  public equalsExactly(left: string, right: SqlFragment): SqlFragment {
+    return { sql: `${left} = ${right.sql}`, bindings: [...right.bindings] };
   }
 }
 
@@ -376,6 +403,8 @@ export class AnsiDbOrmDriver extends SqlDriver {
 
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  public readonly MaxBindings = 65535;
+
   public executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> {
     return this.withReconnect(() => this.send(stmt, params ?? [], context));
   }
@@ -468,7 +497,17 @@ export class AnsiDbOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false };
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: true };
+  }
+
+  // execute() turns this into ResourceDuplicated; NOT NULL and CHECK failures keep their own codes.
+  protected isUniqueViolation(err: unknown): boolean {
+    return (err as { code?: unknown } | undefined)?.code === '23505';
+  }
+
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`LOCK TABLE ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} IN SHARE MODE`);
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
@@ -511,6 +550,7 @@ export class AnsiDbOrmDriver extends SqlDriver {
     // mandatory: no portable implementation exists
     this.Container.register(AnsiIdentifierQuoter).as(IdentifierQuoter);
     this.Container.register(AnsiLiteralQuoter).as(LiteralQuoter);
+    this.Container.register(AnsiSqlExpressions).as(SqlExpressions);
     this.Container.register(AnsiServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(AnsiTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(AnsiLimitQueryCompiler).as(LimitQueryCompiler);

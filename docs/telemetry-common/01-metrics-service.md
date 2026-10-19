@@ -60,7 +60,7 @@ How the monorepo resolves it:
 - **Private registry.** `Metrics` never touches prom-client's global `client.register`. Metrics a third-party library puts in the global registry do not appear in `render()`; merge them yourself, see [Registry access](04-registry-access.md#merge-prom-clients-global-registry).
 - **One registry per singleton.** `DI.clearCache()` drops the instance; the next resolve builds a new `Metrics` with an empty registry. Tests and several SpinaJS apps in one process stay isolated this way.
 - **Child containers share the root instance.** `DI.child().resolve(Metrics)` returns the root singleton.
-- **`collectDefault()` is not idempotent.** A second call on the same instance throws `A metric with the name process_cpu_user_seconds_total has already been registered.` `@spinajs/telemetry` calls it once at bootstrap when `telemetry.collectDefaultMetrics` is `true` (the default); do not call it again in an app that uses `@spinajs/telemetry`.
+- **`collectDefault()` is idempotent.** A second call on the same instance does nothing. `@spinajs/telemetry` calls it once at bootstrap when `telemetry.collectDefaultMetrics` is `true` (the default).
 - **`render()` is async.** prom-client 14 returns a promise from `Registry.metrics()`; always `await` it.
 - **No-sample metrics still render.** A labelled metric with no recorded value renders its `# HELP` and `# TYPE` lines only.
 - **No config.** The service reads no configuration. Prefixes, buckets and the `collectDefault()` switch belong to the calling package.

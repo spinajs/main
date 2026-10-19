@@ -8,6 +8,7 @@ import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, Id
 import type { AuthenticationResult, AuthnContext, Credentials, IdentityRef, TokenCreateOptions } from '@spinajs/authn/contracts';
 import { MemoryAuthnThrottle } from '@spinajs/authn';
 import { FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, throttleParams } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, KitKeyPair } from '@spinajs/authn-testing';
 
 import '../../src/generator.js';
@@ -87,7 +88,7 @@ describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', fun
 
   async function world(overrides: ConfigOverrides = {}) {
     const identities = new FakeIdentityStore();
-    const tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities);
+    const tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities, AuthnAudit.over([]));
     const token = new TokenStrategy(tokens);
     await token.resolve();
     const jwt = new JwtBearerStrategy();
