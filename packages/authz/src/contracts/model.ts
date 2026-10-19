@@ -48,13 +48,13 @@ export interface EvaluationContext {
   attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>; // scope attributes, memoised per request
   readonly conditions: ConditionCompiler;
   relation(type: ResourceType, name: string): RelationResolver | undefined;
-  check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>; // for models that delegate (fs-inherit)
+  check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>; // for models that delegate
   readonly cache: Map<string, unknown>; // per-request scratch, per model namespace
   trace(step: Omit<TraceStep, 'by'>): void;
 }
 
 export abstract class AuthorizationModel {
-  abstract readonly name: string; // unique per domain: 'rbac' | 'abac' | 'fs-inherit' | 'fs-abac'
+  abstract readonly name: string; // unique per domain: 'rbac' | 'abac'
   abstract readonly capabilities: ModelCapabilities;
   abstract init(ctx: ModelInitContext): Promise<void> | void;
   /** Static routing: may this model have an opinion on (permission, type)? Called at boot and on version change. */
