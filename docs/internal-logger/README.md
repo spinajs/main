@@ -26,7 +26,7 @@ The package depends on `@spinajs/di`, `@spinajs/configuration-common` and `@spin
 | Service | DI token and lifetime | Default implementation | How to replace or extend |
 | --- | --- | --- | --- |
 | `InternalLogger` bootstrapper | `Bootstrapper` list and `InternalLogger`; singleton | `InternalLogger` | Subclass with `@Injectable(Bootstrapper)`, `DI.unregister(InternalLogger)`. See [Buffer flush and exit dump](02-buffer-flush-and-exit-dump.md#services-and-extension-points) |
-| `InternalLoggerProxy` | `InternalLoggerProxy`; singleton (no decorator) | `InternalLoggerProxy` | `DI.register(MyProxy).as(InternalLoggerProxy)`. See [Logger proxy](03-logger-proxy.md#services-and-extension-points) |
+| `InternalLoggerProxy` | `InternalLoggerProxy`; new instance per resolve | `InternalLoggerProxy` | `DI.register(MyProxy).as(InternalLoggerProxy)`. See [Logger proxy](03-logger-proxy.md#services-and-extension-points) |
 | `__log__` sink | String token `__log__`; factory, called on every resolve | Registered by `@spinajs/log` or `@spinajs/electron` | `DI.register((container, name) => ...).as('__log__')`. See [Log sink](04-log-sink.md#services-and-extension-points) |
 
 ## Quick start

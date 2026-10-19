@@ -12,18 +12,10 @@ import type { IActionLocalStoregeContext, IController, IRoute, Request } from '@
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 
 import * as api from '../src/api.js';
-import { Authenticated, AuthnMiddleware, AuthnPrincipalResolver, AuthnSession, ClientIp, CsrfOriginGuard, FreshAuth, FromSession, Identity, KeyPrincipalResolver, MfaSatisfied, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId, SessionPrincipalResolver, TokenPrincipalResolver } from '../src/api.js';
+import { AuthnPrincipalResolver } from '../src/api.js';
 import type { AuthnIdentity } from '../src/api.js';
 import * as barrel from '../src/index.js';
-import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
-import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
-import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
-import { KeyPrincipalResolver as LaneKeyPrincipalResolver, TokenPrincipalResolver as LaneTokenPrincipalResolver } from '../src/resolvers/credential.js';
-import { SessionPrincipalResolver as LaneSessionPrincipalResolver } from '../src/resolvers/session.js';
-import { Authenticated as LaneAuthenticated, NoImpersonationPolicy as LaneNoImpersonationPolicy, NoSession as LaneNoSession, NoTokenAuthPolicy as LaneNoTokenAuthPolicy, NotLoggedPolicy as LaneNotLoggedPolicy } from '../src/policies/v3/principal.js';
-import { FreshAuth as LaneFreshAuth } from '../src/policies/v3/fresh-auth.js';
-import { MfaSatisfied as LaneMfaSatisfied } from '../src/policies/v3/mfa.js';
-import { AuthnSession as LaneAuthnSession, FromSession as LaneFromSession, Identity as LaneIdentity, SessionId as LaneSessionId } from '../src/args/authn.js';
+import { Authenticated, AuthnMiddleware, AuthnSession, ClientIp, CsrfOriginGuard, FreshAuth, FromSession, Identity, KeyPrincipalResolver, MfaSatisfied, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId, SessionPrincipalResolver, TokenPrincipalResolver } from '../src/index.js';
 import * as v3 from '../src/v3/index.js';
 
 const expect = chai.expect;
@@ -38,38 +30,11 @@ const POLICIES = { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedP
 const ROUTE_ARGS = { Identity, AuthnSession, SessionId, FromSession };
 const MIDDLEWARES = { ClientIp, CsrfOriginGuard, AuthnMiddleware };
 const RESOLVERS = { KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver };
-// api.ts names N8a has implemented: the barrel must give these, not the stubs.
-const LANE: Record<string, unknown> = {
-  ClientIp: LaneClientIp,
-  CsrfOriginGuard: LaneCsrfOriginGuard,
-  AuthnMiddleware: LaneAuthnMiddleware,
-  KeyPrincipalResolver: LaneKeyPrincipalResolver,
-  TokenPrincipalResolver: LaneTokenPrincipalResolver,
-  SessionPrincipalResolver: LaneSessionPrincipalResolver,
-  Authenticated: LaneAuthenticated,
-  FreshAuth: LaneFreshAuth,
-  MfaSatisfied: LaneMfaSatisfied,
-  NoSession: LaneNoSession,
-  NotLoggedPolicy: LaneNotLoggedPolicy,
-  NoTokenAuthPolicy: LaneNoTokenAuthPolicy,
-  NoImpersonationPolicy: LaneNoImpersonationPolicy,
-  Identity: LaneIdentity,
-  AuthnSession: LaneAuthnSession,
-  SessionId: LaneSessionId,
-  FromSession: LaneFromSession,
-};
-// Since the N8c cutover the barrel keeps no 2.x code under an api.ts name.
-const KEPT_2X: string[] = [];
-const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
+const DESIGN_NAMES = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
+const RUNTIME_EXPORTS = ['AuthnPrincipalResolver'];
 
 type ResolveResult = Promise<Principal | null | undefined>;
 type Handler = (req: Request, res: express.Response, next: express.NextFunction) => void;
-
-const route = {} as IRoute;
-const controller = {} as IController;
-const req = { storage: {} } as unknown as Request;
-const ctx: AuthnContext = { now: new Date(), purpose: 'request' };
-const bearer: Credentials = { kind: 'bearer', token: 'spt_x' };
 
 interface MemberShape {
   name: string;
@@ -81,7 +46,6 @@ interface MemberShape {
 function sourceShape() {
   const sf = ts.createSourceFile(API_SRC, readFileSync(API_SRC, 'utf8'), ts.ScriptTarget.Latest, true);
   const classes: Record<string, { base: string | null; abstract: boolean; doc: string; members: MemberShape[] }> = {};
-  const functions: Record<string, { params: string[]; doc: string }> = {};
   const exported = (n: ts.Node) => (ts.canHaveModifiers(n) ? ts.getModifiers(n) ?? [] : []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
   const doc = (n: ts.Node) =>
     ts
@@ -103,15 +67,10 @@ function sourceShape() {
         })),
       };
     }
-    if (ts.isFunctionDeclaration(n) && n.name && exported(n)) {
-      functions[n.name.text] = { params: n.parameters.map((p) => p.name.getText(sf)), doc: doc(n) };
-    }
   });
   const specifiers = ts.preProcessFile(readFileSync(API_SRC, 'utf8'), true, true).importedFiles.map((f) => f.fileName);
-  return { classes, functions, specifiers, text: sf.getFullText() };
+  return { classes, specifiers, text: sf.getFullText() };
 }
-
-const notImplemented = (fn: () => unknown, member: string) => expect(fn).to.throw(Error).with.property('message', `not implemented: ${member}`);
 
 // Plain JS so the same code runs in the ESM and the CJS child. Reads DI
 // internals so a registration made at load time cannot hide behind the API.
@@ -144,11 +103,11 @@ function probe(inputType: 'module' | 'commonjs', body: string): ProbeResult {
   return JSON.parse(lines[lines.length - 1]) as ProbeResult;
 }
 
-describe('authn-http api stubs (api.ts)', function () {
+describe('authn-http contracts (api.ts)', function () {
   this.timeout(60000);
 
   describe('exports', () => {
-    it('exports exactly the design names at runtime', () => {
+    it('api.ts exports only the resolver contract at runtime', () => {
       expect(Object.keys(api).sort()).to.deep.eq(RUNTIME_EXPORTS);
     });
 
@@ -160,73 +119,23 @@ describe('authn-http api stubs (api.ts)', function () {
       for (const f of Object.values(ROUTE_ARGS)) expect(f).to.be.a('function');
     });
 
-    it('every api name has a lane implementation, and the v3 sub-entry exports each one, the five colliding names included', () => {
-      expect(Object.keys(LANE).sort()).to.deep.eq(RUNTIME_EXPORTS.filter((n) => n !== 'AuthnPrincipalResolver'));
-      const sub = v3 as unknown as Record<string, unknown>;
-      for (const n of Object.keys(LANE)) expect(sub[n], n).to.eq(LANE[n]).and.not.eq((api as Record<string, unknown>)[n]);
-      expect(sub.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
-    });
-
-    it('the barrel exports every api name as the lane implementation, not the api.ts contract class (N8c)', () => {
+    it('the barrel and the v3 sub-entry export the same implementation under every design name', () => {
       const b = barrel as unknown as Record<string, unknown>;
-      for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
-        const stub = (api as Record<string, unknown>)[n];
-        if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
-        else expect(b[n], n).to.eq(stub);
-      }
+      const sub = v3 as unknown as Record<string, unknown>;
+      for (const n of DESIGN_NAMES) expect(b[n], n).to.be.a('function').and.eq(sub[n]);
+      expect(b.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
     });
 
-    it('imports only @spinajs/authn/contracts, @spinajs/http and express', () => {
-      expect([...new Set(sourceShape().specifiers)].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/http', 'express']);
+    it('imports only @spinajs/authn/contracts and @spinajs/http', () => {
+      expect([...new Set(sourceShape().specifiers)].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/http']);
     });
   });
 
-  describe('stubs', () => {
-    const calls: [string, () => unknown][] = [
-      ...Object.values(POLICIES).flatMap((P): [string, () => unknown][] => [
-        [`${P.name}.isEnabled`, () => new P().isEnabled(route, controller)],
-        [`${P.name}.execute`, () => new P().execute(req, route, controller)],
-      ]),
-      ['Identity', () => Identity()],
-      ['AuthnSession', () => AuthnSession()],
-      ['SessionId', () => SessionId()],
-      ['FromSession', () => FromSession('cart')],
-      ...Object.values(MIDDLEWARES).flatMap((M): [string, () => unknown][] => [
-        [`${M.name}.before`, () => new M().before()],
-        [`${M.name}.after`, () => new M().after()],
-      ]),
-      ...Object.values(RESOLVERS).map((R): [string, () => unknown] => [`${R.name}.resolve`, () => new R().resolve(req, bearer, ctx)]),
-    ];
-
-    for (const [member, call] of calls) {
-      it(`${member} throws not implemented`, () => notImplemented(call, member));
-    }
-
-    it('the list above covers every method and exported function of api.ts', () => {
-      const { classes, functions } = sourceShape();
-      const fromSource = [...Object.entries(classes).flatMap(([c, s]) => s.members.filter((m) => m.kind === 'method' && !m.modifiers.includes('abstract')).map((m) => `${c}.${m.name}`)), ...Object.keys(functions)];
-      expect(calls.map(([m]) => m).sort()).to.deep.eq(fromSource.sort());
-    });
-
-    it('one private helper throws for all of them', () => {
-      const { text } = sourceShape();
-      expect(text.match(/\bthrow\b/g)).to.have.length(1);
-      expect(text).to.contain('not implemented: ');
-    });
-
-    it('constructors do no work beyond storing their arguments and Order', () => {
-      expect(new FreshAuth().maxAgeSeconds).to.eq(undefined);
-      expect(new FreshAuth(600).maxAgeSeconds).to.eq(600);
-      for (const P of Object.values(POLICIES)) expect(() => new P()).to.not.throw();
-    });
-
+  describe('implementations', () => {
     it('@Policy(FreshAuth, 600) reaches the constructor through container.resolve(Type, options)', () => {
       const p = new Container().resolve(FreshAuth, [600]) as FreshAuth;
       expect(p).to.be.instanceOf(FreshAuth);
       expect(p.maxAgeSeconds).to.eq(600);
-      const lane = new Container().resolve(LaneFreshAuth, [600]) as LaneFreshAuth;
-      expect(lane).to.be.instanceOf(LaneFreshAuth);
-      expect(lane.maxAgeSeconds).to.eq(600);
     });
 
     it('middlewares run ClientIp, then CsrfOriginGuard, then AuthnMiddleware, after the http built-ins (<= 3)', () => {
@@ -238,43 +147,10 @@ describe('authn-http api stubs (api.ts)', function () {
     });
   });
 
-  describe('source shape (names, modifiers, parameter names)', () => {
-    const policy = (ctor: string[] | null) => ({
-      base: 'BasePolicy',
-      abstract: false,
-      members: [...(ctor ? [{ name: 'constructor', kind: 'constructor', modifiers: [], params: ctor }] : []), { name: 'isEnabled', kind: 'method', modifiers: ['public'], params: ['action', 'instance'] }, { name: 'execute', kind: 'method', modifiers: ['public'], params: ['req', 'action', 'instance'] }],
-    });
-    const middleware = {
-      base: 'ServerMiddleware',
-      abstract: false,
-      members: [
-        { name: 'constructor', kind: 'constructor', modifiers: [], params: [] },
-        { name: 'before', kind: 'method', modifiers: ['public'], params: [] },
-        { name: 'after', kind: 'method', modifiers: ['public'], params: [] },
-      ],
-    };
-    const resolver = {
-      base: 'AuthnPrincipalResolver',
-      abstract: false,
-      members: [
-        { name: 'order', kind: 'property', modifiers: ['public', 'readonly'], params: null },
-        { name: 'resolve', kind: 'method', modifiers: ['public'], params: ['req', 'credentials', 'ctx'] },
-      ],
-    };
-
+  describe('source shape', () => {
     it('classes', () => {
       const shapes = Object.fromEntries(Object.entries(sourceShape().classes).map(([k, v]) => [k, { base: v.base, abstract: v.abstract, members: v.members }]));
       expect(shapes).to.deep.eq({
-        Authenticated: policy(null),
-        FreshAuth: policy(['maxAgeSeconds']),
-        MfaSatisfied: policy(null),
-        NoSession: policy(null),
-        NotLoggedPolicy: policy(null),
-        NoTokenAuthPolicy: policy(null),
-        NoImpersonationPolicy: policy(null),
-        ClientIp: middleware,
-        CsrfOriginGuard: middleware,
-        AuthnMiddleware: middleware,
         AuthnPrincipalResolver: {
           base: null,
           abstract: true,
@@ -283,50 +159,16 @@ describe('authn-http api stubs (api.ts)', function () {
             { name: 'resolve', kind: 'method', modifiers: ['abstract'], params: ['req', 'credentials', 'ctx'] },
           ],
         },
-        KeyPrincipalResolver: resolver,
-        TokenPrincipalResolver: resolver,
-        SessionPrincipalResolver: resolver,
       });
     });
 
-    it('route-arg functions', () => {
-      const f = sourceShape().functions;
-      expect(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.params]))).to.deep.eq({ Identity: [], AuthnSession: [], SessionId: [], FromSession: ['key'] });
-    });
-
-    it('docs state what each piece does and the rules it carries', () => {
-      const { classes: c, functions: f } = sourceShape();
-      expect(c.Authenticated.doc).to.contain('pending');
-      expect(c.FreshAuth.doc).to.contain('authn.freshAuth.maxAgeSeconds');
-      expect(c.FreshAuth.doc).to.contain('A13');
-      expect(c.FreshAuth.doc).to.contain('principal.authn.sessionHandle is set');
-      expect(c.FreshAuth.doc).to.contain('AuthnService.reauthenticate(session, credentials, ctx)');
-      expect(c.FreshAuth.doc).to.contain("purpose 'reauth'");
-      expect(c.FreshAuth.doc).to.contain('SR-20');
-      expect(c.FreshAuth.doc).to.contain('requirePassword');
-      expect(c.MfaSatisfied.doc).to.contain('aal2');
-      expect(c.NoTokenAuthPolicy.doc).to.contain('token');
-      expect(c.NoImpersonationPolicy.doc).to.contain('impersonat');
-      expect(c.ClientIp.doc).to.contain('trusted');
-      expect(c.ClientIp.doc).to.contain('Order 1');
-      expect(c.CsrfOriginGuard.doc).to.contain('A22');
-      expect(c.CsrfOriginGuard.doc).to.contain('Order 4');
-      expect(c.CsrfOriginGuard.doc).to.contain('authn.http.csrf.enabled');
-      expect(c.CsrfOriginGuard.doc).to.contain('may still check the routes that issue a session');
-      expect(c.AuthnMiddleware.doc).to.contain('Order 5');
-      expect(c.AuthnMiddleware.doc).to.contain('req.storage.AuthnPrincipal');
+    it('docs state the resolver rules and that a session is not authentication', () => {
+      const { classes: c, text } = sourceShape();
       expect(c.AuthnPrincipalResolver.doc).to.contain('undefined');
       expect(c.AuthnPrincipalResolver.doc).to.contain('null');
       expect(c.AuthnPrincipalResolver.doc).to.contain('AuthnService.authenticate(credentials, ctx)');
       expect(c.AuthnPrincipalResolver.doc).to.contain('AuthnService.principalOf');
-      expect(c.SessionPrincipalResolver.doc).to.contain('Pending ⇒ null');
-      expect(c.TokenPrincipalResolver.doc).to.contain('ceiling.roles');
-      expect(c.TokenPrincipalResolver.doc).to.contain('attributes.profile: TokenStrategy puts it in StrategyOutcome.attributes and principalOf merges it');
-      expect(c.KeyPrincipalResolver.doc).to.contain('scope');
-      for (const n of Object.keys(ROUTE_ARGS)) expect(f[n].doc, n).to.match(/null|undefined/);
-      for (const n of ['AuthnSession', 'SessionId', 'FromSession']) expect(f[n].doc, n).to.match(/not authentication/i);
-      expect(f.AuthnSession.doc).to.contain('check handle.state');
-      expect(sourceShape().text).to.contain('check handle.state; only AuthnPrincipal means authenticated (SR-07)');
+      expect(text).to.contain('check handle.state; only AuthnPrincipal means authenticated (SR-07)');
     });
   });
 

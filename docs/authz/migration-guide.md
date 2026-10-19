@@ -80,8 +80,8 @@ Rules for the move (§4.1.1):
   `AuthnMiddleware`.
 - The 2.x queue events `UserRoleGranted` and `UserRoleRevoked` become `RoleAssigned` and
   `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventSink`.
-- Logger names (`rbac`, `rbac-http-token`, `rbac-http-user`) and the queue connection
-  `rbac-user-empty-queue` stay as they were.
+- Logger names (`rbac`, `rbac-http-token`) and the queue connection `rbac-user-empty-queue` stay
+  as they were. The QR command logged as `rbac-http-user`; it now logs as `authn-totp`.
 
 ### 2.2 The package set of an app
 
@@ -366,6 +366,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `SessionProvider`, `UserSession`, `regenerateSession`, `revokeUserSessions` | `SessionProvider` from `@spinajs/authn-session`; `SessionIssuer.rotate`, `.revokeAll(subject)` |
 | `TwoFactorAuthProvider`, `Default2FaToken`, `auth2Fa` | `MfaStep`, `TotpMfaStep`, `TotpService`, `AuthnService.completeMfa` (`authn-totp`) |
 | CLI `rbac:user-enable-2fa` | `authn:mfa-reset <login>` (removes the enrolment, prints no secret); the owner enrols again through `/user/mfa` |
+| CLI `rbac:2fa-qr` | `authn:mfa-qr` (`rbac:2fa-qr` stays as an alias) |
 | `validateToken`, `createToken` | `TokenService.validate`, `.create` (`DbTokenService` in `authn-token`) |
 | `@Policy(NoTokenAuthPolicy)` | `NoTokenAuthPolicy` from `authn-http` (a token or key caller gets 403 `session_required`) |
 | `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated` (a pending MFA session does not pass); fresh auth through `FreshAuth(seconds)` or, in a handler, `assertFreshAuth` (exported from the `@spinajs/authn-http` root) |
@@ -636,8 +637,9 @@ column when you revoked it on purpose. Then run
 `orm.Migration.resolve('AuthzRbacDropUserRole_2026_10_01_00_02_00', 'rolled-back')` and migrate
 again. It also refuses when the id column is not unique (it counts the rows its walk saw against the
 table count), when the table has rows but no id column, and warns about rows with roles but a null id
-(those roles are lost with the column). On PostgreSQL it takes a `SHARE` lock on `users` between the
-check and the drop, which stops a 2.x node that still writes users. Then it runs
+(those roles are lost with the column). Between the check and the drop it holds a shared lock on
+`users` (`connection.lockTableShared()`, on every driver), which stops a 2.x node that still writes
+users. Then it runs
 `ALTER TABLE users DROP COLUMN <roleColumn>`.
 
 *Rollback.* The drop's `down()` re-adds `<roleColumn>` as `varchar(256) NOT NULL DEFAULT ''` (2.x
@@ -727,7 +729,7 @@ Check: run the app's tests. A missing `runAs` shows as `AccessDenied` with reaso
 naming the model.
 
 To find the models you missed, run your tests with `DbDecisionAudit` on (it writes `authz_audit`),
-then run `authz:check-config --unattended`. It prints the resource types that were queried without
+then run `authz:audit-unattended` (`@spinajs/authz-orm`). It prints the resource types that were queried without
 a principal, with a count, the most frequent first:
 
 ```
@@ -737,9 +739,9 @@ resource types queried without a principal:
 ```
 
 With no such row it prints `no unattended queries in the audit log`. It fails when `authz_audit` does
-not exist. It reads the table on `authz.rbac.connection` (else `default`), while `DbDecisionAudit`
-writes on the connection named `authz-audit`: map that name to the same database
-(`db.Aliases: { 'authz-audit': 'default' }`). Turning `DbDecisionAudit` on takes three steps
+not exist. It reads the table on the connection named `authz-audit`, the one `DbDecisionAudit`
+writes, and fails when the ORM has none (map it, e.g. `db.Aliases: { 'authz-audit': 'default' }`).
+Turning `DbDecisionAudit` on takes three steps
 (`packages/authz-orm/README.md`, "Database audit"): import `@spinajs/authz-orm/audit` before the ORM
 boots, map the connection, and register and select it:
 `DI.register(DbDecisionAudit).as(DecisionAudit)` with `authz.audit.service: 'DbDecisionAudit'`. The
@@ -846,8 +848,8 @@ Run the app's tests. Then run the config checks:
   with a message that names the key. On success it prints `OK: <n> role(s), <m> ladder(s)`.
   `authz:check-config --explain-role <role>` lists the effective grants of a role, inherited ones
   included, one line each: the permission, then `relation=`, `on=`, `fields=`, `requiresTag=` and
-  `grantedAt=` when set. `--unattended` is described in step 4. These commands ship in
-  `@spinajs/authz-rbac`.
+  `grantedAt=` when set. These commands ship in `@spinajs/authz-rbac`; `authz:audit-unattended`
+  (`@spinajs/authz-orm`) is described in step 4.
 - `authn:check-config` (in `authn-http`) reports strategies, secrets, proxy, CORS, env, MFA, the
   throttle and old keys as findings ([section 3.4](#34-keys-that-other-config-files-own)). It prints key
   names, never secret values.
@@ -1039,7 +1041,8 @@ A token's role is never above its owner's role (B24, B07). See example g.
   to 60 s). Only ABAC's own pairs are `model_error`.
 - `authz_policy` has `actor_types` and `priority` columns, and no domain column. The migration runs on
   the `default` connection, so an app on another connection must create the table there.
-- Register condition functions in the root container, or pass them to the model.
+- Register condition functions in the domain's container or an ancestor (root included), or pass them
+  to the model.
 
 ### L2: RBAC stores, migrations and CLI
 
@@ -1545,7 +1548,7 @@ and guard check runs inside `AuthzAdmin`.
 - Kept on purpose: table and migration names, the 2.x metadata key names (hidden and protected), 2.x
   session rows (migrated on first use), and the names `RbacException`, `RbacCliCommand`,
   `RbacBootstrapper`, `RBAC_USER_MODEL`, the `rbac:user-*` CLI commands of users, `rbac:2fa-qr` of
-  authn-totp, and the `rbac*` logger and queue names.
+  authn-totp (now an alias of `authn:mfa-qr`), and the `rbac*` logger and queue names.
 - `getRegisteredTypes` answers `null` once no container in the lineage holds a registration of the
   type, also after every registration was removed; callers treat it as none (Z5).
 
@@ -1608,8 +1611,6 @@ Known gaps an app may meet. None of them widens access.
   `AccountGuard`) can both pass (G2b).
 - **A deferred mail whose attachment read is refused** is retried like any failed job, although the
   answer stays the same.
-- **`authz-fs` exports a mirror `FsDecorator`** from its frozen `api.ts`; `@spinajs/fs`'s class is the one
-  `fsService` resolves.
 - **HTTP log redaction** covers query values, not secrets in a URL path (`/verify/<token>`) or short
   query keys. Some body-parser errors (too large, charset, parameters) still answer 500.
 - **OIDC** has no run against a real Keycloak yet (lane IC2).

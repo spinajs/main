@@ -25,7 +25,7 @@ export class AppConfig extends FrameworkConfiguration {
       },
       service: {
         // fetched from AWS Parameter Store
-        endpoint: 'aws-parameters://prod/service/endpoint',
+        endpoint: 'aws-parameters:///prod/service/endpoint',
       },
 
       // client options are passed straight to the AWS SDK clients (region, credentials, endpoint, ...)
@@ -82,7 +82,7 @@ Subtree expansion:
 
 ```ts
 // given /prod/app/db/host, /prod/app/db/port, /prod/app/key in Parameter Store
-{ app: 'aws-parameters://prod/app/*' }
+{ app: 'aws-parameters:///prod/app/*' }
 // resolves to:
 { app: { db: { host: '...', port: '...' }, key: '...' } }
 ```

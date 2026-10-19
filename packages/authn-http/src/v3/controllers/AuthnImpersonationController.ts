@@ -4,13 +4,13 @@ import { BadRequestResponse, BaseController, BasePath, Del, Get, Ok, Policy, Pos
 import type { Request } from '@spinajs/http';
 import { AuthnImpersonationService } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import type { Credentials } from '@spinajs/authn/contracts';
 
-import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied, assertFreshAuth } from '../index.js';
-import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
+import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied } from '../index.js';
+import { refused } from '../../policies/v3/errors.js';
+import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { isSessionPrincipal } from '../../policies/v3/principal.js';
 import { narrowedBySwitch } from '../../resolvers/session.js';
-import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
+import { NO_STORE, authnClearedSessionCookie, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, contextOf, identityRefOf, stampClient } from '../routes.js';
 
 const TARGET_CAP = 256;
@@ -68,13 +68,9 @@ export class AuthnImpersonationController extends BaseController {
     const target = identityRefOf(bodyField(req, 'target', 'TargetUuid'), TARGET_CAP);
     if (!target) return new BadRequestResponse({ error: 'invalid_target', message: 'target must be a user id or { type, id }' });
 
-    let reauth: Credentials | null;
-    try {
-      reauth = await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
-    } catch (err) {
-      if (isAuthnFailed(err)) return authnFailureResponse();
-      throw err;
-    }
+    const fresh = await freshAuthOrAnswer(this.Container, req, bodyField(req, 'password', 'Password'));
+    if ('answer' in fresh) return fresh.answer;
+    const reauth = fresh.credentials;
 
     // Per call: apps that don't enable impersonation register none of its collaborators.
     const service = await this.Container.resolve(AuthnImpersonationService);

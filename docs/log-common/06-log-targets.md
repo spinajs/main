@@ -72,7 +72,7 @@ abstract class LogTarget<T extends ICommonTargetOptions> extends SyncService {
 | `logger.targets[].type` | `string` | required | A registered DI name | The `@Injectable('<TypeName>')` of the target class. |
 | `logger.targets[].enabled` | `boolean` | `true` | | `false`: the target is never constructed; rules naming it skip it silently. |
 | `logger.targets[].layout` | `string` | the default layout | A `format()` layout | Line layout for text targets. |
-| `logger.targets[].options` | `object` | `{}` | Target-specific | The target's own settings, read from `this.Options.options`. Typed as `ICommonTargetOptions`, but each target defines its own shape. |
+| `logger.targets[].options` | `object` | `{}` | Target-specific | The target's own settings, read from `this.Options.options`. Typed as `Record<string, any>`; each target defines its own shape. |
 | `logger.targets[].filters` | `ILogFilterOptions[]` | `[]` | `{ type, ...options }` | Filters for this target only, run on a per-target copy of the entry. |
 
 ### `ILogRule` (one entry of `logger.rules`)

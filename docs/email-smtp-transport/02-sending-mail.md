@@ -11,7 +11,7 @@ Call it through `EmailService.send()` or `sendDeferred()` from `@spinajs/email`.
 3. **Template filesystem.** Only when `email.template` is set:
    - a string is downloaded from the `email.templateFs` filesystem, resolved at boot;
    - an `IEmailTemplate` (`{ file, fs }`) is downloaded from `getFs(template.fs)`.
-4. **Render.** `Templates.render(file, { ...email.model, ...templates.defaults }, email.lang, { redact })` returns the HTML body. `@spinajs/templates` picks the engine by file extension. A render error is logged at `error` and rethrown, redacted. It is not retried.
+4. **Render.** `Templates.render(file, { ...templates.defaults, ...email.model }, email.lang, { redact })` returns the HTML body. `@spinajs/templates` picks the engine by file extension. A render error is logged at `error` and rethrown, redacted. It is not retried.
 5. **Message.** `send()` builds the `nodemailer` message; see [Field mapping](#field-mapping).
 6. **Attachments.** Each attachment becomes `{ cid, filename: name, path }`. `path` is `attachment.file` when the email service already read it. Otherwise `attachmentFile()` downloads `attachment.path` through `attachment.provider`, or through `fs.defaultProvider`.
 7. **Send.** `SendPipeline.execute(() => Transporter.sendMail(message))` sends with timeout and retries; see [Send resilience](03-send-resilience.md).
@@ -64,7 +64,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `email.connections[].defaults.mailFrom` | `string` | none | address or `Name <address>` | Sender when `IEmail.from` is empty. |
-| `email.connections[].templates.defaults` | `object` | none | any | Merged into every template model of this connection. Its keys win over `IEmail.model`. |
+| `email.connections[].templates.defaults` | `object` | none | any | Merged into every template model of this connection. `IEmail.model` keys win over it. |
 | `email.templateFs` | `string` | `'email-templates'` | a registered `fs` provider name | Filesystem for string templates. |
 | `email.attachments.check` | `boolean` | `true` | `true`, `false` | Read by `EmailService`. `true`: the service reads every attachment and the transport sends `file`. `false`: the transport reads `path` itself. |
 | `fs.defaultProvider` | `string` | none | a registered `fs` provider name | Filesystem for attachments without `provider`. |
@@ -106,8 +106,8 @@ export default {
 
 ## Important behaviour
 
-- Connection `templates.defaults` override `IEmail.model` keys of the same name: the model is built as `{ ...email.model, ...templates.defaults }`. Give defaults names that no mail model uses.
-- A string template with `email.templateFs` set to `''` fails with a `TypeError`: no template filesystem is resolved. Use an `IEmailTemplate` object or set `email.templateFs`.
+- `IEmail.model` keys override connection `templates.defaults` of the same name: the model is built as `{ ...templates.defaults, ...email.model }`.
+- A string template with `email.templateFs` set to `''` fails with `IOFail`: no template filesystem is resolved. Use an `IEmailTemplate` object or set `email.templateFs`.
 - An `IEmailTemplate` with an unregistered `fs` fails before rendering; the `fs` package throws `ResolveException`.
 - A template is downloaded from its filesystem on every send. Compile caching is up to `@spinajs/templates` (`templates.cache.mode`).
 - `IEmail.templateId` is ignored. A mail with only `templateId` goes out with no HTML body.

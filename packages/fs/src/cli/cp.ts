@@ -27,6 +27,7 @@ export class FsCpCommand extends CliCommand {
       );
     } catch (err) {
       this.Log.error({ error: err, src }, 'Cannot copy ${src}');
+      process.exitCode = 1;
     }
   }
 }

@@ -315,7 +315,7 @@ describe('authn.oidc through its own schema', function () {
     });
 
     it('registers the authn.oidc schema when it bootstraps', async () => {
-      await new OidcBootstrapper().bootstrap();
+      await (await DI.resolve(OidcBootstrapper)).bootstrap();
       expect(schemas()).to.include(AUTHN_OIDC_CONFIGURATION_SCHEMA);
     });
   });

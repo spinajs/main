@@ -70,7 +70,7 @@ export class Person extends ModelBase<Person> {
 
 - The operator passed to `query` is a `FilterableOperators` value (`eq`, `like`, `b-like`...). Passing it straight to `where()` fails for `eq`, `neq`, `b-like`, `e-like` and the others that are not SQL.
 - No value check runs for a custom column. Validate `value` yourself and throw `InvalidArgument` for a `400`.
-- The function's conditions are always ANDed with the other entries at the same level, also when the level's `op` is `or`: the `WhereFunction` is invoked on the group builder, not wrapped in `orWhere`.
+- The function's conditions form one bracketed condition, joined to the other entries at the same level by that level's `op`, like a built-in column.
 - Wrap several conditions in one `this.where(function () { ... })` so an `orWhere` inside does not leak into the surrounding group.
 - `filterColumns()` returns `query` with each column, so a column set built from it keeps the custom SQL.
 
@@ -162,11 +162,11 @@ export class TaggedArticleController extends BaseController {
 }
 ```
 
-### Keep a custom SQL column out of OR mode surprises
+### OR a custom SQL column with a plain one
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary, SqlOperator } from '@spinajs/orm';
-import { Filterable, FilterableLogicalOperators, IFilter, IFilterGroup } from '@spinajs/orm-http';
+import { Filterable, FilterableLogicalOperators } from '@spinajs/orm-http';
 
 @Connection('default')
 @Model('people')
@@ -189,15 +189,15 @@ export class Person extends ModelBase<Person> {
   public FullName: string;
 }
 
-/**
- * City = city OR FullName LIKE name. A custom column is ANDed even in an `or` level,
- * so it goes in its own group and the OR is expressed by the outer level of two groups.
- */
+/** City = city OR ( FirstName LIKE name OR LastName LIKE name ) */
 export async function cityOrName(city: string, name: string) {
-  const byCity: IFilterGroup = { filters: [{ Column: 'City', Operator: 'eq', Value: city }] };
-  const byName: IFilterGroup = { filters: [{ Column: 'FullName', Operator: 'like', Value: name }] };
-
-  return await Person.select().filter([byCity, byName] as unknown as IFilter[], FilterableLogicalOperators.Or);
+  return await Person.select().filter(
+    [
+      { Column: 'City', Operator: 'eq', Value: city },
+      { Column: 'FullName', Operator: 'like', Value: name },
+    ],
+    FilterableLogicalOperators.Or,
+  );
 }
 ```
 

@@ -157,7 +157,7 @@ DI.register(LeaveAwareStatusSource).as(AccountStatusSource);
 - An input that matches one account's email and another's login exactly resolves to the email owner. Two folded matches and no exact one resolve to `null`.
 - `findByLogin()` never matches `Id` or `Uuid`.
 - `UserIdentityStore` has no `provision()`: JIT provisioning (`authn.linking.jit`) has no store to create accounts.
-- `set()` with `expected` uses a byte-exact comparison on MySQL (`CAST(? AS BINARY)`) and SQL Server (`COLLATE Latin1_General_BIN2` plus a length check, because the default collations ignore case and trailing spaces). Other drivers compare with `=`.
+- `set()` with `expected` compares byte for byte with the connection's `SqlExpressions.equalsExactly()`: `CAST(? AS BINARY)` on MySQL, `COLLATE Latin1_General_BIN2` plus a length check on SQL Server (their default collations ignore case, and SQL Server also trailing spaces), plain `=` on SQLite and PostgreSQL. A driver without `SqlExpressions` throws `NotSupported`. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions).
 - A driver error in `set()` becomes `UnexpectedServerError` naming only the error class: the driver message carries the hash.
 - A password past `authn.local.expiration.maxAgeDays` still logs in until the expiration job writes `'!expired'`; `UserAccountStatusSource` counts it in service until then.
 - The stores boot the ORM themselves (`DI.resolve(Orm)`) because a CLI process resolves only its command.

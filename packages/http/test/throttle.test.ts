@@ -180,7 +180,7 @@ describe('ThrottleMiddleware', () => {
       expect(limited.status).to.eq(429);
     });
 
-    it('lets the request through when the counter store fails', async () => {
+    it('hands a counter store failure to the error handler', async () => {
       const broken: ThrottleStore = {
         increment: () => Promise.reject(new Error('store down')),
       } as ThrottleStore;

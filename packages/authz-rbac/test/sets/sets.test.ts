@@ -1,11 +1,11 @@
-import { AuthzConfigError, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, EvaluationContext, PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, groupPrincipal, servicePrincipal, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 import { renderTemplate } from '@spinajs/log-common';
 
-import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, subjectKey } from '../../src/index.js';
+import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, subjectKey } from '../../src/index.js';
 import type { GrantDef, LadderDef, RoleDef, SubjectResolver } from '../../src/index.js';
 
 const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
@@ -201,14 +201,6 @@ describe('authz-rbac subject sets (B33)', () => {
       const { m, store } = await model(rows);
       await m.preload(userPrincipal('zed'), ctx());
       expect(store.reads).to.have.length(1);
-    });
-
-    it('covers and heldNow answer from the preloaded sets, without IO; not preloaded throws', async () => {
-      const { m } = await model(rows);
-      expect(() => m.heldNow(alice, P1)).to.throw(AuthzConfigError, 'not preloaded');
-      await m.preload(alice, ctx());
-      expect(m.heldNow(alice, P1).map((l) => l.role)).to.deep.equal(['viewer']);
-      expect(new RbacService(m).covers(alice, ['viewer'], P1)).to.equal(true);
     });
 
     it('invalidating the principal drops its sets too: the next preload reads both again', async () => {

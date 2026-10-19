@@ -15,12 +15,10 @@ import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 
 import * as barrel from '../../src/index.js';
-import * as api from '../../src/api.js';
 import { CsrfOriginGuard, ownOrigin } from '../../src/middleware/csrf.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
-import { TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
+import { TestConfiguration, appOrigin, appPort, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
-const OWN = 'http://localhost:8889';
 const PARTNER = 'https://partner.example.org';
 const EVIL = 'https://evil.example.net';
 
@@ -49,7 +47,7 @@ function uncacheGuard(): void {
 async function startServer(): Promise<void> {
   uncacheGuard();
   await DI.resolve(Controllers);
-  await (await DI.resolve(HttpServer)).start();
+  await startHttpServer();
 }
 
 /** Restarts the server so the guard reads the given settings when the middleware is built. */
@@ -145,8 +143,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     uncacheGuard();
   });
 
-  it('the barrel exports the lane CsrfOriginGuard, registered as a ServerMiddleware at Order 4, not the api.ts stub', () => {
-    expect(barrel.CsrfOriginGuard).to.eq(CsrfOriginGuard).and.not.eq(api.CsrfOriginGuard);
+  it('the barrel exports the lane CsrfOriginGuard, registered as a ServerMiddleware at Order 4', () => {
+    expect(barrel.CsrfOriginGuard).to.eq(CsrfOriginGuard);
     expect(new CsrfOriginGuard().Order).to.eq(4);
     expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(CsrfOriginGuard);
   });
@@ -154,7 +152,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
   describe('over the real server', () => {
     beforeEach(async () => restartWith(DEFAULTS));
 
-    it('A22 own origin passes', async () => expectPass(await send('POST', { Origin: OWN })));
+    it('A22 own origin passes', async () => expectPass(await send('POST', { Origin: appOrigin() })));
     it('SR-12 a cross-origin POST with the session cookie never reaches the handler', async () => expectRefused(await send('POST', { Origin: EVIL })));
     it('A22 a listed origin passes', async () => expectPass(await send('POST', { Origin: PARTNER })));
     it('A22 same-origin fetch metadata passes without Origin', async () => expectPass(await send('POST', { 'Sec-Fetch-Site': 'same-origin' })));
@@ -165,10 +163,10 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     });
 
     it('A22 Origin null is refused', async () => expectRefused(await send('POST', { Origin: 'null' })));
-    it('A22 another port is another origin', async () => expectRefused(await send('POST', { Origin: 'http://localhost:8890' })));
-    it('A22 a longer host is another origin', async () => expectRefused(await send('POST', { Origin: 'http://localhost.evil.example.net:8889' })));
+    it('A22 another port is another origin', async () => expectRefused(await send('POST', { Origin: `http://localhost:${appPort() + 1}` })));
+    it('A22 a longer host is another origin', async () => expectRefused(await send('POST', { Origin: `http://localhost.evil.example.net:${appPort()}` })));
     it('A22 a longer listed origin is another origin', async () => expectRefused(await send('POST', { Origin: `${PARTNER}.evil.example.net` })));
-    it('A22 another scheme is another origin', async () => expectRefused(await send('POST', { Origin: 'https://localhost:8889' })));
+    it('A22 another scheme is another origin', async () => expectRefused(await send('POST', { Origin: `https://localhost:${appPort()}` })));
 
     it('A22 an origin that only differs in case or adds a path is not the serialized origin', async () => {
       expectRefused(await send('POST', { Origin: 'HTTPS://partner.example.org' }));
@@ -179,7 +177,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
 
     it('A22 every unsafe method is checked: PUT, PATCH, DELETE', async () => {
       for (const method of ['PUT', 'PATCH', 'DELETE'] as const) expectRefused(await send(method, { Origin: EVIL }));
-      for (const method of ['PUT', 'PATCH', 'DELETE'] as const) expectPass(await send(method, { Origin: OWN }));
+      for (const method of ['PUT', 'PATCH', 'DELETE'] as const) expectPass(await send(method, { Origin: appOrigin() }));
     });
 
     it('A22 safe methods are not checked', async () => expectPass(await send('GET', { Origin: EVIL })));
@@ -206,23 +204,23 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       await restartWith({ ...DEFAULTS, 'authn.http.csrf.enabled': undefined, 'authn.http.csrf.allowedOrigins': [] });
       expectRefused(await send('POST', { Origin: EVIL }));
       expectRefused(await send('POST', { Origin: PARTNER }));
-      expectPass(await send('POST', { Origin: OWN }));
+      expectPass(await send('POST', { Origin: appOrigin() }));
     });
 
     it('A22 a cross-origin cookie request to the OIDC link routes is refused (N10)', async () => {
       expectRefused(await send('POST', { Origin: EVIL }, { path: 'auth/oidc/test-provider/link' }));
       expectRefused(await send('DELETE', { Origin: EVIL }, { path: 'auth/oidc/test-provider/link' }));
-      expectPass(await send('POST', { Origin: OWN }, { path: 'auth/oidc/test-provider/link' }));
+      expectPass(await send('POST', { Origin: appOrigin() }, { path: 'auth/oidc/test-provider/link' }));
     });
 
     it('A22 X-Forwarded-Proto and -Host set the own origin only behind a trusted proxy', async () => {
       const forwarded = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'app.example.test' };
       expectRefused(await send('POST', { ...forwarded, Origin: 'https://app.example.test' }));
-      expectPass(await send('POST', { ...forwarded, Origin: OWN }));
+      expectPass(await send('POST', { ...forwarded, Origin: appOrigin() }));
 
       await restartWith({ ...DEFAULTS, 'authn.http.trustProxy': ['loopback'] });
       expectPass(await send('POST', { ...forwarded, Origin: 'https://app.example.test' }));
-      expectRefused(await send('POST', { ...forwarded, Origin: OWN }));
+      expectRefused(await send('POST', { ...forwarded, Origin: appOrigin() }));
 
       await restartWith({ ...DEFAULTS, 'http.trustProxy': ['loopback'] });
       expectPass(await send('POST', { ...forwarded, Origin: 'https://app.example.test' }));

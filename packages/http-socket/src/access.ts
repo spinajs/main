@@ -44,7 +44,7 @@ export function fromPayload(path: string, type: ResourceType): SocketResourceExt
       value = value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
     }
 
-    if (typeof value === 'number' || (typeof value === 'string' && value.length > 0)) {
+    if ((typeof value === 'number' && Number.isFinite(value)) || (typeof value === 'string' && value.length > 0)) {
       return { type, id: String(value) };
     }
 

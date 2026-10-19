@@ -25,16 +25,18 @@ export class FromCookie extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
-    const arg = req.cookies[param.Name];
+    const arg = req.cookies?.[param.Name];
+    // cookie-parser moves an `s:` cookie it verified into req.signedCookies, and one with a bad signature as false
+    const verified: unknown = param.Options?.secure ? req.signedCookies?.[param.Name] : undefined;
 
-    if (arg === undefined || arg === null) {
+    if ((arg === undefined || arg === null) && verified === undefined) {
       return { CallData: callData, Args: null };
     }
 
-
     let result = null;
     if (param.Options?.secure) {
-      result = cs.unsign(arg, this._coockieSecret);
+      // req.cookies still holds the signed value when the parser has no secret, and for cookies issued before the `s:` prefix
+      result = verified !== undefined ? verified : typeof arg === 'string' ? cs.unsign(arg.startsWith('s:') ? arg.slice(2) : arg, this._coockieSecret) : false;
       if (result === false) {
 
         this.Log.warn({ cookie: param.Name }, 'Cookie ${cookie} is not signed or signature is invalid.');

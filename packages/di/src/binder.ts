@@ -3,7 +3,7 @@ import { ResolveType } from './enums.js';
 import { isFactory, isConstructor, getTypeName } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
-import { DI } from './index.js';
+import { AddDependency } from './decorators.js';
 
 export class Binder<T> implements IBind {
   private isFactory: boolean;
@@ -102,8 +102,9 @@ export class Binder<T> implements IBind {
     if (this.isFactory || !this.isConstructor) {
       throw new BindException('Cannot bind factory function as singleton.');
     } else {
-      const descriptor: IInjectDescriptor<unknown> = DI.RootContainer.extractDescriptor(this.implementation as Class<unknown>);
-      descriptor.resolver = ResolveType.Singleton;
+      AddDependency((descriptor: IInjectDescriptor<unknown>) => {
+        descriptor.resolver = ResolveType.Singleton;
+      })(this.implementation as Class<unknown>);
     }
     return this;
   }

@@ -5,7 +5,7 @@ import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, IdentityLinkStore, IdentityStore } from '@spinajs/authn/contracts';
 import { NonceStore } from '@spinajs/authn-orm';
 import { Log, Logger } from '@spinajs/log';
-import { appEnvOf as sessionAppEnvOf } from '@spinajs/authn-session';
+import { appEnvOf } from '@spinajs/authn-session';
 
 import { buildOidcOptions } from './options/options.js';
 import type { ConfiguredOidc, OidcOptions } from './options/options.js';
@@ -13,9 +13,6 @@ import { OidcHttpClient } from './http/client.js';
 import { OidcProvider } from './provider.js';
 import { OidcStrategy } from './strategy.js';
 import { isRelaxedEnv } from './support.js';
-
-/** authn-session's reading of the app env: undefined (production) when no source named one (SR-16). */
-export const appEnvOf = (config: Configuration): string | undefined => sessionAppEnvOf(config);
 
 /**
  * The configured providers (`authn.oidc`) of a container's Configuration, read and checked at boot, each with its

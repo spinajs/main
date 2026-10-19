@@ -32,6 +32,12 @@ export class CronLogArchiveStrategy extends LogArchiveStrategy {
           void this.triggerRotation(ctx);
         },
         null,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // unrefTimeout: a rotation schedule must not keep the process alive
         true
       );
     } catch (err) {

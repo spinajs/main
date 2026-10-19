@@ -13,7 +13,7 @@ export class Mutex_2024_12_03_11_41_00 extends OrmMigration {
     });
   }
 
-  // tslint:disable-next-line: no-empty
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public async down(_connection: OrmDriver): Promise<void> {}
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropTable('__mutex__');
+  }
 }

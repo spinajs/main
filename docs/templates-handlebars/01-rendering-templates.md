@@ -13,10 +13,10 @@
 5. `HandlebarsRenderer.compile()` reads the source with `resolveContent()`:
    - a bare path is read from local disk with `fs/promises.readFile()`, relative to the process working directory;
    - an `fs://provider/path` URI is read through `@spinajs/fs` (`fs.read(new URI(...))`).
-6. An empty source throws `IOFail('Template file <template> is empty')`. Otherwise `Handlebars.compile(content, Options)` returns the delegate, with `Options` read from `templates.handlebars`.
+6. An empty source throws `IOFail('Template file <template> is empty')`. Otherwise `Handlebars.precompile(content, Options)` checks the source, and a syntax error throws `IOFail('Cannot compile handlebars template from path <template>: <reason>')`. `Handlebars.compile(content, Options)` then returns the delegate, with `Options` read from `templates.handlebars`.
 7. `CompiledTemplateRenderer.resolveLanguage(language)` picks the render language: the `language` argument, else `guessLanguage()` (the language in the async request store), else `defaultLanguage()` (`intl.defaultLocale`).
 8. `HandlebarsRenderer.buildContext(model, language)` builds the template context: `_.merge({}, model ?? {}, { lang: language })`. The caller's model is never mutated.
-9. The delegate runs with that context and returns the string. Handlebars parses the source on this first call, so a syntax error is thrown here, not in step 6.
+9. The delegate runs with that context and returns the string.
 10. `renderToFile()` creates the parent directory when missing and writes the string with `fs.writeFileSync()`.
 
 ```mermaid
@@ -33,6 +33,7 @@ sequenceDiagram
   alt cache miss
     Cache->>Renderer: compile(template)
     Renderer->>Source: readFile() or fs.read(URI)
+    Renderer->>HB: Handlebars.precompile(source) (syntax check)
     Renderer->>HB: Handlebars.compile(source, templates.handlebars)
   end
   Renderer->>Renderer: buildContext(model, resolveLanguage())
@@ -109,7 +110,7 @@ A failed stat in `revalidate` mode logs a warning and serves the cached delegate
 - **The context is a deep copy of plain data.** Plain objects and arrays are copied; `Date`, luxon `DateTime` and other class instances inside the model are kept by reference.
 - **Getters and methods on class instances do not render.** Handlebars 4.6+ denies access to properties that are not own properties: `{{user.fullName}}` on a class getter renders `""` and logs a warning to the console. Pass plain data (`model.toJSON()`).
 - **`lang` is reserved.** A model property `lang` is replaced by the render language.
-- **Syntax errors appear at render time** and the broken delegate is cached. In `cache` mode every render of that template throws until restart, even after the file is fixed.
+- **Syntax errors fail the compile step** with `IOFail`, so a broken template is never cached; the next render after the file is fixed compiles it again.
 - **Bare relative paths resolve against `process.cwd()`**, not against `system.dirs.templates`. Use absolute paths or `fs://` URIs.
 - **A missing local file throws Node's `ENOENT` error** from `readFile()`; it is not wrapped.
 - **`templates.handlebars` is read at compile time.** A changed value applies only to templates compiled afterwards.

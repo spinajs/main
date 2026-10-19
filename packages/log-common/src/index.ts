@@ -1,8 +1,9 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
-import { applySerializers } from "./serializers.js";
+import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
+import { consoleLog } from "./optional.js";
 
 export * from "./serializers.js";
 export * from "./template.js";
@@ -11,6 +12,8 @@ export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
 export * from "./persistence.js";
 export * from "./perf.js";
+export * from "./optional.js";
+export * from "./rate-limit.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 import type { ILogFilterOptions, LogFilter } from "./filters/filter.js";
@@ -124,7 +127,8 @@ export interface ILogRule {
 export interface ITargetsOption {
   name: string;
   type: string;
-  options?: ICommonTargetOptions;
+  /** Target-specific settings; each target defines its own shape ( eg. `IFileTargetOptions["options"]` ). */
+  options?: Record<string, any>;
 
   /**
    * When `false` the target is NOT instantiated at all ( its class is never
@@ -316,7 +320,8 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
 }
 
 export interface ILogStaticVariables {
-  error: Error | undefined;
+  /** `createLogMessageObject` replaces the logged `Error` with its serialized record. */
+  error: ISerializedError | Error | undefined;
   level: string;
   logger: string;
   message: string;
@@ -432,7 +437,7 @@ export function createLogMessageObject(err: Error | string, message: string | an
   const theVars = {
     ...ctx,
     error: err instanceof Error ? err : undefined,
-    level: LogLevelStrings[`${level}`].toUpperCase(),
+    level: ((LogLevelStrings as Record<number, string>)[level] ?? String(level)).toUpperCase(),
     logger: lName,
     message: tMsg,
     ...variables,
@@ -560,7 +565,9 @@ export abstract class Log extends SyncService {
         Log.Loggers.clear();
       })
       .then(() => {
-        return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+        const internal = [...Log.InternalLoggers.values()];
+        Log.InternalLoggers.clear();
+        return Promise.all(internal.map((l) => l.dispose()));
       });
   }
 
@@ -591,7 +598,7 @@ export abstract class Log extends SyncService {
     return diff;
   }
 
-  public child(name: string, variables?: LogVariables): Log {
+  public child(name: string, variables?: Record<string, unknown>): Log {
     return DI.resolve(Log, [
       `${this.Name}.${name}`,
       {
@@ -669,25 +676,44 @@ export abstract class Log extends SyncService {
   }
 }
 
+export interface LoggerOptions {
+  /**
+   * While no {@link Log} is registered the property reads as {@link consoleLog} instead of throwing, and the logger
+   * is resolved on a later read. Type the property as {@link LogWriter}.
+   */
+  optional?: boolean;
+  variables?: Record<string, unknown>;
+}
+
+// A variables bag holding only these keys is read as options; the default Log factory drops variables anyway.
+const isLoggerOptions = (v: Record<string, unknown> | LoggerOptions | undefined): v is LoggerOptions =>
+  typeof v?.optional === "boolean" && Object.keys(v).every((k) => k === "optional" || k === "variables");
+
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables
  * @param name - name of logger
- * @param variables - optional log variables
+ * @param variablesOrOptions - optional log variables, or {@link LoggerOptions}
  */
-export function Logger(name: string, variables?: Record<string, unknown>) {
+export function Logger(name: string, variablesOrOptions?: Record<string, unknown> | LoggerOptions) {
+  const options: LoggerOptions = isLoggerOptions(variablesOrOptions) ? variablesOrOptions : { variables: variablesOrOptions };
+  const variables = options.variables;
+
   return (target: any, key: string): any => {
     let logger: Log;
 
     // property getter
     const getter = () => {
       if (!logger) {
-        const allLoggers = DI.get(Array.ofType(Log));
-        const found = allLoggers!.find((l) => l.Name === name);
-
-        if (found) {
-          logger = found;
+        if (!options.optional) {
+          logger = resolveLogger(name, variables);
+        } else if (!DI.check(Log)) {
+          return consoleLog;
         } else {
-          logger = DI.resolve(Log, [name, variables]);
+          try {
+            logger = resolveLogger(name, variables);
+          } catch {
+            return consoleLog;
+          }
         }
       }
       return logger;
@@ -700,6 +726,12 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
       configurable: false,
     });
   };
+}
+
+function resolveLogger(name: string, variables: Record<string, unknown> | undefined): Log {
+  const allLoggers = DI.get(Array.ofType(Log));
+  const found = allLoggers!.find((l) => l.Name === name);
+  return found ?? DI.resolve(Log, [name, variables]);
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;

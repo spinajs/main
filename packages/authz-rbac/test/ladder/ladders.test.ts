@@ -290,33 +290,6 @@ describe('authz-rbac ladders: rank tables and implicit extends', () => {
       ]);
     });
 
-    it('covers: a higher ladder role covers the lower ones, not the reverse', async () => {
-      const service = new RbacService(await model([]));
-      expect(service.covers(['maintainer'], ['viewer', 'commenter', 'editor'])).to.equal(true);
-      expect(service.covers(['editor'], ['maintainer'])).to.equal(false);
-      expect(service.covers(['viewer'], ['commenter'])).to.equal(false);
-    });
-
-    it("covers: a ladder grant limited to the ladder's resourceTypes does not cover the same grant everywhere", async () => {
-      const service = new RbacService(await model([]));
-      expect(service.covers(['maintainer'], ['reader'])).to.equal(false);
-      expect(service.covers(['reader'], ['viewer'])).to.equal(true);
-    });
-
-    it('covers: a ladder whose resourceTypes hold every type of the permission covers a grant without limits', async () => {
-      const covers = async (resourceTypes: string[]) => {
-        const r = new PermissionRegistryImpl();
-        r.register([{ name: 'file:read', types: ['file'] }], 'test');
-        r.freeze();
-        const m = new RbacModel({ roles: new MemoryRoleStore([role('viewer', ['file:read'], { ladder: 'project' }), role('reader', ['file:read'])], [{ name: 'project', roles: ['viewer'], resourceTypes }]), assignments: new MemoryAssignmentStore(), log: { warn: () => undefined } });
-        await m.init(fakeModelInitContext({ model: 'rbac', permissions: r }));
-        return new RbacService(m).covers(['viewer'], ['reader']);
-      };
-      expect(await covers(['file', '$global'])).to.equal(true);
-      // A $global check is a type the permission is checked on too: the reader grant applies there, the ladder grant does not.
-      expect(await covers(['file'])).to.equal(false);
-    });
-
     describe('one source for the ladder tables (RbacExtension.tables)', () => {
       const withExtensions = async (extensions: RbacExtension[], assignments: readonly Assignment[] = []) => {
         const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore(assignments), extensions, log: { warn: () => undefined } });
@@ -330,13 +303,12 @@ describe('authz-rbac ladders: rank tables and implicit extends', () => {
         return { extraEdges: inner.extraEdges, tables: (graph, grants) => inner.tables(graph, grants) };
       };
 
-      it('covers reads the tables of any extension, as the votes do', async () => {
+      it('the votes read the tables of any extension', async () => {
         const m = await withExtensions([custom()], [assignment('a1', 'maintainer')]);
-        expect(new RbacService(m).covers(['maintainer'], ['reader'])).to.equal(false);
         expect((await vote(m, 'file:read', O1)).permitWhen).to.deep.equal(FALSE);
       });
 
-      it('a gather may not set a table: the vote fails instead of disagreeing with covers', async () => {
+      it('a gather may not set a table: the vote fails instead of disagreeing with summarize', async () => {
         const inner = new LadderExtension();
         const m = await withExtensions([{ extraEdges: inner.extraEdges, gather: (_r, _c, input) => ({ ladders: inner.index(input.roles, input.grants) }) }]);
         let thrown: unknown;

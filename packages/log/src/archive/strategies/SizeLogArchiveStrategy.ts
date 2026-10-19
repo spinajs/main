@@ -21,6 +21,8 @@ export class SizeLogArchiveStrategy extends LogArchiveStrategy {
     this.timer = setInterval(() => {
       void this.check(ctx);
     }, interval);
+    // a size check must not keep the process alive, or the beforeExit flush never runs
+    this.timer.unref?.();
   }
 
   public stop(): void {

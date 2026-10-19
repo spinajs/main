@@ -161,6 +161,12 @@ export class EvtTestDomains extends AuthzDomains {
   public names(): readonly string[] {
     return ['root'];
   }
+  public describe(): undefined {
+    return unused('describe');
+  }
+  public lineage(): readonly string[] {
+    return unused('lineage');
+  }
 }
 
 export class EvtDeny extends BasePolicy {

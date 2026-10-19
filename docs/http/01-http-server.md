@@ -95,7 +95,7 @@ export default {
       helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
       express.json({ limit: '1mb', verify: (req: any, _res: any, buf: Buffer) => { req.rawBody = buf; } }),
       express.urlencoded({ extended: true }),
-      // configuredCookieParser is not exported; pass the same secret as http.cookie.secret.
+      // or configuredCookieParser from @spinajs/http, which reads http.cookie.secret itself.
       cookieParser(process.env.COOKIE_SECRET),
     ],
     cookie: { secret: process.env.COOKIE_SECRET },
@@ -179,7 +179,7 @@ void main();
 - The shutdown watchdog is `unref`'d: it never keeps the process alive.
 - Server middlewares are collected when `HttpServer` resolves. A `ServerMiddleware` module imported later is ignored.
 - The controllers router is mounted after the static files. A static file wins over a route with the same path.
-- `http.middlewares` replaces the whole default array. Leaving out `express.json` turns off JSON bodies and `@RawBody()`; leaving out the cookie parser turns off `req.cookies` and `@Cookie()`. `configuredCookieParser` is not exported from the package entry, so a replacement array uses `cookieParser(secret)` from `cookie-parser`.
+- `http.middlewares` replaces the whole default array. Leaving out `express.json` turns off JSON bodies and `@RawBody()`; leaving out the cookie parser turns off `req.cookies` and `@Cookie()`. Re-add the default parser with `configuredCookieParser` (exported from `@spinajs/http`), or use `cookieParser(secret)` from `cookie-parser` with the same secret as `http.cookie.secret`.
 
 ## Best practices
 

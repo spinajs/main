@@ -13,20 +13,20 @@
 2. **`addController(controller, entry)`** documents one controller: its tag, then one operation per route, as described in [Documenting routes](02-documenting-routes.md), [Parameters and request bodies](03-parameters-and-request-bodies.md) and [Policies and access](05-policies-and-access.md). It registers components and standard responses as it meets them. It throws `InvalidArgument` for a path argument it cannot bind; routes added before the throw stay in the document.
 3. **`build()`** copies the collected tags into `tags` and returns the document. It returns the same object on every call.
 
-`config.basePath` is used as given; `SwaggerService` fills it from `http.controllers.route.prefix` before it creates the builder.
+`config.basePath` is used without its leading and trailing `/`; `SwaggerService` fills it from `http.controllers.route.prefix` before it creates the builder.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `OpenApiBuilder` | class `OpenApiBuilder`; no lifetime decorator, so a singleton; `SwaggerService.buildSpec()` resolves it with `DI.resolve(OpenApiBuilder, [config])` | `OpenApiBuilder` | none | Subclass, override `addController()` and `build()`, and `DI.register(Sub).as(OpenApiBuilder)` before the first build |
+| `OpenApiBuilder` | class `OpenApiBuilder`, `@NewInstance()`; `SwaggerService.buildSpec()` resolves a new one with `DI.resolve(OpenApiBuilder, [config])` | `OpenApiBuilder` | none | Subclass, override `addController()` and `build()`, and `DI.register(Sub).as(OpenApiBuilder)` before the first build |
 | `SchemaProvider` list | `@Autoinject(SchemaProvider)` on `protected SchemaProviders: SchemaProvider[]`, read on use | every `@Injectable(SchemaProvider)` class | see [Named schemas and schema providers](04-named-schemas-and-schema-providers.md#shipped-providers) | Register another provider |
 
 The constructor takes the config as its only argument. `addController()` and `build()` are the only public methods; everything else is private, so a subclass shapes the document through these two.
 
 ### `OpenApiBuilder`: custom implementation
 
-Replace the builder to leave out whole controllers, rename or sort tags, or add vendor extensions to every operation. Decorate the subclass `@NewInstance()`: each `buildSpec()` then gets a fresh builder with the current config, instead of the instance from the first build.
+Replace the builder to leave out whole controllers, rename or sort tags, or add vendor extensions to every operation. Decorate the subclass `@NewInstance()` as well, so each `buildSpec()` gets a fresh builder with the current config instead of the instance from the first build.
 
 ```ts sample
 import { ClassInfo, DI, NewInstance } from '@spinajs/di';
@@ -66,7 +66,7 @@ DI.register(PublicApiBuilder).as(OpenApiBuilder);
 
 ## Important behaviour
 
-- Without `@NewInstance()` on a replacement, the builder is cached on the first build. A later build after `SwaggerService.invalidate()` adds to the old document and ignores the new config.
+- A replacement resolved as a singleton is cached on the first build. A later build after `SwaggerService.invalidate()` adds to the old document and ignores the new config.
 - A second route with the same documented path and method overwrites the first in `paths`.
 - `addController()` returns without doing anything for a controller with no runtime `Descriptor`.
 - The builder writes into schema objects it receives from schema providers while it expands them.

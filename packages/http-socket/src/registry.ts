@@ -33,7 +33,7 @@ export class SocketHandlerRegistry {
     this.connectHooks = [];
     this.disconnectHooks = [];
 
-    const types = (DI.getRegisteredTypes(BaseSocketController) ?? []) as Array<Class<BaseSocketController>>;
+    const types = [...new Set(DI.getRegisteredTypes(BaseSocketController) ?? [])] as Array<Class<BaseSocketController>>;
 
     for (const type of types) {
       const controller = (await DI.resolve(type)) as BaseSocketController;

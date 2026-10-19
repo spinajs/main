@@ -46,7 +46,7 @@ const RULE = 'design §6.5 rule 9';
  * @throws AuthzConfigError for a malformed ladder, a ladder naming an unknown role, a role in two
  *   ladders, or a `RoleDef.ladder` that disagrees with `LadderDef.roles`
  */
-export function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
+function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
   const out: CompiledLadder[] = [];
   const listedIn = new Map<string, string>();
   ladders.forEach((def, index) => {
