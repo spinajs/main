@@ -199,7 +199,10 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     if (typeof value === 'string') {
       dt = DateTime.fromISO(value);
       if (value !== '' && !dt.isValid) {
-        throw new InvalidArgument(`column ${column?.Name}: "${value}" is not an ISO 8601 date`);
+        dt = DateTime.fromSQL(value);
+        if (!dt.isValid) {
+          throw new InvalidArgument(`column ${column?.Name}: "${value}" is not an ISO 8601 or SQL datetime`);
+        }
       }
     } else {
       dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value as Date);
