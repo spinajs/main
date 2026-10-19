@@ -1,5 +1,5 @@
 import { Autoinject, Injectable, NewInstance } from "@spinajs/di";
-import { FileProportions, FileUploadMiddleware, FileValidationRules, IUploadedFile, IUploadOptions } from "../interfaces.js";
+import { FileProportions, FileTypeEnum, FileUploadMiddleware, FileValidationRules, IUploadedFile, IUploadOptions } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
 import { FileInfoService } from "@spinajs/fs";
 import { ValidationFailed } from "@spinajs/validation";
@@ -102,6 +102,10 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
         }
 
         const isValid = this.Rules.types.some(allowedType => {
+            if (allowedType === FileTypeEnum.any) {
+                return true;
+            }
+
             // Support wildcards like 'image/*'
             if (allowedType.endsWith('/*')) {
                 const category = allowedType.split('/')[0];
@@ -127,7 +131,7 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
 
     protected validateProportions(file: IUploadedFile<any>) {
 
-        if (!this.Rules.proportions) {
+        if (!this.Rules.proportions || this.Rules.proportions.length === 0) {
             return file;
         }
 
@@ -141,9 +145,12 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
             }]);
         }
 
-        this.Rules.proportions.forEach(prop => {
+        const actualRatio = file.Info!.Width! / file.Info!.Height!;
+        const tolerance = 0.01; // 1% tolerance
+
+        const matches = this.Rules.proportions.some(prop => {
             if (prop === FileProportions.Free) {
-                return;
+                return true;
             }
 
             const [expectedWidth, expectedHeight] = prop.split(':').map(Number);
@@ -157,24 +164,23 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                 }]);
             }
 
-            const actualRatio = file.Info!.Width! / file.Info!.Height!;
             const expectedRatio = expectedWidth / expectedHeight;
-            const tolerance = 0.01; // 1% tolerance
-
-            if (Math.abs(actualRatio - expectedRatio) > tolerance) {
-                throw new ValidationFailed('validation error', [{
-                    instancePath: '/file/proportions',
-                    schemaPath: '#/properties/file/proportions',
-                    keyword: 'proportions',
-                    params: {
-                        expected: this.Rules.proportions,
-                        actual: `${file.Info!.Width}x${file.Info!.Height}`,
-                        ratio: actualRatio.toFixed(2)
-                    },
-                    message: `Image proportions must be ${this.Rules.proportions}. Got: ${file.Info!.Width}x${file.Info!.Height} (${actualRatio.toFixed(2)})`
-                }]);
-            }
+            return Math.abs(actualRatio - expectedRatio) <= tolerance;
         });
+
+        if (!matches) {
+            throw new ValidationFailed('validation error', [{
+                instancePath: '/file/proportions',
+                schemaPath: '#/properties/file/proportions',
+                keyword: 'proportions',
+                params: {
+                    expected: this.Rules.proportions,
+                    actual: `${file.Info!.Width}x${file.Info!.Height}`,
+                    ratio: actualRatio.toFixed(2)
+                },
+                message: `Image proportions must be one of ${this.Rules.proportions}. Got: ${file.Info!.Width}x${file.Info!.Height} (${actualRatio.toFixed(2)})`
+            }]);
+        }
     }
 
     protected validateResolution(file: IUploadedFile<any>) {

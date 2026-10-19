@@ -20,8 +20,6 @@ export class Task_2024_12_03_11_41_00 extends OrmMigration {
       table.int('Duration').default().value(0);
     });
 
-    await connection.index().unique().table('__tasks').name('__tasks_unique_name').columns(['Name']);
-
     // if driver supports task scheduling
     // create orm task to clear old entries
 
@@ -34,7 +32,12 @@ export class Task_2024_12_03_11_41_00 extends OrmMigration {
     }
   }
 
-  // tslint:disable-next-line: no-empty
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public async down(_connection: OrmDriver): Promise<void> {}
+  public async down(connection: OrmDriver): Promise<void> {
+    if (connection.supportedFeatures().events) {
+      await connection.schema().dropEvent('__task_delete_old_entries');
+    }
+
+    await connection.schema().dropTable('__task_history');
+    await connection.schema().dropTable('__tasks');
+  }
 }

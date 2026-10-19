@@ -17,4 +17,9 @@ export class TestResponses extends BaseController {
   public testLangAllowedLanguages(@Lang(['en', 'pl']) lang: string) {
     return new Ok({ lang });
   }
+
+  @Get()
+  public testLangDefaultNotAllowed(@Lang(['en', 'de']) lang: string) {
+    return new Ok({ lang });
+  }
 }

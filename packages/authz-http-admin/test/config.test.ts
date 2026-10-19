@@ -25,8 +25,8 @@ describe('shipped configuration', () => {
     expect(readdirSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'controllers'))).to.deep.equal(['AuthzAdminController.ts']);
   });
 
-  it('runs the admin routes on the root domain by default', () => {
-    expect(config.authz.http.admin.domain).to.equal('root');
+  it('leaves authz.http.admin.domain to the authz-http schema default', () => {
+    expect(config).to.not.have.property('authz');
   });
 
   it('ships no 2.x rbac.* keys', () => {
@@ -55,6 +55,12 @@ describe('authz.http.admin.domain through @Config', () => {
 
   it('is root when the app names none', async () => {
     expect(domainOf(await boot(undefined))).to.equal('root');
+  });
+
+  it('is root with only the shipped configuration', async () => {
+    const booted = await bootConfiguration({ ...config }, [AUTHZ_HTTP_CONFIGURATION_SCHEMA]);
+    children.push(booted.child);
+    expect(domainOf(booted.child)).to.equal('root');
   });
 
   it('refuses an empty domain name at boot', async () => {

@@ -36,7 +36,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `GET /docs/swagger.json` | `200` | The OpenAPI 3.0.3 document (`IOpenApiDocument`) |
 | `GET /docs/swagger.json` | `404` | `{ "error": "Swagger documentation is disabled" }` when `http.swagger.enabled` is `false` |
-| `GET /docs/swagger.json` | `400` | The build failed: one line per controller that could not be documented. `SwaggerService.buildSpec()` throws `InvalidArgument`, which `@spinajs/http` maps to Bad Request |
+| `GET /docs/swagger.json` | `500` | The build failed: one line per controller that could not be documented. `SwaggerService.buildSpec()` throws `UnexpectedServerError`, which `@spinajs/http` maps to Internal Server Error |
 | `GET /docs/` | `200` | Swagger UI HTML page |
 | `GET /docs/` | `404` | Same body as above, when disabled |
 | `GET /docs/ui/*` | `200` | Files of `swagger-ui-dist` |
@@ -52,7 +52,7 @@ With `http.controllers.route.prefix: 'api'` the two controller routes become `/a
 | `http.swagger.title` | `string` | `'API Documentation'` | any | `info.title` |
 | `http.swagger.version` | `string` | `'1.0.0'` | any | `info.version` |
 | `http.swagger.description` | `string` | `''` | Markdown | `info.description`. The builder appends a Policies section to it; see [Policies and access](05-policies-and-access.md) |
-| `http.swagger.basePath` | `string` | `''` | path without leading or trailing `/`, eg. `'api'` | Prefix for every documented path. Empty falls back to `http.controllers.route.prefix`. A leading `/` produces `//api/...` |
+| `http.swagger.basePath` | `string` | `''` | path without leading or trailing `/`, eg. `'api'` | Prefix for every documented path. Empty falls back to `http.controllers.route.prefix`. Leading and trailing `/` are stripped |
 | `http.swagger.servers` | `{ url: string; description?: string }[]` | `[]` | any | `servers` of the document. Arrays concatenate across config files |
 | `http.swagger.securitySchemes` | `Record<string, ISecurityScheme>` | unset | `type`: `'apiKey'`, `'http'`, `'oauth2'`, `'openIdConnect'` | `components.securitySchemes` |
 | `http.swagger.security` | `Record<string, string[]>[]` | unset | scheme names from `securitySchemes` | Document-wide security requirement. Override per route with `@security`; see [Documenting routes](02-documenting-routes.md#security) |
@@ -69,7 +69,7 @@ The package config also sets these keys:
 | `system.dirs.controllers` | `<root>/node_modules/@spinajs/http-swagger/lib/<mjs\|cjs>/controllers` | Loads `SwaggerController` |
 | `system.dirs.cli` | `<root>/node_modules/@spinajs/http-swagger/lib/<mjs\|cjs>/cli` | Loads `SwaggerCacheCommand` |
 | `fs.providers` `__fs_swagger_views__` | `fsNative`, `<root>/node_modules/@spinajs/http-swagger/lib/views` | Template folder of the UI page |
-| `fs.providers` `__fs_swagger_cache__` | `fsNative`, `<cwd>/__cache__/__swagger__` | Declared, but no code in this package reads it |
+| `fs.providers` `__fs_swagger_cache__` | `fsNative`, `<root>/__cache__/__swagger__` | Declared, but no code in this package reads it |
 | `http.Static` `/docs/ui` | first `node_modules/swagger-ui-dist` found walking up from `<root>` | Swagger UI assets |
 | `http.Static` `/docs/static` | `<root>/node_modules/@spinajs/http-swagger/lib/views` | `swagger-ui-init.js` |
 
@@ -195,7 +195,7 @@ export class PartnerDocsController extends BaseController {
 - Turning `enabled` off does not remove the static routes: `/docs/ui` and `/docs/static` keep serving files.
 - `swagger-ui-dist` missing from every `node_modules` up the tree does not stop the boot. The static handler logs a warning and skips the route; point the `ui.*Url` keys at a CDN in that case.
 - `swagger-ui-init.js` is loaded from the fixed path `/docs/static/swagger-ui-init.js`. A custom template that keeps this script also needs that static route.
-- A failed build answers `400` with the full list of broken controllers in the message. Fix the controllers; see [Parameters and request bodies](03-parameters-and-request-bodies.md#path-parameters).
+- A failed build answers `500` with the full list of broken controllers in the message. Fix the controllers; see [Parameters and request bodies](03-parameters-and-request-bodies.md#path-parameters).
 
 ## Best practices
 

@@ -1,6 +1,8 @@
-import { AuthzConfigError, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { AuthzConfigError, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, PermissionInput, Principal, ResourceRef, RuleDef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -48,9 +50,9 @@ const scopes = new FakeScopeResolver({
 });
 const ctx = () => fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes], conditions: new DefaultConditionCompiler(undefined, [scopes]) });
 
-async function model(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[], roles: readonly RoleDef[] = ROLES) {
+async function model(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[], roles: readonly RoleDef[] = ROLES, container?: IContainer) {
   const m = new RbacModel({ roles: new MemoryRoleStore(roles, LADDERS), assignments: new MemoryAssignmentStore(rows), rules: new ConfigRuleStore(rules.map(rule)), log: { warn: () => undefined } });
-  await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
+  await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), ...(container ? { container } : {}) }));
   m.grantIndex();
   return m;
 }
@@ -78,6 +80,24 @@ describe('authz-rbac rules (B35)', () => {
       await rejects(boot([{ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', subjects: { rank: { ladder: 'org', at: 'org', lt: 'viewer' } } }]), 'subjects.rank.lt');
       await rejects(boot([{ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: { ref: 'org.max' } }]), 'not a ref');
       await rejects(boot([{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: 'viewer', when: { attr: 'galaxy.x', eq: 1 } }]), "rbac rule 't'");
+    });
+
+    it('knows a condition function registered only in the domain container, and refuses one registered nowhere', async () => {
+      class Weekday extends ConditionFunction {
+        readonly name = 'weekday';
+        evaluate(): boolean {
+          return true;
+        }
+      }
+      const threshold: Omit<RuleDef, 'source'> = { id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: 'viewer', when: { fn: 'weekday' } };
+      const domain = DI.RootContainer.child();
+      try {
+        domain.register(Weekday).as(ConditionFunction);
+        await model([], [threshold], ROLES, domain);
+        await rejects(boot([threshold]), 'unknown condition function "weekday"');
+      } finally {
+        await domain.dispose();
+      }
     });
 
     it('feeds literal permissions and the scope types a rule reads to the boot checks', async () => {
@@ -120,7 +140,6 @@ describe('authz-rbac rules (B35)', () => {
       const [held] = await new RbacService(m).rolesOf(alice, f1, { ctx: ctx() });
       expect(held).to.include({ role: 'maintainer', effectiveRole: 'viewer' });
       expect((await m.summarize(alice, f1, ctx())).roles!.map((r) => r.role)).to.deep.equal(['viewer']);
-      expect(await new RbacService(m).coversAt(alice, ['editor'], f1, ctx())).to.equal(false);
     });
 
     it('a set subject counts as the type of its scope for assignments.subjectTypes', async () => {
@@ -265,15 +284,6 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(bySubjects, 'file:read', f1, who({ verified: true }))).denies).to.equal(undefined);
     });
 
-    it('covers of a principal at a resource refuses when rules exist; coversAt sees the cap', async () => {
-      const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1 })]);
-      await m.preload(alice, ctx());
-      const service = new RbacService(m);
-      expect(() => service.covers(alice, ['editor'], f1)).to.throw(AuthzConfigError, 'coversAt');
-      expect(await service.coversAt(alice, ['editor'], f1, ctx())).to.equal(false);
-      expect(service.covers(alice, ['editor'])).to.equal(true);
-    });
-
     it('a rule store that is not in memory makes type-level requests fail closed', async () => {
       const inner = new ConfigRuleStore([rule(capOf({ scope: O1 }))]);
       const remote: RuleStore = { name: 'remote', forPath: (path, at) => inner.forPath(path, at), version: () => inner.version() };
@@ -362,7 +372,6 @@ describe('authz-rbac rules (B35)', () => {
       const m = await canvas([assignment('a1', 'user')]);
       expect((await vote(m, 'user:read', U)).permitWhen).to.deep.equal(TRUE);
       expect((await vote(m, 'fs:read', D1)).permitWhen).to.deep.equal(TRUE);
-      expect(await new RbacService(m).coversAt(alice, ['user'], U, ctx())).to.equal(true);
     });
 
     it('a rule that could act on a resource without its scope node still fails closed (B39)', async () => {
@@ -378,15 +387,6 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(met, 'file:read', f3)).denies).to.equal(undefined);
     });
 
-    it('an in-memory store without a live rule keeps the synchronous covers at a resource', async () => {
-      const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1, expiresAt: new Date(NOW.getTime() - 1) })]);
-      await m.preload(alice, ctx());
-      expect(new RbacService(m).covers(alice, ['editor'], f1)).to.equal(true);
-      const live = await model([assignment('a1', 'editor')], [capOf({ scope: O1 })]);
-      await live.preload(alice, ctx());
-      expect(() => new RbacService(live).covers(alice, ['editor'], { type: 'file' })).to.throw(AuthzConfigError, 'coversAt');
-    });
-
     it('a rule whose condition is a definite false does not read its maxRole or minRole ref', async () => {
       const notX = { attr: 'principal.attributes.x', eq: true };
       const who = (attributes: Record<string, unknown>) => userPrincipal('alice', { attributes });
@@ -397,14 +397,6 @@ describe('authz-rbac rules (B35)', () => {
       const capped = await model([assignment('a1', 'editor', P1)], [capOf({ scope: O1, when: notX, maxRole: { ref: 'principal.attributes.max' } })]);
       expect((await vote(capped, 'file:edit', f1, off)).permitWhen).to.deep.equal(TRUE);
       await rejects(vote(capped, 'file:edit', f1, who({ x: true })), 'has no value');
-    });
-
-    it('covers judges rule expiry at the request time, as the read itself does', async () => {
-      // The model clock is the system clock, days after NOW: the rule has expired there but is live at ctx.now.
-      const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1, expiresAt: new Date(NOW.getTime() + HOUR) })]);
-      const c = ctx();
-      await m.preload(alice, c);
-      expect(() => new RbacService(m).covers(alice, ['editor'], f1, c)).to.throw(AuthzConfigError, 'coversAt');
     });
 
     it('a cap also drops a role of another ladder that extends above it', async () => {

@@ -18,19 +18,21 @@ import type { Decision } from '../contracts/decision.js';
 import type { AccessPlan } from '../contracts/plan.js';
 import { ConditionCompiler } from '../conditions/contracts.js';
 import { Authorizer } from '../engine/authorizer.js';
-import type { EngineLog } from '../engine/authorizer.js';
 import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
 import { checkLegacyKeys } from './config/legacy-keys.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
+import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from './config/defaults.js';
 import type { DomainConfig } from './config/domain-config.js';
-import { AuthzContributor } from './contributor.js';
+import { collectContributions } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
+import { resolveChain } from './di.js';
 import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
+import type { AuthzLog } from './log.js';
 import { currentPrincipal, requestScope, runWithPrincipal } from './storage.js';
 import { AccessChangeRouter } from './push.js';
 // The default ChangeBus, DecisionAudit, DecisionCache and AuthzClock registrations.
@@ -107,7 +109,7 @@ export class DefaultAuthzService extends AuthzService {
   private bootSubscription: (() => void) | undefined;
   /** Tags of the changes published while booting, applied once the boot ends. */
   private buffered: (readonly string[])[] | undefined;
-  private readonly log: EngineLog = engineLog('authz');
+  private readonly log: AuthzLog = engineLog('authz');
 
   /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
   @Config('authz')
@@ -352,8 +354,8 @@ export class DefaultAuthzService extends AuthzService {
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));
 
-    const audit = await this.pick(container, DecisionAudit, cfg.audit.service, 'authz.audit.service', where);
-    const bus = await this.pick(container, ChangeBus, cfg.bus.service, 'authz.bus.service', where);
+    const audit = await this.pick(container, DecisionAudit, cfg.audit.service, AUTHZ_AUDIT_SERVICE_KEY, where);
+    const bus = await this.pick(container, ChangeBus, cfg.bus.service, AUTHZ_BUS_SERVICE_KEY, where);
     // Subscribed before the models init, so a change published meanwhile is applied once the boot ends.
     if (bus) {
       this.buffered = [];
@@ -366,7 +368,7 @@ export class DefaultAuthzService extends AuthzService {
 
     // Entry i of getTypesChain is the registration of element i of the Array.chainOf resolve.
     const owners = <T>(token: Class<T>) => container.Registry.getTypesChain(token).map((e) => e.container);
-    const chain = async <T>(token: Class<T>): Promise<T[]> => [...(await container.resolve(Array.chainOf(token)))];
+    const chain = <T>(token: Class<T>): Promise<T[]> => resolveChain(container, token);
     const modelOwners = owners(AuthorizationModel);
     const chainModels = await chain(AuthorizationModel);
     const adapterOwners = owners(ResourceAdapter);
@@ -376,7 +378,6 @@ export class DefaultAuthzService extends AuthzService {
     const chainRelations = await chain(RelationResolver);
     const chainFilters = await chain(NativeFilter);
     const combinators = await chain(Combinator);
-    const contributors = await chain(AuthzContributor);
 
     const models = mergeModels(where, chainModels, modelOwners, levels, disables, (model) => this.log.warn({ domain: name, model }, 'Authz domain ${domain}: disable lists ${model}, which no ancestor domain registers'));
     for (const [i, model] of models.entries()) {
@@ -424,31 +425,15 @@ export class DefaultAuthzService extends AuthzService {
     const modelRelations: RelationResolver[] = [];
     const modelFilters: NativeFilter[] = [];
     for (const model of models) {
-      const record = await this.initModel(where, name, model, registry, register, fresh);
+      const record = await this.initModel(where, name, container, model, registry, register, fresh);
       modelRelations.push(...record.relations);
       modelFilters.push(...record.nativeFilters);
     }
 
     step('permission registry', () => registry.freeze());
 
-    const contributions: AuthzContribution[] = [];
-    for (const contributor of contributors) {
-      let out: unknown;
-      try {
-        out = await contributor.contribute(name);
-      } catch (e) {
-        throw new AuthzConfigError(`${where}: contributor ${q(contributorName(contributor))} failed: ${describeError(e)}`, { cause: e });
-      }
-      if (!isObject(out)) throw new AuthzConfigError(`${where}: contributor ${q(contributorName(contributor))} returned ${q(out)} instead of an object`);
-      contributions.push(out as AuthzContribution);
-    }
-    const contributed = <K extends keyof AuthzContribution>(key: K): NonNullable<AuthzContribution[K]>[number][] =>
-      contributions.flatMap((c) => {
-        const list: unknown = c[key];
-        if (list === undefined) return [];
-        if (!Array.isArray(list)) throw new AuthzConfigError(`${where}: a contributor's ${key} must be an array`);
-        return list;
-      });
+    const contributions = await collectContributions(container, name, where);
+    const contributed = <K extends keyof AuthzContribution>(key: K): NonNullable<AuthzContribution[K]>[number][] => contributions.flatMap((c) => (c[key] ?? []) as NonNullable<AuthzContribution[K]>[number][]);
     const permissionRefs: PermissionRefDecl[] = contributed('permissionRefs');
     const relationRefs: RelationRefDecl[] = contributed('relationRefs');
     const scopeRefs: ScopeRefDecl[] = contributed('scopeRefs');
@@ -477,9 +462,9 @@ export class DefaultAuthzService extends AuthzService {
     });
     for (const model of unrouted) this.log.warn({ domain: name, model }, 'domain ${domain}, model ${model}: no combine entry routes this model');
 
-    const store = container.hasRegistered(ScopeAttributeStore) ? ((await container.resolve(ScopeAttributeStore)) as ScopeAttributeStore) : undefined;
-    const conditions = container.hasRegistered(ConditionCompiler) ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler) : undefined;
-    const admin = container.hasRegistered(AuthzAdmin) ? ((await container.resolve(AuthzAdmin)) as AuthzAdmin) : undefined;
+    const store = (await container.resolveOptional(ScopeAttributeStore)) as ScopeAttributeStore | undefined;
+    const conditions = (await container.resolveOptional(ConditionCompiler)) as ConditionCompiler | undefined;
+    const admin = (await container.resolveOptional(AuthzAdmin)) as AuthzAdmin | undefined;
     const clock = (await container.resolve(AuthzClock)) as unknown;
     if (!isObject(clock) || typeof clock.now !== 'function') throw new AuthzConfigError(`${where}: the resolved AuthzClock has no now()`);
     const now = () => (clock as unknown as AuthzClock).now();
@@ -540,7 +525,7 @@ export class DefaultAuthzService extends AuthzService {
     });
   }
 
-  private async initModel(where: string, domain: string, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
+  private async initModel(where: string, domain: string, container: IContainer, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
     const source = `model:${model.name}`;
     const existing = inits.get(model);
     if (existing) {
@@ -567,6 +552,7 @@ export class DefaultAuthzService extends AuthzService {
     };
     const ctx: ModelInitContext = Object.freeze({
       domain,
+      container,
       permissions: registry,
       config: <T>(path: string, dflt?: T): T => {
         const v = configAt(this.Config, [model.name, ...String(path).split('.')]);
@@ -636,10 +622,6 @@ export class DefaultAuthzService extends AuthzService {
       this.log.error({ error: thrownError(e), domain: name }, 'Authz domain ${domain}: applying a published change failed');
     }
   }
-}
-
-function contributorName(c: unknown): string {
-  return isObject(c) ? typeName(c.constructor) || 'AuthzContributor' : q(c);
 }
 
 function input(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): CheckInput {

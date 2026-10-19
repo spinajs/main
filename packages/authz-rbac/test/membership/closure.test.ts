@@ -2,8 +2,10 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
+import { Container } from '@spinajs/di';
 
-import { computeClosures, latestPerSet, readMaxSetDepth } from '../../src/index.js';
+import { MAX_SET_DEPTH_LIMIT, computeClosures, latestPerSet, maxSetDepthOf, readMaxSetDepth } from '../../src/index.js';
 import type { MembershipEdge } from '../../src/index.js';
 
 chai.use(chaiAsPromised);
@@ -94,9 +96,20 @@ describe('computeClosures (design §4.3)', () => {
     expect(latestPerSet([{ setKey: 'b', expiresAt: at(1) }, { setKey: 'a', expiresAt: at(2) }, { setKey: 'b', expiresAt: at(3) }, { setKey: 'a', expiresAt: null }])).to.deep.equal([{ setKey: 'a' }, { setKey: 'b', expiresAt: at(3) }]);
   });
 
-  it('readMaxSetDepth takes the default for undefined and refuses a non-positive or fractional value', () => {
+  it('readMaxSetDepth takes the default for undefined and refuses what the schema refuses', () => {
     expect(readMaxSetDepth(undefined)).to.eq(8);
     expect(readMaxSetDepth(3)).to.eq(3);
-    for (const bad of [0, -1, 1.5, '4', null]) expect(() => readMaxSetDepth(bad), String(bad)).to.throw(AuthzConfigError);
+    expect(readMaxSetDepth(MAX_SET_DEPTH_LIMIT)).to.eq(64);
+    for (const bad of [0, -1, 1.5, '4', null, MAX_SET_DEPTH_LIMIT + 1]) expect(() => readMaxSetDepth(bad), String(bad)).to.throw(AuthzConfigError);
+  });
+
+  it('maxSetDepthOf reads the Configuration of the container, the default without one', async () => {
+    const values: Record<string, unknown> = { 'authz.rbac.maxSetDepth': 5 };
+    const container = new Container();
+    expect(await maxSetDepthOf(container)).to.eq(8);
+    container.register(() => ({ get: (path: string) => values[path] })).as(Configuration);
+    expect(await maxSetDepthOf(container)).to.eq(5);
+    values['authz.rbac.maxSetDepth'] = 65;
+    await expect(maxSetDepthOf(container)).to.be.rejectedWith(AuthzConfigError, /from 1 to 64/);
   });
 });

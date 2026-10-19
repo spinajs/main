@@ -6,7 +6,7 @@ import { Log, Logger } from '@spinajs/log-common';
 
 import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
-import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
+import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { IdentityStore } from '../contracts/identity.js';
@@ -23,6 +23,7 @@ import type { AuthenticationStrategy } from '../contracts/strategy.js';
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
+import type { AuthnEventBody } from '../audit/authn-audit.js';
 import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
 import { RECOVERY_STEP } from '../flow/default-mfa-policy.js';
 import { MFA_POLICY_SERVICE } from '../flow/select-policy.js';
@@ -37,7 +38,6 @@ import { checkAuthnSecrets } from './boot/secrets.js';
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 type Verified = Extract<StrategyOutcome, { ok: true }>;
-type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
 
 /** The answer of the first candidate that does not pass the credentials on, or why none gave one. */
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
@@ -180,9 +180,6 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
-  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
-  private static readonly warned = new Set<string>();
-
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -202,10 +199,9 @@ export class DefaultAuthnService extends AuthnService {
     await super.resolve();
   }
 
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private warnOnce(message: string): void {
-    if (DefaultAuthnService.warned.has(message)) return;
-    DefaultAuthnService.warned.add(message);
-    this.Log.warn(message);
+    this.Log.warnOnce(message, message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {
@@ -215,14 +211,14 @@ export class DefaultAuthnService extends AuthnService {
   public async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const candidates = this.Registry.candidates(c);
     if (candidates.length === 0) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return fail('unsupported_credentials');
     }
     const only = candidates.length === 1 ? { strategy: candidates[0].name } : {};
 
     const keyed = this.keysFor(candidates, c, ctx);
     if ('error' in keyed) {
-      await this.audit(ctx, { type: this.eventOf(keyed.strategy), outcome: 'failure', strategy: keyed.strategy.name, reason: 'strategy_error', data: { error: keyed.error } });
+      await this.Auditor.publishIn(ctx, { type: this.eventOf(keyed.strategy), outcome: 'failure', strategy: keyed.strategy.name, reason: 'strategy_error', data: { error: keyed.error } });
       return fail('invalid_credentials');
     }
     // Per-request credentials count only their failures (K5): counted before verify, the requests a busy client has
@@ -241,7 +237,7 @@ export class DefaultAuthnService extends AuthnService {
   private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }): Promise<AuthenticationResult> {
     const v = await this.verifyWith(candidates, c, ctx);
     if (v === null) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
       return fail('unsupported_credentials');
     }
     if ('broken' in v) return this.refuse(ctx, v.s, v.broken, 'invalid_credentials', v.data ? { data: v.data } : {});
@@ -257,7 +253,7 @@ export class DefaultAuthnService extends AuthnService {
   public async completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
     const stored = await this.restore(pending);
     if (!stored || stored.handle.state !== 'pending') {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_pending' });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_pending' });
       return fail('invalid_credentials');
     }
     const id = stored.identity;
@@ -265,7 +261,7 @@ export class DefaultAuthnService extends AuthnService {
     const keys = this.identityKeys(id, ctx);
     const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
-      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
@@ -273,11 +269,11 @@ export class DefaultAuthnService extends AuthnService {
     try {
       passed = await this.passMfa(id, stored.facts, step, response);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
       return fail('invalid_credentials');
     }
     if (passed !== true) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
       return fail('invalid_credentials');
     }
     // An account banned or deleted between the two steps must not get in.
@@ -286,11 +282,11 @@ export class DefaultAuthnService extends AuthnService {
       refused = await this.statusRefusal(id);
       if (refused) await this.Sessions.revoke(stored.handle);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
       return fail('invalid_credentials');
     }
     if (refused) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: refused, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: refused, ...about });
       return fail('invalid_credentials');
     }
 
@@ -304,37 +300,37 @@ export class DefaultAuthnService extends AuthnService {
       facts = rest;
       await this.Throttle.succeed(keys, 'mfa');
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
       return fail('invalid_credentials');
     }
     const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
-    await this.audit(ctx, { type: 'login', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', ...done });
     return { status: 'success', identity: id, facts, session };
   }
 
   public async reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean> {
     const stored = await this.restore(session);
     if (!stored || stored.handle.state !== 'active') {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'not_active' });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'not_active' });
       return false;
     }
     const id = stored.identity;
     const about = { identity: id, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     // The target's password must not let an impersonator act as the target (M6).
     if (stored.facts.impersonator !== undefined) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
       return false;
     }
     // A login method shows the user is present; a token or key the client holds does not.
     const candidates = this.Registry.candidates(c).filter((s) => s.interactive);
     if (candidates.length === 0) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
       return false;
     }
     const keys = this.identityKeys(id, ctx);
     if (!(await this.Throttle.attempt(keys, 'reauth', ctx)).allowed) {
-      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
     }
 
@@ -352,10 +348,10 @@ export class DefaultAuthnService extends AuthnService {
       [reason, data] = ['store_error', { error: errorClass(err) }];
     }
     if (reason !== null) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason, ...(data ? { data } : {}), ...strategy, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason, ...(data ? { data } : {}), ...strategy, ...about });
       return false;
     }
-    await this.audit(ctx, { type: 'reauth', outcome: 'success', ...strategy, ...about });
+    await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'success', ...strategy, ...about });
     return true;
   }
 
@@ -425,7 +421,7 @@ export class DefaultAuthnService extends AuthnService {
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
     if (!s.interactive) {
       await this.Throttle.succeed(keys, 'login');
-      await this.audit(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
+      await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
 
@@ -442,13 +438,13 @@ export class DefaultAuthnService extends AuthnService {
     const issued: AuthnFacts = { ...facts, authenticatedAt: ctx.now };
     if (steps.length > 0) {
       const pending = await sessions.issue(id, issued, { pending: { steps } });
-      await this.audit(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
       return { status: 'mfa_required', pending, steps };
     }
     const session = await sessions.issue(id, issued);
     const handle = await this.handleOf(session);
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.Auditor.publishIn(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
   }
 
@@ -529,7 +525,7 @@ export class DefaultAuthnService extends AuthnService {
 
   private async link(ctx: AuthnContext, s: AuthenticationStrategy, id: IdentityRef, external: ExternalSubject): Promise<void> {
     await this.Links!.link(id, external);
-    await this.audit(ctx, { type: 'identity.link', outcome: 'success', strategy: s.name, identity: id, data: { provider: external.provider } });
+    await this.Auditor.publishIn(ctx, { type: 'identity.link', outcome: 'success', strategy: s.name, identity: id, data: { provider: external.provider } });
   }
 
   /**
@@ -573,12 +569,12 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   private async throttled(ctx: AuthnContext, retryAfterSeconds: number, only: { strategy?: string }): Promise<Failure> {
-    await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
+    await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
     return { status: 'failure', reason: 'throttled', retryAfterSeconds };
   }
 
-  private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<EventBody> = {}): Promise<Failure> {
-    await this.audit(ctx, { type: this.eventOf(s), outcome: 'failure', strategy: s.name, reason, ...extra });
+  private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<AuthnEventBody> = {}): Promise<Failure> {
+    await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'failure', strategy: s.name, reason, ...extra });
     return fail(answer);
   }
 
@@ -590,10 +586,6 @@ export class DefaultAuthnService extends AuthnService {
 
   private async handleOf(h: SessionHandle): Promise<string | undefined> {
     return (await this.Sessions.restore(h.id))?.facts.sessionHandle;
-  }
-
-  private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 
 }

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
-import { releaseHttpServer, TestConfiguration } from './common.js';
+import { appOrigin, releaseHttpServer, TestConfiguration } from './common.js';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
@@ -58,7 +58,7 @@ describe('HTTP Server Memory Management Tests', () => {
       await server.start();
       
       // Make a connection to ensure the server is active
-      await chai.request('http://localhost:8889').get('/').catch(() => {
+      await chai.request(appOrigin()).get('/').catch(() => {
         // OK if this fails, we're testing server lifecycle
       });
       
@@ -122,7 +122,7 @@ describe('HTTP Server Memory Management Tests', () => {
       
       // Make multiple concurrent requests
       const requests = Array.from({ length: 10 }, () => 
-        chai.request('http://localhost:8889')
+        chai.request(appOrigin())
           .get('/')
           .catch((): any => {
             // Requests may fail, that's OK for this test
@@ -147,7 +147,7 @@ describe('HTTP Server Memory Management Tests', () => {
       
       // Try to make requests that might cause errors
       const errorRequests = Array.from({ length: 5 }, () => 
-        chai.request('http://localhost:8889')
+        chai.request(appOrigin())
           .get('/nonexistent-endpoint')
           .catch((): any => null)
       );
@@ -202,7 +202,7 @@ describe('HTTP Server Memory Management Tests', () => {
       
       for (let batch = 0; batch < requestBatches; batch++) {
         const batchRequests = Array.from({ length: requestsPerBatch }, () => 
-          chai.request('http://localhost:8889')
+          chai.request(appOrigin())
             .get('/')
             .catch((): any => null)
         );

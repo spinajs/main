@@ -1,7 +1,7 @@
-import { Injectable, Singleton, AsyncService } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Injectable, Singleton, AsyncService, Autoinject } from '@spinajs/di';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { trace, Tracer, Span, SpanStatusCode, Attributes } from '@opentelemetry/api';
+import { ProxyTracerProvider, Tracer, Span, SpanStatusCode, Attributes } from '@opentelemetry/api';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { BatchSpanProcessor, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -37,7 +37,25 @@ export class OtelTracing extends AsyncService {
   @Config('otel.resourceAttributes', { defaultValue: {} })
   protected resourceAttributes!: Record<string, string>;
 
+  @Autoinject(Configuration)
+  protected cfg!: Configuration;
+
   private provider?: NodeTracerProvider;
+
+  // A delegate-less proxy provider hands out no-op tracers regardless of any OTel global provider.
+  private readonly noopProvider = new ProxyTracerProvider();
+
+  private readonly shutdownHooks: Array<() => void> = [];
+
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    this.start();
+  }
+
+  /** Register a callback run at the start of `dispose()`, before the provider shuts down. */
+  public onBeforeShutdown(hook: () => void): void {
+    this.shutdownHooks.push(hook);
+  }
 
   /**
    * Create the provider (idempotent, no-op when disabled). Call after the
@@ -62,7 +80,7 @@ export class OtelTracing extends AsyncService {
 
   /** A tracer from the private provider, or the API no-op tracer when off. */
   public tracer(name: string): Tracer {
-    return this.provider ? this.provider.getTracer(name) : trace.getTracer(name);
+    return this.provider ? this.provider.getTracer(name) : this.noopProvider.getTracer(name);
   }
 
   /** Run `fn` inside a span; records exceptions and sets ERROR status on throw. */
@@ -86,6 +104,13 @@ export class OtelTracing extends AsyncService {
   }
 
   public async dispose(): Promise<void> {
+    for (const hook of this.shutdownHooks.splice(0)) {
+      try {
+        hook();
+      } catch (err) {
+        this.log.warn({ error: err }, 'otel shutdown hook failed');
+      }
+    }
     await this.provider?.shutdown();
     this.provider = undefined;
     await super.dispose();

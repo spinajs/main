@@ -7,13 +7,13 @@ Every delivery is acked manually. A handler that resolves acks the message. A fa
 1. The consumer started by `startConsumer()` receives a delivery. A `null` delivery (consumer cancelled by the broker) is ignored.
 2. It parses the body with `JSON.parse()`. On failure, `deadLetterRaw()` sends the raw body to `defaultQueueDeadLetterChannel`; see step 7.
 3. It calls the subscription callback. For `QueueService` subscriptions that runs the handler or `QueueJob.execute()` and rethrows job errors after recording the attempt.
-4. The callback resolves: `ConsumeChannel.ack(msg)`.
+4. The callback resolves: the message is acked on the channel it was delivered on (`settleMessage()`), even when a reconnect has replaced `ConsumeChannel` meanwhile.
 5. The callback rejects: `handleFailedMessage()` decides.
    - An event, or any message on a topic channel: logged as a warning and acked. No retry, no dead-letter.
    - A job with `attempt < RetryCount`, where `attempt` is the `x-retry-count` header (`0` when missing): `retryJob()` runs, step 6.
    - A job with no retries left: `deadLetterRaw()` with `getDeadLetterChannelForMessage(message)`, step 7.
-6. `retryJob()` computes `delay = retryBackoff(attempt + 1)` and declares the retry queue `<work queue>.retry.<delay>`. It sends the original body there with `x-retry-count` set to `attempt + 1`, then acks the original. When the TTL expires, the broker dead-letters the message back to the work queue through the default exchange. If declaring or sending fails, the original is nacked without requeue.
-7. `deadLetterRaw()` with a dead-letter channel declares it as a durable queue, sends the body with the extra headers below, and acks the original. If that fails, the original is nacked without requeue. With no dead-letter channel it logs a warning and acks: the message is dropped.
+6. `retryJob()` computes `delay = retryBackoff(attempt + 1)` and declares the retry queue `<work queue>.retry.<delay>`. It publishes the original body there on the confirm channel with `x-retry-count` set to `attempt + 1`, and acks the original once the broker confirmed the copy. When the TTL expires, the broker dead-letters the message back to the work queue through the default exchange. If declaring or publishing fails, the original is nacked without requeue.
+7. `deadLetterRaw()` with a dead-letter channel declares it as a durable queue, publishes the body with the extra headers below on the confirm channel, and acks the original once the broker confirmed it. If that fails, the original is nacked without requeue. With no dead-letter channel it logs a warning and acks: the message is dropped.
 
 ```mermaid
 sequenceDiagram
@@ -25,13 +25,13 @@ sequenceDiagram
   W->>C: deliver (x-retry-count 0)
   C->>H: callback(message)
   H-->>C: rejects
-  C->>R: sendToQueue (x-retry-count 1), ack original
+  C->>R: publish (x-retry-count 1), ack original on confirm
   Note over R: TTL 1000 ms expires
   R->>W: dead-lettered back by the broker
   W->>C: deliver (x-retry-count 1)
   C->>H: callback(message)
   H-->>C: rejects, no retries left
-  C->>D: sendToQueue (x-error, x-retry-count), ack original
+  C->>D: publish (x-error, x-retry-count), ack original on confirm
 ```
 
 ### Backoff
@@ -94,9 +94,10 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Retry schedule | `protected retryBackoff(attempt): number` | `retryDelay × 2^(attempt - 1)` | fixed buckets, a capped curve | Override; each distinct delay creates one retry queue |
-| Failure policy | `protected handleFailedMessage(msg, message, channel, err)` | events dropped, jobs retried then dead-lettered | dead-letter events, never retry some errors | Override; call `super.handleFailedMessage(...)` for the default path |
-| Retry publish | `protected retryJob(msg, message, workQueue, nextAttempt, reason)` | send to the TTL queue, then ack | | Override, eg. to add headers |
-| Dead-letter publish | `protected deadLetterRaw(msg, dlq, channel, reason, attempt?)` | send to the queue, then ack; ack only when `dlq` is unset | send to an exchange, store in a DB | Override; always ack or nack `msg` |
+| Failure policy | `protected handleFailedMessage(msg, message, channel, err, consumeChannel?)` | events dropped, jobs retried then dead-lettered | dead-letter events, never retry some errors | Override; call `super.handleFailedMessage(...)` for the default path. Pass `consumeChannel` (the delivering channel) on |
+| Retry publish | `protected retryJob(msg, message, workQueue, nextAttempt, reason, consumeChannel?)` | confirmed publish to the TTL queue, then ack | | Override, eg. to add headers |
+| Dead-letter publish | `protected deadLetterRaw(msg, dlq, channel, reason, attempt?, consumeChannel?)` | confirmed publish to the queue, then ack; ack only when `dlq` is unset | send to an exchange, store in a DB | Override; always ack or nack `msg`, with `settleMessage(consumeChannel, msg, ack)` |
+| Ack / nack | `protected settleMessage(channel, msg, ack)` | ack, or nack without requeue, on the delivering channel; a closed channel is logged | | Override |
 | Retry queue declaration | `protected assertRetryQueue(workQueue, delay): Promise<string>` | TTL queue per delay | | Override; keep `x-dead-letter-routing-key` pointing at `workQueue` |
 | Dead-letter channel lookup | `public getDeadLetterChannelForMessage(message)` (from `QueueClient`) | routed `deadLetterChannel`, else `defaultQueueDeadLetterChannel` | | Override |
 
@@ -109,7 +110,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, QueueClient, QueueMessageType } from '@spinajs/queue';
 import { AmqpQueueClient } from '@spinajs/queue-amqp-transport';
-import { ConsumeMessage } from 'amqplib';
+import { Channel, ConsumeMessage } from 'amqplib';
 
 const RETRY_SCHEDULE_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
 
@@ -120,21 +121,21 @@ export class StrictAmqpQueueClient extends AmqpQueueClient {
     return RETRY_SCHEDULE_MS[Math.min(attempt, RETRY_SCHEDULE_MS.length) - 1];
   }
 
-  protected handleFailedMessage(msg: ConsumeMessage, message: IQueueMessage, channel: string, err: unknown): void {
+  protected handleFailedMessage(msg: ConsumeMessage, message: IQueueMessage, channel: string, err: unknown, consumeChannel?: Channel): void {
     const reason = err instanceof Error ? err.message : String(err);
 
     if (message.Type !== QueueMessageType.Job) {
-      this.deadLetterRaw(msg, this.getDeadLetterChannelForMessage(message), channel, reason);
+      this.deadLetterRaw(msg, this.getDeadLetterChannelForMessage(message), channel, reason, undefined, consumeChannel);
       return;
     }
 
     if (err instanceof InvalidArgument) {
       const attempt = Number(msg.properties.headers?.['x-retry-count'] ?? 0);
-      this.deadLetterRaw(msg, this.getDeadLetterChannelForMessage(message), channel, reason, attempt);
+      this.deadLetterRaw(msg, this.getDeadLetterChannelForMessage(message), channel, reason, attempt, consumeChannel);
       return;
     }
 
-    super.handleFailedMessage(msg, message, channel, err);
+    super.handleFailedMessage(msg, message, channel, err, consumeChannel);
   }
 }
 
@@ -158,8 +159,8 @@ export const config = {
 
 ## Important behaviour
 
-- Retry and dead-letter sends go through the consume channel, which has no publisher confirms, and the original is acked right after. A broker failure between the two can lose the message.
-- A nack without requeue on a work queue with no `x-dead-letter-exchange` makes the broker discard the message. That happens when declaring a retry or dead-letter queue fails.
+- Retry and dead-letter copies go through the confirm channel and the original is acked only after the broker confirmed the copy. A reconnect between the two leaves both: the copy is on the broker and the original is redelivered, so the job can run once more.
+- A nack without requeue on a work queue with no `x-dead-letter-exchange` makes the broker discard the message. That happens when declaring a retry or dead-letter queue, or publishing the copy, fails.
 - `RetryCount` is read from the message body; the attempt count from the `x-retry-count` header. A job emitted without `RetryCount` is never retried.
 - A job routed to a topic channel is treated as an event on failure: dropped, not retried.
 - Retries have no jitter. Jobs that failed together are retried together.
@@ -167,7 +168,7 @@ export const config = {
 - An unparseable message always goes to `defaultQueueDeadLetterChannel`; routed dead-letter channels are not used for it, because the message name is unknown.
 - A retried message re-enters at the tail of the work queue, behind messages queued meanwhile.
 - `QueueService` writes the attempt and the `retrying` or `dead` status to the job row before the transport retries; the two counters agree as long as `RetryCount` is not changed between attempts.
-- Acks go to `this.ConsumeChannel`, which a reconnect replaces. A handler still running across a reconnect acks its old delivery tag on the new channel. Delivery tags are per channel, so that ack hits an unknown tag (the broker closes the channel) or another message with the same tag. The broker has already requeued the original, so it runs again; job deduplication in `QueueService` covers finished jobs.
+- Acks and nacks go to the channel that delivered the message. When a handler finishes after a reconnect, that channel is closed: the ack fails with a logged warning and the broker, which has already requeued the original, delivers it again; job deduplication in `QueueService` covers finished jobs.
 
 ## Best practices
 

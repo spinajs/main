@@ -13,7 +13,7 @@ Route arguments:
 
 Hydrators:
 
-1. `OrmHttpBootstrapper` sets `{ hydrator: DbModelHydrator }` on every model; `@Relation` sets `{ hydrator: RelationResolverHydrator }` on its DTO.
+1. `OrmHttpBootstrapper` sets `{ hydrator: DbModelHydrator }` on every model that has no hydrator yet; `@Relation` sets `{ hydrator: RelationResolverHydrator }` on its DTO.
 2. `RouteArgs.tryHydrateObject()` calls `DI.resolve(<that class>)`. Neither class is registered, so DI returns the class itself, unless something is registered under its name.
 3. `@Injectable(DbModelHydrator)` on your subclass registers it under `'DbModelHydrator'`, so every model uses it without touching the metadata.
 
@@ -146,38 +146,32 @@ export class DraftController extends BaseController {
 }
 ```
 
-### AsDbModel: read the body field named in `@AsModel(field)`
+### AsDbModel: let a named body field be absent
 
-`AsDbModel` ignores its `field` option and reads the body key named like the argument. This replacement honours `field` and falls back to the default otherwise.
+`AsDbModel` answers `400` when the body has no key for an `@AsModel(field)` argument. This replacement injects `null` instead, so a route can take an optional model.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
 import { IRoute, IRouteCall, IRouteParameter, Request } from '@spinajs/http';
-import { BadRequest } from '@spinajs/exceptions';
 import { AsDbModel } from '@spinajs/orm-http';
 import type { Response as ExpressResponse } from 'express';
 
 @Injectable(AsDbModel)
-export class FieldAwareAsDbModel extends AsDbModel {
-  public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter<{ field?: string }>, req: Request, res: ExpressResponse, route: IRoute) {
+export class OptionalFieldAsDbModel extends AsDbModel {
+  public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter<{ field?: string; type?: string }>, req: Request, res: ExpressResponse, route: IRoute) {
     const field = param.Options?.field;
-    if (!field) {
-      return super.extract(callData, args, param, req, res, route);
+    if (field && param.Options?.type === undefined && req.body && req.body[field] === undefined) {
+      return { CallData: callData, Args: null };
     }
 
-    if (!req.body) {
-      throw new BadRequest(`Request body empty, cannot hydrate model for parameter ${field}`);
-    }
-
-    const result = await this.tryHydrateParam(req.body[field] ?? null, param, route);
-    return { CallData: callData, Args: result };
+    return super.extract(callData, args, param, req, res, route);
   }
 }
 ```
 
 ### FilterModelRouteArg: cap the number of conditions
 
-The schema does not limit the filter size, and `.filter()` answers `500` above 100 entries. This replacement answers `400` above 10 conditions, counting nested groups.
+The schema does not limit the filter size, and `.filter()` answers `400` only above 100 top-level entries. This replacement answers `400` above 10 conditions, counting nested groups.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -279,7 +273,7 @@ export class ActiveOnlyRelationResolver extends RelationResolverHydrator {
 - Keep the type name when you replace a built-in: `@spinajs/http-swagger` and `@spinajs/authz-http` recognise `'FromDbModel'`, `'AsDbModel'` and `'FilterModelRouteArg'` by name.
 - Extractors and hydrators are singletons shared by all requests. Keep request state in locals, not on `this`.
 - `fromDbModelDefaultQueryFunction()` returns the `firstOrThrow()` promise, not a builder. To change the query, override `extract()` and use `options.query`, or add the rule in `QueryMiddleware`.
-- `@Hydrator()` on a model or on a `@Relation` DTO does not replace these hydrators; see [Bootstrapping](01-bootstrapping.md) and [DTO relations](04-dto-relations.md).
+- `@Hydrator()` on a model class replaces `DbModelHydrator` for that model; on a `@Relation` DTO it does not replace `RelationResolverHydrator`. See [Bootstrapping](01-bootstrapping.md) and [DTO relations](04-dto-relations.md).
 
 ## Best practices
 

@@ -116,7 +116,7 @@ The model's own `appName` or `year` wins, because `super.buildContext()` is spre
 
 - `render()` and `renderToFile()` of this base take no `options` argument: `onProgress` is ignored. `redact` still applies, since `Templates` redacts around the renderer.
 - `renderToFile()` writes synchronously with `fs.writeFileSync` after rendering the whole string.
-- The timer label is per template name; two concurrent renders of the same template share it.
+- The timer label carries a per-render sequence number, so concurrent renders of one template are timed separately.
 - Locals come from `buildContext()` only. The shipped engines merge into a fresh object, so the caller's model is never mutated; keep that in your override.
 - A compile error is not cached: the next render compiles again.
 

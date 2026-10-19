@@ -50,7 +50,7 @@ spinajs template-render ./views/invoice.pdf -m ./fixtures/invoice.json -f ./out/
 
 ### Your own render command
 
-`template-render` logs failures and still exits with code `0`, which CI cannot detect. The sample command renders a report with progress and rethrows, so the process fails.
+`template-render` logs failures and sets the exit code to `1`. The sample command renders a report with progress and rethrows, so the process fails.
 
 ```ts sample
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
@@ -90,11 +90,10 @@ Put the file in a directory listed in `system.dirs.cli`; see [Command discovery]
 
 ## Important behaviour
 
-- `template-render` swallows errors: it logs them and returns, so the exit code is `0` even when rendering fails.
+- `template-render` logs errors and sets `process.exitCode = 1` instead of rethrowing.
 - A `-m` path that does not exist is ignored silently; the template renders with `{}`.
 - Without `-f`, the output goes to stdout through `console.log`, after the CLI's own log lines.
 - File-only renderers (pdf, image, xlsx) need `-f`; without it their `render()` throws `NotSupported`, which is logged.
-- `lib/<mjs|cjs>/cli/` also holds `renderHelpers.js`. `@spinajs/cli` lists it as a command file, finds no `@Command` metadata and logs a warning `... is not marked as command`.
 
 ## Best practices
 

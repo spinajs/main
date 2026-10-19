@@ -3,6 +3,7 @@ import 'mocha';
 
 import { AuthzConfigError, MemoryAuthzAdminBackend, memoryTx } from '@spinajs/authz';
 import type { AuthzCommandResult, AuthzTx, RememberedBatch } from '@spinajs/authz';
+import { installTestLog } from '@spinajs/authz-testing';
 
 const expect = chai.expect;
 
@@ -22,6 +23,10 @@ async function rejection(p: Promise<unknown>): Promise<Error> {
 }
 
 describe('MemoryAuthzAdminBackend', () => {
+  let uninstallLog: () => void;
+  before(() => (uninstallLog = installTestLog()));
+  after(() => uninstallLog());
+
   it('returns what the transaction returns and runs no undo on commit', async () => {
     const b = new MemoryAuthzAdminBackend();
     const undone: string[] = [];
@@ -118,6 +123,17 @@ describe('MemoryAuthzAdminBackend', () => {
     expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.equal(undefined);
     expect(await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', EMPTY, later(5000), tx))).to.equal('stored');
     expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.deep.equal(EMPTY);
+  });
+
+  it('forgets every expired entry, not only a recalled one', async () => {
+    const b = new MemoryAuthzAdminBackend();
+    const size = () => (b as unknown as { remembered: Map<string, unknown> }).remembered.size;
+    for (const k of ['k1', 'k2', 'k3']) await b.transaction('d', (tx) => b.remember('d', 'user:alice', k, BATCH, later(1000), tx));
+    await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k4', BATCH, later(5000), tx));
+    expect(size()).to.equal(4);
+    expect(await b.recall('d', 'user:bob', 'other', later(1000))).to.equal(undefined);
+    expect(size()).to.equal(1);
+    expect(await b.recall('d', 'user:alice', 'k4', later(1000))).to.deep.equal(BATCH);
   });
 
   it('drops a remembered entry when its transaction rolls back', async () => {

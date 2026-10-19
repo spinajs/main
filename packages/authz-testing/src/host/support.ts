@@ -6,6 +6,8 @@ import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 
 import { AuthzDomains, DefaultAuthzDomains, DefaultAuthzService, InProcessChangeBus, LogDecisionAudit, SystemClock } from '@spinajs/authz';
 
+import { TestLog, installTestLog } from './log.js';
+
 type Path = string | readonly string[];
 
 const segments = (path: Path): string[] => (Array.isArray(path) ? [...path] : (path as string).split('.').filter((s) => s !== ''));
@@ -79,7 +81,7 @@ interface RootRegistration {
   readonly factory: Factory<unknown> | Class<unknown>;
 }
 
-let installed: { cachedBefore: Set<Class<unknown>>; config: TestConfiguration } | undefined;
+let installed: { cachedBefore: Set<Class<unknown>>; config: TestConfiguration; uninstallLog: () => void } | undefined;
 const rootRegistrations: RootRegistration[] = [];
 
 /** The installed TestConfiguration; throws before `installHost()`. */
@@ -88,15 +90,16 @@ export function config(): TestConfiguration {
   return installed.config;
 }
 
-/** Registers TestConfiguration in root (last, so it wins) and resolves it. */
+/** Registers TestConfiguration in root (last, so it wins) and resolves it, and {@link TestLog} when no Log is registered. */
 export async function installHost(): Promise<TestConfiguration> {
   if (installed) return installed.config;
   const root = DI.RootContainer;
   const cachedBefore = new Set(ROOT_CREATED.filter((t) => root.Cache.has(t)));
+  const uninstallLog = installTestLog();
   DI.register(TestConfiguration).as(Configuration);
   const cfg = (await DI.resolve(Configuration)) as unknown;
   if (!(cfg instanceof TestConfiguration)) throw new Error('container.resolve(Configuration) did not return the TestConfiguration');
-  installed = { cachedBefore, config: cfg };
+  installed = { cachedBefore, config: cfg, uninstallLog };
   return cfg;
 }
 
@@ -109,6 +112,7 @@ export async function uninstallHost(): Promise<void> {
   const root = DI.RootContainer;
   for (const t of ROOT_CREATED) if (!installed.cachedBefore.has(t)) root.uncache(t);
   DI.unregister(TestConfiguration);
+  installed.uninstallLog();
   installed = undefined;
 }
 
@@ -118,6 +122,7 @@ export async function resetHost(): Promise<void> {
   await resetRoot();
   for (const r of rootRegistrations.splice(0)) DI.unregister(r.token, r.factory);
   config().reset();
+  TestLog.clear();
 }
 
 /** The root AuthzDomains if root has created it, without creating it. */

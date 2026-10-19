@@ -43,7 +43,7 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CliCommand.onCreation(command: CommanderCommand): void` | method on the command instance | no-op | none | Override in your command |
+| `CliCommand.onCreation(command: CommanderCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, `Cli` awaits it before the command parses |
 | `CliCommand.onPreAction(thisCommand, actionCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, commander awaits it |
 | `CliCommand.onPostAction(thisCommand, actionCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, commander awaits it |
 
@@ -64,7 +64,7 @@ sequenceDiagram
 
 ### `onCreation`: add what the decorators cannot express
 
-Use it for commander features without a decorator field: hidden options, variadic options, a parser together with `choices`, an `Option` built with `createOption`, extra help sections that depend on runtime state.
+Use it for commander features without a decorator field: hidden options, variadic options, an `Option` built with `createOption`, extra help sections that depend on runtime state.
 
 ```ts sample
 import { Autoinject } from '@spinajs/di';
@@ -92,7 +92,6 @@ export class ReindexCommand extends CliCommand {
         .makeOptionMandatory(true),
     );
 
-    // `choices` and a parser cannot both be set through `@Option`; here the parser validates the range itself.
     command.addOption(
       new CommanderOption('-s, --shards <n>', 'shards per index').default(1).argParser((v: string) => {
         const n = parseInt(v, 10);
@@ -152,7 +151,7 @@ export class ImportProductsCommand extends CliCommand {
 
 ## Important behaviour
 
-- `onCreation` is not awaited. `Cli` calls it inside an async hook but ignores its return value, so an `async onCreation` runs past parsing. Do async preparation in the command's `resolve()`, which completes before `onCreation`.
+- `onCreation` may be async. `Cli` awaits it in the parent's `preSubcommand` hook, so options it adds after an `await` still apply to this run's parsing.
 - `onCreation` runs only on the dispatch path. `spinajs --help` lists commands without calling it, so options and help text added there appear only in `spinajs <command> --help` and in that command's parsing.
 - `onPostAction` does not run when `execute()` throws; commander stops the chain at the rejection. Release resources in `try`/`finally` inside `execute()` when they must always be released.
 - Argument and option errors are raised before `onPreAction`, so a hook never sees invalid input.
@@ -166,18 +165,15 @@ export class ImportProductsCommand extends CliCommand {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: async work in onCreation is not awaited; the options are added after parsing has started
+// Don't: execute() runs after parsing, which has already rejected --region as unknown
+public async execute(options: { region?: string }, command: CommanderCommand): Promise<void> {
+  command.addOption(new CommanderOption('--region <r>'));
+}
+
+// Do: add it in onCreation, which may be async and is awaited before parsing
 public async onCreation(command: CommanderCommand): Promise<void> {
   const regions = await this.Api.regions();
   command.addOption(new CommanderOption('--region <r>').choices(regions));
-}
-
-// Do: load in resolve(), which finishes before onCreation
-public async resolve(): Promise<void> {
-  this.regions = await this.Api.regions();
-}
-public onCreation(command: CommanderCommand): void {
-  command.addOption(new CommanderOption('--region <r>').choices(this.regions));
 }
 ```
 

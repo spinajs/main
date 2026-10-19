@@ -7,7 +7,7 @@ import type { ErrorObject, Options, ValidateFunction } from 'ajv';
 import { AuthzConfigError } from '../../contracts/errors.js';
 import type { ScopeAttributeSchema } from '../../contracts/adapter.js';
 import type { ResourceType } from '../../contracts/principal.js';
-import { AuthzContributor } from '../../host/contributor.js';
+import { AuthzContributor, collectContributions } from '../../host/contributor.js';
 import type { AuthzContribution } from '../../host/contributor.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -46,21 +46,9 @@ export class ConfigScopeAttributeSchemas extends AuthzContributor {
 /** The scope attribute schemas every AuthzContributor of `container` gives `domain`, by scope type (what the host collects). */
 export async function contributedSchemas(container: IContainer, domain: string, where: string): Promise<ReadonlyMap<ResourceType, ScopeAttributeSchema>> {
   const out = new Map<ResourceType, ScopeAttributeSchema>();
-  if (!container.hasRegistered(AuthzContributor)) return out;
-  for (const contributor of await container.resolve(Array.chainOf(AuthzContributor))) {
-    const name = (isObject(contributor) && typeof contributor.constructor === 'function' && contributor.constructor.name) || 'AuthzContributor';
-    let contribution: unknown;
-    try {
-      contribution = await contributor.contribute(domain);
-    } catch (e) {
-      throw new AuthzConfigError(`${where}: contributor ${q(name)} failed: ${describeError(e)}`, { cause: e });
-    }
-    if (!isObject(contribution)) throw new AuthzConfigError(`${where}: contributor ${q(name)} returned ${q(contribution)} instead of an object`);
-    const list = contribution.scopeAttributeSchemas;
-    if (list === undefined) continue;
-    if (!Array.isArray(list)) throw new AuthzConfigError(`${where}: the scopeAttributeSchemas of contributor ${q(name)} must be an array`);
-    for (const s of list as unknown[]) {
-      if (!isObject(s) || typeof s.scopeType !== 'string' || s.scopeType === '') throw new AuthzConfigError(`${where}: contributor ${q(name)} gave a scope attribute schema without a scopeType`);
+  for (const contribution of await collectContributions(container, domain, where)) {
+    for (const s of (contribution.scopeAttributeSchemas ?? []) as unknown[]) {
+      if (!isObject(s) || typeof s.scopeType !== 'string' || s.scopeType === '') throw new AuthzConfigError(`${where}: a contributor gave a scope attribute schema without a scopeType`);
       if (!isObject(s.schema)) throw new AuthzConfigError(`${where}: the scope attribute schema for ${q(s.scopeType)} has no schema object`);
       if (!isPlainObject(s.defaults)) throw new AuthzConfigError(`${where}: the defaults of the scope attribute schema for ${q(s.scopeType)} must be a plain object`);
       if (out.has(s.scopeType)) throw new AuthzConfigError(`${where}: two scope attribute schemas for type ${q(s.scopeType)}`);

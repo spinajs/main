@@ -97,4 +97,14 @@ describe('render-image CLI command', function () {
     const cmd = await DI.resolve(RenderImageCommand);
     await expect(cmd.execute(dir('fixtures/missing.html'), { output: dir('fixtures/nope.png') })).to.be.rejected;
   });
+
+  it('rejects an unsupported image type and infers jpeg from the output extension', async () => {
+    const cmd = await DI.resolve(RenderImageCommand);
+    await expect(cmd.execute(dir('fixtures/page.html'), { output: dir('fixtures/nope.png'), type: 'gif' })).to.be.rejectedWith(/Unsupported image type/);
+
+    const out = dir('fixtures/out-inferred.jpg');
+    outputs.push(out);
+    await cmd.execute(dir('fixtures/page.html'), { output: out });
+    expect(fs.readFileSync(out).subarray(0, 2).toString('hex')).to.eq('ffd8');
+  });
 });

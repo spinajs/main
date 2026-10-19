@@ -5,9 +5,9 @@
 ## How it works
 
 1. **Declaration.** Each decorator pushes an `IArgument` or `IOption` onto the class metadata (`cli:argument` / `cli:options`). Stacked decorators run bottom-up, so they `unshift` and the list keeps the top-to-bottom order you wrote.
-2. **Option build.** For each `IOption`, `Cli.resolve()` creates `new Option(flags, translate(description))` and applies, in this order: `parser`, `choices`, `env`, `conflicts`, `implies`, `preset`.
+2. **Option build.** For each `IOption`, `Cli.resolve()` creates `new Option(flags, translate(description))` and applies, in this order: `choices`, `parser`, `env`, `conflicts`, `implies`, `preset`. With both `choices` and `parser`, the raw value is checked against `choices` first and then passed to `parser`.
 3. **Option default.** `Cli` takes `defaultValue`; when it is `undefined` and `configKey` is set, it takes `Configuration.get(configKey)`. A required option gets `makeOptionMandatory(true)` and no default (a default is dropped with the warning `Option ... is required; ignoring its default value`). Otherwise a defined default is set with `opt.default()`.
-4. **Argument build.** For each `IArgument`, a name without brackets becomes `<name>` when `required`, `[name]` otherwise, with `...` appended when `variadic`. A name that already starts with `<` or `[` and ends with `>` or `]` is used as written. Then `parser`, `choices` and `defaultValue` are applied.
+4. **Argument build.** For each `IArgument`, a name without brackets becomes `<name>` when `required`, `[name]` otherwise, with `...` appended when `variadic`. A name that already starts with `<` or `[` and ends with `>` or `]` is used as written. Then `choices`, `parser` and `defaultValue` are applied, `choices` and `parser` combined as for options.
 5. **Parsing.** Commander validates and converts the values and passes them to `execute(...arguments, options, command)`. A violation throws a `CommanderError`; see [Running the CLI](01-running-the-cli.md#exit-codes).
 
 ## Decorators
@@ -79,7 +79,7 @@ Arguments and options have no DI services. Two hooks extend them beyond the deco
 | Extension | Where | Use it for |
 | --- | --- | --- |
 | `parser` | `IArgument.parser`, `IOption.parser` | Converting and validating a value; throw `InvalidArgumentError` for a commander-style error |
-| `onCreation(command)` | `CliCommand` | Anything the fields do not cover: `hideHelp()`, `argParser` with `choices`, variadic options, custom `Option` subclasses. See [Lifecycle hooks](04-lifecycle-hooks.md) |
+| `onCreation(command)` | `CliCommand` | Anything the fields do not cover: `hideHelp()`, variadic options, custom `Option` subclasses. See [Lifecycle hooks](04-lifecycle-hooks.md) |
 
 ### Parser: validate and convert a value
 
@@ -116,7 +116,7 @@ export class ResendInvoicesCommand extends CliCommand {
 
 ## Important behaviour
 
-- `choices` replaces the `parser` on the same argument or option: commander's `choices()` installs its own parse function, and `Cli` applies `choices` after `parser`. Convert the value in `execute()`, or set both in `onCreation`.
+- With `choices` and `parser` on the same argument or option, `choices` checks the raw string and `parser` converts it afterwards, so the choices are strings even when the parser returns numbers.
 - `defaultValue` is used as written, never parsed. Give a number default as a number (`50`), not as `'50'`.
 - A parser on a variadic argument is called once per value with the accumulated result as `previous`, and its last return value is the argument. Return an array to keep all values.
 - A required `@Argument` with a `defaultValue` and no `parser` makes commander throw `a default value for a required argument is never used` while `Cli` builds the tree. That stops every command, not only the faulty one.
@@ -124,7 +124,7 @@ export class ResendInvoicesCommand extends CliCommand {
 - Option keys in the options object are camel case of the long flag: `--older-than` is `olderThan`, `--no-color` is `color`.
 - `conflicts` and `implies` take those camel-case keys: `conflicts: 'dryRun'`.
 - The object form types `defaultValue` as `string | boolean | string[]`; for another type use the positional form.
-- The object form types `parser` as `<T>(value: string, previous: T) => T`, so a converter such as `(v: string) => parseInt(v, 10)` does not compile there. Use the positional form, or cast: `((v: string) => parseInt(v, 10)) as IOption['parser']`.
+- The object form types `parser` as `(value: string, previous: any) => unknown`, so any converter such as `(v) => parseInt(v, 10)` fits.
 
 ## Best practices
 
@@ -135,13 +135,13 @@ export class ResendInvoicesCommand extends CliCommand {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the parser is dropped because `choices` replaces it, so `level` stays a string
-@Option({ flags: '--level <n>', choices: ['1', '2', '3'], parser: (v) => parseInt(v, 10) })
-
-// Do: validate with choices, convert in execute()
+// Don't: convert in execute() what a parser can convert
 @Option({ flags: '--level <n>', choices: ['1', '2', '3'] })
 // ...
 const level = Number(options.level);
+
+// Do: choices check the raw string, then the parser converts it
+@Option({ flags: '--level <n>', choices: ['1', '2', '3'], parser: (v) => parseInt(v, 10) })
 ```
 
 ```ts
@@ -188,10 +188,9 @@ export class ExportOrdersCommand extends CliCommand {
 ### Serve on a port from configuration
 
 ```ts sample
-import { CliCommand, Command, IOption, Option } from '@spinajs/cli';
+import { CliCommand, Command, Option } from '@spinajs/cli';
 
-// `IOption['parser']` is typed generically, so a converter needs the cast.
-const toPort = ((v: string) => parseInt(v, 10)) as IOption['parser'];
+const toPort = (v: string) => parseInt(v, 10);
 
 // spinajs preview                -> port from `http.port`, host from $PREVIEW_HOST or 127.0.0.1
 // spinajs preview --port 8081    -> the command line wins

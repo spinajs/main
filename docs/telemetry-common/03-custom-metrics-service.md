@@ -21,7 +21,7 @@ Every consumer in the monorepo resolves `Metrics` by its DI key, so one registra
 | --- | --- | --- |
 | `constructor()` | DI, once per singleton | Configure `this.registry` (default labels), or set `this.registry` to a registry you build |
 | `defineMetrics(prefix, defs)` | Every package that publishes metrics | Enforce a naming rule, add buckets, log definitions; call `super.defineMetrics()` to keep the build |
-| `collectDefault()` | `TelemetryBootstrapper` when `telemetry.collectDefaultMetrics` is `true` | Make it idempotent, pass prom-client options (`prefix`, `gcDurationBuckets`) |
+| `collectDefault()` | `TelemetryBootstrapper` when `telemetry.collectDefaultMetrics` is `true` | Pass prom-client options (`prefix`, `gcDurationBuckets`) |
 | `render()` | `GET /metrics`, your scrape handler | Merge other registries, filter output |
 | `contentType()` | `GET /metrics`, your scrape handler | Match a changed `render()` format |
 | `getRegistry()` | Code that needs the raw registry | Return a merged or wrapped registry |

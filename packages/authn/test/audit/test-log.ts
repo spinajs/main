@@ -14,9 +14,12 @@ export class TestLog {
   static readonly entries: TestLogEntry[] = [];
   static readonly lines: string[] = [];
 
+  private static readonly warned = new Set<string>();
+
   static clear(): void {
     TestLog.entries.length = 0;
     TestLog.lines.length = 0;
+    TestLog.warned.clear();
   }
 
   static of(logger: string): TestLogEntry[] {
@@ -31,6 +34,15 @@ export class TestLog {
 
   warn(first: unknown, ...rest: unknown[]): void {
     this.write('warn', first, rest);
+  }
+
+  // Log.warnOnce, but its keys are forgotten by clear(), so every test sees the warnings it causes.
+  warnOnce(key: string, first: unknown, ...rest: unknown[]): boolean {
+    const id = `${this.Name}\u0000${key}`;
+    if (TestLog.warned.has(id)) return false;
+    this.warn(first, ...rest);
+    TestLog.warned.add(id);
+    return true;
   }
 
   // The Log overloads: (message, ...args) or (fields, message?, ...args).
