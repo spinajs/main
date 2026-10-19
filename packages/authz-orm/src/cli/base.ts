@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 import { AuthzConfigError, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import { CliCommand } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -12,8 +13,11 @@ import { classesOf } from '../registry.js';
 export abstract class AuthzOrmCliCommand extends CliCommand {
   public Orm?: Orm;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   protected async orm(): Promise<Orm> {
-    return (this.Orm ??= (await DI.resolve(Orm)) as Orm);
+    return (this.Orm ??= (await this.Container.resolve(Orm)) as Orm);
   }
 
   /** The connection of the type's first registered class, else the ORM's default. */

@@ -1,20 +1,21 @@
 import { AuthzConfigError, AuthzContributor } from '@spinajs/authz';
 import type { AuthzContribution } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Autoinject, Container, Injectable, Singleton } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
 import { nameOf, registeredClasses, registeredTypes } from './registry.js';
 
-interface ConfigSource {
-  get<T>(path: string[]): T;
+/** `authz.rbac.connection` and `authz.admin.connection` as configured. */
+export interface StoresConnectionConfig {
+  readonly rbac?: unknown;
+  readonly admin?: unknown;
 }
 
 /** The connection of the authz stores, by authz-rbac's rule (packages/authz-rbac/src/stores/context.ts:65-79). */
-export function storesConnection(config: ConfigSource | undefined = DI.get(Configuration) as unknown as ConfigSource | undefined): { name: string; key: string } {
-  const rbac = config?.get<string | undefined>(['authz', 'rbac', 'connection']);
+export function storesConnection({ rbac, admin }: StoresConnectionConfig): { name: string; key: string } {
   if (typeof rbac === 'string' && rbac !== '') return { name: rbac, key: 'authz.rbac.connection' };
-  const admin = config?.get<string | undefined>(['authz', 'admin', 'connection']);
   if (typeof admin === 'string' && admin !== '') return { name: admin, key: 'authz.admin.connection' };
   return { name: 'default', key: 'the ORM default connection' };
 }
@@ -24,7 +25,7 @@ export function storesConnection(config: ConfigSource | undefined = DI.get(Confi
  * and every delete forgets scopes in the statement's transaction: each @AccessResource model must share
  * the stores' connection.
  */
-export function checkResourceConnections(orm: Orm, config?: ConfigSource): void {
+export function checkResourceConnections(orm: Orm, config: StoresConnectionConfig): void {
   const { name, key } = storesConnection(config);
   const stores = orm.Connections.get(name);
   if (!stores) throw new AuthzConfigError(`authz-orm: ${key} gives ${JSON.stringify(name)}, but there is no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ')})`);
@@ -41,9 +42,19 @@ export function checkResourceConnections(orm: Orm, config?: ConfigSource): void 
 @Singleton()
 @Injectable(AuthzContributor)
 export class AuthzOrmContributor extends AuthzContributor {
+  // Apps resolve Orm without registering it, so an optional inject would never see it; and the check must not boot it.
+  @Autoinject(Container)
+  protected Container: IContainer;
+
+  @Config('authz.rbac.connection')
+  protected RbacConnection: unknown;
+
+  @Config('authz.admin.connection')
+  protected AdminConnection: unknown;
+
   contribute(_domain: string): AuthzContribution {
     // listTypes come from the decorators and need no ORM; only the connection check does.
-    if (DI.RootContainer.isResolved(Orm)) checkResourceConnections(DI.get(Orm) as Orm);
+    if (this.Container.isResolved(Orm)) checkResourceConnections(this.Container.get(Orm) as Orm, { rbac: this.RbacConnection, admin: this.AdminConnection });
     return { listTypes: registeredTypes() };
   }
 }

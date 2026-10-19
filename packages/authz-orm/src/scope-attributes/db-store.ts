@@ -6,6 +6,8 @@ import { Orm, OrmDriver } from '@spinajs/orm';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, parseAttributeLeaf, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
 
+import { chunks } from '../ancestors/table.js';
+
 const TABLE = 'authz_scope_attribute';
 const VERSION_TABLE = 'authz_scope_attribute_version';
 const CONNECTION_KEY = 'authz.admin.connection';
@@ -17,8 +19,6 @@ const BY_MAX = 100;
 // Rows per statement: 8 parameters a row stays under MSSQL's 2100 parameters and every driver's row limits.
 const INSERT_CHUNK = 100;
 const DELETE_CHUNK = 500;
-
-const chunks = <T>(list: readonly T[], size: number): T[][] => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
 /** Every scalar as text, so SQL can compare value_text alone (design §12.4 reads only that column). */
 function textOf(v: ScopeAttributeLeaf): string | null {
