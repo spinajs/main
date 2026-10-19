@@ -10,7 +10,7 @@ import type { AuthzCommand, Principal, RememberedBatch } from '@spinajs/authz';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { AbacContributor, AbacModel, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, DbAuthzAdminBackend } from '../../../src/index.js';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, DbAuthzAdminBackend, VersionRecord } from '../../../src/index.js';
 import { P1, P2, config, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from '../support.js';
 
 const expect = chai.expect;
@@ -252,14 +252,14 @@ describe('DbAuthzAdminBackend on SQLite', function () {
 
     it('a failed read of a table that exists is passed on, not blamed on a migration', async () => {
       const down = new Error('connection lost');
-      const select = db.select;
-      db.select = (() => {
+      const where = VersionRecord.where;
+      VersionRecord.where = (() => {
         throw down;
-      }) as unknown as typeof db.select;
+      }) as unknown as typeof VersionRecord.where;
       try {
         expect(await rejection(backend.transaction(dom, async () => undefined))).to.equal(down);
       } finally {
-        db.select = select;
+        VersionRecord.where = where;
       }
     });
 

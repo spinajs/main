@@ -205,7 +205,7 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend on the connection db.Alia
 
   it('migrates, writes and reads there, not on the default connection', async () => {
     const store = db.container.resolve(DbAssignmentStore);
-    const backend = new DbAuthzAdminBackend({ container: db.container });
+    const backend = new DbAuthzAdminBackend();
 
     const a = await backend.transaction('root', (tx) => store.assign({ subject, role: 'editor', scope: GLOBAL }, SYSTEM, tx));
 

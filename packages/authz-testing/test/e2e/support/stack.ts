@@ -5,7 +5,6 @@ import { AUTHZ_ASSIGNMENT_TABLE, AuthzAdminIdempotency_2026_10_02_00_01_00, Auth
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, HostSetup, OrmHandle, OrmModelSpec, OrmQuery, OrmResult, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
 import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent } from '@spinajs/authz-orm';
@@ -32,12 +31,8 @@ const pk = (row: unknown): string => String((row as { id: unknown }).id);
 
 let activeDb: TestDb | undefined;
 
-/** DbAuthzAdminBackend over the DI root, where TestDb's Orm lives. */
-export class E2eAdminBackend extends DbAuthzAdminBackend {
-  constructor() {
-    super({ container: DI.RootContainer });
-  }
-}
+/** DbAuthzAdminBackend under the name the cases configure as authz.admin.backend. */
+export class E2eAdminBackend extends DbAuthzAdminBackend {}
 
 /** The `orm` lane of authz-testing (L5) over TestDb: one class per spec per case, rows inserted through the ORM as SYSTEM. */
 export class E2eOrm implements OrmHandle {

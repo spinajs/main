@@ -89,12 +89,8 @@ export function activeDb(): TestDb {
   return current;
 }
 
-/** The backend reads Configuration and Orm from the test database's container (connection 'default'). */
-export class DbHarnessBackend extends DbAuthzAdminBackend {
-  constructor() {
-    super({ container: activeDb().container });
-  }
-}
+/** DbAuthzAdminBackend under the name the case configures as authz.admin.backend. */
+export class DbHarnessBackend extends DbAuthzAdminBackend {}
 
 /**
  * hostHarness over a booted test database (real migrations): ConfigRoleStore reading the world's

@@ -8,6 +8,9 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
 
+/** Array.ofType of the @spinajs/di the tests resolve with, captured before a configuration load can re-patch it. */
+const { ofType, chainOf } = Array;
+
 export type DbKind = 'sqlite' | 'postgres';
 
 export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
@@ -142,6 +145,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
+    // Undoes the outer checkout's Array.ofType patch (see above), so later lists in this process resolve too.
+    Object.assign(Array, { ofType, chainOf });
     orm = await container.resolve(Orm);
   } catch (err) {
     if (database) {

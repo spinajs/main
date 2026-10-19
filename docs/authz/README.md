@@ -740,7 +740,9 @@ authz: {
 ```
 
 `DbAuthzAdminBackend` (in `@spinajs/authz-rbac`) runs each batch in its own ORM transaction on the `authz` connection, with a
-per-domain lock on the `authz_version` row. It refuses to run inside an open transaction. The
+per-domain lock on the `authz_version` row: batches of one domain run one after another, batches of
+different domains do not wait for each other (on SQLite the ORM runs one transaction at a time). It
+refuses to run inside an open transaction. The
 default backend keeps data in memory.
 
 **List permissions.** A built-in validator refuses `policy.put` and `rule.put` with
