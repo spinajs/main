@@ -51,7 +51,7 @@ export class DefaultQueueService extends QueueService {
    * Started / stopped by DI on injection / disposal. May be undefined if retention
    * is not configured.
    */
-  @AutoinjectService('queue.retention', JobRetentionService)
+  @AutoinjectService('queue.retention', JobRetentionService, { optional: true })
   protected Retention?: JobRetentionService;
 
   public async dispose() {
