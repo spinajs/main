@@ -9,7 +9,7 @@ A lifetime decides whether a resolve reuses an instance or builds a new one, and
    - `NewInstance`: the class is built on every resolve and never cached.
    - Any other value: `ContainerCache.getOrCreate()` returns the cached instance, or builds and caches one.
 3. The cache key is the **concrete class name** (`SmtpMailer`, not `Mailer`), in the container that owns the registration; see [Child containers](05-child-containers.md#which-container-owns-an-instance).
-4. `PerInstanceCheck` asks every cached instance `__checkInstance__(options)` and returns the first that answers `true`.
+4. `PerInstanceCheck` asks every cached instance `__checkInstance__(options)` and returns the first that answers `true`; when none does, it builds a new instance and caches it next to the others.
 
 ## Decorators
 
@@ -64,12 +64,12 @@ console.log(login === sameLogin, login === upload);
 
 ## Important behaviour
 
-- `@PerInstanceCheck()` caches only the **first** instance of a class. An instance built for different options is returned but not cached, so `DI.resolve(RateLimiter, ['upload', 20])` builds a new limiter on every call. Keep a reference yourself when that matters.
+- `@PerInstanceCheck()` caches every instance it builds, so each distinct set of options is built once. Concurrent async resolves wait for a pending creation of the class and then check it again, so two option sets resolved in parallel still get two instances.
 - `@PerInstance()` behaves exactly like `@Singleton()` in the current container: both cache one instance per concrete class.
 - A singleton resolved through a child container is created and cached in the container that registered it (usually the root), with that container's dependencies. A class registered nowhere is cached where it is first resolved: when that is the root, children reuse it; when it is a child, a sibling child builds its own. Register app-wide singletons in the root (`DI.register(Pool).asSelf()`).
 - Options passed to `resolve()` are ignored when a cached instance is returned.
 - `@NewInstance()` and factory registrations are left out of `Array.ofType` results; see [Multiple implementations](06-multiple-implementations.md#important-behaviour).
-- A subclass with its own `@Inject` or `@Autoinject` gets the `Singleton` default, not the base class's lifetime. Repeat the lifetime decorator on the subclass.
+- A subclass inherits the base class's lifetime, also when it adds its own `@Inject` or `@Autoinject`. Decorate the subclass to give it another one.
 - `dispose()` only reaches cached instances; a `@NewInstance()` object is never disposed by the container. See [Service lifecycle](10-service-lifecycle.md).
 
 ## Best practices

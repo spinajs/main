@@ -11,7 +11,7 @@ export class PdfRenderer extends PuppeteerRenderer {
    * General options from configuration
    */
   @Config('templates.pdf')
-  protected Options: IPuppeteerRendererOptions;
+  protected Options: IPuppeteerRendererOptions & { options?: PDFOptions };
 
   public get Type() {
     return 'pdf';
@@ -31,8 +31,9 @@ export class PdfRenderer extends PuppeteerRenderer {
 
   protected async performRender(page: Page, filePath: string): Promise<void> {
     await page.pdf({
-      path: filePath,
+      ...this.Options?.options,
       ...this.pdfOptions,
+      path: filePath,
     });
   }
 }

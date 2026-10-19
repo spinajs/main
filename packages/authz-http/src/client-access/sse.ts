@@ -12,8 +12,6 @@ export const SSE_HEARTBEAT_MS = 25_000;
 
 export const SSE_RETRY_MS = 5_000;
 
-export const SSE_MAX_STREAMS_PER_PRINCIPAL = 5;
-
 /** One open stream: `owner` is the principal's own key, which the cap and session ends go by. */
 interface EventStream {
   readonly res: express.Response;
@@ -42,7 +40,7 @@ export class SseAccessPushTransport extends AccessPushTransport {
   /** Tests shorten it; read when a stream opens. */
   public heartbeatMs = SSE_HEARTBEAT_MS;
 
-  @Config('authz.http.events.maxStreamsPerPrincipal', { defaultValue: SSE_MAX_STREAMS_PER_PRINCIPAL })
+  @Config('authz.http.events.maxStreamsPerPrincipal')
   protected MaxStreamsPerPrincipal: number;
 
   protected readonly streams = new Map<string, Set<express.Response>>();
@@ -65,7 +63,7 @@ export class SseAccessPushTransport extends AccessPushTransport {
     res.write(`retry: ${SSE_RETRY_MS}\n\n`);
 
     const owner = principalKey(principal);
-    const max = Math.max(1, this.MaxStreamsPerPrincipal ?? SSE_MAX_STREAMS_PER_PRINCIPAL);
+    const max = Math.max(1, this.MaxStreamsPerPrincipal);
     const open = this.owned.get(owner) ?? [];
     for (const oldest of open.slice(0, Math.max(0, open.length - max + 1))) this.end(oldest);
 
@@ -114,8 +112,10 @@ export class SseAccessPushTransport extends AccessPushTransport {
     if (session !== undefined) for (const s of this.sessionStreams(identity)) if (s.session === session) this.end(s);
     const rest = this.sessionStreams(identity);
     // Per call: authz boot builds this transport, sse in use or not, and must not build the issuer's session provider then.
-    if (rest.length === 0 || !DI.check(SessionIssuer)) return;
-    const live = new Set((await ((await DI.resolve(SessionIssuer)) as SessionIssuer).list({ type: identity.type, id: identity.id })).map((r) => r.handle));
+    if (rest.length === 0) return;
+    const issuer = (await DI.RootContainer.resolveOptional(SessionIssuer)) as SessionIssuer | undefined;
+    if (!issuer) return;
+    const live = new Set((await issuer.list({ type: identity.type, id: identity.id })).map((r) => r.handle));
     for (const s of rest) if (!live.has(s.session!)) this.end(s);
   }
 
@@ -145,12 +145,21 @@ export class SseAccessPushTransport extends AccessPushTransport {
     return new Set(sets.flatMap((s) => [...s]));
   }
 
+  /** Stops listening for the server shutdown and closes the open streams. */
+  public async dispose(): Promise<void> {
+    DI.removeListener('http.server.closing', this.onServerClosing);
+    this.listening = false;
+    this.closeAll();
+  }
+
   // An open stream would hold server.close() until the shutdown watchdog fires.
   protected listenForShutdown(): void {
     if (this.listening) return;
     this.listening = true;
-    DI.on('http.server.closing', () => this.closeAll());
+    DI.on('http.server.closing', this.onServerClosing);
   }
+
+  private readonly onServerClosing = (): void => this.closeAll();
 }
 
 /** What `GET /user/access/events` returns: it hands the express response to the transport and sends no body itself. */

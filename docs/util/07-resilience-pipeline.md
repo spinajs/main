@@ -138,6 +138,15 @@ Strategies are configured by the options object of each `add*` call. Every durat
 | `PermitLimit` | `number` | required | `>= 1` | Executions running at once |
 | `QueueLimit` | `number` | `0` | `>= 0` | Callers waiting for a permit, first in first out; one more is rejected with `RateLimiterRejectedException` |
 
+To read the limiter's counters, build the strategy yourself with `concurrencyLimiterStrategy(options)` and pass it to `addStrategy`. Its `stats` object reads live values: `active` (executions holding a permit), `queued` (waiting for one), `peak` (highest `active` seen) and `runs` (executions started; a rejected call is not counted).
+
+```ts
+const limiter = concurrencyLimiterStrategy<string>({ PermitLimit: 4, QueueLimit: Infinity });
+const pipeline = new ResiliencePipelineBuilder<string>().addStrategy(limiter).build();
+// later
+log.info({ active: limiter.stats.active, peak: limiter.stats.peak }, 'hash pool');
+```
+
 ### Exceptions
 
 All extend `Exception` from `@spinajs/exceptions`.
@@ -210,12 +219,12 @@ getInvoice('2026-0042').then((r) => console.log(r.status), console.error);
 
 - The pipeline holds no state of its own, but the circuit breaker and concurrency limiter strategies do. The state lives in the strategy created by `add*`, so two pipelines from two `build()` calls on one builder share one breaker and one permit pool.
 - The timeout is pessimistic: the caller gets `TimeoutRejectedException` at once, but the callback keeps running unless it observes `ctx.Signal`.
-- A timeout of `0`, or `''`, rejects on the next timer tick.
-- Retry waits on `ctx.Signal`: when an outer timeout or your signal aborts, the pending delay rejects with the abort reason. With a zero delay, retry does not look at the signal and keeps calling.
+- A timeout of `0` rejects on the next timer tick. A missing or empty `Timeout` (`''`) throws `InvalidArgument` when the strategy is added.
+- Retry waits on `ctx.Signal`: when an outer timeout or your signal aborts, the pending delay rejects with the abort reason. With a zero delay, retry rejects with the abort reason instead of calling again.
 - `MaxDelay` caps the backoff only, not a value from `DelayGenerator`.
 - Retry rethrows the last error, or returns the last handled result, after the last attempt.
 - Hedging returns the last handled **result** when every attempt was handled and the last one did not throw. In practice `HedgingException` is not reached.
-- The circuit breaker records samples only while `Closed`. `OnHalfOpened` fires on the first call after `BreakDuration`, not on a timer. While the trial call runs, other calls get `BrokenCircuitException`.
+- The circuit breaker records samples only while `Closed`. A call that finishes after the state changed (another call opened the circuit, or `ManualControl` isolated or reset it) does not change the state. `OnHalfOpened` fires on the first call after `BreakDuration`, not on a timer. While the trial call runs, other calls get `BrokenCircuitException`.
 - Hooks are awaited inline: a slow `OnRetry` or `OnOpened` delays the call that triggered it.
 - An error thrown by `FallbackAction` or a hook propagates to the caller.
 

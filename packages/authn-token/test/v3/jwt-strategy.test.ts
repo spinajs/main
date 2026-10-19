@@ -151,6 +151,7 @@ describe('JwtBearerStrategy', function () {
       try {
         const s = await DI.resolve(JwtBearerStrategy);
         expect(s).to.be.instanceOf(JwtBearerStrategy);
+        expect(s.Resolved).to.equal(true);
         expect((await s.verify(bearer(sign(kp1)), ctx())).ok).to.equal(true);
       } finally {
         DI.uncache(JwtBearerStrategy);

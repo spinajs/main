@@ -2051,6 +2051,7 @@ export class IndexQueryBuilder extends Builder {
   public Unique: boolean;
   public Table: string;
   public Columns: string[];
+  public Drop: boolean;
 
   constructor(container: Container, driver: OrmDriver) {
     super(container, driver);
@@ -2078,6 +2079,13 @@ export class IndexQueryBuilder extends Builder {
 
   public columns(colNames: string[]) {
     this.Columns = colNames;
+
+    return this;
+  }
+
+  /** Drops the index named by `name()` on `table()` instead of creating it. */
+  public drop() {
+    this.Drop = true;
 
     return this;
   }
@@ -2177,6 +2185,7 @@ export class ColumnQueryBuilder {
   public Comment: string;
   public Charset: string;
   public Collation: string;
+  public Exact: boolean;
   public NotNull: boolean;
   public Type: ColumnType;
   public Args: any[];
@@ -2196,6 +2205,7 @@ export class ColumnQueryBuilder {
     this.AutoIncrement = false;
     this.NotNull = false;
     this.Collation = '';
+    this.Exact = false;
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
@@ -2252,6 +2262,13 @@ export class ColumnQueryBuilder {
 
   public collation(collation: string) {
     this.Collation = collation;
+
+    return this;
+  }
+
+  /** Compares and orders values byte for byte: the driver declares its binary collation. */
+  public exact() {
+    this.Exact = true;
 
     return this;
   }

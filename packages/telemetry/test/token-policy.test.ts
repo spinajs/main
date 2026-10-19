@@ -58,6 +58,10 @@ describe('TelemetryTokenPolicy (deprecated)', function () {
     expect(await refusal(tokenPolicy(TOKEN), { 'x-metrics-token': TOKEN })).to.eq(undefined);
   });
 
+  it('falls back to Bearer when x-metrics-token is empty', async () => {
+    expect(await refusal(tokenPolicy(TOKEN), { 'x-metrics-token': '', authorization: `Bearer ${TOKEN}` })).to.eq(undefined);
+  });
+
   it('accepts the right token as Authorization: Bearer', async () => {
     expect(await refusal(tokenPolicy(TOKEN), { authorization: `Bearer ${TOKEN}` })).to.eq(undefined);
   });

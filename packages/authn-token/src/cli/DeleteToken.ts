@@ -1,10 +1,8 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, Command } from '@spinajs/cli';
+import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { CLI_ACTOR, TokenService, cliContext } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
-
-import { TokenCliCommand } from './TokenCliCommand.js';
 
 interface TokenRevoker {
   revokeById(id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean>;
@@ -14,7 +12,7 @@ const revokesById = (s: unknown): s is TokenRevoker => typeof (s as Partial<Toke
 
 @Command('authn:token-delete', 'Revokes an API token, whoever owns it')
 @Argument('uuid', true, 'token uuid')
-export class DeleteToken extends TokenCliCommand {
+export class DeleteToken extends CliCommand {
   @Logger('authn-token')
   protected Log: Log;
 

@@ -2,6 +2,7 @@ import { Autoinject } from '@spinajs/di';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Orm } from '@spinajs/orm';
 import { Log, Logger } from '@spinajs/log';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { CLI_ACTOR, IdentityStore, cliContext } from '@spinajs/authn/contracts';
 import { TotpService } from '../service/totp-service.js';
 
@@ -16,19 +17,16 @@ export class MfaReset extends CliCommand {
   @Logger('authn-totp')
   protected Log: Log;
 
-  @Autoinject(IdentityStore)
+  @Autoinject(IdentityStore, { check: true })
   protected Identities: IdentityStore;
 
   @Autoinject(TotpService)
   protected Totp: TotpService;
 
   public async execute(login: string): Promise<void> {
-    if (typeof this.Identities?.findByLogin !== 'function') {
-      throw new Error('authn:mfa-reset needs a registered IdentityStore');
-    }
     const id = await this.Identities.findByLogin(login);
     if (!id) {
-      throw new Error(`no account with login ${login}`);
+      throw new InvalidArgument(`no account with login ${login}`);
     }
     const { reset } = await this.Totp.adminReset(CLI_ACTOR, id, cliContext());
     this.Log.success({ login }, reset ? 'MFA reset for ${login}' : 'No MFA enrolment for ${login}');

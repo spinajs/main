@@ -1,5 +1,6 @@
 import { StringDecoder } from 'node:string_decoder';
-import { DI } from '@spinajs/di';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
@@ -43,9 +44,12 @@ export class SetUserPassword extends CliCommand {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   public async execute(login: string, options: SetUserPasswordOptions): Promise<void> {
     // Per call: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
-    const store = await DI.resolve(IdentityStore);
+    const store = await this.Container.resolve(IdentityStore);
     const id = await store.findByLogin(login);
     if (!id) {
       this.Log.error('No identity has this login; no password was set');
@@ -53,8 +57,8 @@ export class SetUserPassword extends CliCommand {
     }
 
     const generated = options.generate === true;
-    const password = generated ? DI.resolve(LocalPasswordPolicy).generate() : await this.readPassword();
-    const service = await DI.resolve(PasswordService);
+    const password = generated ? this.Container.resolve(LocalPasswordPolicy).generate() : await this.readPassword();
+    const service = await this.Container.resolve(PasswordService);
     const result = await service.set(id, password, cliContext(), { actor: CLI_ACTOR });
     if (result.status === 'rejected') {
       const violations = result.violations.join(', ');

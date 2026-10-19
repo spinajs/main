@@ -216,6 +216,10 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
   password is stored as the marker `!expired`, and the old password no longer logs in.
 - **CLI:** `authn:password <login>` (the password from `--generate` or standard input, never from an
   argument) and `authn:password-expire`.
+- **DI:** `LocalPasswordService` and the CLI commands take their collaborators from the container that
+  resolves them. `SecretStore`, `PasswordMailer` and `TokenService` are optional; reset and invite
+  without a `SecretStore` throw `InvalidOperation`. The throttle keys of `LocalPasswordStrategy` are the
+  `account` key only; the core adds `account-ip` itself.
 
 ### Token and JWT
 
@@ -372,9 +376,17 @@ throws only for a fault. Rules:
 - `TotpService` finds the other MFA steps in the root container. An app that registers steps per
   child container passes `steps` itself.
 
+`TotpService` implements and registers `MfaEnrolmentService` (`@spinajs/authn/contracts`), the
+contract behind the `/user/mfa` routes and the admin `POST /authn/admin/users/:uuid/mfa-reset` of
+`authn-http`. `authn-http` injects it as optional and does not depend on `authn-totp`. Those routes
+answer 404 `not_found` until an `MfaEnrolmentService` is registered and its `enabled(steps)` is
+true for the steps of the configured MFA policy. For `TotpService` that means `authn.mfa.steps` lists
+`TotpMfaStep` itself (not a subclass) and `authn.mfa.encryptionKey.secret` is set.
+
 **CLI:** `authn:mfa-reset <login>` removes the enrolment and recovery codes of an account and prints no
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
-`rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
+`authn:mfa-qr` prints a QR code for a secret or an otpauth URL. It was `rbac:2fa-qr`, which still works as
+an alias.
 
 **Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so the
 legacy-key detector (on by default) passes on its config. The 2.x 2FA code and routes are gone; an
@@ -537,6 +549,13 @@ its rows hold the raw subject refs, the IP and the user agent.
   sink may rely on delivery order. `authn-orm` registers `DbAuthnAuditSink` (table `authn_audit`).
   With no sink at all, boot logs a warning. Every event is published, `token.use` and `key.use`
   successes included; there is no sampling. A leftover `authn.audit.sampleUse` is refused at boot.
+- Every emitter publishes through `AuthnAudit`: the authn services, `authn-local`, `authn-token`,
+  `authn-keys` and `authn-totp` inject it (also from `@spinajs/authn/audit`, which registers nothing).
+  `publishIn(ctx, body)` stamps `at`, `ip` and `userAgent` from the `AuthnContext`. A sink failure
+  after a state change (a stored token, a confirmed TOTP enrolment) never fails the request.
+  `AuthnAudit.over(sinks, { sinkTimeoutMs, log })` gives the same delivery over explicit sinks, for
+  services built with `new` in tests (`authn-local` and `authn-totp` `sinks` deps, the
+  `DefaultKeyRegistry` and `DbTokenService` auditor argument).
 - `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
   `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
   `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x
@@ -628,7 +647,7 @@ export default {
 | Key | Package that reads it | Notes |
 |---|---|---|
 | `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
-| `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. |
+| `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. Classes built with `deps` or `options` instead of the configuration fall back to `AUTHN_LOCAL_DEFAULTS`, which reads the schema defaults. |
 | `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). |
 | `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
@@ -640,6 +659,7 @@ export default {
 | `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
 | `authn.http.*` | `authn-http`, `authn-oidc` | `trustProxy` (else `http.trustProxy`) for `ClientIp`, `CsrfOriginGuard` and the OIDC controller; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
+| `logger.filters` | `authn-http` (shipped) | Two `RateLimitFilter`s on the `authn-http` logger's `CsrfOriginGuard` refusal lines (`event: 'authn-http.csrf-refused'`): one line per (Origin, own origin) pair a minute, 20 a minute in all. The guard logs every refusal; these filters decide how many are written. See [log filters](../log/09-filters.md#ratelimitfilter). |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
 `http.cookie.secret`) are secret references (environment or a secret store), never inline values. The

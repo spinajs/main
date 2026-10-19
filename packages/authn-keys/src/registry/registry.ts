@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@spinajs/di';
+import { Autoinject, Inject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
+import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
@@ -66,10 +68,13 @@ export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'ke
 
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
 @Injectable(KeyRegistry)
-@Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
+@Inject(KeyStore, SecretStore, AuthnThrottle)
 export class DefaultKeyRegistry extends KeyRegistry {
   @Config('authn.keys')
   protected KeysConfig: KeysConfig;
+
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
 
   private readonly stamped = new Map<string, number>();
 
@@ -77,8 +82,8 @@ export class DefaultKeyRegistry extends KeyRegistry {
     protected readonly store: KeyStore,
     protected readonly secrets: SecretStore,
     protected readonly throttle: AuthnThrottle,
-    /** Read at publish time, so a sink may be added after the registry is built. */
-    protected readonly sinks: readonly AuthnEventSink[],
+    /** A test seam: published to instead of the container's AuthnAudit. */
+    protected readonly Auditor?: AuthnAuditor,
     /** A test seam: complete options that bypass the configuration. */
     protected readonly Options?: KeysOptions,
   ) {
@@ -89,11 +94,8 @@ export class DefaultKeyRegistry extends KeyRegistry {
     return keysOptionsOf(this.Options ?? this.KeysConfig);
   }
 
-  protected async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of this.sinks) {
-      await sink.publish(event);
-    }
+  protected publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    return (this.Auditor ?? this.Audit).publishIn(ctx, e);
   }
 
   /** The new key's signature over a 'register' challenge issued to this user; the challenge is redeemed only after the signature holds. */

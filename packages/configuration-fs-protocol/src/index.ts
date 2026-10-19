@@ -16,7 +16,7 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
     // to be sure Config & fsService are resolved
     return new ConfigVar(() => {
 
-      const reg = /^(.*)\/(.*)/;
+      const reg = /^([^/]*)\/(.*)/;
       const args = path.match(reg);
 
       if (!args || args.length < 3) {

@@ -1,4 +1,4 @@
-import { Orm, ModelBase, OrmException, extractModelDescriptor, SelectQueryBuilder, RelationType, OrmNotFoundException } from '@spinajs/orm';
+import { Orm, ModelBase, extractModelDescriptor, SelectQueryBuilder, RelationType, OrmNotFoundException } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs, IRoute } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
@@ -13,14 +13,27 @@ export * from './extension.js';
 export * from './route-arg.js';
 export * from './builders.js';
 export * from './dto.js';
+export * from './paging.js';
 export * from './dto-relation.js';
 export * from './response-methods/OrmNotFound.js';
 import * as express from 'express';
 
+// Query, url and header values arrive as strings; the model needs the object they encode.
+function parseJsonValue(value: unknown, field: string) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new BadRequest(`Request value '${field}' is not valid JSON, cannot hydrate model from it`);
+  }
+}
+
 /**
- * Route arg to hydrate model from request body
- *
- * For now its basically alias for FromBody, for convinience to separate model hydration from other body params
+ * Route arg to hydrate model from the request. Reads the `field` named in `@AsModel()` ( the argument
+ * name by default ) from the body, or from query, url params or headers when `type` says so.
  */
 @Injectable()
 export class AsDbModel extends RouteArgs {
@@ -29,13 +42,32 @@ export class AsDbModel extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest, _res: express.Response, route: IRoute) {
+    const field: string = param.Options?.field ?? param.Name;
+    let arg: any;
 
-    if (!req.body) {
-      throw new BadRequest('Request body empty, cannot hydrate model for parameter ' + (param.Options?.field ?? param.Name));
+    switch (param.Options?.type) {
+      case ParameterType.FromQuery:
+        arg = parseJsonValue(req.query[field], field);
+        break;
+      case ParameterType.FromParams:
+        arg = parseJsonValue(req.params?.[field], field);
+        break;
+      case ParameterType.FromHeader:
+        arg = parseJsonValue(req.headers[field.toLowerCase()], field);
+        break;
+      default:
+        if (!req.body) {
+          throw new BadRequest('Request body empty, cannot hydrate model for parameter ' + field);
+        }
+
+        arg = req.body[field];
+        if (arg === undefined && !param.Options?.field && [...route.Parameters.values()].filter((p) => p.Type === 'AsDbModel').length === 1) {
+          arg = req.body;
+        }
+        break;
     }
-    
-    const arg = req.body[param.Name] ? req.body[param.Name] : [...route.Parameters.values()].filter((p) => p.Type === "AsDbModel").length === 1 ? req.body : null;
-    let result = await this.tryHydrateParam(arg, param, route);
+
+    let result = await this.tryHydrateParam(arg ?? null, param, route);
     return { CallData: callData, Args: result };
   }
 }
@@ -54,7 +86,7 @@ export class FromDbModel extends RouteArgs {
   async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
-    return 'FromDB';
+    return 'FromDbModel';
   }
 
   public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest, _res?: express.Response, route?: IRoute) {
@@ -197,7 +229,7 @@ export class FromDbModel extends RouteArgs {
 export class DbModelHydrator extends ArgHydrator {
   public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
     if (input === null) {
-      throw new OrmException('primary key cannot be null');
+      throw new BadRequest(`No data in the request for model parameter ${parameter.Name}`);
     }
 
     const model: ModelBase = new parameter.RuntimeType();
@@ -236,7 +268,9 @@ export class OrmHttpBootstrapper extends Bootstrapper {
     DI.once('di.resolved.Orm', (_, orm: Orm) => {
       // set default route parameter hydrator for all loaded models
       orm.Models.forEach((m) => {
-        Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+        if (!Reflect.getMetadata('custom:arg_hydrator', m.type)) {
+          Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+        }
       });
 
       // add custom mixins

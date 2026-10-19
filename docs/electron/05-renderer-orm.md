@@ -1,6 +1,6 @@
 # Renderer ORM bridge
 
-The renderer entry registers `ElectronRendererOrm` as `Orm` and `RendererOrmDriverBridge` under the `orm-driver-sqlite`, `orm-driver-mysql` and `orm-driver-mssql` tokens. The renderer `Orm` then opens one bridge per configured connection, and the bridge forwards raw statements and `tableInfo()` to the main-process connection of the same name. The database itself is only ever opened in main.
+The renderer entry registers `ElectronRendererOrm` as `Orm` and `RendererOrmDriverBridge` under the `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`, `orm-driver-postgres` and `orm-driver-mysql-ssh` tokens. The renderer `Orm` then opens one bridge per configured connection, and the bridge forwards raw statements and `tableInfo()` to the main-process connection of the same name. The database itself is only ever opened in main.
 
 It does **not** run query builders: `RendererOrmDriverBridge.execute(builder)` resolves with the driver itself, not with rows. Model queries such as `await Invoice.where(...)` do not reach the database from the renderer.
 
@@ -35,14 +35,14 @@ The bridge uses the main ORM configuration, read over IPC. See [`@spinajs/orm` c
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.Connections[].Name` | `string` | required | name of a main connection | The bridge forwards to the main connection with this name. |
-| `db.Connections[].Driver` | `string` | required | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql` | Must be a token registered in the renderer; other tokens fail with `ORM connection driver ... not registerd`. |
+| `db.Connections[].Driver` | `string` | required | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`, `orm-driver-postgres`, `orm-driver-mysql-ssh` | Must be a token registered in the renderer; other tokens fail with `ORM connection driver ... not registerd`. |
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Renderer ORM | `Orm` and `ElectronRendererOrm`; singleton; `@Injectable(Orm)` | `ElectronRendererOrm` (no members of its own) | | Subclass `ElectronRendererOrm` and `DI.register(MyOrm).as(Orm)` before the first `DI.resolve(Orm)`. |
-| Driver bridge | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`; resolved with the connection options on each connection open | `RendererOrmDriverBridge` | | Register it (or a subclass) under more tokens, eg. `orm-driver-postgres`; or replace a token with your subclass. |
+| Driver bridge | `orm-driver-sqlite`, `orm-driver-mysql`, `orm-driver-mssql`, `orm-driver-postgres`, `orm-driver-mysql-ssh`; resolved with the connection options on each connection open | `RendererOrmDriverBridge` | | Register it (or a subclass) under more tokens for a custom driver; or replace a token with your subclass. |
 
 ### `RendererOrmDriverBridge` members
 
@@ -58,7 +58,7 @@ The bridge uses the main ORM configuration, read over IPC. See [`@spinajs/orm` c
 
 ### Driver bridge: custom implementation
 
-Subclass the bridge to add real health checks, or register it under a driver token the renderer lacks. This one pings the main connection and supports a Postgres connection.
+Subclass the bridge to add real health checks, or register it under a driver token the renderer lacks. This one pings the main connection for SQLite and Postgres connections.
 
 ```ts
 import { DI } from '@spinajs/di';
@@ -105,8 +105,7 @@ const orm = await DI.resolve(Orm);
 - **Raw statements run as `SYSTEM`.** `executeOnDb()` reaches the main connection with no authz checks and no statement filter.
 - **No transactions.** Each statement is a separate IPC call with no connection held open. Do transactional work in a main-process service.
 - **Same connection names.** The renderer must use the main connection names; an unknown name rejects with `connection: <name>`.
-- **Driver errors resolve.** A rejected main `executeOnDb()` resolves in the renderer with an `Error` whose `cause` is the driver error. Check `instanceof Error`.
-- **Missing tokens.** `orm-driver-postgres` and `orm-driver-mysql-ssh` are not registered in the renderer.
+- **Driver errors reject.** A rejected main `executeOnDb()` rejects in the renderer with `callOnOrmConnection() failed, method: executeOnDb, connection: <name>`.
 - **Full `Orm` boot in the renderer.** Model registration, migration discovery and the boot migration pass run in the renderer too. <!-- TODO(docs-hook): verify whether the renderer boot migration pass reaches the main database through executeOnDb/tableInfo -->
 
 ## Best practices
@@ -138,9 +137,6 @@ const orm = await DI.resolve(Orm);
 const connection = orm.Connections.get('default') as RendererOrmDriverBridge;
 
 const rows = await connection.executeOnDb('SELECT SUM(total) AS total FROM invoices WHERE year = ?', [2026], QueryContext.Select);
-if (rows instanceof Error) {
-  throw rows;
-}
 
 document.querySelector('#year-total')!.textContent = String(rows[0].total);
 ```

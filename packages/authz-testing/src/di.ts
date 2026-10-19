@@ -1,4 +1,4 @@
-import { DI, Service } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
 export type OwnedType = Class<unknown> | string;
@@ -63,16 +63,7 @@ export async function scopedContainer<T>(opts: ScopedContainerOptions<T>): Promi
   }
 }
 
-// The container disposes only Service instances; models and other plain classes with a dispose()
-// that the child created are disposed here, once each.
 async function disposeScope(child: IContainer, parent: IContainer, uncache: readonly OwnedType[]): Promise<void> {
-  const seen = new Set<unknown>([child]);
-  for (const { value } of child.Cache) {
-    if (seen.has(value) || value instanceof Service) continue;
-    seen.add(value);
-    const d = (value as { dispose?: unknown } | null)?.dispose;
-    if (typeof d === 'function') await d.call(value);
-  }
-  await child.dispose();
+  await child.dispose({ plainOwners: true });
   uncacheOwned(uncache, parent);
 }

@@ -1,7 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Constructor } from '@spinajs/di';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { BadRequest, Forbidden, JsonValidationFailed } from '@spinajs/exceptions';
+import { DI } from '@spinajs/di';
 
 import { __resolve_error_response__ } from '../src/error.js';
 import { Response as HttpResponse } from '../src/interfaces.js';
@@ -56,5 +57,12 @@ describe('http error map resolution', () => {
     // Forbidden and BadRequest are siblings, not a chain - a Forbidden must never resolve to the
     // BadRequest response just because both are registered.
     expect(__resolve_error_response__(map, new BadRequest('bad'))).to.equal(map.get('BadRequest'));
+  });
+});
+
+describe('JsonValidationFailed http mapping', () => {
+  it('is registered to the 400 response', () => {
+    const map = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__')!;
+    expect(__resolve_error_response__(map, new JsonValidationFailed('schema mismatch'))).to.equal(BadRequestResponse);
   });
 });

@@ -77,6 +77,7 @@ export interface IPerfScopeBackend {
 }
 
 const NOOP_BACKEND: IPerfScopeBackend = { get: () => null };
+const NOOP_SPAN: IPerfSpan = { end: () => undefined };
 let perfScopeBackend: IPerfScopeBackend = NOOP_BACKEND;
 
 /** Install the per-request scope backend. See {@link IPerfScopeBackend}. */
@@ -170,6 +171,7 @@ class PerfImpl {
 
   /** Open a manual span; call `end()` where timing stops ( start/end may be far apart ). */
   public start(name: string, opts?: IMeasureOpts): IPerfSpan {
+    if (!this.Enabled) return NOOP_SPAN;
     const startedAt = Date.now();
     const t0 = performance.now();
     let ended = false;

@@ -24,10 +24,14 @@ class FakeSource extends PrincipalSource {
 }
 
 describe('authz-http api', () => {
-  it('the package root exports the implementations in place of the api.ts stubs', () => {
+  it('api.ts holds only contracts; the package root exports the one implementation of each name', () => {
+    // A same-name class in api.ts would be a second DI token (DI keys classes by name).
     for (const name of ['Access', 'AllowAnonymous', 'Unscoped', 'fromParam', 'fromBody', 'fromQuery', 'fromModel', 'CurrentPrincipal', 'LinkPrincipalSource'] as const) {
-      expect(root[name], name).to.be.a('function').and.not.equal(api[name]);
+      expect(root[name], name).to.be.a('function');
+      expect(api, name).to.not.have.property(name);
     }
+    expect(root.PrincipalSource).to.equal(api.PrincipalSource);
+    expect(root.ACCESS_DESCRIPTOR).to.equal(api.ACCESS_DESCRIPTOR);
     expect(() => Access('file:read')).to.not.throw();
     expect(() => AllowAnonymous()).to.not.throw();
     expect(() => Unscoped('report export')).to.not.throw();

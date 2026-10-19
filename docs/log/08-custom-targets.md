@@ -169,7 +169,7 @@ export class LogfmtFileTarget extends FileTarget {
 - A `@Singleton()` target is built from the **first** definition resolved; later definitions of the same type reuse it with the first options.
 - Targets are resolved when the first logger routed to them resolves, not at boot. An error thrown from the constructor or `resolve()` fails that logger's resolve.
 - A target registered after a logger resolved is not used by that logger. Import target modules before the first `DI.resolve(Log, ...)`.
-- `FrameworkLogger` checks only that the definition's name exists. An unregistered `type` resolves to `null`, and every later log call routed to it throws `InvalidOperation('Target <name> for rule <rule> not exists')` into your code. Spell `type` exactly as the `@Injectable` string, and import the target module before the first logger resolves.
+- An unregistered `type` fails the resolve of the first logger routed to it (or `addTarget()`) with `InvalidOption`. Spell `type` exactly as the `@Injectable` string, and import the target module before the first logger resolves.
 - Entries reach the target after filters; per-target filters run on a shallow clone of `Variables`, so mutating `entry.Variables` in `write()` can leak into other targets that have no filters. Copy before you change it.
 - The layout is not applied for you; call `format(entry.Variables, this.Options.layout)` from `@spinajs/configuration` when your target writes text.
 

@@ -8,13 +8,14 @@ import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, Id
 import type { AuthenticationResult, AuthnContext, Credentials, IdentityRef, TokenCreateOptions } from '@spinajs/authn/contracts';
 import { MemoryAuthnThrottle } from '@spinajs/authn';
 import { FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, throttleParams } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, KitKeyPair } from '@spinajs/authn-testing';
 
 import '../../src/generator.js';
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
-import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
-import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
+import { NoTokenProfilesPolicy } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
+import { tokenServiceOver, tokenStrategyOver } from './services.js';
 
 // K5: the real DefaultAuthnService over TokenStrategy, JwtBearerStrategy and MemoryAuthnThrottle.
 
@@ -87,8 +88,8 @@ describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', fun
 
   async function world(overrides: ConfigOverrides = {}) {
     const identities = new FakeIdentityStore();
-    const tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities);
-    const token = new TokenStrategy(tokens);
+    const tokens = await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]) });
+    const token = tokenStrategyOver(tokens);
     await token.resolve();
     const jwt = new JwtBearerStrategy();
     await jwt.resolve();

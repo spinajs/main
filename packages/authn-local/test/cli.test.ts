@@ -308,6 +308,22 @@ describe('authn-local cli commands', function () {
       }
     });
 
+    it('authn:password resolves its services in the container that builds it', async () => {
+      class ChildIdentityStore extends FakeIdentityStore {}
+      const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
+      const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
+      const child = DI.RootContainer.child();
+      try {
+        child.register(ChildIdentityStore).as(IdentityStore);
+        const id = (child.resolve(IdentityStore) as ChildIdentityStore).add({ login: 'lena@example.com' });
+        const command = await child.resolve(ScriptedSetUserPassword, [['Typed-Password-6\n'], false]);
+        await command.execute('lena@example.com', {});
+        expect(await hasher.verify(await passwords.get(id), 'Typed-Password-6')).to.equal(true);
+      } finally {
+        await child.dispose();
+      }
+    });
+
     it('an unknown login fails the command without calling set or naming the login', async () => {
       const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;

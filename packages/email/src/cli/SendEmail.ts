@@ -26,9 +26,9 @@ interface EmailOptions {
 @Option('-m, --model [model]', false, 'path to model data for template, in json format')
 @Option('-s, --subject [model]', true, 'subject')
 @Option('-ct, --content [content]', false, 'text content if template is not provided')
-@Option('-sd, --schedule-delay', false, 'email delay')
-@Option('-sc, --schedule-cron', false, 'send email with cron schedule')
-@Option('-sr, --schedule-repeat', false, 'How many times to send')
+@Option('-sd, --schedule-delay [delay]', false, 'email delay in milliseconds', undefined, Number)
+@Option('-sc, --schedule-cron [cron]', false, 'send email with cron schedule')
+@Option('-sr, --schedule-repeat [count]', false, 'How many times to send', undefined, Number)
 @Option('-df, --deferred', false, 'send email deferred ( send using queue & email srv')
 export class SendEmailCommand extends CliCommand {
   @Logger('email')
@@ -74,6 +74,7 @@ export class SendEmailCommand extends CliCommand {
       this.Log.success({ to: options.to, from: options.from, subject: options.subject }, 'Email send succesyfully to: ${to}, from: ${from}, subject: ${subject}');
     } catch (err) {
       this.Log.error({ error: err }, 'Cannot send email');
+      throw err;
     }
   }
 }
