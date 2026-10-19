@@ -3,12 +3,14 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AuthzConfigError, MemoryAuthzAdminBackend } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
+import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AdminMembershipStore, DbMembershipStore, MembershipStore, MemoryMembershipStore } from '../../src/index.js';
 import type { MembershipRow } from '../../src/index.js';
 import { bootDb, DB_KINDS } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -136,6 +138,21 @@ for (const kind of DB_KINDS) {
 
     it('refuses to write outside a transaction', async () => {
       await expect(db!.container.resolve(DbMembershipStore).replace('user:u', [], { driver: db!.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
+    });
+
+    it('writes and reads hundreds of rows in one statement each', async () => {
+      const store = db!.container.resolve(DbMembershipStore);
+      const sets = Array.from({ length: 450 }, (_, i) => row('user:big', `group:g${i}#group.member`, 1 + (i % 3), i % 2 ? null : LATER));
+      const others = Array.from({ length: 1200 }, (_, i) => `user:other${i}`);
+
+      const write = await statementsOf(db!.driver, () => db!.driver.transaction((driver: OrmDriver) => store.replace('user:big', sets, { driver })));
+      expect(write.statements.filter((s) => s.context === QueryContext.Insert || s.context === QueryContext.InsertReturning)).to.have.length(1);
+
+      const read = await statementsOf(db!.driver, () => store.rowsOf(['user:big', ...others]));
+      expect([...read.result].sort((a, b) => a.setKey.localeCompare(b.setKey))).to.deep.eq([...sets].sort((a, b) => a.setKey.localeCompare(b.setKey)));
+      expect(read.statements.filter((s) => s.context === QueryContext.Select)).to.have.length(1);
+
+      await db!.driver.transaction((driver: OrmDriver) => store.replace('user:big', [], { driver }));
     });
   });
 }
