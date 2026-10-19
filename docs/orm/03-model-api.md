@@ -155,7 +155,7 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 - Construct a model after `Orm` has resolved. `hydrate()` resolves the connection's container and throws `model <Name> have invalid connection ...` when it cannot.
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
 - Static `insert()` is `async`: it returns a promise, not the `InsertQueryBuilder` its type declares. Pass everything through `data` and `behaviour`.
-- Static `update(data)` sends `data` as given. Column converters declared with decorators are **not** applied; see [Converters and hydration](04-converters-and-hydration.md#important-behaviour).
+- Static `update(data)` converts `data` through the column converters when it is called, so a value its converter refuses (a `@DateTime` string that is neither ISO 8601 nor SQL format) throws `InvalidArgument` synchronously, before the `where()` is chained.
 - `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `@Uuid()` column or a `uuid` key is filled at construction, and a composite key is a non-empty array, so these models always take the `update()` path.
 - `getOrCreate(pk, data)` uses `pk` only for the lookup. The new model gets its key from `data` or from the database.
 - `getOrNew(data)` with no key or `Unique` column in `data`, and `getOrCreate(null, data)` on a model without `Unique` columns, add no condition and return the first row of the table.

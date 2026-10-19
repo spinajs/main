@@ -1,17 +1,17 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-19)
 
 ## Corpus Check
-- 4554 files · ~3,011,704 words
+- 4554 files · ~3,011,784 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
 ## Summary
-- 49483 nodes · 131493 edges · 1625 communities (1122 shown, 503 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17116 edges (avg confidence: 0.94)
+- 49483 nodes · 131494 edges · 1625 communities (1122 shown, 503 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17117 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6a364587`
+- Built from commit: `3321f028`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -6040,7 +6040,7 @@ Nodes (36): Best practices, Broadcast a saved comment from a domain service, Exa
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Injectable()` connect `Injectable` to `DefaultSessionIssuer`, `DbConfigSourceBotstrapper`, `SocketDispatcher`, `OrmDriver`, `db/backend.ts`, `BaseController`, `RbacModel`, `IUploadedFile`, `authn-api-contract.test.ts`, `host/service.ts`, `packages_authz_lib_mjs_index`, `TelemetryController`, `ref_spinajs_authn_contracts`, `credential-admin-guard.test.ts`, `Orm`, `SocketServer`, `ref_spinajs_di`, `packages_di_lib_mjs_index_icontainer`, `ConfigurationSource`, `test/service.test.ts`, `IdentityRef`, `ref_spinajs_exceptions`, `log-common/src/index.ts`, `model/evaluate.ts`, `Ok`, `Injectable`, `authn-local/test/cli.test.ts`, `AmqpQueueClient`, `durable-e2e.test.ts`, `guessLanguage`, `contracts/audit.test.ts`, `FrameworkConfiguration`, `totp-service.ts`, `FileInfoService`, `BasePolicy`, `di/test/di.test.ts`, `ILogArchiveContext`, `packages_di_lib_mjs_index`, `ref_spinajs_authz_testing`, `guard/index.ts`, `packages_authn_lib_mjs_contracts_index_identityref`, `fsTemp`, `fsService`, `InsertQueryBuilder`, `authz-orm/src/host.ts`, `packages_di_lib_mjs_index_icontainer`, `hook.test.ts`, `ref_spinajs_exceptions`, `AuthnContext`, `SocketConnection`, `AuthnContext`, `PerfSink`, `fsNative`, `fsFTP`, `SqsQueueClient`, `SessionIssuer`, `DataTransformer`, `socket-harness.ts`, `SocketHub`, `DataValidator`, `group-service.ts`, `packages_authz_lib_mjs_index_authzconfigerror`, `DbConfigValueConverter`, `assignment-sql.ts`, `Initiator`, `owner-singleton.test.ts`, `flow/cookie.ts`, `message`, `config-role-store.test.ts`, `MfaSecretStore`, `TelemetryAccessContributor`, `PdfRenderer`, `packages_configuration_lib_mjs_index_d`, `fsOneDrive`, `AuthzConfigError`, `root.ts`, `email/src/index.ts`, `ConfigVarProtocol`, `contracts/model.test.ts`, `PuppeteerRenderer`, `MsSqlOrmDriver`, `ref_spinajs_validation`, `authz-abac/src/model/model.ts`, `invitations/service.ts`, `Singleton`, `SchemaProvider`, `ConfigVar`, `AuthzAdmin`, `TemplateRenderer`, `orm/src/interfaces.ts`, `OtlpLogTarget`, `GraphanaLokiLogTarget`, `EmailSender`, `LocalPasswordService`, `fsS3`, `ISession`, `registry/orm-store.ts`, `ref_spinajs_exceptions`, `TaskFailed`, `StompQueueClient`, `orm/src/builders.ts`, `FileTarget`, `src/configuration.ts`, `Metrics`, `Configuration`, `Authentication`, `src/adapter.ts`, `authn-local/test/kit-harness.ts`, `DefaultAccountGuard`, `LogMetricSink`, `DefaultEmailService`, `DefaultFileHasher`, `QueueClient`, `Csv`, `ref_chai`, `OtelTracing`, `queue/src/index.ts`, `ElectronRendererConfiguration`, `invitations/mailer.ts`, `9. Behaviour changes, lane by lane`, `email.deferred.test.ts`, `DbSessionStore`, `sse.ts`, `http-socket/src/index.ts`, `DynamoDbSessionProvider`, `XlsxRenderer`, `authn-token/test/v3/cli.test.ts`, `users/test/acceptance.test.ts`, `DefaultTeamService`, `RedisSessionStore`, `QueueChangeBus`, `notes.socket.ts`, `ancestors/middleware.ts`, `ArgHydrator`, `StubRenderer`, `http-socket/src/interfaces.ts`, `DbTranslationSource`, `HandlebarsRenderer`?**
-  _High betweenness centrality (0.059) - this node is a cross-community bridge._
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1698 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `DbConfigSourceBotstrapper` be split into smaller, more focused modules?**

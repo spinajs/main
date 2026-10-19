@@ -71,8 +71,7 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 
 ## Best practices
 
-- Keep transactions short and awaited end to end; every other statement of the connection waits on the same handle.
-- Keep transactions short: every other outermost transaction and every outside write of the connection waits for the one that is open.
+- Keep transactions short and awaited end to end: every other outermost transaction and every outside statement that needs the writer handle waits for the one that is open.
 - Use `BEGIN IMMEDIATE` for read-then-write transactions that compete with other processes on the same file.
 - Nest with `transaction()` rather than raw `SAVEPOINT` SQL, so `afterCommit` callbacks and rollback of nested work stay correct.
 

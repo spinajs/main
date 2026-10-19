@@ -66,7 +66,7 @@ Overridable members:
 | `isRetryableError(err)` | protected | `false` in a transaction; transport codes; PostgreSQL connection SQLSTATEs | retry more codes |
 | `ping()` | public | `SELECT 1` without retry | probe something else (a replica lag check) |
 | `tableInfo(name, schema?)` | public | reads `information_schema` | fill more descriptor fields |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false }` | declare `events: true` after registering event compilers |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 65535, concurrentTransactions: true }` | declare `events: true` after registering event compilers |
 | `poolMetrics()` | public | `pg.Pool` counters | report a different pool |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | see [Transactions](02-transactions.md) | add per-transaction settings |
 | `SupportedIsolationLevels` | public readonly field | all four levels | restrict levels |

@@ -59,7 +59,7 @@ Methods a subclass overrides:
 | `isRetryableError(err)` | protected | not used: `executeOnDb()` does not retry | [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection) |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | `mssql.Transaction`, `SAVE TRANSACTION` | [Transactions](03-transactions.md) |
 | `SupportedIsolationLevels` | public property | all four | [Transactions](03-transactions.md) |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, maxBindParameters: 2098, maxInsertRows: 1000, concurrentTransactions: true }` | [Inserts and upserts](04-inserts-and-upserts.md) |
 | `tableInfo(name, schema?)` | public | `INFORMATION_SCHEMA` queries | [Connection and configuration](01-configuration.md#important-behaviour) |
 | `resolve()` | public | registers the tokens below | this page |
 
