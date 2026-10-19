@@ -126,7 +126,7 @@ Other authz-rbac migrations:
 
 ### authz-abac
 
-`AuthzAbac_2026_10_01_00_00_00.ts:10-28` creates **`authz_policy`**: `id` PK, `effect`,
+`AuthzAbac_2026_10_01_00_00_00.ts:11-29`, connection `authz`, creates **`authz_policy`**: `id` PK, `effect`,
 `permissions` (globs), `resource_types`, `principal_types`, `actor_types`, `scope_type`,
 `scope_id`, `condition`, `fields`, `reason`, `priority`, `expires_at`, `created_by`, `created_at`.
 Index on `(scope_type, scope_id)`.

@@ -24,11 +24,11 @@ describe('authz.abac configuration schema', () => {
   const refused = (abac: unknown) => violationPaths(boot(abac));
 
   it('fills the defaults storesFromConfig reads', async () => {
-    expect((await boot(undefined)).get('authz.abac')).to.deep.equal({ stores: ['ConfigPolicyStore'], policies: [], connection: 'default' });
+    expect((await boot(undefined)).get('authz.abac')).to.deep.equal({ stores: ['ConfigPolicyStore'], policies: [] });
   });
 
   it('a validated authz.abac builds its stores', async () => {
-    const configuration = await boot({ stores: ['ConfigPolicyStore', 'DbPolicyStore'], connection: 'abac' });
+    const configuration = await boot({ stores: ['ConfigPolicyStore', 'DbPolicyStore'] });
     const ctx = fakeModelInitContext({ config: configuration.get<Record<string, unknown>>('authz.abac') });
 
     expect(storesFromConfig('abac', ctx).map((s) => s.constructor.name)).to.deep.equal(['ConfigPolicyStore', 'DbPolicyStore']);
@@ -39,7 +39,10 @@ describe('authz.abac configuration schema', () => {
     expect(await refused({ stores: ['Nope'] })).to.include('authz.abac.stores.0');
     expect(await refused({ policies: {} })).to.include('authz.abac.policies');
     expect(await refused({ policies: ['x'] })).to.include('authz.abac.policies.0');
-    expect(await refused({ connection: '' })).to.include('authz.abac.connection');
+  });
+
+  it('keeps authz.abac.connection for the model to refuse', async () => {
+    expect((await boot({ connection: 'reporting' })).get('authz.abac.connection')).to.equal('reporting');
   });
 
   it('fails closed with a named error for stores or policies an unvalidated configuration holds as no list', () => {

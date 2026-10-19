@@ -81,7 +81,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
         t.bigint('version').notNull();
       });
     }
-    policies = new DbPolicyStore(db);
+    policies = new DbPolicyStore();
   });
 
   after(async () => {

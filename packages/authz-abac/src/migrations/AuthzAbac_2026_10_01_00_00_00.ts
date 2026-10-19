@@ -1,10 +1,11 @@
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 /**
  * `authz_policy` of design §9.1, plus `actor_types` and `priority`, which `Policy` gained in r2
  * and the table there lacks.
  */
-@Migration('default')
+@Migration(AUTHZ_CONNECTION)
 export class AuthzAbac_2026_10_01_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('authz_policy', (table) => {

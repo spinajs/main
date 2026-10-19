@@ -5,4 +5,5 @@ export * from './schema.js';
 export * from './stores/config.js';
 export * from './stores/memory.js';
 export * from './stores/db.js';
+export * from './stores/policy-record.js';
 export * from './contributor.js';

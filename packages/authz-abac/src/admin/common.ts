@@ -1,11 +1,11 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, Policy, PrincipalRef, ResourceRef } from '@spinajs/authz';
-import { OrmDriver } from '@spinajs/orm';
 
 import { PolicyStore } from '../contracts.js';
 import { AbacModel } from '../model/model.js';
-import { AUTHZ_POLICY_TABLE, DbPolicyStore, rowToPolicy } from '../model/stores/db.js';
+import { DbPolicyStore, hydrateRecords, recordToPolicy } from '../model/stores/db.js';
 import { MemoryPolicyStore } from '../model/stores/memory.js';
+import { PolicyRecord, requirePolicyTransaction } from '../model/stores/policy-record.js';
 
 export type WritablePolicyStore = MemoryPolicyStore | DbPolicyStore;
 
@@ -60,28 +60,19 @@ export async function byId(store: WritablePolicyStore, id: string): Promise<Poli
   return (await store.load()).find((p) => p.id === id);
 }
 
-/** The ORM driver of a DB transaction, as DbPolicyStore requires it for writes. */
-function ormDriver(tx: AuthzTx): OrmDriver {
-  const driver = tx?.driver;
-  if (!(driver instanceof OrmDriver)) throw new AuthzConfigError('DbPolicyStore: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
-  return driver;
-}
-
-/**
- * Policies as the transaction sees them, so the batch's own earlier writes count. A DB store's load() may
- * run on another connection, which does not see them before the commit.
- */
+/** Policies as the batch's transaction sees them, so its own earlier writes count. */
 export async function policiesInTx(store: WritablePolicyStore, tx: AuthzTx, where: { readonly id?: string; readonly scope?: ResourceRef } = {}): Promise<Policy[]> {
   if (store instanceof MemoryPolicyStore) {
     return (await store.load()).filter((p) => (where.id === undefined || p.id === where.id) && (where.scope === undefined || sameScope(p, { scope: where.scope })));
   }
-  let query = ormDriver(tx).select().from(AUTHZ_POLICY_TABLE);
-  if (where.id !== undefined) query = query.where('id', where.id);
+  requirePolicyTransaction(tx, 'policiesInTx');
+  const query = PolicyRecord.query();
+  if (where.id !== undefined) query.where('id', where.id);
   if (where.scope !== undefined) {
     const s = scopeOf({ scope: where.scope });
-    query = query.where('scope_type', s.type).where('scope_id', s.id ?? '');
+    query.where('scope_type', s.type).where('scope_id', s.id ?? '');
   }
-  return ((await query) as unknown as Parameters<typeof rowToPolicy>[0][]).map(rowToPolicy);
+  return (await hydrateRecords(query)).map(recordToPolicy);
 }
 
 export function actorRef(ctx: AdminContext): PrincipalRef {
