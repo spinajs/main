@@ -14,9 +14,8 @@ const STRING_DECIMAL_DRIVER = { ResponseSchemaTypes: { [ColumnType.DECIMAL]: { t
 class BooleanValueConverter {}
 class DatetimeValueConverter {}
 
-// orm-mssql registers `MsSqlDatetimeValueConverter` AS `DatetimeValueConverter`, so the
-// instance a column really carries on that connection is a SUBCLASS.
-class MsSqlDatetimeValueConverter extends DatetimeValueConverter {}
+// A driver may register its own subclass AS `DatetimeValueConverter`.
+class DriverDatetimeValueConverter extends DatetimeValueConverter {}
 
 function column(overrides: Partial<IColumnDescriptor>): IColumnDescriptor {
   return {
@@ -213,7 +212,7 @@ describe('buildModelJsonSchema', () => {
     });
 
     it('recognises a driver subclass of the converter, not just the base class', () => {
-      const schema = build([{ Name: 'created_at', Type: 'TEXT', Converter: new MsSqlDatetimeValueConverter() as any }]);
+      const schema = build([{ Name: 'created_at', Type: 'TEXT', Converter: new DriverDatetimeValueConverter() as any }]);
       expect(schema.properties.created_at).to.deep.equal({ type: 'string', format: 'date-time' });
     });
 

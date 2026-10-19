@@ -110,10 +110,8 @@ function driverResponseTypes(descriptor: IModelDescriptor): Record<string, any> 
  * the descriptor-building path and importing the converter classes from `interfaces.js` as
  * VALUES would drag the query-builder / driver / model graph in with them.
  *
- * The chain walk is what makes a driver's own converter count. orm-mssql registers
- * `MsSqlDatetimeValueConverter` **as** `DatetimeValueConverter`, so what the container hands back
- * for an `@CreatedAt()` column on that connection is a subclass - an exact name comparison sees
- * `MsSqlDatetimeValueConverter` and misses it.
+ * The chain walk is what makes a driver's own converter count: a driver may register a subclass
+ * **as** `DatetimeValueConverter`, and an exact name comparison would miss it.
  *
  * @param ctor - converter class to test ( or the constructor of a converter instance )
  * @param name - base converter class name to look for
