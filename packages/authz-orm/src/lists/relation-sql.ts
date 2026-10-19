@@ -2,7 +2,7 @@ import { AuthzConfigError, PlanTermSql } from '@spinajs/authz';
 import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
-import { castText } from './dialect.js';
+import { ROW_ID_LENGTH } from './context.js';
 
 export const RELATION_OWNER_OP = 'relation.owner';
 export const RELATION_SELF_OP = 'relation.self';
@@ -31,7 +31,7 @@ function columnsOf(row: SqlRowContext, name: 'owner' | 'self'): { column: string
 function idIn(row: SqlRowContext, column: string, ids: readonly string[]): SqlFragment {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return NOTHING;
-  return { sql: `${castText(row.dialect, row.rowColumn(column))} IN (${unique.map(() => '?').join(', ')})`, bindings: unique };
+  return { sql: `${row.expressions.castText(row.rowColumn(column), ROW_ID_LENGTH)} IN (${unique.map(() => '?').join(', ')})`, bindings: unique };
 }
 
 const userIds = (principals: readonly PrincipalArg[]): string[] => principals.filter((p) => p.type === 'user').map((p) => p.id);

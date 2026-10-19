@@ -46,21 +46,27 @@ export abstract class SqlDriver extends OrmDriver {
           for (const c of compiled) {
             this.logQuery(c.expression!, c.bindings!, builder);
 
-            results.push(
-              await Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
-                labels,
-                fields: { sql: c.expression, bindings: c.bindings },
-              }),
-            );
+            try {
+              results.push(
+                await Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
+                  labels,
+                  fields: { sql: c.expression, bindings: c.bindings },
+                }),
+              );
+            } catch (err: unknown) {
+              throw this.translateError(err);
+            }
           }
           return results;
         })() as any;
       } else {
         this.logQuery(compiled.expression!, compiled.bindings!, builder);
 
-        return Perf.measure('orm.query', () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
+        return Promise.resolve(Perf.measure('orm.query', () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
           labels,
           fields: { sql: compiled.expression, bindings: compiled.bindings },
+        })).catch((err: unknown) => {
+          throw this.translateError(err);
         });
       }
     } catch (err: any) {

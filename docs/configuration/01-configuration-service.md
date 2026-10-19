@@ -52,11 +52,11 @@ sequenceDiagram
 
 | Method | Effect |
 | --- | --- |
-| `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned when the value is `undefined`, or is a `ConfigVar` that reads `null` (not ready yet). Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
-| `set(path, value)` | Replaces the value at `path`, creating missing objects. Not validated. |
-| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated. A no-op when nothing is stored at `path`. Not validated. |
-| `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` and schema defaults are lost; the tree is not validated again. |
-| `mergeSource(sourceClass)` | Resolves a source, deep-merges what it loads into the current tree and adds it to the source list for later `load()` calls. Protocol strings it brings are not resolved until the next `load()`. |
+| `get<T>(path, defaultValue?)` | Returns the value at `path` (`'a.b.c'` or `['a', 'b', 'c']`), with lodash `_.get` semantics. `defaultValue` is returned only when the value is `undefined`. Throws `InvalidConfiguration` when `path` is inside a module a late schema refused. |
+| `set(path, value)` | Replaces the value at `path`, creating missing objects. After boot, the modules a schema covers at, under or above `path` are validated first; a violation throws `InvalidConfiguration` and nothing changes (see [Runtime changes](06-schema-validation.md#runtime-changes)). |
+| `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated. A no-op when nothing is stored at `path`. Validated like `set()`. |
+| `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` are lost. After boot, the new tree is validated and gets its schema defaults; a violation throws `InvalidConfiguration` and keeps the previous tree. |
+| `mergeSource(sourceClass)` | Resolves a source and adds it to the source list for later `load()` calls. See [Important behaviour](#important-behaviour). |
 | `RootConfig` | The whole tree. |
 | `RunApp`, `AppBaseDir`, `Env` | The app name, the apps directory and the environment from the options or the command line. |
 | `validateModule(schema)` | Checks one schema against the loaded tree; used by [`registerConfigurationSchema`](06-schema-validation.md). |
@@ -157,7 +157,7 @@ void main();
 - Merge rules for every source, `onLoad()` and `merge()`: objects merge deeply, scalars from the later source win, **arrays are concatenated**. A later file cannot shorten or replace an array a package config defines; it can only append to it.
 - `JsFileSource` and `JsonFileSource` both have `Order` `1`. For the same scalar key, the JSON value wins over the JS value.
 - Every top-level object loaded from a file gets a `__file__` array with the paths it came from, for debugging.
-- `set()` and `merge()` do not validate, and `load()` does not validate again. A `load()` drops the defaults schemas applied at boot.
+- After boot, `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change. A refused change throws `InvalidConfiguration` and is not applied.
 - `merge(path, value)` writes nothing when `path` holds no object yet. Use `set()` for a new key.
 - The `system` section is not wrapped in a proxy: a `ConfigVar` stored directly under `system` is returned as the `ConfigVar` object.
 - Reading `configuration.get()` before `resolve()` finishes returns the partial tree; read config in your service's `resolve()` or later.

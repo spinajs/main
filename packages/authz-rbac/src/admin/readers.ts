@@ -1,9 +1,10 @@
-import { AuthzAdminFailure, AuthzAdminReader } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzAdminReader, readRef } from '@spinajs/authz';
 import type { AdminContext, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { AssignmentSubject } from '../contracts.js';
-import { assignmentStore, isPlainObject, linkStore, quote, readRef, readSubject, ruleStore } from './common.js';
+import { assignmentStore, isPlainObject, linkStore, quote, ruleStore } from './common.js';
+import { readSubject } from './fields.js';
 import { listHolders } from './holders.js';
 import type { Page } from './ports.js';
 

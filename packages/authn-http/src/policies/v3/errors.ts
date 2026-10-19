@@ -1,7 +1,8 @@
 import { AuthenticationFailed, Forbidden, ResourceNotFound } from '@spinajs/exceptions';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 
-/** The body of a failed authentication (A02); a failed inline re-authentication answers it too. */
-export const AUTHN_FAILURE = Object.freeze({ code: 'E_AUTH_FAILED', message: 'login or password incorrect' });
+/** The `error` of a failed authentication's body (A02); a failed inline re-authentication answers it too. */
+export const AUTHN_FAILURE = AUTHN_FAILURE_BODY.error;
 
 // @spinajs/http spreads an error's own enumerable props into the response body: these give { error, message }.
 

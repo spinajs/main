@@ -1,4 +1,5 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder, AlterTableQueryCompiler, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { MsSqlSqlExpressions } from './expressions.js';
+import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -8,6 +9,8 @@ import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlDefaultValueBuilder, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
+
+export * from './expressions.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
   transaction: mssql.Transaction;
@@ -96,6 +99,11 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  // 2100 per RPC, a few of which tedious spends on sp_executesql itself.
+  public readonly MaxBindings = 2000;
+
+  public readonly MaxInsertRows = 1000;
+
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
@@ -134,6 +142,12 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
+  /** 2627: a primary key or unique constraint; 2601: a unique index. */
+  protected isUniqueViolation(err: unknown): boolean {
+    const n = (err as { number?: unknown })?.number;
+    return n === 2627 || n === 2601;
+  }
+
   public supportedFeatures(): ISupportedFeature {
     return {
       /**
@@ -153,6 +167,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
       // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
       insertIdIsFirstOfBatch: false,
+      nativeJson: false,
     };
   }
 
@@ -238,6 +253,7 @@ export class MsSqlOrmDriver extends SqlDriver {
 
     // Brackets, not the backticks this driver used to inherit from the shared layer.
     this.Container.register(BracketIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(MsSqlSqlExpressions).as(SqlExpressions);
 
     this.Container.register(MsSqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
     this.Container.register(MsSqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
@@ -259,6 +275,11 @@ export class MsSqlOrmDriver extends SqlDriver {
       this._connectionPool = null as any;
     }
     return this;
+  }
+
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`SELECT COUNT(*) FROM ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} WITH (TABLOCK, HOLDLOCK)`);
   }
 
   /**

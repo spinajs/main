@@ -6,11 +6,12 @@ import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import { RawQuery } from '@spinajs/orm';
-import type { ModelBase, OrmDriver } from '@spinajs/orm';
+import type { ModelBase } from '@spinajs/orm';
+import { SqliteSqlExpressions } from '@spinajs/orm-sqlite';
 
 import { AccessResource, Owner, Relation, entryOf } from '../../src/index.js';
 import { rowContext } from '../../src/lists/context.js';
-import { RelationColumnSql, RelationOwnerSql, RelationSelfSql, castText, dialectOf, planTermCompilers, quoterOf } from '../../src/lists/index.js';
+import { RelationColumnSql, RelationOwnerSql, RelationSelfSql, planTermCompilers, quoterOf } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -22,7 +23,7 @@ const row = (over: Partial<SqlRowContext> = {}, relations: Record<string, Rel> =
   rowColumn: (c) => `"t"."${c}"`,
   ancestorTable: '"authz_resource_ancestor"',
   now: new Date(0),
-  dialect: 'sqlite',
+  expressions: new SqliteSqlExpressions(),
   relation: (name) => relations[name],
   ...over,
 });
@@ -54,15 +55,7 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
     await db.clear();
   });
 
-  it('casts to text per dialect and maps driver names', () => {
-    expect(castText('sqlite', 'x')).to.equal('CAST(x AS TEXT)');
-    expect(castText('postgres', 'x')).to.equal('CAST(x AS TEXT)');
-    expect(castText('mysql', 'x')).to.equal('CAST(x AS CHAR(64))');
-    expect(castText('mssql', 'x')).to.equal('CAST(x AS NVARCHAR(64))');
-    expect(dialectOf(db.driver())).to.equal('sqlite');
-    expect(dialectOf({ Options: { Driver: 'orm-driver-mysql-ssh' } } as unknown as OrmDriver)).to.equal('mysql');
-    expect(dialectOf({ Options: { Driver: 'orm-driver-mssql' } } as unknown as OrmDriver)).to.equal('mssql');
-    expect(() => dialectOf({ Options: { Driver: 'orm-driver-oracle', Name: 'x' } } as unknown as OrmDriver)).to.throw(AuthzConfigError, /orm-driver-oracle/);
+  it('quotes with the connection quoter', () => {
     expect(quoterOf(db.driver())('task')).to.equal('`task`');
   });
 
@@ -91,7 +84,12 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
     const c = new RelationOwnerSql();
     expect(c.toSql({ principals: [p('user', 'alice'), p('agent', 'bot'), p('user', 'bob')] }, row())).to.deep.equal({ sql: 'CAST("t"."owner" AS TEXT) IN (?, ?)', bindings: ['alice', 'bob'] });
     expect(c.toSql({ principals: [p('agent', 'bot')] }, row())).to.deep.equal({ sql: '1 = 0', bindings: [] });
-    expect(c.toSql({ principals: [p('user', '1')] }, row({ dialect: 'mssql' })).sql).to.equal('CAST("t"."owner" AS NVARCHAR(64)) IN (?)');
+    const bounded = new (class extends SqliteSqlExpressions {
+      public castText(e: string, length?: number): string {
+        return `CAST(${e} AS NVARCHAR(${length}))`;
+      }
+    })();
+    expect(c.toSql({ principals: [p('user', '1')] }, row({ expressions: bounded })).sql).to.equal('CAST("t"."owner" AS NVARCHAR(64)) IN (?)');
   });
 
   it('relation.owner with a type column matches type and id', () => {

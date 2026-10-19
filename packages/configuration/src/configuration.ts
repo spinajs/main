@@ -145,6 +145,8 @@ export class FrameworkConfiguration extends Configuration {
   /** Schemas applied after boot that refused the loaded value, by schema; a read of their module throws. */
   protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
 
+  private Loading = false;
+
   public get RootConfig() {
     return this.Config as IConfigLike;
   }
@@ -208,7 +210,10 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to set
    */
   public set(path: string[] | string, value: unknown) {
+    const schemas = this.schemasAt(path);
+    this.checkChange(schemas, path, (root) => _.set(root, path, copyForCheck(value)));
     this.Config = _.set(this.Config, path, value);
+    this.applySchemas(schemas);
   }
 
   /**
@@ -218,7 +223,10 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to merge
    */
   public merge(path: string[] | string, value: unknown) {
+    const schemas = this.schemasAt(path);
+    this.checkChange(schemas, path, (root) => _.mergeWith(_.get(root, path), copyForCheck(value), mergeArrays));
     _.mergeWith(this.get(path), value, mergeArrays);
+    this.applySchemas(schemas);
   }
 
   public async resolve(): Promise<void> {
@@ -271,19 +279,38 @@ export class FrameworkConfiguration extends Configuration {
   public async mergeSource(sType: Class<ConfigurationSource>) {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
+    const schemas = sCfg ? _.uniq(Object.keys(sCfg).flatMap((k) => this.schemasAt([k]))) : [];
+    this.checkChange(schemas, [], (root) => _.mergeWith(root, copyForCheck(sCfg), mergeArrays));
 
     this.Sources.push(source);
 
     if (sCfg) {
       _.mergeWith(this.Config, sCfg, mergeArrays);
     }
+    this.applySchemas(schemas);
   }
 
   /**
    * Reloads configuration data
    */
   public async load() {
+    const previous = this.Config;
+    this.Loading = true;
+    try {
+      await this.loadTree();
+      // resolve() checks the first load itself.
+      if (this.ValidationSchemas !== undefined) this.checkAll();
+    } catch (e) {
+      this.Config = previous;
+      throw e;
+    } finally {
+      this.Loading = false;
+    }
+  }
+
+  private async loadTree() {
     this.Config = {};
+    this.NamedEnv = this.Env ?? this.Container.get<NodeJS.ProcessEnv>('process.env')?.APP_ENV ?? process.env.NODE_ENV;
 
     // add env variables to config
     const env = this.Container.get<NodeJS.ProcessEnv>('process.env');
@@ -455,15 +482,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected validate() {
-    this.ValidationSchemas = this.schemasOfLineage();
-    const errors: ErrorObject[] = [];
-    const violations: ConfigurationViolation[] = [];
-    for (const s of this.ValidationSchemas) {
-      const r = this.checkModule(s);
-      errors.push(...r.errors);
-      violations.push(...r.violations);
-    }
-    this.throwIfInvalid(errors, violations);
+    this.checkAll();
 
     const container = this.Container;
     CHECKED.set(container, this);
@@ -475,6 +494,60 @@ export class FrameworkConfiguration extends Configuration {
   /** The Configuration of `container` that has run its check but is not resolved (cached) yet. */
   public static checkedIn(container: IContainer): FrameworkConfiguration | undefined {
     return CHECKED.get(container);
+  }
+
+  private checkAll() {
+    this.ValidationSchemas = this.schemasOfLineage();
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of this.ValidationSchemas) {
+      const r = this.checkModule(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
+    this.RefusedModules.clear();
+  }
+
+  // The registered schemas whose module is at, under or above `path`. None before the boot check, and none while load()
+  // rebuilds the tree: it checks the whole tree once it is complete.
+  private schemasAt(path: string[] | string): IConfigurationSchema[] {
+    if (this.ValidationSchemas === undefined || this.Loading) return [];
+    const target = _.toPath(path);
+    return this.schemasOfLineage().filter((s) => {
+      const module = _.toPath(s.$configurationModule);
+      const n = Math.min(module.length, target.length);
+      return _.isEqual(module.slice(0, n), target.slice(0, n));
+    });
+  }
+
+  // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a
+  // refused change is never applied.
+  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void) {
+    if (schemas.length === 0) return;
+    const top = _.minBy([_.toPath(path), ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? [];
+    const root = (top.length === 0 ? copyForCheck(this.Config) : _.set({}, top, copyForCheck(_.get(this.Config, top)))) as Record<string, unknown>;
+    change(root);
+
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of schemas) {
+      const value = _.get(root, s.$configurationModule);
+      if (value === undefined || this.Validator.validate(s, value)) continue;
+      const r = this.failureOf(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
+  }
+
+  // Fills the defaults and coercion of the modules a change that passed checkChange() reached.
+  private applySchemas(schemas: IConfigurationSchema[]) {
+    for (const s of schemas) {
+      const r = this.checkModule(s);
+      this.throwIfInvalid(r.errors, r.violations);
+      this.RefusedModules.delete(schemaNameOf(s));
+    }
   }
 
   /** Validates one module after boot; a refused module stays refused for reads until a later check passes. */
@@ -504,7 +577,7 @@ export class FrameworkConfiguration extends Configuration {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
       const empty = {};
       if (this.Validator.validate(s, empty)) {
-        this.set(s.$configurationModule, empty);
+        _.set(this.Config, s.$configurationModule, empty);
       } else {
         InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
       }
@@ -518,6 +591,11 @@ export class FrameworkConfiguration extends Configuration {
       return { errors: [], violations: [] };
     }
 
+    return this.failureOf(s);
+  }
+
+  // The violations of the last failed this.Validator.validate(s, ...) call.
+  private failureOf(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
     const errors: ErrorObject[] = this.Validator.errors ?? [];
     const schema = schemaNameOf(s);
     let violations = toViolations(s.$configurationModule, schema, errors);

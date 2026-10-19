@@ -1,7 +1,7 @@
 /* eslint-disable security/detect-object-injection */
 /* eslint-disable prettier/prettier */
 
-import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler, SqlLimitQueryCompiler, escapeStringLiteral } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler, SqlLimitQueryCompiler, escapeStringLiteral, SqlIndexQueryCompiler } from '@spinajs/orm-sql';
 import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IdentifierQuoter } from '@spinajs/orm';
 import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
@@ -442,22 +442,9 @@ export class SqliteAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler 
     return super._columnDefinition();
   }
 
-  /**
-   * sqlite cannot change a column's type: it has no MODIFY / ALTER COLUMN.
-   * It is also dynamically typed and renders enum/string/date as unconstrained
-   * TEXT, so a type-only change is a semantic no-op here anyway.
-   *
-   * Constraint changes (NOT NULL / DEFAULT / UNIQUE) ARE enforced by sqlite and
-   * are NOT applied - they need an explicit table-rebuild migration. Warn rather
-   * than throw: portable migrations legitimately restate existing constraints
-   * (mysql's MODIFY drops any attribute you omit), and throwing would break them.
-   */
+  // sqlite has no ALTER COLUMN: SqliteOrmDriver.execute rebuilds the table instead, which no single statement expresses.
   protected _modify(_definition: string): string | null {
-    this.Log.warn(
-      { column: this.builder.Name },
-      'sqlite cannot MODIFY column ${column} - skipping. Type changes are a no-op (sqlite is dynamically typed); any NOT NULL / DEFAULT / UNIQUE change was NOT applied. Write an explicit table-rebuild migration if you need one.',
-    );
-    return null;
+    throw new NotSupported(`sqlite cannot compile a MODIFY of column ${this.builder.Name}: run the alterTable() on the connection, which rebuilds the table`);
   }
 
   protected _add(definition: string): string | null {
@@ -481,5 +468,13 @@ export class SqliteCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _ifNotExists(): string {
     return this.builder.IfNotExists ? 'IF NOT EXISTS' : '';
+  }
+}
+
+// Index names are schema-wide, so DROP INDEX names no table.
+@NewInstance()
+export class SqliteIndexQueryCompiler extends SqlIndexQueryCompiler {
+  protected _drop(): string {
+    return `DROP INDEX ${this.Quoter.quote(this._builder.Name)}`;
   }
 }

@@ -1,6 +1,7 @@
 import { AsyncService } from '@spinajs/di';
-import type { IdentityRef } from './credentials.js';
-import type { AuthnFacts } from './principal.js';
+import type { AuthnContext, Credentials, IdentityRef } from './credentials.js';
+import type { AuthnFacts, PrincipalRef } from './principal.js';
+import type { SessionHandle } from './session.js';
 
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
 export abstract class MfaStep {
@@ -35,4 +36,29 @@ export abstract class MfaPolicy extends AsyncService {
   abstract steps(): Promise<ReadonlyMap<string, MfaStep>>;
   /** Names of the steps still to pass; empty: no MFA for this login. */
   abstract required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]>;
+}
+
+export type MfaBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
+/** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
+export type MfaConfirmResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_begun' | 'invalid_code' | 'enrolled' | 'throttled'; readonly retryAfterSeconds?: number };
+export type MfaDisableResult = { readonly ok: true } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' | 'invalid_code' | 'throttled'; readonly retryAfterSeconds?: number };
+export type MfaRegenerateResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' };
+
+/**
+ * The owner's enrolment in one MFA step and the admin reset of it, behind the 3.0 enrolment routes and the admin
+ * mfa-reset route; TotpService in authn-totp. The owner methods act on the identity of the restored session, never on
+ * one the caller names; refusals are results, not exceptions.
+ */
+export abstract class MfaEnrolmentService {
+  /** True while login asks for this service's step: `steps` (the configured MfaPolicy's) lists it and it can store its secrets. */
+  abstract enabled(steps: Iterable<MfaStep>): boolean;
+  /** Needs fresh auth or `reauth` (A13). */
+  abstract begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<MfaBeginResult>;
+  abstract confirm(session: SessionHandle, code: string, ctx: AuthnContext): Promise<MfaConfirmResult>;
+  /** `code` is a step code or a recovery code; needs fresh auth or `reauth` (A13). */
+  abstract disable(session: SessionHandle, code: string, ctx: AuthnContext, reauth?: Credentials): Promise<MfaDisableResult>;
+  /** Needs fresh auth or `reauth` (A13). */
+  abstract regenerateRecoveryCodes(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<MfaRegenerateResult>;
+  /** The caller applies the target guard (A25) first; never returns a secret (SR-10). `reset`: an enrolment or a pending one existed. */
+  abstract adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{ reset: boolean }>;
 }

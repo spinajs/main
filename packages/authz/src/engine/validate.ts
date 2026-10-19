@@ -1,3 +1,4 @@
+import { compareCodePoints } from '@spinajs/util';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { CORE_FILTER_OPS } from '../contracts/filter.js';
 import type { AuthorizationModel, NativeFilter } from '../contracts/model.js';
@@ -8,6 +9,7 @@ import type { RelationResolver, ResourceAdapter, ScopeResolver } from '../contra
 import { BUILTIN_COMBINATORS } from './combinators.js';
 import { compileRoutes, DEFAULT_COMBINE } from './routes.js';
 import type { CombineConfig, CombineEntry, RouteTable } from './routes.js';
+import { isObject } from './internal/util.js';
 
 export interface PermissionRefDecl {
   readonly permission: string;
@@ -477,24 +479,12 @@ function compareLines(a: Line, b: Line): number {
   return rank(a.rule) - rank(b.rule) || compareCodePoints(a.type, b.type) || compareCodePoints(a.permission, b.permission) || compareCodePoints(a.model, b.model) || compareCodePoints(a.text, b.text);
 }
 
-function compareCodePoints(a: string, b: string): number {
-  const x = [...a];
-  const y = [...b];
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const d = x[i].codePointAt(0)! - y[i].codePointAt(0)!;
-    if (d !== 0) return d;
-  }
-  return x.length - y.length;
-}
-
 const sorted = (xs: string[]): string[] => xs.sort(compareCodePoints);
 
 const sortedBy = <T>(xs: T[], key: (x: T) => string): T[] => xs.sort((a, b) => compareCodePoints(key(a), key(b)));
 
 // Fail closed on malformed declarations: anything that is not an array contributes nothing.
 const listOf = <T>(value: readonly T[] | undefined): readonly T[] => (Array.isArray(value) ? value : []);
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 const message = (err: unknown): string => (err instanceof Error ? str(err.message) : str(err));
 

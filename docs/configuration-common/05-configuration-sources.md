@@ -27,7 +27,7 @@ This is the flow in `FrameworkConfiguration` (`@spinajs/configuration`).
 
 | Source | Package | `Order` | Loads |
 | --- | --- | --- | --- |
-| `JobGrantSource` | `@spinajs/authz-queue` | `0` | a fixed `authz.rbac` grant (`job:read` on owned jobs) |
+| `JobGrantSource` | `@spinajs/authz-queue/jobs` | `0` | a fixed `authz.rbac` grant (`job:read` on owned jobs) |
 | `StaticConfigurationSource(cfg)` | this package | `0` by default | the object or the factory's result |
 | `JsFileSource` | `@spinajs/configuration` | `1` | `*.js` / `*.cjs` config files, then `*.<env>.js` overrides |
 | `JsonFileSource` | `@spinajs/configuration` | `1` | `*.json` config files, then `*.<env>.json` overrides |

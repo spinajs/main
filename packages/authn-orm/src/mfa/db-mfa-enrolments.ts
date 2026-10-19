@@ -1,11 +1,11 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { MfaEnrolments } from '@spinajs/authn/mfa-enrolments';
-import { Autoinject, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 
 import { DbMfaStore } from './db-mfa-store.js';
 
 /** The confirmed steps of `authn_mfa` for DefaultMfaPolicy and authn:check-config, whether authn.mfa.steps lists them or not. */
-@Singleton()
+@PerChildInstance()
 @Injectable(MfaEnrolments)
 export class DbMfaEnrolments extends MfaEnrolments {
   @Autoinject(DbMfaStore)

@@ -296,6 +296,13 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
       throw new NotSupported('mssql has no CHARACTER SET for a column, use collation() instead');
     };
     this._statementsMappings.collation = (b: ColumnQueryBuilder) => `COLLATE ${assertCharsetName(b.Collation, 'collation')}`;
+    // TEXT is deprecated and cannot be compared with `=`.
+    const unbounded = () => 'NVARCHAR(MAX)';
+    this._statementsMappings.text = unbounded;
+    this._statementsMappings.tinytext = unbounded;
+    this._statementsMappings.mediumtext = unbounded;
+    this._statementsMappings.longtext = unbounded;
+    this._statementsMappings.exact = () => 'COLLATE Latin1_General_BIN2';
   }
 }
 

@@ -61,6 +61,13 @@ export abstract class Configuration extends AsyncService {
   public AppBaseDir: string;
 
   /**
+   * The app env a source named when the configuration loaded (`--env`, APP_ENV of the `process.env` DI value,
+   * NODE_ENV); undefined when none did and `process.env.APP_ENV` fell back to `development`. Read it through
+   * `explicitAppEnv()`.
+   */
+  public NamedEnv?: string;
+
+  /**
    * Get config value for given property. Returns any if value is present, default value if provided or null when empty
    *
    * @param path - path to property eg. ["system","dirs"] or "system" or "system.dirs"

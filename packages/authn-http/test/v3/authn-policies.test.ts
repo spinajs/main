@@ -21,7 +21,6 @@ import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName }
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
-import * as api from '../../src/api.js';
 import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
@@ -29,7 +28,7 @@ import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdA
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
 import { buildAuthnMiddlewareIn } from './authn-in-child.js';
-import { APP_ORIGIN, COOKIE_SECRET, TestConfiguration, req as http, restoreHttpErrorMap } from '../token-common.js';
+import { COOKIE_SECRET, TestConfiguration, appOrigin, req as http, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
 const { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy, PendingMfaEnrolment } = v3;
 
@@ -192,7 +191,7 @@ describe('3.0 authn policies and route args', function () {
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
     await DI.resolve(Controllers);
-    await (await DI.resolve(HttpServer)).start();
+    await startHttpServer();
   }
 
   before(async () => {
@@ -243,9 +242,9 @@ describe('3.0 authn policies and route args', function () {
   });
 
   describe('exports', () => {
-    it('the barrel exports the 3.0 class under every api.ts name, not the api.ts contract class (N8c)', () => {
+    it('the barrel exports the 3.0 class under every design name (N8c)', () => {
       for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
-        expect(barrel[n], n).to.eq(v3[n]).and.not.eq(api[n]);
+        expect(barrel[n], n).to.be.a('function').and.eq(v3[n]);
       }
     });
 
@@ -662,7 +661,7 @@ describe('3.0 authn policies and route args', function () {
       return call;
     };
     const post = async (path: string, headers: Record<string, string>, body: object = {}) => {
-      let call = http().post(`${POLICY_PROBE_PATH}/${path}`).set('Accept', 'application/json').set('Origin', APP_ORIGIN);
+      let call = http().post(`${POLICY_PROBE_PATH}/${path}`).set('Accept', 'application/json').set('Origin', appOrigin());
       for (const [k, v] of Object.entries(headers)) call = call.set(k, v);
       return call.send(body);
     };

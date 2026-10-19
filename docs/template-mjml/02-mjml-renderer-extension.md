@@ -7,7 +7,7 @@
 1. Importing `@spinajs/templates-mjml` runs `@Injectable(TemplateRenderer)` on `MjmlRenderer`, adding it to the `TemplateRenderer` list of the root container. No lifetime decorator: it is a singleton.
 2. The first `DI.resolve(Templates)` resolves `Array.ofType(TemplateRenderer)` through `@Autoinject(TemplateRenderer)` and keeps that array in `Templates.Renderers`.
 3. On `Templates.render()` and `renderToFile()`, `Templates` picks the **first** element whose `Extension` equals the template's extension. On `Templates.compile()` and `compileToFile()`, it picks the first whose `Type` equals the given name.
-4. `MjmlRenderer.render()` resolves `Templates` through `@LazyInject(Templates)` (root container, at call time) and calls `Templates.compile(template, 'handlebars', ...)`: the Handlebars pre-pass is found by `Type`, registered when this package is imported.
+4. `MjmlRenderer.render()` resolves `Templates` through `@LazyInject(Templates)` (the container that built the renderer, at call time) and calls `Templates.compile(template, 'handlebars', ...)`: the Handlebars pre-pass is found by `Type`, registered when this package is imported.
 5. `MjmlRenderer` reads `templates.mjml` through `@Config` on every render and hands it to `mjml2html()`.
 
 ## Services and extension points
@@ -27,7 +27,7 @@
 | `Options` | `@Config('templates.mjml')` property | not set | Read MJML options from another key: redeclare it with `@Config('<key>')`. |
 | `render(templateName, model, language?)` | method | Handlebars pass, then `mjml2html()` | Pre- or post-process; call `super.render()` to keep the pipeline. |
 | `renderToFile(template, model, filePath, language?)` | method | `render()`, then write the file | Change where or how the HTML is stored. It calls `this.render()`, so a `render()` override applies to files too. |
-| `Templates` | `@LazyInject(Templates)` property | root `Templates` | Rarely needed; use it to run another engine as the pre-pass. |
+| `Templates` | `@LazyInject(Templates)` property | `Templates` of the container that built the renderer | Rarely needed; use it to run another engine as the pre-pass. |
 
 Inherited from `TemplateRenderer` and usable in a subclass: `Log` (`renderer` logger), `resolveContent()`, `resolveLocalPath()`, `isUri()`, `CacheMode`, `withCache()`. `MjmlRenderer` itself does not cache; `withCache()` caches by template path, so do not use it for the final HTML, which depends on the model.
 
@@ -153,7 +153,7 @@ For whole custom components (`<mj-acme-card>`), point `templates.mjml.mjmlConfig
 - **First match wins.** `Templates` uses `Array.find()` on `Extension` and on `Type`. Two renderers with the same value never both run; the earlier registration wins.
 - **Register before `Templates` resolves.** `Templates` is a singleton and keeps the array it got on first resolve. A renderer registered later is not seen by it.
 - **`ServiceName` is the extension.** `TemplateRenderer.ServiceName` returns `Extension`, so a `Map` of renderers keyed by `ServiceName` holds one renderer per extension. Give a variant its own extension even when you call it only by `Type`.
-- **Root container only.** `@LazyInject(Templates)` resolves from the root container, and the `TemplateRenderer` list is owned by the container that registered it. Register renderers in the root, not in a child container.
+- **Root container only.** `@LazyInject(Templates)` resolves in the container that built the renderer, and the `TemplateRenderer` list is owned by the container that registered it. Register renderers in the root, not in a child container.
 - **A subclass inherits the injections.** `Log`, `Options` (`@Config`) and `Templates` (`@LazyInject`) are defined on the base prototype, so a subclass gets them without redeclaring.
 
 ## Best practices

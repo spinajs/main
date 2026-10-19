@@ -50,9 +50,11 @@ All methods return the binder, so calls chain: `DI.register(SmtpMailer).as(Maile
 | Call | Returns or does |
 | --- | --- |
 | `DI.check(key)` / `container.hasRegistered(key, parent = true)` | `true` when the registry (and, with `parent`, an ancestor's registry) has an entry for `key`. Values from `asValue` are **not** registry entries |
+| `DI.hasImplementation(key)` / `container.hasImplementation(key, parent = true)` | `true` when the list under `key` holds something other than `key` itself: an abstract contract registered as itself does not count, a subclass or a factory does |
 | `DI.checkType(key, implementation)` / `container.hasRegisteredType(key, implementation, parent?)` | `true` when `implementation` is in the list under `key` |
 | `DI.getRegisteredTypes(key)` / `container.getRegisteredTypes(key, parent?)` | The list under `key` from the nearest container that has one, or `null` |
 | `DI.unregister(implementation)` / `container.unregister(implementation)` | Removes the implementation from every list in this registry; an emptied list is deleted, so the key falls back to its default |
+| `DI.unregister(key, implementation)` / `container.unregister(key, implementation)` | Removes `implementation` itself (by identity, so one of several arrow factories) from the list under `key` only; an emptied list is deleted |
 | `DI.uncache(key, parent?)` / `container.uncache(key, parent?)` | Drops the cached instances under `key`, so the next resolve builds again |
 | `DI.clearRegistry()`, `DI.clearCache()`, `DI.clear()` | Empty the root registry, the root cache, or both |
 
@@ -110,9 +112,9 @@ console.log(clock.now().toISOString(), DI.getRegisteredTypes(Clock).map((t) => t
 ## Important behaviour
 
 - `@Injectable` always registers in the root container, at import time. Import order decides which of two `@Injectable(Base)` classes a single `resolve(Base)` returns.
-- `singleInstance()` writes the lifetime into the class's own descriptor, so it applies in every container that resolves the class, not only the one you called `register()` on.
-- Resolving a class that is registered nowhere records it in the resolving container's registry under its own name (except `@NewInstance()` classes). After `DI.resolve(Report)`, `DI.check(Report)` is `true`.
-- `unregister()` matches by name in every list of the registry. It does not touch the cache: call `uncache(key)` too, or the old instance keeps coming back.
+- `singleInstance()` sets the lifetime on a fresh copy of the class descriptor, so it has no effect. A class without lifetime decorators is a singleton anyway; a `@NewInstance()` class stays new-instance.
+- Resolving a class that is registered nowhere builds it but records nothing in the registry, also when the resolve fails. After `DI.resolve(Report)`, `DI.check(Report)` is still `false`.
+- `unregister(implementation)` matches by name in every list of the registry. It does not touch the cache: call `uncache(key)` too, or the old instance keeps coming back.
 - Registration is synchronous and never builds anything. An error in a constructor shows up on the first resolve, not on register.
 
 ## Best practices

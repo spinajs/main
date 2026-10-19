@@ -14,6 +14,7 @@ function propertyName(decorator: string, target: object, key: string | symbol): 
   return key;
 }
 
+/** Default permissions: `${type}:read|create|update|delete`; several models may share one type. */
 export function AccessResource(type: ResourceType): ClassDecorator {
   checkType(type, '@AccessResource');
   return (target) => {
@@ -21,6 +22,7 @@ export function AccessResource(type: ResourceType): ClassDecorator {
   };
 }
 
+/** The column holds the id of the parent resource of `type`; several parents and self-references are allowed. */
 export function Parent(type: ResourceType, opts?: ParentOptions): PropertyDecorator {
   checkType(type, '@Parent');
   if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`@Parent('${type}'): options must be an object`);
@@ -30,6 +32,7 @@ export function Parent(type: ResourceType, opts?: ParentOptions): PropertyDecora
   };
 }
 
+/** Relation `owner` on the model's type. */
 export function Owner(opts?: OwnerOptions): PropertyDecorator {
   if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError('@Owner(): options must be an object');
   return (target, key) => {
@@ -38,6 +41,7 @@ export function Owner(opts?: OwnerOptions): PropertyDecorator {
   };
 }
 
+/** Relation `self` on the model's type. */
 export function Self(): PropertyDecorator {
   return (target, key) => {
     setSelf(ctorOf(target), propertyName('@Self()', target, key));
@@ -54,6 +58,7 @@ export function Relation(name: string, opts?: RelationOptions): PropertyDecorato
   };
 }
 
+/** For models a package does not own (JobModel, DbConfig). */
 export function registerAccessResource(model: Class<ModelBase>, type: ResourceType, opts?: AccessResourceOptions): void {
   register(model, type, opts);
 }

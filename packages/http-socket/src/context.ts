@@ -40,7 +40,12 @@ export class SocketCommandContext implements ISocketCommandContext {
   }
 
   public armDeadline(ms: number | undefined): void {
-    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || this.controller.signal.aborted) {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || this.controller.signal.aborted) {
+      return;
+    }
+
+    if (ms <= 0) {
+      this.abort(new SocketException('deadline_exceeded', `command ${this.request.name} arrived with its deadline already passed`));
       return;
     }
 

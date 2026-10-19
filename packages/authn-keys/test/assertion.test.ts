@@ -1,7 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import type { AuthnContext, Credentials, KeyAlgorithm, KeyOwner } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, KeyAlgorithm, KeyOwner, KeyRegistry } from '@spinajs/authn/contracts';
 import { FakeClock, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
@@ -112,6 +112,31 @@ describe('JwsAssertionStrategy', () => {
     assert.strictEqual((await w.p.registry.byId(kid))!.lastUsedAt!.getTime(), first + 60_000);
   });
 
+  it('stamps through any registry that implements touch, and verifies without one', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    const stamped: string[] = [];
+    const custom = { byId: (k: string) => w.p.registry.byId(k), touch: async (k: string) => void stamped.push(k) } as unknown as KeyRegistry;
+    const deps = { verifier: w.p.verifier, nonces: w.p.nonces, options: w.p.options };
+    assert.ok((await new JwsAssertionStrategy({ ...deps, registry: custom }).verify(w.assertion(kp, kid), w.ctx())).ok);
+    assert.deepStrictEqual(stamped, [kid]);
+    const bare = { byId: (k: string) => w.p.registry.byId(k) } as unknown as KeyRegistry;
+    assert.ok((await new JwsAssertionStrategy({ ...deps, registry: bare }).verify(w.assertion(kp, kid), w.ctx())).ok);
+  });
+
+  it('a failed stamp is logged and never fails the verification', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    w.p.registry.touch = async () => {
+      throw new Error('db down');
+    };
+    const logged: unknown[] = [];
+    Object.defineProperty(w.strategy, 'Log', { value: { error: (data: unknown) => logged.push(data) } });
+    assert.deepStrictEqual(await w.strategy.verify(w.assertion(kp, kid), w.ctx()), { ok: true, identity: SVC, method: 'jws' });
+    assert.strictEqual(logged.length, 1);
+    assert.strictEqual((logged[0] as { kid?: string }).kid, kid);
+  });
+
   it('keeps a jti until exp plus the skew: a replay just before then fails', async () => {
     const w = await world();
     w.clock.install();
@@ -138,7 +163,7 @@ describe('JwsAssertionStrategy', () => {
         super.unknownKeyWork(alg, data, signature);
       }
     }
-    const strategy = new Counting(p.registry, p.verifier, p.nonces, p.options);
+    const strategy = new Counting({ registry: p.registry, verifier: p.verifier, nonces: p.nonces, options: p.options });
     const add = async (over: object = {}) => {
       const kp = generateKeyPair('EdDSA');
       const r = await p.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk, ...over }, clock.ctx());
@@ -172,7 +197,7 @@ describe('JwsAssertionStrategy', () => {
 
   it('cannot be built without an audience', async () => {
     const p = await keysParts({}, 'memory');
-    await assert.rejects(new JwsAssertionStrategy(p.registry, p.verifier, new MemoryKeyNonceStore(), keysOptionsFor()).resolve(), /audience/);
+    await assert.rejects(new JwsAssertionStrategy({ registry: p.registry, verifier: p.verifier, nonces: new MemoryKeyNonceStore(), options: keysOptionsFor() }).resolve(), /audience/);
   });
 });
 

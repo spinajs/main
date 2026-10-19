@@ -2,16 +2,17 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { Container, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { IdentityStore } from '@spinajs/authn/contracts';
+import { IdentityStore, MfaEnrolmentService } from '@spinajs/authn/contracts';
+import type { MfaStep } from '@spinajs/authn/contracts';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { FakeClock, parseOtpauth, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-testing';
 
-import { TOTP_SERVICE, TotpEnrolmentOn } from '../../../src/mfa/index.js';
+import { TotpEnrolmentOn } from '../../../src/mfa/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { clearLog, config, logLines } from '../app.js';
+import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { failMfaStore, laneEvents, laneMfaConfig, laneTotpServiceClass, n8bHarness } from '../behaviour/n8b-harness.js';
 import { mountedRoutes } from './route-table.js';
@@ -29,22 +30,30 @@ const everyRoute = (code = '123456'): [string, string, unknown?][] => [
 
 /** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-totp. */
 export function mfaEnrolmentGateSuite(): void {
-  it('the gate asks the container it resolves from: a class named TotpService and a step named totp do not open it', async () => {
-    const loaded = DI.RootContainer.hasRegistered(TOTP_SERVICE);
+  it('the gate is off while no MfaEnrolmentService is registered: a class named TotpService does not open it', async () => {
+    const loaded = DI.RootContainer.hasRegistered(MfaEnrolmentService);
     const child = DI.RootContainer.child();
     child.register({ TotpService: class {} }.TotpService).asSelf();
-    // The app lists the kit's fake step under the name totp; with a key set only the step check is left to refuse.
-    const mfa = config().get<Record<string, unknown>>('authn.mfa');
-    const had = Object.hasOwn(mfa, 'encryptionKey');
-    const old = mfa.encryptionKey;
-    config().set('authn.mfa.encryptionKey', { secret: 'a'.repeat(64) });
-    try {
-      for (const container of [new Container(), child]) await expectGateClosed(container);
-    } finally {
-      if (had) config().set('authn.mfa.encryptionKey', old);
-      else delete config().get<Record<string, unknown>>('authn.mfa').encryptionKey;
+    for (const container of [new Container(), child]) await expectGateClosed(container);
+    expect(DI.RootContainer.hasRegistered(MfaEnrolmentService), 'the gate loaded no authn-totp').to.eq(loaded);
+  });
+
+  it('a registered MfaEnrolmentService decides over the steps of the MFA policy, as resolved from the container of the gate', async () => {
+    const seen: string[][] = [];
+    let on = false;
+    class SpecEnrolment {
+      enabled(steps: Iterable<MfaStep>): boolean {
+        seen.push([...steps].map((s) => s.name));
+        return on;
+      }
     }
-    expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'the gate loaded no authn-totp').to.eq(loaded);
+    const child = DI.RootContainer.child();
+    child.register(SpecEnrolment).as(MfaEnrolmentService);
+    expect(await gateOn(child)).to.eq('not_found');
+    on = true;
+    expect(await gateOn(child)).to.eq('open');
+    // The app lists the kit's fake step under the name totp.
+    expect(seen).to.deep.eq([['totp'], ['totp']]);
   });
 }
 
@@ -170,16 +179,13 @@ export function mfaEnrolmentRoutesSuite(): void {
   describe('on a fresh session', () => {
     beforeEach(() => open());
 
-    it('TOTP_SERVICE is the DI key of the TotpService the users-free subpath export registers', async () => {
-      const TotpService = laneTotpServiceClass();
-      expect(TotpService.name).to.eq(TOTP_SERVICE);
-      expect(await DI.resolve(TOTP_SERVICE)).to.be.instanceOf(TotpService);
-    });
-
-    it('the gate opens on the TotpService of authn-totp only: a foreign class registered under its name closes it', async () => {
+    it('the TotpService of the subpath export is the registered MfaEnrolmentService and opens the gate; another one in a child container decides there', async () => {
+      expect(await DI.resolve(MfaEnrolmentService)).to.be.instanceOf(laneTotpServiceClass());
       expect(await gateOn(DI.RootContainer)).to.eq('open');
       const child = DI.RootContainer.child();
-      child.register({ TotpService: class {} }.TotpService).asSelf();
+      child.register(class SpecEnrolment {
+        enabled = () => false;
+      }).as(MfaEnrolmentService);
       await expectGateClosed(child);
     });
 
@@ -468,7 +474,7 @@ export function mfaEnrolmentRoutesSuite(): void {
 
     it('with authn.mfa.steps empty every route answers 404 not_found, although TotpService is registered', async () => {
       await laneMfaConfig({ steps: [] });
-      expect(DI.RootContainer.hasRegistered(TOTP_SERVICE)).to.eq(true);
+      expect(DI.RootContainer.hasRegistered(MfaEnrolmentService)).to.eq(true);
       const u = await user();
       await expectOff(await login(u));
       await expectOff(new LaneClient(h));

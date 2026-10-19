@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzConfigError, AuthzContributor, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, AuthzContributor, GLOBAL, LinkResolver, PermissionRegistryImpl } from '@spinajs/authz';
 import type { Assignment, PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, testHost, userPrincipal } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
-import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RBAC_SERVICE_NAME, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion, registerRbac } from '../../src/index.js';
+import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion, registerRbac } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -131,12 +131,13 @@ describe('authz-rbac share links', () => {
     expect(summary.permissions.map((p) => p.name)).to.deep.equal(['file:read']);
   });
 
-  it("RbacLinkResolver has authz-http's LinkResolver shape over the RbacService in DI", async () => {
+  it('RbacLinkResolver is a LinkResolver over the RbacService in DI', async () => {
     const { service } = await world();
     const container = DI.child();
     try {
       container.register(testHost.instance(service)).as(RbacService);
       const resolver = await container.resolve(RbacLinkResolver);
+      expect(resolver).to.be.instanceOf(LinkResolver);
       expect((await resolver.principal('tok-l1', alice)).id).to.equal('l1');
       expect((await resolver.principal('nope')).ceiling?.resources).to.deep.equal([]);
     } finally {
@@ -161,7 +162,7 @@ describe('authz-rbac share links', () => {
       await container.dispose();
     });
 
-    it('wires the default store config: the stores, the model, its contributor and RbacService (by class and by name)', async () => {
+    it('wires the default store config: the stores, the model, its contributor, RbacService and the LinkResolver', async () => {
       const { model, contributor, service, linkResolver } = await registerRbac(container, config());
       expect(await container.resolve(RoleStore)).to.be.instanceOf(ConfigRoleStore);
       expect(await container.resolve(RuleStore)).to.be.instanceOf(ConfigRuleStore);
@@ -170,11 +171,9 @@ describe('authz-rbac share links', () => {
       expect(contributor).to.be.instanceOf(RbacContributor);
       expect(await container.resolve(AuthzContributor)).to.equal(contributor);
       expect(await container.resolve(RbacService)).to.equal(service);
-      // How check-config --explain-role finds it.
-      expect(container.hasRegistered(RBAC_SERVICE_NAME) || container.isResolved(RBAC_SERVICE_NAME)).to.equal(true);
-      expect(await container.resolve(RBAC_SERVICE_NAME)).to.equal(service);
       expect(model.linkStore).to.equal(await container.resolve(LinkStore));
       expect(linkResolver).to.be.instanceOf(RbacLinkResolver);
+      expect(await container.resolve(LinkResolver)).to.equal(linkResolver);
     });
 
     it('returns a LinkResolver bound to its RbacService, whatever container it ran on', async () => {

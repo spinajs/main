@@ -1,5 +1,5 @@
 import { Container } from './container.js';
-import { IBind, IContainer, ResolvableObject, ResolveChainResult } from './interfaces.js';
+import { IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { ChainArray, TypedArray } from './array.js';
 
@@ -92,8 +92,8 @@ export function clearCache() {
   RootContainer.clearCache();
 }
 
-export async function dispose() {
-  await RootContainer.dispose();
+export async function dispose(options?: IDisposeOptions) {
+  await RootContainer.dispose(options);
 }
 
 /**
@@ -105,8 +105,14 @@ export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBi
   return RootContainer.register(type);
 }
 
-export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject): void {
-  RootContainer.unregister(type);
+export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject): void;
+export function unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
+export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject, implementation?: Class<unknown> | Factory<unknown> | ResolvableObject): void {
+  if (implementation === undefined) {
+    RootContainer.unregister(type);
+  } else {
+    RootContainer.unregister(type as string | Class<T>, implementation);
+  }
 }
 
 export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boolean): void {
@@ -177,6 +183,14 @@ export function has<T>(service: string | Class<T>): boolean {
  */
 export function check<T>(service: Class<T> | string): boolean {
   return RootContainer.hasRegistered(service);
+}
+
+/**
+ * Checks if something other than `type` itself is registered under `type` in the root container,
+ * e.g. an implementation of an abstract contract.
+ */
+export function hasImplementation<T>(type: Class<T> | string): boolean {
+  return RootContainer.hasImplementation(type);
 }
 
 /**

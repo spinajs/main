@@ -1,8 +1,9 @@
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, subtractFieldGlobs } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, subtractFieldGlobs } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
+import { isPlainObject } from '@spinajs/util';
 import { ArgInputFilter, DataTransformer, RouteMiddleware } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request, Response } from '@spinajs/http';
 import type * as express from 'express';
@@ -27,21 +28,15 @@ export interface DecisionFields {
  * (design §11.3, B17). Without a decision (a route another policy group admitted) only
  * `neverRead` applies, in the route's domain. `authz` is the `authz` section its caller reads through @Config.
  */
-export function decisionFields(authz: unknown, decision: Decision | undefined, domain: string = decision?.domain ?? 'root'): DecisionFields {
-  const domains = DI.get(AuthzDomains);
-  let neverRead: readonly string[] = AUTHZ_DEFAULTS.fields.neverRead;
-  let writeMode: 'strip' | 'reject' = AUTHZ_DEFAULTS.fields.write.mode;
-  if (domains instanceof DefaultAuthzDomains) {
-    const cfg = domainConfig(authz, domains, domain);
-    neverRead = cfg.fields.neverRead;
-    writeMode = cfg.fields.writeMode;
-  }
+export function decisionFields(authz: unknown, domains: AuthzDomains, decision: Decision | undefined, domain: string = decision?.domain ?? 'root'): DecisionFields {
+  // Only the host's AuthzDomains tells a domain's config lineage, and its fields.neverRead must not be skipped.
+  if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('field filtering needs the host AuthzDomains to read the domain fields config');
+  const { neverRead, writeMode } = domainConfig(authz, domains, domain).fields;
   const without = (globs: readonly string[]) => (neverRead.length === 0 ? globs : subtractFieldGlobs(globs, neverRead));
   return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const isPlainRecord = (v: unknown): boolean => isObject(v) && !Array.isArray(v);
 
 /** Dotted leaf paths present in `before` (JSON-shaped) and missing from `after`; array elements share their array's path. */
 function removedPaths(before: unknown, after: unknown, prefix = ''): string[] {
@@ -71,6 +66,9 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
   @Config('authz')
   protected Authz: unknown;
 
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
+
   public filter(input: unknown, parameter: IRouteParameter): unknown {
     if (!BODY_ARGS.has(String(parameter.Type))) return input;
     const store = authzStorage().getStore();
@@ -79,11 +77,11 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
     // Untouched: a route without @Access (login and password routes carry passwords), or one that opted out.
     if ((!mark && !decision) || mark?.unfilteredInput !== undefined) return input;
 
-    const { write, writeMode } = decisionFields(this.Authz, decision, decision?.domain ?? mark?.domain);
+    const { write, writeMode } = decisionFields(this.Authz, this.Domains, decision, decision?.domain ?? mark?.domain);
 
     // A list holding anything but records is a field of the record, checked by the parameter name (a client
     // must not turn ['admin'] into a record list by adding {}). Objects and lists of records are records.
-    const field = !isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '') || (Array.isArray(input) && (input.length === 0 || input.some((v) => !isPlainRecord(v))));
+    const field = !isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '') || (Array.isArray(input) && (input.length === 0 || input.some((v) => !isPlainObject(v))));
     if (field) {
       if (compileFieldGlobs(write).allows(parameter.Name)) return input;
       if (writeMode === 'reject') throw notWritable([parameter.Name]);
@@ -98,9 +96,9 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
   }
 }
 
-function readable(authz: unknown, data: unknown, decision: Decision | undefined, domain: string | undefined): unknown {
+function readable(authz: unknown, domains: AuthzDomains, data: unknown, decision: Decision | undefined, domain: string | undefined): unknown {
   if ((!decision && domain === undefined) || !isObject(data)) return data;
-  return filterObject(decisionFields(authz, decision, decision?.domain ?? domain).read, data);
+  return filterObject(decisionFields(authz, domains, decision, decision?.domain ?? domain).read, data);
 }
 
 /** `x-data-transform: authz-fields`: the response data limited to what the route's decision lets the caller read. */
@@ -109,13 +107,16 @@ export class AuthzFieldTransformer extends DataTransformer {
   @Config('authz')
   protected Authz: unknown;
 
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
+
   public get Type(): string {
     return 'authz-fields';
   }
 
   public transform(data: unknown, request: express.Request): unknown {
     const storage = (request as Request).storage;
-    return readable(this.Authz, data, storage?.AuthzDecision, (storage?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain);
+    return readable(this.Authz, this.Domains, data, storage?.AuthzDecision, (storage?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain);
   }
 }
 
@@ -124,6 +125,9 @@ export class AuthzFieldTransformer extends DataTransformer {
 export class AuthzFieldsMiddleware extends RouteMiddleware {
   @Config('authz')
   protected Authz: unknown;
+
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
 
   public isEnabled(route: IRoute, controller: IController): boolean {
     const access = routeAccess(controller, route.Method);
@@ -137,9 +141,10 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
     const decision = authzStorage().getStore()?.AuthzDecision;
     const domain = routeDomain(routeAccess(controller, route.Method));
     const authz = this.Authz;
+    const domains = this.Domains;
     const holder = response as unknown as { responseData?: unknown };
     const data = holder.responseData;
-    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, Array.isArray(data) ? resolved : resolved[0], decision, domain));
+    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(authz, domains, Array.isArray(data) ? resolved : resolved[0], decision, domain));
   }
 
   public async onAfter(): Promise<void> {}

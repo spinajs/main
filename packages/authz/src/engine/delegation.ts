@@ -5,6 +5,7 @@ import type { DenyReason } from '../contracts/decision.js';
 import { SYSTEM, UNATTENDED, principalKey } from '../contracts/principal.js';
 import type { Ceiling, Principal } from '../contracts/principal.js';
 import { DENY_ALL_CEILING, readCeiling } from './ceiling.js';
+import { isObject } from './internal/util.js';
 
 export interface Delegation {
   /** Who the models run with. */
@@ -35,7 +36,6 @@ type Identity = { readonly type: string; readonly id: string };
 /** A principal's chain fields, each read once. `ceiling` is undefined when absent or malformed (`ceilingOk` tells which). */
 type Snapshot = { readonly ok: false; readonly who?: Identity } | { readonly ok: true; readonly who: Identity; readonly onBehalfOf: unknown; readonly delegation: unknown; readonly ceiling?: Ceiling; readonly ceilingOk: boolean };
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const present = (v: unknown): boolean => v !== undefined && v !== null;
 
 function identity(p: unknown): Identity | undefined {

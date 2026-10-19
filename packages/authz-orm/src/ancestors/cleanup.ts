@@ -1,8 +1,8 @@
-import { AuthzAdminBackend, AuthzConfigError, ChangeBus, SYSTEM, forgetScopesInTx } from '@spinajs/authz';
+import { AuthzAdminBackend, ChangeBus, SYSTEM, forgetScopesInTx, pickNamed } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
-import { DI, ResolveType, isFactory } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { domainContainer, ormDomain, recordAudit } from '../host.js';
@@ -16,17 +16,6 @@ const DELETED = Object.freeze({ actor: SYSTEM, reason: RESOURCE_DELETED });
 export function adminBackendName(): string {
   const v = DI.get(Configuration)?.get<unknown>(['authz', 'admin', 'backend']);
   return typeof v === 'string' && v !== '' ? v : 'MemoryAuthzAdminBackend';
-}
-
-// As DefaultAuthzAdmin.named (admin.ts:431-441): the class of that name registered for AuthzAdminBackend.
-async function adminBackend(container: IContainer, name: string): Promise<AuthzAdminBackend> {
-  const entry = container.Registry.getTypesChain(AuthzAdminBackend)
-    .filter((e) => !isFactory(e.type) && (e.type as { name?: string }).name === name)
-    .pop();
-  if (!entry) throw new AuthzConfigError(`authz-orm: authz.admin.backend names ${JSON.stringify(name)}, but no AuthzAdminBackend class of that name is registered`);
-  const type = entry.type as Class<AuthzAdminBackend>;
-  const at = container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? container : entry.container;
-  return (await at.resolve(type)) as AuthzAdminBackend;
 }
 
 function publishAndAudit(domain: string, container: IContainer, deleted: readonly ResourceRef[], tags: readonly string[]): Promise<void> {
@@ -53,7 +42,7 @@ export async function cleanupDeleted(driver: OrmDriver, deleted: readonly Resour
     return;
   }
   await afterCommit(driver, `forgetting the deleted scopes through ${backendName}`, async () => {
-    const backend = await adminBackend(container, backendName);
+    const backend = await pickNamed(container, AuthzAdminBackend, backendName, 'authz.admin.backend', 'authz-orm');
     const { tags } = await backend.transaction(domain, async (tx) => {
       const out = await forgetScopesInTx(container, deleted, tx, DELETED);
       await backend.bumpVersion(domain, tx);

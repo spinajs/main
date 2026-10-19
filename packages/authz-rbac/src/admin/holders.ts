@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, compilePermissionGlob, resourceKey } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL, compilePermissionGlob, optionalAdminService, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzService, Permission, ResourceRef } from '@spinajs/authz';
 
 import { MembershipStore } from '../contracts.js';
@@ -8,8 +8,9 @@ import { compilePattern, patternFilter } from '../model/patterns.js';
 import { parsePrincipalSubjectKey, parseSetKey } from '../model/sets/keys.js';
 import { modelTables } from '../model/service.js';
 import { subjectKeyOf } from '../stores/columns.js';
-import { assignmentStore, honoured, ladderAppliesAt, optionalStore, rankOf, roleClosure, roleIndex } from './common.js';
-import type { RoleIndex } from './common.js';
+import { assignmentStore } from './common.js';
+import { honoured, ladderAppliesAt, rankOf, roleClosure, roleIndex } from './role-index.js';
+import type { RoleIndex } from './role-index.js';
 import { isSetSubject } from './rows.js';
 
 export interface HoldersQuery {
@@ -150,7 +151,7 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
   }
 
   if (q.expandSets) {
-    const membership = await optionalStore(ctx, MembershipStore);
+    const membership = await optionalAdminService(ctx, MembershipStore);
     if (!membership) throw new AuthzAdminFailure('invalid_query', 'expandSets needs a MembershipStore in this domain', 'expandSets');
     const sets = [...found.values()].filter((h) => isSetSubject(h.subject));
     // membersOf is the transitive closure, so members of nested sets are listed directly.

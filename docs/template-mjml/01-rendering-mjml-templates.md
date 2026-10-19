@@ -85,7 +85,7 @@ export default {
 - **Errors bubble through `Templates`.** A missing file, an empty file (`IOFail: Template file ... is empty`) or a strict validation failure rejects `render()`. When you pass `options.redact`, `Templates` replaces each secret in the error message with `[redacted]`.
 - **`options.onProgress` is never called.** `MjmlRenderer` forwards `IRenderOptions` to the Handlebars pass, but neither engine reports progress phases.
 - **`lang` is in the model.** The Handlebars pass adds `lang` (the explicit language, else the ambient one, else the default locale) to a copy of the model; the caller's object is not changed.
-- **Calling `MjmlRenderer` directly needs a resolved `Templates`.** It reaches `Templates` through `@LazyInject` on the root container. Render through `Templates`; then the facade is already resolved.
+- **Calling `MjmlRenderer` directly needs a resolved `Templates`.** It reaches `Templates` through `@LazyInject`, in the container that built the renderer. Render through `Templates`; then the facade is already resolved.
 
 ## Best practices
 

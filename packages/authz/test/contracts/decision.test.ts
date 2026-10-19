@@ -5,7 +5,7 @@ import { AuthenticationFailed, Exception, Forbidden } from '@spinajs/exceptions'
 
 import * as root from '../../src/index.js';
 import { DEFAULT_DENY_PRIORITY, UNKNOWN_DENY_PRIORITY, denyPriority, compareDenyReasons } from '../../src/contracts/decision.js';
-import { AccessDenied, Unauthenticated, NeedsAsync } from '../../src/contracts/errors.js';
+import { AccessDenied, Unauthenticated } from '../../src/contracts/errors.js';
 import { FALSE, TRUE } from '../../src/contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../../src/contracts/decision.js';
 import type { Principal } from '../../src/contracts/principal.js';
@@ -303,16 +303,9 @@ describe('decision contracts', () => {
       expect(e.message).to.eq('who?');
     });
 
-    it('NeedsAsync is an Error', () => {
-      const e = new NeedsAsync('later');
-      expect(e).to.be.instanceOf(Error);
-      expect(e.name).to.eq('NeedsAsync');
-    });
-
     it('exports them from the package root', () => {
       expect(root.AccessDenied).to.eq(AccessDenied);
       expect(root.Unauthenticated).to.eq(Unauthenticated);
-      expect(root.NeedsAsync).to.eq(NeedsAsync);
     });
   });
 });

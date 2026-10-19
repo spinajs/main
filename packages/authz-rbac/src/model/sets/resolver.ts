@@ -1,5 +1,6 @@
 import { engineLog } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
+import { compareStrings } from '@spinajs/util';
 
 import { SubjectResolver } from '../../contracts.js';
 import { expiryTime, subjectKey } from '../assignments.js';
@@ -38,7 +39,7 @@ export interface SetResolver extends SubjectResolver {
 export const isSetResolver = (r: SubjectResolver | undefined): r is SetResolver => typeof (r as Partial<SetResolver> | undefined)?.memberships === 'function';
 
 /**
- * The model's default SubjectResolver (design §6.1.3, §4.2): the principal, its companions, for a
+ * The model's default SubjectResolver: the principal, its companions, for a
  * group principal its member set, and the wildcard of each of their types. The sets the principal
  * holds through its assignments need those assignments, so the model's SetsExtension adds them after
  * the first read, through `memberships`.
@@ -86,7 +87,7 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
         out.set(key, entry);
       }
     }
-    return new Map([...out].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    return new Map([...out].sort(([a], [b]) => compareStrings(a, b)));
   }
 }
 

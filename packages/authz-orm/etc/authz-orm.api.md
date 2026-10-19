@@ -8,8 +8,6 @@ Entries: `src/api.ts`.
 
 ```ts
 import type { ResourceType } from "@spinajs/authz";
-import type { Class } from "@spinajs/di";
-import type { ModelBase } from "@spinajs/orm";
 export interface ParentOptions {
     /** A NULL column means "no parent" (a root); without it `authz:ancestors-verify` reports NULLs. */
     readonly nullable?: boolean;
@@ -41,11 +39,4 @@ export interface AccessResourceOptions {
         readonly typeColumn?: string;
     }>>;
 }
-export declare function AccessResource(type: ResourceType): ClassDecorator;
-export declare function Parent(type: ResourceType, opts?: ParentOptions): PropertyDecorator;
-export declare function Owner(opts?: OwnerOptions): PropertyDecorator;
-export declare function Self(): PropertyDecorator;
-export declare function Relation(name: string, opts?: RelationOptions): PropertyDecorator;
-export declare function registerAccessResource(model: Class<ModelBase>, type: ResourceType, opts?: AccessResourceOptions): void;
-export declare function reparent(model: Class<ModelBase>, ids: readonly (string | number)[], newParentId: string | number | null, column?: string): Promise<number>;
 ```

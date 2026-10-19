@@ -13,7 +13,6 @@ import { RbacAdminReader } from '../../authz-rbac/src/index.js';
 import { FrameworkLogger } from '@spinajs/log';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
-import { domainAdmin } from '../src/routes/index.js';
 import { DOMAIN, adminHttpHarness, send } from './support/admin-http.js';
 import type { RawRequest, RawResponse } from './support/admin-http.js';
 
@@ -729,9 +728,16 @@ describe('authz-http-admin routes', function () {
       const cfg = testHost.config();
       const before = cfg.get<unknown>(['authz', 'http', 'admin', 'domain']);
       try {
+        const controller = (await DI.resolve(AuthzAdminController)) as unknown as { guarded(fn: (admin: unknown) => Promise<unknown>): Promise<unknown> };
+        const adminInUse = async () => {
+          let used: unknown;
+          await controller.guarded(async (admin) => (used = admin));
+          return used;
+        };
         const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-        expect(await domainAdmin(DOMAIN)).to.equal((await domains.service(DOMAIN)).admin());
-        expect(await domainAdmin('root')).to.equal(((await DI.resolve(AuthzService)) as AuthzService).admin());
+        expect(await adminInUse()).to.equal((await domains.service(DOMAIN)).admin());
+        cfg.set(['authz', 'http', 'admin', 'domain'], 'root');
+        expect(await adminInUse()).to.equal(((await DI.resolve(AuthzService)) as AuthzService).admin());
 
         // Set at runtime past the schema, an empty, unset or non-string domain fails closed and never falls back to root.
         for (const domain of ['', undefined, 5]) {

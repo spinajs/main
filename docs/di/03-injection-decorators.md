@@ -4,7 +4,7 @@ Decorators declare what a class needs; the container supplies it when it builds 
 
 ## How it works
 
-1. **Declaration.** Each decorator adds an entry (`IToInject`) to the class's injection descriptor, stored as `reflect-metadata` under `DI_DESCRIPTION_SYMBOL` (`'__DI_INJECTION_DESCRIPTOR__'`). `@LazyInject` is the exception: it defines a getter and adds nothing to the descriptor.
+1. **Declaration.** Each decorator adds an entry (`IToInject`) to the class's injection descriptor, stored as `reflect-metadata` under `DI_DESCRIPTION_SYMBOL` (`'__DI_INJECTION_DESCRIPTOR__'`). `@LazyInject` also adds an entry, which hands the owner the resolving container instead of an instance, and defines the getter that resolves in it.
 2. **Collection.** On resolve, `Container.extractDescriptor()` walks the class and every base class and merges their entries:
    - constructor entries (`@Inject`) come first: the class's own, then its bases', each type once;
    - property entries (`@Autoinject`) follow, one per property name.
@@ -18,9 +18,9 @@ Decorators declare what a class needs; the container supplies it when it builds 
 | --- | --- | --- | --- |
 | `@Inject(...types)` | class | Classes, `Array.ofType(T)` or `Array.chainOf(T)` | Resolves each type and passes them to the constructor, in order. A type already declared (here or on a base class) is injected once |
 | `@Autoinject()` | property | none | Resolves the property's declared type (`design:type`) |
-| `@Autoinject(type)` | property | A class, or `Array.chainOf(T)` | Resolves `type` instead of the declared type. On an array or `Map` property, a class means `Array.ofType(type)` |
+| `@Autoinject(type)` | property | A class, `Array.ofType(T)` or `Array.chainOf(T)` | Resolves `type` instead of the declared type. On an array or `Map` property, a class means `Array.ofType(type)` |
 | `@Autoinject(type?, options)` / `@Autoinject(options)` | property | `IAutoinjectOptions` (below) | As above, with options |
-| `@LazyInject(type?)` | property | A class or a string key; omitted: the declared type | Replaces the property with a getter that resolves on every read |
+| `@LazyInject(type?, { mapFunc }?)` | property | A class, `Array.ofType(T)`, `Array.chainOf(T)` or a string key; omitted: the declared type. On an array or `Map` property, a class means `Array.ofType(type)`; `mapFunc` builds a `Map` as for `@Autoinject` | Replaces the property with a getter that resolves on every read, in the container that built the owner |
 
 ### `IAutoinjectOptions`
 
@@ -35,7 +35,9 @@ Decorators declare what a class needs; the container supplies it when it builds 
 
 - `check` and `optional` are both set (`'check and optional exclude each other'`);
 - `check` or `optional` is set on an array or `Map` property, or with `Array.chainOf` (`'check and optional take a single class'`);
-- `Array.chainOf(T)` is given for a property that is not an array or `Map`.
+- `Array.ofType(T)` or `Array.chainOf(T)` is given for a property that is not an array or `Map`.
+
+`@LazyInject` throws at class definition when `Array.ofType(T)` or `Array.chainOf(T)` is given for a property that is not an array, `Map` or `Promise`, or when an array or `Map` property has no type.
 
 ## Services and extension points
 
@@ -88,16 +90,24 @@ class Importer extends SyncService {
 ```
 
 ```ts
-// Don't: a lazy property in a child-scoped object reads the root container
+// Don't: look the service up on every call to keep it from being built with the owner
+class TenantReport {
+  @Autoinject(Container)
+  protected Container: IContainer;
+
+  public render() {
+    return this.Container.resolve(TenantSettings).format();
+  }
+}
+
+// Do: @LazyInject resolves on read, in the container that built the report
 class TenantReport {
   @LazyInject(TenantSettings)
   protected Settings: TenantSettings;
-}
 
-// Do: @Autoinject resolves in the container that builds the object
-class TenantReport {
-  @Autoinject()
-  protected Settings: TenantSettings;
+  public render() {
+    return this.Settings.format();
+  }
 }
 ```
 

@@ -71,6 +71,8 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 | `Error` | `log.error(err, 'cannot save order %d', id)` | `error` field holds the serialized error. With no message, the message is `err.message`. |
 | plain object | `log.info({ orderId, total }, 'order ${orderId} placed')` | Fields merge into the entry. The message is a template over **these fields only**, then printf arguments apply. |
 
+`log.warnOnce(key, ...)` takes the same shapes after a key and writes only the first time the process sees that key on a logger of that name; see [Logger contract](../log-common/01-logger-contract.md#once-only-and-rate-limited-lines).
+
 ### printf specifiers
 
 | Spec | Renders |

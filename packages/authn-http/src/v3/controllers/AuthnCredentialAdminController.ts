@@ -1,21 +1,19 @@
-import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { CredentialAdminGuard, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { CredentialAdminGuard, MfaEnrolmentService, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
 
 import { guardRefusal, invalidSendReset, sendResetOf, targetNotFound, targetOf } from '../../admin/fields.js';
-import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered, adminTotpServiceOf } from '../../admin/gate.js';
+import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../admin/gate.js';
 import { PasswordServiceRegistered } from '../../password/gate.js';
-import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
-import { authenticatedPrincipal } from '../../policies/v3/principal.js';
-import { takeReauthPassword } from '../../token/fields.js';
+import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { activeSessionOf, authenticatedPrincipal } from '../../policies/v3/principal.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
-import { NO_STORE, authnFailureResponse } from '../responses.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
+import { NO_STORE } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 
 type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; readonly target: IdentityRef; readonly ctx: AuthnContext };
@@ -46,11 +44,8 @@ export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(CredentialAdminGuard, { optional: true })
   protected Guard: CredentialAdminGuard | undefined;
 
-  @Config('authn.mfa.encryptionKey.secret')
-  protected MfaEncryptionKey: string | null | undefined;
-
-  @Config('authn.mfa.policy.service')
-  protected MfaPolicyService: string;
+  @Autoinject(MfaEnrolmentService, { optional: true })
+  protected MfaEnrolment: MfaEnrolmentService | undefined;
 
   /**
    * Reset a user's password
@@ -88,7 +83,7 @@ export class AuthnCredentialAdminController extends BaseController {
   public async mfaReset(@Req() req: Request, @Param() uuid: string) {
     const admitted = await this.admit(req, uuid, 'mfa-reset');
     if ('answer' in admitted) return admitted.answer;
-    const { reset } = await (await adminTotpServiceOf(this.Container, this.MfaEncryptionKey, this.MfaPolicyService)).adminReset(admitted.actor, admitted.target, admitted.ctx);
+    const { reset } = await this.MfaEnrolment!.adminReset(admitted.actor, admitted.target, admitted.ctx);
     return new Ok({ reset }, { Headers: [NO_STORE] });
   }
 
@@ -125,18 +120,9 @@ export class AuthnCredentialAdminController extends BaseController {
 
   /** Fresh auth, the target, `fields`, then the guard: the answer of the first that refuses, or what the effect needs. */
   protected async admit(req: Request, uuid: unknown, action: CredentialAdminAction, fields?: () => unknown): Promise<Admitted> {
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
-    const password = takeReauthPassword(req);
-    try {
-      // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
-      // a password while a gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
-    } catch (err) {
-      // The thrown error's body carries a stack outside production; login's answer never does.
-      if (isAuthnFailed(err)) return { answer: authnFailureResponse() };
-      throw err;
-    }
+    const session = activeSessionOf(req);
+    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    if ('answer' in fresh) return fresh;
     const target = targetOf(uuid);
     if (!target) return { answer: targetNotFound() };
     const invalid = fields?.();

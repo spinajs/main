@@ -2,8 +2,9 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { HostLog } from '@spinajs/authz';
+import { AuthzConfigError, HostLog } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
@@ -366,7 +367,7 @@ for (const kind of DB_KINDS) {
       await db.driver.del().from('authz_assignment').where({ subject_id: 'x1' });
 
       const migration = new RecordingDrop();
-      await expect(migration.up(db.driver)).to.be.rejectedWith('(user:x1 admin)');
+      await expect(migration.up(db.driver)).to.be.rejectedWith(InvalidOperation, '(user:x1 admin)');
 
       expect(migration.lines).to.deep.eq([`warn ${DROP}: skipped 4 users row(s) with roles whose ExternalId is null or empty; their roles were not copied`]);
       expect(await columnNames(db.driver)).to.include('Role');
@@ -390,7 +391,7 @@ for (const kind of DB_KINDS) {
       await copy(db);
 
       // page size 2: the second page starts after 'a', so one 'a' row is never read
-      await expect(new SmallPages().up(db.driver)).to.be.rejectedWith(`${DROP}: cannot check the users.Role copy: the walk by users.Ext read 3 of 4 rows, so users.Ext (authz.rbac.migration.idColumn) is not unique; nothing was changed. Point authz.rbac.migration.idColumn at a unique column, then run orm.Migration.resolve('${DROP}', 'rolled-back') and migrate again`);
+      await expect(new SmallPages().up(db.driver)).to.be.rejectedWith(AuthzConfigError, `${DROP}: cannot check the users.Role copy: the walk by users.Ext read 3 of 4 rows, so users.Ext (authz.rbac.migration.idColumn) is not unique; nothing was changed. Point authz.rbac.migration.idColumn at a unique column, then run orm.Migration.resolve('${DROP}', 'rolled-back') and migrate again`);
       expect(await columnNames(db.driver)).to.include('Role');
     });
 
@@ -431,7 +432,7 @@ for (const kind of DB_KINDS) {
       await db.driver.insert().into('users').values({ Role: 'admin' });
       await copy(db);
 
-      await expect(new AuthzRbacDropUserRole_2026_10_01_00_02_00().up(db.driver)).to.be.rejectedWith(/cannot check the users\.Role copy: table users has no column Uuid \(authz\.rbac\.migration\.idColumn\)/);
+      await expect(new AuthzRbacDropUserRole_2026_10_01_00_02_00().up(db.driver)).to.be.rejectedWith(AuthzConfigError, /cannot check the users\.Role copy: table users has no column Uuid \(authz\.rbac\.migration\.idColumn\)/);
       expect(await columnNames(db.driver)).to.include('Role');
     });
 

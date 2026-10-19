@@ -1,8 +1,8 @@
-import { RelationResolver } from '@spinajs/authz';
+import { RelationResolver, resourceKey } from '@spinajs/authz';
 import type { Principal, ResourceRef, ResourceType } from '@spinajs/authz';
 import { ModelBase } from '@spinajs/orm';
 
-import { idText, refKey } from './ids.js';
+import { idText } from './ids.js';
 import { classesOf, entryOf, namedRelation, registeredTypes } from './registry.js';
 import { findRows } from './rows.js';
 
@@ -15,7 +15,7 @@ async function rowFor(type: ResourceType, ref: ResourceRef, subject: unknown): P
     const entry = entryOf(subject.constructor);
     if (entry?.type === type && idText((subject as Row)[entry.idColumn]) === String(ref.id)) return subject as Row;
   }
-  return ((await findRows([ref])).get(refKey(ref))?.row as Row | undefined) ?? null;
+  return ((await findRows([ref])).get(resourceKey(ref))?.row as Row | undefined) ?? null;
 }
 
 class ColumnRelation extends RelationResolver {

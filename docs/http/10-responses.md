@@ -35,7 +35,7 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `Ok` | 200 | `ok.pug` | | |
 | `Created` | 201 | `created.pug` | | |
 | `NoContent` | 204 | `noContent.pug` | | Pass `null`: `new NoContent(null)`. |
-| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest` | |
+| `BadRequestResponse` | 400 | `badRequest.pug` | `InvalidArgument`, `BadRequest`, `JsonValidationFailed` | |
 | `ValidationError` | 400 | `validationError.pug` | `ValidationFailed` (`@spinajs/validation`) | |
 | `Unauthorized` | 401 | `unauthorized.pug` | `AuthenticationFailed` | |
 | `ForbiddenResponse` | 403 | `forbidden.pug` | `Forbidden` | |
@@ -44,6 +44,7 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `NotAcceptable` | 406 | `not-acceptable.pug` | `ExpectedResponseUnacceptable` | |
 | `Conflict` | 409 | `conflict.pug` | `ResourceDuplicated` | |
 | `EntityTooLarge` | 413 | `entityTooLarge.pug` | `EntityTooLargeException` | |
+| `TooManyRequests` | 429 | `too-many-requests.pug` | | Options also take `retryAfterSeconds`, sent as `Retry-After` (rounded up, see `retryAfterHeader` in [Header and cookie helpers](22-header-and-cookie-helpers.md)) when it is a finite number. |
 | `ServerError` | 500 | `serverError.pug` | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError`, and every unmapped error | |
 | `Json` | 200 or `options.StatusCode` | none | | Always JSON. |
 | `Xml` | 200 or `options.StatusCode` | none | | Always XML. Third argument: `XMLBuilder` options. |

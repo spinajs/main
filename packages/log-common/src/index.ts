@@ -448,9 +448,14 @@ export function createLogMessageObject(err: Error | string, message: string | an
   };
 }
 
+export const WARN_ONCE_MAX_KEYS = 1024;
+
 export abstract class Log extends SyncService {
   public static Loggers: Map<string, Log> = new Map();
   public static InternalLoggers: Map<string, Log> = new Map();
+
+  // Shared by every instance of a logger name: loggers are re-resolved per container, the warning is once per process.
+  protected static WarnedOnce: Set<string> = new Set();
 
   public Timers: Map<string, Date> = new Map<string, Date>();
   protected Targets: ILogTargetDesc[];
@@ -560,6 +565,7 @@ export abstract class Log extends SyncService {
       .then(() => Promise.all([...Log.Loggers.values()].map((l) => l.dispose())))
       .then(() => {
         Log.Loggers.clear();
+        Log.WarnedOnce.clear();
       })
       .then(() => {
         const internal = [...Log.InternalLoggers.values()];
@@ -645,6 +651,27 @@ export abstract class Log extends SyncService {
   public abstract success(err: Error, message: string, ...args: any[]): void;
   public abstract success(fields: object, message?: string, ...args: any[]): void;
   public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  /**
+   * Writes the warning only the first time this process sees `key` on a logger of this name; returns whether it
+   * wrote. Up to {@link WARN_ONCE_MAX_KEYS} keys are remembered, oldest forgotten first; {@link Log.clearLoggers}
+   * forgets them all.
+   */
+  public warnOnce(key: string, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, err: Error, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, fields: object, message?: string, ...args: any[]): boolean;
+  public warnOnce(key: string, ...args: any[]): boolean {
+    const id = `${this.Name}\u0000${key}`;
+    if (Log.WarnedOnce.has(id)) {
+      return false;
+    }
+    (this.warn as (...a: unknown[]) => void)(...args);
+    if (Log.WarnedOnce.size >= WARN_ONCE_MAX_KEYS) {
+      Log.WarnedOnce.delete(Log.WarnedOnce.values().next().value as string);
+    }
+    Log.WarnedOnce.add(id);
+    return true;
+  }
 
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
 

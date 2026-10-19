@@ -1,6 +1,6 @@
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { _check_arg, _is_string, _non_empty, _reg_match, isPlainObject } from '@spinajs/util';
+import { _check_arg, _is_string, _non_empty, _reg_match, isPlainObject, isStringArray } from '@spinajs/util';
 
 import type { FileMeta } from '../api.js';
 
@@ -27,7 +27,7 @@ export function checkFileMeta(meta: unknown, at = 'FileMeta'): FileMeta {
     out.scope = Object.freeze(scope.id === undefined ? { type: scope.type } : { type: scope.type, id: scope.id });
   }
   if (meta.tags !== undefined) {
-    if (!Array.isArray(meta.tags) || !meta.tags.every((t) => typeof t === 'string')) throw new InvalidArgument(`${at}.tags must be a list of strings, got ${show(meta.tags)}`, 'meta');
+    if (!isStringArray(meta.tags)) throw new InvalidArgument(`${at}.tags must be a list of strings, got ${show(meta.tags)}`, 'meta');
     out.tags = Object.freeze([...(meta.tags as string[])]);
   }
   return Object.freeze(out);

@@ -2,6 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -334,7 +335,9 @@ describe('API snapshot of the frozen contracts', function () {
         '.gitignore': 'node_modules/\n',
       });
       mkdirSync(join(repo, 'node_modules'));
-      symlinkSync(join(REPO_ROOT, 'node_modules', 'typescript'), join(repo, 'node_modules', 'typescript'), 'junction');
+      // Resolved like the script resolves it, so a checkout whose typescript sits in an ancestor node_modules works too.
+      const typescriptDir = dirname(createRequire(import.meta.url).resolve('typescript/package.json'));
+      symlinkSync(typescriptDir, join(repo, 'node_modules', 'typescript'), 'junction');
       const update = run('--update');
       expect(update.status, `${update.stdout}\n${update.stderr}`).to.eq(0);
     });
@@ -353,6 +356,23 @@ describe('API snapshot of the frozen contracts', function () {
         expect(stale.stderr).to.include('+     /** True when the request is denied. */');
       } finally {
         editApi('  /** True when the request is denied. */', DOC);
+      }
+    });
+
+    it('--update keeps the CRLF line endings of a checked-out snapshot', () => {
+      const path = join(repo, SNAPSHOT);
+      const lf = readFileSync(path, 'utf8');
+      writeFileSync(path, lf.replace(/\n/g, '\r\n'));
+      editApi(DOC, '  /** True when the request is denied. */');
+      try {
+        const res = run('--update');
+        expect(res.status, `${res.stdout}\n${res.stderr}`).to.eq(0);
+        const text = readFileSync(path, 'utf8');
+        expect(text).to.include('/** True when the request is denied. */\r\n');
+        expect(text.replace(/\r\n/g, '')).not.to.include('\n');
+      } finally {
+        editApi('  /** True when the request is denied. */', DOC);
+        writeFileSync(path, lf);
       }
     });
 

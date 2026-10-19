@@ -38,6 +38,17 @@ export abstract class AuthzService extends AsyncService {
 
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
 
+/** The root domain: the DI root container. */
+export const ROOT_DOMAIN = 'root';
+
+/** What AuthzDomains.create accepts as a domain name (a JSON schema / RegExp source). */
+export const DOMAIN_NAME_PATTERN = '^[A-Za-z0-9_.-]{1,64}$';
+
+export interface DomainIdentity {
+  readonly name: string;
+  readonly parent?: string;
+}
+
 // Root singleton; the implementation is the host's.
 export abstract class AuthzDomains {
   abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
@@ -45,6 +56,10 @@ export abstract class AuthzDomains {
   // Async: a domain's models are registered after create(), and AuthzService is an AsyncService.
   abstract service(name: string): Promise<AuthzService>;
   abstract names(): readonly string[];
+  /** The domain a container belongs to; undefined for a container that is not a domain. */
+  abstract describe(container: IContainer): DomainIdentity | undefined;
+  /** Domain names from 'root' to `name`; throws AuthzConfigError for a domain that does not exist. */
+  abstract lineage(name: string): readonly string[];
 }
 
 export interface AccessSummary {

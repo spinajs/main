@@ -25,7 +25,7 @@
 | `Log.Loggers: Map<string, Log>` | Loggers by name. `FrameworkLogger.resolve()` adds itself here; `flushAll()` and `clearLoggers()` walk it. |
 | `Log.InternalLoggers: Map<string, Log>` | Bootstrap loggers created before the configuration module exists (`@spinajs/internal-logger`). |
 | `Log.flushAll(): Promise<void>` | `flush()` on every logger in `Loggers`. Never rejects. |
-| `Log.clearLoggers()` | `flushAll()`, then `dispose()` every logger in `Loggers` and clears `Loggers`, then clears `InternalLoggers` and awaits `dispose()` of each of its entries. |
+| `Log.clearLoggers()` | `flushAll()`, then `dispose()` every logger in `Loggers` and clears `Loggers` and the `warnOnce()` keys, then clears `InternalLoggers` and awaits `dispose()` of each of its entries. |
 
 ### Instance members
 
@@ -33,6 +33,7 @@
 | --- | --- |
 | `Name: string` | Logger name. Rules in `@spinajs/log` match it with globs. |
 | `trace` `debug` `info` `success` `warn` `error` `fatal` `security` | Abstract. Each has four call forms: `(message, ...args)`, `(err, message, ...args)`, `(fields, message?, ...args)` and `(err \| string, message \| any[], ...args)`. |
+| `warnOnce(key, ...args): boolean` | `warn(...args)` only the first time the process sees `key` on a logger of this `Name`; returns whether it wrote. Takes the three call forms of `warn` after the key. Keys are scoped by logger name, so two packages can use the same key. A write that throws leaves the key unseen. Up to `WARN_ONCE_MAX_KEYS` (1024) keys are remembered, oldest forgotten first; `Log.clearLoggers()` forgets them all. |
 | `write(entry): Promise<PromiseSettledResult<void>[]>` | Abstract. Dispatch a built entry. |
 | `child(name, variables?)` | `DI.resolve(Log, ['<Name>.<name>', { ...this.Variables, ...variables }, this])`. |
 | `addVariable(name, value)` | Sets `Variables[name]`; implementations merge `Variables` into every entry. |
@@ -152,12 +153,35 @@ console.log(RecordingLog.Entries.map((e) => `${e.Variables.logger} ${e.Variables
 // [ 'billing INFO Invoice INV-7 paid', 'billing.stripe WARN Webhook retried for INV-7' ]
 ```
 
+## Once-only and rate-limited lines
+
+`warnOnce(key, ...)` covers a warning that should appear once per process, such as a missing setting found by every child container's boot:
+
+```ts sample
+import { Logger, Log } from '@spinajs/log-common';
+
+class TokenStore {
+  @Logger('tokens')
+  protected Log!: Log;
+
+  public boot(secret: string | undefined): void {
+    if (!secret) this.Log.warnOnce('no-secret', 'tokens: no signing secret is set, tokens die with the process');
+  }
+}
+
+new TokenStore().boot(undefined);
+new TokenStore().boot(undefined); // nothing: same logger name, same key
+```
+
+Lines whose volume depends on input (one per refused request, per failed message) are limited by configuration, not by the caller: a `RateLimitFilter` in `logger.filters` of `@spinajs/log`, scoped to the logger and to the entries it should limit. See [Filters](../log/09-filters.md#ratelimitfilter).
+
 ## Important behaviour
 
 - `Log` is registered as a **factory**. DI never caches the result; reuse comes from `Log.Loggers`. Two `DI.resolve(Log, ['x'])` calls return the same object only when the factory caches by name.
 - `child()` and `@Logger(name, variables)` pass `variables` as the second resolve option. The `@spinajs/log` factory reads only the name, so with `FrameworkLogger` those variables are dropped and a cached logger of that name is returned as it is. Use `addVariable()` on the returned logger instead.
 - `child()` does not inherit level overrides, targets or rules from the parent. The child is a separate logger named `<parent>.<name>`; `@spinajs/log` rules match that full name.
 - `@Logger()` defines a non-configurable getter on the prototype. Assigning to the property throws a `TypeError` in a class (strict mode). Declare it as `protected Log!: Log;` with no initializer, and keep `useDefineForClassFields: false`, or the class field hides the getter.
+- Without a registered `Log`, a `@Logger()` read returns a bare `Log` instance whose level methods are undefined, so the first write throws a `TypeError`. There is no console fallback: register `@spinajs/log` (or your own `Log`) before code that logs runs.
 - `@Logger()` resolves on first read, not at class definition. A logger read before the configuration module is registered is an `InternalLoggerProxy` when `@spinajs/log` is in use.
 - `timeStart()` and `timeEnd()` measure wall-clock time with `Date`; they do not log anything.
 - `Log.flushAll()` reaches only loggers in `Log.Loggers`. A custom `Log` that does not add itself is never flushed on shutdown.

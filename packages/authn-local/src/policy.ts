@@ -5,22 +5,23 @@ import { Class, DI, Injectable, SyncService } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
+import { PASSWORD_HARD_CAP } from '@spinajs/authn/contracts';
 import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
+
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 
 /** Bounds every password must stay within, whatever the policy says (A04). */
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 
 /** Above this many code points `check` answers `too_long` without running the rule or the blocklist on the input. */
-export const PASSWORD_HARD_CAP = 1024;
+export { PASSWORD_HARD_CAP };
 
 /**
  * How many draws `generate()` makes before declaring the pool and the rule incompatible. A uniform draw can miss a class the rule
  * demands (about 6% of 16-character alphanumeric draws have no digit); ten draws bring a spurious failure to about 6e-13.
  */
 const GENERATE_ATTEMPTS = 10;
-
-const DEFAULT_GENERATOR: GeneratorConfig = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] };
 
 // ajv is CommonJS; depending on the build its default import is the class itself or an object holding it in `default`.
 const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ValidateFunction };
@@ -141,7 +142,7 @@ export class LocalPasswordPolicy extends SyncService {
    */
   public generate(): string {
     const { minLength, maxLength } = this.settings;
-    const { length, characters } = this.Options ? { ...DEFAULT_GENERATOR, ...this.Options.generator } : this.Generator;
+    const { length, characters } = this.Options ? { ...AUTHN_LOCAL_DEFAULTS.generator, ...this.Options.generator } : this.Generator;
     const pool = [...new Set([...characters.join('')])];
 
     if (length < minLength || length > maxLength) {
@@ -221,8 +222,8 @@ export class LocalPasswordPolicy extends SyncService {
   }
 
   private buildSettings(options: LocalPasswordPolicyOptions): PolicySettings {
-    const minLength = options.minLength ?? PASSWORD_MIN_LENGTH;
-    const maxLength = options.maxLength ?? PASSWORD_MAX_LENGTH;
+    const minLength = options.minLength ?? AUTHN_LOCAL_DEFAULTS.policy.minLength;
+    const maxLength = options.maxLength ?? AUTHN_LOCAL_DEFAULTS.policy.maxLength;
 
     // A seam or a raw config can skip the schema's minimum; a shorter one, or a NaN or string that no length is below,
     // would accept weak passwords at set time.

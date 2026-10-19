@@ -1,7 +1,6 @@
-import { NewInstance } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import type { Principal } from '@spinajs/authn/contracts';
+import type { Principal, Session } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
 
@@ -10,6 +9,13 @@ export function authenticatedPrincipal(req: Request): Principal {
   const principal = req.storage.AuthnPrincipal;
   if (!principal || principal.authenticated !== true) throw unauthenticated('this route needs an authenticated caller');
   return principal;
+}
+
+/** The request's active session, or a 403 `session_required` without one or for a pending one. */
+export function activeSessionOf(req: Request, message = 'this route needs a session'): Session {
+  const session = req.storage.AuthnSession;
+  if (session?.handle.state !== 'active') throw refused('session_required', message);
+  return session;
 }
 
 // api.ts declares contract classes under the names of the three @NewInstance policies below, and DI keys classes by
@@ -41,7 +47,6 @@ export class NoSession extends BasePolicy {
 }
 
 /** Passes only without an authn principal; a pending session passes, so a half-finished login can start over. */
-@NewInstance()
 export class NotLoggedPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
@@ -56,7 +61,6 @@ export class NotLoggedPolicy extends BasePolicy {
  * Fails when the authn principal came from a per-request credential (API token, JWT, key or signature): no credential mints or
  * manages credentials. Told apart by `authn.sessionHandle`, not by `authn.method`, which would need a list of every credential method.
  */
-@NewInstance()
 export class NoTokenAuthPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
@@ -69,7 +73,6 @@ export class NoTokenAuthPolicy extends BasePolicy {
 }
 
 /** Fails while impersonating (principal.authn.impersonator is set): routes that hand out lasting credentials need the account owner. */
-@NewInstance()
 export class NoImpersonationPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;

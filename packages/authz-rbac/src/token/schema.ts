@@ -2,7 +2,7 @@ import { ROLE_OR_PREFIX } from './role-pattern.js';
 import { DEFAULT_TOKEN_ROLE_POLICY } from './rules.js';
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
-/** `authz.token.*` (design §8.2, §18.3(g)): the roles a token principal loses, and the TokenRolePolicy that narrows the rest. */
+/** `authz.token.*`: the roles a token principal loses, and the TokenRolePolicy that narrows the rest. */
 export const AUTHZ_TOKEN_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-token.configuration.schema.json',
   $configurationModule: 'authz.token',

@@ -1,4 +1,5 @@
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext } from '@spinajs/authz';
+import { isThenable } from '@spinajs/util';
 
 import { subjectKey } from '../assignments.js';
 import { withinCeiling } from '../ceiling.js';
@@ -16,7 +17,7 @@ export interface NestedSet {
 }
 
 /**
- * Subject sets (design §6.1.3, §4.3): after the principal's own rows are read, the sets they make it a member
+ * Subject sets: after the principal's own rows are read, the sets they make it a member
  * of (one level, with the via role and expiry) and, with a MembershipStore, the sets it reaches through other
  * sets are read too, in one more store read, and join `subjects` and `assignments`. Only a resolver with
  * `memberships` (RbacSubjectResolver, the default) names them.
@@ -57,8 +58,8 @@ export const setsExtension: RbacExtensionFactory = () => new SetsExtension();
 /**
  * Step 1, right after collect: an assignment made to a set the principal joined through its own rows holds
  * only while one of those memberships does (its role inside the ceiling, unless the assignment is a deny),
- * and the latest one bounds its expiry. One made to a nested set holds without a ceiling only (lane L8
- * decision 5), bounded by that membership's expiry; a deny holds either way.
+ * and the latest one bounds its expiry. One made to a nested set holds without a ceiling only,
+ * bounded by that membership's expiry; a deny holds either way.
  */
 export const applyMemberships: RbacStep = (s) => {
   if (!s.input.memberships && !s.input.nestedSets) return;
@@ -92,5 +93,3 @@ export function usableVia<T extends { readonly role: string; readonly expiresAt?
   const now = s.input.now.getTime();
   return via.filter((m) => (ignoreCeiling || withinCeiling(s, m.role)) && (m.expiresAt === undefined || m.expiresAt.getTime() > now));
 }
-
-const isThenable = <T>(v: Maybe<T>): v is PromiseLike<T> => typeof (v as { then?: unknown } | null)?.then === 'function';

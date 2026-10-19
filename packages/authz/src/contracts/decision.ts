@@ -1,3 +1,4 @@
+import { compareCodePoints } from '@spinajs/util';
 import type { Principal, PrincipalRef, ResourceRef } from './principal.js';
 import type { Permission } from './permission.js';
 import type { ResourceFilter } from './filter.js';
@@ -61,6 +62,11 @@ export interface Decision {
   readonly trace?: Trace;
 }
 
+/** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
+export function definite(decision: Decision): boolean {
+  return decision.allowed && decision.residual?.op === 'true';
+}
+
 export interface TraceStep {
   readonly by: 'core' | string;
   readonly step: string;
@@ -106,22 +112,7 @@ export function denyPriority(r: DenyReason): number {
   return Object.prototype.hasOwnProperty.call(DEFAULT_DENY_PRIORITY, r.code) ? DEFAULT_DENY_PRIORITY[r.code] : UNKNOWN_DENY_PRIORITY;
 }
 
-// Surrogates (D800-DFFF) move above E000-FFFF, so UTF-16 units sort in code point order.
-const fixup = (c: number): number => (c >= 0xe000 ? c - 0x800 : c >= 0xd800 ? c + 0x2000 : c);
-
-const cmp = (a: unknown, b: unknown): number => {
-  const x = String(a ?? '');
-  const y = String(b ?? '');
-  const n = Math.min(x.length, y.length);
-  for (let i = 0; i < n; i++) {
-    const cx = x.charCodeAt(i);
-    const cy = y.charCodeAt(i);
-    if (cx !== cy) {
-      return fixup(cx) - fixup(cy);
-    }
-  }
-  return x.length - y.length;
-};
+const cmp = (a: unknown, b: unknown): number => compareCodePoints(String(a ?? ''), String(b ?? ''));
 
 const sortedKeys = (_key: string, value: unknown): unknown => {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
