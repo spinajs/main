@@ -1988,7 +1988,7 @@ describe('schema building', () => {
       .toDB();
 
     expect(result.length).to.eq(1);
-    expect(result[0].expression).to.equal('ALTER TABLE `test` DROP COLUMN Id');
+    expect(result[0].expression).to.equal('ALTER TABLE `test` DROP COLUMN `Id`');
   });
 
   it('Should rename table', () => {

@@ -32,7 +32,7 @@ export class UsersPasswordSetAt_2026_10_04_00_00_00 extends OrmMigration {
 
   public async down(connection: OrmDriver): Promise<void> {
     const q = connection.Container.resolve(IdentifierQuoter);
-    // The ORM's dropColumn() emits the name unquoted, which Postgres folds to lower case.
+    // Raw: orm-mssql registers no AlterTableQueryCompiler, so alterTable() fails there.
     await connection.schema().raw(`ALTER TABLE ${q.quote(USERS_TABLE)} DROP COLUMN ${q.quote(COLUMN)}`);
   }
 }

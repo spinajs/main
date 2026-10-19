@@ -146,7 +146,7 @@ Every modifier returns the column builder, except `default()`.
 
 | `AlterTableQueryBuilder` method | Effect |
 | --- | --- |
-| `dropColumn(column)` | Drops the column. Returns `void`. |
+| `dropColumn(column)` | Drops the column; the name is quoted like every other identifier. Returns `void`. |
 | `rename(newTableName)` | Renames the table. Returns `void`. |
 
 `default()` returns the column typed as `ColumnQueryBuilder`, which has no `addColumn()` or `modify()`. Set the mode first, or keep a reference to the column:

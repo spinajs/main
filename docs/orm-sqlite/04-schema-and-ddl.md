@@ -65,7 +65,7 @@ SQLite rejects two inline `PRIMARY KEY` constraints, so a key of several columns
 | `table.<type>(name)` / `.addColumn()` | `ALTER TABLE t ADD <body>` | Body from `SqliteAddColumnCompiler`. No `AFTER`; `.after(col)` is ignored. |
 | `.modify()` | nothing | Logs a `warn` on the `ORM` logger: `sqlite cannot MODIFY column <col> - skipping ...`. Type, `NOT NULL`, `DEFAULT` and `UNIQUE` changes are **not** applied. |
 | `.rename(newName)` | ``ALTER TABLE t RENAME COLUMN `old` TO `new` `` | |
-| `table.dropColumn(name)` | `ALTER TABLE t DROP COLUMN name` | Column name is not quoted. |
+| `table.dropColumn(name)` | ``ALTER TABLE t DROP COLUMN `name` `` | |
 | `table.rename(newTable)` | ``ALTER TABLE t RENAME TO `new` `` | |
 
 - `ADD COLUMN` of a boolean drops the unconditional `NOT NULL` and keeps the `CHECK`. SQLite refuses to add a `NOT NULL` column without a non-null default to a table with rows; `.notNull().default().value(0)` still gives a non-nullable column.

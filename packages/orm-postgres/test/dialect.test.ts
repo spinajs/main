@@ -33,6 +33,12 @@ describe('postgres dialect', function () {
     }
   });
 
+  it('quotes the column alterTable() drops', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE "users" DROP COLUMN "Role"' }]);
+  });
+
   /**
    * Trigger-based table history and `CREATE TABLE ... LIKE` have no postgres implementation
    * here. They must stay UNREGISTERED so the failure is a DI error naming the abstraction —

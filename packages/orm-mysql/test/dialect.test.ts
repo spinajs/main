@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, SchemaQueryBuilder } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { MySqlInSetStatement } from '../src/statements.js';
@@ -44,6 +44,12 @@ describe('mysql dialect', function () {
     const quoter = driver.Container.resolve<IdentifierQuoter>(IdentifierQuoter);
 
     expect(quoter.quote('Role')).to.eq('`Role`');
+  });
+
+  it('quotes the column alterTable() drops', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE `users` DROP COLUMN `Role`' }]);
   });
 
   describe('set membership', () => {

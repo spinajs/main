@@ -42,7 +42,7 @@ export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
 
   // The expiry back-fill is not reverted: the old code reads an ExpiresAt fine.
   public async down(connection: OrmDriver): Promise<void> {
-    // Raw, because the builder's DROP COLUMN leaves the name unquoted, which postgres folds to lower case.
+    // Raw: orm-mssql registers no AlterTableQueryCompiler, so alterTable() fails there.
     const quoter = connection.Container.resolve<IdentifierQuoter>(IdentifierQuoter);
     for (const column of COLUMNS) {
       await connection.schema().raw(new RawQuery(`ALTER TABLE ${quoter.quote(TABLE)} DROP COLUMN ${quoter.quote(column)}`));

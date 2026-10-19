@@ -852,11 +852,12 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     let _outputs: ICompilerOutput[] = [];
 
     if (this.builder.DroppedColumns.length !== 0) {
+      const quoter = this.container.resolve(IdentifierQuoter);
       _outputs = _outputs.concat(
         this.builder.DroppedColumns.map((c) => {
           return {
             bindings: [] as any[],
-            expression: `${_table} DROP COLUMN ${c}`,
+            expression: `${_table} DROP COLUMN ${quoter.quote(c)}`,
           };
         }),
       );

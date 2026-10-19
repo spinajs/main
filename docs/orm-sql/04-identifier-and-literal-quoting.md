@@ -69,7 +69,7 @@ Register it in your driver's `resolve()`: `this.Container.register(AnsiIdentifie
 - No dialect falls back to another's quoting. A driver without an `IdentifierQuoter` registration fails instead of sending backticks to an engine that rejects them.
 - `escapeIdentifier()` is always backticks. Code that must work on any connection resolves `IdentifierQuoter` from `driver.Container` instead.
 - `SqlInsertQueryCompiler` wraps a `RawQuery` column name in literal backticks, not through the quoter.
-- `SqlAlterTableQueryCompiler` emits `DROP COLUMN <name>` and the history compiler writes trigger SQL without quoting the names.
+- The history compiler writes trigger SQL without quoting the names.
 - `inlineBindings()` is only as safe as the `LiteralQuoter`: it writes values into SQL text. Use it for bodies the engine stores, never for queries you can bind.
 - A `Date` written by `SqlLiteralQuoter` follows the connection's `DatetimeValueConverter`, so a view body and a bound `WHERE` see the same format.
 
