@@ -8,7 +8,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
-import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent } from '@spinajs/authz-orm';
+import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent, Relation } from '@spinajs/authz-orm';
 import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
 import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
@@ -66,6 +66,7 @@ export class E2eOrm implements OrmHandle {
             if (s.type === undefined) return;
             AccessResource(s.type)(model);
             if (s.owner !== undefined) Owner()(proto, s.owner);
+            for (const r of s.relations ?? []) Relation(r.name)(proto, r.column);
             for (const p of s.parents ?? []) Parent(p.type, p.nullable ? { nullable: true } : undefined)(proto, p.column);
           },
         },

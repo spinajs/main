@@ -12,6 +12,7 @@ design §6.6.5).
 | `POST /authz/assignments`, `PATCH`/`DELETE /authz/assignments/:id` | `assignment.*` |
 | `GET`/`POST /authz/links`, `PATCH`/`DELETE /authz/links/:id` | `link.*` |
 | `GET /authz/rules`, `PUT`/`DELETE /authz/rules/:id` | `rule.*` |
+| `GET /authz/holders?scope=&permission=&expandSets=&limit=&offset=` | `list({ kind: 'holders' })` |
 | `GET /authz/policies`, `PUT`/`DELETE /authz/policies/:id` | `policy.*` |
 | `GET`/`PATCH`/`PUT /authz/scopes/:type/:id/attributes` | `scope.*` |
 
@@ -26,6 +27,11 @@ design §6.6.5).
   `forbidden`, `escalation`, `last_holder`, `self_lockout`,
   `protected_role`; 404 `not_found`; 409 `conflict`; 400 otherwise).
   Lists answer `{ items, total }`.
+- `GET /authz/holders` lists who holds `permission` on `scope` (both
+  required; `expandSets=true` also lists set members). It answers `{ items,
+  total }`, or 400 `invalid_query` for a missing or unknown value, 401, and
+  403 `forbidden` (the caller needs `authz:holders.read` at the resource).
+  See [Holders](../../docs/authz/03-holders.md).
 - A link token is shown once: only in the answer of `POST /authz/links` or
   of the `POST /authz/commands` batch that created it. Both routes send
   `Cache-Control: no-store`.

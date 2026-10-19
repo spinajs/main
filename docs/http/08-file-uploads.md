@@ -121,7 +121,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `FromFile`, `FromCSV`, `FromFormField`, `FromForm`, `FromJSONFile` | Class names, `@Injectable()` + `@NewInstance()`; `FromFormBase` is their abstract base | | | Subclass and `DI.register(Mine).as(FromFile)`, as for any [route argument](05-custom-route-arguments.md#replacing-a-built-in-route-argument). |
-| `FileUploadMiddleware` | Resolved by name or class from `http.upload.middlewares` and `options.middlewares` | `FileInfoMiddleware` | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
+| `FileUploadMiddleware` | Resolved by name or class from `http.upload.middlewares` and `options.middlewares` | `FileInfoMiddleware` | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`, [details](../authz-fs/06-uploads-and-routes.md)) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
 | `FormFileUploader` | Resolved from `options.uploader` | `ImmediateFileUploader` for `options.fs` | `HttpLazyFileUploader` (`@spinajs/http-lazy-file-uploader`) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
 | `__file_upload_default_provider__` | `fs` provider by name | `fsNative` at `os.tmpdir()` | any `fsNative` | Redefine the provider in `fs.providers`. |
 

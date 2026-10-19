@@ -23,6 +23,8 @@ export interface ResourceEntry {
   /** Without `typeColumn` the owner is a `user` principal; with it, the row's type column names the principal type. */
   readonly owner?: { readonly property: string; readonly column: string; readonly typeColumn?: string };
   readonly self?: { readonly column: string };
+  /** Named column relations (`@Relation`), each like `owner`: a user id column, or an id column plus a principal type column. */
+  readonly relations?: Readonly<Record<string, OwnerColumns>>;
   readonly idColumn: string;
 }
 
@@ -35,6 +37,7 @@ export interface RegistrationOptions {
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType }[];
   readonly owner?: string | OwnerColumns;
   readonly self?: string;
+  readonly relations?: Readonly<Record<string, string | OwnerColumns>>;
 }
 
 interface Registration {
@@ -42,6 +45,7 @@ interface Registration {
   readonly parents: readonly ParentEntry[];
   readonly owner?: OwnerColumns;
   readonly self?: string;
+  readonly relations?: Readonly<Record<string, OwnerColumns>>;
   /** Canonical form, to tell an idempotent re-registration from a conflicting one. */
   readonly key: string;
 }
@@ -49,6 +53,7 @@ interface Registration {
 interface PropertyMetadata {
   owner?: OwnerColumns;
   self?: string;
+  relations?: Map<string, OwnerColumns>;
   readonly parents: ParentEntry[];
 }
 
@@ -85,23 +90,39 @@ function checkColumn(column: unknown, where: string): string {
   return column;
 }
 
-export function ownerColumns(owner: unknown, where: string): OwnerColumns {
+export function ownerColumns(owner: unknown, where: string, what = 'the owner'): OwnerColumns {
   if (typeof owner === 'string') return { column: checkColumn(owner, where) };
-  if (owner === null || typeof owner !== 'object') throw new AuthzConfigError(`${where}: the owner must be a column name or { column, typeColumn? }`);
+  if (owner === null || typeof owner !== 'object') throw new AuthzConfigError(`${where}: ${what} must be a column name or { column, typeColumn? }`);
   const o = owner as Record<string, unknown>;
   const column = checkColumn(o.column, where);
   if (o.typeColumn === undefined) return { column };
   const typeColumn = checkColumn(o.typeColumn, `${where} typeColumn`);
-  if (typeColumn === column) throw new AuthzConfigError(`${where}: typeColumn must differ from the owner column`);
+  if (typeColumn === column) throw new AuthzConfigError(`${where}: typeColumn must differ from ${what} column`);
   return { column, typeColumn };
 }
+
+export function checkRelationName(name: unknown, where: string): string {
+  if (name === 'owner' || name === 'self') throw new AuthzConfigError(`${where}: '${name}' is declared with @${name === 'owner' ? 'Owner' : 'Self'}(), not as a named relation`);
+  if (typeof name !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(name)) throw new AuthzConfigError(`${where}: a relation name must match [A-Za-z][A-Za-z0-9_.-]*, got ${JSON.stringify(name)}`);
+  return name;
+}
+
+function relationColumns(value: unknown, where: string): Record<string, OwnerColumns> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new AuthzConfigError(`${where}: relations must map a name to a column or { column, typeColumn? }`);
+  const out: Record<string, OwnerColumns> = {};
+  for (const [name, columns] of Object.entries(value)) out[checkRelationName(name, where)] = ownerColumns(columns, `${where} '${name}'`, `relation '${name}'`);
+  return out;
+}
+
+const relationsKey = (relations: Readonly<Record<string, OwnerColumns>> | undefined) =>
+  relations === undefined ? null : Object.entries(relations).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([n, c]) => [n, c.column, c.typeColumn ?? null]);
 
 function normalize(model: ModelClass, type: unknown, opts: unknown): Registration {
   const where = `${nameOf(model)}: @AccessResource`;
   const t = checkType(type, where);
   if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`${where}('${t}'): options must be an object`);
   const o = (opts ?? {}) as RegistrationOptions;
-  for (const k of Object.keys(o)) if (!['parents', 'owner', 'self'].includes(k)) throw new AuthzConfigError(`${where}('${t}'): unknown option '${k}'`);
+  for (const k of Object.keys(o)) if (!['parents', 'owner', 'self', 'relations'].includes(k)) throw new AuthzConfigError(`${where}('${t}'): unknown option '${k}'`);
   if (o.parents !== undefined && !Array.isArray(o.parents)) throw new AuthzConfigError(`${where}('${t}'): parents must be a list of { column, type }`);
   const parents = (o.parents ?? []).map((p) => {
     const column = checkColumn(p?.column, `${where}('${t}') parents`);
@@ -109,8 +130,9 @@ function normalize(model: ModelClass, type: unknown, opts: unknown): Registratio
   });
   const owner = o.owner === undefined ? undefined : ownerColumns(o.owner, `${where}('${t}') owner`);
   const self = o.self === undefined ? undefined : checkColumn(o.self, `${where}('${t}') self`);
-  const key = JSON.stringify([t, parents.map((p) => [p.column, p.type]), owner ? [owner.column, owner.typeColumn ?? null] : null, self ?? null]);
-  return { type: t, parents, ...(owner !== undefined ? { owner } : {}), ...(self !== undefined ? { self } : {}), key };
+  const relations = o.relations === undefined ? undefined : relationColumns(o.relations, `${where}('${t}') relations`);
+  const key = JSON.stringify([t, parents.map((p) => [p.column, p.type]), owner ? [owner.column, owner.typeColumn ?? null] : null, self ?? null, relationsKey(relations)]);
+  return { type: t, parents, ...(owner !== undefined ? { owner } : {}), ...(self !== undefined ? { self } : {}), ...(relations !== undefined ? { relations } : {}), key };
 }
 
 export function register(model: ModelClass, type: unknown, opts?: unknown): void {
@@ -153,6 +175,15 @@ export function setSelf(model: ModelClass, property: string): void {
   entries = new WeakMap();
 }
 
+export function setRelation(model: ModelClass, name: string, columns: OwnerColumns): void {
+  const m = metadataOf(model);
+  m.relations ??= new Map();
+  const prev = m.relations.get(name);
+  if (prev !== undefined && !sameOwner(prev, columns)) throw new AuthzConfigError(`${nameOf(model)}: @Relation('${name}') is on ${showOwner(prev)} already; a relation has one column`);
+  m.relations.set(name, columns);
+  entries = new WeakMap();
+}
+
 export function addParent(model: ModelClass, parent: ParentEntry): void {
   const m = metadataOf(model);
   if (m.parents.some((p) => p.property === parent.property)) throw new AuthzConfigError(`${nameOf(model)}.${parent.property}: one @Parent per property`);
@@ -165,6 +196,11 @@ function pkOf(model: ModelClass): string {
   const name = Array.isArray(pk) ? pk[0] : pk;
   if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(model)} has no primary key`);
   return name;
+}
+
+/** The `@Relation` columns named `name`; inherited Object.prototype members never count. */
+export function namedRelation(entry: ResourceEntry, name: string): OwnerColumns | undefined {
+  return entry.relations !== undefined && Object.hasOwn(entry.relations, name) ? entry.relations[name] : undefined;
 }
 
 /** The entry of `model` or of its nearest registered ancestor; property metadata merges over the whole chain of `model`. */
@@ -187,12 +223,14 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   let owner: OwnerColumns | undefined;
   let self: string | undefined;
   const parents: ParentEntry[] = [];
+  const relations = new Map<string, OwnerColumns>();
   // Base first, so a subclass's own declarations follow the inherited ones and its @Owner wins.
   for (const c of [...classes].reverse()) {
     const m = properties.get(c);
     if (m === undefined) continue;
     if (m.owner !== undefined) owner = m.owner;
     if (m.self !== undefined) self = m.self;
+    for (const [n, cols] of m.relations ?? []) relations.set(n, cols);
     for (const p of m.parents) {
       const i = parents.findIndex((x) => x.property === p.property);
       if (i === -1) parents.push(p);
@@ -206,6 +244,11 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   }
   if (r.owner !== undefined && owner !== undefined && !sameOwner(r.owner, owner)) throw new AuthzConfigError(`${where}: the owner is @Owner() ${showOwner(owner)} and registered as ${showOwner(r.owner)}`);
   if (r.self !== undefined && self !== undefined && r.self !== self) throw new AuthzConfigError(`${where}: self is @Self() '${self}' and registered as '${r.self}'`);
+  for (const [n, c] of Object.entries(r.relations ?? {})) {
+    const decorated = relations.get(n);
+    if (decorated !== undefined && !sameOwner(decorated, c)) throw new AuthzConfigError(`${where}: relation '${n}' is @Relation() ${showOwner(decorated)} and registered as ${showOwner(c)}`);
+    relations.set(n, c);
+  }
   owner ??= r.owner;
   self ??= r.self;
 
@@ -215,6 +258,7 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
     parents: Object.freeze(parents),
     ...(owner !== undefined ? { owner: Object.freeze({ property: owner.column, column: owner.column, ...(owner.typeColumn !== undefined ? { typeColumn: owner.typeColumn } : {}) }) } : {}),
     ...(self !== undefined ? { self: Object.freeze({ column: self }) } : {}),
+    ...(relations.size > 0 ? { relations: Object.freeze(Object.fromEntries([...relations].map(([n, c]) => [n, Object.freeze({ column: c.column, ...(c.typeColumn !== undefined ? { typeColumn: c.typeColumn } : {}) })]))) } : {}),
     idColumn: pkOf(model),
   });
 }
