@@ -6,7 +6,7 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -1214,6 +1214,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
+  public whereStartsWith(column: string, prefix: string): this {
+    this.pushStatement(this._container.resolve<StartsWithStatement>(StartsWithStatement, [column, prefix, this.TableAlias]));
+    return this;
+  }
+
   public clearWhere() {
     this._statements = [];
     return this;
@@ -2266,6 +2271,8 @@ export class ForeignKeyBuilder {
   }
 }
 
+const CASE_SENSITIVE_TYPES: ColumnType[] = [ColumnType.STRING, ColumnType.TEXT, ColumnType.TINY_TEXT, ColumnType.MEDIUM_TEXT, ColumnType.LONG_TEXT];
+
 @NewInstance()
 @Inject(Container)
 export class ColumnQueryBuilder {
@@ -2278,6 +2285,7 @@ export class ColumnQueryBuilder {
   public Comment: string;
   public Charset: string;
   public Collation: string;
+  public CaseSensitive: boolean;
   public NotNull: boolean;
   public Type: ColumnType;
   public Args: any[];
@@ -2297,6 +2305,7 @@ export class ColumnQueryBuilder {
     this.AutoIncrement = false;
     this.NotNull = false;
     this.Collation = '';
+    this.CaseSensitive = false;
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
@@ -2353,6 +2362,20 @@ export class ColumnQueryBuilder {
 
   public collation(collation: string) {
     this.Collation = collation;
+
+    return this;
+  }
+
+  /**
+   * Compares the column's values exactly, with the dialect's binary collation: case and accent variants are
+   * different values. An explicit `collation()` wins. String and text columns only.
+   */
+  public caseSensitive() {
+    if (!CASE_SENSITIVE_TYPES.includes(this.Type)) {
+      throw new InvalidArgument(`caseSensitive() applies to string and text columns only, column '${this.Name}' is ${this.Type}`);
+    }
+
+    this.CaseSensitive = true;
 
     return this;
   }

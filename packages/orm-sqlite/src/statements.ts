@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, StartsWithStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
 import { SqlInStatement, SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
 import { NotSupported } from '@spinajs/exceptions';
 
@@ -61,5 +61,26 @@ export class SqliteInSetStatement extends InSetStatement {
 export class SqliteInStatement extends SqlInStatement {
   protected listExpression(column: string): string {
     return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT value FROM json_each(?))`;
+  }
+}
+
+/** GLOB, not LIKE: SQLite's LIKE ignores ASCII case whatever the column's collation. */
+@NewInstance()
+export class SqliteStartsWithStatement extends StartsWithStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public build(): IQueryStatementResult {
+    return {
+      Bindings: [`${this.prefix().replace(/[*?[]/g, (c) => `[${c}]`)}*`],
+      Statements: [`${_columnWrap(this.Quoter, this._column, this._tableAlias)} GLOB ?`],
+    };
+  }
+
+  public clone(): IQueryStatement {
+    const clone = new SqliteStartsWithStatement(this._column, this._prefix, this._tableAlias!);
+    clone.Quoter = this.Quoter;
+
+    return clone;
   }
 }

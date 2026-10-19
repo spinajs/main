@@ -54,6 +54,7 @@ No keys. The server's `sql_mode` decides whether the stock literal quoter is rig
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Set membership | `InSetStatement`; `@NewInstance()`, constructor `(column, values, not, tableAlias)`; resolved per `whereInSet()` | `MySqlInSetStatement` (not exported) | `SqlInSetStatement` (portable `LIKE`, from `@spinajs/orm-sql`) | Extend `InSetStatement` or `SqlInSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
+| Prefix test | `StartsWithStatement`; `@NewInstance()`, constructor `(column, prefix, tableAlias)`; resolved per `whereStartsWith()` | `SqlStartsWithStatement` (from `@spinajs/orm-sql`): `` `col` LIKE ? ESCAPE '~' ``, case as the column's collation compares | none | Extend `SqlStartsWithStatement` and override `pattern()`, or extend `StartsWithStatement` and implement `build()` and `clone()`; register `.as(StartsWithStatement)`. |
 | Literal quoter | `LiteralQuoter`; `@NewInstance() @Inject(Container)` | `MySqlLiteralQuoter` (not exported) | `SqlLiteralQuoter` (ANSI: doubles `'` only) | Extend `SqlLiteralQuoter`, override `quoteString()`, `quoteBoolean()` or `quoteDate()`; register `.as(LiteralQuoter)`. |
 | Identifier quoter | `IdentifierQuoter` | `BacktickIdentifierQuoter` | `DoubleQuoteIdentifierQuoter`, `BracketIdentifierQuoter` | Register another quoter `.as(IdentifierQuoter)`; every compiler picks it up. |
 

@@ -426,6 +426,33 @@ export abstract class InSetStatement extends QueryStatement {
 }
 
 /**
+ * `column` begins with a prefix taken literally: no character of it is a wildcard. Each dialect registers its own
+ * form, and with it whether case variants match.
+ */
+@NewInstance()
+export abstract class StartsWithStatement extends QueryStatement {
+  protected _column: string;
+  protected _prefix: string;
+
+  constructor(column: string, prefix: string, tableAlias: string) {
+    super(tableAlias);
+
+    this._column = column || '';
+    this._prefix = prefix;
+  }
+
+  public abstract build(): IQueryStatementResult;
+
+  protected prefix(): string {
+    if (typeof this._prefix !== 'string') {
+      throw new InvalidArgument(`whereStartsWith(${this._column}) takes a string prefix, got ${this._prefix === null ? 'null' : typeof this._prefix}`);
+    }
+
+    return this._prefix;
+  }
+}
+
+/**
  * Delimiter a `@Set()` column is stored with. Must agree with the SetValueConverter,
  * which joins on it.
  */

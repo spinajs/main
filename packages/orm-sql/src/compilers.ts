@@ -1181,8 +1181,8 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
 
     // COLUMN ADDITIONA PROPS
     unsigned: () => 'UNSIGNED',
-    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${escapeStringLiteral(builder.Charset)}'`,
-    collation: (builder: ColumnQueryBuilder) => `COLLATE '${escapeStringLiteral(builder.Collation)}'`,
+    charset: (name: string) => `CHARACTER SET '${escapeStringLiteral(name)}'`,
+    collation: (name: string) => `COLLATE '${escapeStringLiteral(name)}'`,
     notnull: () => `NOT NULL`,
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
@@ -1204,11 +1204,13 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     if (this.builder.Unsigned) {
       _stmt.push(this._statementsMappings.unsigned());
     }
-    if (this.builder.Charset) {
-      _stmt.push(this._statementsMappings.charset(this.builder));
+    const charset = this.charsetName();
+    if (charset) {
+      _stmt.push(this._statementsMappings.charset(charset));
     }
-    if (this.builder.Collation) {
-      _stmt.push(this._statementsMappings.collation(this.builder));
+    const collation = this.collationName();
+    if (collation) {
+      _stmt.push(this._statementsMappings.collation(collation));
     }
     if (this.builder.NotNull) {
       _stmt.push(this._statementsMappings.notnull());
@@ -1230,6 +1232,16 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
       bindings: [],
       expression: _stmt.filter((x) => !_.isEmpty(x)).join(' '),
     };
+  }
+
+  /** `charset()`, else utf8mb4 for a case-sensitive column without a collation: its binary collation names a character set. */
+  protected charsetName(): string {
+    return this.builder.Charset || (this.builder.CaseSensitive && !this.builder.Collation ? 'utf8mb4' : '');
+  }
+
+  /** `collation()`, else the binary collation of the character set for a case-sensitive column. */
+  protected collationName(): string {
+    return this.builder.Collation || (this.builder.CaseSensitive ? `${this.charsetName()}_bin` : '');
   }
 
   protected _defaultCompiler() {

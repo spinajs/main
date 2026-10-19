@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -586,6 +586,29 @@ export class SqlInSetStatement extends InSetStatement {
 
   public clone(): IQueryStatement {
     return _carryQuoter(new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias!), this);
+  }
+}
+
+/** `col LIKE 'prefix%' ESCAPE '~'`; the dialect's LIKE decides whether case variants match. */
+@NewInstance()
+export class SqlStartsWithStatement extends StartsWithStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public build(): IQueryStatementResult {
+    return {
+      Bindings: [`${this.pattern()}%`],
+      Statements: [`${_columnWrap(this.Quoter, this._column, this._tableAlias)} LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`],
+    };
+  }
+
+  /** The prefix with every wildcard of this dialect's LIKE escaped. */
+  protected pattern(): string {
+    return escapeLikeValue(this.prefix());
+  }
+
+  public clone(): IQueryStatement {
+    return _carryQuoter(new (this.constructor as new (column: string, prefix: string, tableAlias: string) => SqlStartsWithStatement)(this._column, this._prefix, this._tableAlias!), this);
   }
 }
 
