@@ -548,7 +548,9 @@ export class Campaigns extends BaseController {
 - `@Unscoped(reason)` marks a route whose ORM selects run without `.accessible()`; the call is audited
   once. A route with `@Unscoped` and no `@Access` fails registration.
 - Body fields are limited to `decision.fields.write` minus `neverRead`: stripped, or a 400 in
-  `reject` mode. `@UnfilteredInput(reason)` opts a route out. See `packages/authz-http/README.md`.
+  `reject` mode. `@UnfilteredInput(reason)` opts a route out. The field filters read the route
+  domain's `fields` config through the host `AuthzDomains`; with any other `AuthzDomains` they throw
+  `AuthzConfigError` instead of falling back to the defaults. See `packages/authz-http/README.md`.
 - Principal sources run in order: `ServicePrincipalSource` (40), `AuthnPrincipalSource` (50, the
   principal `authn-http` left in `req.storage.AuthnPrincipal`), `LinkPrincipalSource` (110).
 - `GET /user/access` returns the access summary. `POST /user/access/checks` answers a batch of up to

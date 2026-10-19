@@ -333,6 +333,17 @@ describe('GET /user/access/events (SSE, design §10.4)', function () {
     }
   });
 
+  it('dispose() ends the open streams and stops listening for the server shutdown', async () => {
+    const s = await openStream(app, { 'x-user': 'alice' });
+    await s.frame();
+    const listeners = DI.RootContainer.listenerCount('http.server.closing');
+
+    await transport.dispose();
+    await ended(s);
+    expect(transport.count()).to.eq(0);
+    expect(DI.RootContainer.listenerCount('http.server.closing')).to.eq(listeners - 1);
+  });
+
   // Last: it stops the app.
   it('ends the open streams when the http server stops', async () => {
     const s = await openStream(app, { 'x-user': 'alice' });
