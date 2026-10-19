@@ -15,6 +15,7 @@ import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
 import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/resolver.js';
+import { SetsExtension } from './sets/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
@@ -271,6 +272,17 @@ export class RbacModel extends AuthorizationModel {
   async inputAt(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<RbacInput> {
     await this.freshRoles();
     return readRbacInput({ principal, permission: ROLES_PROBE, resource: at }, ctx, this.sources());
+  }
+
+  /**
+   * For RbacService.subjectKeysOf: the principal's subjects and assignments at ctx.now, with the sets
+   * SetsExtension adds from them (direct memberships, nested sets), the roles reloaded first when stale.
+   */
+  async subjectsInput(principal: Principal, ctx: EvaluationContext): Promise<RbacInput> {
+    await this.freshRoles();
+    // The other extensions add no subjects, and rules would ask the context for attributes the service cannot give.
+    const extensions = this.extensions.filter((e) => e instanceof SetsExtension);
+    return readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, { ...this.sources(), extensions });
   }
 
   /** The link store of the options (share links). */

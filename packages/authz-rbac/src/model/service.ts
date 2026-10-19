@@ -1,7 +1,9 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
+import { unique } from '@spinajs/util';
 
-import type { LinkStore } from '../contracts.js';
+import type { LinkStore, SubjectKey } from '../contracts.js';
+import { subjectKeyOf } from '../stores/columns.js';
 
 import { liveAssignments, rbacTables } from './evaluate.js';
 import type { RbacTables } from './evaluate.js';
@@ -52,6 +54,18 @@ export class RbacService {
   }
 
   /**
+   * The subject keys (subjectKeyOf) `principal` acts as at `at` (default: the model clock's now), for
+   * stores that match rows by subject key (fs_acl): itself, its companions, their type wildcards, a
+   * group principal's member set, and the subject sets its live assignments make it a member of,
+   * directly and, with a MembershipStore, through other sets. Each key once.
+   * @throws (rejects) when a store fails
+   */
+  async subjectKeysOf(principal: Principal, at?: Date): Promise<readonly SubjectKey[]> {
+    const input = await this.model.subjectsInput(principal, this.context(at));
+    return Object.freeze(unique((input.subjects ?? []).map(subjectKeyOf)));
+  }
+
+  /**
    * The principal of share link `id`: type `link`, its ceiling the link's scope
    * and expiry (reason `link_invalid`), its attributes the link's, `companion` joined as a subject
    * when nothing it carries would be lost (see linkCompanion). An unknown or revoked id gives
@@ -83,11 +97,11 @@ export class RbacService {
     return Object.freeze(index.permissions(role).flatMap((p) => index.grants(role, p)));
   }
 
-  /** The context of rolesOf without one: the model clock, a fresh request cache, the `ancestors` option. */
-  private context(): EvaluationContext {
+  /** The context of rolesOf without one: `now` (default the model clock), a fresh request cache, the `ancestors` option. */
+  private context(now: Date = this.model.currentTime()): EvaluationContext {
     const ancestors = this.opts.ancestors;
     const own: Partial<EvaluationContext> = {
-      now: this.model.currentTime(),
+      now,
       cache: new Map(),
       permissions: this.model.permissions(),
       ancestors: (ref) => (ancestors ? ancestors(ref) : Promise.reject(new AuthzConfigError('RbacService.rolesOf at a resource needs a ctx or the ancestors option'))),
