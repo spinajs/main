@@ -11,6 +11,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 import { AdminLinkStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, toDate } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -488,9 +489,9 @@ for (const kind of DB_KINDS) {
         await resetVersion();
 
         class Racing extends DbLinkStore {
-          protected async liveRow(driver: OrmDriver, id: string) {
-            const row = await super.liveRow(driver, id);
-            await driver.update().in('authz_link').update({ revoked_at: BEFORE }).where('id', id);
+          protected async liveRow(id: string) {
+            const row = await super.liveRow(id);
+            await db.driver.update().in('authz_link').update({ revoked_at: BEFORE }).where('id', id);
             return row;
           }
         }
@@ -533,6 +534,22 @@ for (const kind of DB_KINDS) {
     });
 
     describe('forgetScope', () => {
+      it('revokes hundreds of links at the scope with one statement', async () => {
+        const many = Array.from({ length: 600 }, (_, i) => ({ id: `bulk-${String(i).padStart(3, '0')}`, token_hash: `v1:bulk${i}`, scope_type: 'project', scope_id: 'p2', attributes: '{}', expires_at: null, revoked_at: null, created_by: null, created_at: CREATED }));
+        for (let i = 0; i < many.length; i += 100) {
+          await db.driver
+            .insert()
+            .into('authz_link')
+            .values(many.slice(i, i + 100));
+        }
+
+        const { result: gone, statements } = await statementsOf(db.driver, () => inTx((tx) => store.forgetScope(P2, tx)));
+
+        expect(gone).to.have.length(600);
+        expect(statements.filter((s) => s.context === QueryContext.Update && /authz_link/.test(s.sql))).to.have.length(1);
+        expect((await store.find({ scope: P2 })).items).to.deep.eq([]);
+      });
+
       it('revokes the links at the scope, expired ones too, deletes their assignments and returns them', async () => {
         const live = await create();
         const expired = await create({ expiresAt: BEFORE });
@@ -562,9 +579,9 @@ for (const kind of DB_KINDS) {
         const { link } = await create();
 
         class Racing extends DbLinkStore {
-          protected async liveRowsAt(driver: OrmDriver, scope: ResourceRef) {
-            const rows = await super.liveRowsAt(driver, scope);
-            await driver.update().in('authz_link').update({ revoked_at: BEFORE }).where('id', link.id);
+          protected async liveRowsAt(scope: ResourceRef) {
+            const rows = await super.liveRowsAt(scope);
+            await db.driver.update().in('authz_link').update({ revoked_at: BEFORE }).where('id', link.id);
             return rows;
           }
         }

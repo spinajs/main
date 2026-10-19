@@ -3,16 +3,18 @@ import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import type { OrmDriver } from '@spinajs/orm';
+import type { DateTime } from 'luxon';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { AdminLinkStore } from '../admin/ports.js';
-import { parsePrincipalKey, scopeFromColumns, scopeToColumns, toDate } from './columns.js';
+import { parsePrincipalKey, scopeFromColumns, scopeToColumns } from './columns.js';
+import { requireTransaction } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
 import { withDbRbacStore } from './db-store.js';
 import { pageWindow, requireScopeNode } from './queries.js';
+import { LinkRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import type { LinkFields } from './records.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
-import { AUTHZ_LINK_TABLE } from './tables.js';
 import { normaliseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -28,20 +30,6 @@ const HASH_VERSION = 'v1';
 
 /** The longest string `byToken` looks up; anything longer, or empty, is unknown without a query. */
 export const LINK_TOKEN_MAX_LENGTH = 512;
-const ID_BATCH = 500;
-
-/** One `authz_link` row as the drivers return it (datetimes are text on SQLite). */
-export interface LinkRow {
-  id: string;
-  token_hash: string;
-  scope_type: string;
-  scope_id: string;
-  attributes: string | null;
-  expires_at: Date | string | null;
-  revoked_at: Date | string | null;
-  created_by: string | null;
-  created_at: Date | string;
-}
 
 /** `link.update` without role and tags (those change the link's assignment). */
 export interface LinkPatch {
@@ -93,7 +81,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
     if (!isLookupToken(token)) return null;
 
     const hash = linkTokenHash(secret, token);
-    const [row] = await rowsOf((await this.connection()).select().from(AUTHZ_LINK_TABLE).where('token_hash', hash).whereNull('revoked_at'));
+    const [row] = await LinkRecord.query().where('token_hash', hash).whereNull('revoked_at');
 
     return row && this.hashesEqual(row.token_hash, hash) ? rowToLink(row) : null;
   }
@@ -101,49 +89,53 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
   /** The live or expired link; null when unknown or revoked. */
   async byId(id: string): Promise<LinkDef | null> {
     if (typeof id !== 'string') return null;
-    const row = await this.liveRow(await this.connection(), id);
+    const row = await this.liveRow(id);
     return row ? rowToLink(row) : null;
   }
 
   /** Writes the link and its assignment (`grant` at `l.scope`, expiring with the link); returns the token once. */
   async create(l: Omit<LinkDef, 'id'>, grant: { role: string; tags?: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<{ link: LinkDef; token: string }> {
-    const driver = await this.writeDriver(tx, `${this.name}.create`);
+    const where = `${this.name}.create`;
+    requireTransaction(LinkRecord, tx, where);
     const secret = await this.secret();
-    requireScopeNode(l.scope, `${this.name}.create`, 'a link needs a scope node');
-    const attributes = attributesText(l.attributes, `${this.name}.create`);
+    requireScopeNode(l.scope, where, 'a link needs a scope node');
+    const attributes = plainAttributes(l.attributes, where);
     normaliseTags(grant.tags);
 
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
-    const row: LinkRow = { id: randomUUID(), token_hash: linkTokenHash(secret, token), ...scopeToColumns(l.scope), attributes, expires_at: l.expiresAt ?? null, revoked_at: null, created_by: principalKey(actor), created_at: this.now() };
-    await driver.insert().into(AUTHZ_LINK_TABLE).values(row);
+    const row: LinkFields = { id: randomUUID(), token_hash: linkTokenHash(secret, token), ...scopeToColumns(l.scope), attributes, expires_at: toDateTime(l.expiresAt), revoked_at: null, created_by: principalKey(actor), created_at: toDateTime(this.now()) };
+    await LinkRecord.insert(recordValues<LinkRecord>(row));
 
-    await this.assignments().assign({ subject: { type: 'link', id: row.id }, role: grant.role, scope: l.scope, ...(grant.tags ? { tags: grant.tags } : {}), expiresAt: row.expires_at as Date | null }, actor, tx);
+    await this.assignments().assign({ subject: linkSubject(row.id), role: grant.role, scope: l.scope, ...(grant.tags ? { tags: grant.tags } : {}), expiresAt: l.expiresAt ?? null }, actor, tx);
 
     return { link: rowToLink(row), token };
   }
 
   /** Marks the link revoked (the row stays) and deletes its assignments; unknown or revoked id ⇒ `not_found`. */
   async revoke(id: string, _actor: PrincipalRef, tx: AuthzTx): Promise<void> {
-    const driver = await this.writeDriver(tx, `${this.name}.revoke`);
-    const result = await driver.update().in(AUTHZ_LINK_TABLE).update({ revoked_at: this.now() }).where('id', id).whereNull('revoked_at');
-    if (rowsAffected(result) === 0) throw notFound(id);
+    requireTransaction(LinkRecord, tx, `${this.name}.revoke`);
+    const { RowsAffected } = await LinkRecord.update(recordValues<LinkRecord>({ revoked_at: toDateTime(this.now()) }))
+      .where('id', id)
+      .whereNull('revoked_at');
+    if (RowsAffected === 0) throw notFound(id);
 
     await this.assignments().revokeSubjects([linkSubject(id)], tx);
   }
 
   /** `link.update`: replaces the expiry (of the link and its assignments) and the attributes given; unknown or revoked id ⇒ `not_found`. */
   async update(id: string, patch: LinkPatch, _actor: PrincipalRef, tx: AuthzTx): Promise<LinkDef> {
-    const driver = await this.writeDriver(tx, `${this.name}.update`);
-    const change: Partial<LinkRow> = {};
-    if (patch.attributes !== undefined) change.attributes = attributesText(patch.attributes, `${this.name}.update`);
-    if (patch.expiresAt !== undefined) change.expires_at = patch.expiresAt;
+    const where = `${this.name}.update`;
+    requireTransaction(LinkRecord, tx, where);
+    const change: { attributes?: Readonly<Record<string, unknown>>; expires_at?: DateTime | null } = {};
+    if (patch.attributes !== undefined) change.attributes = plainAttributes(patch.attributes, where);
+    if (patch.expiresAt !== undefined) change.expires_at = toDateTime(patch.expiresAt);
 
-    const row = await this.liveRow(driver, id);
+    const row = await this.liveRow(id);
     if (!row) throw notFound(id);
 
     if (Object.keys(change).length > 0) {
-      const result = await driver.update().in(AUTHZ_LINK_TABLE).update(change).where('id', id).whereNull('revoked_at');
-      if (rowsAffected(result) === 0) throw notFound(id);
+      const { RowsAffected } = await LinkRecord.update(recordValues<LinkRecord>(change)).where('id', id).whereNull('revoked_at');
+      if (RowsAffected === 0) throw notFound(id);
     }
 
     let assignmentWrites = 0;
@@ -153,7 +145,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
       for (const a of items) await assignments.setExpiry(a.id, patch.expiresAt, tx);
       assignmentWrites = items.length;
     }
-    if (assignmentWrites === 0) await bumpVersion({ driver }, this.domain());
+    if (assignmentWrites === 0) await bumpVersion(tx, this.domain(), where);
 
     return rowToLink({ ...row, ...change });
   }
@@ -163,20 +155,16 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * assignments; returns them. GLOBAL and type-level refs are refused (`wrong_scope_type`).
    */
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly LinkDef[]> {
-    requireScopeNode(scope, `${this.name}.forgetScope`, 'only a scope node can be forgotten');
+    const where = `${this.name}.forgetScope`;
+    requireScopeNode(scope, where, 'only a scope node can be forgotten');
+    requireTransaction(LinkRecord, tx, where);
 
-    const driver = await this.writeDriver(tx, `${this.name}.forgetScope`);
-    const rows = await this.liveRowsAt(driver, scope);
-    const revokedAt = this.now();
-
-    for (let i = 0; i < rows.length; i += ID_BATCH) {
-      await driver
-        .update()
-        .in(AUTHZ_LINK_TABLE)
-        .update({ revoked_at: revokedAt })
+    const rows = await this.liveRowsAt(scope);
+    if (rows.length > 0) {
+      await LinkRecord.update(recordValues<LinkRecord>({ revoked_at: toDateTime(this.now()) }))
         .whereIn(
           'id',
-          rows.slice(i, i + ID_BATCH).map((r) => r.id),
+          rows.map((r) => r.id),
         )
         .whereNull('revoked_at');
     }
@@ -197,38 +185,37 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
   async find(q: LinkQuery, page?: { limit: number; offset: number }): Promise<{ items: readonly LinkDef[]; total: number }> {
     const window = page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined;
 
-    const driver = await this.connection();
     const filtered = () => {
-      const query = driver.select().from(AUTHZ_LINK_TABLE).whereNull('revoked_at');
+      const query = LinkRecord.query().whereNull('revoked_at');
       if (q.scope) query.where(scopeToColumns(q.scope));
       return query;
     };
 
     if (!window) {
-      const items = (await rowsOf(filtered().orderBy('created_at').orderBy('id'))).map(rowToLink);
+      const items = (await filtered().orderBy('created_at').orderBy('id')).map(rowToLink);
       return { items, total: items.length };
     }
 
-    const total = Number(await filtered().selectCount());
+    const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
     const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
     if (window.offset > 0) query.skip(window.offset);
 
-    return { items: (await rowsOf(query)).map(rowToLink), total };
+    return { items: (await query).map(rowToLink), total };
   }
 
   protected assignments(): DbAssignmentStore {
     return this.container.resolve(DbAssignmentStore);
   }
 
-  protected async liveRow(driver: OrmDriver, id: string): Promise<LinkRow | undefined> {
-    const [row] = await rowsOf(driver.select().from(AUTHZ_LINK_TABLE).where('id', id).whereNull('revoked_at'));
+  protected async liveRow(id: string): Promise<LinkRecord | undefined> {
+    const [row] = await LinkRecord.query().where('id', id).whereNull('revoked_at');
     return row;
   }
 
-  protected liveRowsAt(driver: OrmDriver, scope: ResourceRef): Promise<LinkRow[]> {
-    return rowsOf(driver.select().from(AUTHZ_LINK_TABLE).where(scopeToColumns(scope)).whereNull('revoked_at'));
+  protected async liveRowsAt(scope: ResourceRef): Promise<LinkRecord[]> {
+    return LinkRecord.query().where(scopeToColumns(scope)).whereNull('revoked_at');
   }
 
   /** Defence in depth: the row was found by this hash; the keyed hash is what makes the indexed lookup timing-safe. */
@@ -265,45 +252,32 @@ function linkSubject(id: string): PrincipalRef {
   return { type: 'link', id };
 }
 
-function attributesText(attributes: unknown, where: string): string {
+/** A plain object that serialises to JSON; anything else is `invalid_attributes`, before a write. */
+function plainAttributes(attributes: unknown, where: string): Readonly<Record<string, unknown>> {
   const proto = attributes !== null && typeof attributes === 'object' ? Object.getPrototypeOf(attributes) : undefined;
   if (proto !== Object.prototype && proto !== null) {
     throw new AuthzAdminFailure('invalid_attributes', `${where}: attributes must be a plain object`, 'attributes');
   }
   try {
-    return JSON.stringify(attributes);
+    JSON.stringify(attributes);
   } catch (err) {
     throw new AuthzAdminFailure('invalid_attributes', `${where}: attributes must be JSON (${(err as Error).message})`, 'attributes', { cause: err });
   }
+  return attributes as Readonly<Record<string, unknown>>;
 }
 
-function rowToLink(row: LinkRow): LinkDef {
+function rowToLink(row: LinkFields): LinkDef {
   const createdBy = parsePrincipalKey(row.created_by);
-  let attributes: Record<string, unknown>;
-
-  try {
-    attributes = row.attributes ? (JSON.parse(row.attributes) as Record<string, unknown>) : {};
-  } catch (err) {
-    throw new AuthzConfigError(`${AUTHZ_LINK_TABLE} ${row.id}: unreadable attributes`, { cause: err });
-  }
 
   return {
     id: row.id,
     scope: scopeFromColumns(row.scope_type, row.scope_id),
-    expiresAt: toDate(row.expires_at),
-    attributes,
+    expiresAt: fromDateTime(row.expires_at),
+    attributes: row.attributes ?? {},
     ...(createdBy ? { createdBy } : {}),
   };
 }
 
 function notFound(id: string): AuthzAdminFailure {
   return new AuthzAdminFailure('not_found', `Link ${JSON.stringify(id)} does not exist or is revoked`, 'id');
-}
-
-async function rowsOf(query: PromiseLike<unknown>): Promise<LinkRow[]> {
-  return (await query) as LinkRow[];
-}
-
-function rowsAffected(result: unknown): number {
-  return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
 }
