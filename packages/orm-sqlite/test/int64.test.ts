@@ -78,6 +78,20 @@ describe('sqlite @Int64 columns', function () {
     expect(read.Big).to.eq(43n);
   });
 
+  it('converts where and whereIn bindings on an @Int64 column', async () => {
+    const one = new GapInt64({ Counter: '1', Big: 1n, Small: 1 });
+    const two = new GapInt64({ Counter: '44', Big: 43n, Small: 2 });
+    await GapInt64.insert(one);
+    await GapInt64.insert(two);
+
+    expect(((await GapInt64.where('Big', 43n).first()) as GapInt64).Id).to.eq(two.Id);
+    expect(((await GapInt64.where('Counter', '44').first()) as GapInt64).Id).to.eq(two.Id);
+    expect(((await GapInt64.where('Counter', ' 44 ').first()) as GapInt64).Id).to.eq(two.Id);
+
+    const found = (await GapInt64.query().whereIn('Counter', ['1', '44'])) as GapInt64[];
+    expect(found.map((m) => m.Id).sort()).to.deep.eq([one.Id, two.Id].sort());
+  });
+
   it('refuses a value beyond 2^53 that sqlite3 already rounded', async () => {
     await driver().insert().into('gap_int64').values({ Id: 99, Counter: '9007199254740993' });
 

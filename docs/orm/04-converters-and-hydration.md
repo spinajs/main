@@ -182,6 +182,7 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - `SqliteModelToSqlConverter` leaves `undefined` columns out of the payload so table defaults apply; `StandardModelToSqlConverter` writes them. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
 - Converters and hydrators are shared instances. Keep them stateless.
 - `sqlite3` and `mysql2` return a 64-bit integer as a JS number, so a value beyond 2^53 is already rounded when it reaches `Int64ValueConverter`; the converter throws instead of returning it. On PostgreSQL every `int8` value arrives exact.
+- `where()` and `whereIn()` bindings on an `@Int64` column go through `toDB`, so they must be integers (a safe number, a decimal string, surrounding whitespace allowed, or a `bigint`); any other value throws `InvalidArgument`.
 - `toDB` also serves `dehydrate()`, so an `@Int64('bigint')` property serializes to JSON as decimal text.
 
 ## Best practices

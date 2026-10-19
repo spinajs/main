@@ -1,7 +1,7 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-19)
 
 ## Corpus Check
-- 4551 files · ~3,008,144 words
+- 4551 files · ~3,008,364 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6dd5b6ac`
+- Built from commit: `4a600308`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5932,6 +5932,6 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `fake-tuple.test.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.012683946245609961 - nodes in this community are weakly interconnected._
 - **Why does `NewInstance` connect `NewInstance` to `OrmDriver`, `OrmException`, `orm-sql/src/compilers.ts`, `MySqlOrmDriver`, `ModelBase`, `ref_spinajs_configuration`, `SqlCreateViewQueryCompiler`, `QueryBuilder`, `driver.ts`, `ref_spinajs_http`, `PostgresOrmDriver`, `fsTemp`, `EmailSender`, `http-socket/src/index.ts`, `owner-singleton.test.ts`, `Ok`, `Log`, `Injectable`, `orm/src/builders.ts`, `IQueueMessage`, `packages_di_lib_mjs_index_injectable`, `root.ts`, `authn-session/test/contracts.test.ts`, `BufferTarget`, `di/test/di.test.ts`, `ILogArchiveContext`, `packages_di_lib_mjs_index`, `ref_spinajs_authz_testing`, `SetUserPassword`, `test/behaviour/harness.ts`, `Orm`, `Services and extension points`, `MemorySessionIssuer`, `Translatable`, `impersonation-service.ts`, `AuthnContext`, `WhenRepeatedFilter`, `Singleton`, `email.deferred.test.ts`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
+  _High betweenness centrality (0.016) - this node is a cross-community bridge._
 - **Should `fakes.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.010716577031832908 - nodes in this community are weakly interconnected._

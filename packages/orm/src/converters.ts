@@ -212,6 +212,10 @@ function exactInt64(value: unknown): bigint {
   }
 
   if (typeof value === 'number') {
+    if (!Number.isInteger(value)) {
+      throw new OrmException(`int64 column holds a value that is not an integer: ${value}`);
+    }
+
     if (!Number.isSafeInteger(value)) {
       throw new OrmException(`int64 value ${value} arrived from the driver as an unsafe number and has lost precision`);
     }
@@ -244,8 +248,8 @@ export class Int64ValueConverter extends ValueConverter {
       return value;
     }
 
-    if (typeof value === 'string' && INT64_TEXT.test(value)) {
-      return value;
+    if (typeof value === 'string' && INT64_TEXT.test(value.trim())) {
+      return value.trim();
     }
 
     throw new InvalidArgument(`int64 value must be a safe integer, a decimal string or a bigint, got ${String(value)}`);
