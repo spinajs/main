@@ -174,4 +174,20 @@ describe('fsS3 – provider hooks', () => {
     expect(internals.zipDestination()).to.equal(temp);
     expect(internals.unzipDestination()).to.equal(temp);
   });
+
+  it("lists a directory as the key prefix 'dir/'", async () => {
+    const { p, send } = provider();
+
+    expect(await p.list('dir')).to.deep.equal(['dir/a.txt']);
+    await p.list('/dir/');
+    await p.list('');
+    await p.list('/');
+
+    expect(sent(send, ListObjectsV2Command).map((c) => [c.input.Prefix, c.input.Delimiter])).to.deep.equal([
+      ['dir/', '/'],
+      ['dir/', '/'],
+      ['', '/'],
+      ['', '/'],
+    ]);
+  });
 });

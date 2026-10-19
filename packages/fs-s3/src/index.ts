@@ -695,7 +695,8 @@ export class fsS3 extends fs {
         new ListObjectsV2Command({
           Bucket: this.Options.bucket,
           Delimiter: '/',
-          Prefix: path,
+          // normalised paths have no trailing '/'; without it the prefix 'dir' lists the common prefix 'dir/', not its objects
+          Prefix: path ? `${path}/` : '',
           ContinuationToken: token,
         }),
       );
