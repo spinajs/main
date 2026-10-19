@@ -1,6 +1,7 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AuthenticationStrategy, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { InvalidOption } from '@spinajs/exceptions';
 import { challengeSecretPurpose, challengeSigningInput, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { decodeB64url } from '../jwk/base64url.js';
 import { loginChallengeIdentity } from '../registry/registry.js';
@@ -33,7 +34,7 @@ export class KeyChallengeStrategy extends KeyStrategy<KeyChallengeStrategyDeps> 
   protected get audience(): string {
     const audience = this.options.challenge.audience;
     if (audience === null) {
-      throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
+      throw new InvalidOption('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
     }
     return audience;
   }

@@ -3,7 +3,7 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
@@ -238,7 +238,7 @@ export class DbTokenService extends TokenService {
 
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
-      throw new Error(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.Owners.constructor.name}`);
+      throw new InvalidOperation(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.Owners.constructor.name}`);
     }
 
     if (roles !== undefined && !(await this.ownerHolds(owner, roles))) {
@@ -332,7 +332,7 @@ export class DbTokenService extends TokenService {
   public async deleteExpired(now: Date): Promise<number> {
     const at = instant(now);
     if (!Number.isFinite(at)) {
-      throw new Error('now must be a valid Date');
+      throw new InvalidOperation('now must be a valid Date');
     }
     const cutoff = DateTime.fromMillis(at);
 
@@ -454,7 +454,7 @@ export class DbTokenService extends TokenService {
     const now = this.nowOf(ctx);
     const [validInterval] = _try_check_arg(_is_number(_finite(), _gte(0)))(intervalSeconds, 'intervalSeconds');
     if (!validInterval) {
-      throw new Error('the last-used interval must be a non-negative number of seconds');
+      throw new InvalidOperation('the last-used interval must be a non-negative number of seconds');
     }
     const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
     if (!ok) {
@@ -480,7 +480,7 @@ export class DbTokenService extends TokenService {
     const roles = (t.Roles ?? []).filter(isNonEmptyString);
     const createdAt = toDate(t.CreatedAt);
     if (createdAt === null) {
-      throw new Error(`Access token ${t.Uuid} has an unreadable CreatedAt`);
+      throw new UnexpectedServerError(`Access token ${t.Uuid} has an unreadable CreatedAt`);
     }
     const lastUsedAt = toDate(t.LastUsedAt);
     const scope = storedScope(t.Scope, t.Kind === 'agent');
@@ -511,7 +511,7 @@ export class DbTokenService extends TokenService {
       return true;
     }
     if (typeof source.rolesOf !== 'function') {
-      throw new Error('The registered RoleSource has no rolesOf()');
+      throw new InvalidOperation('The registered RoleSource has no rolesOf()');
     }
 
     const principal: Principal = { type: owner.type, id: owner.id, authenticated: true, source: 'token', attributes: {} };
@@ -551,7 +551,7 @@ export class DbTokenService extends TokenService {
   private nowOf(ctx: AuthnContext): number {
     const now = instant(ctx?.now);
     if (!Number.isFinite(now)) {
-      throw new Error('ctx.now must be a valid Date');
+      throw new InvalidOperation('ctx.now must be a valid Date');
     }
     return now;
   }
@@ -559,14 +559,14 @@ export class DbTokenService extends TokenService {
   private checkGenerated(plaintext: unknown): void {
     const suffix = typeof plaintext === 'string' && plaintext.startsWith(this.Prefix) ? plaintext.slice(this.Prefix.length) : '';
     if (!BASE64URL.test(suffix) || suffix.length < Math.ceil((this.Length * 4) / 3) || (plaintext as string).length > MAX_TOKEN_LENGTH) {
-      throw new Error('authn.token.generation minted a token without the configured prefix or length');
+      throw new UnexpectedServerError('authn.token.generation minted a token without the configured prefix or length');
     }
   }
 
   private affected(result: unknown): number {
     const rows = (result as { RowsAffected?: unknown } | undefined)?.RowsAffected;
     if (typeof rows !== 'number') {
-      throw new Error('The database driver did not report the number of updated rows');
+      throw new UnexpectedServerError('The database driver did not report the number of updated rows');
     }
     return rows;
   }

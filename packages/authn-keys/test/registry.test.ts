@@ -1,6 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventSink, AuthnThrottle, JwsVerifier, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spinajs/authn/contracts';
@@ -170,9 +171,9 @@ describe('DefaultKeyRegistry', () => {
   it('throws on a malformed owner or a service key without an actor (programming errors, not credentials)', async () => {
     const w = world();
     const kp = generateKeyPair('EdDSA');
-    await assert.rejects(w.registry.register({ owner: { type: 'group', id: 'g' }, actor: ADMIN, jwk: kp.publicJwk } as never, w.ctx()), TypeError);
-    await assert.rejects(w.registry.register({ owner: SVC, jwk: kp.publicJwk } as never, w.ctx()), TypeError);
-    await assert.rejects(w.registry.challenge({ purpose: 'register', owner: SVC } as never, w.ctx()), TypeError);
+    await assert.rejects(w.registry.register({ owner: { type: 'group', id: 'g' }, actor: ADMIN, jwk: kp.publicJwk } as never, w.ctx()), InvalidArgument);
+    await assert.rejects(w.registry.register({ owner: SVC, jwk: kp.publicJwk } as never, w.ctx()), InvalidArgument);
+    await assert.rejects(w.registry.challenge({ purpose: 'register', owner: SVC } as never, w.ctx()), InvalidArgument);
   });
 
   it('binds challenge signatures to this service: a proof signed for another audience fails', async () => {
@@ -202,7 +203,7 @@ describe('DefaultKeyRegistry', () => {
   it('refuses an actor longer than created_by and a scope that is not a Ceiling', async () => {
     const w = world();
     const jwk = () => generateKeyPair('EdDSA').publicJwk;
-    await assert.rejects(w.registry.register({ owner: SVC, actor: { type: 'user', id: 'a'.repeat(96) }, jwk: jwk() }, w.ctx()), TypeError);
+    await assert.rejects(w.registry.register({ owner: SVC, actor: { type: 'user', id: 'a'.repeat(96) }, jwk: jwk() }, w.ctx()), InvalidArgument);
     assert.ok((await w.registry.register({ owner: SVC, actor: { type: 'user', id: 'a'.repeat(95) }, jwk: jwk() }, w.ctx())).ok, '100 characters fit');
     for (const scope of [{ roles: 'admin' }, { roles: [1] }, { permissions: [null] }, { resources: [{ id: 'x' }] }, { expiresAt: 'tomorrow' }, { expiresAt: new Date(NaN) }, { reason: 7 }, { extra: true }]) {
       assert.deepStrictEqual(await w.registry.register({ owner: SVC, actor: ADMIN, jwk: jwk(), scope } as never, w.ctx()), { ok: false, code: 'invalid_key' }, JSON.stringify(scope));

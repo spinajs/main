@@ -2,6 +2,7 @@ import { OrmMigration, OrmDriver, Migration, DatetimeValueConverter, IdentifierQ
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { DateTime } from 'luxon';
+import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 
 const TABLE = 'rbac_access_tokens';
 const COLUMNS = ['Scope', 'Kind', 'RevokedAt', 'LastUsedIp'];
@@ -19,7 +20,7 @@ export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
     const maxTtlDays = this.MaxTtlDays;
     // Before any ALTER: the schema is the gate; this floor holds for a value that never went through it.
     if (!(Number.isFinite(maxTtlDays) && maxTtlDays > 0)) {
-      throw new Error(`authn.token.maxTtlDays must be a finite positive number to back-fill the expiry of 2.x tokens, got ${String(maxTtlDays)}`);
+      throw new InvalidOption(`authn.token.maxTtlDays must be a finite positive number to back-fill the expiry of 2.x tokens, got ${String(maxTtlDays)}`);
     }
 
     // One ALTER per call: the builder runs the statements of a single call concurrently.
@@ -61,7 +62,7 @@ export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
         createdAt = DateTime.fromISO(String(row.CreatedAt));
       }
       if (!createdAt.isValid) {
-        throw new Error(`Cannot back-fill ExpiresAt of ${TABLE} row ${row.Id}: unreadable CreatedAt`);
+        throw new UnexpectedServerError(`Cannot back-fill ExpiresAt of ${TABLE} row ${row.Id}: unreadable CreatedAt`);
       }
 
       await connection
