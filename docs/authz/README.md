@@ -288,7 +288,8 @@ authz: {
   `authz.rbac.maxSetDepth` (default 8, at most 64) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
   membership lives while any path to the set lives.
 
-`RbacService` offers `rolesOf(principal, at)`, `grantsOf(role)` and `covers(…)`.
+`RbacService` offers `rolesOf(principal, at)` and `grantsOf(role)`. Whether an actor may hand out a
+role is `RbacAdminFacts.covers` (default `CheckRbacAdminFacts`, which asks checks).
 
 **Ladders, tags, rules and links.** No 2.x app needs these; canvas does. Design §8.5 holds a full
 config, and §6.1 the rules behind it.

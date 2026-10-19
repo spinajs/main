@@ -512,9 +512,6 @@ export declare class AccessDenied extends Forbidden {
 export declare class Unauthenticated extends AuthenticationFailed {
     constructor(message?: string, inner?: Error | unknown);
 }
-export declare class NeedsAsync extends Error {
-    constructor(message?: string, options?: ErrorOptions);
-}
 ```
 
 ## src/contracts/fields.ts
