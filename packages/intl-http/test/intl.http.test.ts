@@ -2,7 +2,7 @@ import 'mocha';
 
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
-import '@spinajs/fs';
+import { fsService } from '@spinajs/fs';
 import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
@@ -25,6 +25,8 @@ describe('http & controller tests', function () {
       await b.bootstrap();
     }
 
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
     const server = await DI.resolve(HttpServer);
