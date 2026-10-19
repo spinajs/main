@@ -5,11 +5,11 @@ import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
-import { ServerMiddleware } from '@spinajs/http';
+import { ServerMiddleware, isPublicCookieSecret, normalizeHeaders } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal, Session, SignedRequest } from '@spinajs/authn/contracts';
-import { PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
+import { appEnvOf, assertSessionCookieSecret, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import type * as express from 'express';
 
@@ -20,17 +20,6 @@ const byOrder = (a: { order: number }, b: { order: number }): number => a.order 
 
 // Domain-separated and cut short: sha256 of a raw session id is its storage key, which must not reach a log.
 const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
-
-function headersOf(req: Request): Record<string, string> {
-  // From rawHeaders: req.headers keeps only the first of a repeated Authorization header.
-  const headers: Record<string, string> = Object.create(null);
-  const raw = req.rawHeaders ?? [];
-  for (let i = 0; i + 1 < raw.length; i += 2) {
-    const name = raw[i].toLowerCase();
-    headers[name] = name in headers ? `${headers[name]}, ${raw[i + 1]}` : raw[i + 1];
-  }
-  return headers;
-}
 
 function bodyOf(req: Request): Uint8Array | undefined {
   const raw = (req as { rawBody?: unknown }).rawBody;
@@ -92,7 +81,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     const env = appEnvOf(this.Configuration);
     const secret = this.ConfiguredCookieSecret;
     assertSessionCookieSecret(secret, env);
-    if (secret === PUBLIC_DEFAULT_COOKIE_SECRET) {
+    if (isPublicCookieSecret(secret)) {
       this.Log.warn('http.cookie.secret is the public default shipped with @spinajs/http; session cookies can be forged. Set a secret of your own');
     }
     if (publicOriginOf(this.PublicOrigin) === undefined) {
@@ -178,7 +167,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     const signed: SignedRequest = {
       method: req.method,
       targetUri: target,
-      headers: headersOf(req),
+      headers: normalizeHeaders(req),
       // Only the signature extractor reads it, so a request without signature headers draws no random bytes.
       get body() {
         if (body === null) body = bodyOf(req);

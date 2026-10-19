@@ -1,6 +1,6 @@
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { Unauthorized } from '@spinajs/http';
+import { Unauthorized, retryAfterHeader } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import type { SessionHandle } from '@spinajs/authn/contracts';
 import { appEnvOf, clearSessionCookie, sessionCookie } from '@spinajs/authn-session';
@@ -23,7 +23,7 @@ export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', 
  */
 export function authnFailureResponse(retryAfterSeconds?: number, cookies: readonly ICookie[] = []): Unauthorized {
   const headers: IResponseHeader[] = [NO_STORE];
-  if (typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds)) headers.push({ Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) });
+  if (typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds)) headers.push(retryAfterHeader(retryAfterSeconds));
   return new Unauthorized({ error: { ...AUTHN_FAILURE_BODY.error }, message: AUTHN_FAILURE_BODY.message }, { Headers: headers, Coockies: [...cookies] });
 }
 

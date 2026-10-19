@@ -48,7 +48,11 @@ export interface ISessionCookieConfig {
 /** Keys consumed here rather than handed to express. */
 const COOKIE_CONTROL_KEYS = ['name', 'hostPrefix'];
 
-/** Shipped in `@spinajs/http`'s default config, so anyone can forge signatures made with it. */
+/**
+ * Shipped in `@spinajs/http`'s default config, so anyone can forge signatures made with it.
+ *
+ * @deprecated use `HTTP_PUBLIC_COOKIE_SECRET` / `isPublicCookieSecret` from `@spinajs/http`
+ */
 export const PUBLIC_DEFAULT_COOKIE_SECRET = AUTHN_PUBLIC_COOKIE_SECRET;
 
 function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): boolean {
@@ -76,7 +80,7 @@ export function assertSessionCookieSecret(secret: string | undefined, env?: stri
   if (!secret) {
     throw new InvalidOption('http.cookie.secret is not set; session cookies cannot be signed');
   }
-  if (secret === PUBLIC_DEFAULT_COOKIE_SECRET && !isLenientAuthnEnv(env)) {
+  if (secret === AUTHN_PUBLIC_COOKIE_SECRET && !isLenientAuthnEnv(env)) {
     throw new InvalidOption('http.cookie.secret is the public default shipped with @spinajs/http; set a secret of your own');
   }
 }
@@ -114,7 +118,8 @@ export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?:
   if (flagOn(config.hostPrefix, env)) {
     options.secure = true;
     options.path = '/';
-    delete options.domain;
+    // Undefined, not deleted: http responses spread http.cookie.options under these, and a deleted key lets its domain in.
+    options.domain = undefined;
   }
 
   return options;

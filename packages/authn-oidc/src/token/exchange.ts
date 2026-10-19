@@ -1,3 +1,4 @@
+import { basicAuthHeader } from '@spinajs/http';
 import type { OidcTokenEndpointAuth } from '../contracts.js';
 import type { OidcHttpClient } from '../http/client.js';
 import { isNonEmptyString, isPlainObject } from '../support.js';
@@ -21,9 +22,6 @@ export interface OidcTokenSet {
 
 const MAX_TOKEN_LENGTH = 16_384;
 
-/** RFC 6749 §2.3.1: id and secret are form-urlencoded before the Basic encoding. */
-const formEncode = (s: string): string => new URLSearchParams({ v: s }).toString().slice(2);
-
 /** The authorization code grant (RFC 6749 §4.1.3) with the PKCE verifier; throws on any answer but a valid token set. */
 export async function exchangeCode(http: OidcHttpClient, x: CodeExchange): Promise<OidcTokenSet> {
   const form: Record<string, string> = { grant_type: 'authorization_code', code: x.code, redirect_uri: x.redirectUri, code_verifier: x.codeVerifier };
@@ -32,7 +30,7 @@ export async function exchangeCode(http: OidcHttpClient, x: CodeExchange): Promi
     form.client_id = x.clientId;
     form.client_secret = x.clientSecret;
   } else {
-    headers.authorization = `Basic ${Buffer.from(`${formEncode(x.clientId)}:${formEncode(x.clientSecret)}`, 'utf8').toString('base64')}`;
+    headers.authorization = basicAuthHeader(x.clientId, x.clientSecret, { formEncode: true });
   }
   const { status, json } = await http.postForm(x.endpoint, form, headers);
   if (status !== 200 || !isPlainObject(json)) {

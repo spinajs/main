@@ -1,12 +1,12 @@
 import { PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { parseBearer } from '@spinajs/http';
 import '@spinajs/authn/register-schema';
 import { CredentialExtractor } from '@spinajs/authn/contracts';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
 // RFC 6750 b64token. A header sent twice reaches the extractors joined with ", ", which never matches.
 const TOKEN = /^[A-Za-z0-9\-._~+/]+=*$/;
-const BEARER = /^Bearer +([A-Za-z0-9\-._~+/]+=*)$/i;
 const MALFORMED_BEARER = /^Bearer +(.+)$/is;
 
 function jwsTyp(header: string): unknown {
@@ -39,8 +39,8 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
     if (header === undefined) return null;
     const ours = (value: string) => value.startsWith(this.Prefix);
 
-    const token = BEARER.exec(header)?.[1];
-    if (token === undefined) {
+    const token = parseBearer(header);
+    if (token === null) {
       const value = MALFORMED_BEARER.exec(header)?.[1];
       return value !== undefined && ours(value) ? { kind: 'bearer', token: value } : null;
     }
