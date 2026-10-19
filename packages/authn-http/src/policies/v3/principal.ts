@@ -1,6 +1,6 @@
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import type { Principal } from '@spinajs/authn/contracts';
+import type { Principal, Session } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
 
@@ -10,6 +10,16 @@ export function authenticatedPrincipal(req: Request): Principal {
   if (!principal || principal.authenticated !== true) throw unauthenticated('this route needs an authenticated caller');
   return principal;
 }
+
+/** The request's active session, or a 403 `session_required` without one or for a pending one. */
+export function activeSessionOf(req: Request, message = 'this route needs a session'): Session {
+  const session = req.storage.AuthnSession;
+  if (session?.handle.state !== 'active') throw refused('session_required', message);
+  return session;
+}
+
+// api.ts declares contract classes under the names of the three @NewInstance policies below, and DI keys classes by
+// name: a singleton of either would be handed out for the other.
 
 /** Only a session principal carries its hashed session handle; a per-request credential (token, JWT, key, signature) never does. */
 export const isSessionPrincipal = (principal: Principal): boolean => typeof principal.authn?.sessionHandle === 'string' && principal.authn.sessionHandle !== '';
