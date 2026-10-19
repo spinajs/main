@@ -2,12 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm, OrmDriver } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
 import { checkedMs, cutText, sqlTime } from '../support/sql.js';
 
 function keyOrNull(ref: IdentityRef | PrincipalRef | undefined): string | null {
@@ -32,15 +31,18 @@ function json(value: unknown): string {
  * whose work is already done (D4 over D1): free text longer than its column is cut, and an identity or actor that
  * does not fit its column leaves the column null and goes whole into `data` (`identityRef`, `actorRef`).
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(AuthnEventSink)
 export class DbAuthnAuditSink extends AuthnEventSink {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
     super();
-    this.connection = new StoreConnection('DbAuthnAuditSink', driver, options.container);
+    this.connection = new StoreConnection('DbAuthnAuditSink', driver, () => this.Orm);
   }
 
   public async publish(e: AuthnEvent): Promise<void> {

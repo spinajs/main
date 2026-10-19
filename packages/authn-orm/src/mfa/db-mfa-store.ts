@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
-import { IdentifierQuoter, OrmDriver, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, OrmDriver, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
 import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
@@ -21,7 +20,7 @@ const RAW_MAX = 1024;
 
 /** One MFA step of an identity as stored. */
 export interface MfaRecord {
-  /** Cipher text exactly as `put` was given it; this store never encrypts or decrypts. */
+  /** Cipher text exactly as `putPending` was given it; this store never encrypts or decrypts. */
   readonly secretEnc: string;
   readonly keyId: string;
   readonly confirmedAt: Date | null;
@@ -53,14 +52,17 @@ function timeOf(text: string | null): Date | null {
  * Without transactions (the sqlite driver shares one handle) `replaceRecoveryCodes` deletes and then inserts: two
  * parallel calls for one identity may leave both sets.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable()
 export class DbMfaStore {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
-    this.connection = new StoreConnection('DbMfaStore', driver, options.container);
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
+    this.connection = new StoreConnection('DbMfaStore', driver, () => this.Orm);
   }
 
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
@@ -80,33 +82,9 @@ export class DbMfaStore {
     };
   }
 
-  /** Stores (or replaces) the step: unconfirmed, no accepted time step, created now. */
-  public async put(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<void> {
-    const identity = identityKey(id);
-    const name = stepName(step);
-    checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
-    checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.put: the clock'));
-    const { driver } = await this.connection.get();
-
-    const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
-    for (let i = 0; i < MAX_TRIES; i++) {
-      try {
-        await driver
-          .insert()
-          .into(MFA)
-          .values({ identity, step: name, ...fields });
-        return;
-      } catch (err) {
-        if (!(err instanceof ResourceDuplicated)) throw err;
-      }
-      if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name)) === 1) return;
-    }
-    throw new UnexpectedServerError(`DbMfaStore.put: the ${name} row kept changing under this call`);
-  }
-
   /**
-   * As `put`, but never overwrites a confirmed step: false means a confirmed row exists and nothing changed. The
+   * Stores the step unconfirmed, with no accepted time step and created now, replacing a pending one. A confirmed
+   * step is never overwritten: false means a confirmed row exists and nothing changed. The
    * replacing update is conditional on `confirmed_at IS NULL`, so a confirmation that lands first always wins.
    */
   public async putPending(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean> {

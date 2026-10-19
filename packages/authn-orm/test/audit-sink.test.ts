@@ -149,7 +149,7 @@ for (const kind of DB_KINDS) {
     });
 
     it("resolves the Orm's default connection from its container when given no driver", async () => {
-      await new DbAuthnAuditSink(undefined, { container: db.container }).publish({ type: 'logout', at: T0, outcome: 'success' });
+      await (await db.container.resolve(DbAuthnAuditSink)).publish({ type: 'logout', at: T0, outcome: 'success' });
       expect(await auditRows(db)).to.have.length(1);
     });
   });
