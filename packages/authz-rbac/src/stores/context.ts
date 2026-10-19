@@ -1,14 +1,7 @@
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzConfigError, AuthzDomains, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { Orm, OrmDriver } from '@spinajs/orm';
-
-/** Config key naming the ORM connection of the authz-rbac tables (D-L2-2); absent means {@link ADMIN_CONNECTION_KEY}. */
-export const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
-
-/** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
-export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
 
 const ROOT_DOMAIN = 'root';
 
@@ -34,7 +27,7 @@ export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
 export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: string): OrmDriver {
   const driver = transactionDriver(tx, where);
   if (driver !== store) {
-    throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(driver.Options.Name)}, but the store uses ${JSON.stringify(store.Options.Name)} (${RBAC_CONNECTION_KEY}, else ${ADMIN_CONNECTION_KEY}, else the default connection)`);
+    throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(driver.Options.Name)}, but the store uses ${JSON.stringify(store.Options.Name)} (db.Aliases.${AUTHZ_CONNECTION})`);
   }
   return driver;
 }
@@ -58,21 +51,13 @@ export function storeDomain(container: IContainer): string {
   return ROOT_DOMAIN;
 }
 
-/**
- * The connection named by `authz.rbac.connection`, else by `authz.admin.connection`, else the ORM's
- * default connection: with only one key set, the stores and DbAuthzAdminBackend still share it.
- */
-export async function storeConnection(container: IContainer): Promise<OrmDriver> {
-  const configuration = container.hasRegistered(Configuration) ? await container.resolve(Configuration) : undefined;
-  const rbac = configuration?.get<string>(RBAC_CONNECTION_KEY);
-  const admin = rbac === undefined ? configuration?.get<string>(ADMIN_CONNECTION_KEY) : undefined;
-  const key = rbac !== undefined ? RBAC_CONNECTION_KEY : admin !== undefined ? ADMIN_CONNECTION_KEY : 'the ORM default connection';
-  const name = rbac ?? admin ?? 'default';
-  const orm = await container.resolve(Orm);
-  const driver = orm.Connections.get(name);
+/** The ORM connection of the authz tables: the one `db.Aliases.authz` names. */
+export async function authzConnection(container: IContainer): Promise<OrmDriver> {
+  const orm = (await container.resolve(Orm)) as Orm;
+  const driver = orm.Connections.get(AUTHZ_CONNECTION);
 
   if (!driver) {
-    throw new AuthzConfigError(`${key}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ')})`);
+    throw new AuthzConfigError(`no ORM connection answers to "${AUTHZ_CONNECTION}": set db.Aliases.${AUTHZ_CONNECTION} (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
   }
 
   return driver;

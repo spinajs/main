@@ -44,7 +44,7 @@ type StoredRuleRow = RuleRow & { readonly id: string; readonly definition: strin
 
 /**
  * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
- * the rule is its `definition` JSON. Reads use the `authz.rbac.connection` connection; writes run on
+ * the rule is its `definition` JSON. It lives on the `authz` connection; writes run on
  * the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27).
  * Registered by class name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
  */

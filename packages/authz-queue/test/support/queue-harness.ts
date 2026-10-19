@@ -111,6 +111,7 @@ export function queueHarness(): BehaviourHarness {
       host.setConfig(['process', 'env', 'APP_ENV'], 'test');
       host.setConfig(['db'], {
         DefaultConnection: 'queue',
+        Aliases: { authz: 'default' },
         Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: MIGRATION }],
       });
       host.setConfig(['queue'], {

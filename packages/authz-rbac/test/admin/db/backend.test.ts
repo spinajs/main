@@ -24,6 +24,7 @@ const HOUR = 3600_000;
 
 const DB = {
   DefaultConnection: 'sqlite',
+  Aliases: { authz: 'default' },
   Connections: [
     { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } },
     { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' },
@@ -54,6 +55,17 @@ describe('DbAuthzAdminBackend on SQLite', function () {
   };
   const idemRows = async () => (await db.select().from(IDEM)) as Record<string, unknown>[];
   const policyIds = async () => (await policies.load()).map((p) => p.id);
+
+  /** Runs `fn` with db.Aliases.authz pointing at connection `name`, as an app that maps it there. */
+  const onConnection = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+    const authz = orm.Connections.get('authz')!;
+    orm.Connections.set('authz', orm.Connections.get(name)!);
+    try {
+      return await fn();
+    } finally {
+      orm.Connections.set('authz', authz);
+    }
+  };
 
   before(async () => {
     await installHost();
@@ -219,18 +231,23 @@ describe('DbAuthzAdminBackend on SQLite', function () {
       expect(await attributes.rows(P2)).to.deep.equal({ b: 2 });
     });
 
-    it('runs on the connection authz.admin.connection names', async () => {
-      config().set(['authz', 'admin', 'connection'], 'other');
-      const e = await rejection(backend.transaction('d1', async () => undefined));
+    it('runs on the connection db.Aliases.authz names', async () => {
+      const e = await rejection(onConnection('other', () => backend.transaction('d1', async () => undefined)));
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect(e.message).to.include('authz_version').and.include('AuthzRbac_2026_10_01_00_00_00');
-      config().set(['authz', 'admin', 'connection'], 'nope');
-      expect(await rejection(backend.transaction('d1', async () => undefined))).to.be.instanceOf(AuthzConfigError);
+      const authz = orm.Connections.get('authz')!;
+      orm.Connections.delete('authz');
+      try {
+        const missing = await rejection(backend.transaction('d1', async () => undefined));
+        expect(missing).to.be.instanceOf(AuthzConfigError);
+        expect(missing.message).to.include('db.Aliases.authz');
+      } finally {
+        orm.Connections.set('authz', authz);
+      }
     });
 
     it('a missing idempotency table names its migration', async () => {
-      config().set(['authz', 'admin', 'connection'], 'other');
-      const e = await rejection(backend.recall('d1', 'user:alice', 'k', new Date()));
+      const e = await rejection(onConnection('other', () => backend.recall('d1', 'user:alice', 'k', new Date())));
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect(e.message).to.include(IDEM).and.include(AuthzAdminIdempotency_2026_10_02_00_01_00.name);
     });

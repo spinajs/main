@@ -67,8 +67,8 @@ async function startClientApp(): Promise<ClientAccessApp> {
     'process.env.APP_ENV': 'test',
     'authz.permissions': { ...CLIENT_ACCESS_FIXTURE.permissions, 'authz:assignments.manage': { types: ['doc'] } },
     // Whole: the installed packages' defaults add ladders and service roles over roles the fixture's replace.
-    'authz.rbac': { roles: CLIENT_ACCESS_FIXTURE.roles, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] }, connection: 'sqlite' },
-    'authz.admin': { connection: 'sqlite', backend: 'E2eAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage' } },
+    'authz.rbac': { roles: CLIENT_ACCESS_FIXTURE.roles, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] } },
+    'authz.admin': { backend: 'E2eAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage' } },
     'authz.combine': { default: { algorithm: 'deny-overrides', models: ['rbac'] } },
     // startApp replaces the whole configuration with the package defaults, TestDb's connections included.
     db: cfg.get<unknown>('db'),

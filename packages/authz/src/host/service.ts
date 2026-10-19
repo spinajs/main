@@ -23,6 +23,7 @@ import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
+import { checkRemovedConnectionKeys } from './config/connection.js';
 import { checkLegacyKeys } from './config/legacy-keys.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
 import type { DomainConfig } from './config/domain-config.js';
@@ -352,7 +353,10 @@ export class DefaultAuthzService extends AuthzService {
     await container.resolve(Configuration);
     const lineage = domains.lineage(name);
     // Floor for a Configuration the schema never saw: only an explicit false turns the rejection off.
-    if (parent === undefined) checkLegacyKeys(this.LegacyRbac, this.RejectLegacyKeys !== false, this.log);
+    if (parent === undefined) {
+      checkLegacyKeys(this.LegacyRbac, this.RejectLegacyKeys !== false, this.log);
+      checkRemovedConnectionKeys(this.Config);
+    }
     const cfg = readDomainConfig(this.Config, lineage);
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));

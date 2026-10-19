@@ -38,7 +38,6 @@ const validConfig = () => ({
   admin: {
     maxBatch: 50,
     backend: 'DbAuthzAdminBackend',
-    connection: 'authz',
     permissions: { 'assignment.*': 'app:members.manage', 'assignment.grant': { project: 'app:project.share', '*': 'app:any.share' } },
     guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: false },
   },
@@ -409,7 +408,7 @@ describe('authz configuration through a child Configuration', function () {
 describe('authz.admin through a child Configuration', function () {
   this.timeout(30000);
   const children: IContainer[] = [];
-  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend', connection: 'default' };
+  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
   const adminSchema = (AUTHZ_CONFIGURATION_SCHEMA.properties.admin as any).properties;
 
   afterEach(async () => {
@@ -452,7 +451,6 @@ describe('authz.admin through a child Configuration', function () {
       [{ maxBatch: 0 }, 'authz.admin.maxBatch'],
       [{ maxBatch: 1.5 }, 'authz.admin.maxBatch'],
       [{ backend: '' }, 'authz.admin.backend'],
-      [{ connection: '' }, 'authz.admin.connection'],
       [{ guard: { service: '', privilegedPermission: 'users:update' } }, 'authz.admin.guard.service'],
       [{ guard: { privilegedPermission: 'users' } }, 'authz.admin.guard.privilegedPermission'],
       [{ guard: { protectSystemRole: 'sometimes', privilegedPermission: 'users:update' } }, 'authz.admin.guard.protectSystemRole'],

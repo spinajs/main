@@ -3,7 +3,7 @@ import type { AuthzTx } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
+import { authzConnection, storeDomain, storeTransactionDriver } from './context.js';
 
 // TypeScript accepts a class as a mixin base only with an `any[]` rest constructor.
 type AbstractClass<T = object> = abstract new (...args: any[]) => T;
@@ -13,7 +13,7 @@ export abstract class DbRbacStore {
   protected abstract readonly container: IContainer;
 
   protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
+    return authzConnection(this.container);
   }
 
   /** The driver of `tx`, which must be a transaction on {@link connection}. */

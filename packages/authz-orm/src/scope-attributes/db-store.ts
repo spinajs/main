@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Orm, OrmDriver } from '@spinajs/orm';
-import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, parseAttributeLeaf, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, parseAttributeLeaf, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
 
 const TABLE = 'authz_scope_attribute';
 const VERSION_TABLE = 'authz_scope_attribute_version';
-const CONNECTION_KEY = 'authz.admin.connection';
 // value_text varchar(255); value_num decimal(20,6) holds 14 digits before the point.
 const TEXT_MAX = 255;
 const NUM_MAX = 1e14;
@@ -32,9 +30,9 @@ interface Row {
 }
 
 export interface DbScopeAttributeStoreOptions {
-  /** The ORM connection reads use; default: config authz.admin.connection. */
+  /** The ORM connection reads use; default the alias authz (db.Aliases.authz). */
   readonly connection?: string;
-  /** Where Configuration and Orm are resolved; default the DI root. */
+  /** Where Orm is resolved; default the DI root. */
   readonly container?: IContainer;
 }
 
@@ -46,13 +44,8 @@ const isLeaf = (v: unknown): v is ScopeAttributeLeaf => typeof v === 'string' ||
  * Writes run only inside the ORM transaction of an AuthzAdmin batch (AuthzTx.driver).
  */
 export class DbScopeAttributeStore extends WritableScopeAttributeStore {
-  @Config(CONNECTION_KEY)
-  protected Connection: string;
-
   constructor(private readonly opts: DbScopeAttributeStoreOptions = {}) {
     super();
-    // Built with `new` for a container, it reads that container's Configuration, as when DI builds it there.
-    if (opts.container) (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = opts.container;
   }
 
   async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
@@ -134,16 +127,16 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
       throw new AuthzConfigError('DbScopeAttributeStore writes only inside an ORM transaction: AuthzTx.driver must be the OrmDriver of the running transaction (authz.admin.backend must be a DB backend)');
     }
     // Reads must see the batch's earlier writes, so they have to run on the transaction's connection.
-    if (driver !== (await this.reader())) throw new AuthzConfigError(`DbScopeAttributeStore: the transaction runs on another connection than the one ${CONNECTION_KEY} names`);
+    if (driver !== (await this.reader())) throw new AuthzConfigError('DbScopeAttributeStore: the transaction runs on another connection than the one its reads use');
     return driver;
   }
 
   private async reader(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
-    const name = this.opts.connection ?? this.Connection;
+    const name = this.opts.connection ?? AUTHZ_CONNECTION;
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`DbScopeAttributeStore: ${CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
+    if (!driver) throw new AuthzConfigError(`DbScopeAttributeStore: no ORM connection named ${JSON.stringify(name)} (the default is the alias db.Aliases.${AUTHZ_CONNECTION}; connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
     return driver;
   }
 }

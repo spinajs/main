@@ -454,7 +454,7 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     }
   });
 
-  it('accepts connection, migration.idColumn and keeps keys of other lanes', async () => {
+  it('lets connection through to the boot check, accepts migration.idColumn and keeps keys of other lanes', async () => {
     const cfg = await configured({ connection: 'authz', migration: { roleColumn: 'Role', idColumn: 'Uuid' }, admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
     expect(cfg.admin).to.deep.equal({ x: 1 });
     expect(cfg.future).to.deep.equal({ y: true });
@@ -488,7 +488,6 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     await fails({ cache: { maxSubjects: 1.5 } }, 'cache.maxSubjects');
     await fails({ cache: { rolesCheckSeconds: -1 } }, 'cache.rolesCheckSeconds');
     await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
-    await fails({ connection: '' }, 'connection');
   });
 
   describe('role names follow ROLE_NAME_PATTERN, the one authz and users read too', () => {

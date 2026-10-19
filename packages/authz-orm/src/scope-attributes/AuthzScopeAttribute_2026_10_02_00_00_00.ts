@@ -1,3 +1,4 @@
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Migration, OrmMigration } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -6,7 +7,7 @@ import type { OrmDriver } from '@spinajs/orm';
  * authz_scope_attribute_version: the one row DbScopeAttributeStore.version() reads, seeded here so a write
  * only ever updates it.
  */
-@Migration('default')
+@Migration(AUTHZ_CONNECTION)
 export class AuthzScopeAttribute_2026_10_02_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('authz_scope_attribute', (table) => {

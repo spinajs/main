@@ -75,7 +75,7 @@ export class TestDb {
     const pgOptions = process.env.PGOPTIONS;
     if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections });
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' } });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {

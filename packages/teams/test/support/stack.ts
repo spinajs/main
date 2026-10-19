@@ -63,13 +63,11 @@ export const TEST_CONFIG = {
     // project:* declare team: team roles grant them at a team, where the admin guard checks them.
     permissions: { 'authz:assignments.manage': {}, 'project:read': { types: ['project', 'team'] }, 'project:update': { types: ['project', 'team'] } },
     rbac: {
-      connection: 'default',
       stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] },
       // grants concatenate with the fragment's: an app giving team roles rights on its own type below the team.
       roles: { 'teams.creator': { grants: ['team:create'], scopeTypes: ['$global'] }, 'team.member': { grants: ['project:read'] }, 'team.admin': { grants: ['project:update'] } },
     },
     admin: {
-      connection: 'default',
       backend: 'DbAuthzAdminBackend',
       guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true },
     },

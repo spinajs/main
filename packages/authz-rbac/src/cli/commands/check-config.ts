@@ -1,4 +1,5 @@
 import { Command, Option } from '@spinajs/cli';
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { Autoinject, DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
@@ -103,9 +104,8 @@ export class CheckConfigCommand extends AuthzCliCommand {
 
   private async unattended(): Promise<void> {
     const orm = (this.Orm ??= await DI.resolve(Orm));
-    const connection = this.Configuration.get<string | undefined>('authz.rbac.connection', undefined);
-    const driver: OrmDriver | undefined = orm.Connections.get(connection ?? 'default');
-    if (!driver) throw new CliUsageError(`no ORM connection ${JSON.stringify(connection ?? 'default')}`);
+    const driver: OrmDriver | undefined = orm.Connections.get(AUTHZ_CONNECTION);
+    if (!driver) throw new CliUsageError(`no ORM connection answers to "${AUTHZ_CONNECTION}": set db.Aliases.${AUTHZ_CONNECTION}`);
     if (!(await driver.schema().tableExists(AUDIT_TABLE))) throw new CliUsageError(`the ${AUDIT_TABLE} table does not exist: DbDecisionAudit (authz-orm) is not enabled`);
 
     const rows = (await driver.select().from(AUDIT_TABLE).where('reason', 'unattended').columns(['resource'])) as unknown as Array<{ resource: unknown }>;

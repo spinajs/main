@@ -56,7 +56,8 @@ export class TestDb {
   }
 
   /** `database`: a throwaway Postgres database to use instead of the shared one, run with its own jit setting. */
-  static async open(opts: { postgres?: boolean; database?: string } = {}): Promise<TestDb> {
+  /** `authz`: the dialect whose connection db.Aliases.authz names; default sqlite. */
+  static async open(opts: { postgres?: boolean; database?: string; authz?: Dialect } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -76,7 +77,7 @@ export class TestDb {
     const pgOptions = process.env.PGOPTIONS;
     if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections });
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: opts.authz ?? 'sqlite' } });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {

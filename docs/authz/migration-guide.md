@@ -737,7 +737,7 @@ resource types queried without a principal:
 ```
 
 With no such row it prints `no unattended queries in the audit log`. It fails when `authz_audit` does
-not exist. It reads the table on `authz.rbac.connection` (else `default`), while `DbDecisionAudit`
+not exist. It reads the table on the `authz` connection (`db.Aliases.authz`), while `DbDecisionAudit`
 writes on the connection named `authz-audit`: map that name to the same database
 (`db.Aliases: { 'authz-audit': 'default' }`). Turning `DbDecisionAudit` on takes three steps
 (`packages/authz-orm/README.md`, "Database audit"): import `@spinajs/authz-orm/audit` before the ORM
@@ -1046,6 +1046,10 @@ A token's role is never above its owner's role (B24, B07). See example g.
 The config, tables, migrations and commands are in the [authz README](./README.md#the-rbac-model)
 and in [section 7](#7-data-migration). What changes for an app:
 
+- The authz tables live on the ORM connection alias `authz`, whose default is `default`; map it with
+  `db.Aliases.authz`. Their migrations (`AuthzRbac_2026_10_01_00_00_00`,
+  `AuthzAdminIdempotency_2026_10_02_00_01_00`, and authz-orm's ancestor and scope-attribute tables) run
+  there. The 3.0 alpha keys `authz.rbac.connection` and `authz.admin.connection` fail boot.
 - `users.Role` becomes `$global` assignments of `user:<Uuid>` (the design says `users.Id`; the code
   reads `authz.rbac.migration.idColumn`, default `Uuid`). The drop migration refuses an incomplete
   copy.

@@ -1,12 +1,11 @@
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
-import { ADMIN_CONNECTION_KEY } from '../../stores/context.js';
+import { authzConnection } from '../../stores/context.js';
 
 const VERSION_TABLE = 'authz_version';
 const VERSION_MIGRATION = 'AuthzRbac_2026_10_01_00_00_00';
@@ -18,9 +17,7 @@ const KEY_MAX = 160;
 const DATE_TAG = '$authzDate';
 
 export interface DbAuthzAdminBackendOptions {
-  /** The ORM connection; default: config authz.admin.connection. */
-  readonly connection?: string;
-  /** Where Configuration and Orm are resolved; default the DI root. */
+  /** Where Orm is resolved; default the DI root. */
   readonly container?: IContainer;
 }
 
@@ -121,7 +118,7 @@ async function lockRow(d: OrmDriver, domain: string): Promise<boolean> {
 }
 
 /**
- * AuthzAdmin batches in an ORM transaction on the connection authz.admin.connection names: the DB stores read
+ * AuthzAdmin batches in an ORM transaction on the connection db.Aliases.authz names: the DB stores read
  * and write through that transaction's driver (AuthzTx.driver). Batches of one domain run one at a time: the
  * first statement of every transaction updates the domain's authz_version row, and that row lock is held until
  * commit, so a batch plans on what the one before it committed. Selected with
@@ -130,13 +127,8 @@ async function lockRow(d: OrmDriver, domain: string): Promise<boolean> {
 @Singleton()
 @Injectable(AuthzAdminBackend)
 export class DbAuthzAdminBackend extends AuthzAdminBackend {
-  @Config(ADMIN_CONNECTION_KEY)
-  protected Connection: string;
-
   constructor(private readonly opts: DbAuthzAdminBackendOptions = {}) {
     super();
-    // Built with `new` for a container, it reads that container's Configuration, as when DI builds it there.
-    if (opts.container) (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = opts.container;
   }
 
   async transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T> {
@@ -238,17 +230,13 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     if (!(driver instanceof OrmDriver) || driver.CurrentTransaction === undefined) {
       throw new AuthzConfigError('DbAuthzAdminBackend: bumpVersion and remember run only inside its transaction: AuthzTx.driver must be the OrmDriver of the running transaction');
     }
-    if (driver !== (await this.connection())) throw new AuthzConfigError(`DbAuthzAdminBackend: the transaction runs on another connection than the one ${ADMIN_CONNECTION_KEY} names`);
+    if (driver !== (await this.connection())) throw new AuthzConfigError('DbAuthzAdminBackend: the transaction runs on another connection than the one db.Aliases.authz names');
     return driver;
   }
 
-  private async connection(): Promise<OrmDriver> {
-    const container = this.opts.container ?? DI.RootContainer;
-    const name = this.opts.connection ?? this.Connection;
-    if (name === undefined || name === null) throw new AuthzConfigError(`DbAuthzAdminBackend: ${ADMIN_CONNECTION_KEY} is not set`);
-    const orm = (await container.resolve(Orm)) as Orm;
-    const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`DbAuthzAdminBackend: ${ADMIN_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
-    return driver;
+  private connection(): Promise<OrmDriver> {
+    return authzConnection(this.opts.container ?? DI.RootContainer).catch((e: unknown) => {
+      throw new AuthzConfigError(`DbAuthzAdminBackend: ${(e as Error).message}`, { cause: e });
+    });
   }
 }

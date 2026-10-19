@@ -15,8 +15,8 @@ import '@spinajs/authz-orm';   // registers the adapter, the write middleware an
 
 Migrations: `AuthzResourceAncestor_2026_10_14_00_00_00` (`authz_resource_ancestor`),
 `AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzAudit_2026_10_01_00_00_00`
-(`authz_audit`). The ancestor table lives on the connection of the authz stores
-(`authz.rbac.connection`, else `authz.admin.connection`, else the default), which must be the database
+(`authz_audit`). The ancestor and scope-attribute tables live on the connection of the authz stores, the
+ORM alias `authz` (`db.Aliases.authz`, which this package's config maps to `default`), which must be the database
 of the resource tables: the list filter joins them with `authz_assignment` (and, for `@Parent`,
 `authz_resource_ancestor`), and a delete forgets the row's scopes through the same driver. The domain boot
 refuses every `@AccessResource` model on another connection (`AuthzConfigError` naming each model and its

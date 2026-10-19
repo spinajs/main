@@ -2,19 +2,16 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { AuthzConfigError, GLOBAL, SYSTEM } from '@spinajs/authz';
+import { GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { AuthzService, Permission } from '@spinajs/authz';
 import { BEHAVIOUR_FIXTURES, fixtureDsl, modelSteps, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { DecisionExpectation, HostSetup, Step, World } from '@spinajs/authz-testing';
-import { Configuration } from '@spinajs/configuration';
 import { renderTemplate } from '@spinajs/log-common';
-import { QueryContext } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
 
 import { AssignCommand, RevokeCommand } from '../../src/cli/index.js';
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbAuthzAdminBackend, readVersion } from '../../src/index.js';
+import { DbAssignmentStore, DbAuthzAdminBackend, readVersion } from '../../src/index.js';
 import { capture } from '../cli/fixture.js';
-import { bootDb, DB_KINDS, rawQuery } from '../support/db.js';
+import { bootDb, DB_KINDS } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { activeDb, dbHarness } from './db-harness.js';
 import type { DbHarnessStores } from './db-harness.js';
@@ -190,77 +187,32 @@ for (const kind of DB_KINDS) {
   });
 }
 
-// --- connections: authz.rbac.connection ?? authz.admin.connection ?? default ----------------
+// --- connections: db.Aliases.authz ----------------------------------------------------------
 
-describe('authz-rbac DB stores and DbAuthzAdminBackend on one connection (sqlite)', function () {
+describe('authz-rbac DB stores and DbAuthzAdminBackend on the connection db.Aliases.authz names (sqlite)', function () {
   this.timeout(60_000);
 
   let db: TestDb;
-  let configuration: Configuration;
-  let other: string;
   const subject = { type: 'user', id: 'alice' };
 
-  const rows = async (driver: OrmDriver) => ((await driver.select().from('authz_assignment')) as { id: string }[]).map((r) => r.id);
-  const grant = async () => {
-    const store = db.container.resolve(DbAssignmentStore);
-    const backend = new DbAuthzAdminBackend({ container: db.container });
-    return backend.transaction('root', (tx) => store.assign({ subject, role: 'editor', scope: GLOBAL }, SYSTEM, tx));
-  };
-
   before(async function () {
-    db = await bootDb(this, 'sqlite', 'connections', { second: true });
-    // Stands in for an app step: @Migration('default') migrates only the default connection, so a
-    // non-default authz.admin.connection or authz.rbac.connection needs these migrations run on it.
-    await new AuthzRbac_2026_10_01_00_00_00().up(db.second!);
-    await new AuthzAdminIdempotency_2026_10_02_00_01_00().up(db.second!);
-    configuration = await db.container.resolve(Configuration);
-    other = db.second!.Options.Name;
+    db = await bootDb(this, 'sqlite', 'connections', { second: true, authzOnSecond: true });
   });
 
   after(async () => {
     await db?.dispose();
   });
 
-  beforeEach(async () => {
-    for (const d of [db.driver, db.second!]) for (const t of ['authz_assignment', 'authz_version']) await rawQuery(d, `DELETE FROM ${t}`, [], QueryContext.Delete);
-    configuration.set('authz.rbac.connection', undefined);
-    configuration.set('authz.admin.connection', 'default');
-  });
+  it('migrates, writes and reads there, not on the default connection', async () => {
+    const store = db.container.resolve(DbAssignmentStore);
+    const backend = new DbAuthzAdminBackend({ container: db.container });
 
-  it('with neither key named by the app, both use the default connection (the schema default of authz.admin.connection)', async () => {
-    const a = await grant();
-    expect(await rows(db.driver)).to.deep.eq([a.id]);
-    expect(await readVersion(db.driver, 'root')).to.eq('1');
-    expect(await rows(db.second!)).to.deep.eq([]);
-  });
+    const a = await backend.transaction('root', (tx) => store.assign({ subject, role: 'editor', scope: GLOBAL }, SYSTEM, tx));
 
-  it('with only authz.admin.connection, the stores follow the backend to that connection', async () => {
-    configuration.set('authz.admin.connection', other);
-
-    const a = await grant();
-
-    expect(await rows(db.second!)).to.deep.eq([a.id]);
+    expect(db.orm.Connections.get('authz')).to.equal(db.second);
+    expect(((await db.second!.select().from('authz_assignment')) as { id: string }[]).map((r) => r.id)).to.deep.eq([a.id]);
     expect(await readVersion(db.second!, 'root')).to.eq('1');
-    expect(await rows(db.driver)).to.deep.eq([]);
-    expect(await db.container.resolve(DbAssignmentStore).byId(a.id)).to.deep.include({ id: a.id, role: 'editor' });
-  });
-
-  it('with both keys naming the same connection, both use it', async () => {
-    configuration.set('authz.rbac.connection', other);
-    configuration.set('authz.admin.connection', other);
-
-    const a = await grant();
-
-    expect(await rows(db.second!)).to.deep.eq([a.id]);
-    expect(await rows(db.driver)).to.deep.eq([]);
-  });
-
-  it('with only authz.rbac.connection (not the default), the backend stays on the default and the first write is refused', async () => {
-    configuration.set('authz.rbac.connection', other);
-
-    await expect(grant()).to.be.rejectedWith(AuthzConfigError, /authz\.admin\.connection/);
-
-    expect(await rows(db.second!)).to.deep.eq([]);
-    expect(await rows(db.driver)).to.deep.eq([]);
+    expect(await store.byId(a.id)).to.deep.include({ id: a.id, role: 'editor' });
+    expect(await db.driver.schema().tableExists('authz_assignment')).to.eq(false);
   });
 });

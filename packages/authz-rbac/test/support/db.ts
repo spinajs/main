@@ -22,7 +22,7 @@ export interface TestDb {
   orm: Orm;
   /** The child container the Orm was resolved in; resolve stores from it. */
   container: IContainer;
-  /** The connection the authz-rbac migrations and stores use (`'default'`). */
+  /** The default connection; db.Aliases.authz names it unless `authzOnSecond`. */
   driver: OrmDriver;
   /** Postgres only: the database created for this run. */
   database?: string;
@@ -36,16 +36,19 @@ export interface BootOptions {
   migrate?: boolean;
   /** Also boot a second connection (`TestDb.second`). */
   second?: boolean;
+  /** With `second`: db.Aliases.authz names the second connection, which then migrates at boot too. */
+  authzOnSecond?: boolean;
 }
 
-function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[]) {
+function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[], authz: string | undefined) {
   return class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
       // replaced, not merged: package configs must not add connections here
       const config = this.Config as Record<string, unknown>;
-      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection, ...extra] };
+      const db = (config.db ?? {}) as { Aliases?: Record<string, string> };
+      config.db = { ...db, DefaultConnection: connection.Name, Connections: [connection, ...extra], ...(authz ? { Aliases: { ...db.Aliases, authz } } : {}) };
     }
   };
 }
@@ -124,10 +127,11 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   }
 
   const container: IContainer = DI.child();
-  const second = options.second ? [{ Name: `l2-${suite}-second`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }] : [];
-  // The test database boots as an app does: the core schema gives authz.admin.connection its default.
+  const secondName = `l2-${suite}-second`;
+  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true } }] : [];
+  // The test database boots as an app does, against the core schema.
   container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-  container.register(configurationFor(connection, second)).as(Configuration);
+  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
@@ -148,7 +152,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
     orm,
     container,
     driver: orm.Connections.get('default')!,
-    second: second.length > 0 ? orm.Connections.get(`l2-${suite}-second`) : undefined,
+    second: second.length > 0 ? orm.Connections.get(secondName) : undefined,
     database,
     dispose: async () => {
       await orm.dispose();

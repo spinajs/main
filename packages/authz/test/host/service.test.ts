@@ -181,6 +181,13 @@ describe('DefaultAuthzService', function () {
       const svc = await rootService();
       expect(svc.domain).to.equal('root');
     });
+
+    it('fails boot when a removed connection key is set, naming db.Aliases.authz', async () => {
+      setConfig('authz.admin.connection', 'main');
+      const err = await rejection(rootService());
+      expect(err).to.be.instanceOf(AuthzConfigError);
+      expect(err.message).to.contain('authz.admin.connection: removed').and.contain('db.Aliases.authz');
+    });
   });
 
   describe('models across domains', () => {

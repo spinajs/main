@@ -25,9 +25,9 @@ describe('authz_resource_ancestor migration', function () {
     await db?.close();
   });
 
-  it('is registered on the default connection, as the RBAC migration', () => {
+  it('is registered on the authz connection, as the RBAC migration', () => {
     expect(DI.getRegisteredTypes('__migrations__')).to.include(AuthzResourceAncestor_2026_10_14_00_00_00);
-    expect((AuthzResourceAncestor_2026_10_14_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal('default');
+    expect((AuthzResourceAncestor_2026_10_14_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal('authz');
   });
 
   it('chunks a list', () => {

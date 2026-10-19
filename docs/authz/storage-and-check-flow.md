@@ -75,7 +75,7 @@ None of the authz tables declares foreign keys.
 ### authz-rbac
 
 [AuthzRbac_2026_10_01_00_00_00.ts](../../packages/authz-rbac/src/migrations/AuthzRbac_2026_10_01_00_00_00.ts),
-connection `default`.
+connection `authz` (`db.Aliases.authz`, default `default`).
 
 **`authz_assignment`** (lines 10-30) holds every grant of a role to a subject at a scope.
 
@@ -128,8 +128,8 @@ Index on `(scope_type, scope_id)`.
 
 | Table | Migration | Content |
 |---|---|---|
-| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes |
-| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at` |
+| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | On connection `authz`: PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes |
+| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | On connection `authz`: PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at` |
 | `authz_scope_attribute_version` | same file | Single row: `id`, `version` |
 | `authz_audit` | `audit/AuthzAudit_2026_10_01_00_00_00.ts` | On connection `authz-audit`: `id`, `at`, `kind`, `principal`, `permission`, `resource`, `reason`, `trace`; index on `at` |
 

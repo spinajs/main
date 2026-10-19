@@ -1,10 +1,11 @@
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 /**
  * The authz-rbac tables of design §9.1: assignments, the closure of subject sets, scoped check-only
  * rules with their subject lists, share links and the per-domain version counter.
  */
-@Migration('default')
+@Migration(AUTHZ_CONNECTION)
 export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('authz_assignment', (table) => {
@@ -12,7 +13,7 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
       table.string('subject_type', 32).notNull();
       table.string('subject_id', 64).notNull();
       table.string('subject_role', 128).notNull().default().value('');
-      // One portable key column: a row-value IN over (type, id, role) does not work on MSSQL or older SQLite.
+      // One key column: a row-value IN over (type, id, role) is not portable.
       table.string('subject_key', 200).notNull();
       table.string('role', 128).notNull();
       table.string('scope_type', 64).notNull().default().value('$global');

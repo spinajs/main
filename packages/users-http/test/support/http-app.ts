@@ -112,7 +112,6 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
         permissions: { 'authz:assignments.manage': {} },
         admin: {
           backend: 'DbAuthzAdminBackend',
-          connection: 'default',
         },
       },
       authn: {
@@ -125,6 +124,7 @@ class UsersHttpAppConfiguration extends FrameworkConfiguration {
       queue: { default: 'users-http-app-queue', connections: [{ service: 'BlackHoleQueueClient', name: 'users-http-app-queue' }] },
       db: {
         DefaultConnection: 'sqlite',
+        Aliases: { authz: 'default' },
         Connections: [
           {
             Driver: 'orm-driver-sqlite',

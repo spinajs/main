@@ -105,11 +105,9 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
         permissions: { 'authz:assignments.manage': {} },
         admin: {
           backend: 'DbAuthzAdminBackend',
-          connection: 'default',
           guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true },
         },
         rbac: {
-          connection: 'default',
           stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] },
           links: { secret: LINK_SECRET },
           roles: { 'test.platform': { grants: ['team:create'], scopeTypes: ['$global'] } },
@@ -119,6 +117,7 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
       queue: { default: 'teams-http-test-queue', connections: [{ service: 'BlackHoleQueueClient', name: 'teams-http-test-queue' }] },
       db: {
         DefaultConnection: 'sqlite',
+        Aliases: { authz: 'default' },
         Connections: [
           {
             Driver: 'orm-driver-sqlite',

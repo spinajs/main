@@ -28,6 +28,7 @@ class DbConfig extends FrameworkConfiguration {
       },
       db: {
         DefaultConnection: 'sqlite',
+        Aliases: { authz: 'default' },
         Connections: [
           { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } },
           { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' },
@@ -51,7 +52,6 @@ describe('DbScopeAttributeStore on SQLite', function () {
 
   let orm: Orm;
   let db: OrmDriver;
-  let config: Configuration;
   const store = new DbScopeAttributeStore();
 
   /** fn inside a real ORM transaction; `fail` rolls it back. */
@@ -77,7 +77,7 @@ describe('DbScopeAttributeStore on SQLite', function () {
   before(async () => {
     DI.register(DbConfig).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    config = (await DI.resolve(Configuration)) as Configuration;
+    await DI.resolve(Configuration);
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
   });
@@ -92,7 +92,6 @@ describe('DbScopeAttributeStore on SQLite', function () {
 
   beforeEach(async () => {
     await db.del().from(TABLE);
-    config.set(['authz', 'admin', 'connection'], 'default');
   });
 
   it('the migration registers through @Migration and creates the table at startup', async () => {
@@ -243,7 +242,7 @@ describe('DbScopeAttributeStore on SQLite', function () {
     const other = orm.Connections.get('other')!;
     const e = await rejection(other.transaction((d) => store.write(o1, { set: { a: 1 }, remove: [] }, ALICE, { driver: d })));
     expect(e).to.be.instanceOf(AuthzConfigError);
-    expect(e.message).to.contain('authz.admin.connection');
+    expect(e.message).to.contain('another connection');
   });
 
   it('writes only inside an ORM transaction', async () => {
@@ -311,14 +310,18 @@ describe('DbScopeAttributeStore on SQLite', function () {
     expect(await rejection(store.get(o1))).to.be.instanceOf(AuthzConfigError);
   });
 
-  it('reads on the connection authz.admin.connection names', async () => {
-    config.set(['authz', 'admin', 'connection'], 'sqlite');
+  it('reads on the connection db.Aliases.authz names, or the one its options name', async () => {
     await inTx((tx) => store.write(o1, { set: { a: 1 }, remove: [] }, ALICE, tx));
     expect(await store.rows(o1)).to.deep.equal({ a: 1 });
-    config.set(['authz', 'admin', 'connection'], 'nope');
-    const e = await rejection(store.rows(o1));
-    expect(e).to.be.instanceOf(AuthzConfigError);
-    expect(e.message).to.contain('authz.admin.connection');
-    expect(await new DbScopeAttributeStore({ connection: 'sqlite' }).rows(o1)).to.deep.equal({ a: 1 });
+    const authz = orm.Connections.get('authz')!;
+    orm.Connections.delete('authz');
+    try {
+      const e = await rejection(store.rows(o1));
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(e.message).to.contain('db.Aliases.authz');
+      expect(await new DbScopeAttributeStore({ connection: 'sqlite' }).rows(o1)).to.deep.equal({ a: 1 });
+    } finally {
+      orm.Connections.set('authz', authz);
+    }
   });
 });

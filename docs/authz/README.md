@@ -355,7 +355,6 @@ authz: {
       rules: ['ConfigRuleStore', 'DbRuleStore'],   // default ['ConfigRuleStore']; [] turns rules off
       links: ['DbLinkStore'],              // table authz_link
     },
-    connection: 'default',                 // else authz.admin.connection, else the default connection
     links: { secret: '<32 or more characters>' },   // no default
     cache: { assignmentsTtlSeconds: 60 },
     migration: { idColumn: 'Uuid', roleColumn: 'Role' },   // migration guide, section 7
@@ -375,9 +374,12 @@ authz: {
   HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
   store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.
   Changing the secret kills every link.
-- **Connections.** The stores use `authz.rbac.connection`, else `authz.admin.connection`, else the
-  `default` connection. A write whose transaction runs on another connection is refused. The
-  migrations run on `default` only.
+- **Connections.** The stores, `DbAuthzAdminBackend`, `DbScopeAttributeStore` and their migrations use
+  the ORM connection alias `authz`. The authz-rbac and authz-orm config files map it to `default`; an app
+  points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`, which wins over the package
+  default. A write whose transaction runs on another connection is refused. `authz.rbac.connection` and
+  `authz.admin.connection` are gone: setting either fails boot with an `AuthzConfigError` that names
+  `db.Aliases.authz`. The `users.Role` copy and drop migrations still run on `default`.
 - **Registering.** A store class registers under its class name only.
   `registerRbacStores(container, configuration)` registers the classes that `authz.rbac.stores`
   names under their ports (`RoleStore`, `AssignmentStore`, `RuleStore`, `LinkStore`) and, for the DB
@@ -398,7 +400,7 @@ failure they print one line and set the exit code to 1.
 | `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
 | `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
 | `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
-| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads it on `authz.rbac.connection` (else `default`), so map `DbDecisionAudit`'s `authz-audit` connection to the same database ([ORM](#orm-spinajsauthz-orm)). |
+| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in the root container (the app's `registerRbac(DI.RootContainer, …)` call, see [Wiring the models](#wiring-the-models)) and fails with "the RBAC model ... is not registered" otherwise. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads it on the `authz` connection (`db.Aliases.authz`), so map `DbDecisionAudit`'s `authz-audit` connection to the same database ([ORM](#orm-spinajsauthz-orm)). |
 | `authz:membership-verify` | Recomputes `authz_subject_membership` from the assignments and reports missing, extra and changed rows; exit code 1 on any difference. |
 | `authz:membership-rebuild` | Rewrites `authz_subject_membership` from the assignments. |
 
@@ -733,12 +735,11 @@ authz: {
     permissions: { 'assignment.*': { project: 'grants:manage' } },   // by command kind, family or scope type
     maxBatch: 100,
     backend: 'DbAuthzAdminBackend',          // default: MemoryAuthzAdminBackend (no database)
-    connection: 'default',                   // ORM connection of the DB backend
   },
 }
 ```
 
-`DbAuthzAdminBackend` (in `@spinajs/authz-rbac`) runs each batch in its own ORM transaction, with a
+`DbAuthzAdminBackend` (in `@spinajs/authz-rbac`) runs each batch in its own ORM transaction on the `authz` connection, with a
 per-domain lock on the `authz_version` row. It refuses to run inside an open transaction. The
 default backend keeps data in memory.
 

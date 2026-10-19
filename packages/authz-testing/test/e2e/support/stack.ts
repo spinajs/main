@@ -154,10 +154,9 @@ export function e2eHarness(kind: Dialect): E2eHarness {
       host.setConfig(['authz', 'orm', 'domain'], host.domain);
       c.register(testHost.instance(test.orm)).as(Orm);
       host.setConfig(['authz', 'rbac', 'stores'], { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], links: ['DbLinkStore'] });
-      host.setConfig(['authz', 'rbac', 'connection'], kind);
       host.setConfig(['authz', 'rbac', 'links', 'secret'], LINK_SECRET);
       host.setConfig(['authz', 'rbac', 'roles'], roleConfig((world.rbac?.roles ?? []) as readonly { name: string; source?: string }[]));
-      host.setConfig(['authz', 'admin'], { connection: kind, backend: 'E2eAdminBackend', guard: GUARD });
+      host.setConfig(['authz', 'admin'], { backend: 'E2eAdminBackend', guard: GUARD });
       const declared = new Set(world.permissions.map((p) => (typeof p === 'string' ? p : p.name)));
       for (const p of ADMIN_PERMISSIONS) if (!declared.has(p)) host.setConfig(['authz', 'domains', host.domain, 'permissions', p], {});
       c.register(E2eAdminBackend).as(AuthzAdminBackend);
@@ -205,7 +204,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
     async beforeAll() {
       try {
         if (kind === 'postgres') database = await createPgDatabase('authz_orm_e2e');
-        db = await TestDb.open({ postgres: kind === 'postgres', ...(database ? { database } : {}) });
+        db = await TestDb.open({ postgres: kind === 'postgres', authz: kind, ...(database ? { database } : {}) });
         activeDb = db;
         const driver = db.driver(kind);
         for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);

@@ -217,7 +217,7 @@ describe('authz:check-config', () => {
     });
 
     const withOrm = (cmd: CheckConfigCommand) => {
-      cmd.Orm = { Connections: new Map([['default', db.driver]]) } as unknown as Orm;
+      cmd.Orm = { Connections: new Map([['authz', db.driver]]) } as unknown as Orm;
       cmd.Configuration = new ObjectConfiguration({});
       return cmd;
     };
