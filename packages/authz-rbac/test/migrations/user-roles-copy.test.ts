@@ -414,7 +414,7 @@ for (const kind of DB_KINDS) {
       expect(await versionOf(db)).to.eq('1');
     });
 
-    // `up(INITIAL)` and `up(MIGRATION)` run the two authz migrations alone: the drop on default is Task 6's.
+    // `up(INITIAL)` then `up(MIGRATION)` leave the drop out, so these tests see the copy alone.
     describe('with db.Aliases.authz on another connection', () => {
       const elsewhere: BootOptions = { second: true, authzOnSecond: true };
 

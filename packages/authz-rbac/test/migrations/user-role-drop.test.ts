@@ -606,6 +606,23 @@ for (const kind of DB_KINDS) {
         expect(await rolesByUser(db.driver)).to.deep.eq({ [A]: 'editor', [B]: 'admin', [C]: 'admin.users,user' });
       });
 
+      it('counts only grants unexpired on the authz connection', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await copy(db);
+        const expiresIn = (ms: number) => db.second!.update().in('authz_assignment').update({ expires_at: new Date(Date.now() + ms) }).where({ subject_id: C, role: 'user' });
+
+        await expiresIn(-HOUR);
+        await expect(db.orm.Migration.up()).to.be.rejectedWith(`1 user/role pair(s) have no live $global assignment (user:${C} user)`);
+        expect(await columnNames(db.driver)).to.include('Role');
+
+        await expiresIn(HOUR);
+        await db.orm.Migration.resolve(DROP, 'rolled-back');
+        await db.orm.Migration.up();
+        expect(await columnNames(db.driver)).to.not.include('Role');
+      });
+
       it('drops the column of an empty users table', async function () {
         const db = await boot(this, {}, elsewhere);
         await createUsers(db.driver);

@@ -49,8 +49,8 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         return;
       }
 
-      // blocks writers of users (a 2.x instance still running) between the check and the drop; it
-      // does not block authz_assignment writes
+      // taken before the check and held through the drop, so no writer of users (a 2.x instance still
+      // running) slips in between; it does not block authz_assignment writes
       await connection.schema().lockTable(USERS_TABLE);
 
       const idColumn = findColumn(info, configured.idColumn)?.Name;
