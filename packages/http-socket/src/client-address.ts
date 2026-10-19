@@ -3,7 +3,7 @@ import { parseTrustProxy, trustedClientAddress } from '@spinajs/http';
 import type { ProxyTrust } from '@spinajs/http';
 
 /**
- * authn-http ClientIp's rule ( its `proxyTrustOf` ): `authn.http.trustProxy`, else `http.trustProxy` when the former is null
+ * authn-http ClientIp's rule: the deprecated `authn.http.trustProxy`, else `http.trustProxy` when the former is null
  * or absent. One rule for the socket, because its address feeds authn's throttle and audit. Throws InvalidOption, naming
  * the key, for an entry that is no address or CIDR.
  */

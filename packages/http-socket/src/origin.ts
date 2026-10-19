@@ -1,46 +1,31 @@
 import type { IncomingHttpHeaders } from 'http';
-
-const BARE_HOST = /^[^/?#@\s\\]+$/;
-
-function isSameOrigin(origin: string, host: string | undefined, secure: boolean): boolean {
-  if (typeof host !== 'string' || !BARE_HOST.test(host)) {
-    return false;
-  }
-
-  try {
-    const page = new URL(origin);
-    const self = new URL(`${secure ? 'https' : 'http'}://${host}`);
-    // URL lowercases the host and drops default ports, so `app.example:80` equals `http://app.example`
-    // an https page may reach a non-TLS server only through a TLS-terminating proxy; never the reverse
-    return page.host === self.host && (page.protocol === self.protocol || (!secure && page.protocol === 'https:'));
-  } catch {
-    return false;
-  }
-}
+import { checkSameOrigin, parseOrigin } from '@spinajs/http';
+import type { SameOriginOptions } from '@spinajs/http';
 
 /**
  * CORS does not cover a WebSocket upgrade, and a browser sends the user's cookies with a socket
  * opened from any site. So the handshake itself admits only clients without an Origin ( not a
- * browser, see `crossSiteRefusal` ), same-origin pages ( scheme, host and port ) and exactly
- * listed origins ( SR-12, authz-v3 A31 ). Behind a TLS-terminating proxy that keeps Host, an https
- * page on the same host is admitted although the request is plain http; if the proxy rewrites
- * Host, list the public origin in `http.socket.cors.origins`.
+ * browser, see `crossSiteRefusal` ), same-origin pages ( scheme, host and port ) and listed
+ * origins ( SR-12, authz-v3 A31 ), by `checkSameOrigin`. Behind a TLS-terminating proxy that keeps
+ * Host, an https page on the same host is admitted although the request is plain http; if the
+ * proxy rewrites Host, list the public origin in `http.socket.cors.origins`.
  *
+ * @param origins - entries that are no origin ( `null`, `*` ) never match
  * @param secure - whether the request reached this server over TLS
  */
 export function isAllowedOrigin(headers: Readonly<IncomingHttpHeaders>, origins: readonly string[], secure = false): boolean {
-  const origin = headers.origin;
+  const options: SameOriginOptions = {
+    allowedOrigins: new Set(origins.map(parseOrigin).filter((o): o is string => o !== undefined)),
+    missingOrigin: 'unless-cross-site',
+  };
+  const host = headers.host ?? '';
 
-  if (origin === undefined) {
+  if (checkSameOrigin(headers, `${secure ? 'https' : 'http'}://${host}`, options).allowed) {
     return true;
   }
 
-  // sandboxed frames, file: pages and cross-site redirects all send `null`: any site can produce it
-  if (origin === 'null' || origin === '*') {
-    return false;
-  }
-
-  return origins.includes(origin) || isSameOrigin(origin, headers.host, secure);
+  // an https page may reach a non-TLS server only through a TLS-terminating proxy; never the reverse
+  return !secure && headers.origin !== undefined && checkSameOrigin(headers, `https://${host}`, options).allowed;
 }
 
 /**
@@ -58,9 +43,8 @@ export function crossSiteRefusal(headers: Readonly<IncomingHttpHeaders>, url: st
     return 'JSONP polling is not supported';
   }
 
-  const site = headers['sec-fetch-site'];
-  if (headers.origin === undefined && (site === 'cross-site' || site === 'same-site')) {
-    return `${site} request without an Origin`;
+  if (headers.origin === undefined && !checkSameOrigin(headers, undefined, { missingOrigin: 'unless-cross-site' }).allowed) {
+    return `${headers['sec-fetch-site']} request without an Origin`;
   }
 
   return null;

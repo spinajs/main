@@ -5,10 +5,9 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
-import { proxyTrustOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
+import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, requestOrigin, requestProxyTrust } from '@spinajs/http';
 import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
@@ -16,7 +15,6 @@ import { OidcLogin } from '../login.js';
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
-import { requestOrigin } from '../origin.js';
 import { isRelaxedEnv } from '../support.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
@@ -63,17 +61,10 @@ export class OidcController extends BaseController {
   protected Log: Log;
 
   protected flow: Promise<OidcLogin> | undefined;
-  protected peerTrusted: ((peer: string | undefined) => boolean) | undefined;
   protected warnedHttpOrigin = false;
 
   @Autoinject(Container)
   protected Container!: IContainer;
-
-  @Config('authn.http.trustProxy')
-  protected OwnTrust: unknown;
-
-  @Config('http.trustProxy')
-  protected SharedTrust: unknown;
 
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
@@ -125,32 +116,22 @@ export class OidcController extends BaseController {
       navigation: isNavigation(req),
       ctx,
       session: storage?.AuthnSession?.handle ?? null,
+      ...(req.get('origin') ? { originHeader: req.get('origin') } : {}),
       ...(req.get('sec-fetch-site') ? { fetchSite: req.get('sec-fetch-site') } : {}),
     };
   }
 
   protected originOf(req: Request): string {
-    const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
-    const origin = requestOrigin({ encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') }, this.trusted);
+    const origin = requestOrigin(req, requestProxyTrust(req));
     if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
       this.warnedHttpOrigin = true;
-      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set authn.http.trustProxy (or http.trustProxy) or the provider redirectUri');
+      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set http.trustProxy or the provider redirectUri');
     }
     return origin;
   }
 
   protected get env(): string | undefined {
     return this.Providers.env;
-  }
-
-  protected get trusted(): (peer: string | undefined) => boolean {
-    return (this.peerTrusted ??= this.peerTrust());
-  }
-
-  /** The trust setting of ClientIp and the CSRF guard, parsed by the shared parser; throws, naming the key, for an entry that is no address. */
-  protected peerTrust(): (peer: string | undefined) => boolean {
-    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
-    return (peer) => isTrustedPeer(trust, peer);
   }
 
   protected login(): Promise<OidcLogin> {

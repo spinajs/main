@@ -480,8 +480,11 @@ authn: {
 ```
 
 Set `http.trustProxy` (a hop count, or addresses and CIDRs) when the app runs behind a proxy.
-`authn-http`'s `ClientIp` writes `req.storage.ClientIp` from the proxy chain (`authn.http.trustProxy`,
-else `http.trustProxy`); a client-set `X-Forwarded-For` without a trusted hop is ignored.
+`authn-http`'s `ClientIp` replaces http's `RealIp` and writes `req.storage.ClientIp` (and `realIp`) from
+the proxy chain; a client-set `X-Forwarded-For` without a trusted hop is ignored. `authn.http.trustProxy`
+is deprecated: while it is set it still wins over `http.trustProxy`, and `ClientIp` logs a warning. Move
+its value to `http.trustProxy`. Code that needs the trust reads `requestProxyTrust(req)` from `@spinajs/http`;
+`authn-http` no longer exports `proxyTrustOf`.
 
 `DbAuthnThrottle` keeps keyed hashes of the keys
 (`authn.audit.hashKey.secret`). Per-request credentials (tokens, keys) use the `login` flow under a
@@ -627,7 +630,7 @@ export default {
 | `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service; `authn-http` serves `/auth/impersonate`. |
 | `authn.freshAuth.*` | `FreshAuthCheck` (N1), `authn-http` | `maxAgeSeconds`: how old a sign-in may be before a sensitive route asks for `reauthPassword`. Guide: [fresh authentication](../../packages/authn/src/freshauth/README.md). |
 | `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
-| `authn.http.*` | `authn-http`, `authn-oidc` | `trustProxy` (else `http.trustProxy`) for `ClientIp`, `CsrfOriginGuard` and the OIDC controller; `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
+| `authn.http.*` | `authn-http` | `trustProxy` is deprecated (use `http.trustProxy`); while set, `ClientIp` uses it in place of `http.trustProxy`, and `CsrfOriginGuard` and the OIDC controller follow the trust `ClientIp` stored (`requestProxyTrust`). `csrf.enabled` and `csrf.allowedOrigins` for `CsrfOriginGuard`; `publicOrigin` is the origin clients sign in `@target-uri` (unset: a signed request yields no principal). The schema takes `routes.prefix`, but nothing reads it: the routes are fixed. |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
 `http.cookie.secret`) are secret references (environment or a secret store), never inline values. The

@@ -15,7 +15,7 @@ Everything the socket server reads lives under `http.socket`, plus `system.dirs.
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.socket.path` | string | `'/socket.io'` | non-empty | socket.io endpoint |
-| `http.socket.cors.origins` | string[] | `[]` | exact origins, no wildcards | Other origins allowed to open a socket |
+| `http.socket.cors.origins` | string[] | `[]` | origins, no wildcards | Other origins allowed to open a socket; compared as normalised origins |
 | `http.socket.auth.required` | boolean | `false` | `true`, `false` only | Refuse handshakes no source resolves |
 | `http.socket.auth.revalidateMs` | number | `60000` | 0 or more | Principal re-check interval; `0` turns it off (expiry still applies) |
 | `http.socket.pingInterval` | integer | `25000` | 1 to 2^31-1 | socket.io heartbeat interval |
@@ -40,7 +40,7 @@ Everything the socket server reads lives under `http.socket`, plus `system.dirs.
 | `http.socket.adapter` | adapter | `undefined` | a socket.io adapter | Rooms and pushes across instances |
 | `system.dirs.socketControllers` | string[] | `[]` | folders | Folders scanned for socket controllers |
 
-Keys of other packages the server reads: `http.trustProxy`, `authn.http.trustProxy` (client address), `http.shutdownTimeout` (drain warning), `configuration.isProduction` (`internal` error details), `authz` (field settings of `fields: 'filter'`).
+Keys of other packages the server reads: `http.trustProxy`, the deprecated `authn.http.trustProxy` (client address), `http.shutdownTimeout` (drain warning), `configuration.isProduction` (`internal` error details), `authz` (field settings of `fields: 'filter'`).
 
 ## Services and extension points
 

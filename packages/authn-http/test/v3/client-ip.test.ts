@@ -6,7 +6,7 @@ import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configurati
 import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, RealIp, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
@@ -90,10 +90,12 @@ describe('ClientIp (A05, SR-03)', function () {
     DI.uncache(Orm);
   });
 
-  it('the barrel exports the lane ClientIp, registered as a ServerMiddleware, not the api.ts stub', () => {
+  it('the barrel exports the lane ClientIp, registered in place of http RealIp, not the api.ts stub', async () => {
     expect(barrel.ClientIp).to.eq(ClientIp).and.not.eq(api.ClientIp);
     expect(new ClientIp().Order).to.eq(1);
-    expect(DI.getRegisteredTypes(ServerMiddleware)).to.include(ClientIp);
+    expect(DI.getRegisteredTypes(RealIp)).to.include(ClientIp);
+    const middlewares = (await DI.resolve(Array.ofType(ServerMiddleware))) as ServerMiddleware[];
+    expect(middlewares.filter((m) => m instanceof RealIp).map((m) => m.constructor)).to.deep.eq([ClientIp]);
   });
 
   it('without trust the client is the socket address', () => {

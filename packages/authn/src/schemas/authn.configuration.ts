@@ -414,7 +414,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             { type: 'array', items: { type: 'string', minLength: 1 } },
             { type: 'integer', minimum: 0, nullable: true },
           ],
-          description: 'Trusted proxy CIDRs or a hop count; null falls back to http.trustProxy. true coerces to 1 hop and false to 0, never to trust-all.',
+          description: 'Deprecated: set http.trustProxy instead. Trusted proxy CIDRs or a hop count; null falls back to http.trustProxy. true coerces to 1 hop and false to 0, never to trust-all.',
         },
         csrf: {
           type: 'object',

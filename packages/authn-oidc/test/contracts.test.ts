@@ -34,7 +34,7 @@ const INDEX_VALUES = [
   'OIDC_SIGNING_ALGORITHMS', 'OidcAccountLinks', 'OidcBootstrapper', 'OidcDiscovery', 'OidcHttpClient', 'OidcJwks', 'OidcLogin', 'OidcProvider', 'OidcProviders',
   'OidcStrategy', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
-  'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
+  'rawClaims', 'readClaim', 'registerOidcStrategies', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
   'stateClaim', 'validateIdToken', 'buildOidcOptions',
 ].sort();
 
@@ -145,7 +145,7 @@ describe('authn-oidc contracts', () => {
       expect(client.algorithms).to.contain('OIDC_SIGNING_ALGORITHMS');
       expect(client.clockSkewSeconds).to.contain('30');
       expect(client.redirectUri).to.contain('exactly');
-      expect(client.redirectUri).to.contain('authn.http.trustProxy');
+      expect(client.redirectUri).to.contain('RealIp');
       expect(client.redirectUri).to.contain("the provider's exact match is the guard");
       expect(client.jit).to.contain('IdentityStore.provision');
       expect(client.jit).to.contain('authn.linking.jit');

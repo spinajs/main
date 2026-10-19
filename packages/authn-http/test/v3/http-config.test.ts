@@ -2,11 +2,12 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
-import { HTTP_CONFIGURATION_SCHEMA } from '@spinajs/http';
+import { HTTP_CONFIGURATION_SCHEMA, requestProxyTrust } from '@spinajs/http';
+import type { ProxyTrust } from '@spinajs/http';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { PUBLIC_DEFAULT_COOKIE_SECRET } from '@spinajs/authn-session';
 
-import { ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor, proxyTrustOf } from '../../src/index.js';
+import { ClientIp, CsrfOriginGuard, AuthnMiddleware, ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../../src/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
@@ -67,35 +68,39 @@ describe('authn http middlewares through @Config and the schemas', () => {
     });
   });
 
-  describe('proxyTrustOf', () => {
-    it('takes authn.http.trustProxy, else http.trustProxy when the former is null or absent', () => {
-      expect(proxyTrustOf(2, 5)).to.deep.eq({ hops: 2 });
-      expect(proxyTrustOf(null, 3)).to.deep.eq({ hops: 3 });
-      expect(proxyTrustOf(undefined, undefined)).to.deep.eq({ hops: 0 });
-      expect(proxyTrustOf(0, 3)).to.deep.eq({ hops: 0 });
-    });
-
-    it('names the key whose setting does not compile', () => {
-      expect(() => proxyTrustOf(['10.0.0.0/33'], null)).to.throw(InvalidOption, 'authn.http.trustProxy');
-      expect(() => proxyTrustOf(null, ['nope'])).to.throw(InvalidOption, 'http.trustProxy');
-    });
-  });
-
   describe('ClientIp', () => {
-    it("takes the client behind the trusted proxies of its container's configuration", async () => {
+    const clientIpOf = (child: Parameters<typeof readingFrom>[1], warn: (...args: unknown[]) => void = () => undefined) => {
+      const mw = readingFrom(new ClientIp(), child);
+      Object.defineProperty(mw, 'Log', { value: { warn } });
+      return mw;
+    };
+
+    it("takes the client behind the trusted proxies of its container's configuration, for realIp and the stored trust too", async () => {
       const { child } = await boot(SCHEMAS, { authn: { http: { trustProxy: ['10.0.0.0/8'] } } });
-      const handler = readingFrom(new ClientIp(), child).before()!;
+      const handler = clientIpOf(child).before()!;
       const req = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       handler(req, {} as never, () => undefined);
-      expect((req as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
+      const storage = (req as { storage: { ClientIp?: string; realIp?: string; proxyTrust?: ProxyTrust } }).storage;
+      expect(storage.ClientIp).to.eq('203.0.113.7');
+      expect(storage.realIp).to.eq('203.0.113.7');
+      expect(requestProxyTrust(req as { storage: { proxyTrust?: ProxyTrust } })).to.not.deep.eq({ hops: 0 });
+    });
+
+    it('warns that authn.http.trustProxy is deprecated only when it is set', async () => {
+      const warned: unknown[][] = [];
+      clientIpOf((await boot(SCHEMAS, { authn: { http: { trustProxy: 1 } } })).child, (...args) => warned.push(args)).before();
+      expect(warned).to.have.length(1);
+      expect(String(warned[0][0])).to.contain('authn.http.trustProxy is deprecated').and.contain('http.trustProxy');
+      clientIpOf((await boot(SCHEMAS, { http: { trustProxy: 1 } })).child, (...args) => warned.push(args)).before();
+      expect(warned).to.have.length(1);
     });
 
     it('falls back to http.trustProxy and reads the socket address with neither', async () => {
-      const shared = readingFrom(new ClientIp(), (await boot(SCHEMAS, { http: { trustProxy: 1 } })).child).before()!;
+      const shared = clientIpOf((await boot(SCHEMAS, { http: { trustProxy: 1 } })).child).before()!;
       const a = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       shared(a, {} as never, () => undefined);
       expect((a as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('203.0.113.7');
-      const none = readingFrom(new ClientIp(), (await boot(SCHEMAS, {})).child).before()!;
+      const none = clientIpOf((await boot(SCHEMAS, {})).child).before()!;
       const b = reqFrom('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' });
       none(b, {} as never, () => undefined);
       expect((b as { storage: { ClientIp?: string } }).storage.ClientIp).to.eq('10.0.0.5');
@@ -103,7 +108,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
     it('still refuses a CIDR the schema cannot judge when the middleware is built', async () => {
       const { child } = await boot(SCHEMAS, { authn: { http: { trustProxy: ['10.0.0.0/33'] } } });
-      expect(() => readingFrom(new ClientIp(), child).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
+      expect(() => clientIpOf(child).before()).to.throw(InvalidOption, 'authn.http.trustProxy');
     });
   });
 

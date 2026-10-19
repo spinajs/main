@@ -76,6 +76,16 @@ describe('authn-oidc login hardening', () => {
     }
   });
 
+  it('starts a link flow only when an Origin header is the app origin', async () => {
+    const w = await world();
+    const alice = w.identities.add({ login: 'alice' });
+    const session = await sessionOf(w, alice);
+    for (const originHeader of ['https://evil.example', 'http://app.example.test', 'null']) {
+      expect((await w.login.beginLink('corp', { ...w.request(), session, originHeader, fetchSite: 'same-origin' })).status, originHeader).to.eq(401);
+    }
+    expect((await w.login.beginLink('corp', { ...w.request(), session, originHeader: 'https://app.example.test', fetchSite: 'same-origin' })).status).to.eq(302);
+  });
+
   it('hops same-site only for a callback whose state belongs to the flow cookie', async () => {
     const w = await world();
     const alice = w.identities.add({ login: 'alice' });

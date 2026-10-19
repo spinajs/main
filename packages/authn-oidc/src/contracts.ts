@@ -67,7 +67,7 @@ export interface OidcClientConfig {
   readonly tokenEndpointAuth?: OidcTokenEndpointAuth;
   /**
    * Absolute; the provider must have it registered exactly. Default: the callback route on the request's origin, resolved through
-   * authn.http.trustProxy as ClientIp does. Kept with the state and sent unchanged to the token endpoint; the provider's exact match
+   * the proxy trust http's RealIp stored for the request. Kept with the state and sent unchanged to the token endpoint; the provider's exact match
    * is the guard.
    */
   readonly redirectUri?: string;
