@@ -1,12 +1,12 @@
 import { engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
-import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { findColumn, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns, subjectKeyOf, subjectToColumns } from '../stores/columns.js';
 import { bumpVersion } from '../stores/version.js';
-import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, requireAuthzOn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, requireAuthzOn, splitRoles, subjectIdOf, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 import type { UsersColumns } from './users-table.js';
 
 export { USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY } from './users-table.js';
@@ -49,7 +49,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
 
         for (const user of users) {
           // the subject keeps the stored id as is: a trimmed id would not match the principal's
-          const id = String(user[idColumn]);
+          const id = subjectIdOf(user[idColumn]);
           if (id.trim() === '') skipped++;
           else rows.push(...this.assignmentsOf(id, user[roleColumn], createdAt));
         }
@@ -78,7 +78,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     requireAuthzOn(connection, NAME);
     await inTransaction(connection, async () => {
       const result = await connection.del().from(AUTHZ_ASSIGNMENT_TABLE).where('source', USER_ROLES_SOURCE);
-      if (rowsAffected(result) > 0) await bumpVersion({ driver: connection }, ROOT_DOMAIN, NAME);
+      if (result.RowsAffected > 0) await bumpVersion({ driver: connection }, ROOT_DOMAIN, NAME);
     });
   }
 
@@ -100,8 +100,8 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     }
 
     const names = info.map((c) => c.Name);
-    const idColumn = matchColumn(names, configured.idColumn);
-    const roleColumn = matchColumn(names, configured.roleColumn);
+    const idColumn = findColumn(info, configured.idColumn)?.Name;
+    const roleColumn = findColumn(info, configured.roleColumn)?.Name;
     if (idColumn && roleColumn) return { idColumn, roleColumn };
 
     const missing = [
@@ -147,7 +147,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
         .into(AUTHZ_ASSIGNMENT_TABLE)
         .values(rows.slice(i, i + this.insertBatch))
         .orIgnore();
-      inserted += rowsAffected(result);
+      inserted += result.RowsAffected;
     }
 
     return inserted;

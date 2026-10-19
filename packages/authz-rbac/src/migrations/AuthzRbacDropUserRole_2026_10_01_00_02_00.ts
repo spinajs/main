@@ -1,10 +1,10 @@
 import { engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
-import { IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { findColumn, IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns } from '../stores/columns.js';
-import { configuredUsersColumns, countUsers, hasUsers, inTransaction, matchColumn, requireAuthzOn, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import { configuredUsersColumns, countUsers, hasUsers, inTransaction, requireAuthzOn, splitRoles, subjectIdOf, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 
 const NAME = 'AuthzRbacDropUserRole_2026_10_01_00_02_00';
 const RESOLVE = `orm.Migration.resolve('${NAME}', 'rolled-back')`;
@@ -35,7 +35,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       }
 
       const names = info.map((c) => c.Name);
-      const roleColumn = matchColumn(names, configured.roleColumn);
+      const roleColumn = findColumn(info, configured.roleColumn)?.Name;
       const filled = await hasUsers(connection);
 
       if (!roleColumn) {
@@ -46,7 +46,7 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         return;
       }
 
-      const idColumn = matchColumn(names, configured.idColumn);
+      const idColumn = findColumn(info, configured.idColumn)?.Name;
       if (idColumn && filled) requireAuthzOn(connection, NAME);
 
       const q = connection.Container.resolve(IdentifierQuoter);
@@ -82,11 +82,10 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         return;
       }
 
-      const names = info.map((c) => c.Name);
-      if (matchColumn(names, configured.roleColumn)) return;
+      if (findColumn(info, configured.roleColumn)) return;
 
       const roleColumn = configured.roleColumn;
-      const idColumn = matchColumn(names, configured.idColumn);
+      const idColumn = findColumn(info, configured.idColumn)?.Name;
       if (idColumn && (await hasUsers(connection))) requireAuthzOn(connection, NAME);
 
       await connection.schema().alterTable(USERS_TABLE, (table) => {
@@ -107,12 +106,12 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
         const users = await this.page(connection, idColumn, roleColumn, after);
         const roles = await this.liveGlobalRoles(
           connection,
-          users.map((u) => String(u[idColumn])),
+          users.map((u) => subjectIdOf(u[idColumn])),
           at,
         );
 
         for (const user of users) {
-          const granted = roles.get(String(user[idColumn]));
+          const granted = roles.get(subjectIdOf(user[idColumn]));
           if (!granted) continue;
           await connection
             .update()
@@ -143,12 +142,12 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
 
     for (;;) {
       const users = await this.page(connection, idColumn, roleColumn, after);
-      const ids = users.map((u) => String(u[idColumn])).filter((id) => id.trim() !== '');
+      const ids = users.map((u) => subjectIdOf(u[idColumn])).filter((id) => id.trim() !== '');
       const granted = await this.liveGlobalRoles(connection, ids, at);
       visited += users.length;
 
       for (const user of users) {
-        const id = String(user[idColumn]);
+        const id = subjectIdOf(user[idColumn]);
         if (id.trim() === '') {
           if (splitRoles(user[roleColumn]).length > 0) skipped++;
           continue;

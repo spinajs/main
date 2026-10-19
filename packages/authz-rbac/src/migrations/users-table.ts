@@ -31,16 +31,6 @@ export async function configuredUsersColumns(connection: OrmDriver): Promise<Use
   };
 }
 
-/**
- * The exact name, else the one column equal ignoring case: SQLite and MySQL treat column names
- * case-insensitively, and the name the table reports is the one that also works quoted on Postgres.
- */
-export function matchColumn(names: readonly string[], wanted: string): string | undefined {
-  if (names.includes(wanted)) return wanted;
-  const folded = names.filter((n) => n.toLowerCase() === wanted.toLowerCase());
-  return folded.length === 1 ? folded[0] : undefined;
-}
-
 /** The 2.x comma set: split on `,`, trimmed, empties dropped, deduplicated. */
 export function splitRoles(value: unknown): string[] {
   return [
@@ -53,6 +43,11 @@ export function splitRoles(value: unknown): string[] {
   ];
 }
 
+/** A users id as a subject id: subject ids are text, and the configured id column can be of any type. */
+export function subjectIdOf(value: unknown): string {
+  return String(value);
+}
+
 /** Keyset page of `columns` ordered by the id column; `after` is the last id of the previous page. Rows with a NULL id are left out. */
 export async function usersPage(connection: OrmDriver, idColumn: string, columns: string[], after: unknown, size: number): Promise<Record<string, unknown>[]> {
   const query = connection.select().columns(columns).from(USERS_TABLE).whereNotNull(idColumn).orderBy(idColumn).take(size);
@@ -60,12 +55,12 @@ export async function usersPage(connection: OrmDriver, idColumn: string, columns
   return (await query) as Record<string, unknown>[];
 }
 
-export async function countNullIds(connection: OrmDriver, idColumn: string): Promise<number> {
-  return Number(await connection.select().from(USERS_TABLE).whereNull(idColumn).selectCount());
+export function countNullIds(connection: OrmDriver, idColumn: string): Promise<number> {
+  return connection.select().from(USERS_TABLE).whereNull(idColumn).selectCount();
 }
 
-export async function countUsers(connection: OrmDriver): Promise<number> {
-  return Number(await connection.select().from(USERS_TABLE).selectCount());
+export function countUsers(connection: OrmDriver): Promise<number> {
+  return connection.select().from(USERS_TABLE).selectCount();
 }
 
 export async function hasUsers(connection: OrmDriver): Promise<boolean> {
@@ -79,11 +74,7 @@ export function requireAuthzOn(connection: OrmDriver, migration: string): void {
   throw new AuthzConfigError(`${migration}: the authz tables are on connection ${JSON.stringify(authz.Options.Name)} (db.Aliases.${AUTHZ_CONNECTION}), but the users.Role migrations run on the default connection ${JSON.stringify(connection.Options.Name)} and cannot yet read or write across connections; set db.Aliases.${AUTHZ_CONNECTION} to the default connection while they run. Nothing was changed`);
 }
 
-/** Inside the migration service's transaction when it runs one, else in our own. */
+/** Runs `body` in the transaction in scope on `connection`, else in a new one. */
 export function inTransaction(connection: OrmDriver, body: () => Promise<void>): Promise<void> {
   return connection.CurrentTransaction !== undefined ? body() : connection.transaction(body);
-}
-
-export function rowsAffected(result: unknown): number {
-  return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
 }
