@@ -7,6 +7,8 @@ import { VersionRecord } from '../stores/records.js';
 
 /** The 2.x `users` table the role copy reads and the drop alters; shared by both migrations, not exported by the package. */
 export const USERS_TABLE = 'users';
+/** The connection the users package keeps `users` on. */
+export const USERS_CONNECTION = 'default';
 export const USER_ROLES_ROLE_COLUMN_KEY = 'authz.rbac.migration.roleColumn';
 export const USER_ROLES_ID_COLUMN_KEY = 'authz.rbac.migration.idColumn';
 

@@ -2,13 +2,13 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { HostLog } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, HostLog } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { renderTemplate } from '@spinajs/log-common';
-import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
+import { extractMigrationDescriptor, MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
 import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, USER_ROLES_SOURCE, AssignmentRecord } from '../../src/index.js';
-import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { bootDb, BootOptions, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { versionOf } from '../support/version.js';
 
 chai.use(chaiAsPromised);
@@ -74,13 +74,23 @@ class SmallPages extends AuthzRbacUserRoles_2026_10_01_00_01_00 {
   public pages = 0;
   public seen: unknown[] = [];
   protected readonly pageSize = 2;
-  protected readonly insertBatch = 3;
 
   protected async page(connection: OrmDriver, idColumn: string, roleColumn: string, after: unknown): Promise<Record<string, unknown>[]> {
     this.pages++;
     const users = await super.page(connection, idColumn, roleColumn, after);
     this.seen.push(...users.map((u) => u[idColumn]));
     return users;
+  }
+}
+
+/** Fails reading the second page, after the first page's assignments went in. */
+class FailsOnSecondPage extends AuthzRbacUserRoles_2026_10_01_00_01_00 {
+  protected readonly pageSize = 2;
+  private pages = 0;
+
+  protected async page(connection: OrmDriver, idColumn: string, roleColumn: string, after: unknown): Promise<Record<string, unknown>[]> {
+    if (++this.pages === 2) throw new Error('second page failed');
+    return super.page(connection, idColumn, roleColumn, after);
   }
 }
 
@@ -102,8 +112,8 @@ for (const kind of DB_KINDS) {
 
     let db: TestDb | undefined;
 
-    async function boot(ctx: Mocha.Context, config: Record<string, string> = {}): Promise<TestDb> {
-      db = await bootDb(ctx, kind, 'user_roles', { migrate: false });
+    async function boot(ctx: Mocha.Context, config: Record<string, string> = {}, options: BootOptions = {}): Promise<TestDb> {
+      db = await bootDb(ctx, kind, 'user_roles', { migrate: false, ...options });
       const configuration = await db.container.resolve(Configuration);
       for (const [key, value] of Object.entries(config)) configuration.set(key, value);
       return db;
@@ -387,6 +397,84 @@ for (const kind of DB_KINDS) {
       expect((await status(db)).pending).to.eq(true);
       expect(await versionOf(db)).to.eq('2');
       expect(USER_ROLES_SOURCE).to.eq('users.Role');
+    });
+
+    it('copies a page of 300 users with 10 roles each in one pass', async function () {
+      const db = await boot(this);
+      await createUsers(db.driver);
+      const roles = Array.from({ length: 10 }, (_, r) => `role${r}`).join(',');
+      await db.driver
+        .insert()
+        .into('users')
+        .values(Array.from({ length: 300 }, (_, i) => ({ Uuid: `bulk-${String(i).padStart(4, '0')}`, Email: `bulk${i}@example.test`, Role: roles })));
+
+      await db.orm.Migration.up();
+
+      expect(await assignments(db.driver)).to.have.length(3000);
+      expect(await versionOf(db)).to.eq('1');
+    });
+
+    // `up(INITIAL)` and `up(MIGRATION)` run the two authz migrations alone: the drop on default is Task 6's.
+    describe('with db.Aliases.authz on another connection', () => {
+      const elsewhere: BootOptions = { second: true, authzOnSecond: true };
+
+      it('runs on the authz connection', () => {
+        expect(extractMigrationDescriptor(AuthzRbacUserRoles_2026_10_01_00_01_00)?.Connection).to.eq(AUTHZ_CONNECTION);
+      });
+
+      it('reads users on default and writes the assignments and the version where authz points', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+
+        await db.orm.Migration.up(INITIAL);
+        await db.orm.Migration.up(MIGRATION);
+
+        expect((await status(db)).pending).to.eq(false);
+        expect(pairs(await assignments(db.second!))).to.deep.eq(EXPECTED);
+        expect(await db.driver.schema().tableExists('authz_assignment')).to.eq(false);
+        expect(await versionOf(db)).to.eq('1');
+      });
+
+      it('a second up() inserts nothing and does not bump the version', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await db.orm.Migration.up(INITIAL);
+        await db.orm.Migration.up(MIGRATION);
+        const first = await assignments(db.second!);
+
+        await new AuthzRbacUserRoles_2026_10_01_00_01_00().up(db.second!);
+
+        expect(await assignments(db.second!)).to.deep.eq(first);
+        expect(await versionOf(db)).to.eq('1');
+      });
+
+      it('rolls the inserted assignments back when the copy fails', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await db.orm.Migration.up(INITIAL);
+
+        await expect(new FailsOnSecondPage().up(db.second!)).to.be.rejectedWith('second page failed');
+
+        expect(await assignments(db.second!)).to.deep.eq([]);
+        expect(await versionOf(db)).to.eq('0');
+      });
+
+      it('down() deletes the copied rows where authz points', async function () {
+        const db = await boot(this, {}, elsewhere);
+        await createUsers(db.driver);
+        await seedUsers(db.driver, ROLES);
+        await db.orm.Migration.up(INITIAL);
+        await db.orm.Migration.up(MIGRATION);
+
+        await db.orm.Migration.down(MIGRATION);
+
+        expect(await assignments(db.second!)).to.deep.eq([]);
+        expect((await status(db)).pending).to.eq(true);
+        expect(await versionOf(db)).to.eq('2');
+      });
     });
   });
 }

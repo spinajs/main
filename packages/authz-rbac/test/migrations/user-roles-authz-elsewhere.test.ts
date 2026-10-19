@@ -5,13 +5,12 @@ import 'mocha';
 import { AuthzConfigError } from '@spinajs/authz';
 import { OrmDriver } from '@spinajs/orm';
 
-import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00 } from '../../src/index.js';
+import { AuthzRbacDropUserRole_2026_10_01_00_02_00 } from '../../src/index.js';
 import { bootDb, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-const COPY = 'AuthzRbacUserRoles_2026_10_01_00_01_00';
 const DROP = 'AuthzRbacDropUserRole_2026_10_01_00_02_00';
 
 const refusal = (migration: string) => new RegExp(`^${migration}: the authz tables are on connection "l2-elsewhere-second" \\(db\\.Aliases\\.authz\\), but the users\\.Role migrations run on the default connection "l2-elsewhere".*set db\\.Aliases\\.authz to the default connection`);
@@ -50,16 +49,6 @@ describe('the users.Role migrations with db.Aliases.authz on another connection 
     db = undefined;
   });
 
-  it('the copy refuses before it writes when there are roles to copy', async () => {
-    await createUsers(db!.driver);
-    await seedUsers(db!.driver, ['admin', '']);
-
-    await expect(new AuthzRbacUserRoles_2026_10_01_00_01_00().up(db!.driver)).to.be.rejectedWith(AuthzConfigError, refusal(COPY));
-
-    expect(await assignmentsOn(db!.second!)).to.deep.eq([]);
-    expect(await db!.driver.schema().tableExists('authz_assignment')).to.eq(false);
-  });
-
   it('the copy and the drop run when there are no users to read', async () => {
     await createUsers(db!.driver);
 
@@ -85,9 +74,5 @@ describe('the users.Role migrations with db.Aliases.authz on another connection 
     await expect(new AuthzRbacDropUserRole_2026_10_01_00_02_00().down(db!.driver)).to.be.rejectedWith(AuthzConfigError, refusal(DROP));
 
     expect(await columns(db!.driver)).to.deep.eq(['Id', 'Uuid']);
-  });
-
-  it('the copy down() refuses', async () => {
-    await expect(new AuthzRbacUserRoles_2026_10_01_00_01_00().down(db!.driver)).to.be.rejectedWith(AuthzConfigError, refusal(COPY));
   });
 });

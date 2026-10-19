@@ -39,7 +39,7 @@ export interface BootOptions {
   migrate?: boolean;
   /** Also boot a second connection (`TestDb.second`). */
   second?: boolean;
-  /** With `second`: db.Aliases.authz names the second connection, which then migrates at boot too. */
+  /** With `second`: db.Aliases.authz names the second connection, which then migrates at boot unless `migrate` is false. */
   authzOnSecond?: boolean;
 }
 
@@ -134,7 +134,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   const container: IContainer = DI.child();
   const secondName = `l2-${suite}-second`;
-  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true } }] : [];
+  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true && migration.OnStartup } }] : [];
   // The test database boots as an app does, against the core schema.
   container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
   container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined)).as(Configuration);
