@@ -200,6 +200,13 @@ describe('fsFTP – provider hooks', () => {
     expect(temp.unzip.calledOnceWithExactly('/tmp/z.zip', 'out', dst)).to.be.true;
     expect(temp.rm.calledOnceWithExactly('/tmp/z.zip')).to.be.true;
   });
+
+  it('zips and unzips onto the temp fs when no destination fs is given', () => {
+    const { temp, internals } = provider();
+
+    expect(internals.zipDestination()).to.equal(temp);
+    expect(internals.unzipDestination()).to.equal(temp);
+  });
 });
 
 describe('fsFTP – root-relative remote paths', () => {

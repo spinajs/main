@@ -427,6 +427,14 @@ export class fsFTP extends fs {
     }
   }
 
+  protected zipDestination(): fs {
+    return this.TempFs;
+  }
+
+  protected unzipDestination(): fs {
+    return this.TempFs;
+  }
+
   protected async doHash(p: string, algo?: string): Promise<string> {
     const local = await this.download(p);
 
