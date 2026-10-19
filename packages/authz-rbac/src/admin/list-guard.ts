@@ -6,7 +6,7 @@ import { ruleCanMatch } from '../model/list/support.js';
 import { permissionRegistry } from './role-index.js';
 import { quote } from './common.js';
 
-/** Design §7 at write time: a stored rule may never reach a `list: true` permission. */
+/** At write time: a stored rule may never reach a `list: true` permission, because list plans cannot follow rules. */
 @Singleton()
 @Injectable(ListSupportGuard)
 export class RbacRuleListGuard extends ListSupportGuard {

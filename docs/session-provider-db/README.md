@@ -17,7 +17,7 @@ Add one ORM driver, for example `@spinajs/orm-mysql`.
 | Feature | What it does |
 | --- | --- |
 | [Database session store](01-db-session-store.md) | `DbSessionStore`: selection by `authn.session.service`, save, restore, touch, revocation by subject, the expired-session sweep, 2.x rows |
-| [Session table and migrations](02-session-table-and-migrations.md) | The `user_sessions` table, the `DbSession` model, the `session-provider-connection` name and the four migrations per dialect |
+| [Session table and migrations](02-session-table-and-migrations.md) | The `user_sessions` table, the `DbSession` model, the `session-provider-connection` name and the four migrations |
 | [Extending the session store](03-extending-the-session-store.md) | Every extension point: the `SessionProvider` token, subclassing `DbSessionStore`, the expiration strategy, the connection binding, extra migrations, the log category |
 
 ## Quick start
@@ -77,6 +77,6 @@ Importing `@spinajs/session-provider-db` registers `DbSessionStore` and the four
 
 - [`@spinajs/authn`](../authn/README.md#sessions): the session contract, the issuer, ids, states and revocation this store serves.
 - [`@spinajs/orm`](../orm/README.md): models, [connections and aliases](../orm/01-connections.md) and [migrations](../orm/10-migrations.md) the store runs on.
-- [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migrations have dialect branches for.
+- [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migrations run on; each spells the column changes its own way.
 - [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.
 - [`@spinajs/users`](../users/README.md): creates the `users` table that `user_sessions.UserId` references.

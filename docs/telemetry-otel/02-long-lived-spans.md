@@ -6,7 +6,7 @@
 
 1. `open(key, name, attrs?)`:
    1. closes a span already open under `key`: attribute `replaced: true`, status `ERROR` with message `replaced by a new span on the same key`, `end()`;
-   2. starts a new root span `name` with `attrs` on `OtelTracing.tracer('paystation')`;
+   2. starts a new root span `name` with `attrs` on `OtelTracing.tracer('spinajs')`;
    3. stores it with the open time (`Date.now()`) and starts the sweep timer when it is not running.
 2. `event(key, name, attrs?)` adds a span event. `setAttributes(key, attrs)` adds attributes. `has(key)` tells whether a span is open under `key`.
 3. `childSpan(key, name, attrs, fn)` runs `fn` inside a short span:
@@ -25,7 +25,7 @@ sequenceDiagram
   participant Registry as LongSpanRegistry
   participant Tracing as OtelTracing
   Start->>Registry: open('txn-81', 'payment.transaction', attrs)
-  Registry->>Tracing: tracer('paystation').startSpan()
+  Registry->>Tracing: tracer('spinajs').startSpan()
   Kiosk->>Registry: childSpan('txn-81', 'kiosk.command', attrs, fn)
   Registry->>Tracing: startSpan(name, attrs, parent context)
   Kiosk->>Registry: event('txn-81', 'cash.inserted', { amount })
@@ -99,16 +99,16 @@ More variants are in [Customizing the long-span registry](05-customizing-the-lon
 ## Important behaviour
 
 - **Observability never breaks the flow.** `open()`, `event()`, `setAttributes()` and `close()` catch every error and log it at `warn` on the `otel` logger. `childSpan()` catches errors of starting the span and still runs `fn`; errors of `fn` itself are re-thrown.
-- **`sweep()` is not guarded.** Unlike the other methods it has no `try`/`catch`, and the timer calls it from `setInterval`.
+- **`sweep()` is guarded too.** A span that throws while closing is logged at `warn` and dropped; the sweep goes on with the other spans.
 - **One span per key.** `open()` on a key that is open ends the old span as `replaced` with status `ERROR`. Keys must be unique per flow: a transaction id, not a kiosk id.
 - **The registry works while tracing is disabled.** With no provider, spans come from the no-op tracer, but keys are stored, `has()` returns `true` and the sweep timer runs. Nothing is exported.
-- **The tracer name is fixed** to `paystation` for `open()` and `childSpan()`. It is the instrumentation scope your backend shows for these spans.
+- **The tracer name is fixed** to `spinajs` for `open()` and `childSpan()`. It is the instrumentation scope your backend shows for these spans.
 - **`childSpan()` with a key ignores the active context.** The parent context is built from `ROOT_CONTEXT` plus the long span, so baggage or another active span is not carried over.
 - **A child of a closed or unknown key is standalone.** `childSpan()` looks the key up when it starts; it does not fail.
 - **The sweep timer is lazy and `unref()`'d.** It starts on the first `open()`, stops when the last span closes, and never keeps the process alive. `sweepIntervalMs` is read when the timer starts; `maxAgeMs` on every sweep.
 - **Orphans are found late.** A span is force-closed between `maxAgeMs` and `maxAgeMs + sweepIntervalMs` after it opened.
 - **Spans are in memory only.** A restart loses open spans without ending them, so they are never exported. A flow resumed after a restart needs a new `open()`.
-- **Shutdown order loses the closing spans.** `DI.dispose()` disposes cached services in cache order. `OtelTracing` is resolved, and cached, before the registry that injects it, so its provider shuts down first and the spans `dispose()` ends afterwards are not exported. Dispose the registry yourself first; see the example below.
+- **Open spans are ended before the provider shuts down.** On `resolve()` the registry hooks into `OtelTracing.dispose()`, so spans still open are closed as `error` with `shutdown: true` and exported even though `OtelTracing` is disposed first.
 
 ## Best practices
 

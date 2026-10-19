@@ -1,5 +1,5 @@
 import { AuthzConfigError } from '../../contracts/errors.js';
-import type { EngineLog } from '../../engine/authorizer.js';
+import type { AuthzLog } from '../log.js';
 
 export interface LegacyKeyRow {
   readonly from: string;
@@ -68,7 +68,7 @@ export function findLegacyKeys(rbac: unknown): LegacyKeyFinding[] {
 
 const MOVE_KEYS = 'Authz 3.x does not read the 2.x "rbac" configuration. Move these keys (run spinajs-authz-convert, or set authz.config.rejectLegacyKeys: false to only warn)';
 
-export function checkLegacyKeys(rbac: unknown, reject: boolean, log: Pick<EngineLog, 'warn'>): void {
+export function checkLegacyKeys(rbac: unknown, reject: boolean, log: Pick<AuthzLog, 'warn'>): void {
   if (rbac === undefined || rbac === null) return;
 
   const found = findLegacyKeys(rbac);

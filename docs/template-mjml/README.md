@@ -2,7 +2,7 @@
 
 Renders `.mjml` files into responsive, email-ready HTML. It plugs one renderer, `MjmlRenderer`, into the [`@spinajs/templates`](../templates/README.md) facade: a template is first run through Handlebars with your model, then compiled by [MJML](https://mjml.io).
 
-It does **not** register the Handlebars renderer it depends on: import `@spinajs/templates-handlebars` yourself. It does **not** send mail: [`@spinajs/email-smtp-transport`](../email-smtp-transport/README.md) renders a `.mjml` template through `Templates` and sends the result.
+Importing it also registers the Handlebars renderer it depends on (`@spinajs/templates-handlebars`). It does **not** send mail: [`@spinajs/email-smtp-transport`](../email-smtp-transport/README.md) renders a `.mjml` template through `Templates` and sends the result.
 
 The package directory is `packages/template-mjml`; the npm name is `@spinajs/templates-mjml`.
 

@@ -38,7 +38,7 @@ export function event(ctx: AdminContext, type: string, data: Record<string, unkn
   return { type, domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data };
 }
 
-/** Cache tags of an assignment's subject (design §10.3): members of a set are unknown, so a set flushes by role. */
+/** Cache tags of an assignment's subject: members of a set are unknown, so a set flushes by role. */
 export function subjectTag(s: AssignmentSubject): string {
   return isSetSubject(s) ? `role:${s.set.role}` : `subject:${principalKey(s)}`;
 }

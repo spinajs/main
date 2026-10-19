@@ -1,10 +1,9 @@
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { registerAccessResource } from '@spinajs/authz-orm';
-import { SYSTEM } from '@spinajs/authz';
+import { AuthzDomains, SYSTEM } from '@spinajs/authz';
 import { JobModel, QueueTrackingHook } from '@spinajs/queue';
 
-import { authzFor } from '../hook/service.js';
 import './job-grant.js';
 
 // The initiator may be any principal type, so the owner relation compares the type column too.
@@ -16,7 +15,10 @@ export class AuthzQueueTrackingHook extends QueueTrackingHook {
   @Config('authz.queue.domain')
   protected Domain: string;
 
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
+
   async aroundTracking<T>(next: () => Promise<T>): Promise<T> {
-    return (await authzFor(this.Domain)).runAs(SYSTEM, 'queue:tracking', next);
+    return (await this.Domains.service(this.Domain)).runAs(SYSTEM, 'queue:tracking', next);
   }
 }

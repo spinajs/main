@@ -38,6 +38,7 @@ describe('Config variables', () => {
       expect(v.Name).to.eq('date');
       expect(v.Value()).to.eq(DateTime.now().toFormat('dd/MM/yyyy'));
       expect(v.Value('yyyy-MM-dd')).to.eq(DateTime.now().toFormat('yyyy-MM-dd'));
+      expect(new DateLogVariable('yyyy').Value()).to.eq(DateTime.now().toFormat('yyyy'));
     });
 
     it('time should use default format and custom option', () => {

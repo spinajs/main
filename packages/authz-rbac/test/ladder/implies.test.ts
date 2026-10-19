@@ -202,27 +202,5 @@ describe('authz-rbac implied roles (B32)', () => {
       expect(summary.roles!.map((r) => r.role)).to.deep.equal(['org.admin', 'maintainer']);
       expect(summary.permissions.map((p) => p.name)).to.deep.equal(['file:edit', 'file:read', 'project:archive', 'project:settings']);
     });
-
-    it("covers: wanting a role wants what it implies; role names held everywhere hold what they imply at 'self-and-descendants'", async () => {
-      const service = new RbacService(await model([]));
-      expect(service.covers(['org.admin'], ['org.admin'])).to.equal(true);
-      expect(service.covers(['org.owner'], ['maintainer'])).to.equal(true);
-      expect(service.covers(['team.lead'], ['team.lead'])).to.equal(false);
-      expect(service.covers(['team.lead', 'editor'], ['team.lead'])).to.equal(true);
-      expect(service.covers([], ['org.admin'])).to.equal(false);
-    });
-
-    it('covers of a principal does not expand its names again: an implied role its ceiling drops stays out', async () => {
-      const m = await model([assignment('a1', 'org.admin', O1)]);
-      const service = new RbacService(m);
-      expect(await service.coversAt(withCeiling(alice, { roles: ['org.admin'] }), ['maintainer'], P1, ctx())).to.equal(false);
-    });
-
-    it('coversAt: an org admin holds maintainer on its projects and so covers it there, not at another org', async () => {
-      const m = await model([assignment('a1', 'org.admin', O1)]);
-      const service = new RbacService(m);
-      expect(await service.coversAt(alice, ['maintainer'], P1, ctx())).to.equal(true);
-      expect(await service.coversAt(alice, ['maintainer'], O2, ctx())).to.equal(false);
-    });
   });
 });

@@ -26,7 +26,7 @@ export class DateLogVariable extends ConfigVariable {
     return 'date';
   }
   public Value(option?: string): string {
-    return DateTime.now().toFormat(option ?? 'dd/MM/yyyy');
+    return DateTime.now().toFormat(option ?? this.format ?? 'dd/MM/yyyy');
   }
 }
 
@@ -40,7 +40,7 @@ export class TimeLogVariable extends ConfigVariable {
     return 'time';
   }
   public Value(option?: string): string {
-    return DateTime.now().toFormat(option ?? 'HH:mm:ss.SSS');
+    return DateTime.now().toFormat(option ?? this.format ?? 'HH:mm:ss.SSS');
   }
 }
 
@@ -132,6 +132,27 @@ const LayoutRegexp = /\$\{([^:\}]*)(:([^\}]*))?\}/gm;
 // eslint-disable-next-line security/detect-unsafe-regex
 const ConditionalRegexp = /\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs;
 const Vars: Map<string, ConfigVariable> = new Map<string, ConfigVariable>();
+let VarsSource: ConfigVariable[] | null = null;
+let VarsSourceLength = 0;
+
+// DI returns the same cached array until a new ConfigVariable is registered or the cache is cleared,
+// so the name map is rebuilt only when that array changes.
+function _refreshVars() {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  const resolved = DI.resolve(Array.ofType(ConfigVariable)) as ConfigVariable[];
+  if (resolved === VarsSource && resolved.length === VarsSourceLength) {
+    return;
+  }
+
+  Vars.clear();
+  resolved.forEach((v: ConfigVariable) => Vars.set(v.Name, v));
+  VarsSource = resolved;
+  VarsSourceLength = resolved.length;
+}
+
+function _isSet(value: unknown) {
+  return value !== undefined && value !== null;
+}
 
 /**
  *
@@ -152,10 +173,7 @@ function _replaceAll(pattern: string, str1: string, str2: string, ignore?: strin
 }
 
 function _format(vars: ConfVariables, txt: string) {
-  if (Vars.size === 0) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    DI.resolve(Array.ofType(ConfigVariable)).forEach((v: ConfigVariable) => Vars.set(v.Name, v));
-  }
+  _refreshVars();
 
   // Reset regex state before use (important for global regexes)
   ConditionalRegexp.lastIndex = 0;
@@ -164,8 +182,7 @@ function _format(vars: ConfVariables, txt: string) {
   // We need to evaluate the condition BEFORE replacing variables in the content
   let result = txt.replace(ConditionalRegexp, (_, varName, content) => {
     const value = vars?.[varName];
-    // Only render the content if the variable exists and is truthy
-    if (value !== undefined && value !== null && value !== '') {
+    if (_isSet(value) && value !== '' && value !== false) {
       // Return the content to be processed for variable substitution
       return content;
     }
@@ -181,28 +198,28 @@ function _format(vars: ConfVariables, txt: string) {
   }
 
   varMatch.forEach((v) => {
-    if (vars && vars[v[1]]) {
+    if (vars && _isSet(vars[v[1]])) {
       const fVar = vars[v[1]] as (format?: string) => string;
       if (fVar instanceof Function) {
-        result = result.replace(v[0], fVar(v[3] ?? null));
+        result = result.replace(v[0], () => fVar(v[3] ?? null));
       }
       else if (v[3]) {
         if (typeof fVar[v[3]] === 'function') {
-          result = result.replace(v[0], (fVar[v[3]] as any)());
+          result = result.replace(v[0], () => (fVar[v[3]] as any)());
           return;
         }
 
         // optional parameter eg. {object:property}
-        result = result.replace(v[0], fVar[v[3]] ?? '');
+        result = result.replace(v[0], () => String(fVar[v[3]] ?? ''));
       }
       else {
-        result = _replaceAll(result, v[0], fVar);
+        result = _replaceAll(result, v[0], String(fVar));
       }
     } else {
       const variable = Vars.get(v[1]);
       if (variable) {
         // optional parameter eg. {env:PORT}
-        result = result.replace(v[0], variable.Value(v[3] ?? null));
+        result = result.replace(v[0], () => variable.Value(v[3] ?? null));
       } else {
         result = result.replace(v[0], '');
       }

@@ -157,8 +157,7 @@ export async function grantingPermissions(ctx: AdminContext, permission: Permiss
  * The registry the domain's RBAC grants were compiled with: an RbacModel's of ctx.authz.models() first (an
  * RbacModel shared from another domain compiled its grants against that domain's registry, which another
  * model here may not expose), then any model's permissions() that returns a PermissionRegistry, then a
- * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected
- * (design §6.6.2).
+ * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected.
  */
 export async function permissionRegistry(ctx: AdminContext): Promise<PermissionRegistry | undefined> {
   const models = ctx.authz.models();

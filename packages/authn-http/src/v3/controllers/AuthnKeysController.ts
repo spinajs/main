@@ -1,17 +1,16 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
-import type { ICookie, Request } from '@spinajs/http';
-import { AuthnService, KeyRegistry, SessionIssuer } from '@spinajs/authn/contracts';
+import type { Request } from '@spinajs/http';
+import { KeyRegistry, SessionIssuer } from '@spinajs/authn/contracts';
 import type { KeyChallengeResult } from '@spinajs/authn/contracts';
 
 import { challengeAnswer, challengeRequestOf, challengeThrottled, keyEntry, keyLoginCredentialsOf, keyManager, keyNotFound, keyRequestOf, kidOf, registerRefusal } from '../../keys/fields.js';
 import { KeyRoutesOn } from '../../keys/gate.js';
-import { isAuthnFailed } from '../../policies/v3/errors.js';
-import { takeReauthPassword } from '../../token/fields.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
-import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, auditEnded, contextOf, stampClient } from '../routes.js';
+import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
+import { NO_STORE } from '../responses.js';
+import { completeLogin, contextOf } from '../routes.js';
 
 /**
  * Public keys over the KeyRegistry contract (design §22.10, §22.11; A02, A13, A17). Off (404) while no KeyRegistry is
@@ -66,15 +65,8 @@ export class AuthnKeysController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async register(@Req() req: Request) {
     const session = keyManager(req);
-    const password = takeReauthPassword(req);
-    try {
-      // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
-      // a password while the gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
-    } catch (err) {
-      if (isAuthnFailed(err)) return authnFailureResponse();
-      throw err;
-    }
+    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    if ('answer' in fresh) return fresh.answer;
     const parsed = keyRequestOf(req, new Date());
     if ('answer' in parsed) return parsed.answer;
     const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
@@ -135,29 +127,7 @@ export class AuthnKeysController extends BaseController {
    */
   @Post('auth/keys/login')
   public async login(@Req() req: Request) {
-    const sessions = this.Sessions;
-    const held = req.storage.AuthnSession;
-    if (held) {
-      await sessions.revoke(held.handle);
-      await auditEnded(this.Container, req, held, 'session.revoke', 'login');
-    }
-    const cleared: ICookie[] = held ? [authnClearedSessionCookie(this._cfg)] : [];
-
-    const credentials = keyLoginCredentialsOf(req);
-    if (credentials === null) return authnFailureResponse(undefined, cleared);
-
-    // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
-    const authn = await this.Container.resolve(AuthnService);
-    const result = await authn.authenticate(credentials, contextOf(req, 'login'));
-    if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
-    if (result.status === 'mfa_required') {
-      await stampClient(sessions, result.pending, req);
-      return new Ok({ MfaRequired: [...result.steps] }, { Coockies: [authnSessionCookie(this._cfg, result.pending)], Headers: [NO_STORE] });
-    }
-    if (!result.session) return authnFailureResponse(undefined, cleared);
-    await stampClient(sessions, result.session, req);
-    const principal = await authn.principalOf(result);
-    return new Ok(await answerFor(this.Container, 'login', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
+    return completeLogin(this.Container, this.Sessions, this._cfg, req, keyLoginCredentialsOf(req));
   }
 
   protected async registry(): Promise<KeyRegistry> {

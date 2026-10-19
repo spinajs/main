@@ -4,7 +4,7 @@ import type { AdminContext, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { AssignmentSubject, RoleDef } from '../contracts.js';
 import { isPlainObject as isObject, quote as q } from './common.js';
 import type { RoleIndex } from './role-index.js';
-import { normaliseTags } from './rows.js';
+import { sortedTags } from './rows.js';
 
 /** A principal, or a subject set; with `roles`, the set's role must exist and be a subject set role. */
 export function readSubject(v: unknown, field: string, roles?: RoleIndex): AssignmentSubject {
@@ -21,7 +21,7 @@ export function readSubject(v: unknown, field: string, roles?: RoleIndex): Assig
 
 export function readTags(v: unknown, field = 'tags'): string[] {
   if (!Array.isArray(v) || !v.every((t) => typeof t === 'string' && t !== '' && !t.includes(','))) throw invalid(field, `${field} must be non-empty strings without ','`);
-  return normaliseTags(v as string[]);
+  return sortedTags(v as string[]);
 }
 
 export function readOptionalTags(v: unknown, field = 'tags'): string[] | undefined {

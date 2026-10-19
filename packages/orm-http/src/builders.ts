@@ -1,4 +1,4 @@
-import { SelectQueryBuilder, SqlOperator } from '@spinajs/orm';
+import { SelectQueryBuilder, SqlOperator, extractModelDescriptor } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 import { _is_array, _min_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -153,12 +153,15 @@ const OPERATOR_MAP: Record<FilterableOperators, {
  * receiver is a `WhereBuilder`, which carries no `filter()` of its own, so a nested group could
  * not recurse through the prototype.
  */
-function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperator: FilterableLogicalOperators | undefined, columns: IColumnFilter<unknown>[]) {
+function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperator: FilterableLogicalOperators | undefined, columns: IColumnFilter<unknown>[], root: SelectQueryBuilder<any>, conjunctive: boolean) {
   const useOrOperator = logicalOperator === FilterableLogicalOperators.Or;
+  // True while every enclosing level ANDs this entry with everything else, so applying it
+  // on the root query instead of inside its group does not change the result.
+  const levelConjunctive = conjunctive && (!useOrOperator || entries.length <= 1);
 
   entries.forEach((filter, index) => {
     if (!filter || typeof filter !== 'object') {
-      throw new Error(`Invalid filter at index ${index}: must be an object`);
+      throw new InvalidArgument(`Invalid filter at index ${index}: must be an object`);
     }
 
     // A nested group - `{ op, filters }` - becomes one bracketed condition, so its own operator
@@ -169,7 +172,7 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
       // `function`, not an arrow: the builder hands the bracketed sub-query to the callback as
       // `this`, so an arrow would close over the outer scope and get nothing.
       const nested = function (this: any) {
-        applyFilterEntries(this, filter.filters, filter.op, columns);
+        applyFilterEntries(this, filter.filters, filter.op, columns, root, levelConjunctive);
       };
 
       if (useOrOperator) {
@@ -181,41 +184,56 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
     }
 
     if (!filter.Column) {
-      throw new Error(`Column is required for filter at index ${index}`);
+      throw new InvalidArgument(`Column is required for filter at index ${index}`);
     }
 
     if (!filter.Operator) {
-      throw new Error(`Operator is required for filter at index ${index}`);
+      throw new InvalidArgument(`Operator is required for filter at index ${index}`, filter.Column);
     }
 
     // Validate that the operator is supported
     if (!Object.keys(OPERATOR_MAP).includes(filter.Operator)) {
-      throw new Error(`Unsupported operator '${filter.Operator}' at index ${index}. Supported operators: ${Object.keys(OPERATOR_MAP).join(', ')}`);
+      throw new InvalidArgument(`Unsupported operator '${filter.Operator}' at index ${index}. Supported operators: ${Object.keys(OPERATOR_MAP).join(', ')}`, filter.Column);
     }
 
     const column = columns.find((c) => c.column === filter.Column);
     if (!column) {
-      throw new Error(`Column '${filter.Column}' is not filterable at index ${index}`);
+      throw new InvalidArgument(`Column '${filter.Column}' is not filterable at index ${index}`, filter.Column);
     }
 
     // Validate that the operator is allowed for this column
     if (column.operators && !column.operators.includes(filter.Operator)) {
-      throw new Error(`Operator '${filter.Operator}' is not allowed for column '${filter.Column}' at index ${index}. Allowed operators: ${column.operators.join(', ')}`);
+      throw new InvalidArgument(`Operator '${filter.Operator}' is not allowed for column '${filter.Column}' at index ${index}. Allowed operators: ${column.operators.join(', ')}`, filter.Column);
     }
 
     if (column.query) {
-      column.query(filter.Operator, filter.Value).call(builder);
+      const where = column.query(filter.Operator, filter.Value);
+      if (useOrOperator) {
+        builder.orWhere(where);
+      } else {
+        builder.andWhere(where);
+      }
       return;
     }
 
     // Apply the operator using the operator map
     const operatorConfig = OPERATOR_MAP[filter.Operator];
     if (!operatorConfig) {
-      throw new Error(`Unsupported operator: ${filter.Operator}`);
+      throw new InvalidArgument(`Unsupported operator: ${filter.Operator}`, filter.Column);
     }
 
     // Validate filter value using operator-specific validation
     operatorConfig.validate(filter);
+
+    // A relation column ( `Author.Name` ) needs populate(), which only the root query has, and
+    // the compiler moves aggregate conditions to HAVING only from the root query's own statements.
+    if (filter.Column.includes('.') || isAggregateColumn(root, filter.Column)) {
+      if (!levelConjunctive) {
+        throw new InvalidArgument(`Column '${filter.Column}' at index ${index} cannot be combined with other filters by 'or': relation and aggregate columns always apply to the whole query`, filter.Column);
+      }
+      operatorConfig.applyAnd(root, filter);
+      return;
+    }
 
     if (useOrOperator) {
       operatorConfig.applyOr(builder, filter);
@@ -223,6 +241,11 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
       operatorConfig.applyAnd(builder, filter);
     }
   });
+}
+
+function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boolean {
+  const model = (root as any)._model;
+  return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
 /**
@@ -237,13 +260,14 @@ function applyFilterEntries(builder: any, entries: IFilterEntry[], logicalOperat
   // Performance optimization: limit the number of filters to prevent abuse
   const MAX_FILTERS = 100;
   if (filters.length > MAX_FILTERS) {
-    throw new Error(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
+    throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
   }
 
   const columns: IColumnFilter<unknown>[] = filterColumns ?? (this._model as any).filterColumns();
 
+  const root = this;
   this.andWhere(function (this: any) {
-    applyFilterEntries(this, filters, logicalOperator, columns);
+    applyFilterEntries(this, filters, logicalOperator, columns, root, true);
   });
 
   return this;

@@ -1,10 +1,9 @@
 import type { Principal } from '@spinajs/authz';
 
 /**
- * Whether `role` passes the principal's `ceiling.roles` (§6.1.2 step 1, B07): the assigned role's
- * own name, never a role it extends, so a ceiling of a lower role does not keep a higher role's
- * assignment. Every contribution step 1 adds must pass it: implied roles and set memberships
- * included (D19).
+ * Whether `role` passes the principal's `ceiling.roles`: the assigned role's own name, never a role
+ * it extends, so a ceiling of a lower role does not keep a higher role's assignment. Every
+ * contribution step 1 (collect) adds must pass it, implied roles and set memberships included.
  */
 export function withinCeiling(s: { readonly ceilingRoles?: ReadonlySet<string> }, role: string): boolean {
   return s.ceilingRoles === undefined || s.ceilingRoles.has(role);

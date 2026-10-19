@@ -3,17 +3,19 @@ import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { DateTime } from 'luxon';
 
 import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
-import { DbTokenService, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
+import { DbTokenService, TokenProfilePolicy } from '../../src/service/index.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
 import { readingFrom } from '../support/config-boot.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
+import { tokenServiceOver, tokenStrategyOver } from './services.js';
 
 const NOW = new Date('2026-10-03T10:00:00.000Z');
 const SECOND = 1000;
@@ -73,6 +75,7 @@ describe('TokenStrategy', function () {
   let identities: FakeIdentityStore;
   let profiles: StrategyTestProfilePolicy;
   let tokens: SpyTokenService;
+  let events: StrategyTestSink;
   let strategy: TokenStrategy;
   const savedConfig = new Map<string, unknown>();
 
@@ -93,8 +96,9 @@ describe('TokenStrategy', function () {
   beforeEach(async () => {
     identities = new FakeIdentityStore();
     profiles = new StrategyTestProfilePolicy();
-    tokens = new SpyTokenService(new UsersTableTokenOwnerResolver(), profiles, identities);
-    strategy = new TokenStrategy(tokens);
+    events = new StrategyTestSink();
+    tokens = await tokenServiceOver({ identities, profiles, auditor: AuthnAudit.over([events]), type: SpyTokenService });
+    strategy = tokenStrategyOver(tokens);
     await strategy.resolve();
   });
 
@@ -132,6 +136,10 @@ describe('TokenStrategy', function () {
       expect(strategy.interactive).to.equal(false);
     });
 
+    it('reads as resolved after its boot check', () => {
+      expect(strategy.Resolved).to.equal(true);
+    });
+
     describe('through DI', () => {
       afterEach(() => {
         DI.unregister(StrategyTestIdentityStore);
@@ -162,15 +170,17 @@ describe('TokenStrategy', function () {
       });
 
       it('fails at boot when no IdentityStore is registered', async () => {
-        // Same child as the DbTokenService wiring test: @spinajs/users registers an IdentityStore once imported.
-        const bare = DI.child();
-        bare.register(IdentityStore).as(IdentityStore);
-        bare.register(DbTokenService).as(TokenService);
-        bare.register(TokenStrategy).asSelf();
+        // As in the DbTokenService wiring test: @spinajs/users registers an IdentityStore once imported.
+        const registered = [...(DI.getRegisteredTypes(IdentityStore) ?? [])];
+        registered.forEach((type) => DI.unregister(type));
+        const child = DI.child();
+        child.register(DbTokenService).as(TokenService);
+        child.register(TokenStrategy).asSelf();
         const err = await Promise.resolve()
-          .then(() => bare.resolve(TokenStrategy))
+          .then(() => child.resolve(TokenStrategy))
           .catch((e: unknown) => e);
-        await bare.dispose();
+        await child.dispose();
+        registered.forEach((type) => DI.register(type).as(IdentityStore));
         expect(err).to.be.instanceOf(Error);
         expect((err as Error).message).to.match(/IdentityStore/);
       });
@@ -249,7 +259,7 @@ describe('TokenStrategy', function () {
       try {
         child.register(RefusingConfiguration).as(Configuration);
         await child.resolve(Configuration);
-        const s = readingFrom(new TokenStrategy(tokens), child);
+        const s = readingFrom(tokenStrategyOver(tokens), child);
         const c = bearer(`spt_${'a'.repeat(43)}`);
 
         expect(() => s.accepts(c)).to.throw(InvalidConfiguration);
@@ -479,7 +489,7 @@ describe('TokenStrategy', function () {
       const a = await owner();
       const t = await mint(a);
       const plain: TokenService = { validate: (raw: string, c: AuthnContext) => tokens.validate(raw, c) } as unknown as TokenService;
-      const s = new TokenStrategy(plain);
+      const s = tokenStrategyOver(plain);
       await s.resolve();
 
       expect((await s.verify(bearer(t.plaintext), ctx())).ok).to.equal(true);
@@ -488,25 +498,20 @@ describe('TokenStrategy', function () {
   });
 
   describe('side effects', () => {
-    let sink: StrategyTestSink;
     let sessions: StrategyTestSessions;
 
     before(() => {
-      DI.register(StrategyTestSink).as(AuthnEventSink);
       DI.register(StrategyTestSessions).as(SessionIssuer);
     });
 
     after(() => {
-      DI.unregister(StrategyTestSink);
       DI.unregister(StrategyTestSessions);
-      DI.uncache(StrategyTestSink);
       DI.uncache(StrategyTestSessions);
       DI.uncache(SessionIssuer);
-      DI.uncache(Array.ofType(AuthnEventSink));
     });
 
     it('verify publishes no event and issues no session', async () => {
-      sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof StrategyTestSink) as StrategyTestSink;
+      const sink = events;
       sessions = DI.resolve(SessionIssuer) as StrategyTestSessions;
       const a = await owner();
       const t = await mint(a);
@@ -537,7 +542,7 @@ describe('DbTokenService.touch', function () {
 
   it('writes LastUsedAt and LastUsedIp only when the stored stamp is absent or older than the interval', async () => {
     const identities = new FakeIdentityStore();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new StrategyTestProfilePolicy(), identities);
+    tokens = await tokenServiceOver({ identities, profiles: new StrategyTestProfilePolicy(), auditor: AuthnAudit.over([]) });
     const a = identities.add({ login: randomUUID() });
     await insertUserRow(a.id);
     const t = (await tokens.create(a, { name: 'touch', kind: 'pat', expiresAt: at(DAY) }, ctx())) as Ok;
@@ -560,7 +565,7 @@ describe('DbTokenService.touch', function () {
 
   it('refuses an invalid ctx.now or interval', async () => {
     const identities = new FakeIdentityStore();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new StrategyTestProfilePolicy(), identities);
+    tokens = await tokenServiceOver({ identities, profiles: new StrategyTestProfilePolicy() });
     for (const [now, interval] of [
       [new Date(Number.NaN), 60],
       [NOW, -1],

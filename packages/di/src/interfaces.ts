@@ -104,6 +104,10 @@ export interface IContainer extends EventEmitter {
 
   register<T>(implementation: Class<T> | Factory<T> | ResolvableObject): IBind;
   unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void;
+  /**
+   * Removes `implementation` itself ( by identity ) from the registrations of `type` in this container.
+   */
+  unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
   uncache<T>(source: string | Class<T> | TypedArray<T>, parent?: boolean): void;
 
   child(): IContainer;
@@ -117,7 +121,18 @@ export interface IContainer extends EventEmitter {
   getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
   isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
+
+  /**
+   * True when `instance` sits in this container's cache ( with `parent`, also in an ancestor's ), i.e. DI owns it.
+   */
+  isCached(instance: unknown, parent?: boolean): boolean;
   hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
+
+  /**
+   * True when something other than `type` itself is registered under `type`: a class registered as itself
+   * ( e.g. an abstract contract ) does not count, a subclass or a factory does.
+   */
+  hasImplementation<T>(type: Class<T> | string, parent?: boolean): boolean;
   hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T> | object, parent?: boolean): boolean;
 
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
@@ -157,9 +172,16 @@ export interface IContainer extends EventEmitter {
    */
   resolveNamed<T>(base: Class<T>, name: string): Promise<T>;
 
-  dispose(): Promise<void>;
+  dispose(options?: IDisposeOptions): Promise<void>;
 
   extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
+}
+
+export interface IDisposeOptions {
+  /**
+   * Also call `dispose()` on cached instances that are not a `Service` ( once each ), in this container and its children.
+   */
+  plainOwners?: boolean;
 }
 
 /**

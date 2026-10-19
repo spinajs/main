@@ -14,6 +14,9 @@ import type { MetadataScope } from './metadata-scope.js';
  */
 export const DEFAULT_PAGE_SIZE = 10;
 
+/** Upper bound on `pagination.limit`, as for the admin user list. */
+export const MAX_PAGE_SIZE = 100;
+
 const READ = 'user.metadata:read';
 const CREATE = 'user.metadata:create';
 const UPDATE = 'user.metadata:update';
@@ -67,7 +70,7 @@ const notFound = () => new ResourceNotFound('Metadata entry not found');
 export class UserMetadataService {
   /** Paginated, filtered, ordered listing of one user's metadata, without reserved keys and rows the caller may not read. */
   public async list(scope: MetadataScope, pagination?: PaginationDTO, order?: OrderDTO, filter?: IFilterRequest) {
-    const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
+    const limit = Math.min(pagination?.limit || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const column = sortColumn(order);
 
     // Excluded in the query, not after it, so a page holds `limit` visible entries.

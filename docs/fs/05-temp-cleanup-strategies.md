@@ -122,6 +122,7 @@ export class SweepOnStartTempCleanupStrategy extends MaxAgeTempCleanupStrategy {
 - A strategy registered without `@NewInstance()` is a singleton: two temp providers would share one schedule, and the second `start()` would stop the first.
 - `start()` runs inside `fsTemp.resolve()`, so an exception there fails the whole `fsService` boot.
 - Both shipped strategies sweep the backend root only, not subdirectories.
+- Give an `fsNative` backend a `basePath`. Without one, the sweep lists the host root `/`, while `stat()` and `rm()` resolve those names against the current working directory.
 - `CronTempCleanupStrategy` logs a warning when `cleanupInterval` is also set, and ignores it.
 
 ## Best practices

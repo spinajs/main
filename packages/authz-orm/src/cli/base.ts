@@ -1,3 +1,4 @@
+import { AuthzConfigError } from '@spinajs/authz';
 import { AuthzCliBase } from '@spinajs/authz/cli';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
@@ -18,7 +19,7 @@ export abstract class AuthzOrmCliCommand extends AuthzCliBase {
     const cls = classesOf(type)[0];
     if (cls) return driverOf(cls);
     const d = (await this.orm()).Connections.get('default');
-    if (!d) throw new Error('authz:ancestors: the ORM has no default connection');
+    if (!d) throw new AuthzConfigError('authz:ancestors: the ORM has no default connection');
     return d;
   }
 

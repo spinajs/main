@@ -99,10 +99,16 @@ describe('AccessPolicy', function () {
   let other: TestDomain;
   let unregisterSource: () => void;
 
+  // The policy reads engine.explain as the domain's service booted with it.
+  const bootDomain = async (engine?: { explain: boolean }) => {
+    await domain?.dispose();
+    domain = await createDomain(D, { permissions, model: { votes }, adapters: [new FakeAdapter({ types: ['file'], rows }), new DocAdapter()], ...(engine ? { domain: { engine } } : {}) });
+  };
+
   before(async () => {
     unregisterSource = registerHeaderSource();
     app = await startApp({ controllers: [PolicyRoutes] });
-    domain = await createDomain(D, { permissions, model: { votes }, adapters: [new FakeAdapter({ types: ['file'], rows }), new DocAdapter()] });
+    await bootDomain();
     other = await createDomain(OTHER, { permissions, model: { votes: () => ({}) } });
   });
 
@@ -113,13 +119,12 @@ describe('AccessPolicy', function () {
     unregisterSource();
   });
 
-  const explain = (on: boolean, production: boolean) => {
-    testHost.config().set(['authz', 'domains', D, 'engine'], { explain: on });
+  const explain = async (on: boolean, production: boolean) => {
+    await bootDomain({ explain: on });
     testHost.config().set(['configuration', 'isProduction'], production);
   };
 
   afterEach(() => {
-    testHost.config().unset(['authz', 'domains', D, 'engine']);
     testHost.config().unset(['configuration', 'isProduction']);
   });
 
@@ -183,7 +188,7 @@ describe('AccessPolicy', function () {
     });
 
     it('outside production, with engine.explain on and a caller holding authz:explain, carries the trace', async () => {
-      explain(true, false);
+      await explain(true, false);
       const res = await app.request().get('/pol/files/f1').set('x-user', 'bob');
 
       expect(res.status).to.eq(403);
@@ -191,7 +196,7 @@ describe('AccessPolicy', function () {
     });
 
     it('in production never', async () => {
-      explain(true, true);
+      await explain(true, true);
       const res = await app.request().get('/pol/files/f1').set('x-user', 'bob');
 
       expect(res.status).to.eq(403);
@@ -199,12 +204,12 @@ describe('AccessPolicy', function () {
     });
 
     it('not while engine.explain is off', async () => {
-      explain(false, false);
+      await explain(false, false);
       expect((await app.request().get('/pol/files/f1').set('x-user', 'bob')).body).to.not.have.property('trace');
     });
 
     it('not for a caller without authz:explain', async () => {
-      explain(true, false);
+      await explain(true, false);
       expect((await app.request().get('/pol/files/f1').set('x-user', 'carol')).body).to.not.have.property('trace');
     });
   });
