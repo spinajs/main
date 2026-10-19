@@ -267,9 +267,9 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.collation = (name: string) => `COLLATE ${assertCharsetName(name, 'collation')}`;
   }
 
-  /** T-SQL has no column character set: the collation carries the code page. */
+  /** T-SQL has no column character set: the collation carries the code page, so charset() writes nothing. */
   protected charsetName(): string {
-    return this.builder.Charset;
+    return '';
   }
 
   protected collationName(): string {

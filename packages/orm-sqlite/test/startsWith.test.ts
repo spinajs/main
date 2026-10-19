@@ -1,10 +1,11 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, Orm } from '@spinajs/orm';
+import { ICompilerOutput, IdentifierQuoter, Orm } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '../src/index.js';
+import { SqliteStartsWithStatement } from '../src/statements.js';
 import { ConnectionConf, db } from './common.js';
 
 function driver(): SqliteOrmDriver {
@@ -57,6 +58,15 @@ describe('sqlite whereStartsWith', function () {
 
     expect(result.expression).to.contain('`Path` GLOB ?');
     expect(result.bindings).to.deep.eq(['docs[[]1][*][?]/*']);
+  });
+
+  it('clone() keeps the column, prefix, alias and quoter', () => {
+    const statement = new SqliteStartsWithStatement('Path', 'docs[1]/', 's');
+    statement.Quoter = driver().Container.resolve(IdentifierQuoter);
+    const copy = statement.clone();
+
+    expect(copy).to.be.instanceOf(SqliteStartsWithStatement).and.not.equal(statement);
+    expect(copy.build()).to.deep.equal(statement.build());
   });
 
   for (const [prefix, expected] of CASES) {

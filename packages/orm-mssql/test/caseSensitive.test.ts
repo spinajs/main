@@ -36,6 +36,14 @@ describe('mssql case-sensitive columns', function () {
     expect(create((t) => t.string('c').caseSensitive())).to.not.contain('CHARACTER SET');
   });
 
+  it('declares no character set even when charset() is called', () => {
+    expect(create((t) => t.string('c').charset('utf8mb4'))).to.not.contain('utf8mb4').and.to.not.contain('CHARACTER SET');
+  });
+
+  it('refuses caseSensitive() on a column that is not a string, naming the column', () => {
+    expect(() => create((t) => t.int('qty').caseSensitive())).to.throw(InvalidArgument, "'qty'");
+  });
+
   it('writes an explicit collation unquoted and refuses a name that is not one', () => {
     expect(create((t) => t.string('a').collation('Latin1_General_CS_AS').caseSensitive())).to.contain('[a] NVARCHAR(255) COLLATE Latin1_General_CS_AS');
     expect(create((t) => t.string('b').collation('Latin1_General_CS_AS'))).to.contain('[b] VARCHAR(255) COLLATE Latin1_General_CS_AS');

@@ -2271,6 +2271,8 @@ export class ForeignKeyBuilder {
   }
 }
 
+const CASE_SENSITIVE_TYPES: ColumnType[] = [ColumnType.STRING, ColumnType.TEXT, ColumnType.TINY_TEXT, ColumnType.MEDIUM_TEXT, ColumnType.LONG_TEXT];
+
 @NewInstance()
 @Inject(Container)
 export class ColumnQueryBuilder {
@@ -2366,9 +2368,13 @@ export class ColumnQueryBuilder {
 
   /**
    * Compares the column's values exactly, with the dialect's binary collation: case and accent variants are
-   * different values. An explicit `collation()` wins.
+   * different values. An explicit `collation()` wins. String and text columns only.
    */
   public caseSensitive() {
+    if (!CASE_SENSITIVE_TYPES.includes(this.Type)) {
+      throw new InvalidArgument(`caseSensitive() applies to string and text columns only, column '${this.Name}' is ${this.Type}`);
+    }
+
     this.CaseSensitive = true;
 
     return this;

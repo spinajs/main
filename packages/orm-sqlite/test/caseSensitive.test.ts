@@ -2,6 +2,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ICompilerOutput, Orm, TableQueryBuilder } from '@spinajs/orm';
 import { expect } from 'chai';
+import { InvalidArgument } from '@spinajs/exceptions';
 import 'mocha';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '../src/index.js';
@@ -31,6 +32,10 @@ describe('sqlite case-sensitive columns', function () {
 
   it('declares no collation: BINARY, the default, is already exact', () => {
     expect(create((t) => t.string('path', 512).notNull().caseSensitive())).to.equal(create((t) => t.string('path', 512).notNull()));
+  });
+
+  it('refuses caseSensitive() on a column that is not a string, naming the column', () => {
+    expect(() => create((t) => t.int('qty').caseSensitive())).to.throw(InvalidArgument, "'qty'");
   });
 
   it('keeps case variants of a key apart', async () => {
