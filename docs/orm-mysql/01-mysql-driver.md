@@ -66,7 +66,7 @@ Connection keys are listed in [Connections](../orm/01-connections.md#configurati
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | `IConnectionResilienceOptions` | `30000`, `5`, `200`, `5000` | | Health probe interval and retry policy. |
 | `db.Connections[].Encoding` | `string` | | | **Not applied.** The connection uses `mysql2`'s default charset, `UTF8MB4_UNICODE_CI`. |
-| `db.Connections[].Options` | `any` | | | **Not applied.** TLS, `timezone`, `decimalNumbers` and other `mysql2` options are not passed. Override `connect()` to set them: [example](#connection-setup-custom-implementation). |
+| `db.Connections[].Options` | `any` | | | **Not applied.** TLS, `decimalNumbers` and other `mysql2` options are not passed. Override `connect()` to set them: [example](#connection-setup-custom-implementation). |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases. |
 | `db.Connections[].Migration.*` | | | | See [Migrations](../orm/10-migrations.md) and [DDL is not transactional](06-schema-views-and-events.md#ddl-is-not-transactional). |
 
@@ -111,7 +111,7 @@ export class ShopConfiguration extends FrameworkConfiguration {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'` and `MySqlOrmDriver`; `@NewInstance()`, one instance per connection entry, resolved by `Orm` at boot from `Driver` | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`, see [SSH tunnel](02-ssh-tunnel.md)) | Subclass with `@Injectable('<string>') @NewInstance()`. Use a new string for chosen connections, or `'orm-driver-mysql'` to replace it everywhere. Register before `Orm` resolves. |
-| Connection setup | `connect()` (public) | `mysql2.createPool()` with the keys above | | Override to pass `ssl`, `timezone`, `charset` or any other `mysql2` option. Call `setState(ConnectionState.Connected)` when the link is proven. |
+| Connection setup | `connect()` (public) | `mysql2.createPool()` with the keys above | | Override to pass `ssl`, `charset` or any other `mysql2` option. Call `setState(ConnectionState.Connected)` when the link is proven. |
 | Retry policy | `isRetryableError(err)` (protected) | shared codes, `fatal` errors, never inside a transaction | | Override, call `super.isRetryableError(err)` first so the transaction guard stays. |
 | Pool gauges | `poolMetrics()` (public) | reads `mysql2`'s internal `_allConnections`, `_freeConnections`, `_connectionQueue`; zeros when they are absent | | Override when you swap the pool implementation. Must never throw. |
 | Health probe | `ping()` (public) | `SELECT 1` once, no retry | | Override to probe something stronger, eg. a replica's lag. Must return `false`, not throw. |
@@ -121,7 +121,7 @@ export class ShopConfiguration extends FrameworkConfiguration {
 
 ### Connection setup: custom implementation
 
-Override `connect()` when a connection needs `mysql2` options the driver does not pass: TLS, a session timezone, a charset. Keep the shape of the stock method: build the pool from `resolvedPoolOptions()`, prove one connection, then set `Connected`. Register the class before `Orm` resolves.
+Override `connect()` when a connection needs `mysql2` options the driver does not pass: TLS, a charset. Keep the shape of the stock method: build the pool from `poolOptions()`, pin the session zone with `pinSessionZone()`, prove one connection, then set `Connected`. Register the class before `Orm` resolves.
 
 ```ts sample
 import { readFileSync } from 'fs';
@@ -137,24 +137,15 @@ import * as mysql from 'mysql2';
 @NewInstance()
 export class TlsMySqlOrmDriver extends MySqlOrmDriver {
   public connect(): Promise<OrmDriver> {
-    const pool = this.resolvedPoolOptions();
     const previous = this.Pool;
 
     this.Pool = mysql.createPool({
       host: this.Options.Host,
-      user: this.Options.User,
-      password: this.Options.Password,
-      port: this.Options.Port,
-      database: this.Options.Database,
-      waitForConnections: true,
-      connectionLimit: pool.Max,
-      maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-      idleTimeout: pool.IdleTimeout,
-      queueLimit: 0,
+      ...this.poolOptions(),
       charset: this.Options.Encoding ?? 'UTF8MB4_UNICODE_CI',
-      timezone: 'Z',
       ssl: { ca: readFileSync(this.Options.Options.CaFile, 'utf8'), rejectUnauthorized: true },
     });
+    this.pinSessionZone(this.Pool);
 
     return new Promise((resolve, reject) => {
       this.Pool.getConnection((err, connection) => {
@@ -222,7 +213,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 ## Important behaviour
 
 - Importing the package registers both drivers. `DI.register(MySqlOrmDriver).as('orm-driver-mysql')` repeats what the decorator did; it is harmless.
-- `Encoding`, `Options` and `Pool.AcquireTimeout` are read by no code in this driver. Without an override, the session timezone is `mysql2`'s `local` and there is no TLS.
+- `Encoding`, `Options` and `Pool.AcquireTimeout` are read by no code in this driver; without an override there is no TLS. The pool always passes `timezone: 'Z'` and sets `time_zone = '+00:00'` on every new connection, so `DATETIME` and `TIMESTAMP` values, `NOW()` and `CURRENT_TIMESTAMP` are UTC. A connection on which that `SET` fails is destroyed and the statement or transaction that took it fails.
 - `decimalNumbers` stays off: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema.
 - `connect()` assigns a new pool without ending the previous one. A reconnect by `withReconnect()` or the health probe leaves the old pool's sockets open.
 - A failed `connect()` ends the new pool but keeps it as `this.Pool`. The next retry attempt fails with `mysql2`'s `Pool is closed.`, which has no code and is not retryable, so `withReconnect()` stops early. The next health tick reconnects.
@@ -243,7 +234,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 
 ```ts
 // Don't: the stock driver passes neither Options nor Encoding to mysql2; this connection runs without TLS
-{ Name: 'billing', Driver: 'orm-driver-mysql', Encoding: 'latin1', Options: { ssl: { ca: '...' }, timezone: 'Z' } }
+{ Name: 'billing', Driver: 'orm-driver-mysql', Encoding: 'latin1', Options: { ssl: { ca: '...' } } }
 
 // Do: a driver subclass that reads them (see "Connection setup: custom implementation")
 { Name: 'billing', Driver: 'orm-driver-mysql-tls', Encoding: 'LATIN1_SWEDISH_CI', Options: { CaFile: '/etc/ssl/ca.pem' } }

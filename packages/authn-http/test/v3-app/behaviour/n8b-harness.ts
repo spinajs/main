@@ -96,7 +96,7 @@ interface PasswordState {
 
 let local: typeof import('@spinajs/authn-local') | undefined;
 let secretModule: { DbSecretStore: new (...args: ConstructorParameters<typeof DbSecretStore>) => DbSecretStore } | undefined;
-let utc: { fromUtcColumn(v: string | null | undefined): Date | undefined } | undefined;
+let time: { readInstant(v: string | null | undefined): Date | undefined } | undefined;
 let upgrade: { AuthnFromUserMetadata_2026_10_02_00_01_00: new () => AuthnFromUserMetadata_2026_10_02_00_01_00 } | undefined;
 let passwordState: PasswordState | undefined;
 let passwordBound = false;
@@ -121,9 +121,9 @@ async function seedLegacy(fakes: AppFakes, users: readonly LegacyUser[]): Promis
 }
 
 async function secretRows(): Promise<SecretRowView[]> {
-  const { fromUtcColumn } = loaded(utc, 'authn-orm');
+  const { readInstant } = loaded(time, 'authn-orm');
   const rows = (await tokenDb().select().from('authn_secret').orderBy('id')) as Record<string, string | null>[];
-  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: fromUtcColumn(r.expires_at)!, created_at: fromUtcColumn(r.created_at)!, used_at: fromUtcColumn(r.used_at) ?? null }));
+  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: readInstant(r.expires_at)!, created_at: readInstant(r.created_at)!, used_at: readInstant(r.used_at) ?? null }));
 }
 
 /** authn-orm's `<type>:<id>` identity column; the id may hold more colons. */
@@ -145,7 +145,7 @@ export const passwordPart: LanePart = {
     local = await import('@spinajs/authn-local');
     await ormModule('migrations/AuthnInitial_2026_10_02_00_00_00.js');
     secretModule = await ormModule('secrets/db-secret-store.js');
-    utc = await ormModule('models/utc.js');
+    time = await ormModule('models/time.js');
     if (!passwordBound) {
       passwordBound = true;
       bind(local.PasswordMailer, 'N8bPasswordMailer', () => passwordNow().mailer);

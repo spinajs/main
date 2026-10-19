@@ -6,7 +6,7 @@ import type { IUpdateResult } from '@spinajs/orm';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
-import { fromUtcColumn } from '../models/utc.js';
+import { readInstant } from '../models/time.js';
 
 /** @internal */
 export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
@@ -31,7 +31,6 @@ export function driverDialect(driver: OrmDriver): Dialect {
   return 'other';
 }
 
-// A datetime read as text comes back exactly as stored; node-postgres would parse it in the local zone (D10).
 /** @internal Undefined for an unknown dialect: read the column itself and pass it to {@link columnText}. */
 export function textColumn(dialect: Dialect, column: string, alias: string): RawQuery | undefined {
   switch (dialect) {
@@ -41,7 +40,8 @@ export function textColumn(dialect: Dialect, column: string, alias: string): Raw
     case 'mysql':
       return RawQuery.create(`CAST(${column} AS CHAR) AS ${alias}`);
     case 'mssql':
-      return RawQuery.create(`CONVERT(varchar(23), ${column}, 121) AS ${alias}`);
+      // style 127 keeps the offset of a DATETIMEOFFSET, so a value stamped in a non-UTC offset reads as its instant
+      return RawQuery.create(`CONVERT(varchar(33), ${column}, 127) AS ${alias}`);
     default:
       return undefined;
   }
@@ -58,22 +58,26 @@ export function columnText(dialect: Dialect, row: Record<string, unknown>, colum
   const value = textColumn(dialect, column, alias) ? row[alias] : row[column];
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' && textColumn(dialect, column, alias)) return value;
-  const at = fromUtcColumn(value as string | Date | DateTime);
-  return at ? sqlTime(at.getTime()) : String(value);
+  const at = readInstant(value as string | Date | DateTime);
+  return at ? sqlTime(at.getTime(), dialect) : String(value);
 }
 
 // Four-digit years keep the text form of a datetime ordered on sqlite, where the column holds text.
 export const MIN_MS = Date.UTC(1000, 0, 1);
 export const MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
-/** @internal UTC wall-clock text in the format every store writes, clamped to four-digit years. */
-export function sqlTime(ms: number): string {
-  return DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' }).toFormat('yyyy-MM-dd HH:mm:ss.SSS');
+/**
+ * @internal The instant as the text the ORM writes for `dialect` (ISO-8601 UTC on SQLite, where columns hold
+ * text and compare as text; UTC wall clock elsewhere), clamped to four-digit years.
+ */
+export function sqlTime(ms: number, dialect: Dialect): string {
+  const at = DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' });
+  return dialect === 'sqlite' ? at.toISO()! : at.toFormat('yyyy-MM-dd HH:mm:ss.SSS');
 }
 
 /** @internal NaN when the text does not parse. */
 export function textMs(text: string): number {
-  return fromUtcColumn(text)?.getTime() ?? NaN;
+  return readInstant(text)?.getTime() ?? NaN;
 }
 
 /** @internal The time of a valid Date within four-digit years; anything else throws `InvalidArgument` naming `label`. */

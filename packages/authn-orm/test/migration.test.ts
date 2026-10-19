@@ -4,7 +4,7 @@ import 'mocha';
 
 import { OrmDriver } from '@spinajs/orm';
 
-import { AuthnInitial_2026_10_02_00_00_00, fromUtcColumn, toUtcColumn } from '../src/index.js';
+import { AuthnInitial_2026_10_02_00_00_00, readInstant } from '../src/index.js';
 import { bootDb, DB_KINDS, DbKind, rawQuery, TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
@@ -94,7 +94,7 @@ const PRIMARY_KEYS: Record<string, string[]> = {
 
 const NATIVE_TYPES: Record<DbKind, Record<ColumnKind, string>> = {
   sqlite: { string: 'TEXT', text: 'TEXT', int: 'INTEGER', bigint: 'INTEGER', boolean: 'BOOLEAN', datetime: 'TEXT' },
-  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamp' },
+  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamptz' },
 };
 
 const NOW = new Date('2026-10-02T12:00:00.000Z');
@@ -145,10 +145,10 @@ async function row(driver: OrmDriver, table: string, where: Record<string, unkno
   return rows[0] as Record<string, any>;
 }
 
-const identity = (over: Record<string, unknown> = {}) => ({ id: 'i1', identity_type: 'user', identity_id: 'u1', provider: 'google', subject: 's1', linked_at: toUtcColumn(NOW), ...over });
-const secret = (over: Record<string, unknown> = {}) => ({ id: 's1', identity: 'user:u1', purpose: 'reset', secret_hash: 'a'.repeat(64), expires_at: toUtcColumn(NOW), created_at: toUtcColumn(NOW), ...over });
-const mfa = (over: Record<string, unknown> = {}) => ({ identity: 'user:u1', step: 'totp', secret_enc: 'v1.x.y.z', key_id: 'k1', created_at: toUtcColumn(NOW), ...over });
-const throttle = (over: Record<string, unknown> = {}) => ({ k: 'key-1', attempts: 1, last_attempt_at: toUtcColumn(NOW), next_allowed_at: toUtcColumn(NOW), updated_at: toUtcColumn(NOW), ...over });
+const identity = (over: Record<string, unknown> = {}) => ({ id: 'i1', identity_type: 'user', identity_id: 'u1', provider: 'google', subject: 's1', linked_at: NOW, ...over });
+const secret = (over: Record<string, unknown> = {}) => ({ id: 's1', identity: 'user:u1', purpose: 'reset', secret_hash: 'a'.repeat(64), expires_at: NOW, created_at: NOW, ...over });
+const mfa = (over: Record<string, unknown> = {}) => ({ identity: 'user:u1', step: 'totp', secret_enc: 'v1.x.y.z', key_id: 'k1', created_at: NOW, ...over });
+const throttle = (over: Record<string, unknown> = {}) => ({ k: 'key-1', attempts: 1, last_attempt_at: NOW, next_allowed_at: NOW, updated_at: NOW, ...over });
 
 for (const kind of DB_KINDS) {
   describe(`${MIGRATION} (${kind})`, function () {
@@ -230,8 +230,8 @@ for (const kind of DB_KINDS) {
     });
 
     it('authn_nonce.k and authn_throttle.k refuse duplicates', async () => {
-      await insert(db.driver, 'authn_nonce', { k: 'jti-1', expires_at: toUtcColumn(NOW) });
-      await expect(insert(db.driver, 'authn_nonce', { k: 'jti-1', expires_at: toUtcColumn(NOW) })).to.be.rejected;
+      await insert(db.driver, 'authn_nonce', { k: 'jti-1', expires_at: NOW });
+      await expect(insert(db.driver, 'authn_nonce', { k: 'jti-1', expires_at: NOW })).to.be.rejected;
 
       await insert(db.driver, 'authn_throttle', throttle());
       await expect(insert(db.driver, 'authn_throttle', throttle({ attempts: 2 }))).to.be.rejected;
@@ -252,41 +252,36 @@ for (const kind of DB_KINDS) {
       expect(String(r.last_step)).to.eq(String(2 ** 40));
     });
 
-    it('a datetime written through toUtcColumn reads back as the same instant through fromUtcColumn', async () => {
+    it('a datetime written as a Date reads back as the same instant', async () => {
       const instants = [new Date('2026-01-15T08:00:15.123Z'), new Date('2026-07-01T23:59:59.999Z'), NOW];
 
       for (const [i, at] of instants.entries()) {
-        await insert(db.driver, 'authn_nonce', { k: `utc-${i}`, expires_at: toUtcColumn(at) });
+        await insert(db.driver, 'authn_nonce', { k: `utc-${i}`, expires_at: at });
         const r = await row(db.driver, 'authn_nonce', { k: `utc-${i}` });
-        expect(fromUtcColumn(r.expires_at)?.toISOString(), `instant ${i}`).to.eq(at.toISOString());
+        expect(readInstant(r.expires_at)?.toISOString(), `instant ${i}`).to.eq(at.toISOString());
       }
     });
 
-    // Known gap D10 (lane notes): node-postgres parses timestamp as local time; the fix belongs to orm-postgres.
-    const gapCase = kind === 'postgres' ? it.skip : it;
-    const gapReason = kind === 'postgres' ? ' (known gap D10: node-postgres parses timestamp as local time (orm-postgres owner))' : '';
-
-    gapCase(`a UTC wall-clock time in the process zone's spring DST gap reads back as the same instant${gapReason}`, async () => {
+    it(`a UTC wall-clock time in the process zone's spring DST gap reads back as the same instant`, async () => {
       const cases: Array<[string, Date]> = [
         ['Europe/London', new Date('2026-03-29T01:30:00.000Z')],
         ['Europe/Warsaw', new Date('2026-03-29T02:30:00.000Z')],
       ];
       const previous = process.env.TZ;
+      const system = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       try {
         for (const [zone, at] of cases) {
           process.env.TZ = zone;
           const k = `gap-${zone}`;
-          await insert(db.driver, 'authn_nonce', { k, expires_at: toUtcColumn(at) });
+          await insert(db.driver, 'authn_nonce', { k, expires_at: at });
           const r = await row(db.driver, 'authn_nonce', { k });
-          expect(fromUtcColumn(r.expires_at)?.toISOString(), zone).to.eq(at.toISOString());
+          expect(readInstant(r.expires_at)?.toISOString(), zone).to.eq(at.toISOString());
         }
       } finally {
-        if (previous === undefined) {
-          delete process.env.TZ;
-        } else {
-          process.env.TZ = previous;
-        }
+        // Deleting TZ alone keeps Node in the last zone; setting it back first resets it.
+        process.env.TZ = previous ?? system;
+        if (previous === undefined) delete process.env.TZ;
       }
     });
 

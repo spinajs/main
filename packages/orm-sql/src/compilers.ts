@@ -1013,7 +1013,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       // remove primary key & add history columns
       {
         bindings: [],
-        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`,
+        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER __revision__, ADD __end__ DATETIME(3) AFTER __start__`,
       },
 
       {
@@ -1172,8 +1172,9 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     bit: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     date: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     time: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
-    dateTime: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
-    timestamp: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    // (3) keeps the milliseconds a JS Date carries
+    dateTime: () => 'DATETIME(3)',
+    timestamp: () => 'TIMESTAMP(3)',
     json: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     tinyblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     mediumblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),

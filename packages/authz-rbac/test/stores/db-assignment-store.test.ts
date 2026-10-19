@@ -8,6 +8,7 @@ import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { Settings } from 'luxon';
 
 import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
@@ -49,6 +50,22 @@ const row = (over: Row = {}): Row => {
 };
 
 const byId = (items: readonly Assignment[]) => [...items].sort((a, b) => a.id.localeCompare(b.id));
+
+async function inZone<T>(zone: string, fn: () => PromiseLike<T>): Promise<T> {
+  const tz = process.env.TZ;
+  const system = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const luxonZone = Settings.defaultZone;
+  process.env.TZ = zone;
+  Settings.defaultZone = zone;
+  try {
+    return await fn();
+  } finally {
+    // Deleting TZ alone keeps Node in the last zone; setting it back first resets it.
+    process.env.TZ = tz ?? system;
+    if (tz === undefined) delete process.env.TZ;
+    Settings.defaultZone = luxonZone;
+  }
+}
 
 for (const kind of DB_KINDS) {
   describe(`DbAssignmentStore (${kind})`, function () {
@@ -400,25 +417,37 @@ for (const kind of DB_KINDS) {
         expect(await version()).to.eq('0');
       });
 
-      it('compares expiry correctly in a zone far from UTC', async () => {
-        const tz = process.env.TZ;
-        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      it('keeps instants and expiry when the writer and the reader run in different zones', async () => {
         const offset = AT.getTimezoneOffset();
-        process.env.TZ = 'Asia/Kolkata';
+        const [live, ending] = await inZone('Asia/Kolkata', async () => {
+          expect(AT.getTimezoneOffset(), 'the writer runs in Kolkata').to.eq(-330);
+          return [
+            await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx)),
+            await inTx((tx) => store.assign({ subject: alice, role: 'viewer', scope: P1, expiresAt: AT }, root, tx)),
+          ];
+        });
 
-        try {
-          expect(AT.getTimezoneOffset(), 'the zone switch took effect').to.eq(-330);
-          const live = await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx));
-          await inTx((tx) => store.assign({ subject: alice, role: 'viewer', scope: P1, expiresAt: AT }, root, tx));
-
+        await inZone('America/Los_Angeles', async () => {
+          expect(AT.getTimezoneOffset(), 'the reader runs in Los Angeles').to.eq(420);
           expect((await store.forSubjects([alice], AT)).map((a) => a.id)).to.deep.eq([live.id]);
+          expect((await store.forSubjects([alice], BEFORE)).map((a) => a.id).sort()).to.deep.eq([live.id, ending.id].sort());
           expect((await store.byId(live.id))!.expiresAt!.getTime()).to.eq(AFTER.getTime());
-        } finally {
-          // Deleting TZ alone keeps Node in the last zone; setting it back first resets it.
-          process.env.TZ = tz ?? zone;
-          if (tz === undefined) delete process.env.TZ;
-        }
+        });
+
         expect(AT.getTimezoneOffset(), 'the zone is restored').to.eq(offset);
+      });
+
+      it('compares an expiry the database stamped with the bound clock', async () => {
+        const a = await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx));
+        await rawQuery(db.driver, `UPDATE authz_assignment SET expires_at = ${db.driver.now().Query} WHERE id = ?`, [a.id], QueryContext.Update);
+
+        await inZone('Asia/Kolkata', async () => {
+          const stamped = (await store.byId(a.id))!.expiresAt!.getTime();
+          // the database's clock, not this process's: allow for a drifting container clock
+          expect(stamped).to.be.within(Date.now() - 120_000, Date.now() + 120_000);
+          expect((await store.forSubjects([alice], new Date(stamped - 1))).map((x) => x.id)).to.deep.eq([a.id]);
+          expect(await store.forSubjects([alice], new Date(stamped))).to.deep.eq([]);
+        });
       });
     });
 

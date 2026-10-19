@@ -15,11 +15,11 @@ export * from './errors.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { LockTableQueryCompiler, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { LockTableQueryCompiler, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, NowExpression } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
-import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteStartsWithStatement } from './statements.js';
+import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteNowExpression, SqliteStartsWithStatement } from './statements.js';
 import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
@@ -146,7 +146,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   /** Runs a statement on its handle, never held: the driver's own transaction statements use it directly. */
   protected runStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
-    const queryParams = params ?? [];
+    const queryParams = this.toDriverParams(params);
 
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
@@ -358,6 +358,8 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(SqliteNowExpression).as(NowExpression);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);

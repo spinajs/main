@@ -55,12 +55,8 @@ export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
     const rows = (await connection.select().from(TABLE).whereNull('ExpiresAt')) as Array<{ Id: number; CreatedAt: unknown }>;
 
     for (const row of rows) {
-      let createdAt = converter.fromDB(row.CreatedAt) as DateTime | null;
+      const createdAt = converter.fromDB(row.CreatedAt) as DateTime | null;
       if (!createdAt?.isValid) {
-        // The sqlite column default writes ISO text (`T`, `Z`), which the SQL-format converter rejects.
-        createdAt = DateTime.fromISO(String(row.CreatedAt));
-      }
-      if (!createdAt.isValid) {
         throw new Error(`Cannot back-fill ExpiresAt of ${TABLE} row ${row.Id}: unreadable CreatedAt`);
       }
 

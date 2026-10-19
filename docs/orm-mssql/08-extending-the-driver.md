@@ -86,7 +86,9 @@ Methods a subclass overrides:
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
-| `DatetimeValueConverter` | `MsSqlDatetimeValueConverter` | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
+| `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Value conversion](07-value-conversion.md) |
 | `ModelDehydrator` | `MssqlModelDehydrator` (never resolved by the core) | nothing | [Value conversion](07-value-conversion.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:
@@ -94,7 +96,6 @@ Tokens the driver leaves **unregistered**, each a place to add your own:
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
 | `ServerResponseMapper` | model `insert()`, `save()` and upserts throw after the row is written | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
-| `DefaultValueBuilder` | `ColumnQueryBuilder.default()` returns an object whose methods throw `TypeError` | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
 | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `RecursiveQueryCompiler` | the feature fails on first use | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation
@@ -171,12 +172,12 @@ public resolve() {
 
 ### One production driver with every fix
 
-Insert results, multi-column sorting, T-SQL column types and column defaults, for every MSSQL connection:
+Insert results, multi-column sorting and T-SQL column types, for every MSSQL connection. It keeps the driver's own column defaults (`MsSqlDefaultValueBuilder`): a `SqlDefaultValueBuilder` in their place would write `CURRENT_TIMESTAMP`, the server's local time, into DATETIMEOFFSET columns:
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, DefaultValueBuilder, OrderByQueryCompiler, RawQuery, ServerResponseMapper } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDefaultValueBuilder, SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
+import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, OrderByQueryCompiler, ServerResponseMapper } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
 import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
 
 export class ScopeIdentityResponseMapper extends ServerResponseMapper {
@@ -199,14 +200,9 @@ export class UnicodeColumnCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.autoincrement = () => 'IDENTITY(1,1)';
     this._statementsMappings.string = (column: ColumnQueryBuilder) => `NVARCHAR(${column.Args[0] ?? 255})`;
     this._statementsMappings.boolean = () => 'BIT';
-  }
-}
-
-@NewInstance()
-export class GetDateDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
-  public date(): T {
-    this.Query = RawQuery.create('CAST(GETDATE() AS DATE)');
-    return this.Owner;
+    // as the driver's own column compiler: instants keep their offset
+    this._statementsMappings.dateTime = () => 'DATETIMEOFFSET(3)';
+    this._statementsMappings.timestamp = () => 'DATETIMEOFFSET(3)';
   }
 }
 
@@ -219,7 +215,6 @@ export class ProductionMsSqlDriver extends MsSqlOrmDriver {
     this.Container.register(ScopeIdentityResponseMapper).as(ServerResponseMapper);
     this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
     this.Container.register(UnicodeColumnCompiler).as(ColumnQueryCompiler);
-    this.Container.register(GetDateDefaultValueBuilder).as(DefaultValueBuilder);
   }
 }
 

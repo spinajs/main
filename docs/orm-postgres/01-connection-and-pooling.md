@@ -135,7 +135,8 @@ All three are `0` before `connect()` and after `disconnect()`. The health check 
 - `ping()` takes a client from the pool. With every client checked out, a probe waits up to `Pool.AcquireTimeout` and then reports the connection unhealthy.
 - Every reconnect, from `withReconnect()` or from a failed health probe, calls `connect()`, which creates a new `pg.Pool` and assigns it to `Pool`. The previous pool is not ended: its idle clients stay open until `IdleTimeout` closes them. When the new pool cannot connect, `Pool` is `null` until the next successful reconnect, and statements in that window fail with an `OrmException` whose inner error is a `TypeError`.
 - `pg` returns `NUMERIC`, `DECIMAL` and `BIGINT` values, `COUNT(*)` included, as strings. `ResponseSchemaTypes` declares this for JSON Schema generation; see [Queries and inserts](03-queries-and-inserts.md#response-types).
-- `pg` parses `TIMESTAMP` (without time zone) values in the Node process's local time zone.
+- Every pooled session runs with `TimeZone=UTC`, so `now()`, `date_trunc()` and the text of a `timestamptz` are UTC. The pool passes `pg` its own `options`, which makes `pg` ignore the `PGOPTIONS` environment variable, so the driver puts `PGOPTIONS` in front: `PGOPTIONS='-c statement_timeout=5000'` gives `options: '-c statement_timeout=5000 -c TimeZone=UTC'`. `-c TimeZone=UTC` comes last and wins over a `TimeZone` in `PGOPTIONS`.
+- The pool parses `timestamp` (without time zone) as UTC, the wall clock the datetime converter writes into such a column; the global `pg.types` registry is not touched.
 - Database errors reach the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`, e.g. `23505` for a unique violation.
 
 ## Best practices

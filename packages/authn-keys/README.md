@@ -156,8 +156,5 @@ authn: {
 }
 ```
 
-Dates in `authn_key` and `authn_nonce` are stored as UTC wall time. The ORM
-reads date columns in the process time zone first, so run the server with
-`TZ=UTC`: elsewhere an expiry inside a spring-forward hour reads back one
-hour late.
+Dates in `authn_key` and `authn_nonce` are UTC instants; the process time zone does not matter.
 

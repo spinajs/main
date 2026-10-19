@@ -1,8 +1,8 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, NowExpression, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder, RawQuery } from './builders.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -407,6 +407,11 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public schema(): SchemaQueryBuilder {
     return this.Container.resolve(SchemaQueryBuilder, [this]);
+  }
+
+  /** The database's current instant: `where('expires_at', '>', driver.now())`, or `driver.now().Query` inside raw SQL. */
+  public now(): RawQuery {
+    return RawQuery.create(this.Container.resolve<NowExpression>(NowExpression).sql());
   }
 
   /**

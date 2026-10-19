@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. **Registration.** `SqlDriver.resolve()` registers `SqlDatetimeValueConverter` as `DatetimeValueConverter`, `SqlTimeValueConverter` as `TimeValueConverter`, `SqlBooleanValueConverter` as `BooleanValueConverter` and `SqlSetConverter` as `SetValueConverter` in the driver's container.
+1. **Registration.** `SqlDriver.resolve()` registers `SqlDatetimeValueConverter` (MySQL text) as `DatetimeValueConverter`, `SqlTimeValueConverter` as `TimeValueConverter`, `SqlBooleanValueConverter` as `BooleanValueConverter` and `SqlSetConverter` as `SetValueConverter` in the driver's container. PostgreSQL, SQLite and MSSQL replace it with `IsoDatetimeValueConverter`.
 2. **Column binding.** Model decorators (`@DateTime()`, `@Bool()`, `@Set()`) attach the token to the column descriptor. `Orm` also maps value constructor names (`Date`, `DateTime`, `Boolean`, `TimeSpan`, ...) to the tokens in `__orm_db_value_converters__`. The core resolves the token from the model's connection container. See [Converters and hydration](../orm/04-converters-and-hydration.md).
 3. **Writes.** `toDB(value, model, column, options)` runs for INSERT and UPDATE payloads. Where values convert the same way, through the column's converter or, without one, the converter registered for the value's constructor name in `__orm_db_value_converters__`.
 4. **Reads.** `fromDB(value)` runs during hydration.
@@ -15,33 +15,31 @@
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `IDehydrateOptions.dateTimeFormat` | `string` | unset | `'iso'`, `'sql'`, `'unix'` | Output format of `SqlDatetimeValueConverter` when a model is dehydrated. Passed to `dehydrate()`, not set in config. |
+| `IDehydrateOptions.dateTimeFormat` | `string` | unset | `'iso'`, `'sql'`, `'unix'` | Output format of the datetime converters when a model is dehydrated; unset means `iso`. Passed to `dehydrate()`, not set in config. |
 
 ## Services and extension points
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
-| `DatetimeValueConverter` | luxon `DateTime` / `Date` and SQL datetime | `SqlDatetimeValueConverter`; MSSQL `MsSqlDatetimeValueConverter` | Extend `DatetimeValueConverter` from `@spinajs/orm`, register in a driver subclass |
+| `DatetimeValueConverter` | luxon `DateTime` / `Date` and SQL datetime | `SqlDatetimeValueConverter`, `IsoDatetimeValueConverter` | Extend `DatetimeValueConverter` from `@spinajs/orm`, register in a driver subclass |
 | `TimeValueConverter` | `TimeSpan` and SQL `TIME` | `SqlTimeValueConverter` | Extend `TimeValueConverter` |
 | `BooleanValueConverter` | `boolean` and `0` / `1` | `SqlBooleanValueConverter` | Extend `BooleanValueConverter` |
 | `SetValueConverter` | `string[]` and a comma-joined string | `SqlSetConverter` | Extend `SetValueConverter` |
-| `DefaultValueBuilder<T>` | Column default in DDL: `date()`, `dateTime()`, `value(v)`, `raw(query)` | `SqlDefaultValueBuilder` (MySQL); `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder` | Subclass `SqlDefaultValueBuilder`, register `.as(DefaultValueBuilder)` |
+| `DefaultValueBuilder<T>` | Column default in DDL: `date()`, `dateTime()`, `value(v)`, `raw(query)` | `SqlDefaultValueBuilder` (MySQL); `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder`, `MsSqlDefaultValueBuilder` | Subclass `SqlDefaultValueBuilder`, register `.as(DefaultValueBuilder)` |
 
-The four `Sql*` converter classes are **not exported** from `@spinajs/orm-sql`. To change one, extend the token class from `@spinajs/orm` and implement both methods.
+The converter classes are exported from `@spinajs/orm-sql`. To change one, extend it or the token class from `@spinajs/orm`.
 
-### `SqlDatetimeValueConverter`
+### `SqlDatetimeValueConverter`, `IsoDatetimeValueConverter`
 
 | Call | Result |
 | --- | --- |
-| `toDB(null | undefined)` | `null`, not the epoch |
-| `toDB(string)` | parsed with `DateTime.fromISO()` |
-| `toDB(Date | DateTime)` with `dateTimeFormat` | `toISO()`, `toSQL({ includeOffset: false })` or `toUnixInteger()` |
-| `toDB(...)` for a numeric column (`int`, `integer`, `float`, `double`, `decimal`, `bigint`, `smallint`, `tinyint`, `mediumint`) | Unix seconds |
-| `toDB(...)` otherwise | `toSQL({ includeOffset: false })`, eg. `2026-10-17 09:30:00.000` |
-| `fromDB(falsy)` | `null` |
-| `fromDB(DateTime | Date)` | a `DateTime` |
-| `fromDB(integer)` | `DateTime.fromSeconds()` |
-| `fromDB(string)` | `DateTime.fromSQL()` |
+| `toDB(null | undefined | '')`, an invalid `Date` or `DateTime` | `null` |
+| `toDB(Date | DateTime | string | number)` | `toInstant()` from `@spinajs/orm`: a `DateTime` in UTC; text without an offset is UTC, a number is unix seconds (`0` is the epoch); unparsable text throws `InvalidArgument` naming the column |
+| with `dateTimeFormat` | `iso` `2026-10-17T09:30:00.000Z`, `sql` `2026-10-17 09:30:00.000`, `unix` seconds, all UTC |
+| from `dehydrate()` (a fifth argument) without `dateTimeFormat`, so `toJSON()` | `iso`, `2026-10-17T09:30:00.000Z` |
+| for a numeric column (`int`, `integer`, `float`, `double`, `decimal`, `bigint`, `smallint`, `tinyint`, `mediumint`) | Unix seconds |
+| otherwise | `SqlDatetimeValueConverter`: `2026-10-17 09:30:00.000` (UTC); `IsoDatetimeValueConverter`: `2026-10-17T09:30:00.000Z` |
+| `fromDB(value)` | `instantFromDb()`: `null` for `null`, `undefined`, `''` and a value that is not a valid datetime (unparsable text, an invalid `Date`); `Date`, `DateTime`, ISO or SQL text, unix seconds (`0` is the epoch) to a `DateTime` in UTC |
 
 ### `SqlTimeValueConverter`
 
@@ -65,7 +63,7 @@ The four `Sql*` converter classes are **not exported** from `@spinajs/orm-sql`. 
 | Method | Stored | Rendered by `SqlColumnQueryCompiler` |
 | --- | --- | --- |
 | `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())` |
-| `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP')` | `DEFAULT CURRENT_TIMESTAMP` |
+| `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP(3)')` | `DEFAULT CURRENT_TIMESTAMP(3)` (MySQL needs the precision of the `DATETIME(3)` column) |
 | `value('x')`, `value(5)` | `Value` | `DEFAULT 'x'` (escaped, trimmed), `DEFAULT 5` |
 | `raw(query)` | `Query` | `DEFAULT <query>` |
 
@@ -73,11 +71,11 @@ Each method returns the column builder, so the chain continues.
 
 ## Important behaviour
 
-- `SqlDriver` registers the converters for every SQL connection; a dialect that stores datetimes differently (MSSQL) registers its own after `super.resolve()`.
-- `SqlBooleanValueConverter` decides by argument count, not by value: a caller that passes a fifth argument gets a boolean.
-- `SqlDatetimeValueConverter` writes local time without an offset. Values are not converted to UTC.
+- `SqlDriver` registers the converters for every SQL connection; a dialect that stores datetimes differently (PostgreSQL, SQLite, MSSQL: `IsoDatetimeValueConverter`) registers its own after `super.resolve()`.
+- `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
+- Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.
-- `SqlDriver` does not register `DefaultValueBuilder`. MSSQL registers none; `default()` on an MSSQL connection gets no dialect implementation. <!-- TODO(docs-hook): verify what ColumnQueryBuilder.default() resolves on an MSSQL connection -->
+- `SqlDriver` does not register `DefaultValueBuilder`; every driver registers its own (MSSQL: `MsSqlDefaultValueBuilder`, `SYSDATETIMEOFFSET()`).
 
 ## Best practices
 
@@ -86,15 +84,6 @@ Each method returns the column builder, so the chain continues.
 - Register converter overrides in a driver subclass, not in the root container, so other connections keep theirs.
 
 ## Patterns and antipatterns
-
-```ts
-// Don't: SqlDatetimeValueConverter is not exported; this import fails
-import { SqlDatetimeValueConverter } from '@spinajs/orm-sql';
-
-// Do: extend the token from @spinajs/orm
-import { DatetimeValueConverter } from '@spinajs/orm';
-export class UtcDatetimeConverter extends DatetimeValueConverter { /* toDB, fromDB */ }
-```
 
 ```ts
 // Don't: returning a boolean for every call writes `true` into an integer column on MySQL
@@ -109,39 +98,6 @@ public toDB(value: unknown) {
 ```
 
 ## Examples
-
-### Store datetimes as UTC on one connection
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { DatetimeValueConverter, IColumnDescriptor, ModelBase } from '@spinajs/orm';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { DateTime } from 'luxon';
-
-export class UtcDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: Date | DateTime | null | undefined, _model: ModelBase<unknown>, _column: IColumnDescriptor): string | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    const dt = value instanceof Date ? DateTime.fromJSDate(value) : value;
-    return dt.toUTC().toSQL({ includeOffset: false });
-  }
-
-  public fromDB(value: string | null): DateTime | null {
-    return value ? DateTime.fromSQL(value, { zone: 'utc' }) : null;
-  }
-}
-
-@Injectable('orm-driver-sqlite-utc')
-@NewInstance()
-export class UtcSqliteDriver extends SqliteOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(UtcDatetimeValueConverter).as(DatetimeValueConverter);
-  }
-}
-```
 
 ### Default a column to the current timestamp
 

@@ -10,8 +10,9 @@ import 'mocha';
 import { createHash, randomBytes } from 'node:crypto';
 import { inspect } from 'node:util';
 
-import { AuthnFromUserMetadata_2026_10_02_00_01_00, DbSecretStore, decryptMfaSecret, fromUtcColumn, mfaKeyFrom } from '../src/index.js';
+import { AuthnFromUserMetadata_2026_10_02_00_01_00, DbSecretStore, decryptMfaSecret, readInstant, mfaKeyFrom } from '../src/index.js';
 import type { LegacyMetadata } from '../src/migrations/AuthnFromUserMetadata_2026_10_02_00_01_00.js';
+import { sqlTime } from '../src/support/sql.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);
@@ -165,7 +166,7 @@ async function metadataKeys(db: TestDb, uuid: string): Promise<string[]> {
 
 async function secretRows(db: TestDb): Promise<SecretRowView[]> {
   const rows = (await rawQuery(db.driver, 'SELECT identity, purpose, secret_hash, CAST(expires_at AS TEXT) AS expires_text, CAST(used_at AS TEXT) AS used_text, CAST(created_at AS TEXT) AS created_text FROM authn_secret ORDER BY id')) as Record<string, string | null>[];
-  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: fromUtcColumn(r.expires_text)!, created_at: fromUtcColumn(r.created_text)!, used_at: fromUtcColumn(r.used_text) ?? null }));
+  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: readInstant(r.expires_text)!, created_at: readInstant(r.created_text)!, used_at: readInstant(r.used_text) ?? null }));
 }
 
 interface MfaRowText {
@@ -199,7 +200,7 @@ async function snapshot(db: TestDb): Promise<string> {
 
 const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 const ms = (d: Date | null | undefined): number | undefined => d?.getTime();
-const timeText = (text: string | null): number | undefined => ms(fromUtcColumn(text));
+const timeText = (text: string | null): number | undefined => ms(readInstant(text));
 
 const run = (db: TestDb, m = new AuthnFromUserMetadata_2026_10_02_00_01_00()) => m.up(db.driver);
 const undo = (db: TestDb, m = new AuthnFromUserMetadata_2026_10_02_00_01_00()) => m.down(db.driver);
@@ -493,12 +494,12 @@ for (const kind of DB_KINDS) {
         await run(db);
         const alice = `user:${ALICE.Uuid}`;
         const others = [
-          ['authn_mfa', { identity: alice, step: 'webauthn', secret_enc: 'v1.a.b.c', key_id: 'k', created_at: '2026-06-01 10:00:00.000' }],
-          ['authn_mfa', { identity: 'agent:a1', step: 'totp', secret_enc: 'v1.a.b.c', key_id: 'k', created_at: '2026-06-01 10:00:00.000' }],
+          ['authn_mfa', { identity: alice, step: 'webauthn', secret_enc: 'v1.a.b.c', key_id: 'k', created_at: sqlTime(Date.UTC(2026, 5, 1, 10), db.kind) }],
+          ['authn_mfa', { identity: 'agent:a1', step: 'totp', secret_enc: 'v1.a.b.c', key_id: 'k', created_at: sqlTime(Date.UTC(2026, 5, 1, 10), db.kind) }],
           ['authn_recovery_code', { id: 'rc-alice', identity: alice, code_hash: 'a'.repeat(64) }],
           ['authn_recovery_code', { id: 'rc-agent', identity: 'agent:a1', code_hash: 'b'.repeat(64) }],
-          ['authn_secret', { id: 's-email', identity: alice, purpose: 'email-verify', secret_hash: 'c'.repeat(64), expires_at: '2026-06-02 10:00:00.000', created_at: '2026-06-01 10:00:00.000' }],
-          ['authn_secret', { id: 's-key', identity: 'key:k1', purpose: 'reset', secret_hash: 'd'.repeat(64), expires_at: '2026-06-02 10:00:00.000', created_at: '2026-06-01 10:00:00.000' }],
+          ['authn_secret', { id: 's-email', identity: alice, purpose: 'email-verify', secret_hash: 'c'.repeat(64), expires_at: sqlTime(Date.UTC(2026, 5, 2, 10), db.kind), created_at: sqlTime(Date.UTC(2026, 5, 1, 10), db.kind) }],
+          ['authn_secret', { id: 's-key', identity: 'key:k1', purpose: 'reset', secret_hash: 'd'.repeat(64), expires_at: sqlTime(Date.UTC(2026, 5, 2, 10), db.kind), created_at: sqlTime(Date.UTC(2026, 5, 1, 10), db.kind) }],
         ] as const;
         for (const [table, values] of others) {
           await db.driver.insert().into(table).values(values);

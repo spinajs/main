@@ -115,3 +115,16 @@ for (const kind of DB_KINDS) {
     });
   });
 }
+
+describe('record datetimes', () => {
+  it('toDateTime gives the instant in UTC, as a record reads it back, and fromDateTime the Date', () => {
+    const at = new Date('2026-10-19T12:00:00.123Z');
+    const dt = toDateTime(at);
+
+    expect(dt.zoneName).to.eq('UTC');
+    expect(dt.toMillis()).to.eq(at.getTime());
+    expect(fromDateTime(dt)).to.deep.eq(at);
+    expect(toDateTime(null)).to.eq(null);
+    expect(fromDateTime(undefined)).to.eq(null);
+  });
+});

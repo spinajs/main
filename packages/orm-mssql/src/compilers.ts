@@ -1,8 +1,9 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { LockTableQueryCompiler, LockTableQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder } from '@spinajs/orm-sql';
 import _ from 'lodash';
+import { MsSqlNowExpression } from './statements.js';
 
 /**
  * Escapes a T-SQL string literal by doubling embedded single quotes. Used for the dynamic
@@ -265,6 +266,10 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.string = (column: ColumnQueryBuilder) => `${column.CaseSensitive ? 'N' : ''}VARCHAR(${column.Args[0] ? column.Args[0] : 255})`;
     // T-SQL takes a collation name, not a string literal.
     this._statementsMappings.collation = (name: string) => `COLLATE ${assertCharsetName(name, 'collation')}`;
+
+    // TIMESTAMP is a row version in T-SQL, not a point in time
+    this._statementsMappings.dateTime = () => 'DATETIMEOFFSET(3)';
+    this._statementsMappings.timestamp = () => 'DATETIMEOFFSET(3)';
   }
 
   /** T-SQL has no column character set: the collation carries the code page, so charset() writes nothing. */
@@ -274,6 +279,23 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
 
   protected collationName(): string {
     return this.builder.Collation || (this.builder.CaseSensitive ? 'Latin1_General_100_BIN2' : '');
+  }
+}
+
+/**
+ * `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset; a DATETIMEOFFSET default needs the
+ * offset, and a DATE default is the UTC date as on the other dialects.
+ */
+@NewInstance()
+export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
+  public date(): T {
+    this.Query = RawQuery.create('CAST(SYSUTCDATETIME() AS DATE)');
+    return this.Owner;
+  }
+
+  public dateTime(): T {
+    this.Query = RawQuery.create(new MsSqlNowExpression().sql());
+    return this.Owner;
   }
 }
 

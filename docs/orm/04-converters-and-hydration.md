@@ -81,7 +81,7 @@ sequenceDiagram
 | `UuidConverter` | `OrmDriver.resolve()` | A dashed uuid to a 16-byte `Buffer`; empty values to `null` | A 16-byte value to the dashed 36-character form; other lengths returned as a string; empty values to `null` |
 | `UniversalValueConverter` | `OrmDriver.resolve()` | By the model's type column: `boolean` to `'true'`/`'false'`, `datetime`/`date`/`time` to ISO text, `number`/`float` to decimal text, `json` to JSON, anything else as-is | By the row's type column: the reverse, with dates read by `DateTime.fromISO` |
 | `Int64ValueConverter` | `OrmDriver.resolve()` | A `bigint` to decimal text, a safe integer as is, a decimal string trimmed of surrounding whitespace; anything else throws `InvalidArgument` | Any driver form (string, number, bigint) to the decorator's `as`: `'string'` (default), `'number'` (throws `OrmException` beyond `Number.MAX_SAFE_INTEGER`) or `'bigint'`. A number that is not a safe integer throws `OrmException`: the driver already lost precision. |
-| `DatetimeValueConverter` | the driver (`SqlDatetimeValueConverter`, `MsSqlDatetimeValueConverter`) | luxon `DateTime` or `Date` to the dialect's datetime | Dialect datetime to `DateTime` |
+| `DatetimeValueConverter` | the driver (`SqlDatetimeValueConverter` on MySQL, `IsoDatetimeValueConverter` on PostgreSQL, SQLite and MSSQL) | luxon `DateTime` in any zone, `Date`, ISO 8601 or SQL text (no offset = UTC) to the dialect's UTC text; unix seconds for a numeric column; ISO 8601 in UTC when dehydrating without `dateTimeFormat` | Any driver form to a `DateTime` in UTC |
 | `TimeValueConverter` | the driver (`SqlTimeValueConverter`) | `TimeSpan` to `HH:MM:SS` | `TIME` text to `TimeSpan` |
 | `BooleanValueConverter` | the driver (`SqlBooleanValueConverter`) | `1`/`0` in statements, a boolean when dehydrating | `true` for `1`, `true` or `'1'` |
 | `SetValueConverter` | the driver (`SqlSetConverter`) | Array joined with `,` | String split on `,` |
@@ -143,14 +143,14 @@ import { Injectable } from '@spinajs/di';
 import { DatetimeValueConverter } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-@Injectable('orm-driver-sqlite-utc')
-export class UtcSqliteDriver extends SqliteOrmDriver {
+@Injectable('orm-driver-sqlite-custom')
+export class CustomSqliteDriver extends SqliteOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(UtcDatetimeConverter).as(DatetimeValueConverter);
+    this.Container.register(MyDatetimeConverter).as(DatetimeValueConverter);
   }
 }
-// connection config: Driver: 'orm-driver-sqlite-utc'
+// connection config: Driver: 'orm-driver-sqlite-custom'
 ```
 
 Attach a converter to every column of one native type:
@@ -172,6 +172,9 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - Decorators run bottom-up. `@DateTime()`, `@Bool()` and `@Set()` throw when a converter is already attached; `@Json()`, `@UniversalConverter()`, `@Uuid()` and the timestamp decorators replace it.
 - `toDB()` produces both statement values and API payloads. Whatever it returns for a column is what `dehydrate()` and `toJSON()` emit, unless the converter checks for the fifth argument.
 - `@spinajs/orm-sql` applies a column's converter to `where(column, value)` and `whereIn(column, values)` bindings. Static `Model.update(data)` runs each value through its column's converter too, as `insert()` does; see [Model API](03-model-api.md). A value whose key has no column converter is converted by its runtime type only, through `__orm_db_value_converters__`.
+- Datetimes are instants. The converters write UTC whatever the zone of the value or the process, and `fromDB()` returns a `DateTime` in the UTC zone: call `.setZone()` or `.toLocal()` to display local time. Text without an offset is read as UTC. `toJSON()` and `dehydrate()` without `dateTimeFormat` emit ISO 8601 in UTC (`2026-10-19T12:00:00.123Z`) on every dialect. The ORM stamps `@CreatedAt`, `@UpdatedAt`, `@SoftDelete` and `@Archived` with `DateTime.utc()`.
+- On SQLite, a table written before this release keeps its `yyyy-MM-dd HH:mm:ss.SSS` rows next to new ISO 8601 values with a `T`; a space sorts before `T`, so text comparisons and `ORDER BY` across the two formats are wrong until the old rows are rewritten.
+- A `Date` or luxon `DateTime` bound to a raw statement (`RawQuery` bindings, `driver.executeOnDb(sql, params)`) is converted by the connection's `DatetimeValueConverter` in the driver, just before the statement is sent, so raw SQL compares with the values models wrote. Other parameters reach the driver as given.
 - `UniversalValueConverter` reads the type column from the model. With no model (static insert of a plain object) it falls back to `typeof value`, so a `DateTime` is written unconverted.
 - `hydrate()` keeps a stored value when the payload carries `undefined` and clears it on `null`, for columns and other properties alike.
 - `hydrate()` never changes the primary key of a model that has a snapshot, and never writes `null` or `undefined` into a key column. A body-supplied id cannot redirect an `UPDATE` to another row.

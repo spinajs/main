@@ -38,7 +38,7 @@ const DIALECTS = [
     name: 'mssql',
     type: FakeMsSql,
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
-    secretSelect: 'SELECT [id],[identity],[purpose],CONVERT(varchar(23), expires_at, 121) AS expires_text FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
+    secretSelect: 'SELECT [id],[identity],[purpose],CONVERT(varchar(33), expires_at, 127) AS expires_text FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
     secretClaim: 'UPDATE [authn_secret] SET [used_at] = ? WHERE [id] = ? AND [used_at] IS NULL AND [expires_at] > ?',
     secretPurge: 'SELECT [id] FROM [authn_secret] WHERE ( [used_at] IS NOT NULL OR [expires_at] <= ? ) ORDER BY [id] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     nonceTakeover: 'UPDATE [authn_nonce] SET [expires_at] = ? WHERE [k] = ? AND [expires_at] <= ?',
@@ -294,3 +294,24 @@ for (const d of DIALECTS) {
     });
   });
 }
+
+describe('task 3 store times on mssql (compiled, no server)', function () {
+  this.timeout(30000);
+
+  it('DbSecretStore.redeem reads an expiry stamped in another offset as its instant', async () => {
+    const driver = await fake(FakeMsSql, 'n4-mssql');
+    driver.respond = (_stmt, context) => {
+      if (context === QueryContext.Update) return { RowsAffected: 1 };
+      // 09:30Z: expired at NOW, though its wall clock reads after NOW
+      return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_text: '2026-06-01T11:30:00.0000000+02:00' }];
+    };
+    const clock = new FakeClock(NOW);
+    clock.install();
+    try {
+      expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
+    } finally {
+      clock.uninstall();
+    }
+    expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Select]);
+  });
+});

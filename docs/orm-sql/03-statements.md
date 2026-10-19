@@ -28,7 +28,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 
 | Token | `@spinajs/orm-sql` class | Created by | SQL | Clone |
 | --- | --- | --- | --- | --- |
-| `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder` |
+| `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?` |
 | `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })` | `( <nested where> )` | clones the nested `WhereBuilder` onto the parent |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)` | the query verbatim | no builder |
@@ -53,11 +53,12 @@ Constructor arguments of each token are listed in [Architecture](../orm/12-archi
 `build()` does, in order:
 
 1. A column that names a relation of the model becomes the relation's `ForeignKey`.
-2. A `Wrap` column is resolved as `container.resolve(wrap.Wrapper, [column, builder.TableAlias])` and its `wrap()` is the column expression. The value is bound unconverted.
-3. Otherwise the column is quoted and alias-prefixed with `_columnWrap()`. An aggregate column (`IsAggregate`) is not prefixed; it goes to `HAVING`.
-4. A `ModelBase` value becomes its primary key value. A composite key throws `InvalidArgument('cannot use model X as a where value: it has a composite primary key (A, B). Compare the key columns explicitly.')`.
-5. Any other value goes through the column's declared converter, or, failing that, the converter registered for the value's constructor name in `__orm_db_value_converters__` (a luxon `DateTime` is converted this way).
-6. `IS NULL` and `IS NOT NULL` emit no `?` and no binding.
+2. A `RawQuery` value (`driver.now()`, for one) is written in place of the `?` after the wrapped or quoted column, and its bindings become the statement's; no converter runs.
+3. A `Wrap` column is resolved as `container.resolve(wrap.Wrapper, [column, builder.TableAlias])` and its `wrap()` is the column expression. The value is bound unconverted.
+4. Otherwise the column is quoted and alias-prefixed with `_columnWrap()`. An aggregate column (`IsAggregate`) is not prefixed; it goes to `HAVING`.
+5. A `ModelBase` value becomes its primary key value. A composite key throws `InvalidArgument('cannot use model X as a where value: it has a composite primary key (A, B). Compare the key columns explicitly.')`.
+6. Any other value goes through the column's declared converter, or, failing that, the converter registered for the value's constructor name in `__orm_db_value_converters__` (a luxon `DateTime` is converted this way).
+7. `IS NULL` and `IS NOT NULL` emit no `?` and no binding.
 
 The operator is uppercased. Column existence is checked earlier, in the core `WhereStatement` constructor: an unknown column on a model throws `column X not exists in model Y`.
 

@@ -54,14 +54,14 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     const subject = checkedText(external.subject, 255, 'DbIdentityLinkStore: subject');
     const email = external.email === undefined || external.email === null ? undefined : checkedText(external.email, 255, 'DbIdentityLinkStore: email', true);
     const nowMs = checkedMs(new Date(), 'DbIdentityLinkStore.link: the clock');
-    const { driver } = await this.connection.get();
+    const { driver, dialect } = await this.connection.get();
 
     const linkId = randomUUID();
     try {
       await driver
         .insert()
         .into(TABLE)
-        .values({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: sqlTime(nowMs), last_used_at: null });
+        .values({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: sqlTime(nowMs, dialect), last_used_at: null });
     } catch (err) {
       if (isDuplicate(err)) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
       throw err;
@@ -76,8 +76,9 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
 
   /** Sets `last_used_at` (default now); true when the link exists. */
   public async touch(id: string, at: Date = new Date()): Promise<boolean> {
-    const t = sqlTime(checkedMs(at, 'DbIdentityLinkStore.touch: at'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(at, 'DbIdentityLinkStore.touch: at');
+    const { driver, dialect } = await this.connection.get();
+    const t = sqlTime(ms, dialect);
     return rowsAffected(await driver.update().in(TABLE).update({ last_used_at: t }).where('id', id)) === 1;
   }
 

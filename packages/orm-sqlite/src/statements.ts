@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, StartsWithStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, StartsWithStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, NowExpression, SET_DELIMITER } from '@spinajs/orm';
 import { SqlInStatement, SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
 import { NotSupported } from '@spinajs/exceptions';
 
@@ -82,5 +82,12 @@ export class SqliteStartsWithStatement extends StartsWithStatement {
     clone.Quoter = this.Quoter;
 
     return clone;
+  }
+}
+
+/** The text the datetime converter writes, so stored values compare with it as text. */
+export class SqliteNowExpression extends NowExpression {
+  public sql(): string {
+    return "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
   }
 }

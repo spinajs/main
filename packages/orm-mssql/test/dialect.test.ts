@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
+import { ICompilerOutput, IdentifierQuoter, InSetStatement, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
 import { MsSqlInSetStatement } from '../src/statements.js';
@@ -50,13 +50,26 @@ describe('mssql dialect', function () {
 
   /**
    * `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE`,
-   * `WITH RECURSIVE` and `CURRENT_DATE()` are not T-SQL. This driver registers none of
+   * and `WITH RECURSIVE` are not T-SQL. This driver registers none of
    * them, so they fail by name instead of reaching SQL Server as MySQL syntax.
    */
   it('leaves the abstractions it has no T-SQL for unregistered', () => {
-    for (const abstraction of ['AlterColumnQueryCompiler', 'AlterTableQueryCompiler', 'TableCloneQueryCompiler', 'RecursiveQueryCompiler', 'DefaultValueBuilder']) {
+    for (const abstraction of ['AlterColumnQueryCompiler', 'AlterTableQueryCompiler', 'TableCloneQueryCompiler', 'RecursiveQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must not be inherited from the MySQL-flavoured base`).to.eq(false);
     }
+  });
+
+  it('writes datetimes as DATETIMEOFFSET(3), defaulting to SYSDATETIMEOFFSET()', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+    const ddl = ([schema.createTable('t', (table) => {
+      table.dateTime('At').notNull().default().dateTime();
+      table.timestamp('Seen');
+      table.date('Day').default().date();
+    }).toDB()].flat() as ICompilerOutput[]).map((o) => o.expression).join(';');
+
+    expect(ddl).to.contain('[At] DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET()');
+    expect(ddl).to.contain('[Seen] DATETIMEOFFSET(3)');
+    expect(ddl).to.contain('[Day] DATE DEFAULT CAST(SYSUTCDATETIME() AS DATE)');
   });
 
   it('refuses scheduled events, SQL Server Agent is not implemented', () => {

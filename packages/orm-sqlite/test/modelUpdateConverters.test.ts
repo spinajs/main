@@ -77,7 +77,7 @@ describe('sqlite Model.update with column converters', function () {
     await GapDoc.update({ At: '2026-02-03T04:05:06.007' as unknown as DateTime }).where('Id', 1);
 
     const doc = (await GapDoc.where('Id', 1).first()) as GapDoc;
-    expect(doc.At.toMillis()).to.eq(DateTime.local(2026, 2, 3, 4, 5, 6, 7).toMillis());
+    expect(doc.At.toMillis()).to.eq(DateTime.utc(2026, 2, 3, 4, 5, 6, 7).toMillis());
   });
 
   it('rejects a string that is not a date instead of writing NULL', () => {
@@ -88,7 +88,7 @@ describe('sqlite Model.update with column converters', function () {
     await GapDoc.update({ At: '2026-10-19 12:30:00' as unknown as DateTime }).where('Id', 1);
 
     const doc = (await GapDoc.where('Id', 1).first()) as GapDoc;
-    expect(doc.At.toMillis()).to.eq(DateTime.local(2026, 10, 19, 12, 30, 0).toMillis());
+    expect(doc.At.toMillis()).to.eq(DateTime.utc(2026, 10, 19, 12, 30, 0).toMillis());
   });
 
   it('refuses an update without a where clause', async () => {

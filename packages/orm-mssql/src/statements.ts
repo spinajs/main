@@ -1,6 +1,6 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, NowExpression, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 import { _columnWrap, SqlInStatement, SqlLiteralQuoter, SqlStartsWithStatement } from '@spinajs/orm-sql';
 
 /**
@@ -95,5 +95,11 @@ export class MsSqlInStatement extends SqlInStatement {
 export class MsSqlStartsWithStatement extends SqlStartsWithStatement {
   protected pattern(): string {
     return super.pattern().replace(/\[/g, `${LIKE_ESCAPE_CHARACTER}[`);
+  }
+}
+
+export class MsSqlNowExpression extends NowExpression {
+  public sql(): string {
+    return 'SYSDATETIMEOFFSET()';
   }
 }

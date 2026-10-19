@@ -102,8 +102,9 @@ export class DbMfaStore {
     const name = stepName(step);
     checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
     checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.put: the clock'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(new Date(), 'DbMfaStore.put: the clock');
+    const { driver, dialect } = await this.connection.get();
+    const now = sqlTime(ms, dialect);
 
     const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
     for (let i = 0; i < MAX_TRIES; i++) {
@@ -130,8 +131,9 @@ export class DbMfaStore {
     const name = stepName(step);
     checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
     checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.putPending: the clock'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(new Date(), 'DbMfaStore.putPending: the clock');
+    const { driver, dialect } = await this.connection.get();
+    const now = sqlTime(ms, dialect);
 
     const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
     for (let i = 0; i < MAX_TRIES; i++) {
@@ -158,9 +160,10 @@ export class DbMfaStore {
   public async confirm(id: IdentityRef, step: string, at: Date = new Date(), expectedSecretEnc?: string): Promise<boolean> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const t = sqlTime(checkedMs(at, 'DbMfaStore.confirm: at'));
+    const ms = checkedMs(at, 'DbMfaStore.confirm: at');
     if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
     const { driver, dialect } = await this.connection.get();
+    const t = sqlTime(ms, dialect);
     const q = driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name);
     if (expectedSecretEnc !== undefined) {
       const exact = exactSecretEnc(dialect, expectedSecretEnc);
@@ -229,8 +232,9 @@ export class DbMfaStore {
   public async redeemRecoveryCode(id: IdentityRef, raw: string): Promise<boolean> {
     const identity = identityKey(id);
     if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock');
+    const { driver, dialect } = await this.connection.get();
+    const now = sqlTime(ms, dialect);
     const r = await driver.update().in(CODES).update({ used_at: now }).where('identity', identity).where('code_hash', sha256hex(raw)).whereNull('used_at');
     return rowsAffected(r) > 0;
   }

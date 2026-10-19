@@ -43,7 +43,7 @@ export class DbSecretStore extends SecretStore {
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
     _check_arg(_is_number(_finite(), _gt(0)))(ttlSeconds, 'ttlSeconds');
     const nowMs = checkedMs(new Date(), 'DbSecretStore.issue: the clock');
-    const { driver } = await this.connection.get();
+    const { driver, dialect } = await this.connection.get();
     await this.purgeNowAndThen(nowMs);
 
     const raw = randomBytes(32).toString('base64url');
@@ -51,7 +51,7 @@ export class DbSecretStore extends SecretStore {
     await driver
       .insert()
       .into(TABLE)
-      .values({ id: randomUUID(), identity: key, purpose, secret_hash: sha256hex(raw), expires_at: sqlTime(nowMs + ttlSeconds * 1000), used_at: null, created_at: sqlTime(nowMs) });
+      .values({ id: randomUUID(), identity: key, purpose, secret_hash: sha256hex(raw), expires_at: sqlTime(nowMs + ttlSeconds * 1000, dialect), used_at: null, created_at: sqlTime(nowMs, dialect) });
     return raw;
   }
 
@@ -73,15 +73,16 @@ export class DbSecretStore extends SecretStore {
     const row = rows.find((r) => r.identity === key && r.purpose === purpose);
     if (!row || !this.liveInNode(columnText(dialect, row, 'expires_at', 'expires_text'), nowMs)) return false;
 
-    const now = sqlTime(nowMs);
+    const now = sqlTime(nowMs, dialect);
     const claimed = await driver.update().in(TABLE).update({ used_at: now }).where('id', String(row.id)).whereNull('used_at').where('expires_at', '>', now);
     return rowsAffected(claimed) === 1;
   }
 
   /** Deletes up to one batch of spent and expired rows; returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
-    const t = sqlTime(checkedMs(now, 'DbSecretStore.purge: now'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(now, 'DbSecretStore.purge: now');
+    const { driver, dialect } = await this.connection.get();
+    const t = sqlTime(ms, dialect);
     const done = function (this: WhereBuilder<unknown>) {
       this.whereNotNull('used_at');
       this.orWhere('expires_at', '<=', t);

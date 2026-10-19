@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LockTableQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
-import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { LockTableQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, NowExpression } from '@spinajs/orm';
+import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import pg from 'pg';
 import { PostgresLockTableQueryCompiler, PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter } from './statements.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
@@ -44,6 +44,26 @@ export function toDriverStatement(stmt: string, params?: unknown[]): string {
   let i = 0;
   return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
 }
+
+const defaultParser = pg.types.getTypeParser as unknown as (oid: number, format?: string) => (value: string) => unknown;
+const parseTimestamptz = defaultParser(pg.types.builtins.TIMESTAMPTZ, 'text');
+
+/**
+ * Parses `timestamp` (without time zone) as UTC: the datetime converter writes UTC into such a
+ * column, and pg's own parser reads it in the process zone.
+ */
+export function parseUtcTimestamp(value: string): unknown {
+  if (value === 'infinity' || value === '-infinity') {
+    return parseTimestamptz(value);
+  }
+
+  return value.endsWith(' BC') ? parseTimestamptz(`${value.slice(0, -3)}+00 BC`) : parseTimestamptz(`${value}+00`);
+}
+
+// Per pool, not the global pg.types: that registry is shared with every other pg user in the process.
+const UTC_TYPES = {
+  getTypeParser: (oid: number, format?: string) => (oid === pg.types.builtins.TIMESTAMP && format !== 'binary' ? parseUtcTimestamp : defaultParser(oid, format)),
+} as unknown as pg.CustomTypesConfig;
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -96,7 +116,8 @@ export class PostgresOrmDriver extends SqlDriver {
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport
     // failures, where the statement provably never reached the server.
-    return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+    const bound = this.toDriverParams(params);
+    return this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context));
   }
 
   protected isRetryableError(err: unknown): boolean {
@@ -225,6 +246,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
+    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(PostgresNowExpression).as(NowExpression);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
@@ -263,10 +286,10 @@ export class PostgresOrmDriver extends SqlDriver {
     }
   }
 
-  public async connect(): Promise<OrmDriver> {
+  protected poolConfig(): pg.PoolConfig {
     const pool = this.resolvedPoolOptions();
 
-    this.Pool = new pg.Pool({
+    return {
       host: this.Options.Host,
       user: this.Options.User,
       password: this.Options.Password,
@@ -276,7 +299,15 @@ export class PostgresOrmDriver extends SqlDriver {
       min: pool.Min,
       idleTimeoutMillis: pool.IdleTimeout,
       connectionTimeoutMillis: pool.AcquireTimeout,
-    });
+      // now(), date_trunc() and the text of a timestamptz follow the session zone. pg reads PGOPTIONS only
+      // when no options are given, so it is kept here.
+      options: `${process.env.PGOPTIONS ?? ''} -c TimeZone=UTC`.trim(),
+      types: UTC_TYPES,
+    };
+  }
+
+  public async connect(): Promise<OrmDriver> {
+    this.Pool = new pg.Pool(this.poolConfig());
 
     // An idle client's connection can die between checkouts; without a listener pg emits
     // 'error' on the pool and an unhandled 'error' event kills the process.

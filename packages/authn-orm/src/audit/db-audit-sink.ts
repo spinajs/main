@@ -51,9 +51,10 @@ export class DbAuthnAuditSink extends AuthnEventSink {
       ...(e.actor && actor === null ? { actorRef: { type: e.actor.type, id: e.actor.id } } : {}),
     };
     const data = e.data === undefined && Object.keys(extra).length === 0 ? undefined : { ...(e.data ?? {}), ...extra };
+    const { driver, dialect } = await this.connection.get();
     const row = {
       id: randomUUID(),
-      at: sqlTime(checkedMs(e.at, 'DbAuthnAuditSink.publish: e.at')),
+      at: sqlTime(checkedMs(e.at, 'DbAuthnAuditSink.publish: e.at'), dialect),
       type: cutText(e.type, 32),
       outcome: cutText(e.outcome, 8),
       identity,
@@ -65,7 +66,6 @@ export class DbAuthnAuditSink extends AuthnEventSink {
       session: cutText(e.session, 64),
       data: data === undefined ? null : json(data),
     };
-    const { driver } = await this.connection.get();
     await driver.insert().into('authn_audit').values(row);
   }
 }

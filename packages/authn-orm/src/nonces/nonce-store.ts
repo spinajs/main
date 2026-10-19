@@ -62,13 +62,13 @@ export class DbNonceStore extends NonceStore {
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
-    const { driver } = await this.connection.get();
+    const { driver, dialect } = await this.connection.get();
     if (++this.claims % PURGE_EVERY === 0) {
       await this.purge(now);
     }
 
-    const t = sqlTime(nowMs);
-    const expires = sqlTime(expiresMs);
+    const t = sqlTime(nowMs, dialect);
+    const expires = sqlTime(expiresMs, dialect);
     for (let i = 0; i < MAX_TRIES; i++) {
       try {
         await driver.insert().into(TABLE).values({ k: key, expires_at: expires });
@@ -87,8 +87,9 @@ export class DbNonceStore extends NonceStore {
 
   /** Deletes up to one batch of expired keys; returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
-    const t = sqlTime(checkedMs(now, 'DbNonceStore.purge: now'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(now, 'DbNonceStore.purge: now');
+    const { driver, dialect } = await this.connection.get();
+    const t = sqlTime(ms, dialect);
     // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const keys = ((await driver.select().from(TABLE).select('k').where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)) as { k: string }[]).map((r) => r.k);
     if (keys.length === 0) return 0;

@@ -207,7 +207,7 @@ export function recordValues<R>(values: RecordValues<R>): Partial<R> {
 export function toDateTime(date: Date): DateTime;
 export function toDateTime(date: Date | null | undefined): DateTime | null;
 export function toDateTime(date: Date | null | undefined): DateTime | null {
-  return date ? DateTime.fromJSDate(date) : null;
+  return date ? DateTime.fromJSDate(date, { zone: 'utc' }) : null;
 }
 
 export function fromDateTime(value: DateTime): Date;

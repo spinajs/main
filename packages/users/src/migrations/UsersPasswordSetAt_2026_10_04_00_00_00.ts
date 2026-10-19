@@ -1,6 +1,6 @@
 import { IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
-import { USERS_TABLE, holdsPassword, raw, sqlDateTime } from '../identity/sql.js';
+import { USERS_TABLE, holdsPassword, raw } from '../identity/sql.js';
 
 const COLUMN = 'PasswordSetAt';
 
@@ -25,7 +25,7 @@ export class UsersPasswordSetAt_2026_10_04_00_00_00 extends OrmMigration {
     await connection
       .update()
       .in(USERS_TABLE)
-      .update({ [COLUMN]: sqlDateTime(new Date()) })
+      .update({ [COLUMN]: new Date() })
       .whereNull(COLUMN)
       .where(raw(holdsPassword(connection, 'Password')));
   }

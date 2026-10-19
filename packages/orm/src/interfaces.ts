@@ -1767,6 +1767,14 @@ export class ValueConverter implements IValueConverter {
 export class DatetimeValueConverter extends ValueConverter { }
 
 /**
+ * The database's current instant as an SQL expression of the dialect, comparable with the datetime
+ * columns the ORM creates. Each driver registers its own.
+ */
+export abstract class NowExpression {
+  public abstract sql(): string;
+}
+
+/**
  * Converter for TIME field ( eq. mysql datetime into timespan HH:MM:SS )
  */
 export class TimeValueConverter extends ValueConverter { }

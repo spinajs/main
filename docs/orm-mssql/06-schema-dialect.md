@@ -27,8 +27,8 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `string(name, length = 255)` | `VARCHAR(255)`; `NVARCHAR(255)` with `caseSensitive()` | yes (Unicode only as `NVARCHAR`) |
 | `text` | `TEXT` | yes (deprecated type) |
 | `tinytext`, `mediumtext`, `longtext` | same name | no |
-| `date`, `time`, `dateTime` | `DATE`, `TIME`, `DATETIME` | yes |
-| `timestamp` | `TIMESTAMP` | accepted, but it is a row version, not a date |
+| `date`, `time` | `DATE`, `TIME` | yes |
+| `dateTime`, `timestamp` | `DATETIMEOFFSET(3)` | yes |
 | `binary(name, size)`, `uuid` | `BINARY(size)`, `BINARY(16)` | yes |
 | `boolean` | `BOOLEAN` | no: use `bit` |
 | `json` | `JSON` | no: use `text` or a custom column compiler |
@@ -45,7 +45,7 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `charset()` | nothing: T-SQL has no column character set, the collation carries the code page | yes |
 | `collation(name)` | `COLLATE name`, unquoted; a name outside `[A-Za-z0-9_]` throws `InvalidArgument` | yes |
 | `caseSensitive()` | `COLLATE Latin1_General_100_BIN2`, unless `collation()` names one; a `string()` column becomes `NVARCHAR(n)`, since a binary collation on `VARCHAR` limits it to code page 1252 | yes; `=` still ignores trailing blanks |
-| `default()` | see [Important behaviour](#important-behaviour) | fails |
+| `default()` | `DEFAULT <value or expression>`; `date()` is `CAST(SYSUTCDATETIME() AS DATE)` (the UTC date), `dateTime()` is `SYSDATETIMEOFFSET()` | yes |
 
 ### Other schema statements
 
@@ -77,7 +77,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | --- | --- | --- | --- | --- |
 | Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor, and override `charsetName()` / `collationName()` to change the character set and collation clauses. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
-| Column defaults | `DefaultValueBuilder` | **none** | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
+| Column defaults | `DefaultValueBuilder`, new instance | `MsSqlDefaultValueBuilder` | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`, MySQL spelling) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
 | Databases | `CreateDatabaseCompiler`, `DropDatabaseCompiler`, new instance | `MsSqlCreateDatabaseQueryCompiler`, `MsSqlDropDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler`, `SqlDropDatabaseQueryCompiler` (MySQL spelling) | Extend the abstract token, implement `compile()`. |
 | Views | `CreateViewCompiler`, new instance | `MsSqlCreateViewCompiler` | `SqlCreateViewQueryCompiler` | Extend `SqlCreateViewQueryCompiler`; override the hooks (`_replace()`, `_name()`, `_checkOption()`, ...). See [View compiler hooks](../orm-sql/06-view-compiler-hooks.md). |
@@ -87,7 +87,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 
 ### Column definition: custom implementation
 
-Write Unicode strings, `BIT` booleans, `DATETIME2` datetimes and `NVARCHAR(MAX)` for text and JSON:
+Write Unicode strings, `BIT` booleans and `NVARCHAR(MAX)` for text and JSON:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -106,7 +106,6 @@ export class TsqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.longtext = () => 'NVARCHAR(MAX)';
     this._statementsMappings.json = () => 'NVARCHAR(MAX)';
     this._statementsMappings.boolean = () => 'BIT';
-    this._statementsMappings.dateTime = () => 'DATETIME2';
     // T-SQL has no column comments; an empty entry is dropped from the definition
     this._statementsMappings.comment = () => '';
   }
@@ -130,7 +129,7 @@ export class UnicodeMsSqlDriver extends MsSqlOrmDriver {
 
 ### Column defaults: custom implementation
 
-With no `DefaultValueBuilder` registered, `default()` cannot be used on MSSQL. Register one; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`.
+`MsSqlDefaultValueBuilder` already writes `CAST(SYSUTCDATETIME() AS DATE)` for `date()` and `SYSDATETIMEOFFSET()` for `dateTime()`. Register your own to change a default; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. This one takes `date()` from the server's local clock instead of UTC, so near midnight it is a day off the date the other dialects write:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -142,11 +141,6 @@ import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
 export class TsqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
     this.Query = RawQuery.create('CAST(GETDATE() AS DATE)');
-    return this.Owner;
-  }
-
-  public dateTime(): T {
-    this.Query = RawQuery.create('SYSDATETIME()');
     return this.Owner;
   }
 }
@@ -161,11 +155,10 @@ export class DefaultsMsSqlDriver extends MsSqlOrmDriver {
 }
 ```
 
-Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[CreatedAt] DATETIME NOT NULL DEFAULT SYSDATETIME()`.
+Then `table.date('Day').default().date()` writes `[Day] DATE DEFAULT CAST(GETDATE() AS DATE)`.
 
 ## Important behaviour
 
-- **`default()` fails.** No `DefaultValueBuilder` is registered, so the container instantiates the abstract class itself, whose `value()`, `date()`, `dateTime()` and `raw()` are not implemented: calling one throws a `TypeError`. Register a builder as above.
 - **Unregistered schema tokens fail on first use**, not at connect: `alterTable()`, `alterColumn`, `cloneTable()` and `withRecursive()` reach an abstract compiler with no `compile()`. The driver leaves them out so MySQL syntax is never sent to SQL Server.
 - **`trackHistory()` is ignored.** `MsSqlTableQueryCompiler` does not compile table history; the table is created without it.
 - **`temporary()` and `ifExists()` on `createTable` write MySQL syntax** (`CREATE TEMPORARY TABLE`, `IF NOT EXISTS`), which SQL Server rejects.
@@ -184,7 +177,7 @@ Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[Creat
 ## Patterns and antipatterns
 
 ```ts
-// Don't: BOOLEAN and JSON are not T-SQL types, default() throws
+// Don't: BOOLEAN and JSON are not T-SQL types
 table.boolean('Active').default().value(1);
 table.json('Settings');
 

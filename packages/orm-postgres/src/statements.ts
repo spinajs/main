@@ -1,5 +1,5 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter } from '@spinajs/orm';
+import { IdentifierQuoter, NowExpression } from '@spinajs/orm';
 import { SqlInStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
 import pg from 'pg';
 
@@ -50,5 +50,12 @@ export class PostgresInStatement extends SqlInStatement {
 
   protected listBinding(values: unknown[]): unknown {
     return values;
+  }
+}
+
+/** The start of the current transaction, as for a column default. */
+export class PostgresNowExpression extends NowExpression {
+  public sql(): string {
+    return 'CURRENT_TIMESTAMP';
   }
 }
