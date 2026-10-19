@@ -12,13 +12,13 @@ const quiet = new Proxy({}, { get: (_t, key) => (key === 'then' ? undefined : ()
 
 const PUBLIC_FILE_METHODS = [
   'download', 'upload', 'hash', 'metadata', 'read', 'readStream', 'write', 'writeStream', 'append',
-  'exists', 'stat', 'dirExists', 'isDir', 'list', 'mkdir', 'rm', 'copy', 'move', 'rename',
+  'exists', 'stat', 'dirExists', 'isDir', 'list', 'hasEntries', 'mkdir', 'rm', 'copy', 'move', 'rename',
   'zip', 'unzip', 'signedUrl', 'getSignedUrl',
 ];
 
 const HOOKS = [
   'doDownload', 'doUpload', 'doHash', 'doMetadata', 'doRead', 'doReadStream', 'doWrite', 'doWriteStream', 'doAppend',
-  'doExists', 'doDirExists', 'doStat', 'doIsDir', 'doList', 'doMkdir', 'doRm', 'doCopy', 'doMove', 'doRename',
+  'doExists', 'doDirExists', 'doStat', 'doIsDir', 'doList', 'doHasEntries', 'doMkdir', 'doRm', 'doCopy', 'doMove', 'doRename',
   'doZip', 'doUnzip', 'doSignedUrl',
 ];
 
@@ -115,6 +115,38 @@ describe('fsS3 – provider hooks', () => {
     expect(await p.isDir('/dir/')).to.be.false;
     expect(await p.dirExists('dir')).to.be.true;
     expect(send.called).to.be.false;
+  });
+
+  it('hasEntries counts keys nested under the prefix: one ListObjectsV2 without Delimiter, MaxKeys 1', async () => {
+    const { p, send } = provider();
+    send.callsFake(async (cmd: unknown) => {
+      if (!(cmd instanceof ListObjectsV2Command)) return {};
+      const prefix = (cmd as unknown as Command).input.Prefix as string;
+      // only d/sub/a.txt exists: a Delimiter '/' listing of 'd/' would return it as a common prefix, not as an object
+      return 'd/sub/a.txt'.startsWith(prefix) ? { KeyCount: 1, Contents: [{ Key: 'd/sub/a.txt' }] } : { KeyCount: 0 };
+    });
+
+    expect(await p.hasEntries('/d')).to.be.true;
+    expect(await p.hasEntries('e')).to.be.false;
+    expect(await p.hasEntries('')).to.be.true;
+    expect(sent(send, ListObjectsV2Command).map((c) => c.input)).to.deep.equal([
+      { Bucket: 'unit-bucket', Prefix: 'd/', MaxKeys: 1 },
+      { Bucket: 'unit-bucket', Prefix: 'e/', MaxKeys: 1 },
+      { Bucket: 'unit-bucket', Prefix: '', MaxKeys: 1 },
+    ]);
+  });
+
+  it('hasEntries propagates a failed listing', async () => {
+    const { p, send } = provider();
+    send.rejects(new Error('throttled'));
+
+    let error: unknown;
+    try {
+      await p.hasEntries('d');
+    } catch (e) {
+      error = e;
+    }
+    expect(String(error)).to.contain('throttled');
   });
 
   it('refuses a path above the root before any request', async () => {

@@ -707,6 +707,18 @@ export class fsS3 extends fs {
     return keys;
   }
 
+  // No Delimiter, unlike doList: a prefix that holds only nested keys (d/sub/a.txt) has entries too.
+  protected async doHasEntries(path: string): Promise<boolean> {
+    const result = await this.S3.send(
+      new ListObjectsV2Command({
+        Bucket: this.Options.bucket,
+        Prefix: path ? `${path}/` : '',
+        MaxKeys: 1,
+      }),
+    );
+    return (result.KeyCount ?? result.Contents?.length ?? 0) > 0;
+  }
+
   /**
    * Downloads the zip to the local temp fs and extracts it there.
    * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -

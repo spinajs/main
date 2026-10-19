@@ -39,7 +39,7 @@ export interface FsActionContext {
   exists(target: FsTarget): Promise<boolean>;
   /** Like `exists`: whether the target path is a directory now (an S3 key never is). */
   isDir(target: FsTarget): Promise<boolean>;
-  /** Like `exists`: whether listing the target path yields any entry (false when the list throws). */
+  /** Like `isDir`: `target.fs.hasEntries`; a failing probe rejects, so it never passes for a free path. */
   hasEntries(target: FsTarget): Promise<boolean>;
 }
 
@@ -160,12 +160,7 @@ function context<R>(run: FsActionRun<R>): FsActionContext {
       return probe(`isDir\0${target.fs.Name}\0${target.path}`, () => target.fs.isDir(target.path));
     },
     hasEntries(target: FsTarget): Promise<boolean> {
-      return probe(`hasEntries\0${target.fs.Name}\0${target.path}`, () =>
-        target.fs.list(target.path).then(
-          (entries) => entries.length > 0,
-          () => false,
-        ),
-      );
+      return probe(`hasEntries\0${target.fs.Name}\0${target.path}`, () => target.fs.hasEntries(target.path));
     },
   };
 }

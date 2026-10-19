@@ -180,6 +180,10 @@ export class fsTemp extends fs {
     return this.Provider.list(path);
   }
 
+  protected doHasEntries(path: string): Promise<boolean> {
+    return this.Provider.hasEntries(path);
+  }
+
   // `ext` must be forwarded: callers such as fsS3.download() pass extname(path) so the
   // downloaded copy keeps its extension, and consumers pick behaviour from it (templates
   // resolve their renderer by extension). Swallowing it here fails far from the cause.

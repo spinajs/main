@@ -155,11 +155,11 @@ describe('fs actions: engine', () => {
     DI.unregister(ProbeDir);
   });
 
-  it('memoises ctx.hasEntries per target, lists inside the frame and answers false when the list throws', async () => {
+  it('memoises ctx.hasEntries per target, asks the target fs inside the frame and propagates its error', async () => {
     let probes = 0;
     const inside: boolean[] = [];
-    const listing = (answer: () => string[]) => ({ ...fakeFs('on'), list: async () => (probes++, inside.push(inFsAction()), answer()) }) as unknown as fs;
-    const seen: boolean[] = [];
+    const listing = (answer: () => boolean) => ({ ...fakeFs('on'), hasEntries: async () => (probes++, inside.push(inFsAction()), answer()) }) as unknown as fs;
+    const seen: unknown[] = [];
     class ProbeEntries extends FsMiddleware {
       async before(ctx: FsActionContext) {
         seen.push(await ctx.hasEntries(ctx.targets[0]), await ctx.hasEntries(ctx.targets[0]));
@@ -167,8 +167,15 @@ describe('fs actions: engine', () => {
     }
     DI.register(ProbeEntries).as(FsMiddleware);
     DI.uncache(Array.ofType(FsMiddleware));
-    for (const answer of [() => ['x'], () => [], () => { throw new Error('no such dir'); }]) await run(listing(answer), async () => 'io');
-    expect(seen).to.deep.equal([true, true, false, false, false, false]);
+    await run(listing(() => true), async () => 'io');
+    await run(listing(() => false), async () => 'io');
+    let io = false;
+    const failing = listing(() => {
+      throw new Error('list failed');
+    });
+    await expect(run(failing, async () => ((io = true), 'io'))).to.be.rejectedWith('list failed');
+    expect(io).to.equal(false);
+    expect(seen).to.deep.equal([true, true, false, false]);
     expect(probes).to.equal(3);
     expect(inside).to.deep.equal([true, true, true]);
     DI.unregister(ProbeEntries);

@@ -58,6 +58,29 @@ describe('fs middleware pipeline', function () {
     expect(await local.read('a.txt', 'utf-8')).to.equal('x');
   });
 
+  it('hasEntries is a list action on a dir target: true only for a directory holding an entry', async () => {
+    await local.mkdir('he/sub');
+    await local.write('he/sub/a.txt', 'x');
+    await local.mkdir('he-empty');
+    seen.length = 0;
+    const answers = [];
+    for (const path of ['he', 'he/sub', 'he-empty', 'he/sub/a.txt', 'he-missing']) answers.push(await local.hasEntries(path));
+    expect(answers).to.deep.equal([true, true, false, false, false]);
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local:he:dir:list:source']);
+  });
+
+  it('fsTemp asks its backend for hasEntries', async () => {
+    const backend = (temp as unknown as { Provider: fs }).Provider as fs & { hasEntries(path: string): Promise<boolean> };
+    const asked: string[] = [];
+    backend.hasEntries = async (path: string) => (asked.push(path), true);
+    try {
+      expect(await temp.hasEntries('/x/../d')).to.equal(true);
+    } finally {
+      delete (backend as { hasEntries?: unknown }).hasEntries;
+    }
+    expect(asked).to.deep.equal(['d']);
+  });
+
   it('makes an absolute path inside the base path relative', async () => {
     await local.exists(join(dir('./temp-nc'), 'a.txt'));
     expect(seen[0].targets[0].path).to.equal('a.txt');

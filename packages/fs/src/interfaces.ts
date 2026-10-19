@@ -207,7 +207,7 @@ export interface IFsUploadOptions {
 
 const FS_ACTION_METHODS = [
   'download', 'upload', 'hash', 'metadata', 'read', 'readStream', 'write', 'writeStream', 'append',
-  'exists', 'dirExists', 'stat', 'isDir', 'list', 'mkdir', 'rm', 'copy', 'move', 'rename', 'zip', 'unzip',
+  'exists', 'dirExists', 'stat', 'isDir', 'list', 'hasEntries', 'mkdir', 'rm', 'copy', 'move', 'rename', 'zip', 'unzip',
   'signedUrl', 'getSignedUrl',
 ] as const;
 
@@ -339,6 +339,11 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 
   public list(path: string): Promise<string[]> {
     return this.runAction('list', [{ path, kind: 'dir', access: ['list'] }], [], ([t]) => this.doList(t.path));
+  }
+
+  /** Whether anything lives under `path` as a directory or, on a key store, as a prefix (nested keys included). */
+  public hasEntries(path: string): Promise<boolean> {
+    return this.runAction('hasEntries', [{ path, kind: 'dir', access: ['list'] }], [], ([t]) => this.doHasEntries(t.path));
   }
 
   public mkdir(path: string): Promise<void> {
@@ -492,6 +497,10 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   protected abstract doStat(path: string): Promise<IStat>;
   protected abstract doIsDir(path: string): Promise<boolean>;
   protected abstract doList(path: string): Promise<string[]>;
+  /** Key stores whose list stops at the first delimiter override this: keys nested deeper count too. */
+  protected async doHasEntries(path: string): Promise<boolean> {
+    return (await this.doDirExists(path)) && (await this.doList(path)).length > 0;
+  }
   protected abstract doMkdir(path: string): Promise<void>;
   protected abstract doRm(path: string): Promise<void>;
   /** `dstFs` as the caller passed it; undefined copies within this fs. */
