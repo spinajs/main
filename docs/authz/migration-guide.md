@@ -616,6 +616,10 @@ their timestamps. The first two run on the `authz` connection (`db.Aliases.authz
 2. `AuthzRbacUserRoles_2026_10_01_00_01_00` copies the column.
 3. `AuthzRbacDropUserRole_2026_10_01_00_02_00` drops it.
 
+Migrate the `default` and `authz` connections in the same run: the drop must run after the copy, and
+`Migration.OnStartup` is set per connection, so a run that migrates only `default` reaches the drop
+before the copy and fails, changing nothing.
+
 *The copy.* It reads `users.<roleColumn>` (default `Role`) page by page, splits the comma set
 (trimmed, empties and repeats dropped), and inserts one `$global` assignment per user and role
 with `source = 'users.Role'`. The subject is `user:<idColumn>` with `idColumn` defaulting to
@@ -627,6 +631,7 @@ bumps `authz_version` of the root domain when it inserted rows.
 - A `users` row whose id column is null or empty is skipped and its roles are not copied. The
   migration logs a warning with the count.
 - No `users` table: it logs and does nothing, so an app without the `users` package migrates.
+- No `default` connection: the copy fails with `OrmConnectionMissing`, since it reads `users` there.
 - A `users` table without the id or role column: it does nothing, with a warning when the table
   holds rows and an info line when it is empty. Set the two keys above and migrate again.
 
@@ -638,10 +643,10 @@ column when you revoked it on purpose. Then run
 `orm.Migration.resolve('AuthzRbacDropUserRole_2026_10_01_00_02_00', 'rolled-back')` and migrate
 again. It also refuses when the id column is not unique (it counts the rows its walk saw against the
 table count), when the table has rows but no id column, and warns about rows with roles but a null id
-(those roles are lost with the column). It reads the assignments on `authz`. Between the check and the
-drop it locks `users` against writers with `schema().lockTable()` (a `SHARE` lock on PostgreSQL; SQLite
-needs none), which stops a 2.x node that still writes users. Then it drops the column with
-`alterTable(...).dropColumn()`, in one transaction with its migration record on `default`.
+(those roles are lost with the column). It reads the assignments on `authz`. Before the check it locks
+`users` against writers with `schema().lockTable()` (a `SHARE` lock on PostgreSQL; SQLite needs none)
+and holds the lock through the drop, which stops a 2.x node that still writes users. Then it drops the
+column with `alterTable(...).dropColumn()`, in one transaction with its migration record on `default`.
 
 *Rollback.* The drop's `down()` re-adds `<roleColumn>` as `varchar(256) NOT NULL DEFAULT ''` (2.x
 had no default) and fills it from each user's live `$global` roles, sorted and joined with `,`. The
@@ -649,7 +654,8 @@ copy's `down()` deletes the rows with `source = 'users.Role'`. **Roll back batch
 first**, or with `{ all: true }`: `Migration.down(name)` acts only on the last applied batch. The copy's
 `down()` also deletes a copied row that someone granted again after the copy. Dates on SQLite are
 stored as local wall time (a repo-wide ORM issue), so run the process with a fixed time zone. MySQL
-and MSSQL are not tested.
+is not tested. On MSSQL the drop's `up()` fails: orm-mssql has no `alterTable()` (no
+`AlterTableQueryCompiler`), and authz-rbac cannot create its tables there either (composite keys).
 
 *Authz on another connection.* When `db.Aliases.authz` names another connection than `default`, the
 copy reads `users` on `default` and writes on `authz`, and the drop reads the assignments on `authz`
