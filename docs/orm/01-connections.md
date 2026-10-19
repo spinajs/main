@@ -11,7 +11,7 @@
    3. It calls `driver.connect()`. On failure it calls `driver.disconnect()` to release resources, then throws `OrmException` (`Failed to connect to database for connection <Name> ...`) with the original error as `inner`.
    4. It stores the driver in `Orm.Connections` under `Name` and calls `driver.startHealthCheck()` (see [Observability and resilience](13-observability-and-resilience.md)).
 3. If `db.DefaultConnection` is set, the named driver is also stored under `default`. An unknown name throws `InvalidOperation`.
-4. Every entry of `db.Aliases` stores an existing driver under an extra name. An unknown target throws `InvalidOperation`.
+4. Every entry of `db.Aliases` stores an existing driver under an extra name. An alias whose target is not in `Orm.Connections` is skipped with a warning; its models then behave as models on an unknown connection (step 8), and its migrations are skipped.
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` assigns `Orm.Migration` (a `MigrationRunner`), registers the default value converters, and runs the boot migration pass unless `MigrateOnStartup` is `false`.
@@ -178,7 +178,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - `default` and every alias point to the same driver instance as the connection they name. They share one pool and one health probe.
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.
 - `db.Connections[].DefaultConnection: true` has no effect. Only `db.DefaultConnection` creates the `default` entry.
-- An unknown target in `db.Aliases` throws `InvalidOperation` with the message `default connection <name> not exists`, even though the failing key is an alias.
+- An unknown target in `db.Aliases` logs `Connection alias <alias> points at <name>, which does not exist; models and migrations on <alias> are skipped`, and boot continues. A package can therefore default an alias (`db.Aliases.authz: 'default'`) without breaking an app that has no `default` connection.
 - Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 9.
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
 - `Orm.Migration` is assigned inside `resolve()`. It is `undefined` on an unresolved `Orm`.

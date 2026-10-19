@@ -483,11 +483,13 @@ export class Orm extends AsyncService {
     // wire connection aliases
     // for example if we have module that uses conn name of db-user-session
     // and we want to wire it to some existinc connection instead creating new one
-    const aliases = this.Configuration.get<any>('db.Aliases', {});
+    const aliases = this.Configuration.get<Record<string, string>>('db.Aliases', {});
     for (const a in aliases) {
       const conn = aliases[a];
       if (!this.Connections.has(conn)) {
-        throw new InvalidOperation(`default connection ${conn} not exists`);
+        // Packages default aliases for their own models; one that cannot resolve concerns only those models.
+        this.Log.warn({ alias: a, connection: conn }, 'Connection alias ${alias} points at ${connection}, which does not exist; models and migrations on ${alias} are skipped');
+        continue;
       }
 
       this.Connections.set(a, this.Connections.get(conn)!);
