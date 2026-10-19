@@ -101,14 +101,14 @@ export async function answerFor(container: IContainer, kind: AnswerKind, princip
 }
 
 /**
- * The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy `policyService`
- * (authn.mfa.policy.service) is asked as completeMfa asks it. A policy refusal over the stored enrolments gives no step:
- * MFA verify then answers its usual failure, whoami an empty list.
+ * The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy of authn.mfa.policy.service
+ * is asked as completeMfa asks it. A policy refusal over the stored enrolments gives no step: MFA verify then answers
+ * its usual failure, whoami an empty list.
  */
-export async function pendingSteps(container: IContainer, session: Session, policyService: string): Promise<string[]> {
+export async function pendingSteps(container: IContainer, session: Session): Promise<string[]> {
   const stored = session.pendingSteps;
   if (stored) return [...stored];
-  const policy = await mfaPolicyOf(container, policyService);
+  const policy = await mfaPolicyOf(container);
   try {
     return [...(await policy.required(session.identity, { method: session.facts.method, strategy: session.facts.strategy }))];
   } catch (err) {
