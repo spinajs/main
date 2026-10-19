@@ -44,24 +44,22 @@ export async function readParents(driver: OrmDriver, refs: readonly ResourceRef[
       const table = tableOf(cls);
       if (entry.parents.length === 0 || tables.has(table)) continue;
       tables.add(table);
-      const columns = [entry.idColumn, ...new Set(entry.parents.map((p) => p.column))];
       const values = ids
         .filter((id) => !out.has(resourceKey({ type, id })))
         .map((id) => idLookup(cls, entry.idColumn, id))
         .filter((v) => v !== undefined);
-      for (const part of chunks(values, ID_CHUNK)) {
-        if (part.length === 0) continue;
-        const rows = (await driver.select().from(table).columns(columns).whereIn(entry.idColumn, part)) as Record<string, unknown>[];
-        for (const row of rows) {
-          const id = idText(row[entry.idColumn]);
-          if (id === undefined) continue;
-          const list: ResourceRef[] = [];
-          for (const p of entry.parents) {
-            const parentId = idText(row[p.column]);
-            if (parentId !== undefined) list.push({ type: p.type, id: parentId });
-          }
-          out.set(resourceKey({ type, id }), list);
+      if (values.length === 0) continue;
+      const columns = [entry.idColumn, ...new Set(entry.parents.map((p) => p.column))];
+      const rows = (await driver.select().from(table).columns(columns).whereIn(entry.idColumn, values)) as Record<string, unknown>[];
+      for (const row of rows) {
+        const id = idText(row[entry.idColumn]);
+        if (id === undefined) continue;
+        const list: ResourceRef[] = [];
+        for (const p of entry.parents) {
+          const parentId = idText(row[p.column]);
+          if (parentId !== undefined) list.push({ type: p.type, id: parentId });
         }
+        out.set(resourceKey({ type, id }), list);
       }
     }
   }
