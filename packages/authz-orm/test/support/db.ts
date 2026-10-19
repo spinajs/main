@@ -1,7 +1,8 @@
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import '@spinajs/orm-postgres';
+import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 
+import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Connection, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
@@ -15,7 +16,32 @@ export type Dialect = 'sqlite' | 'postgres';
 /** A connection of the test ORM: a dialect, or `other`, a second SQLite `:memory:` database. */
 export type ConnectionName = Dialect | 'other';
 
-export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
+export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
+
+async function withPostgresAdmin<T>(fn: (admin: OrmDriver) => Promise<T>): Promise<T> {
+  const admin = await DI.child().resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'authz-orm-pg-admin', Driver: 'orm-driver-postgres', ...POSTGRES, Database: 'postgres', Pool: { Max: 1 } }]);
+  await admin.connect();
+  try {
+    return await fn(admin);
+  } finally {
+    await admin.disconnect();
+  }
+}
+
+const adminSql = (admin: OrmDriver, sql: string): Promise<unknown> =>
+  (admin as unknown as { executeOnDb(s: string, p: unknown[], c: QueryContext): Promise<unknown> }).executeOnDb(sql, [], QueryContext.Schema);
+
+/** A new database for one TestDb, with jit off as a host sets it (authz-orm refuses a connection with jit on). */
+async function createPostgresDatabase(): Promise<string> {
+  const name = `authz_orm_${randomBytes(4).toString('hex')}`;
+  await withPostgresAdmin(async (admin) => {
+    await adminSql(admin, `CREATE DATABASE "${name}"`);
+    await adminSql(admin, `ALTER DATABASE "${name}" SET jit = off`);
+  });
+  return name;
+}
+
+const dropPostgresDatabase = (name: string): Promise<unknown> => withPostgresAdmin((admin) => adminSql(admin, `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`));
 
 export interface ModelSpec {
   /** Class name; made unique per definition. */
@@ -41,6 +67,7 @@ export class TestDb {
   private readonly models: { model: typeof ModelBase; table: string; dialect: Dialect }[] = [];
   private ownsInstall = false;
   private restoreConfig: () => void = () => undefined;
+  private postgresDatabase: string | undefined;
 
   private constructor(readonly orm: Orm, readonly dialects: readonly Dialect[]) {}
 
@@ -58,8 +85,8 @@ export class TestDb {
     });
   }
 
-  /** `database`: a throwaway Postgres database to use instead of the shared one, run with its own jit setting. */
-  static async open(opts: { postgres?: boolean; database?: string; other?: boolean } = {}): Promise<TestDb> {
+  /** With `postgres`, the 'postgres' connection is a database of its own, dropped by `close()`. */
+  static async open(opts: { postgres?: boolean; other?: boolean } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -72,13 +99,9 @@ export class TestDb {
     if (opts.other) connections.push({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' });
     // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
     // that name on the search path makes the joined and the unqualified spelling one table.
-    const database = opts.database ?? POSTGRES.Database;
-    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
+    const database = opts.postgres ? await createPostgresDatabase() : undefined;
+    if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
-    // authz-orm refuses a connection with jit on, and the shared database is not ours to ALTER: its sessions get jit
-    // off as a host's would, through the pool's PGOPTIONS (pg reads it when it opens a connection).
-    const pgOptions = process.env.PGOPTIONS;
-    if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' } });
 
@@ -87,8 +110,6 @@ export class TestDb {
         if (v === undefined) cfg.unset(k);
         else cfg.set(k, v);
       }
-      if (pgOptions === undefined) delete process.env.PGOPTIONS;
-      else process.env.PGOPTIONS = pgOptions;
     };
     let orm: Orm | undefined;
     try {
@@ -96,7 +117,8 @@ export class TestDb {
       const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
       db.ownsInstall = ownsInstall;
       db.restoreConfig = restoreConfig;
-      if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
+      db.postgresDatabase = database;
+      if (database !== undefined) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
       return db;
     } catch (e) {
       if (orm) {
@@ -104,6 +126,7 @@ export class TestDb {
         await orm.dispose().catch(() => undefined);
       }
       restoreConfig();
+      if (database !== undefined) await dropPostgresDatabase(database).catch(() => undefined);
       throw e;
     }
   }
@@ -197,6 +220,7 @@ export class TestDb {
       await this.orm.dispose();
     } finally {
       this.restoreConfig();
+      if (this.postgresDatabase !== undefined) await dropPostgresDatabase(this.postgresDatabase);
     }
     if (this.ownsInstall) await testHost.uninstallHost();
   }

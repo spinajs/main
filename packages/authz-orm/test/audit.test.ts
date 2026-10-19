@@ -73,8 +73,6 @@ describe('authz-orm DbDecisionAudit', function () {
         db = await TestDb.open({ postgres: dialect === 'postgres' });
         driver = db.driver(dialect);
         db.orm.Connections.set(AUDIT_CONNECTION, driver);
-        // The Postgres database is shared between runs: start from no table.
-        await migration.down(driver);
       });
 
       afterEach(async () => {
