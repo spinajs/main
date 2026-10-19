@@ -57,10 +57,22 @@ users registers them when the app imports it: `UserIdentityStore`, `UserPassword
 **Import `@spinajs/users` in the app entry:** no authn package depends on it, and without it
 `AuthnService` fails its boot check for the missing `IdentityStore`.
 
+The satellite packages share these from `@spinajs/authn/contracts` instead of keeping copies:
+
+| Export | What |
+|---|---|
+| `AUTHN_FAILURE_BODY` | The 401 body of every authentication failure: `{ error: { code: 'E_AUTH_FAILED', message }, message }`. The login routes, re-authentication and the OIDC callback answer it. |
+| `PASSWORD_HARD_CAP` | 1024. A longer password never verifies; HTTP routes cap credential fields at it. |
+| `CLI_ACTOR`, `cliContext()` | The audit actor (`{ type: 'system', id: 'cli' }`) and context of every operator command. |
+| `identityThrottleKeys(id, ctx)` | The `account`, `account-ip` and `ip` keys of the `mfa` and `reauth` flows, shared by `AuthnService`, `PasswordService.change` and TOTP enrolment. |
+| `sameRef(a, b)` | Same type and id. |
+| `NonceStore` | Single-use keys until they expire: `MemoryNonceStore` (`@spinajs/authn/nonces`), `DbNonceStore` (`authn-orm`). |
+| `BackoffParams`, `backoffDelayMs` | Re-exported from `@spinajs/util`. |
+
 | Package | Holds |
 |---|---|
-| `@spinajs/authn` | Contracts (the `contracts` subpath loads no service module), `AuthnService`, strategy registry, `MfaPolicy`, throttle engine, audit fan-out, config schema. |
-| `@spinajs/authn-orm` | Tables and stores: links, throttle, audit, single-use secrets, MFA, recovery codes, nonces; the 2.x data migration. |
+| `@spinajs/authn` | Contracts (the `contracts` subpath loads no service module), `AuthnService`, strategy registry, `MfaPolicy`, throttle engine, audit fan-out, config schema, `MemoryNonceStore` (`nonces` subpath). |
+| `@spinajs/authn-orm` | Tables and stores: links, throttle, audit, single-use secrets, MFA, recovery codes, nonces (`DbNonceStore`); the 2.x data migration. |
 | `@spinajs/authn-session` | Session issuer, cookie, expiration strategies, hashed ids, pending (pre-MFA) state. |
 | `session-provider-db`, `-redis`, `-dynamodb` | Session stores on the `authn-session` contract. |
 | `@spinajs/authn-local` | Password strategy, argon2 hasher, policy, change, reset, invite, expiry, CLI. |

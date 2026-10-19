@@ -6,7 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
   AuthnContext,
   AuthnEventSink,
@@ -60,8 +60,6 @@ export interface LocalPasswordServiceDeps {
   readonly inviteTtlSeconds?: number;
 }
 
-const sameRef = (a: IdentityRef, b: IdentityRef) => a.type === b.type && a.id === b.id;
-
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
 const eligible = (s: IdentityStatus) => s.exists && !s.deleted && !s.banned && (s.active || s.invitePending === true);
 
@@ -73,11 +71,6 @@ const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
  * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
  */
 const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
-
-/** Same keys as the kit's reauthenticate (D7). */
-function reauthKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
-}
 
 /** Local password flows (A04, A13, A30). With `deps` the container is not used at all. */
 @Injectable(PasswordService)
@@ -164,7 +157,7 @@ export class LocalPasswordService extends PasswordService {
     }
 
     const throttle = this.throttle();
-    const keys = reauthKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx);
     const gate = await throttle.attempt(keys, 'reauth', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'throttled', session: handle });

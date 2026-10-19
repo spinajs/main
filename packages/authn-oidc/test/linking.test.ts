@@ -1,9 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 
 import { flowCookieName } from '../src/flow/cookie.js';
-import { OidcLogin, OIDC_FAILURE_BODY } from '../src/login.js';
+import { OidcLogin } from '../src/login.js';
 import { ENV, world } from './support/world.js';
 
 type World = Awaited<ReturnType<typeof world>>;
@@ -29,7 +30,7 @@ describe('authn-oidc linking (A19)', () => {
     const w = await world();
     w.identities.add({ login: 'alice@example.test', email: 'alice@example.test' });
     const { done } = await w.roundTrip({ claims: { sub: 'kc-new', email: 'alice@example.test', email_verified: true } });
-    expect(done).to.deep.include({ status: 401, body: OIDC_FAILURE_BODY });
+    expect(done).to.deep.include({ status: 401, body: AUTHN_FAILURE_BODY });
     expect(w.events.all().some((e) => e.type === 'login' && e.outcome === 'failure' && e.reason === 'not_linked')).to.eq(true);
   });
 

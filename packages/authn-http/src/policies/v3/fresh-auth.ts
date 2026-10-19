@@ -3,7 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request, Unauthorized } from '@spinajs/http';
 import { FreshAuthCheck, isFresh } from '@spinajs/authn';
-import { AuthnService, IdentityStore } from '@spinajs/authn/contracts';
+import { AuthnService, IdentityStore, PASSWORD_HARD_CAP } from '@spinajs/authn/contracts';
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 import { _check_arg, _gte, _integer, _is_number, isPlainObject } from '@spinajs/util';
 
@@ -16,8 +16,7 @@ import { authenticatedPrincipal, isSessionPrincipal } from './principal.js';
 /** The body field of an inline re-authentication on a FreshAuth route. */
 export const REAUTH_PASSWORD_FIELD = 'reauthPassword';
 
-/** authn-local's hard cap (N3): a longer value never verifies, so no strategy has to hash it. The login routes cap their fields at it too. */
-export const PASSWORD_HARD_CAP = 1024;
+export { PASSWORD_HARD_CAP };
 
 /**
  * Removes the inline re-authentication from the body and returns it. The route behind must not get the account password:

@@ -4,7 +4,7 @@ import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 
 /** `${type}:${id}`, the form `identity` and `actor` columns hold (D1). Never truncates: too long throws. */
 export function identityKey(ref: IdentityRef, maxLength = 100): string {
-  _check_arg(_is_string(_non_empty()))(ref.type, 'identity type');
+  _check_arg(_is_string(_non_empty()))(ref?.type, 'identity type');
   if (ref.type.includes(':')) {
     throw new InvalidArgument(`identity type "${ref.type}" contains ":"`);
   }

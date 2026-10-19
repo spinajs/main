@@ -216,7 +216,7 @@ describe('authn-local cli commands', function () {
       expect(command.logged.join('\n')).to.not.contain('Typed-Password-9');
       const [e] = x.sink.ofType('password.change').slice(events);
       expect(e.identity).to.deep.equal(x.id);
-      expect(e.actor).to.deep.equal({ type: 'service', id: 'cli' });
+      expect(e.actor).to.deep.equal({ type: 'system', id: 'cli' });
       expect(e.data).to.deep.equal({ cause: 'set' });
     });
 

@@ -12,7 +12,7 @@ import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } fr
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
-import { sameRef } from './match.js';
+import { refMatches } from './match.js';
 import { LEGACY_IDENTITY_KEYS, isLegacySessionId } from './legacy.js';
 
 /** Client IP shown by `list`; set by the HTTP layer through `set` (the issuer takes no request context). */
@@ -243,7 +243,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     let found = false;
     // Every match: an interrupted migration can leave the raw and the hashed row under one handle.
     for (const session of await this.Store.listBySubject(ref(subject))) {
-      if (sameRef(session.Subject, subject) && this.handleOfRow(session) === handle) {
+      if (refMatches(session.Subject, subject) && this.handleOfRow(session) === handle) {
         await this.Store.delete(session.SessionId);
         if (isLegacySessionId(session.SessionId)) {
           await this.Store.delete(storageKeyOf(session.SessionId));
@@ -258,7 +258,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     const currentKey = opts?.current ? keyOf(opts.current) : null;
     const out: { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[] = [];
     for (const session of await this.Store.listBySubject(ref(subject))) {
-      if (session.State !== 'active' || !sameRef(session.Subject, subject)) {
+      if (session.State !== 'active' || !refMatches(session.Subject, subject)) {
         continue;
       }
       const lastSeen = session.Data.get(LAST_SEEN_KEY);

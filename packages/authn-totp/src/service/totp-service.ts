@@ -5,8 +5,8 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
-import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, identityThrottleKeys, isFresh } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 
@@ -119,7 +119,7 @@ export class TotpService extends MfaEnrolmentService {
       await this.audit(ctx, c, { type: 'mfa.enrol', outcome: 'failure', reason: failure });
       return { ok: false, code: failure };
     }
-    const keys = throttleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -167,7 +167,7 @@ export class TotpService extends MfaEnrolmentService {
     if (!(await step.enrolled(c.identity))) {
       return { ok: false, code: 'not_enrolled' };
     }
-    const keys = throttleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -300,9 +300,4 @@ export class TotpService extends MfaEnrolmentService {
 
 function missing(name: string): never {
   throw new InvalidOperation(`TotpService: no ${name} is registered`);
-}
-
-/** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */
-function throttleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
 }

@@ -4,10 +4,9 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
 import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
-import { MemoryNonceStore, NonceStore } from '@spinajs/authn-orm';
 
 import { encodeFlow } from '../src/flow/cookie.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';

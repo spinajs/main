@@ -79,6 +79,8 @@ export const UNATTENDED: Principal = Object.freeze({
 // part never contains ':', which leaves the first ':' as the separator.
 export const principalKey = (p: PrincipalRef): string => `${p.type.replace(/%/g, '%25').replace(/:/g, '%3A')}:${p.id}`;
 
+export const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
+
 const canonicalSet = (values: readonly string[] | undefined): string[] | null => (values == null ? null : [...new Set(values)].sort());
 
 // A collision here would serve one principal another's cached decision, so
