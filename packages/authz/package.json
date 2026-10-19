@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./cli": {
+      "types": "./lib/mjs/cli/base.d.ts",
+      "import": "./lib/mjs/cli/base.js",
+      "require": "./lib/cjs/cli/base.js"
     }
   },
   "type": "module",
@@ -53,6 +58,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",

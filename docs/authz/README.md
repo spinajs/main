@@ -414,7 +414,10 @@ database is recreated, not upgraded. The `users.Role` copy and drop are two more
 in [the migration guide](./migration-guide.md#7-data-migration).
 
 **CLI.** `@spinajs/authz-rbac` ships six commands. They run as `SYSTEM` with the reason `cli`. On
-failure they print one line and set the exit code to 1.
+failure they print one line and set the exit code to 1. The commands of `@spinajs/authz-rbac` and
+`@spinajs/authz-orm` extend `AuthzCliBase` (`@spinajs/authz/cli`), which resolves what a command needs
+from the command's DI container when the command runs, so a failing authz boot is reported as one
+line.
 
 | Command | Does |
 |---|---|
@@ -436,12 +439,10 @@ import { Configuration } from '@spinajs/configuration';
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import { registerRbac } from '@spinajs/authz-rbac';
 import { AbacModel, AbacContributor, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
-import { LinkResolver } from '@spinajs/authz-http';
 import { Orm } from '@spinajs/orm';
 
 const configuration = await DI.resolve(Configuration);
-const rbac = await registerRbac(DI.RootContainer, configuration);   // stores, RbacModel, contributor, RbacService
-DI.register(() => rbac.linkResolver).as(LinkResolver);              // share links; without it a link opens nothing
+await registerRbac(DI.RootContainer, configuration);   // stores, RbacModel, contributor, RbacService, LinkResolver
 
 // ABAC. Policies written through AuthzAdmin need one writable store, registered as PolicyStore too.
 const written = new DbPolicyStore(async () => (await DI.resolve(Orm)).Connections.get('default')!);
@@ -457,8 +458,10 @@ them as `PolicyStore`, so `policy.put` and `policy.delete` then fail with `Authz
 keeps policies in config only may use it that way.
 
 `registerRbac(container, configuration)` registers the stores that `authz.rbac.stores` names (through
-`registerRbacStores`), an `RbacModel` over them as an `AuthorizationModel`, its `RbacContributor` and an
-`RbacService` (also under the name `RbacService`, which the CLI's `--explain-role` resolves). It needs
+`registerRbacStores`), an `RbacModel` over them as an `AuthorizationModel`, its `RbacContributor`, an
+`RbacService` (the CLI's `--explain-role` resolves it from the root container) and an `RbacLinkResolver` over
+that service as the `LinkResolver` (`@spinajs/authz`; authz-http re-exports it). authz-http resolves the
+`LinkResolver` from the root container, so share links open only when RBAC is registered there. It needs
 one roles store and one assignments store, at most one links store, and at most one in-memory and one
 other rules store; anything else throws `AuthzConfigError` before it registers anything.
 
@@ -600,8 +603,8 @@ authz: {
 }
 ```
 
-A share link token opens a dead link (`link_invalid`) until the app registers a `LinkResolver`
-([Wiring the models](#wiring-the-models)).
+A share link token opens a dead link (`link_invalid`) until a `LinkResolver` is registered in the root
+container; `registerRbac(DI.RootContainer, …)` registers one ([Wiring the models](#wiring-the-models)).
 
 ### ORM (`@spinajs/authz-orm`)
 
@@ -824,6 +827,14 @@ default backend keeps data in memory.
 **List permissions.** A built-in validator refuses `policy.put` and `rule.put` with
 `not_list_filterable` when the stored policy or rule would make a `list: true` permission depend on
 the row, so `.accessible()` never meets data it cannot honour.
+
+**Writing a handler.** A handler gets the `AdminContext` that `AuthzAdmin` passes.
+`adminContainer(ctx)` and `adminActor(ctx)` read the domain container and the actor.
+`requireAdminService(ctx, Token, who)` resolves a service from that container and throws
+`AuthzConfigError` when the domain registers none; `optionalAdminService(ctx, Token)` returns
+`undefined` instead. The field readers `readId`, `readRef`, `readScope`, `readNode`, `readPrincipal`
+and `readExpiry` copy a command field, or throw `AuthzAdminFailure` `invalid_command` naming the field
+(`invalid(field, message)` builds that failure).
 
 **Teams and deletes.** The RBAC write handlers recompute `authz_subject_membership` in the batch's
 transaction for every member a command touches. Deleting a resource row through the ORM runs the

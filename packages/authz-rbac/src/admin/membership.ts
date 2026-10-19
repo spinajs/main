@@ -1,4 +1,4 @@
-import { adminContainer, principalKey } from '@spinajs/authz';
+import { adminContainer, optionalAdminService, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzTx } from '@spinajs/authz';
 import { sortedUnique } from '@spinajs/util';
 
@@ -7,8 +7,9 @@ import { computeClosures, maxSetDepthOf } from '../membership/closure.js';
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
 import type { MembershipEdge, MembershipRow } from '../membership/closure.js';
 import { subjectKeyOf } from '../stores/columns.js';
-import { assignmentStore, honoured, optionalStore, roleIndex, setRolesOf, subjectTag } from './common.js';
-import type { RoleIndex } from './common.js';
+import { assignmentStore, subjectTag } from './common.js';
+import { honoured, roleIndex, setRolesOf } from './role-index.js';
+import type { RoleIndex } from './role-index.js';
 import { AdminMembershipStore } from './ports.js';
 import { isLiveAt, isSetSubject } from './rows.js';
 
@@ -53,7 +54,7 @@ const liveEntries = (rows: readonly MembershipRow[], now: Date): Map<string, str
  */
 export async function refreshMemberships(ctx: AdminContext, tx: AuthzTx, touched: readonly AssignmentSubject[]): Promise<string[]> {
   if (touched.length === 0) return [];
-  const memberships = await optionalStore(ctx, AdminMembershipStore);
+  const memberships = await optionalAdminService(ctx, AdminMembershipStore);
   if (!memberships) return [];
   const roles = await roleIndex(ctx);
   const assignments = await assignmentStore(ctx);
@@ -92,7 +93,7 @@ export async function refreshMemberships(ctx: AdminContext, tx: AuthzTx, touched
  */
 export async function subjectTags(ctx: AdminContext, s: AssignmentSubject): Promise<string[]> {
   if (!isSetSubject(s)) return [subjectTag(s)];
-  const memberships = await optionalStore(ctx, AdminMembershipStore);
+  const memberships = await optionalAdminService(ctx, AdminMembershipStore);
   if (!memberships) return [subjectTag(s)];
   const setKey = subjectKeyOf(s);
   const members = await memberships.membersOf(setKey, ctx.now);

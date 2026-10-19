@@ -254,7 +254,8 @@ describe('authz-rbac token: role rules', () => {
       });
     }
 
-    it('refuses a service name no TokenRolePolicy class carries, naming the key and the service', async () => {
+    it('refuses a service name no TokenRolePolicy is registered under, naming the key, the service and the registered ones', async () => {
+      container.register(RefuseAdminTokenRolePolicy).as(TokenRolePolicy);
       const err = await loadTokenRoleRules(config({ rolePolicy: { service: 'NoSuchPolicy' } }), container).then(
         () => undefined,
         (e: unknown) => e,
@@ -262,7 +263,8 @@ describe('authz-rbac token: role rules', () => {
       expect(err).to.be.instanceOf(AuthzConfigError);
       expect((err as Error).message)
         .to.contain('authz.token.rolePolicy.service')
-        .and.to.contain('NoSuchPolicy');
+        .and.to.contain('NoSuchPolicy')
+        .and.to.contain('"RefuseAdminTokenRolePolicy"');
     });
 
     it('picks a registered policy by its class name', async () => {

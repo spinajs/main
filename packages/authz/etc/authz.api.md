@@ -635,6 +635,7 @@ const filterHashTesting = {
 
 ```ts
 export * from "./principal.js";
+export * from "./link.js";
 export * from "./resource.js";
 export * from "./errors.js";
 export * from "./permission.js";
@@ -648,6 +649,22 @@ export * from "./adapter.js";
 export * from "./service.js";
 export * from "./data.js";
 export * from "./admin.js";
+```
+
+## src/contracts/link.ts
+
+```ts
+import type { Principal } from "./principal.js";
+/**
+ * Opens a share link (design §6.1.6): the principal of the link a bearer token belongs to, with
+ * `companion` (the request's own principal) speaking with it. An unknown, expired or revoked
+ * token must yield a link principal that denies everything (`ceiling.resources: []`, reason
+ * `link_invalid`), never null. The model that keeps links registers the implementation
+ * (authz-rbac's `registerRbac`); authz-http resolves it from the root container.
+ */
+export declare abstract class LinkResolver {
+    abstract principal(token: string, companion?: Principal): Promise<Principal>;
+}
 ```
 
 ## src/contracts/model.ts

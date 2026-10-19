@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, Policy, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { OrmDriver } from '@spinajs/orm';
 import { deepFreeze as freeze, isPlainObject } from '@spinajs/util';
@@ -13,14 +13,6 @@ export type WritablePolicyStore = MemoryPolicyStore | DbPolicyStore;
 export const quote = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
 export { isPlainObject };
-
-/** A command field of the wrong shape; the codes list of the contract has none for it. */
-export const invalid = (field: string | undefined, message: string): AuthzAdminFailure => new AuthzAdminFailure('invalid_command', message, field);
-
-export function readId(v: unknown, field = 'id'): string {
-  if (typeof v !== 'string' || v === '') throw invalid(field, `${field} must be a non-empty string`);
-  return v;
-}
 
 /**
  * The one writable PolicyStore registered in the domain (a MemoryPolicyStore or a DbPolicyStore); config
