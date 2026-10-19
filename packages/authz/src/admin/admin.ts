@@ -12,8 +12,9 @@ import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principa
 import { GLOBAL } from '../contracts/resource.js';
 import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit } from '../contracts/service.js';
 import { readDomainConfig } from '../host/config/domain-config.js';
+import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from '../host/config/defaults.js';
 import { AuthzClock } from '../host/clock.js';
-import { DefaultAuthzDomains } from '../host/domains.js';
+import { resolveChain } from '../host/di.js';
 import { engineLog, thrownError } from '../host/log.js';
 import { AuthzAdminBackend } from './backend.js';
 import { ADMIN_DEFAULTS, mapPermission } from './config.js';
@@ -186,7 +187,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     await this.permit(env, actor, permission, resource);
 
     const readers = new Map<string, AuthzAdminReader>();
-    for (const r of await this.chain(AuthzAdminReader)) {
+    for (const r of await resolveChain(this.container, AuthzAdminReader)) {
       if (!isObject(r) || !Array.isArray(r.kinds) || typeof r.list !== 'function') throw new AuthzConfigError(`${env.where}: ${className(r)} is not an AuthzAdminReader (kinds, list)`);
       for (const kind of r.kinds) {
         const other = readers.get(kind);
@@ -255,7 +256,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
 
     // Phase A, outside the transaction: validate, app validators, permission check.
     const handlers = await this.handlers(env.where);
-    const validators = await this.chain(AuthzCommandValidator);
+    const validators = await resolveChain(this.container, AuthzCommandValidator);
     const checked: Checked[] = [];
     for (const [i, c] of list.entries()) {
       try {
@@ -357,7 +358,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     if (events.length > 0) {
       let sinks: AuthzEventSink[] = [];
       try {
-        sinks = await this.chain(AuthzEventSink);
+        sinks = await resolveChain(this.container, AuthzEventSink);
       } catch (e) {
         fail('resolving the AuthzEventSinks')(e);
       }
@@ -398,18 +399,18 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     if (!isObject(clock) || typeof clock.now !== 'function') throw new AuthzConfigError(`${where}: the resolved AuthzClock has no now()`);
 
     // The bus and audit the domain's AuthzService picked at boot, chosen the same way.
-    const domains: unknown = await c.resolve(AuthzDomains);
-    if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: AuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
+    const domains = (await c.resolve(AuthzDomains)) as AuthzDomains;
+    if (!isObject(domains) || typeof domains.lineage !== 'function') throw new AuthzConfigError(`${where}: the AuthzDomains singleton has no lineage()`);
     const domainCfg = readDomainConfig(this.Config, domains.lineage(domain));
-    const bus = await this.pick(ChangeBus, domainCfg.bus.service, 'authz.bus.service', where);
-    const audit = await this.pick(DecisionAudit, domainCfg.audit.service, 'authz.audit.service', where);
+    const bus = await this.pick(ChangeBus, domainCfg.bus.service, AUTHZ_BUS_SERVICE_KEY, where);
+    const audit = await this.pick(DecisionAudit, domainCfg.audit.service, AUTHZ_AUDIT_SERVICE_KEY, where);
 
     return { where, domain, service, cfg, guard, backend, clock, bus, audit };
   }
 
   private async handlers(where: string): Promise<ReadonlyMap<string, AuthzWriteHandler>> {
     const map = new Map<string, AuthzWriteHandler>();
-    for (const h of await this.chain(AuthzWriteHandler)) {
+    for (const h of await resolveChain(this.container, AuthzWriteHandler)) {
       if (!isObject(h) || !Array.isArray(h.kinds) || typeof h.validate !== 'function' || typeof h.permission !== 'function' || typeof h.apply !== 'function') {
         throw new AuthzConfigError(`${where}: ${className(h)} is not an AuthzWriteHandler (kinds, validate, permission, apply)`);
       }
@@ -420,11 +421,6 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       }
     }
     return map;
-  }
-
-  private async chain<T>(token: Class<T>): Promise<T[]> {
-    if (!this.container.hasRegistered(token)) return [];
-    return [...(await this.container.resolve(Array.chainOf(token)))];
   }
 
   /** The class named `service` among the registrations of `token`; a missing one is an AuthzConfigError naming `key`. */

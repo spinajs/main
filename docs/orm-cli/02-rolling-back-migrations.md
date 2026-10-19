@@ -16,7 +16,7 @@ spinajs migrate-down --fake                                     # drop the track
 2. `MigrateDownCommand.announce(options)` logs the scope before anything changes:
    - `--connection`: `Limited to connection <name> - no other configured connection is touched`, always first;
    - `--name`: a `warn` that the migration service may report other rows as having no registered class, and that those rows are fine (see [Important behaviour](#important-behaviour));
-   - `--all`: a `warn`, `Rolling back EVERY applied migration on every configured connection ( --all )`;
+   - `--all`: a `warn`, `Rolling back EVERY applied migration on every configured connection ( --all )`, or `... on connection <name> ( --all )` when `--connection` is given;
    - otherwise: `Rolling back the LAST APPLIED BATCH only - pass --all to reverse every applied migration`.
 3. It calls `orm.Migration.down(options.name, { all, fake, connection })`. The runner rolls back each connection in turn, newest first; see [Migrations: rollback](../orm/10-migrations.md#rollback-migrationrunnerdown).
 4. On success it logs `Rolled back <n> migration(s): <names>`, or `Recorded as rolled back ( --fake, nothing was executed ) ...`.
@@ -80,7 +80,6 @@ DI.register(GuardedMigrateDownCommand).as(MigrateDownCommand);
 - **A rollback deletes the tracking row.** It does not stamp it rolled back: the table holds only migrations present in the database. The next `migrate-up` applies the migration again.
 - **Failed rows do not block a rollback.** The migration service warns that they stay blocking afterwards. Clear them with [`migrate-resolve`](04-resolving-failed-migrations.md).
 - **`--name` produces false orphan warnings.** The runner hands the migration service a one-element list, so every other applied row in the target batch looks unmatched and is warned about as having no registered class (file deleted or renamed). Those rows are healthy. Do not delete them, which is what the warning suggests.
-- **`--all --connection` logs a misleading line.** The `--all` line says `on every configured connection` even when `--connection` narrows the run. The `Limited to connection ...` line printed before it is the accurate one.
 - **`--fake` calls no `down()`.** Use it to align the tracking table with a schema changed by hand.
 - **An empty `down()` reports success.** The command cannot tell a no-op `down()` from a real one. Leave `down()` empty only for a change that cannot be reversed.
 

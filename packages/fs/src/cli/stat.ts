@@ -23,6 +23,7 @@ export class FsStatCommand extends CliCommand {
       this.Log.info(`  accessed: ${stat.AccessTime?.toISO() ?? 'n/a'}`);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot stat ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

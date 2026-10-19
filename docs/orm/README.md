@@ -22,9 +22,10 @@ Pick the driver package for your database.
 | [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
 | [Query builder](05-query-builder.md) | Builds select, insert, update and delete queries, and hooks query and model middleware |
 | [Scopes and builder extensions](16-scopes-and-builder-extensions.md) | Adds your own methods to query builders: per-model scopes, prototype extensions, builder subclasses |
+| [SQL helpers](17-sql-helpers.md) | Dialect expressions (`SqlExpressions`), affected rows, duplicate keys, SQL fragments, composite-key `IN`, chunked writes and purges for stores that use a connection directly |
 | [Relations](06-relations.md) | Declares belongs-to, one-to-many and many-to-many relations, populates them and queries by them |
 | [Unit of work](07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
-| [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels |
+| [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels and shared table locks |
 | [Schema builder](09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
 | [Migrations](10-migrations.md) | Discovers, orders, locks and runs migrations, per environment |
 | [JSON schema](11-json-schema.md) | Builds a JSON schema from a model for validation |

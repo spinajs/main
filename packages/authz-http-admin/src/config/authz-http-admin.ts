@@ -11,15 +11,6 @@ const authzHttpAdmin = {
       controllers: [dir('controllers')],
     },
   },
-
-  authz: {
-    http: {
-      admin: {
-        /** The domain whose AuthzAdmin the /authz admin routes use. */
-        domain: 'root',
-      },
-    },
-  },
 };
 
 export default authzHttpAdmin;

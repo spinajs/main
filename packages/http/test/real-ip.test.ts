@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { RealIp, parseTrustProxy, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
+import { RealIp, parseTrustProxy, parseTrustProxyOverride, requestProxyTrust, trustedClientAddress, isTrustedPeer, requestOrigin } from '../src/middlewares/RealIp.js';
 import { MemoryThrottleStore, ThrottleMiddleware } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
@@ -170,6 +170,42 @@ describe('trusted client address (RealIp)', () => {
     it('a bad http.trustProxy fails when the middleware is built', async () => {
       const mw = await realIp('nope');
       expect(() => mw.before()).to.throw(InvalidOption, 'http.trustProxy');
+    });
+
+    it('stores the trust it used for requestProxyTrust; without RealIp no proxy is trusted', async () => {
+      const req = fakeReq(`${SPOOF}, 192.0.2.1`);
+      (await realIp(['203.0.113.0/24'])).before()(req, {} as any, () => undefined);
+      expect(isTrustedPeer(requestProxyTrust(req), SOCKET)).to.eq(true);
+      expect(requestProxyTrust({ storage: {} })).to.deep.eq({ hops: 0 });
+      expect(requestProxyTrust({})).to.deep.eq({ hops: 0 });
+    });
+
+    it('a subclass overrides the trust it resolves, for both realIp and proxyTrust', async () => {
+      class OverridingRealIp extends RealIp {
+        protected proxyTrust() {
+          return parseTrustProxyOverride(2, 'app.trustProxy', this.TrustProxy);
+        }
+      }
+      const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { trustProxy: null } });
+      const req = fakeReq(`${SPOOF}, 192.0.2.1`);
+      readingFrom(new OverridingRealIp(), child).before()(req, {} as any, () => undefined);
+      expect(req.storage.realIp).to.eq(SPOOF);
+      expect(req.storage.proxyTrust).to.deep.eq({ hops: 2 });
+    });
+  });
+
+  describe('parseTrustProxyOverride', () => {
+    it('takes the override when it is set, else http.trustProxy', () => {
+      expect(parseTrustProxyOverride(0, 'app.trustProxy', 3)).to.deep.eq({ hops: 0 });
+      expect(parseTrustProxyOverride(false, 'app.trustProxy', 3)).to.deep.eq({ hops: 0 });
+      expect(parseTrustProxyOverride(null, 'app.trustProxy', 3)).to.deep.eq({ hops: 3 });
+      expect(parseTrustProxyOverride(undefined, 'app.trustProxy', true)).to.deep.eq({ hops: 1 });
+      expect(isTrustedPeer(parseTrustProxyOverride(['10.0.0.0/8'], 'app.trustProxy', 1), SOCKET)).to.eq(false);
+    });
+
+    it('names the key whose value is bad', () => {
+      expect(() => parseTrustProxyOverride('nope', 'app.trustProxy', 1)).to.throw(InvalidOption, 'app.trustProxy');
+      expect(() => parseTrustProxyOverride(undefined, 'app.trustProxy', 'nope')).to.throw(InvalidOption, 'http.trustProxy');
     });
   });
 

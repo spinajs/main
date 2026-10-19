@@ -179,6 +179,12 @@ class FakeDomains extends AuthzDomains {
   public names(): readonly string[] {
     return ['root'];
   }
+  public describe(_container: IContainer): undefined {
+    return undefined;
+  }
+  public lineage(_name: string): readonly string[] {
+    return ['root'];
+  }
 }
 
 class FakeCache extends DecisionCache {
@@ -322,6 +328,7 @@ describe('model, adapter, host and condition contracts', () => {
       };
       const initCtx: ModelInitContext = {
         domain: 'root',
+        container: undefined as unknown as IContainer,
         config: <T>(_path: string, dflt?: T) => dflt as T,
         permissions: undefined as unknown as PermissionRegistry,
         registerPermissions: () => {},
@@ -363,7 +370,7 @@ describe('model, adapter, host and condition contracts', () => {
         >
       >();
       yes<Equal<Pick<EvaluationContext, 'conditions'>, { readonly conditions: ConditionCompiler }>>();
-      yes<Equal<keyof ModelInitContext, 'domain' | 'config' | 'permissions' | 'registerPermissions' | 'registerNativeFilter' | 'registerRelation'>>();
+      yes<Equal<keyof ModelInitContext, 'domain' | 'container' | 'config' | 'permissions' | 'registerPermissions' | 'registerNativeFilter' | 'registerRelation'>>();
       yes<Equal<keyof EvaluationContext, 'domain' | 'now' | 'permissions' | 'ancestors' | 'attributes' | 'conditions' | 'relation' | 'check' | 'cache' | 'trace'>>();
       expect(true).to.eq(true);
     });

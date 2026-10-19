@@ -9,7 +9,7 @@ export * from './interfaces.js';
 export * from './progress.js';
 export * from './io.js';
 export * from './CompiledTemplateRenderer.js';
-export * from './cli/renderHelpers.js';
+export * from './renderHelpers.js';
 
 /** Same rules as `redactError` in `@spinajs/email`, which this package cannot depend on. */
 function redactError(err: unknown, secrets: readonly string[]): unknown {
@@ -43,8 +43,8 @@ export class Templates extends AsyncService {
   @Autoinject(TemplateRenderer)
   protected Renderers: TemplateRenderer[];
 
-  public getRendererFor(extname: string): TemplateRenderer {
-    return this.Renderers.find((x) => x.Extension === extname)!;
+  public getRendererFor(extname: string): TemplateRenderer | undefined {
+    return this.Renderers.find((x) => x.Extension === extname);
   }
 
   public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {

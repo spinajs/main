@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
+import { testHost } from '@spinajs/authz-testing';
 import { Job, QueueJob } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 
@@ -122,6 +123,10 @@ describe('AuthzQueueHook.beforeEmit', () => {
 });
 
 describe('AuthzQueueHook.aroundHandle', () => {
+  // The hook DI builds gets the default factory, which reads its warning switch from the root Configuration.
+  before(() => testHost.installHost());
+  after(() => testHost.uninstallHost());
+
   it('without runAs the handler runs unattended', async () => {
     const hook = new TestHook();
     const ran = await run(hook, messageOf(AsNone, { type: 'user', id: 'alice' }));
@@ -219,37 +224,29 @@ describe('reviveCeiling', () => {
 
 describe('StampedInitiatorPrincipalFactory', () => {
   it('marks anonymous as not authenticated', async () => {
-    const p = await new StampedInitiatorPrincipalFactory().principalOf({ type: 'anonymous', id: 'a1' });
+    const p = await new StampedInitiatorPrincipalFactory({ warn: false }).principalOf({ type: 'anonymous', id: 'a1' });
     expect(p.authenticated).to.equal(false);
   });
 
   describe('warning', () => {
     const warnings = async (factory: InitiatorPrincipalFactory): Promise<number> => {
-      const original = console.warn;
       let count = 0;
-      console.warn = () => {
-        count++;
+      (factory as unknown as { Log: unknown }).Log = {
+        warn: () => {
+          count++;
+        },
       };
-      try {
-        await factory.principalOf({ type: 'user', id: 'u1' });
-        await factory.principalOf({ type: 'user', id: 'u2' });
-      } finally {
-        console.warn = original;
-      }
+      await factory.principalOf({ type: 'user', id: 'u1' });
+      await factory.principalOf({ type: 'user', id: 'u2' });
       return count;
     };
 
-    it('warns once by default', async () => {
-      expect(await warnings(new StampedInitiatorPrincipalFactory())).to.equal(1);
+    it('warns once with warn: true', async () => {
+      expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: true }))).to.equal(1);
     });
 
     it('never warns with warn: false', async () => {
       expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: false }))).to.equal(0);
-    });
-
-    it('still warns with warn: true or empty options', async () => {
-      expect(await warnings(new StampedInitiatorPrincipalFactory({}))).to.equal(1);
-      expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: true }))).to.equal(1);
     });
   });
 });

@@ -362,7 +362,8 @@ throws only for a fault. Rules:
 
 **CLI:** `authn:mfa-reset <login>` removes the enrolment and recovery codes of an account and prints no
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
-`rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
+`authn:mfa-qr` prints a QR code for a secret or an otpauth URL. It was `rbac:2fa-qr`, which still works as
+an alias.
 
 **Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so the
 legacy-key detector (on by default) passes on its config. The 2.x 2FA code and routes are gone; an
@@ -525,6 +526,13 @@ its rows hold the raw subject refs, the IP and the user agent.
   sink may rely on delivery order. `authn-orm` registers `DbAuthnAuditSink` (table `authn_audit`).
   With no sink at all, boot logs a warning. Every event is published, `token.use` and `key.use`
   successes included; there is no sampling. A leftover `authn.audit.sampleUse` is refused at boot.
+- Every emitter publishes through `AuthnAudit`: the authn services, `authn-local`, `authn-token`,
+  `authn-keys` and `authn-totp` inject it (also from `@spinajs/authn/audit`, which registers nothing).
+  `publishIn(ctx, body)` stamps `at`, `ip` and `userAgent` from the `AuthnContext`. A sink failure
+  after a state change (a stored token, a confirmed TOTP enrolment) never fails the request.
+  `AuthnAudit.over(sinks, { sinkTimeoutMs, log })` gives the same delivery over explicit sinks, for
+  services built with `new` in tests (`authn-local` and `authn-totp` `sinks` deps, the
+  `DefaultKeyRegistry` and `DbTokenService` auditor argument).
 - `users`' `QueueAuthnEventSink` re-emits the 2.x queue events `UserLogged`, `UserLoginFailed`,
   `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest`,
   `UserImpersonationStarted` and `UserImpersonationEnded`, so 2.x subscribers keep working. The 2.x

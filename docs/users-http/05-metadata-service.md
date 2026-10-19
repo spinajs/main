@@ -26,7 +26,7 @@ Both throw `Forbidden` when the request carries no allowed `@Access` decision (`
 
 | Member | Signature | Result and errors |
 | --- | --- | --- |
-| `list` | `list(scope, pagination?, order?, filter?)` | Entries the caller may read, reserved keys left out. `limit` defaults to `DEFAULT_PAGE_SIZE` (`10`); `order.column` other than `Id`, `Key`, `Type` throws `InvalidArgument` (`400`). |
+| `list` | `list(scope, pagination?, order?, filter?)` | Entries the caller may read, reserved keys left out. `limit` defaults to `DEFAULT_PAGE_SIZE` (`10`) and is capped at `MAX_PAGE_SIZE` (`100`); `order.column` other than `Id`, `Key`, `Type` throws `InvalidArgument` (`400`). |
 | `getByKey` | `getByKey(scope, key): Promise<UserMetadataBase>` | One entry. `404` when absent or reserved, `403` when not admitted for `user.metadata:read`. |
 | `upsert` | `upsert(scope, dto: UserMetadataDto): Promise<void>` | Insert, or update an existing key. `400` for a reserved key; `403` without `update` on each stored twin or `create` on the new entry. |
 | `update` | `update(scope, idOrKey, dto): Promise<void>` | Update the entry addressed by `Id` (digits) or `Key`. `404` absent or reserved; `400` for a reserved new key; `403` without `update` on the stored and on the resulting entry. |
@@ -114,7 +114,6 @@ export async function importDisplayNames(rows: Array<{ login: string; displayNam
 ## Important behaviour
 
 - `list` excludes reserved rows in the query, so a page holds `limit` visible entries; it then drops entries `admits` refuses. With a conditional grant, a page can hold fewer than `limit` entries.
-- `list` has no upper bound on `pagination.limit`.
 - `upsert` takes the DTO, not a model: the owner comes from the scope only.
 - `update` compares one column chosen by `addressedColumn()`; a key that is all digits cannot be addressed by key.
 - `Value` is assigned before `Type`: the model's `Value` setter derives `Type` from the JS type, and the declared type must win.

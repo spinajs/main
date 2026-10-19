@@ -1,10 +1,8 @@
-import { Migration, OrmMigration, OrmDriver, ReferentialAction, IdentifierQuoter } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
 import { UserSession, adaptLegacySession, decodeSessionData } from '@spinajs/authn-session';
-import { isMySqlDialect, isSqliteDialect } from '../migration-support.js';
 import { refKey, sessionDataFromColumn } from '../session-row.js';
 
 const TABLE = 'user_sessions';
-const SESSION_ID_INDEX = 'session_id_user_session_idx';
 const INDEXES: Record<string, string> = {
   Subject: 'user_sessions_subject_idx',
   ImpersonatorId: 'user_sessions_impersonator_idx',
@@ -21,10 +19,9 @@ const INDEXES: Record<string, string> = {
  * issuer re-keys each on first use. Rows 2.x instances write during a rolling
  * upgrade stay Subject NULL and the store adapts them on read.
  *
- * Widening SessionId / relaxing UserId: MySQL uses one raw MODIFY (every stored
- * id is a 36 char uuid, so VARCHAR(64) fits whatever the current length is);
- * postgres the builder's ALTER COLUMN; sqlite, which has no MODIFY but enforces
- * NOT NULL, rebuilds the table.
+ * Widening SessionId / relaxing UserId is a modify per column, which the driver
+ * spells its own way (sqlite rebuilds the table); every stored id is a 36 char
+ * uuid, so VARCHAR(64) fits whatever the current length is.
  */
 @Migration('session-provider-connection')
 export class UserSessionIdHash_2026_10_02_00_00_00 extends OrmMigration {
@@ -49,24 +46,16 @@ export class UserSessionIdHash_2026_10_02_00_00_00 extends OrmMigration {
       }
     }
 
-    let indexed = added.filter((c) => c in INDEXES);
     if (before.get('userid')?.Nullable === false) {
-      if (isSqliteDialect(connection)) {
-        await this.rebuildSqlite(connection);
-        indexed = Object.keys(INDEXES);
-      } else if (isMySqlDialect(connection)) {
-        await connection.schema().raw('ALTER TABLE `user_sessions` MODIFY `SessionId` VARCHAR(64) NOT NULL, MODIFY `UserId` INT NULL');
-      } else if (connection.Options?.Driver === 'orm-driver-postgres') {
-        await connection.schema().alterTable(TABLE, (table) => {
-          table.string('SessionId', 64).notNull().modify();
-        });
-        await connection.schema().alterTable(TABLE, (table) => {
-          table.int('UserId').modify();
-        });
-      }
+      await connection.schema().alterTable(TABLE, (table) => {
+        table.string('SessionId', 64).notNull().modify();
+      });
+      await connection.schema().alterTable(TABLE, (table) => {
+        table.int('UserId').modify();
+      });
     }
 
-    for (const column of indexed) {
+    for (const column of added.filter((c) => c in INDEXES)) {
       await connection.index().table(TABLE).name(INDEXES[column]).columns([column]);
     }
 
@@ -78,48 +67,21 @@ export class UserSessionIdHash_2026_10_02_00_00_00 extends OrmMigration {
       return;
     }
 
-    const quote = (name: string) => connection.Container.resolve(IdentifierQuoter).quote(name);
     const present = await this.columns(connection);
 
-    // sqlite refuses to drop an indexed column; MySQL and postgres drop the index with it.
-    if (isSqliteDialect(connection)) {
-      for (const index of Object.values(INDEXES)) {
-        await connection.schema().raw(`DROP INDEX IF EXISTS ${quote(index)}`);
-      }
-    }
     for (const column of ['Subject', 'ImpersonatorId', 'State']) {
       if (present.has(column.toLowerCase())) {
-        await connection.schema().raw(`ALTER TABLE ${quote(TABLE)} DROP COLUMN ${quote(column)}`);
+        // sqlite refuses to drop an indexed column
+        if (column in INDEXES) await connection.index().table(TABLE).name(INDEXES[column]).drop();
+        await connection.schema().alterTable(TABLE, (table) => {
+          table.dropColumn(column);
+        });
       }
     }
   }
 
   protected async columns(connection: OrmDriver): Promise<Map<string, { Nullable: boolean }>> {
     return new Map((await connection.tableInfo(TABLE)).map((c) => [c.Name.toLowerCase(), c]));
-  }
-
-  /** Same definitions as the create migration, so a rebuilt table matches a fresh one apart from the 3.0 changes. */
-  protected async rebuildSqlite(connection: OrmDriver): Promise<void> {
-    const quote = (name: string) => connection.Container.resolve(IdentifierQuoter).quote(name);
-    const next = `${TABLE}_v3`;
-    const columns = ['SessionId', 'CreatedAt', 'Expiration', 'Data', 'UserId', 'Subject', 'ImpersonatorId', 'State'].map(quote).join(', ');
-
-    await connection.schema().createTable(next, (table) => {
-      table.string('SessionId', 64).primaryKey().notNull();
-      table.dateTime('CreatedAt').notNull();
-      table.dateTime('Expiration');
-      table.json('Data').notNull();
-      table.int('UserId');
-      table.string('Subject', 100);
-      table.string('ImpersonatorId', 100);
-      table.string('State', 16);
-
-      table.foreignKey('UserId').references('users', 'Id').onDelete(ReferentialAction.Cascade);
-    });
-    await connection.schema().raw(`INSERT INTO ${quote(next)} (${columns}) SELECT ${columns} FROM ${quote(TABLE)}`);
-    await connection.schema().raw(`DROP TABLE ${quote(TABLE)}`);
-    await connection.schema().raw(`ALTER TABLE ${quote(next)} RENAME TO ${quote(TABLE)}`);
-    await connection.index().table(TABLE).name(SESSION_ID_INDEX).columns(['SessionId']).unique();
   }
 
   protected async backfill(connection: OrmDriver): Promise<void> {

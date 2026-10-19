@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { DI } from '@spinajs/di';
 import { RenderPdfJob } from '../src/RenderPdfJob.js';
 
 const expect = chai.expect;
@@ -42,6 +43,10 @@ function makeJob(): TestJob {
 const noopProgress = () => Promise.resolve();
 
 describe('RenderPdfJob (supervisor)', () => {
+  it('resolves a fresh instance per delivery', async () => {
+    expect(await DI.resolve(RenderPdfJob)).to.not.eq(await DI.resolve(RenderPdfJob));
+  });
+
   it('sends the render request to the worker on execute', () => {
     const job = makeJob();
     void job.execute(noopProgress);

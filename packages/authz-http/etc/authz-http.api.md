@@ -7,7 +7,7 @@ Entries: `src/api.ts`.
 ## src/api.ts
 
 ```ts
-import type { Permission, Principal, ResourceRef, ResourceType } from "@spinajs/authz";
+import type { Principal, ResourceRef } from "@spinajs/authz";
 import type { Class } from "@spinajs/di";
 import type { BasePolicy, Request } from "@spinajs/http";
 import type { ModelBase } from "@spinajs/orm";
@@ -17,12 +17,6 @@ export declare abstract class PrincipalSource {
     abstract readonly order: number;
     abstract authenticate(req: Request): Promise<Principal | null>;
 }
-export declare class LinkPrincipalSource extends PrincipalSource {
-    readonly name: "link";
-    readonly order: 110;
-    authenticate(req: Request): Promise<Principal | null>;
-}
-export declare function CurrentPrincipal(): (target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => void;
 export interface AccessOptions {
     resource?: ResourceExtractor;
     also?: readonly Class<BasePolicy>[];
@@ -31,15 +25,6 @@ export interface AccessOptions {
     fields?: "filter" | "none";
 }
 export type ResourceExtractor = (req: Request) => ResourceRef | object | Promise<ResourceRef | object>;
-export declare function Access(permission: Permission | readonly Permission[], opts?: AccessOptions): ClassDecorator & MethodDecorator;
-export declare function AllowAnonymous(): ClassDecorator & MethodDecorator;
-export declare function Unscoped(reason: string): MethodDecorator;
-export declare function fromParam(param: string, type: ResourceType, opts?: {
-    by?: string;
-}): ResourceExtractor;
-export declare function fromBody(path: string, type: ResourceType): ResourceExtractor;
-export declare function fromQuery(param: string, type: ResourceType): ResourceExtractor;
-export declare function fromModel(model: Class<ModelBase>, param: string): ResourceExtractor;
 export declare const ACCESS_DESCRIPTOR: unique symbol;
 
 // values

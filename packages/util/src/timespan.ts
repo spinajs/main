@@ -562,7 +562,11 @@ export class TimeSpan {
       );
     }
 
-    // Parse string format: "[d.]hh:mm[:ss[.fff]]"
+    if (span.startsWith('-') && span.length > 1) {
+      return TimeSpan.parse(span.slice(1))!.negate();
+    }
+
+    // Parse string format: "[-][d.]hh:mm[:ss[.fff]]"
     // Examples: "12:30", "12:30:45", "1.12:30", "1.12:30:45", "12:30:45.123"
     const tokens = span.split(':');
     

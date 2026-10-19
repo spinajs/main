@@ -6,7 +6,7 @@ Every consumed job has one row in the `queue_jobs` table, modelled by `JobModel`
 
 `DefaultQueueService.consume()` runs these steps for each delivered job. Every row read and write goes through `tracked()`, which wraps it in the [tracking hooks](07-tracking-hooks.md).
 
-1. **Find or create the row.** `JobModel.where({ JobId }).first()`. With no row, it inserts one: `Status: 'created'`, `Attempt: 0`, `Progress: 0`, `MaxAttempts: RetryCount + 1`, `Connection` (the connection name), `InitiatorType` and `InitiatorId` from `message.Initiator`. When the insert fails (another worker inserted the same `JobId` first), it reads the row again; no row then throws `UnexpectedServerError`.
+1. **Find or create the row.** `JobModel.where({ JobId }).first()`. With no row, it inserts one: `Status: 'created'`, `Attempt: 0`, `Progress: 0`, `MaxAttempts: RetryCount + 1`, `Connection` (the connection name), `InitiatorType` and `InitiatorId` from `message.Initiator`. When the insert fails (another worker inserted the same `JobId` first), it reads the row again; no row then rethrows the insert error.
 2. **Check the owner.** When the row's `InitiatorType` or `InitiatorId` differs from the message's `Initiator`, the job is dropped with a warning log: it does not run and does not touch the row.
 3. **Skip duplicates.** With `queue.deduplicate` on (the default) and the row in a terminal status (`success`, `error`, `dead`), the job is skipped with an info log.
 4. **Start.** `Status: 'executing'`, `ExecutedAt: now`, row updated.
@@ -15,13 +15,13 @@ Every consumed job has one row in the `queue_jobs` table, modelled by `JobModel`
 7. **Failure.**
    1. `Attempt` goes up by one.
    2. The retry limit is `MaxAttempts - 1` from the row (the message's `RetryCount` when `MaxAttempts` is `0`).
-   3. `Status` becomes `dead` when `Attempt` exceeds the limit, else `retrying`. `LastError` gets the error message. Row updated.
+   3. `Status` becomes `dead` (with `FinishedAt: now`) when `Attempt` exceeds the limit, else `retrying`. `LastError` gets the error message, cut to 1024 characters. Row updated.
    4. `onFailed(err, { attempt, maxAttempts, isFinal, jobId })` runs, wrapped by the message hooks. Its errors are logged, never rethrown.
    5. The original error is rethrown, so the transport retries or dead-letters the message.
 
 Progress throttle, in the `progress` callback:
 
-1. `meta.phase` and `meta.message` are copied onto the row at once.
+1. `meta.phase` and `meta.message` are copied onto the row at once, cut to 32 and 512 characters.
 2. The row is written when the percentage is `100` or more, when `meta` carries a phase or message, when the percentage rose by `queue.progress.minDelta` since the last write, or when `queue.progress.minInterval` ms passed since it.
 3. Otherwise only the in-memory `Progress` changes; the next write saves it.
 
@@ -79,7 +79,7 @@ export default {
 | `JobId` | `varchar(36)`, not null, unique index `queue_jobs_job_id` | Job identity from the message |
 | `Name` | `varchar(256)`, not null | Job class name |
 | `Result` | `text`, JSON | Return value of a successful `execute()` |
-| `Status` | `enum` of the six `JobStatus` values (text on SQLite), not null, default `'created'` | Lifecycle status |
+| `Status` | `varchar(32)` (text on SQLite), not null, default `'created'` | Lifecycle status |
 | `Progress` | `int`, not null, default `0` | Percentage |
 | `Phase` | `varchar(32)`, nullable | Last reported progress phase |
 | `Message` | `varchar(512)`, nullable | Last reported progress message |
@@ -92,7 +92,7 @@ export default {
 | `CreatedAt` | `timestamp`, not null, default now | Row creation, first receipt |
 | `UpdatedAt` | `timestamp`, nullable | Last write |
 | `ExecutedAt` | `timestamp`, nullable | Start of the last run |
-| `FinishedAt` | `timestamp`, nullable | End of the successful run |
+| `FinishedAt` | `timestamp`, nullable | End of the successful run, or of the run that made the job `dead` |
 
 Index `queue_jobs_status_created` on (`Status`, `CreatedAt`) serves retention and monitoring queries.
 
@@ -104,10 +104,13 @@ All are `@Migration('queue')` and run on the `queue` connection.
 | --- | --- |
 | `Queue_2022_10_18_01_13_00` | Creates `queue_jobs` and the unique `JobId` index |
 | `Queue_2026_06_30_00_00_00` | Adds `Attempt` |
-| `Queue_2026_07_02_00_00_00` | Adds `LastError`, `MaxAttempts`, `UpdatedAt`; widens `Name` and `Result`, turns `Status` into `varchar(32)` (not on SQLite); adds the (`Status`, `CreatedAt`) index |
+| `Queue_2026_07_02_00_00_00` | Adds `LastError`, `MaxAttempts`, `UpdatedAt`; widens `Name` and `Result`, turns `Status` into `varchar(32)`; adds the (`Status`, `CreatedAt`) index |
 | `Queue_2026_07_10_00_00_00` | Adds `Phase` and `Message` |
-| `Queue_2026_07_17_00_00_00` | Turns `Status` into an enum of the six statuses, keeping the `'created'` default (skipped on SQLite) |
+| `Queue_2026_07_17_00_00_00` | Turns `Status` into an enum of the six statuses, keeping `NOT NULL` and the `'created'` default |
 | `Queue_2026_10_03_00_00_00` | Adds `InitiatorType` and `InitiatorId` |
+| `Queue_2026_10_17_00_00_00` | Turns `Status` back into `varchar(32)`, keeping the `'created'` default |
+
+The column changes are `modify()` calls on every driver. On SQLite each modifying `alterTable()` rebuilds `queue_jobs`, keeping its rows and indexes; see [SQLite `ALTER TABLE`](../orm-sqlite/04-schema-and-ddl.md#modifying-columns).
 
 ## Services and extension points
 
@@ -123,7 +126,7 @@ All are `@Migration('queue')` and run on the `queue` connection.
 - **Retries come from the transport.** The queue only records the failure and rethrows; a transport that does not redeliver leaves the job `retrying` forever.
 - **Deduplication relies on the row, not the broker.** A redelivery of a finished job is acknowledged without running; a redelivery of a `retrying` job runs again.
 - **A message whose `Initiator` differs from the row's is dropped silently** (warning log, no error), so a caller cannot run code under another principal's `JobId`.
-- **Long texts are not truncated.** `LastError` (1024), `Message` (512) and `Phase` (32) are written as given; on a database in strict mode a longer value can fail the row update.
+- **Long texts are cut to their column.** `LastError` (1024), `Message` (512) and `Phase` (32) are truncated before the write, so a strict-mode database does not reject the row update.
 - **`Result` must be JSON-serialisable**; it is stored with `@Json()`.
 - **The row lives on the `queue` connection.** Consuming a job without a `queue` connection or alias fails on the first row query; emitting does not.
 

@@ -117,7 +117,7 @@ export class fsS3Web extends fsS3 {
       params: {
         Bucket: this.Options.bucket,
         Key: path,
-        Body: data,
+        Body: typeof data === 'string' ? Buffer.from(data, encoding ?? 'utf8') : data,
         ContentType: CONTENT_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
         Metadata: { hash: digest('sha256'), md5: digest('md5') },
       },

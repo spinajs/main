@@ -23,9 +23,9 @@ Choosing the channels, in `QueueClient.getChannelForMessage(message)` (called by
 2. No route: the connection's `defaultQueueChannel` for a job, `defaultTopicChannel` for an event, with a warning log.
 3. A string route: that channel.
 4. An object route: its `channel`, or the default channel as in step 2.
-5. An array route: each string item, or each object's `channel` (or the default channel), duplicates removed.
+5. An array route: only the items of this connection (an object's `connection`, `queue.default` for a string item or an object without one); each string item, or each object's `channel` (or the default channel), duplicates removed.
 
-Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage(message)`: the route's `deadLetterChannel`, else the first array item that has one, else the connection's `defaultQueueDeadLetterChannel`, else `undefined`.
+Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage(message)`: the route's `deadLetterChannel`, else the first array item of this connection that has one, else the connection's `defaultQueueDeadLetterChannel`, else `undefined`.
 
 `QueueService.get(name?)` returns the client named `name`, or the `queue.default` client.
 
@@ -51,7 +51,7 @@ Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage
 | `queue.routing.<Name>.channel` | `string` | connection's default channel | broker channel | Channel of the message |
 | `queue.routing.<Name>.deadLetterChannel` | `string` | connection's `defaultQueueDeadLetterChannel` | broker channel | Where the transport moves a message it gives up on |
 
-Each transport decides which connection keys it reads; check its docs. `IQueueConnectionOptions` declares `transport` and `type` as required, but neither the queue nor the shipped transports read them, and `service` is not part of the type.
+Each transport decides which connection keys it reads; check its docs. `IQueueConnectionOptions` also declares optional `transport` and `type`; they are deprecated and nothing reads them.
 
 ```ts
 // config/queue.ts
@@ -92,7 +92,7 @@ export default {
 
 - **A string route never selects a connection.** It names a channel on `queue.default`. Use `{ connection, channel }` to send a message elsewhere.
 - **Routes are keyed by class name.** Renaming a message class silently drops its route; the message then goes to the default connection and channel, with a warning log.
-- **An array route subscribes every routed connection to every channel of the route.** `getChannelForMessage()` ignores the `connection` field of the items, so `[{ connection: 'a', channel: 'x' }, { connection: 'b', channel: 'y' }]` makes both `a` and `b` use `x` and `y`.
+- **An array route splits by connection.** `[{ connection: 'a', channel: 'x' }, { connection: 'b', channel: 'y' }]` makes `a` use `x` and `b` use `y`. String items belong to `queue.default`.
 - **A job routed to several connections is delivered once per connection**, with one `JobId` and so one job row. With `queue.deduplicate` on, a delivery that arrives after another one finished is skipped; deliveries that overlap both run.
 - **The shipped default sends everything to `BlackHoleQueueClient`.** Packages emit events (logins, sent mails) whether or not the app runs a broker; with the default, these vanish and `emit()` resolves.
 - **Two connections of the same transport class need distinct instances.** The class must be `@PerInstanceCheck()` or `@NewInstance()`; the shipped transports are. A singleton transport is built once, and every entry gets that one instance.

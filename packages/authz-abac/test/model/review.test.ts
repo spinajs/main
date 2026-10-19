@@ -3,6 +3,8 @@ import 'mocha';
 import { Authorizer, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, Policy, Vote } from '@spinajs/authz';
 import { StaticModel, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
 import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
 
@@ -337,6 +339,30 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       await new AbacModel().init(fakeModelInitContext({ permissions: registry(), config: { stores: ['Nope'] } })).catch((e) => (error = e));
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.match(/authz\.abac\.stores names "Nope"/);
+    });
+
+    it('DbPolicyStore takes its connection from the Orm of the domain container', async () => {
+      const reached = new Error('the domain connection');
+      class DomainOrm {
+        readonly Connections = new Map([
+          [
+            'policies',
+            {
+              select: () => {
+                throw reached;
+              },
+            },
+          ],
+        ]);
+      }
+      const domain = DI.RootContainer.child();
+      try {
+        domain.register(DomainOrm).as(Orm);
+        const [store] = storesFromConfig('abac', fakeModelInitContext({ config: { stores: ['DbPolicyStore'], connection: 'policies' }, container: domain }));
+        expect(await store.load().catch((e: unknown) => e)).to.equal(reached);
+      } finally {
+        await domain.dispose();
+      }
     });
 
     it('DbPolicyStore.put refuses a malformed policy or one that does not fit the columns (M6, M3)', async () => {

@@ -1,8 +1,6 @@
 import { Command, Option } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
 import { Autoinject, DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
 
 import { RoleStore } from '../../contracts.js';
 import type { GrantDef } from '../../contracts.js';
@@ -14,26 +12,12 @@ import { AuthzCliCommand } from '../base.js';
 
 interface CheckConfigOptions {
   explainRole?: string;
-  unattended?: boolean;
 }
 
 /** The RBAC model's service, resolved by DI name: its class is not part of the frozen contracts. */
 export interface RbacGrants {
   grantsOf(role: string): readonly GrantDef[] | Promise<readonly GrantDef[]>;
 }
-
-const AUDIT_TABLE = 'authz_audit';
-
-// resourceKey() escapes ':', '/' and '%' in the type part, so the first ':' ends the type.
-const typeOf = (resource: unknown): string => {
-  if (typeof resource !== 'string' || resource === '') return '(none)';
-  const type = resource.split(':', 1)[0];
-  try {
-    return decodeURIComponent(type);
-  } catch {
-    return type;
-  }
-};
 
 const grantLine = (g: GrantDef): string => {
   const parts = [g.permission];
@@ -45,13 +29,11 @@ const grantLine = (g: GrantDef): string => {
   return parts.join('  ');
 };
 
-@Command('authz:check-config', 'Validates the authz configuration; optionally lists the grants of a role or unattended queries')
+@Command('authz:check-config', 'Validates the authz configuration; optionally lists the grants of a role')
 @Option('--explain-role <role>', false, 'list the effective grants of a role')
-@Option('--unattended', false, 'list resource types queried without a principal (from the audit log)')
 export class CheckConfigCommand extends AuthzCliCommand {
   public Roles?: RoleStore;
   public Rbac?: RbacGrants;
-  public Orm?: Orm;
 
   @Autoinject(Configuration)
   public Configuration: Configuration;
@@ -72,7 +54,6 @@ export class CheckConfigCommand extends AuthzCliCommand {
         this.out(`OK: ${roles.length} role(s), ${ladders} ladder(s)`);
 
         if (o.explainRole !== undefined) await this.explainRole(o.explainRole, roles);
-        if (o.unattended) await this.unattended();
       },
     );
   }
@@ -99,27 +80,5 @@ export class CheckConfigCommand extends AuthzCliCommand {
     const grants = await rbac.grantsOf(role);
     this.out(`role ${role}: ${grants.length} effective grant(s)`);
     for (const g of grants) this.out(`  ${grantLine(g)}`);
-  }
-
-  private async unattended(): Promise<void> {
-    const orm = (this.Orm ??= await DI.resolve(Orm));
-    const connection = this.Configuration.get<string | undefined>('authz.rbac.connection', undefined);
-    const driver: OrmDriver | undefined = orm.Connections.get(connection ?? 'default');
-    if (!driver) throw new CliUsageError(`no ORM connection ${JSON.stringify(connection ?? 'default')}`);
-    if (!(await driver.schema().tableExists(AUDIT_TABLE))) throw new CliUsageError(`the ${AUDIT_TABLE} table does not exist: DbDecisionAudit (authz-orm) is not enabled`);
-
-    const rows = (await driver.select().from(AUDIT_TABLE).where('reason', 'unattended').columns(['resource'])) as unknown as Array<{ resource: unknown }>;
-    const counts = new Map<string, number>();
-    for (const r of rows) {
-      const type = typeOf(r.resource);
-      counts.set(type, (counts.get(type) ?? 0) + 1);
-    }
-
-    if (counts.size === 0) {
-      this.out('no unattended queries in the audit log');
-      return;
-    }
-    this.out('resource types queried without a principal:');
-    for (const [type, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) this.out(`  ${type}  ${n}`);
   }
 }

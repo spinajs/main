@@ -6,7 +6,9 @@ import * as root from '../src/index.js';
 import type { FileMeta } from '../src/index.js';
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { FsDecorator as FsDecoratorOfFs } from '@spinajs/fs';
 import type { IProviderConfiguration, fs } from '@spinajs/fs';
 
 const expect = chai.expect;
@@ -100,6 +102,14 @@ describe('authz-fs fromFsPath', () => {
     expect(() => extract({ params: Object.create({ path: 'a.txt' }) })).to.throw(InvalidArgument);
   });
 
+  it('reads the published base path from the container it is given', () => {
+    const child = DI.child();
+    child.register({ Name: 'uploads', Options: { basePath: 'C:\\srv\\child' } }).asMapValue('__file_provider_instance__', 'uploads');
+    const req = { params: { path: 'C:\\srv\\child\\docs\\a.txt' } };
+    expect(fromFsPath('uploads', 'path', child)(req)).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+    expect(() => fromFsPath('uploads', 'path')(req)).to.throw(InvalidArgument);
+  });
+
   it('refuses a filesystem name or a parameter name it cannot use when it is built', () => {
     for (const [fsName, param] of [
       ['', 'path'],
@@ -127,6 +137,15 @@ describe('authz-fs api', () => {
     await store.delete('archive', 'b.txt');
     expect(await store.get('archive', 'b.txt')).to.equal(null);
     expect(await new TaskResolver().parents('uploads', 'tasks/7/x.png')).to.deep.equal([{ type: 'task', id: '7' }]);
+  });
+
+  it('FsDecorator is the @spinajs/fs token, so a decorator registered through the authz-fs import is applied', async () => {
+    expect(FsDecorator).to.equal(FsDecoratorOfFs);
+    const child = DI.child();
+    child.register(PassThrough).as(FsDecorator);
+    // fsService collects its decorators this way.
+    const decorators = [...(await child.resolve(Array.ofType(FsDecoratorOfFs)))];
+    expect(decorators.some((d) => d instanceof PassThrough)).to.equal(true);
   });
 
   it('FileMeta members are optional and readonly', () => {
@@ -161,7 +180,7 @@ describe('authz-fs pinned shapes', () => {
       >
     >();
     yes<Equal<Shape<FsPathResolver>, { readonly fs: string | RegExp; parents(fsName: string, path: string): Promise<readonly ResourceRef[] | null> }>>();
-    yes<Equal<typeof fromFsPath, (fsName: string, param: string) => (req: unknown) => ResourceRef | Promise<ResourceRef>>>();
+    yes<Equal<typeof fromFsPath, (fsName: string, param: string, container?: IContainer) => (req: unknown) => ResourceRef | Promise<ResourceRef>>>();
     yes<ReturnType<typeof fromFsPath> extends LooseExtractor ? true : false>();
     expect(true).to.equal(true);
   });

@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
   AuthnContext,
-  AuthnEvent,
+  AuthnEventSink,
   IdentityRef,
   IdentityStatus,
   PasswordChangeResult,
@@ -22,7 +24,7 @@ import type {
   ThrottleKey,
 } from '@spinajs/authn/contracts';
 
-import { AuditLog, publishAuthnEvent } from './audit.js';
+import type { AuditLog } from './audit.js';
 import { DeferredWork } from './deferred.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
@@ -38,6 +40,7 @@ export interface LocalPasswordServiceDeps {
   readonly throttle: AuthnThrottle;
   /** null: no TokenService, so there are no tokens to revoke. */
   readonly tokens: TokenService | null;
+  /** Published to through `AuthnAudit.over`. */
   readonly sinks: readonly AuthnEventSink[];
   readonly hasher: PasswordHasher;
   readonly policy: LocalPasswordPolicy;
@@ -96,7 +99,11 @@ export class LocalPasswordService extends PasswordService {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
   private _work?: DeferredWork;
+  private _auditor?: AuthnAuditor;
 
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
@@ -355,14 +362,8 @@ export class LocalPasswordService extends PasswordService {
     }
   }
 
-  protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = {
-      ...e,
-      at: ctx.now,
-      ...(ctx.ip !== undefined ? { ip: ctx.ip } : {}),
-      ...(ctx.userAgent !== undefined ? { userAgent: ctx.userAgent } : {}),
-    };
-    await publishAuthnEvent(await this.sinks(), event, this.log());
+  protected async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    await this.auditor().publishIn(ctx, e);
   }
 
   protected work(): DeferredWork {
@@ -429,11 +430,8 @@ export class LocalPasswordService extends PasswordService {
     return DI.check(TokenService) ? await DI.resolve(TokenService) : null;
   }
 
-  protected async sinks(): Promise<readonly AuthnEventSink[]> {
-    if (this.Deps) {
-      return this.Deps.sinks;
-    }
-    return DI.check(AuthnEventSink) ? await Promise.resolve(DI.resolve(Array.ofType(AuthnEventSink))) : [];
+  protected auditor(): AuthnAuditor {
+    return this.Deps ? (this._auditor ??= AuthnAudit.over(this.Deps.sinks, { log: this.log() })) : this.Audit;
   }
 
   protected log(): AuditLog {
