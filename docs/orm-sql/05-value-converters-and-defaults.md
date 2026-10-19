@@ -25,7 +25,7 @@
 | `TimeValueConverter` | `TimeSpan` and SQL `TIME` | `SqlTimeValueConverter` | Extend `TimeValueConverter` |
 | `BooleanValueConverter` | `boolean` and `0` / `1` | `SqlBooleanValueConverter` | Extend `BooleanValueConverter` |
 | `SetValueConverter` | `string[]` and a comma-joined string | `SqlSetConverter` | Extend `SetValueConverter` |
-| `DefaultValueBuilder<T>` | Column default in DDL: `date()`, `dateTime()`, `value(v)`, `raw(query)` | `SqlDefaultValueBuilder` (MySQL); `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder` | Subclass `SqlDefaultValueBuilder`, register `.as(DefaultValueBuilder)` |
+| `DefaultValueBuilder<T>` | Column default in DDL: `date()`, `dateTime()`, `value(v)`, `raw(query)` | `SqlDefaultValueBuilder` (MySQL); `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder`, `MsSqlDefaultValueBuilder` | Subclass `SqlDefaultValueBuilder`, register `.as(DefaultValueBuilder)` |
 
 The converter classes are exported from `@spinajs/orm-sql`. To change one, extend it or the token class from `@spinajs/orm`.
 
@@ -63,7 +63,7 @@ The converter classes are exported from `@spinajs/orm-sql`. To change one, exten
 | Method | Stored | Rendered by `SqlColumnQueryCompiler` |
 | --- | --- | --- |
 | `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())` |
-| `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP')` | `DEFAULT CURRENT_TIMESTAMP` |
+| `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP(3)')` | `DEFAULT CURRENT_TIMESTAMP(3)` (MySQL needs the precision of the `DATETIME(3)` column) |
 | `value('x')`, `value(5)` | `Value` | `DEFAULT 'x'` (escaped, trimmed), `DEFAULT 5` |
 | `raw(query)` | `Query` | `DEFAULT <query>` |
 
@@ -75,7 +75,7 @@ Each method returns the column builder, so the chain continues.
 - `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
 - Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.
-- `SqlDriver` does not register `DefaultValueBuilder`. MSSQL registers none; `default()` on an MSSQL connection gets no dialect implementation. <!-- TODO(docs-hook): verify what ColumnQueryBuilder.default() resolves on an MSSQL connection -->
+- `SqlDriver` does not register `DefaultValueBuilder`; every driver registers its own (MSSQL: `MsSqlDefaultValueBuilder`, `SYSDATETIMEOFFSET()`).
 
 ## Best practices
 

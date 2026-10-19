@@ -94,7 +94,7 @@ const PRIMARY_KEYS: Record<string, string[]> = {
 
 const NATIVE_TYPES: Record<DbKind, Record<ColumnKind, string>> = {
   sqlite: { string: 'TEXT', text: 'TEXT', int: 'INTEGER', bigint: 'INTEGER', boolean: 'BOOLEAN', datetime: 'TEXT' },
-  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamp' },
+  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamptz' },
 };
 
 const NOW = new Date('2026-10-02T12:00:00.000Z');

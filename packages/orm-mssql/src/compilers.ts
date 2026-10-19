@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 /**
@@ -261,6 +261,24 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
 
     // MSSQL usess this expression for AUTO_INCREMENT
     this._statementsMappings.autoincrement = () => `IDENTITY(1,1)`;
+
+    // TIMESTAMP is a row version in T-SQL, not a point in time
+    this._statementsMappings.dateTime = () => 'DATETIMEOFFSET(3)';
+    this._statementsMappings.timestamp = () => 'DATETIMEOFFSET(3)';
+  }
+}
+
+/** `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset; a DATETIMEOFFSET default needs the offset. */
+@NewInstance()
+export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
+  public date(): T {
+    this.Query = RawQuery.create('CAST(SYSDATETIMEOFFSET() AS DATE)');
+    return this.Owner;
+  }
+
+  public dateTime(): T {
+    this.Query = RawQuery.create('SYSDATETIMEOFFSET()');
+    return this.Owner;
   }
 }
 

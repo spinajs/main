@@ -86,7 +86,8 @@ Methods a subclass overrides:
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
-| `DatetimeValueConverter` | `MsSqlDatetimeValueConverter` | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
 | `ModelDehydrator` | `MssqlModelDehydrator` (never resolved by the core) | nothing | [Value conversion](07-value-conversion.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:
@@ -94,7 +95,6 @@ Tokens the driver leaves **unregistered**, each a place to add your own:
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
 | `ServerResponseMapper` | model `insert()`, `save()` and upserts throw after the row is written | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
-| `DefaultValueBuilder` | `ColumnQueryBuilder.default()` returns an object whose methods throw `TypeError` | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
 | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `RecursiveQueryCompiler` | the feature fails on first use | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation

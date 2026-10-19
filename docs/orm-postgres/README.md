@@ -81,7 +81,7 @@ export async function countOpenOrders(): Promise<number> {
 | Insert-or-ignore | `INSERT IGNORE` | `ON CONFLICT DO NOTHING` |
 | Offset without limit | `LIMIT 18446744073709551615` | bare `OFFSET` |
 | `ENUM` / `SET` columns | native types | `TEXT` (plus `CHECK (col IN (...))` for an enum) |
-| `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMP` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
+| `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMPTZ(3)` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
 | `UNSIGNED`, column `CHARACTER SET`, inline `COMMENT` | supported | dropped |
 | `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE / SET / DROP` actions |
 | `CREATE DATABASE IF NOT EXISTS` | supported | throws `NotSupported` |

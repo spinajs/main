@@ -89,9 +89,9 @@ protected autoIncrementPlaceholder(): string { return 'DEFAULT'; }
 
 ## Examples
 
-### Store timestamps with time zone
+### Store timestamps with microseconds
 
-`dateTime()` and `timestamp()` columns become `TIMESTAMPTZ`. The alter-column compiler calls the same `typeExpression()`, so `modify()` uses it too.
+`dateTime()` and `timestamp()` columns are `TIMESTAMPTZ(3)` by default, the precision of a JS `Date`. This compiler keeps the microseconds the server writes itself. The alter-column compiler calls the same `typeExpression()`, so `modify()` uses it too.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -99,10 +99,10 @@ import { ColumnQueryCompiler } from '@spinajs/orm';
 import { PostgresColumnQueryCompiler, PostgresOrmDriver } from '@spinajs/orm-postgres';
 
 @NewInstance()
-export class TimestamptzColumnCompiler extends PostgresColumnQueryCompiler {
+export class MicrosecondColumnCompiler extends PostgresColumnQueryCompiler {
   public typeExpression(): string {
     if (this.builder.Type === 'dateTime' || this.builder.Type === 'timestamp') {
-      return 'TIMESTAMPTZ';
+      return 'TIMESTAMPTZ(6)';
     }
 
     return super.typeExpression();
@@ -111,10 +111,10 @@ export class TimestamptzColumnCompiler extends PostgresColumnQueryCompiler {
 
 @Injectable('orm-driver-postgres')
 @NewInstance()
-export class TimestamptzPostgresDriver extends PostgresOrmDriver {
+export class MicrosecondPostgresDriver extends PostgresOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(TimestamptzColumnCompiler).as(ColumnQueryCompiler);
+    this.Container.register(MicrosecondColumnCompiler).as(ColumnQueryCompiler);
   }
 }
 ```
@@ -237,33 +237,6 @@ export class FixturesPostgresDriver extends PostgresOrmDriver {
   public resolve() {
     super.resolve();
     this.Container.register(RestartIdentityTruncateCompiler).as(TruncateTableQueryCompiler);
-  }
-}
-```
-
-### Default timestamps to UTC
-
-`default().dateTime()` writes `CURRENT_TIMESTAMP`, which a `TIMESTAMP` column stores in the session time zone. Override `dateTime()` to store UTC.
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { DefaultValueBuilder, RawQuery } from '@spinajs/orm';
-import { PostgresDefaultValueBuilder, PostgresOrmDriver } from '@spinajs/orm-postgres';
-
-@NewInstance()
-export class UtcDefaultValueBuilder<T> extends PostgresDefaultValueBuilder<T> {
-  public dateTime(): T {
-    this.Query = RawQuery.create(`(now() AT TIME ZONE 'utc')`);
-    return this.Owner;
-  }
-}
-
-@Injectable('orm-driver-postgres')
-@NewInstance()
-export class UtcDefaultsPostgresDriver extends PostgresOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(UtcDefaultValueBuilder).as(DefaultValueBuilder);
   }
 }
 ```

@@ -99,4 +99,25 @@ describe('postgres datetimes (integration)', function () {
     const [row] = await inZone('Asia/Kolkata', () => query<{ at: Date }>('SELECT at FROM pg_naive'));
     expect(row.at.getTime()).to.eq(AT);
   });
+
+  it('creates dateTime() as timestamptz(3), defaulting to the database clock', async () => {
+    const [col] = await query<{ udt_name: string; datetime_precision: number }>("SELECT udt_name, datetime_precision FROM information_schema.columns WHERE table_name = 'pg_dt_doc' AND column_name = 'at'");
+    expect(col).to.deep.eq({ udt_name: 'timestamptz', datetime_precision: 3 });
+
+    await pgdb!.driver.schema().createTable('pg_dt_default', (table) => {
+      table.int('id').primaryKey();
+      table.dateTime('stamped').notNull().default().dateTime();
+    });
+    const before = Date.now();
+    await pgdb!.driver.executeOnDb('INSERT INTO pg_dt_default (id) VALUES (1)', [], QueryContext.Insert);
+    const [row] = await query<{ stamped: Date }>('SELECT stamped FROM pg_dt_default');
+    expect(row.stamped.getTime()).to.be.within(before - 60_000, Date.now() + 60_000);
+  });
+
+  it('casts a stored instant to UTC text', async () => {
+    await PgDtDoc.insert({ id: 1, at: DateTime.fromMillis(AT) });
+
+    const [row] = await query<{ text: string }>('SELECT CAST(at AS TEXT) AS text FROM pg_dt_doc WHERE id = 1');
+    expect(row.text).to.eq('2026-10-19 12:00:00.123+00');
+  });
 });

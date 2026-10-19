@@ -193,7 +193,7 @@ export class PostgresInsertQueryCompiler extends SqlInsertQueryCompiler {
  *   it back.
  * - UNSIGNED, CHARACTER SET and inline COMMENT have no postgres spelling and are dropped;
  *   COLLATE is kept ( postgres collations are identifiers, so it is quoted ).
- * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMP,
+ * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMPTZ(3),
  *   DOUBLE → DOUBLE PRECISION, BLOB → BYTEA, JSON → JSONB ).
  * - BOOLEAN takes no integer default: a numeric default on a boolean column ( MySQL's
  *   0/1 ) renders as FALSE/TRUE.
@@ -299,7 +299,7 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
         return 'TIME';
       case 'dateTime':
       case 'timestamp':
-        return 'TIMESTAMP';
+        return 'TIMESTAMPTZ(3)';
       case 'json':
         return 'JSONB';
       default:
@@ -393,6 +393,11 @@ export class PostgresCreateDatabaseQueryCompiler extends CreateDatabaseCompiler 
 export class PostgresDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
     this.Query = RawQuery.create('CURRENT_DATE');
+    return this.Owner;
+  }
+
+  public dateTime(): T {
+    this.Query = RawQuery.create('CURRENT_TIMESTAMP');
     return this.Owner;
   }
 }

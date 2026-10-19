@@ -37,6 +37,10 @@ const SQL_TYPE_TO_SCHEMA: Record<string, any> = {
   // MySQL and MSSQL both report DATETIME as 'datetime'; ColumnType.DATE_TIME above never matches.
   datetime: { type: 'string', format: 'date-time' },
   [ColumnType.TIMESTAMP]: { type: 'string', format: 'date-time' },
+  // PostgreSQL and MSSQL report their zone-aware types under these names.
+  timestamptz: { type: 'string', format: 'date-time' },
+  datetimeoffset: { type: 'string', format: 'date-time' },
+  datetime2: { type: 'string', format: 'date-time' },
   [ColumnType.JSON]: { type: 'object' },
   [ColumnType.SET]: { type: 'array', items: { type: 'string' } },
 };

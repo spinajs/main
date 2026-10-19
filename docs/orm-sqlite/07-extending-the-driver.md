@@ -38,6 +38,7 @@ sequenceDiagram
 | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `TableExistsCompiler` | `SqliteTableExistsCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | **no** | [Schema and DDL](04-schema-and-ddl.md#default-values) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`): ISO 8601 UTC text | | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `CreateViewCompiler` | `SqliteCreateViewCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
@@ -55,7 +56,7 @@ sequenceDiagram
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `LiteralQuoter` | `SqlLiteralQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 
-Every other token (`SelectQueryCompiler`, `WhereStatement`, `DatetimeValueConverter`, ...) keeps the shared class `SqlDriver.resolve()` registered; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers). `OrmDriver.resolve()` adds `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
+Every other token (`SelectQueryCompiler`, `WhereStatement`, `BooleanValueConverter`, ...) keeps the shared class `SqlDriver.resolve()` registered; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers). `OrmDriver.resolve()` adds `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
 
 Not registered at all: `TableCloneQueryCompiler` (no `CREATE TABLE ... LIKE`) and `TableHistoryQueryCompiler`.
 

@@ -64,7 +64,7 @@ The shared `SqlJoinStatement` is not replaced. A join it builds from a `joinTabl
 | `INTEGER`, `SMALLINT`, `REAL`, `DOUBLE PRECISION` | number | |
 | `BOOLEAN` | boolean | |
 | `JSONB` | parsed object | |
-| `TIMESTAMP`, `DATE` | `Date` (local time zone for `TIMESTAMP`) | |
+| `TIMESTAMPTZ`, `TIMESTAMP`, `DATE` | `Date` (`TIMESTAMP` read as UTC, `DATE` at local midnight) | |
 | `BYTEA` | `Buffer` | |
 
 On the request side these stay numbers; only response schemas change.

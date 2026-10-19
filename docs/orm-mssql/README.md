@@ -20,7 +20,7 @@ npm install @spinajs/orm @spinajs/orm-mssql
 | [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MERGE` upserts, no `INSERT IGNORE`, and the missing `ServerResponseMapper` |
 | [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, single-column `ORDER BY`, `DELETE TOP`, `CHARINDEX` set membership, `N'...'` literals |
 | [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, databases, views, table existence, unsupported schema features |
-| [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime`; `MssqlModelDehydrator` |
+| [Value conversion](07-value-conversion.md) | `IsoDatetimeValueConverter`: `Date` and luxon `DateTime` as ISO 8601 in UTC; `MssqlModelDehydrator` |
 | [Extending the driver](08-extending-the-driver.md) | Every DI token the driver registers, how to subclass `MsSqlOrmDriver`, replace one token, or replace the driver everywhere |
 
 ## Quick start
