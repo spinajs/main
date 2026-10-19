@@ -89,7 +89,7 @@ describe('sqlite @Int64 columns', function () {
     expect(((await GapInt64.where('Counter', ' 44 ').first()) as GapInt64).Id).to.eq(two.Id);
 
     const found = (await GapInt64.query().whereIn('Counter', ['1', '44'])) as GapInt64[];
-    expect(found.map((m) => m.Id).sort()).to.deep.eq([one.Id, two.Id].sort());
+    expect(found.map((m) => m.Id).sort((a, b) => a - b)).to.deep.eq([one.Id, two.Id].sort((a, b) => a - b));
   });
 
   it('refuses a value beyond 2^53 that sqlite3 already rounded', async () => {

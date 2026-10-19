@@ -70,6 +70,9 @@ describe('@Int64 and Int64ValueConverter', () => {
     expect(() => converter.fromDB(BEYOND_SAFE, {}, { as: 'number' })).to.throw(OrmException, 'MAX_SAFE_INTEGER');
     expect(() => converter.fromDB(Number.MAX_SAFE_INTEGER + 2, {}, { as: 'string' })).to.throw(OrmException, 'precision');
     expect(() => converter.fromDB('4.2', {}, { as: 'string' })).to.throw(OrmException, 'not an integer');
+    for (const bad of [4.5, NaN, Infinity]) {
+      expect(() => converter.fromDB(bad, {}, { as: 'string' })).to.throw(OrmException, 'not an integer');
+    }
   });
 
   it('writes bigints and decimal strings as text and safe integers as numbers', () => {
@@ -78,6 +81,9 @@ describe('@Int64 and Int64ValueConverter', () => {
     expect(converter.toDB(9007199254740993n)).to.eq(BEYOND_SAFE);
     expect(converter.toDB(BEYOND_SAFE)).to.eq(BEYOND_SAFE);
     expect(converter.toDB(42)).to.eq(42);
+    expect(converter.toDB(' 44 ')).to.eq('44');
+    expect(converter.toDB(` ${BEYOND_SAFE}
+`)).to.eq(BEYOND_SAFE);
     expect(converter.toDB(null)).to.eq(null);
     expect(() => converter.toDB(Number.MAX_SAFE_INTEGER + 2)).to.throw(InvalidArgument);
     expect(() => converter.toDB('4.2')).to.throw(InvalidArgument);

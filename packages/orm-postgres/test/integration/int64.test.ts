@@ -77,7 +77,7 @@ describe('postgres @Int64 columns (integration)', function () {
     expect(((await PgGapInt64.where('Counter', ' 7044 ').first()) as PgGapInt64).Id).to.eq(two.Id);
 
     const found = (await PgGapInt64.query().whereIn('Counter', ['7001', '7044'])) as PgGapInt64[];
-    expect(found.map((m) => m.Id).sort()).to.deep.eq([one.Id, two.Id].sort());
+    expect(found.map((m) => m.Id).sort((a, b) => a - b)).to.deep.eq([one.Id, two.Id].sort((a, b) => a - b));
 
     const long = [...Array.from({ length: 1500 }, (_, i) => String(1000000 + i)), '7044'];
     const foundLong = (await PgGapInt64.query().whereIn('Counter', long)) as PgGapInt64[];
