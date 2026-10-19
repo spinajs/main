@@ -10,9 +10,8 @@ A provider is a named file system instance, eg. `documents` on local disk or `me
 4. It collapses `fs.providers` by `name`: when two entries share a name, the last one wins.
 5. It orders the entries with `sortByDependencies()`, so an entry whose `provider` key names another entry is created after it. A missing, self or circular reference fails the boot.
 6. For each entry it finds the class registered under the `fs` token whose class name equals `service`. No match throws `ResolveException` (`Type <service> not registered`).
-7. It resolves that class with the entry as the only constructor argument (`DI.resolve(type, [entry])`), awaits its `resolve()`, and stores it in the `'__file_provider_instance__'` map under `name`.
-8. After all providers exist, `fsService.decorate()` runs every [provider decorator](07-provider-decorators.md) in ascending `order` and replaces each map entry with the decorated instance.
-9. `getFs('documents')` resolves `'__file_provider__'` with `['documents']`. The factory returns the map entry, or throws `ResolveException` (`File provider documents not registered`).
+7. It resolves that class with the entry as the only constructor argument (`DI.resolve(type, [entry])`), awaits its `resolve()`, and stores it in the `'__file_provider_instance__'` map under `name`. The map holds the provider itself: nothing wraps it.
+8. `getFs('documents')` resolves `'__file_provider__'` with `['documents']`. The factory returns the map entry, or throws `ResolveException` (`File provider documents not registered`). Every call on that provider then runs the registered [middlewares](07-middlewares.md).
 
 ```mermaid
 sequenceDiagram
@@ -21,7 +20,6 @@ sequenceDiagram
   participant fsService
   participant DI
   participant Provider as fsNative / fsTemp / custom
-  participant Decorators as FsDecorator[]
   App->>FsBootstrapper: bootstrap()
   FsBootstrapper->>DI: register factory as '__file_provider__'
   App->>DI: resolve(fsService)
@@ -31,8 +29,6 @@ sequenceDiagram
     DI->>Provider: new(entry), resolve()
     fsService->>DI: map '__file_provider_instance__'[name] = provider
   end
-  fsService->>Decorators: decorate(provider, entry), ascending order
-  fsService->>DI: map entry = decorated provider
   App->>DI: getFs(name) -> '__file_provider__' factory
 ```
 
@@ -86,7 +82,7 @@ export default config;
 | File provider | `fs` (the string `'fs'` is the same registry key), `PerInstanceCheck`: one instance per `name` | `fsNative` | `fsTemp`; `fsS3`, `fsFTP`, `fsOneDrive` in their packages | Register a subclass of `fs` with `@Injectable('fs')` and `@PerInstanceCheck()`, then set `service` to its class name. See [Custom providers](06-custom-providers.md). |
 | `fsService` | `fsService` class, singleton (`AsyncService`) | `fsService` | none | Subclass and `DI.register(MyFsService).as(fsService)`. See [Boot service and provider lookup](08-boot-service-and-provider-lookup.md). |
 | `FsBootstrapper` (`FsBootsrapper` is a deprecated alias) | `Bootstrapper`, singleton | `FsBootstrapper` | none | Register your own `'__file_provider__'` factory after it ran. See [Boot service and provider lookup](08-boot-service-and-provider-lookup.md#provider-lookup-factory). |
-| Provider decorators | `FsDecorator`, all registrations as `Array.ofType(FsDecorator)` | none | `AuthzFsDecorator` in `@spinajs/authz-fs` (order `100`) | `DI.register(MyDecorator).as(FsDecorator)` before `fsService` resolves. See [Provider decorators](07-provider-decorators.md). |
+| Middlewares | `FsMiddleware`, all registrations as `Array.ofType(FsMiddleware)`, resolved on every top-level action | none | `AuthzFsMiddleware` in `@spinajs/authz-fs` (order `100`) | `@Injectable(FsMiddleware)` on the class. See [Middlewares](07-middlewares.md). |
 
 ### Getting a provider
 
@@ -99,7 +95,7 @@ export default config;
 | `_fs(name)` | a function returning `getFs(name)` | throws when called |
 | `DI.resolve<fs>('__file_provider__', [name])` | the provider | throws `ResolveException` |
 
-All of them return the decorated instance when [provider decorators](07-provider-decorators.md) exist.
+All of them return the provider itself, the instance `fsService` created. [Middlewares](07-middlewares.md) run inside its methods.
 
 ## Important behaviour
 
@@ -136,7 +132,7 @@ try {
 ```
 
 ```ts
-// Don't: caches the provider before fsService resolved and skips decorators added later
+// Don't: getFs() throws when the field initialiser runs before fsService resolved
 class ReportService {
   protected Reports = getFs('reports');
 }
@@ -197,4 +193,4 @@ export async function archiveReport(fileName: string): Promise<void> {
 
 - [File operations](02-file-operations.md): what you can do with a provider once you have it.
 - [Boot service and provider lookup](08-boot-service-and-provider-lookup.md): replacing `fsService` or the lookup factory.
-- [Provider decorators](07-provider-decorators.md): what `fsService.decorate()` runs.
+- [Middlewares](07-middlewares.md): checks and observers that run around every action of every provider.
