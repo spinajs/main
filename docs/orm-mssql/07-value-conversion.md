@@ -14,7 +14,8 @@
 | --- | --- |
 | `Date` | `value.toISOString()`: UTC with a `Z` suffix, eg. `2024-05-01T08:30:00.000Z` |
 | luxon `DateTime` | `value.toISO({ includeOffset: false })`: the wall-clock time **in the `DateTime`'s own zone**, no offset |
-| anything else (`string`, `number`, `null`) | `null` |
+| non-empty `string` | parsed as ISO 8601, then as SQL format (`2024-05-01 08:30:00`), and written like a `DateTime`; a string that is neither throws `InvalidArgument` naming the column |
+| anything else (empty string, `number`, `null`) | `null` |
 
 4. The string is bound as a parameter; see [Executing statements](02-executing-statements.md).
 
@@ -105,7 +106,7 @@ export class ApiMsSqlDriver extends MsSqlOrmDriver {
 ## Important behaviour
 
 - **`Date` and `DateTime` are written differently.** A `Date` is written in UTC; a `DateTime` is written as its local wall-clock time without an offset. The same instant stored once from each differs by the zone offset unless the `DateTime` is in UTC.
-- **A string assigned to a datetime model property is written as `NULL`.** Convert it to a `DateTime` first, or a `NOT NULL` column fails. A string passed straight to a builder (`values({ CreatedAt: '2024-05-01' })`) is not converted and reaches the server as is.
+- **A datetime string is parsed, not passed through.** `Model.update({ CreatedAt: '2024-05-01 08:30:00' })`, a model property and `whereIn('CreatedAt', [...])` on a model column go through `toDB()`, so an ISO 8601 or SQL-format string is written in the converter's format and any other string throws `InvalidArgument`. A string passed straight to a builder without a model column (`values({ CreatedAt: '2024-05-01' })`) is not converted and reaches the server as is.
 - **Reads come back in the local zone** of the Node process.
 - **`MssqlModelDehydrator` is never used.** The ORM resolves `StandardModelDehydrator` by class, so the `ModelDehydrator` registration has no effect on `dehydrate()` or inserts.
 - **Boolean columns** use the shared `SqlBooleanValueConverter`; `mssql` binds JavaScript booleans as `BIT`.
