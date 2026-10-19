@@ -10,6 +10,7 @@ Entries: `src/api.ts`.
 import type { Principal, ResourceRef } from "@spinajs/authz";
 import type { Class } from "@spinajs/di";
 import type { BasePolicy, Request } from "@spinajs/http";
+import type { ModelBase } from "@spinajs/orm";
 /** Built with `PrincipalMiddleware`, before the root authz boot: a source resolves `AuthzService` per call, it does not inject it. */
 export declare abstract class PrincipalSource {
     abstract readonly name: string;
