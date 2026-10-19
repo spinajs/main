@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -446,7 +447,21 @@ describe('DbTokenService', function () {
     });
 
     describe('roles against a registered RoleSource', () => {
-      afterEach(() => {
+      let scope: IContainer | undefined;
+
+      // The RoleSource is injected when DI builds the service, so these tests resolve it instead of new-ing it.
+      async function resolveWithRoleSource(): Promise<void> {
+        DI.register(ViewerRoleSource).as(RoleSource);
+        scope = DI.child();
+        scope.register(() => profiles).as(TokenProfilePolicy);
+        scope.register(() => identities).as(IdentityStore);
+        scope.register(DbTokenService).asSelf();
+        tokens = await scope.resolve(DbTokenService);
+      }
+
+      afterEach(async () => {
+        await scope?.dispose();
+        scope = undefined;
         DI.unregister(ViewerRoleSource);
         DI.uncache(ViewerRoleSource);
         DI.uncache(RoleSource);
@@ -454,8 +469,7 @@ describe('DbTokenService', function () {
       });
 
       it('refuses a role the owner does not hold and stores nothing', async () => {
-        DI.register(ViewerRoleSource).as(RoleSource);
-        tokens = await build();
+        await resolveWithRoleSource();
         const a = await owner();
 
         await refused(a, { name: 'x', kind: 'pat', roles: ['admin'], expiresAt: at(DAY) }, 'invalid_scope', 'pat admin');
@@ -467,8 +481,7 @@ describe('DbTokenService', function () {
       });
 
       it('accepts roles the owner holds and asks nothing for a token without roles', async () => {
-        DI.register(ViewerRoleSource).as(RoleSource);
-        tokens = await build();
+        await resolveWithRoleSource();
         const a = await owner();
 
         expect((await pat(a, { roles: ['viewer'] })).record.roles).to.deep.equal(['viewer']);

@@ -9,7 +9,6 @@ import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssue
 import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
-import { registered } from '../support/registered.js';
 
 export type TotpBeginResult = MfaBeginResult;
 export type TotpConfirmResult = MfaConfirmResult;
@@ -281,9 +280,9 @@ export class TotpService extends MfaEnrolmentService {
     const d = this.deps;
     switch (key) {
       case 'step':
-        return d.step ?? (registered(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
+        return d.step ?? (DI.hasImplementation(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
       case 'steps':
-        return d.steps ?? (registered(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
+        return d.steps ?? (DI.hasImplementation(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
       case 'sessions':
         return d.sessions ?? (await resolveOne(SessionIssuer)) ?? missing('SessionIssuer');
       case 'authn':
@@ -303,8 +302,7 @@ function missing(name: string): never {
 }
 
 async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promise<T | null> {
-  const t = type as unknown as new () => T;
-  return registered(type) ? ((await DI.resolve(t)) as T) : null;
+  return DI.hasImplementation(type) ? ((await DI.resolve(type)) as T) : null;
 }
 
 /** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */

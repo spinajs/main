@@ -1,5 +1,5 @@
-import { Autoinject, Injectable } from '@spinajs/di';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { Autoinject, Inject, Injectable } from '@spinajs/di';
+import { Config, service } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
@@ -153,6 +153,9 @@ export class DbTokenService extends TokenService {
 
   @Logger('authn-token')
   protected Log: Log;
+
+  @Autoinject(RoleSource, { optional: true })
+  protected Roles: RoleSource | undefined;
 
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
@@ -507,8 +510,7 @@ export class DbTokenService extends TokenService {
    */
   protected async ownerHolds(owner: IdentityRef, roles: readonly string[]): Promise<boolean> {
     const source = this.Roles;
-    // Once anything resolves an unregistered RoleSource, DI counts the bare abstract as registered and injects it.
-    if (source === undefined || source.constructor === RoleSource) {
+    if (source === undefined) {
       return true;
     }
     if (typeof source.rolesOf !== 'function') {

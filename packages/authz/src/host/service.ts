@@ -96,11 +96,6 @@ function deepFreeze<T>(value: T): T {
 }
 const modelName = (m: unknown): string | undefined => (isObject(m) && typeof m.name === 'string' ? m.name : undefined);
 
-function inCache(container: IContainer, value: unknown): boolean {
-  for (const entry of container.Cache) if (entry.value === value) return true;
-  return false;
-}
-
 @PerChildInstance()
 @Injectable(AuthzService)
 @Inject(Container)
@@ -387,7 +382,7 @@ export class DefaultAuthzService extends AuthzService {
     for (const [i, model] of models.entries()) {
       if (!isObject(model) || typeof model.init !== 'function') throw new AuthzConfigError(`${where}: models[${i}] (${q(modelName(model))}) is not an AuthorizationModel`);
     }
-    const diManaged = models.filter((m) => m instanceof Service && levels.some((c) => inCache(c, m)));
+    const diManaged = models.filter((m) => m instanceof Service && levels.some((c) => c.isCached(m)));
     for (const model of models) {
       if (diManaged.includes(model) || claimed.includes(model)) continue;
       let set = users.get(model);
