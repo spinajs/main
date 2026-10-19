@@ -71,8 +71,40 @@ describe('columnKind and lookupValue', () => {
     const c = col('int4');
     expect(lookupValue(c, '42')).to.equal(42);
     expect(lookupValue(c, '-7')).to.equal(-7);
-    expect(lookupValue(c, '9007199254740993')).to.equal('9007199254740993');
+    expect(lookupValue(col('int8'), '9007199254740993')).to.equal('9007199254740993');
     for (const t of ['abc', '4.2', '', ' 42', '042', '1e3', '0x10']) expect(lookupValue(c, t), t).to.equal(undefined);
+  });
+
+  it('an integer column takes integer text within the range its spelling holds', () => {
+    const RANGES: [string, string, string][] = [
+      // postgres udt names, mysql/mssql smallint, mysql mediumint: one width each
+      ['int2', '-32768', '32767'],
+      ['smallint', '-32768', '32767'],
+      ['smallint unsigned', '-32768', '65535'],
+      ['int4', '-2147483648', '2147483647'],
+      ['mediumint', '-8388608', '8388607'],
+      ['mediumint(8) unsigned', '-8388608', '16777215'],
+      ['int8', '-9223372036854775808', '9223372036854775807'],
+      ['bigint', '-9223372036854775808', '9223372036854775807'],
+      ['bigint(20) unsigned', '-9223372036854775808', '18446744073709551615'],
+      // signed on mysql, unsigned on mssql
+      ['tinyint', '-128', '255'],
+      // 32 bits on mysql and mssql, 64 on sqlite
+      ['int', '-9223372036854775808', '9223372036854775807'],
+      ['INTEGER', '-9223372036854775808', '9223372036854775807'],
+      ['int unsigned', '-9223372036854775808', '18446744073709551615'],
+      ['serial', '-9223372036854775808', '9223372036854775807'],
+    ];
+    const step = (text: string, by: bigint) => (BigInt(text) + by).toString();
+    const value = (text: string) => (Number.isSafeInteger(Number(text)) ? Number(text) : text);
+    for (const [type, min, max] of RANGES) {
+      expect(lookupValue(col(type), min), `${type} ${min}`).to.equal(value(min));
+      expect(lookupValue(col(type), max), `${type} ${max}`).to.equal(value(max));
+      expect(lookupValue(col(type), step(min, -1n)), `${type} below`).to.equal(undefined);
+      expect(lookupValue(col(type), step(max, 1n)), `${type} above`).to.equal(undefined);
+    }
+    expect(lookupValue(col('int4'), '99999999999')).to.equal(undefined);
+    expect(lookupValue(col('INTEGER'), '99999999999')).to.equal(99999999999);
   });
 
   it('a decimal column takes decimal text, unchanged', () => {

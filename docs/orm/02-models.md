@@ -117,10 +117,16 @@ an empty `Type` falls back to `NativeType`.
 
 `lookupValue(column, text)` is the value to compare `column` with when a key arrives as text (a URL
 segment, an authz resource id). An integer column takes an integer literal, as a number while it is
-a safe integer and as text beyond `Number.MAX_SAFE_INTEGER`; a decimal column takes a decimal literal,
-as text; a uuid column takes a uuid. For any other text it returns `undefined`: leave that key out of
-the `where`/`whereIn`. Bound anyway, Postgres and MSSQL fail the query on the cast, and MySQL converts
-`'abc'` to `0` and matches that row. Text and other columns take the text as it is.
+a safe integer and as text beyond `Number.MAX_SAFE_INTEGER`, within the range of its type; a decimal
+column takes a decimal literal, as text; a uuid column takes a uuid. For any other text it returns
+`undefined`: leave that key out of the `where`/`whereIn`. Bound anyway, Postgres and MSSQL fail the
+query on the cast, Postgres fails it on a value out of the column's range, and MySQL converts `'abc'` to
+`0` and matches that row. Text and other columns take the text as it is.
+
+The range comes from the reported type name. `int2`/`smallint` hold 16 bits, `mediumint` 24, `int4` 32
+and `int8`/`bigint` 64; `tinyint` holds -128 to 255 (signed on MySQL, unsigned on MSSQL). `int` and
+`integer` are 32 bits on MySQL and MSSQL but 64 on SQLite, so they, and every other integer spelling,
+are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned maximum of its width.
 
 ## Decorators
 

@@ -19,6 +19,20 @@ const normalise = (type: string): string =>
     .replace(/\b(?:unsigned|signed|zerofill)\b/g, '')
     .replace(/\s+/g, '');
 
+// Spellings of one width on every database; any other integer spelling (`int`, `integer`) is 32 bits on
+// MySQL and MSSQL but 64 on SQLite, so it gets 64.
+const INTEGER_BITS: Readonly<Record<string, bigint>> = { tinyint: 8n, int2: 16n, smallint: 16n, mediumint: 24n, int4: 32n, int8: 64n, bigint: 64n };
+
+function holdsInteger(type: string, text: string): boolean {
+  const base = normalise(type);
+  const bits = INTEGER_BITS[base] ?? 64n;
+  // MSSQL's tinyint is unsigned. The low end stays signed for an unsigned spelling: SQLite stores any
+  // 64-bit integer in an `UNSIGNED BIG INT` column.
+  const unsigned = base === 'tinyint' || /\bunsigned\b/i.test(type);
+  const n = BigInt(text);
+  return n >= -(1n << (bits - 1n)) && n <= (unsigned ? (1n << bits) - 1n : (1n << (bits - 1n)) - 1n);
+}
+
 export function columnKind(column: Pick<IColumnDescriptor, 'Type' | 'NativeType'>): ColumnKind {
   const type = normalise(column.Type || column.NativeType || '');
   if (INTEGER.test(type)) return 'integer';
@@ -36,7 +50,7 @@ export function columnKind(column: Pick<IColumnDescriptor, 'Type' | 'NativeType'
 export function lookupValue(column: Pick<IColumnDescriptor, 'Type' | 'NativeType'>, text: string): string | number | undefined {
   switch (columnKind(column)) {
     case 'integer': {
-      if (!INTEGER_TEXT.test(text)) return undefined;
+      if (!INTEGER_TEXT.test(text) || !holdsInteger(column.Type || column.NativeType || '', text)) return undefined;
       const n = Number(text);
       return Number.isSafeInteger(n) ? n : text;
     }
