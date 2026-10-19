@@ -83,8 +83,11 @@ export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
 }
 
 /**
- * `LOCK TABLES` would commit the open transaction. A locking read of every row takes next-key locks,
- * which under REPEATABLE READ (the InnoDB default) keep writers out of the whole table until commit.
+ * `LOCK TABLES` would commit the open transaction, so this is a locking read of every row: its next-key
+ * locks keep writers out until commit under REPEATABLE READ (the InnoDB default). Exclusive, because
+ * InnoDB may count through a secondary index and puts shared locks on that index only, where an update
+ * of an unindexed column never looks; exclusive locks also reach the clustered records. Plain reads are
+ * not locking reads and go on.
  */
 @NewInstance()
 @Inject(Container)
@@ -94,6 +97,6 @@ export class MySqlLockTableQueryCompiler extends LockTableQueryCompiler {
   }
 
   public compile(): ICompilerOutput[] {
-    return [{ bindings: [], expression: `SELECT COUNT(*) FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)} LOCK IN SHARE MODE` }];
+    return [{ bindings: [], expression: `SELECT COUNT(*) FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)} FOR UPDATE` }];
   }
 }

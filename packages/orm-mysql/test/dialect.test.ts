@@ -55,7 +55,7 @@ describe('mysql dialect', function () {
   it('locks a table with a locking read of every row', () => {
     const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
 
-    expect(schema.lockTable('users').toDB()).to.deep.eq([{ bindings: [], expression: 'SELECT COUNT(*) FROM `users` LOCK IN SHARE MODE' }]);
+    expect(schema.lockTable('users').toDB()).to.deep.eq([{ bindings: [], expression: 'SELECT COUNT(*) FROM `users` FOR UPDATE' }]);
   });
 
   describe('set membership', () => {

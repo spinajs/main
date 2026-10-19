@@ -184,13 +184,13 @@ SQLite supports little beyond adding and renaming; see [SQLite `ALTER TABLE` lim
 ### Locking a table
 
 `lockTable(name)` returns a `LockTableQueryBuilder`. Awaited inside a transaction, it keeps other
-transactions from writing the table until this one ends; they can still read it. Awaited outside a
+transactions from writing the table until this one ends; plain reads go on. Awaited outside a
 transaction it rejects with `InvalidOperation`: the lock would end with the statement.
 
 | Driver | Statement |
 | --- | --- |
 | PostgreSQL | `LOCK TABLE "t" IN SHARE MODE` |
-| MySQL | ``SELECT COUNT(*) FROM `t` LOCK IN SHARE MODE``. The next-key locks keep inserts out only under `REPEATABLE READ`, and DDL ends the transaction, so the lock with it. |
+| MySQL | ``SELECT COUNT(*) FROM `t` FOR UPDATE``: an exclusive lock on every row, because a shared one may land on a secondary index only and miss updates of other columns. Plain reads go on; other locking reads (`FOR SHARE`, `FOR UPDATE`) wait too. The next-key locks keep inserts out only under `REPEATABLE READ`, and DDL ends the transaction, so the lock with it. |
 | MSSQL | `SELECT COUNT(*) FROM [t] WITH (TABLOCK, HOLDLOCK)` |
 | SQLite | nothing: the driver holds this process's other writers while a transaction is open, and when another connection writes between this transaction's read and its write, one of the two fails with `SQLITE_BUSY` |
 
@@ -254,7 +254,7 @@ Which statements and clauses work depends on the connection's driver. A compiler
 | --- | --- | --- | --- |
 | `createEvent` / `dropEvent` (`supportedFeatures().events`) | yes | throws `MethodNotImplemented` | throws `MethodNotImplemented` |
 | `createDatabase` / `dropDatabase` | yes | throws `NotSupported` | yes, `charset()` throws `NotSupported` |
-| `lockTable` | locking read of every row | sends nothing | `TABLOCK, HOLDLOCK` read |
+| `lockTable` | `FOR UPDATE` read of every row | sends nothing | `TABLOCK, HOLDLOCK` read |
 | View `orReplace()` | `OR REPLACE` | throws | `OR ALTER` |
 | View `ifNotExists()`, `temporary()` | throws | yes | throws |
 | View `algorithm()`, `security()` | yes | throws | throws |
