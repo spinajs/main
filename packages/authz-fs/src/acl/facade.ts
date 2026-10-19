@@ -24,7 +24,7 @@ export interface FsAclOptions {
 }
 
 /**
- * Changes the file ACL as the current principal (fs middleware design §2.3). Every call asserts a definite
+ * Changes the file ACL as the current principal. Every call asserts a definite
  * `fs:manage` on both the file and the dir ref of the path (the fs ref for the root), whatever the filesystem's
  * `authz.fs` mode; only SYSTEM is exempt. The checks run in the domain of `authz.fs.<fs>.domain`, 'root' without an
  * entry. fs:manage lets the holder grant any configured relation, owner included. System code that needs unchecked
