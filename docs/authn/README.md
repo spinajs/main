@@ -364,6 +364,13 @@ throws only for a fault. Rules:
 - `TotpService` finds the other MFA steps in the root container. An app that registers steps per
   child container passes `steps` itself.
 
+`TotpService` implements and registers `MfaEnrolmentService` (`@spinajs/authn/contracts`), the
+contract behind the `/user/mfa` routes and the admin `POST /authn/admin/users/:uuid/mfa-reset` of
+`authn-http`. `authn-http` injects it as optional and does not depend on `authn-totp`. Those routes
+answer 404 `not_found` until an `MfaEnrolmentService` is registered and its `enabled(steps)` is
+true for the steps of the configured MFA policy. For `TotpService` that means `authn.mfa.steps` lists
+`TotpMfaStep` itself (not a subclass) and `authn.mfa.encryptionKey.secret` is set.
+
 **CLI:** `authn:mfa-reset <login>` removes the enrolment and recovery codes of an account and prints no
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
 `authn:mfa-qr` prints a QR code for a secret or an otpauth URL. It was `rbac:2fa-qr`, which still works as
