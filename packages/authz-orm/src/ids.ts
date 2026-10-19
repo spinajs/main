@@ -1,11 +1,9 @@
-import { AuthzConfigError, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError } from '@spinajs/authz';
 import { extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { nameOf } from './registry.js';
 import type { ModelClass } from './registry.js';
-
-export const refKey = resourceKey;
 
 /** A hydrated id as the text authz_resource_ancestor and the list SQL (CAST AS TEXT) hold. */
 export function idText(value: unknown): string | undefined {

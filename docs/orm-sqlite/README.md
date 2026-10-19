@@ -17,7 +17,7 @@ npm install @spinajs/orm @spinajs/orm-sqlite
 | [Connection and driver](01-connection.md) | `SqliteOrmDriver`: configuration, connect and disconnect, result shapes, error mapping, table reflection, subclassing the driver |
 | [Read handle pool](02-read-pool.md) | `Pool.Max` opens read-only handles that run `SELECT`s in parallel; `handleFor()` picks the handle |
 | [Transactions](03-transactions.md) | `BEGIN` / `COMMIT` / savepoints on the writer handle, `SERIALIZABLE` only, concurrency on one handle |
-| [Schema and DDL](04-schema-and-ddl.md) | Type mapping, column defaults, composite keys, `ALTER TABLE` limits, truncate, views, refused `CREATE DATABASE` |
+| [Schema and DDL](04-schema-and-ddl.md) | Type mapping, column defaults, composite keys, `ALTER TABLE` limits, column modify by table rebuild, truncate, views, refused `CREATE DATABASE` |
 | [Inserts, upserts and `RETURNING`](05-inserts-and-upserts.md) | `INSERT OR IGNORE` / `OR REPLACE`, `ON CONFLICT ... DO UPDATE`, generated keys through `RETURNING`, the response mapper and model serialization |
 | [Query dialect](06-query-dialect.md) | `ORDER BY`, joins, set membership with `instr`, `LIMIT` / `OFFSET`, identifier and literal quoting |
 | [Extending the driver](07-extending-the-driver.md) | Every DI token the driver registers, how to replace one per connection or for all SQLite connections |

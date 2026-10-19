@@ -34,7 +34,7 @@ sequenceDiagram
 
 | Member | Meaning |
 | --- | --- |
-| `Enabled: boolean` | `true` by default. `false` makes `measure()` call `fn` directly and `count()` / `value()` do nothing. |
+| `Enabled: boolean` | `true` by default. `false` makes `measure()` call `fn` directly, `start()` return a span whose `end()` does nothing, and `count()` / `value()` do nothing. |
 | `measure<T>(name, fn, opts?): Promise<T> \| T` | Time `fn`, emit a `span`, return `fn`'s result. |
 | `start(name, opts?): IPerfSpan` | Open a span; `end(fields?)` records it once (later calls are ignored) and merges `fields` into the metric's fields. |
 | `count(name, delta = 1, labels?)` | Emit a `counter` and add `delta` to the scope's `count`. |
@@ -142,7 +142,7 @@ void runJob('job-17', async () => {
 
 ## Important behaviour
 
-- `Perf.start()` does not check `Enabled`: a span opened with `start()` is recorded and emitted even when `Perf.Enabled` is `false`.
+- `Perf.start()` checks `Enabled` when the span opens. A span opened while enabled is still recorded when `Enabled` is switched off before `end()`.
 - `value()` metrics are not added to the scope, so they never appear in a rollup.
 - `measure()` returns `fn`'s result unchanged: a sync `fn` stays sync, an async one returns a promise.
 - `labels` become Prometheus labels in `PromMetricSink`. Put SQL text, ids and other high-cardinality data in `fields`, never in `labels`.

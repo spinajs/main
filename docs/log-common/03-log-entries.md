@@ -84,11 +84,11 @@ ${datetime} ${level} ${message}${?error} Exception: ${error:message}${/error} ($
 
 ## Important behaviour
 
-- `Variables.error` holds the serialized record, not the `Error`, although `ILogStaticVariables` types it as `Error | undefined`. Read `error.message` and `error.stack` from the record; `instanceof Error` is `false`.
+- `Variables.error` holds the serialized record (`ISerializedError`), not the `Error`; `ILogStaticVariables` types it as `ISerializedError | Error | undefined`. Read `error.message` and `error.stack` from the record; `instanceof Error` is `false`.
 - Per-call fields and logger variables override the core fields. A field named `message`, `level` or `logger` replaces the computed one.
 - When `logger` is `null` or `undefined`, `Variables.logger` is the `message` argument.
 - `format()` from `@spinajs/configuration-common` also expands `${...}` inside `message`. Text passed through `%s` is not escaped; a value containing `${level}` is expanded by the layout. Values passed as fields go through `renderValue()` and are escaped.
-- `createLogMessageObject()` does not check `level`. A number missing from `LogLevelStrings` throws a `TypeError`.
+- `createLogMessageObject()` does not check `level`. For a number missing from `LogLevelStrings`, `Variables.level` is that number as a string.
 
 ## Best practices
 

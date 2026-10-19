@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon';
 import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import type { Configuration } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
-import type { ISession } from './contracts.js';
 
 /**
  * Cookie `maxAge` (ms) from an expiration instant: `undefined` for a
@@ -15,13 +15,13 @@ export function cookieMaxAge(expiration: DateTime | undefined): number | undefin
   return Math.max(0, Math.floor(expiration.diff(DateTime.now()).milliseconds));
 }
 
-/** Cookie `maxAge` (ms) from a session's real `Expiration` (B1). */
-export function sessionCookieMaxAge(session: ISession): number | undefined {
-  return cookieMaxAge(session.Expiration);
-}
+// The builders take a partial or empty config (callers without a resolved configuration), so they fall back on the schema defaults.
+const COOKIE_SCHEMA = AUTHN_CONFIGURATION_SCHEMA.properties.session.properties.cookie.properties;
 
 /** Base name of the session cookie, before any `__Host-` prefix. */
-export const SESSION_COOKIE_BASE_NAME = 'ssid';
+export const SESSION_COOKIE_BASE_NAME: string = COOKIE_SCHEMA.name.default;
+
+const DEFAULT_SAME_SITE = COOKIE_SCHEMA.sameSite.default as ISessionCookieConfig['sameSite'];
 
 /** `'auto'` (the default) is on unless the app env is development or test. */
 export type SessionCookieFlag = boolean | 'auto' | 'true' | 'false';
@@ -107,7 +107,7 @@ export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?:
     ...passthrough,
     httpOnly: true,
     secure: flagOn(config.secure, env),
-    sameSite: config.sameSite ?? 'strict',
+    sameSite: config.sameSite ?? DEFAULT_SAME_SITE,
     maxAge,
   };
 

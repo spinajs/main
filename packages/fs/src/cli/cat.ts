@@ -23,6 +23,7 @@ export class FsCatCommand extends CliCommand {
       this.Log.info(content.toString());
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot read ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

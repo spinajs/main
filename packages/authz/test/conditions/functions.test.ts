@@ -1,10 +1,10 @@
 import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
-import { DI } from '@spinajs/di';
+import { Container, DI } from '@spinajs/di';
 import { fakeEvaluationContext } from '@spinajs/authz-testing';
 
-import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionCompiler, DefaultConditionCompiler, FALSE, GlobMatch, IpIn, TRUE, TimeBetween, WildcardMatch, conditionFunctionCaches, isBuiltinConditionFunction, matchGlob, matchWildcard } from '../../src/index.js';
+import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, FALSE, GlobMatch, IpIn, TRUE, TimeBetween, WildcardMatch, conditionFunctionCaches, isBuiltinConditionFunction, matchGlob, matchWildcard, registeredFunctions } from '../../src/index.js';
 import type { Condition, DecisionRequest, Principal } from '../../src/index.js';
 import { principal } from '../engine/fakes.js';
 
@@ -222,6 +222,30 @@ describe('conditions: built-in functions', () => {
     it('are registered in DI, so a resolved compiler has them', async () => {
       const c = (await DI.resolve(ConditionCompiler)) as DefaultConditionCompiler;
       expect([...c.functionNames()]).to.include.members(['glob', 'ip.in', 'time.between', 'wildcard']);
+    });
+  });
+
+  describe('registeredFunctions', () => {
+    class Weekday extends ConditionFunction {
+      readonly name = 'weekday';
+      evaluate(): boolean {
+        return true;
+      }
+    }
+
+    it('reads the given container along its lineage, not root DI alone', async () => {
+      const child = DI.RootContainer.child();
+      try {
+        child.register(Weekday).as(ConditionFunction);
+        expect((await registeredFunctions(child)).map((f) => f.name)).to.include.members(['weekday', 'glob', 'ip.in', 'time.between', 'wildcard']);
+        expect((await registeredFunctions(DI.RootContainer)).map((f) => f.name)).not.to.include('weekday');
+      } finally {
+        await child.dispose();
+      }
+    });
+
+    it('falls back to the built-ins when the container sees none', async () => {
+      expect(await registeredFunctions(new Container())).to.equal(BUILTIN_CONDITION_FUNCTIONS);
     });
   });
 });

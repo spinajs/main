@@ -13,8 +13,11 @@ export interface AdminConfig {
   readonly guard?: string;
 }
 
+/** The AuthzAdminBackend class authz.admin.backend names by default. */
+export const ADMIN_BACKEND_DEFAULT = 'MemoryAuthzAdminBackend';
+
 /** The schema defaults of authz.admin; DefaultAuthzAdmin falls back to them for a Configuration that skips the schema. */
-export const ADMIN_DEFAULTS = Object.freeze({ maxBatch: 100, backend: 'MemoryAuthzAdminBackend' });
+export const ADMIN_DEFAULTS = Object.freeze({ maxBatch: 100, backend: ADMIN_BACKEND_DEFAULT });
 
 /**
  * The permission authz.admin.permissions maps `kind` at `type` to, else `fallback`.

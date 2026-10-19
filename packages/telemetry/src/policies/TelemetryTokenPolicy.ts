@@ -48,7 +48,8 @@ export class TelemetryTokenPolicy extends BasePolicy {
       return;
     }
 
-    const token = req.headers[this.HEADER_TOKEN_FIELD] ?? this.bearerToken(req);
+    const header = req.headers[this.HEADER_TOKEN_FIELD];
+    const token = typeof header === 'string' && header.length > 0 ? header : this.bearerToken(req);
     if (typeof token !== 'string' || token.length === 0) {
       this.Log.warn(
         { headerField: this.HEADER_TOKEN_FIELD, ip: req.storage.realIp },

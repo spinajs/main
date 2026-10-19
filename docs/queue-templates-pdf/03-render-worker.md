@@ -88,7 +88,7 @@ export default {
 - The template is compiled before the renderer starts, so the job shows no progress during compilation.
 - Only engines registered in the worker can compile templates. The shipped worker has Pug (`.pug`); any other extension fails with an error from `Templates`.
 - The worker creates **every** provider in `fs.providers`, not only the output one. A provider whose `service` class is not imported in the worker (eg. `fsS3` from `@spinajs/fs-s3`) fails the bootstrap with `Type fsS3 not registered`. Load such packages in a [custom worker entry](06-custom-worker-entry.md).
-- `fork()` passes no command-line arguments. Flags the app was started with (`--app`, `--apppath`, `--env`) do not reach the worker's `FrameworkConfiguration`; environment variables such as `APP_ENV` do.
+- `fork()` passes the parent's command-line arguments (`process.argv.slice(2)`), so `--app`, `--apppath` and `--env` reach the worker's `FrameworkConfiguration`.
 - `renderPdfToProvider()` registers `WorkerConfiguration` as `Configuration` in the root container when `config` is set. In a process that already has its configuration, that registration wins for later resolves.
 - `renderPdfToProvider()` does not dispose DI. The shipped worker disposes and exits; your own caller must call `DI.dispose()` to close Chromium.
 

@@ -22,6 +22,18 @@ function normalizeEnvironment(env?: string | null): string;
 | `'Local'` | `'Local'` (not folded to `'local'`) |
 | `'DEV'` | `'DEV'` (not an alias) |
 
+## App env helpers
+
+Built on `normalizeEnvironment()`, exported from `@spinajs/configuration-common` (and re-exported by `@spinajs/configuration`):
+
+| Function | Answers |
+| --- | --- |
+| `isDevOrTestEnv(env)` | `true` for `dev`, `development` and `test`; `false` for anything else, absent and `''` included. |
+| `isProduction(source)` | A boolean (the caller's `@Config('configuration.isProduction')`) as is. A string: whether it normalizes to `prod`. A configuration: its `configuration.isProduction` flag, else its `process.env.APP_ENV`. `undefined`, or a configuration with neither: `APP_ENV ?? NODE_ENV ?? 'development'` of the process. |
+| `explicitAppEnv(config)` | The configuration's `process.env.APP_ENV`, or `undefined` when that is `development` and no env source named `development`: the configuration fell back to it, or only a config file set it. Use it where an unset env must count as production. |
+
+`Configuration.NamedEnv` holds the env a source named when `FrameworkConfiguration.load()` ran: `--env`, else `APP_ENV` of the `process.env` DI value, else `NODE_ENV`. It is `undefined` when none was set and `process.env.APP_ENV` fell back to `development`. A source changed after the load does not change it; reload the configuration. A `Configuration` that does not set it makes every `development` count as unset for `explicitAppEnv()`.
+
 ## Who calls it
 
 | Caller | Package | Input |
@@ -54,14 +66,13 @@ function normalizeEnvironment(env?: string | null): string;
 ### Gate a production-only behaviour
 
 ```ts sample
-import { normalizeEnvironment } from '@spinajs/configuration-common';
+import { isDevOrTestEnv, isProduction } from '@spinajs/configuration-common';
 
-export function isProduction(env: string | undefined = process.env.APP_ENV ?? process.env.NODE_ENV): boolean {
-  return normalizeEnvironment(env) === 'prod';
-}
-
-// true for "production", "prod", "" and undefined; false for "staging"
+// true for "production", "prod" and ""; false for "staging"
 console.log(isProduction('production'), isProduction('staging'));
+
+// true for "development" and "test"; false for "staging" and undefined
+console.log(isDevOrTestEnv('test'), isDevOrTestEnv(undefined));
 ```
 
 ## Related

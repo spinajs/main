@@ -25,8 +25,9 @@ export class FromParams extends RouteArgs {
 
         // args passed to another route-args params
         Payload: {
+          ...callData?.Payload,
           Param: {
-            Args: arg,
+            Args: { ...callData?.Payload?.Param?.Args, ...arg },
           },
         },
       },

@@ -51,6 +51,13 @@ class CoreConnectionConf extends FrameworkConfiguration {
       queue: {
         default: 'memory',
         connections: [{ service: 'InMemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test' }],
+        routing: {
+          SplitEvent: [
+            { connection: 'memory', channel: '/topic/a' },
+            { connection: 'other', channel: '/topic/b' },
+          ],
+          MisroutedEvent: { connection: 'missing' },
+        },
         retention: { service: 'DefaultJobRetentionService', enabled: false },
       },
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
@@ -69,6 +76,19 @@ class SampleJob extends QueueJob {
 @Event()
 class SampleEvent extends QueueEvent {
   public Bar: string;
+}
+
+@Event()
+class SplitEvent extends QueueEvent {}
+
+@Event()
+class MisroutedEvent extends QueueEvent {}
+
+@Job()
+class LongFailingJob extends QueueJob {
+  public async execute() {
+    throw new Error('x'.repeat(5000));
+  }
 }
 
 @Job()
@@ -183,6 +203,52 @@ describe('queue core - dedup & persistence', function () {
     expect(model.Status).to.eq('dead'); // RetryCount 0 -> attempt 1 > 0 -> dead
     expect(model.LastError).to.contain('kaboom');
     expect(model.Result, 'result must not hold the error').to.be.null;
+    expect(model.FinishedAt, 'a dead job is finished').to.be.ok;
+  });
+
+  it('cuts LastError to its column length', async () => {
+    const queue = await q();
+    await queue.consume(LongFailingJob);
+    await expect(LongFailingJob.emit({} as any)).to.be.rejected;
+
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    expect(model.LastError).to.have.lengthOf(1024);
+  });
+
+  it('surfaces the insert error when the first-receipt insert fails without a concurrent row', async () => {
+    const queue = await q();
+    sinon.stub(JobModel.prototype, 'insert').rejects(new Error('db down'));
+    await queue.consume(SampleJob);
+
+    await expect(SampleJob.emit({ Foo: 'x' })).to.be.rejectedWith('db down');
+  });
+
+  it('builds a fresh message for every delivery', async () => {
+    const queue = await q();
+    const received: SampleEvent[] = [];
+    await queue.consume<SampleEvent>(SampleEvent, async (e) => {
+      received.push(e);
+    });
+
+    await SampleEvent.emit({ Bar: 'first' });
+    await SampleEvent.emit({});
+
+    expect(received[1].Bar, 'a field missing from a later message must not leak from an earlier one').to.be.undefined;
+  });
+
+  it('a connection takes only its own channels from an array route', async () => {
+    const queue = await q();
+    expect(queue.get('memory').getChannelForMessage(SplitEvent)).to.deep.eq(['/topic/a']);
+  });
+
+  it('stopConsuming rejects for an unknown connection', async () => {
+    const queue = await q();
+    await expect(queue.stopConsuming(MisroutedEvent)).to.be.rejectedWith('missing');
+  });
+
+  it('keeps a CreatedAt passed to the message constructor', () => {
+    const createdAt = DateTime.fromISO('2020-01-01T00:00:00Z');
+    expect((new (SampleEvent as any)({ CreatedAt: createdAt }) as SampleEvent).CreatedAt).to.eq(createdAt);
   });
 
   it('throttles progress DB writes', async () => {
@@ -216,5 +282,39 @@ describe('queue core - dedup & persistence', function () {
     const remaining = await JobModel.all();
     expect(remaining).to.have.lengthOf(1);
     expect(remaining[0].Status).to.eq('created');
+  });
+});
+
+class RetentionConf extends CoreConnectionConf {
+  protected onLoad(): unknown {
+    const conf = super.onLoad() as { queue: Record<string, unknown> };
+    conf.queue.retention = { service: 'DefaultJobRetentionService', enabled: true, maxAge: 1, interval: 20 };
+    return conf;
+  }
+}
+
+describe('queue core - retention', function () {
+  this.timeout(20000);
+
+  beforeEach(async () => {
+    DI.clearCache();
+    DI.register(RetentionConf).as(Configuration);
+    await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  afterEach(async () => {
+    const queue = await q();
+    await queue.dispose();
+  });
+
+  it('runs the configured purge when JobRetentionService was resolved before QueueService', async () => {
+    await DI.resolve(JobRetentionService);
+    await q();
+    await seedJob('success');
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(await JobModel.all()).to.have.lengthOf(0);
   });
 });

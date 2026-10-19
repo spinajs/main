@@ -4,7 +4,7 @@ A provider is a named file system instance, eg. `documents` on local disk or `me
 
 ## How it works
 
-1. The application runs every `Bootstrapper`. `FsBootsrapper.bootstrap()` registers the `'__file_provider__'` factory, which looks a provider up by name.
+1. The application runs every `Bootstrapper`. `FsBootstrapper.bootstrap()` registers the `'__file_provider__'` factory, which looks a provider up by name.
 2. The application resolves `fsService` (`await DI.resolve(fsService)`). Nothing in this package resolves it for you, except the [CLI commands](11-cli-commands.md).
 3. `fsService.resolve()` throws `InvalidConfiguration` when `fs.defaultProvider` is not set.
 4. It collapses `fs.providers` by `name`: when two entries share a name, the last one wins.
@@ -17,13 +17,13 @@ A provider is a named file system instance, eg. `documents` on local disk or `me
 ```mermaid
 sequenceDiagram
   participant App
-  participant FsBootsrapper
+  participant FsBootstrapper
   participant fsService
   participant DI
   participant Provider as fsNative / fsTemp / custom
   participant Decorators as FsDecorator[]
-  App->>FsBootsrapper: bootstrap()
-  FsBootsrapper->>DI: register factory as '__file_provider__'
+  App->>FsBootstrapper: bootstrap()
+  FsBootstrapper->>DI: register factory as '__file_provider__'
   App->>DI: resolve(fsService)
   DI->>fsService: resolve()
   loop each fs.providers entry, dependencies first
@@ -85,7 +85,7 @@ export default config;
 | --- | --- | --- | --- | --- |
 | File provider | `fs` (the string `'fs'` is the same registry key), `PerInstanceCheck`: one instance per `name` | `fsNative` | `fsTemp`; `fsS3`, `fsFTP`, `fsOneDrive` in their packages | Register a subclass of `fs` with `@Injectable('fs')` and `@PerInstanceCheck()`, then set `service` to its class name. See [Custom providers](06-custom-providers.md). |
 | `fsService` | `fsService` class, singleton (`AsyncService`) | `fsService` | none | Subclass and `DI.register(MyFsService).as(fsService)`. See [Boot service and provider lookup](08-boot-service-and-provider-lookup.md). |
-| `FsBootsrapper` | `Bootstrapper`, singleton | `FsBootsrapper` | none | Register your own `'__file_provider__'` factory after it ran. See [Boot service and provider lookup](08-boot-service-and-provider-lookup.md#provider-lookup-factory). |
+| `FsBootstrapper` (`FsBootsrapper` is a deprecated alias) | `Bootstrapper`, singleton | `FsBootstrapper` | none | Register your own `'__file_provider__'` factory after it ran. See [Boot service and provider lookup](08-boot-service-and-provider-lookup.md#provider-lookup-factory). |
 | Provider decorators | `FsDecorator`, all registrations as `Array.ofType(FsDecorator)` | none | `AuthzFsDecorator` in `@spinajs/authz-fs` (order `100`) | `DI.register(MyDecorator).as(FsDecorator)` before `fsService` resolves. See [Provider decorators](07-provider-decorators.md). |
 
 ### Getting a provider
@@ -106,8 +106,8 @@ All of them return the decorated instance when [provider decorators](07-provider
 - `service` is matched against the **class name** (`constructor.name`). A bundler that renames classes breaks the lookup.
 - Each provider is resolved once per `name`: the base class implements `__checkInstance__` by comparing `Options.name`.
 - A provider that throws in its `resolve()` fails `fsService.resolve()`, and the rest of the boot with it.
-- `getFs()` needs `FsBootsrapper` to have run. Before `fsService` resolves, it throws `No __file_provider_instance__ registered`.
-- `getFs()` throws for an unknown name, although its overload returns `fs | undefined`. A `!provider` check after it never runs.
+- `getFs()` needs `FsBootstrapper` to have run. Before `fsService` resolves, it throws `No __file_provider_instance__ registered`.
+- `getFs()` throws for an unknown name. It returns `null` only when `FsBootstrapper` has not run, so `provider()` then throws `IOFail` (`Filesystem <name> not found`) and `new URI()` throws `InvalidArgument`.
 - `@FileSystem()` defines a non-configurable getter without a setter on the prototype. Assigning the property throws in strict mode. A class field compiled with `useDefineForClassFields: true` (default for `target` ES2022 and later) shadows the getter with `undefined`.
 
 ## Best practices

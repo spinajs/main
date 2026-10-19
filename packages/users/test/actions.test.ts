@@ -73,7 +73,11 @@ describe('User model tests', function () {
   });
 
   it('Should not send event when user is already activated', async () => {
-    expect(activate('test@spinajs.pl')).to.be.rejected;
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await activate('test@spinajs.pl');
+
+    expect(eStub.callCount).to.eq(0);
   });
 
   it('activate resolves with the user, not the notification email result', async () => {

@@ -76,7 +76,11 @@ export class MigrateDownCommand extends CliCommand {
     }
 
     if (options.all) {
-      this.Log.warn('Rolling back EVERY applied migration on every configured connection ( --all )');
+      if (options.connection) {
+        this.Log.warn({ connection: options.connection }, 'Rolling back EVERY applied migration on connection ${connection} ( --all )');
+      } else {
+        this.Log.warn('Rolling back EVERY applied migration on every configured connection ( --all )');
+      }
       return;
     }
 

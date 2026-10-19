@@ -18,7 +18,7 @@ Then, during application start:
 1. The application resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each one.
 2. `OrmHttpBootstrapper.bootstrap()` subscribes once to the DI event `di.resolved.Orm`. It does nothing else.
 3. The application resolves `Orm`. DI emits `di.resolved.Orm` with the instance.
-4. The listener walks `orm.Models` and sets `custom:arg_hydrator` metadata to `{ hydrator: DbModelHydrator }` on every model class.
+4. The listener walks `orm.Models` and sets `custom:arg_hydrator` metadata to `{ hydrator: DbModelHydrator }` on every model class that has no hydrator yet.
 5. The listener copies every key of `MODEL_STATIC_MIXINS` onto every model class, bound to that class: `filter()`, `filterColumns()`, `filterSchema()`.
 
 ```mermaid
@@ -47,7 +47,7 @@ sequenceDiagram
 
 ### OrmHttpBootstrapper: running your own step after it
 
-Use this when one model needs its own request hydrator. `OrmHttpBootstrapper` overwrites `custom:arg_hydrator` on every model, so a `@Hydrator()` decorator on a model class is lost. Set the metadata again from a later `di.resolved.Orm` listener.
+Use this when one model needs its own request hydrator and you cannot put `@Hydrator()` on its class. `OrmHttpBootstrapper` keeps a hydrator a model already has, so `@Hydrator()` on the class is enough when you own it. Otherwise set the metadata from a later `di.resolved.Orm` listener.
 
 Listeners fire in the order they subscribed, and bootstrappers run in registration order. Import `@spinajs/orm-http` before the module that declares your bootstrapper.
 
@@ -92,7 +92,7 @@ export class AuditHydratorBootstrapper extends Bootstrapper {
 - The listener is `DI.once`: it runs on the first `Orm` resolve only. A model not in `orm.Models` at that moment gets neither the hydrator nor the statics.
 - If `Orm` resolves before the bootstrappers run, the event is missed. No model gets `filter()`, and `@Filter(Model)` fails at request time.
 - The statics exist only after the ORM resolves. They are **not** there while controllers are decorated, which is why `FilterModelRouteArg` builds the filter schema per request.
-- The hydrator metadata is overwritten unconditionally, including a `@Hydrator()` you put on a model class.
+- A model that already has `custom:arg_hydrator` metadata, own or inherited (for example from `@Hydrator()`), keeps it.
 - `SelectQueryBuilder.prototype.filter` exists from import time, on every select builder of every model, whether or not the bootstrapper ran. It calls the model's `filterColumns()` static unless you pass the columns yourself.
 
 ## Best practices

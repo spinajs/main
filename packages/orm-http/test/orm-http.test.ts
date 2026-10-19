@@ -210,6 +210,26 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].Text).to.eq('hydrated');
     });
 
+    it('@AsModel(field) reads the named body field', async () => {
+      const spy = DI.get(Simple)!.testAsModelField as sinon.SinonSpy;
+      await req()
+        .post('simple/testAsModelField')
+        .send({ left: { Text: 'l' }, right: { Text: 'r' } })
+        .set('Accept', 'application/json');
+
+      expect(spy.args[0][0].Text).to.eq('l');
+      expect(spy.args[0][1].Text).to.eq('r');
+    });
+
+    it('@AsModel answers 400 when its field is missing from the body', async () => {
+      const res = await req()
+        .post('simple/testAsModelField')
+        .send({ left: { Text: 'l' } })
+        .set('Accept', 'application/json');
+
+      expect(res).to.have.status(400);
+    });
+
     it('Should return filterable columns for model', async () => {
       const columns = FilterableModel.filterColumns();
       expect(columns.length).to.eq(2);
