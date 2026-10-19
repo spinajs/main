@@ -33,6 +33,8 @@ Reading it back:
 | `hash(path)` | the `hash` entry: the SHA-256 hex digest. Throws `InvalidArgument` when an algorithm is passed, and `IOFail` when the object has no `hash` entry. |
 | `setMetadata(path, metadata)` | replaces all user metadata; see below. |
 
+Both are file actions that go through `runAction`: `getMetadata` is checked as `stat` and `setMetadata` as `write`, so `AuthzFsMiddleware` checks them on an `enforce` or `audit` filesystem ([Middlewares](../fs/07-middlewares.md)).
+
 `setMetadata(path, metadata)`:
 
 1. `HeadObjectCommand` reads the content headers.
