@@ -96,7 +96,7 @@ The probes run unchecked inside the action frame, on `target.fs`, and their erro
 | `rename(src, dst)` | source `read` and `delete`; destination `write` |
 | `zip(paths, dstFs?, dstFile?)` | each source `read`; destination file `write` on `dstFs ?? zipDestination()`. Absent `dstFile` is `tmpname('.zip')` of the destination. |
 | `unzip(src, dst?, dstFs?)` | source `read`; destination dir `write` on `dstFs ?? unzipDestination()`. Absent `dst` is `tmpname()`. |
-| `signedUrl`, `getSignedUrl` | file, `share` |
+| `signedUrl`, `getSignedUrl` | file, `share`. `getSignedUrl` runs as `ctx.action` `'signedUrl'`. |
 
 Not checked: `resolvePath`, `tmppath`, `tmpname`, `resolve`, `dispose`. Provider extras that touch files declare their own targets: see [Writing a provider](#writing-a-provider).
 
@@ -131,7 +131,8 @@ export async function tryToOverwriteContract(): Promise<boolean> {
     await getFs('archive').write('contracts/42.txt', 'changed', 'utf-8');
     return true;
   } catch (err) {
-    return err instanceof InvalidOperation ? false : Promise.reject(err);
+    if (!(err instanceof InvalidOperation)) throw err;
+    return false;
   }
 }
 ```
@@ -146,7 +147,7 @@ export async function tryToOverwriteContract(): Promise<boolean> {
 - `writeStream` runs `after` when the stream emits `'close'` (`fsS3` emits it once the upload is done), and holds that `'close'` until the hooks settle, for at most `fs.middlewareTimeoutMs`. A failing hook, or the timeout, goes to the stream's `'error'` listeners. An errored or unfinished stream runs no `after`.
 - A middleware throwing in `before` stops the chain: later middlewares do not run.
 - `signedUrl` on a provider without `doSignedUrl` throws `MethodNotImplemented` after the `before` hooks passed.
-- Only top-level calls run middlewares. Code that calls a provider from an `after` hook after the frame closed starts a new action.
+- Only top-level calls run middlewares. `before` and `after` hooks run outside the action frame, so a provider call made from `after` is a new action with its own middleware chain.
 
 ### Path normalisation
 
@@ -158,7 +159,7 @@ Normalisation is always on, with or without middlewares: every public action pas
 
 The path a middleware checks is the path the provider touches, also on key stores where `/x` and `x` would be two keys.
 
-### Writing a provider
+## Writing a provider
 
 A provider implements the protected `doX` hooks; they receive normalised paths. The public methods are final: the base constructor throws `InvalidOperation` when a subclass overrides one.
 
@@ -192,7 +193,8 @@ A provider extra that touches files declares its targets and calls `runAction(ac
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a public call on ctx.fs from before() is a new top-level action, so every middleware runs again
+// Don't: `before` runs outside the frame, so exists() is a new top-level action that runs this middleware again
+// and recurses endlessly
 public async before(ctx: FsActionContext): Promise<void> {
   if (await ctx.fs.exists(ctx.targets[0].path)) {
     throw new InvalidOperation('already there');

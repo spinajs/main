@@ -36,7 +36,7 @@ Every `fsFTP` instance owns one `basic-ftp` `Client` and one control connection.
 | `copy(path, dest)` | `download()`, `upload(temp, dest)`, `TempFs.rm(temp)` | Creates missing directories of `dest` |
 | `copy(path, dest, dstFs)` | `download()`, `dstFs.upload(temp, dest)`, `TempFs.rm(temp)` | Copies to another provider |
 | `rm(path)` | `stat(path)`, then `DELE` base name, or `Client.removeDir()` for a directory | Deletes a file, or a directory with all its content. A missing file fails with the server's `550` reply |
-| `zip(paths, dstFs?, dstFile?)` | `download()` each entry, `TempFs.zip()` | `IZipResult` on `dstFs`, default `fs-temp`. Entry names are the remote paths as given; a `[remotePath, entryName]` pair renames an entry. Directories are not supported |
+| `zip(paths, dstFs?, dstFile?)` | `download()` each entry, `TempFs.zip()` | `IZipResult` on `dstFs`, default `fs-temp`. Entry names are the normalised remote paths; a `[remotePath, entryName]` pair renames an entry. Directories are not supported |
 | `unzip(path, destPath?, dstFs?)` | `download()`, `TempFs.unzip(temp, destPath, dstFs ?? TempFs)`, `TempFs.rm(temp)` | Path of the extracted content. `dstFs` must be a local provider; extracting onto FTP is not supported |
 | `tmppath()` | none | Throws `MethodNotImplemented` |
 | `resolvePath(path)` | none | Throws `MethodNotImplemented` |

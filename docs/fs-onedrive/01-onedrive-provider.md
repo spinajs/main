@@ -34,8 +34,8 @@ sequenceDiagram
   DI->>O: resolve()
   O->>O: new ClientSecretCredential(tenantId, clientId, clientSecret)
   O->>G: Client.initWithMiddleware({ debugLogging, authProvider })
-  O->>DI: getFs('fs-temp')
   S->>S: register the instance under entry.name
+  Note over O,DI: TempFs is not resolved here: the first use of TempFs calls getFs('fs-temp')
 ```
 
 ## Configuration

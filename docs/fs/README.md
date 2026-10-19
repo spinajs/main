@@ -58,11 +58,12 @@ export async function saveInvoice(invoiceNumber: string, pdf: Buffer): Promise<s
 
 Configure the providers first: see [Providers and configuration](01-providers-and-configuration.md).
 
+Every path is normalised before a provider sees it: see [Path normalisation](07-middlewares.md#path-normalisation).
+
 ## Related packages
 
 - `@spinajs/fs-s3`, `@spinajs/fs-ftp`, `@spinajs/fs-onedrive`: remote providers built on the abstract `fs` class.
 - `@spinajs/authz-fs`: ships `AuthzFsMiddleware`, which guards providers with authorization rules.
-- Every path is normalised before a provider sees it: see [Path normalisation](07-middlewares.md#path-normalisation).
 - `@spinajs/di`: resolves every provider, strategy, hasher and decorator of this package.
 - `@spinajs/configuration`: supplies the `fs.*` keys.
 - `@spinajs/cli`: runs the `fs-*` commands.

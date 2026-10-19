@@ -262,6 +262,30 @@ public get Name(): string {
 }
 ```
 
+## Migration
+
+Public overrides become protected `doX` hooks, and `FsDecorator` becomes `FsMiddleware`. `fsService.decorate()` is removed, and `getFs()` returns the provider itself.
+
+```ts
+// Before: the provider overrode the public method, and a decorator wrapped the provider
+class MyFs extends fs {
+  public async read(path: string, encoding?: BufferEncoding) { /* ... */ }
+}
+fsService.decorate(AuditDecorator);
+
+// After: the provider implements the protected hook, and a middleware replaces the decorator
+class MyFs extends fs {
+  protected async doRead(path: string, encoding?: BufferEncoding) { /* ... */ }
+}
+
+@Injectable(FsMiddleware)
+class AuditMiddleware extends FsMiddleware {
+  public async before(ctx: FsActionContext) { /* ... */ }
+}
+```
+
+A subclass that still overrides a public action makes the base constructor throw `InvalidOperation`. See [Middlewares](07-middlewares.md).
+
 ## Related
 
 - [File operations](02-file-operations.md): the API every provider implements.

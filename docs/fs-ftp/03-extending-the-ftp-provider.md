@@ -192,7 +192,7 @@ export async function backupDatabaseDump(localDump: string, day: string) {
 
 `basic-ftp` runs one command at a time and `fsFTP` does not queue. This subclass chains the hooks that talk to the server on one promise queue. A middleware cannot do this: it has `before` and `after` only and cannot hold the IO.
 
-Hooks call each other (`doRm` calls `stat()`, `doExists` calls `stat()`), so the queue runs a nested call directly through an `AsyncLocalStorage` flag. Without it the inner call would wait for the outer one and never finish. For `doReadStream` the queue waits until the returned stream finishes.
+Hooks call each other: `doRm` calls `stat()`, and `doUpload` with `{ exclusive: true }` calls `exists()`, which calls `stat()` (`doExists` itself is not queued). The queue runs a nested call directly when the `AsyncLocalStorage` holds this instance. Without it the inner call would wait for the outer one and never finish. For `doReadStream` the queue waits until the returned stream finishes; that hold has no timeout, so a stream nobody consumes blocks the queue.
 
 ```ts sample
 import { AsyncLocalStorage } from 'async_hooks';
@@ -201,19 +201,18 @@ import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { getFs, IFsUploadOptions, IStat } from '@spinajs/fs';
 import { fsFTP } from '@spinajs/fs-ftp';
 
-const insideQueue = new AsyncLocalStorage<true>();
-
 @Injectable('fs')
 @PerInstanceCheck()
 export class fsFTPQueued extends fsFTP {
   protected Tail: Promise<unknown> = Promise.resolve();
+  protected readonly InsideQueue = new AsyncLocalStorage<fsFTPQueued>();
 
   protected serialized<T>(task: () => Promise<T>, hold?: (result: T) => Promise<unknown>): Promise<T> {
-    if (insideQueue.getStore()) {
+    if (this.InsideQueue.getStore() === this) {
       return task();
     }
 
-    const run = this.Tail.then(() => insideQueue.run(true, task));
+    const run = this.Tail.then(() => this.InsideQueue.run(this, task));
     this.Tail = run.then(
       (result) => (hold ? hold(result).catch(() => undefined) : undefined),
       () => undefined,

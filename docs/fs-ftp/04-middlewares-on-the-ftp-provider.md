@@ -50,7 +50,7 @@ export async function pullContract(contractId: string): Promise<string> {
   const local = getFs('local');
 
   await archive.copy(`contracts/${contractId}.pdf`, `contracts/${contractId}.pdf`, local);
-  return (await archive.exists(`contracts/${contractId}.pdf`)) ? 'copied' : 'missing';
+  return (await local.exists(`contracts/${contractId}.pdf`)) ? 'copied' : 'missing';
 }
 ```
 
@@ -65,7 +65,7 @@ export async function pullContract(contractId: string): Promise<string> {
 
 ## Best practices
 
-- Keep per-server switches by provider name (`target.fs.Name`), not by a custom config key: a middleware has no access to the provider entry.
+- Keep per-server switches by provider name (`target.fs.Name`), not by a custom config key: `target.Name` works on every provider, while reading the provider entry (`Options`) needs a cast to the provider type.
 - Check `ctx.targets`, not only `ctx.fs`: `copy` and `move` out of `fsFTP` have a destination on another provider.
 
 ## Patterns and antipatterns
