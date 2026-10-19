@@ -91,6 +91,7 @@ export declare abstract class ScopeAttributeStore {
 ## src/contracts/admin.ts
 
 ```ts
+import { Exception } from "@spinajs/exceptions";
 import type { Assignment, AssignmentSubject, LinkDef, Policy, RuleDef } from "./data.js";
 import type { Permission } from "./permission.js";
 import type { Principal, PrincipalRef, ResourceRef } from "./principal.js";
@@ -192,7 +193,7 @@ export interface AuthzAdminError {
     readonly field?: string;
 }
 /** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
-export declare class AuthzAdminFailure extends Error {
+export declare class AuthzAdminFailure extends Exception {
     readonly code: string;
     readonly field?: string;
     constructor(code: string, message?: string, field?: string, options?: ErrorOptions);
@@ -500,9 +501,9 @@ const UNKNOWN_DENY_PRIORITY = 500;
 ## src/contracts/errors.ts
 
 ```ts
-import { AuthenticationFailed, Forbidden } from "@spinajs/exceptions";
+import { AuthenticationFailed, Forbidden, InvalidOption } from "@spinajs/exceptions";
 import type { Decision } from "./decision.js";
-export declare class AuthzConfigError extends Error {
+export declare class AuthzConfigError extends InvalidOption {
     constructor(message?: string, options?: ErrorOptions);
 }
 export declare class UnknownPermission extends AuthzConfigError {

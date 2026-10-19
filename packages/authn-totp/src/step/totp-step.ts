@@ -9,7 +9,7 @@ import { mfaKeyRingFrom } from '../cipher/key-ring.js';
 import type { MfaEncryptionKeyOptions, MfaKeyRing } from '../cipher/key-ring.js';
 import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
-import { identityKey } from '../store/identity.js';
+import { identityKey } from '@spinajs/authn-orm/identity';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from './errors.js';
 import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
 import type { TotpOptions } from './options.js';

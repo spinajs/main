@@ -239,7 +239,7 @@ describe('v3 support', () => {
     class KitOrm {}
     DI.register(KitOrm).as(Orm);
     try {
-      assert.strictEqual(registered(IdentityStore), false);
+      assert.strictEqual(DI.hasImplementation(IdentityStore), false);
       await assert.rejects(Promise.resolve(DI.resolve(MfaReset)), /Type IdentityStore is not registered/);
     } finally {
       DI.unregister(KitOrm);

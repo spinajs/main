@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
+import { Exception, InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 
 import * as root from '../../src/index.js';
 import { AuthzConfigError, UnknownPermission } from '../../src/contracts/errors.js';
@@ -30,6 +31,25 @@ describe('permission contracts', () => {
       expect(err.message).to.eq('fs:write');
       expect(new AuthzConfigError('x').name).to.eq('AuthzConfigError');
       expect(new AuthzConfigError('x')).to.not.be.instanceOf(UnknownPermission);
+    });
+
+    it('AuthzConfigError is an InvalidOption, which @spinajs/http answers with 500', () => {
+      const err = new AuthzConfigError('x');
+
+      expect(err).to.be.instanceOf(InvalidOption);
+      expect(err).to.be.instanceOf(Exception);
+      expect(err).to.not.be.instanceOf(InvalidArgument);
+      expect(err.inner).to.eq(undefined);
+    });
+
+    it('AuthzConfigError keeps cause, but not as an enumerable prop an error body would copy', () => {
+      const cause = new Error('driver');
+      const err = new AuthzConfigError('x', { cause });
+
+      expect(err.cause).to.eq(cause);
+      expect({ ...err }).to.not.have.property('cause');
+      expect(JSON.stringify(err)).to.not.contain('driver');
+      expect(new AuthzConfigError('x')).to.not.have.property('cause');
     });
 
     it('is exported from the package root', () => {

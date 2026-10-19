@@ -1,5 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
+import { Exception } from '@spinajs/exceptions';
 
 import { AuthzAdmin, AuthzAdminFailure, AdminGuard, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../../src/index.js';
 import type { AdminContext, Assignment, AssignmentSubject, AuthzAdminError, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, AuthzTx, LinkDef, Policy, Principal, PrincipalRef, ResourceRef, RuleDef } from '../../src/index.js';
@@ -189,9 +190,9 @@ describe('data shapes', () => {
 });
 
 describe('AuthzAdminFailure', () => {
-  it('is an Error carrying code and field', () => {
+  it('is an Exception carrying code and field', () => {
     const e = new AuthzAdminFailure('not_found', 'no such id', 'id');
-    expect(e).to.be.instanceOf(Error);
+    expect(e).to.be.instanceOf(Exception);
     expect(e.name).to.eq('AuthzAdminFailure');
     expect(e.code).to.eq('not_found');
     expect(e.field).to.eq('id');
@@ -362,6 +363,7 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
     yes<Equal<ConstructorParameters<typeof AuthzAdminFailure>, [code: string, message?: string, field?: string, options?: ErrorOptions]>>();
     yes<Equal<Pick<AuthzAdminFailure, 'code' | 'field'>, { readonly code: string; readonly field?: string }>>();
     expect(new AuthzAdminFailure('x', undefined, undefined, { cause: 'c' }).cause).to.eq('c');
+    expect({ ...new AuthzAdminFailure('x', undefined, undefined, { cause: 'c' }) }).to.not.have.property('cause');
   });
 
   it('types RuleDef.reason as a DenyReason without model', () => {
