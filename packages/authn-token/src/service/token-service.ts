@@ -1,5 +1,5 @@
-import { Autoinject, Inject, Injectable } from '@spinajs/di';
-import { Config, service } from '@spinajs/configuration';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
@@ -153,9 +153,6 @@ export class DbTokenService extends TokenService {
 
   @Logger('authn-token')
   protected Log: Log;
-
-  @Autoinject(RoleSource, { optional: true })
-  protected Roles: RoleSource | undefined;
 
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
