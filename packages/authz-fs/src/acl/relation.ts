@@ -10,10 +10,7 @@ import { domainNow } from '../middleware/decide.js';
 import { FS_NO_OWNER_TYPES } from '../middleware/owner.js';
 import { parseFsRef } from '../refs/index.js';
 import type { FsRefType } from '../refs/index.js';
-import { aclPathChain, fileAclStore } from './shared.js';
-
-/** `AuthorizationModel.name` of RbacModel. */
-const RBAC_MODEL = 'rbac';
+import { FS_ACL_LIMITS, aclPathChain, fileAclStore } from './shared.js';
 
 /**
  * `relation` on fs refs of `type`, read from the file ACL (fs middleware design §2.2): holds when a live row of the
@@ -36,25 +33,27 @@ export class FsAclRelation extends RelationResolver {
   async holds(principal: Principal, ref: ResourceRef): Promise<boolean> {
     if (ref?.type !== this.type || FS_NO_OWNER_TYPES.has(principal.type)) return false;
     const parsed = parseFsRef(ref);
-    if (!parsed) return false;
+    if (!parsed || parsed.fs.length > FS_ACL_LIMITS.fs) return false;
+    // No row can exist for a path past the column width, and the store refuses one.
+    const chain = aclPathChain(parsed.path).filter((p) => p.length <= FS_ACL_LIMITS.path);
     const domain = this.container.get(Configuration) ? fsAccessConfig(parsed.fs, this.container).domain : 'root';
     const at = await domainNow(this.container, domain);
     const keys = await this.subjectKeys(principal, domain, at);
-    return (await fileAclStore(this.container)).holds(parsed.fs, aclPathChain(parsed.path), keys, this.relation, at);
+    return (await fileAclStore(this.container)).holds(parsed.fs, chain, keys, this.relation, at);
   }
 
   /**
    * From the RbacService registered in the domain or a parent (sets, companions, wildcards, the ceiling applied),
-   * used only when the domain's AuthzService runs the rbac model: a child domain without it must not match set rows
-   * through its parent's service. Otherwise the principal and its type wildcard.
+   * used only when it is the service of a model the domain's AuthzService runs: a child domain without one must not match
+   * set rows through its parent's service. Otherwise the principal and its type wildcard.
    */
   protected async subjectKeys(principal: Principal, domain: string, at: Date): Promise<readonly string[]> {
     const own = [principalSubjectKey(principal), subjectKeyOf({ type: principal.type, id: '*' })];
     const domains = domain === 'root' ? undefined : ((await this.container.resolve(AuthzDomains)) as AuthzDomains);
     const scope = domains ? domains.container(domain) : this.container;
     if (!scope.hasRegistered(RbacService)) return own;
+    const rbac = (await scope.resolve(RbacService)) as RbacService;
     const authz = domains ? await domains.service(domain) : ((await scope.resolve(AuthzService)) as AuthzService);
-    if (!authz.models().some((m) => m.name === RBAC_MODEL)) return own;
-    return ((await scope.resolve(RbacService)) as RbacService).subjectKeysOf(principal, at);
+    return authz.models().includes(rbac.model) ? rbac.subjectKeysOf(principal, at) : own;
   }
 }

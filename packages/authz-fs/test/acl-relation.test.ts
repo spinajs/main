@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthzConfigError, AuthzDomains, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, AuthzService as AuthzServiceToken, SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { AuthorizationModel, AuthzService, Principal, RelationResolver } from '@spinajs/authz';
 import { RbacService } from '@spinajs/authz-rbac';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
@@ -23,8 +23,9 @@ describe('authz-fs FsAclRelation', () => {
   let child: IContainer;
   let acl: MemoryFileAclStore;
   let domainContainers: Map<string, IContainer>;
-  /** The model names each domain's AuthzService runs. */
-  let domainModels: Map<string, string[]>;
+  /** The models each domain's AuthzService runs. */
+  let domainModels: Map<string, AuthorizationModel[]>;
+  const modelOf = (name: string) => ({ name }) as AuthorizationModel;
 
   beforeEach(async () => {
     child = await configuredChild({ uploads: { mode: 'enforce' }, files: { mode: 'enforce', domain: 'files' } });
@@ -38,7 +39,7 @@ describe('authz-fs FsAclRelation', () => {
         if (!found) throw new AuthzConfigError(`Authz domain "${name}" does not exist`);
         return found;
       },
-      service: async (name: string) => ({ models: () => (domainModels.get(name) ?? []).map((m) => ({ name: m }) as AuthorizationModel) }) as unknown as AuthzService,
+      service: async (name: string) => ({ models: () => domainModels.get(name) ?? [] }) as unknown as AuthzService,
     } as unknown as AuthzDomains;
     child.register(testHost.instance(domains)).as(AuthzDomains);
   });
@@ -105,11 +106,12 @@ describe('authz-fs FsAclRelation', () => {
   // narrowed delegate under 'inherit') unchanged, so that rule reaches the file ACL.
   it("asks the domain's RbacService for the subject keys of the principal it is given, at the domain time; a set row holds", async () => {
     const seen: [Principal, Date | undefined][] = [];
-    const rbac = { subjectKeysOf: async (p: Principal, at?: Date) => (seen.push([p, at]), ['user:alice', 'team:t1#team.member']) } as unknown as RbacService;
+    const model = modelOf('rbac');
+    const rbac = { model, subjectKeysOf: async (p: Principal, at?: Date) => (seen.push([p, at]), ['user:alice', 'team:t1#team.member']) } as unknown as RbacService;
     const files = child.child();
     files.register(testHost.instance(rbac)).as(RbacService);
     domainContainers.set('files', files);
-    domainModels.set('files', ['rbac']);
+    domainModels.set('files', [model]);
     await acl.grant({ fs: 'files', path: 'docs', subject: TEAM, relation: 'viewer' });
 
     const delegate = { ...alice, ceiling: { roles: ['team.member'] } } as Principal;
@@ -119,20 +121,40 @@ describe('authz-fs FsAclRelation', () => {
     expect(seen[0][1]).to.be.instanceOf(Date);
   });
 
-  it("finds a parent domain's RbacService, but not for a domain whose AuthzService runs no rbac model", async () => {
+  it("finds a parent domain's RbacService, but not for a domain whose AuthzService does not run its model", async () => {
     let asked = 0;
-    const rbac = { subjectKeysOf: async () => (asked++, ['user:alice', 'team:t1#team.member']) } as unknown as RbacService;
+    const model = modelOf('rbac');
+    const rbac = { model, subjectKeysOf: async () => (asked++, ['user:alice', 'team:t1#team.member']) } as unknown as RbacService;
     const parent = child.child();
     parent.register(testHost.instance(rbac)).as(RbacService);
     domainContainers.set('files', parent.child());
     await acl.grant({ fs: 'files', path: 'docs', subject: TEAM, relation: 'viewer' });
 
-    domainModels.set('files', ['abac']);
+    domainModels.set('files', [modelOf('abac')]);
     expect(await relation().holds(alice, file('files:docs/a.txt'))).to.equal(false);
     expect(asked).to.equal(0);
 
-    domainModels.set('files', ['rbac', 'abac']);
+    domainModels.set('files', [modelOf('abac'), model]);
     expect(await relation().holds(alice, file('files:docs/a.txt'))).to.equal(true);
     expect(asked).to.equal(1);
+  });
+
+  it('in the root domain it uses the RbacService of the container when the container AuthzService runs its model', async () => {
+    const model = modelOf('rbac');
+    const rbac = { model, subjectKeysOf: async () => ['user:alice', 'team:t1#team.member'] } as unknown as RbacService;
+    child.register(testHost.instance(rbac)).as(RbacService);
+    const models: AuthorizationModel[] = [];
+    child.register(testHost.instance({ models: () => models } as unknown as AuthzService)).as(AuthzServiceToken);
+    await acl.grant({ fs: 'uploads', path: 'docs', subject: TEAM, relation: 'viewer' });
+    expect(await relation().holds(alice, file('uploads:docs/a.txt'))).to.equal(false);
+    models.push(model);
+    expect(await relation().holds(alice, file('uploads:docs/a.txt'))).to.equal(true);
+  });
+
+  it('a path longer than the ACL column is covered by a parent row; without one it does not hold', async () => {
+    const long = 'x'.repeat(600);
+    await acl.grant({ fs: 'uploads', path: 'docs', subject: ALICE, relation: 'viewer' });
+    expect(await relation().holds(alice, file(`uploads:docs/${long}`))).to.equal(true);
+    expect(await relation().holds(alice, file(`uploads:other/${long}`))).to.equal(false);
   });
 });
