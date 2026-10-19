@@ -5,3 +5,5 @@ export class Model1 {
 export class Model2 {
   public Many: Model1[];
 }
+
+export const VERSION = '1.0';

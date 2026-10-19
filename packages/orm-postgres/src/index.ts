@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresLiteralQuoter } from './statements.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler } from './compilers.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresLiteralQuoter, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
 export * from './compilers.js';
+export * from './expressions.js';
 export * from './statements.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
@@ -39,8 +41,13 @@ export function toPositionalParameters(stmt: string): string {
  */
 export function toDriverStatement(stmt: string, params?: unknown[]): string {
   const count = params?.length ?? 0;
+  if (count === 0) {
+    return stmt;
+  }
+
+  // Quoted literals / identifiers and the jsonb operators `?|` `?&` are text, not placeholders.
   let i = 0;
-  return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
+  return stmt.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"|\?&|\?\|(?!\|)|\?/g, (match) => (match === '?' && i < count ? `$${++i}` : match));
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
@@ -79,6 +86,9 @@ export class PostgresOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  /** The wire protocol counts parameters in an Int16. */
+  public readonly MaxBindings = 65535;
+
   /**
    * pg hands NUMERIC/DECIMAL and BIGINT back as STRINGS: both can exceed 2^53, where a
    * float loses exactly the precision those types exist to keep, so node-postgres refuses
@@ -95,6 +105,10 @@ export class PostgresOrmDriver extends SqlDriver {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport
     // failures, where the statement provably never reached the server.
     return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+  }
+
+  protected isUniqueViolation(err: unknown): boolean {
+    return (err as { code?: unknown })?.code === '23505';
   }
 
   protected isRetryableError(err: unknown): boolean {
@@ -138,6 +152,11 @@ export class PostgresOrmDriver extends SqlDriver {
       } else {
         // Taking the client explicitly, instead of letting `Pool.query` do it out of
         // sight, is what makes `orm_pool_acquire_seconds` a real number instead of zero.
+        if (!this.Pool) {
+          // A failed reconnect leaves no pool; 08003 ( connection does not exist ) lets withReconnect retry.
+          throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
+        }
+
         const acquireStart = process.hrtime.bigint();
         const client = await this.Pool.connect();
         this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
@@ -193,6 +212,7 @@ export class PostgresOrmDriver extends SqlDriver {
       // With RETURNING every key comes back per row; the LAST_INSERT_ID batch walk is
       // MySQL's workaround for not having it.
       insertIdIsFirstOfBatch: false,
+      nativeJson: true,
     };
   }
 
@@ -209,6 +229,8 @@ export class PostgresOrmDriver extends SqlDriver {
      * dialect-specific is inherited by accident.
      */
     this.Container.register(DoubleQuoteIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(PostgresSqlExpressions).as(SqlExpressions);
+    this.Container.register(PostgresIndexQueryCompiler).as(IndexQueryCompiler);
     this.Container.register(PostgresOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(PostgresInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(PostgresColumnQueryCompiler).as(ColumnQueryCompiler);
@@ -220,6 +242,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
+    this.Container.register(PostgresJoinStatement).as(JoinStatement);
+    this.Container.register(PostgresDateTimeWrapper).as(DateTimeWrapper);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
@@ -259,6 +283,11 @@ export class PostgresOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     const pool = this.resolvedPoolOptions();
+
+    // A reconnect replaces the pool; the dead one still holds its sockets and timers.
+    const previous = this.Pool;
+    this.Pool = null as any;
+    await previous?.end().catch(() => undefined);
 
     this.Pool = new pg.Pool({
       host: this.Options.Host,
@@ -314,6 +343,11 @@ export class PostgresOrmDriver extends SqlDriver {
     }
 
     return this;
+  }
+
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`LOCK TABLE ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} IN SHARE MODE`);
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {

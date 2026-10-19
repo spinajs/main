@@ -5,12 +5,18 @@ import { Log, renderTemplate } from '@spinajs/log-common';
 
 import { InProcessChangeBus, LogDecisionAudit, AuthzClock, SystemClock, isProduction, engineLog, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, TRUE } from '@spinajs/authz';
 import type { AuthzChange, Decision } from '@spinajs/authz';
+import { TestLog, installTestLog } from '@spinajs/authz-testing';
 
 const expect = chai.expect;
 
 const change = (tags: string[] = ['t']): AuthzChange => ({ tags, at: new Date(0) });
 
 describe('InProcessChangeBus', () => {
+  let uninstallLog: () => void;
+  before(() => (uninstallLog = installTestLog()));
+  after(() => uninstallLog());
+  beforeEach(() => TestLog.clear());
+
   it('is a ChangeBus', () => {
     expect(new InProcessChangeBus()).to.be.instanceOf(ChangeBus);
   });
@@ -31,13 +37,7 @@ describe('InProcessChangeBus', () => {
       throw new Error('boom');
     });
     bus.subscribe(() => seen.push(2));
-    const orig = console.error;
-    console.error = () => {};
-    try {
-      await bus.publish(change());
-    } finally {
-      console.error = orig;
-    }
+    await bus.publish(change());
     expect(seen).to.deep.equal([2]);
   });
 
@@ -54,19 +54,13 @@ describe('InProcessChangeBus', () => {
 
   it('logs a throwing or rejecting subscriber without an unhandled rejection', async () => {
     const bus = new InProcessChangeBus();
-    const errors: string[] = [];
-    const orig = console.error;
-    console.error = (...a: unknown[]) => void errors.push(a.map(String).join(' '));
-    try {
-      bus.subscribe(() => {
-        throw new Error('sync-fail');
-      });
-      bus.subscribe((() => Promise.reject(new Error('async-fail'))) as never);
-      await bus.publish(change());
-      await new Promise((r) => setImmediate(r));
-    } finally {
-      console.error = orig;
-    }
+    bus.subscribe(() => {
+      throw new Error('sync-fail');
+    });
+    bus.subscribe((() => Promise.reject(new Error('async-fail'))) as never);
+    await bus.publish(change());
+    await new Promise((r) => setImmediate(r));
+    const errors = TestLog.lines.filter((l) => l.level === 'error').map((l) => String((l.args[0] as { error?: Error }).error?.message));
     expect(errors.some((e) => e.includes('sync-fail'))).to.equal(true);
     expect(errors.some((e) => e.includes('async-fail'))).to.equal(true);
   });

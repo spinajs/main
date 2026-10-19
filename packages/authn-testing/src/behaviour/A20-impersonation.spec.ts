@@ -8,7 +8,7 @@ import type { AuthnRule, CaseKit, HarnessWith } from './types.js';
 
 /**
  * requirePassword is satisfied by fresh authentication (within freshAuth.maxAgeSeconds) or an inline re-authentication,
- * as FreshAuth in authn-http/src/api.ts defines it; the success rows below send no password and rely on the first.
+ * as FreshAuth in authn-http/src/policies/v3/fresh-auth.ts defines it; the success rows below send no password and rely on the first.
  */
 const PINNED = { requireMfa: true, requirePassword: true };
 const BASE = { authn: { impersonation: PINNED } };

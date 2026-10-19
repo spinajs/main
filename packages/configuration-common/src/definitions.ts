@@ -11,7 +11,7 @@ export interface IFrameworkVersion {
 export interface IConfigLike {
   [val: string]: unknown;
 
-  onConfigLoad(config: any): Promise<IConfigLike> | undefined;
+  onConfigLoad?(config: any): Promise<IConfigLike> | undefined;
 }
 
 export interface IConfigurationSchema {
@@ -59,6 +59,13 @@ export abstract class Configuration extends AsyncService {
    * Apps configuration base dir, where to look for app config
    */
   public AppBaseDir: string;
+
+  /**
+   * The app env a source named when the configuration loaded (`--env`, APP_ENV of the `process.env` DI value,
+   * NODE_ENV); undefined when none did and `process.env.APP_ENV` fell back to `development`. Read it through
+   * `explicitAppEnv()`.
+   */
+  public NamedEnv?: string;
 
   /**
    * Get config value for given property. Returns any if value is present, default value if provided or null when empty

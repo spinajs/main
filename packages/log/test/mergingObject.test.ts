@@ -79,6 +79,30 @@ describe("merging-object first argument", () => {
     expect(records[0].Variables.message).to.eq("");
   });
 
+  it("keeps the core logger / level / message when fields use those names", async () => {
+    const log = DI.resolve(Log, ["mo-reserved"]);
+    await log.info({ logger: "other", level: "x", message: "y" }, "real");
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(1);
+    expect(records[0].Variables.logger).to.eq("mo-reserved");
+    expect(records[0].Variables.level).to.eq("INFO");
+    expect(records[0].Variables.message).to.eq("real");
+  });
+
+  it("applies variables passed at resolve time, and children inherit them", async () => {
+    const log = DI.resolve(Log, ["mo-vars", { region: "eu" }]);
+    await log.info("parent");
+    await log.child("db", { pool: "main" } as any).info("child");
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(2);
+    expect(records[0].Variables.region).to.eq("eu");
+    expect(records[1].Variables.logger).to.eq("mo-vars.db");
+    expect(records[1].Variables.region).to.eq("eu");
+    expect(records[1].Variables.pool).to.eq("main");
+  });
+
   it("REGRESSION: Error-first call is unchanged", async () => {
     const log = DI.resolve(Log, ["mo-error"]);
     await log.error(new Error("boom"), "user msg");

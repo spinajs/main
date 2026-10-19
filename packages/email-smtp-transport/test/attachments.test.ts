@@ -44,3 +44,29 @@ describe('smtp attachments', () => {
     expect(sent).to.have.length(0);
   });
 });
+
+describe('smtp templates', () => {
+  function templateSender(defaultTemplateFs: unknown) {
+    const models: any[] = [];
+    const { sender } = makeSender();
+    sender.Options.templates = { defaults: { product: 'Example', greeting: 'Hello' } };
+    (sender as any).defaultTemplateFs = defaultTemplateFs;
+    (sender as any).Templates = { render: async (_file: string, model: unknown) => (models.push(model), '<p>hi</p>') };
+    return { sender, models };
+  }
+
+  it('lets the model of the mail override the connection template defaults', async () => {
+    const { sender, models } = templateSender({ Name: 'templates', download: async (path: string) => `/tmp/${path}` });
+
+    await sender.send({ ...mailWith(undefined), template: 'welcome.pug', model: { greeting: 'Hi Alice' } });
+
+    expect(models).to.deep.equal([{ product: 'Example', greeting: 'Hi Alice' }]);
+  });
+
+  it('rejects a string template with IOFail when no template filesystem is configured', async () => {
+    const { sender, models } = templateSender(undefined);
+
+    await expect(sender.send({ ...mailWith(undefined), template: 'welcome.pug' })).to.be.rejectedWith(IOFail);
+    expect(models).to.have.length(0);
+  });
+});

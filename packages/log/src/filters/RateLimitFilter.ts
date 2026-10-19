@@ -10,7 +10,7 @@ type LevelName = keyof typeof StrToLogLevel;
  * `maxLevel` choose the entries it applies to (all others pass untouched); `key` splits it into buckets.
  */
 export interface IRateLimitFilterOptions extends ILogFilterOptions {
-  /** Entries kept per window and bucket. Required, an integer of at least 1. */
+  /** Entries kept per window and bucket. Required, an integer of at least 0; 0 drops every entry it applies to. */
   limit: number;
 
   /** Window length in seconds. Required, above 0. */
@@ -79,8 +79,8 @@ export class RateLimitFilter extends LogFilter {
     super(options);
     const limit = options?.limit;
     const interval = options?.intervalSeconds;
-    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
-      throw new InvalidOption(`RateLimitFilter: limit must be an integer of at least 1, got ${String(limit)}`);
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0) {
+      throw new InvalidOption(`RateLimitFilter: limit must be an integer of at least 0, got ${String(limit)}`);
     }
     if (typeof interval !== "number" || !(interval > 0) || !Number.isFinite(interval)) {
       throw new InvalidOption(`RateLimitFilter: intervalSeconds must be a number above 0, got ${String(interval)}`);
@@ -130,25 +130,27 @@ export class RateLimitFilter extends LogFilter {
 
     const now = this.now();
     const key = this.keyOf(entry);
-    const record = this.windows.get(key);
+    let record = this.windows.get(key);
+    let previouslyDropped = 0;
 
     if (!record || now - record.windowStart >= this.intervalMs) {
       if (record) {
         // Re-inserted so the map stays ordered by window start, which prune() relies on.
         this.windows.delete(key);
+        previouslyDropped = record.dropped;
       } else {
         this.prune(now);
       }
-      this.windows.set(key, { count: 1, windowStart: now, dropped: 0 });
-      if (record && record.dropped > 0 && this.reportSuppressed) {
-        entry.Variables.message = `${entry.Variables.message} (${record.dropped} suppressed)`;
-        entry.Variables.suppressed = record.dropped;
-      }
-      return entry;
+      record = { count: 0, windowStart: now, dropped: 0 };
+      this.windows.set(key, record);
     }
 
     if (record.count < this.limit) {
       record.count++;
+      if (previouslyDropped > 0 && this.reportSuppressed) {
+        entry.Variables.message = `${entry.Variables.message} (${previouslyDropped} suppressed)`;
+        entry.Variables.suppressed = previouslyDropped;
+      }
       return entry;
     }
 

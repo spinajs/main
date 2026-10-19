@@ -16,4 +16,5 @@ export * from './notAllowed.js';
 export * from './notAcceptable.js';
 export * from './validationError.js';
 export * from './entityTooLarge.js';
+export * from './tooManyRequests.js';
 

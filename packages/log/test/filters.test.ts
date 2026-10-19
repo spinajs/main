@@ -135,7 +135,7 @@ describe("RateLimitFilter", () => {
   it("refuses a missing or invalid limit, interval, maxKeys or level", () => {
     const make = (o: Record<string, unknown>) => () => new RateLimitFilter({ type: "RateLimitFilter", limit: 1, intervalSeconds: 1, ...o } as any);
     expect(make({ limit: undefined })).to.throw(InvalidOption, "limit");
-    expect(make({ limit: 0 })).to.throw(InvalidOption, "limit");
+    expect(make({ limit: -1 })).to.throw(InvalidOption, "limit");
     expect(make({ limit: 1.5 })).to.throw(InvalidOption, "limit");
     expect(make({ intervalSeconds: undefined })).to.throw(InvalidOption, "intervalSeconds");
     expect(make({ intervalSeconds: 0 })).to.throw(InvalidOption, "intervalSeconds");
@@ -231,5 +231,15 @@ describe("RateLimitFilter", () => {
     // "c" and "a" ( both opened at 5 s ) have expired, so pruning makes room without evicting a live bucket
     expect(f.apply(entry(LogLevel.Info, "d", { k: "d" }))).to.not.eq(null);
     expect((f as any).windows.size).to.be.at.most(2);
+  });
+
+  it("drops every entry with limit 0", () => {
+    const f = new RateLimitFilter({ type: "RateLimitFilter", limit: 0, intervalSeconds: 10 }, () => 0);
+    expect(f.apply(entry(LogLevel.Info, "a"))).to.eq(null);
+  });
+
+  it("rejects a missing or zero intervalSeconds", () => {
+    expect(() => new RateLimitFilter({ type: "RateLimitFilter", limit: 1 } as any)).to.throw(/intervalSeconds/);
+    expect(() => new RateLimitFilter({ type: "RateLimitFilter", limit: 1, intervalSeconds: 0 })).to.throw(/intervalSeconds/);
   });
 });

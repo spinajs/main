@@ -67,7 +67,7 @@ Bounds how many lines a source can write, however its input varies. Use it for l
 
 | Option | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `limit` | `number` | required | integer `>= 1` | Entries kept per window and bucket. |
+| `limit` | `number` | required | integer `>= 0` | Entries kept per window and bucket. `0` drops every entry the filter applies to. |
 | `intervalSeconds` | `number` | required | finite, `> 0` | Window length. A window opens with the first entry of its bucket, not on a clock tick. |
 | `key` | `string \| string[]` | one bucket | variable names | Variables the bucket is keyed by, eg. `'logger'` or `['origin', 'ownOrigin']`. Fields of a fields-form call are variables, so any field works. A missing variable counts as its own value. |
 | `logger` | `string \| string[]` | every logger | globs, as in rules | Limit only entries of these loggers (`entry.Variables.logger`). Others pass untouched. |
@@ -121,12 +121,12 @@ This is the configuration `@spinajs/authn-http` ships for its `CsrfOriginGuard` 
 - The logger pipeline runs on the shared entry; a filter that changes it (eg. `WhenRepeatedFilter`'s ` (xN)`) changes it for every target. Per-target filters work on a clone, so their changes stay with their target.
 - The clone is shallow: a per-target filter that mutates a nested object inside `Variables` (eg. `error`) still changes it for other targets.
 - `MatchFilter` with a missing or invalid `pattern` passes everything and prints one `console.warn`.
-- `RateLimitFilter` without a valid `limit` (integer `>= 1`) and `intervalSeconds` (`> 0`) throws `InvalidOption` when the logger resolves.
+- `RateLimitFilter` without a valid `limit` (integer `>= 0`) and `intervalSeconds` (`> 0`) throws `InvalidOption` when the logger resolves. With `limit: 0` it drops every entry it applies to.
 - `RateLimitFilter` has no timer either: a ` (N suppressed)` note appears only when the bucket logs again after its window. A burst that simply stops leaves only the `null`s.
 - `RateLimitFilter` in the logger pipeline appends its note to the shared entry, so every target sees it. Two chained `RateLimitFilter`s that both dropped can append two notes; the `suppressed` variable holds the last one.
 - `WhenRepeatedFilter` has no timer: the ` (xN)` count appears only when the same message is logged again after the window. A burst that simply stops leaves no trace of its count.
 - `WhenRepeatedFilter` keys on the formatted message, so `log.info('user %s', id)` with different ids never collapses.
-- An unknown filter `type` resolves to `null`, and every log call of that logger then throws a `TypeError`.
+- An unknown filter `type` fails the logger's resolve (or `addTarget()`) with `InvalidOption`.
 - Filter state is per logger: `RateLimitFilter` in `logger.filters` limits each logger separately, not the process.
 
 ## Best practices

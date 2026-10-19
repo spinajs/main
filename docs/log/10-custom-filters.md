@@ -99,7 +99,7 @@ export class HostRateLimitFilter extends RateLimitFilter {
 
 - A filter without `@NewInstance()` is a singleton shared by every logger and target that names it; its state (counters, windows) is shared too.
 - Filters are resolved when a logger resolves. A filter module imported later is not used by loggers already resolved.
-- An unknown `type` resolves to `null`; every log call through that pipeline then throws a `TypeError`.
+- An unknown `type` fails the logger's resolve (or `addTarget()`) with `InvalidOption`.
 - `apply()` runs on the caller's call stack for every entry: keep it cheap and synchronous.
 - Returning a new entry object is fine; `write()` uses whatever the last filter returns.
 

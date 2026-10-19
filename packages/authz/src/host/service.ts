@@ -429,7 +429,7 @@ export class DefaultAuthzService extends AuthzService {
     const modelRelations: RelationResolver[] = [];
     const modelFilters: NativeFilter[] = [];
     for (const model of models) {
-      const record = await this.initModel(where, name, model, registry, register, fresh);
+      const record = await this.initModel(where, name, container, model, registry, register, fresh);
       modelRelations.push(...record.relations);
       modelFilters.push(...record.nativeFilters);
     }
@@ -545,7 +545,7 @@ export class DefaultAuthzService extends AuthzService {
     });
   }
 
-  private async initModel(where: string, domain: string, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
+  private async initModel(where: string, domain: string, container: IContainer, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
     const source = `model:${model.name}`;
     const existing = inits.get(model);
     if (existing) {
@@ -572,6 +572,7 @@ export class DefaultAuthzService extends AuthzService {
     };
     const ctx: ModelInitContext = Object.freeze({
       domain,
+      container,
       permissions: registry,
       config: <T>(path: string, dflt?: T): T => {
         const v = configAt(this.Config, [model.name, ...String(path).split('.')]);

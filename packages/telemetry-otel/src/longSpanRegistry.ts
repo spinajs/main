@@ -37,6 +37,12 @@ export class LongSpanRegistry extends AsyncService {
   private readonly spans = new Map<string, IOpenSpan>();
   private timer?: NodeJS.Timeout;
 
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    // OtelTracing is disposed before this registry, so open spans must be ended before its provider shuts down.
+    this.tracing.onBeforeShutdown(() => this.closeAll());
+  }
+
   /** Open a span under `key`; a stale span on the same key is closed as replaced. */
   public open(key: string, name: string, attrs?: Attributes): void {
     try {
@@ -47,7 +53,7 @@ export class LongSpanRegistry extends AsyncService {
         stale.span.end();
         this.spans.delete(key);
       }
-      const span = this.tracing.tracer('paystation').startSpan(name, { attributes: attrs });
+      const span = this.tracing.tracer('spinajs').startSpan(name, { attributes: attrs });
       this.spans.set(key, { span, openedAt: Date.now() });
       this.ensureSweepTimer();
     } catch (err) {
@@ -102,7 +108,7 @@ export class LongSpanRegistry extends AsyncService {
     try {
       const parent = key ? this.spans.get(key)?.span : undefined;
       const ctx = parent ? trace.setSpan(ROOT_CONTEXT, parent) : context.active();
-      span = this.tracing.tracer('paystation').startSpan(name, { attributes: attrs }, ctx);
+      span = this.tracing.tracer('spinajs').startSpan(name, { attributes: attrs }, ctx);
     } catch (err) {
       this.log.warn({ error: err, spanName: name }, 'long-span childSpan(${spanName}) failed to start');
     }
@@ -123,13 +129,16 @@ export class LongSpanRegistry extends AsyncService {
   public sweep(): void {
     const cutoff = Date.now() - this.maxAgeMs;
     for (const [key, entry] of this.spans) {
-      if (entry.openedAt <= cutoff) {
+      if (entry.openedAt > cutoff) continue;
+      try {
         this.log.warn({ spanKey: key }, 'long-span ${spanKey} exceeded maxAgeMs; closing as orphaned');
         entry.span.setAttribute('orphaned', true);
         entry.span.setStatus({ code: SpanStatusCode.ERROR, message: 'span outlived otel.longSpan.maxAgeMs' });
         entry.span.end();
-        this.spans.delete(key);
+      } catch (err) {
+        this.log.warn({ error: err, spanKey: key }, 'long-span sweep(${spanKey}) failed');
       }
+      this.spans.delete(key);
     }
     if (this.spans.size === 0) this.stopSweepTimer();
   }
@@ -146,10 +155,14 @@ export class LongSpanRegistry extends AsyncService {
     this.timer = undefined;
   }
 
-  public async dispose(): Promise<void> {
+  private closeAll(): void {
     for (const key of [...this.spans.keys()]) {
       this.close(key, 'error', { shutdown: true });
     }
+  }
+
+  public async dispose(): Promise<void> {
+    this.closeAll();
     this.stopSweepTimer();
     await super.dispose();
   }

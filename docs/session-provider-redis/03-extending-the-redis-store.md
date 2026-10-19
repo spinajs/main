@@ -119,15 +119,15 @@ The return type is `Redis`; an ioredis `Cluster` does not fit, and the store's `
 
 Use `authn.session.redis.keyPrefix` to separate applications, tenants or environments in one Redis. It applies to every command, the Lua script, `SCAN` and `truncate()`.
 
-Overriding `sessionKey()` or `indexKey()` is limited: `scanSessionKeys()` matches `session:*`, and `sweepLegacy()` cuts `'session:'.length` characters off each key, both without calling these methods. Keys outside `session:` are missed by `truncate()` and the sweep unless you override those two methods as well.
+`scanSessionKeys()`, `truncate()` and `sweepLegacy()` derive their patterns and the row-id offset from `sessionKey()` and `indexKey()`, so overriding them is safe as long as `sessionKey('*')` and `indexKey(role, { type: '*', id: '*' })` are valid glob patterns for your layout.
 
 ```ts
-// Don't: truncate() and the boot sweep still look under session:*, so they miss these keys.
+// Works with truncate() and the boot sweep, but a prefix is simpler:
 protected sessionKey(sessionId: string): string {
   return `tenant-a:sess:${sessionId}`;
 }
 
-// Do: one prefix for every key the store owns.
+// Prefer: one prefix for every key the store owns.
 export default { authn: { session: { redis: { keyPrefix: 'tenant-a:' } } } };
 ```
 
@@ -175,7 +175,7 @@ A pending (pre-MFA) session never reaches the strategy on `touch()`, and must ca
 - **Register before the first resolve.** The issuer picks its store once, when it is built. A subclass imported after that is never used.
 - **The class name is the selector.** `authn.session.service` must equal the subclass's class name exactly.
 - **Two registrations, one selected.** Importing `@spinajs/session-provider-redis` always registers `RedisSessionStore`; it stays unused when config names your subclass.
-- **`dispose()` disconnects `this.Client`.** A client shared with other code is closed with it; override `dispose()` when you hand in a shared client.
+- **`dispose()` quits `this.Client`.** A client shared with other code is closed with it; override `dispose()` when you hand in a shared client.
 - **Overrides must keep the contract** of `SessionProvider`: `restore` returns `null` for expired rows, `touch` never re-creates a deleted row, `delete` returns `true` only for the call that removed the key. Calling `super` keeps these.
 
 ## Best practices

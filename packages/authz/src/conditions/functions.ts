@@ -1,5 +1,6 @@
 import { BlockList, isIP } from 'node:net';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 
 import { ConditionFunction } from './contracts.js';
 import { AuthzConfigError } from '../contracts/errors.js';
@@ -258,3 +259,9 @@ export class WildcardMatch extends GlobMatch {
 export const BUILTIN_CONDITION_FUNCTIONS: readonly ConditionFunction[] = Object.freeze([new TimeBetween(), new IpIn(), new GlobMatch(), new WildcardMatch()]);
 
 for (const f of [TimeBetween, IpIn, GlobMatch, WildcardMatch]) DI.register(f).as(ConditionFunction);
+
+/** Every ConditionFunction `container` sees along its lineage, as the core compiler resolves them; the built-ins when it sees none. */
+export async function registeredFunctions(container: IContainer): Promise<readonly ConditionFunction[]> {
+  const list = (await container.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
+  return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
+}

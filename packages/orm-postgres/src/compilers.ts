@@ -3,7 +3,7 @@ import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
 import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
-import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler, SqlIndexQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
@@ -215,6 +215,8 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
 
     if (this.builder.Collation) {
       _stmt.push(`COLLATE ${this.Quoter.quote(this.builder.Collation)}`);
+    } else if (this.builder.Exact) {
+      _stmt.push('COLLATE "C"');
     }
     if (this.builder.NotNull) {
       _stmt.push('NOT NULL');
@@ -340,7 +342,8 @@ export class PostgresAlterColumnQueryCompiler extends SqlAlterColumnQueryCompile
     const column = this.Quoter.quote(this.builder.Name);
     const compiler = this.container.resolve<ColumnQueryCompiler>(ColumnQueryCompiler, [this.builder]) as PostgresColumnQueryCompiler;
 
-    const actions = [`ALTER COLUMN ${column} TYPE ${compiler.typeExpression()}`];
+    // Without USING, postgres refuses a type it has no implicit cast to, e.g. text to jsonb.
+    const actions = [`ALTER COLUMN ${column} TYPE ${compiler.typeExpression()} USING ${column}::${compiler.typeExpression()}`];
 
     actions.push(this.builder.NotNull ? `ALTER COLUMN ${column} SET NOT NULL` : `ALTER COLUMN ${column} DROP NOT NULL`);
 
@@ -451,5 +454,13 @@ export class PostgresCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _checkOption(): string {
     return this.checkOptionSql();
+  }
+}
+
+// Index names are schema-wide, so DROP INDEX names no table.
+@NewInstance()
+export class PostgresIndexQueryCompiler extends SqlIndexQueryCompiler {
+  protected _drop(): string {
+    return `DROP INDEX ${this.Quoter.quote(this._builder.Name)}`;
   }
 }

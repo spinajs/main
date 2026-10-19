@@ -34,12 +34,12 @@ describe('authz-orm cli discovery', function () {
     for (const d of dirs) expect(d.split(/[\\/]/).slice(-6)).to.deep.equal(['@spinajs', 'authz-orm', 'lib', 'mjs', 'cli', 'commands']);
   });
 
-  it('finds exactly the two commands: the first export of every built file is a command', () => {
+  it('finds exactly the three commands: the first export of every built file is a command', () => {
     const dir = join(PKG_ROOT, 'lib', 'mjs', 'cli', 'commands');
     expect(existsSync(dir)).to.equal(true);
     const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', FIRST_EXPORTS, dir], { cwd: PKG_ROOT, encoding: 'utf8' });
     const commands = JSON.parse(stdout.trim().split('\n').pop()!) as Record<string, string | null>;
     for (const [f, nameAndArgs] of Object.entries(commands)) expect(nameAndArgs, f).to.be.a('string');
-    expect(Object.values(commands).map((n) => n!.split(' ')[0]).sort()).to.deep.equal(['authz:ancestors-rebuild', 'authz:ancestors-verify']);
+    expect(Object.values(commands).map((n) => n!.split(' ')[0]).sort()).to.deep.equal(['authz:ancestors-rebuild', 'authz:ancestors-verify', 'authz:audit-unattended']);
   });
 });

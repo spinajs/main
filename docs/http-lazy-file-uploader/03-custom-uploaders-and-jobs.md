@@ -15,38 +15,11 @@
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `FormFileUploader` | abstract class from `@spinajs/http`; never resolved by its own name, only through the route's `uploader` | none (no uploader runs unless the route sets one) | `HttpLazyFileUploader`, `ImmediateFileUploader` | Extend it and implement `upload(file): Promise<IUploadedFile>`; set the class on the route. |
-| `HttpLazyFileUploader` | name `HttpLazyFileUploader`, `@Injectable()`, singleton | `HttpLazyFileUploader` | subclasses you register | Subclass and override `upload()` (call `super.upload(file)` to queue the copy). Add `@NewInstance()` for per-route options. Replace for every route with `DI.register(MyUploader).as(HttpLazyFileUploader)`. |
+| `HttpLazyFileUploader` | name `HttpLazyFileUploader`, `@Injectable()`, `@NewInstance()` | `HttpLazyFileUploader` | subclasses you register | Subclass and override `upload()` (call `super.upload(file)` to queue the copy). Replace for every route with `DI.register(MyUploader).as(HttpLazyFileUploader)`. |
 | `HttpLazyFileUploader.Options` | constructor argument, `{ fs: string; deleteAfterUpload?: boolean }` | from `uploader.options` | | A subclass may accept more keys; read them from `this.Options`. |
-| queue job | any `QueueJob` subclass with `@Job()` | `LazyUploadJob` (not exported) | your own job | Emit it from your own uploader and consume it in your worker. |
+| queue job | any `QueueJob` subclass with `@Job()` | `LazyUploadJob` | your own job | Emit it from your own uploader and consume it in your worker. |
 
-Register a replacement before the first upload request: the singleton is cached on its first resolve. Importing a module with `@Injectable()` registers the class under its name, so `uploader: 'MyUploader'` works once that module is loaded.
-
-## Use different targets per route
-
-The shipped uploader is a singleton, so only the first route's `fs` is used. A `@NewInstance()` subclass is built per request with its route's options.
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { BaseController, BasePath, File, IUploadedFile, Ok, Post } from '@spinajs/http';
-import { HttpLazyFileUploader } from '@spinajs/http-lazy-file-uploader';
-
-@Injectable()
-@NewInstance()
-export class PerRouteLazyUploader extends HttpLazyFileUploader {}
-
-@BasePath('profile')
-export class ProfileController extends BaseController {
-  @Post()
-  public async avatar(@File({ uploader: { service: PerRouteLazyUploader, options: { fs: 'avatars-s3' } } }) avatar: IUploadedFile) {
-    return new Ok({ key: avatar.BaseName });
-  }
-
-  @Post()
-  public async cv(@File({ uploader: { service: PerRouteLazyUploader, options: { fs: 'documents-s3' } } }) cv: IUploadedFile) {
-    return new Ok({ key: cv.BaseName });
-  }
-}
-```
+Register a replacement before the first upload request. Importing a module with `@Injectable()` registers the class under its name, so `uploader: 'MyUploader'` works once that module is loaded.
 
 ## Replace the uploader for every route
 

@@ -6,6 +6,7 @@ import { DI } from '@spinajs/di';
 import { renderTemplate } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { OrmException } from '@spinajs/orm';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventSink, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
@@ -108,6 +109,7 @@ describe('token cli commands', function () {
     await bootV3Db();
     DI.register(CliTestTokenService).as(TokenService);
     DI.register(CliTestSink).as(AuthnEventSink);
+    DI.uncache(AuthnAudit);
     savedDefaultTtl = config().get('authn.token.defaultTtlDays');
   });
 
@@ -116,6 +118,7 @@ describe('token cli commands', function () {
     DI.unregister(CliTestSink);
     DI.uncache(CliTestSink);
     DI.uncache(Array.ofType(AuthnEventSink));
+    DI.uncache(AuthnAudit);
     uncacheService();
     DI.uncache(CreateToken);
     DI.uncache(DeleteToken);

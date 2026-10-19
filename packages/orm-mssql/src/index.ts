@@ -1,17 +1,20 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { MsSqlSqlExpressions } from './expressions.js';
+import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
 import { SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler } from './compilers.js';
-import { MssqlModelDehydrator } from './dehydrator.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlDefaultValueBuilder, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 
+export * from './expressions.js';
+
 export interface IMsSqlTransactionContext extends ITransactionContext {
   transaction: mssql.Transaction;
+  /** Runs the savepoint statements only. A request keeps its declared parameters, so each statement gets a fresh one. */
   request: mssql.Request;
 }
 
@@ -30,17 +33,60 @@ function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
-/** Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text. */
+/**
+ * Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text.
+ * A `?` inside a '...' or "..." literal or a [...] identifier is text too.
+ */
 export function toNamedParameters(stmt: string, count: number): string {
-  let out = stmt;
-  for (let i = 0; i < count; i++) {
-    const idx = out.indexOf('?');
-    if (idx === -1) {
-      break;
+  let out = '';
+  let index = 0;
+  let closing: string | null = null;
+
+  for (let i = 0; i < stmt.length; i++) {
+    const ch = stmt[i];
+
+    if (closing) {
+      out += ch;
+      if (ch === closing) {
+        // a doubled closing character is an escaped one, not the end of the literal
+        if (stmt[i + 1] === closing) {
+          out += stmt[++i];
+        } else {
+          closing = null;
+        }
+      }
+      continue;
     }
-    out = out.substring(0, idx) + `@p${i}` + out.substring(idx + 1);
+
+    if (ch === "'" || ch === '"') {
+      closing = ch;
+    } else if (ch === '[') {
+      closing = ']';
+    } else if (ch === '?' && index < count) {
+      out += `@p${index++}`;
+      continue;
+    }
+
+    out += ch;
   }
+
   return out;
+}
+
+export class MsSqlServerResponseMapper extends ServerResponseMapper {
+  public read(data: any): DbServerResponse {
+    // An upsert resolves with the rows of `SELECT SCOPE_IDENTITY()`; ID is null when MERGE updated.
+    if (Array.isArray(data)) {
+      const id = data.length !== 0 ? data[data.length - 1]?.ID : undefined;
+      return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
+    }
+
+    return {
+      RowsAffected: data?.RowsAffected ?? 0,
+      LastInsertId: typeof data?.LastInsertId === 'number' ? data.LastInsertId : 0,
+      Returning: [],
+    };
+  }
 }
 
 @Injectable('orm-driver-mssql')
@@ -53,6 +99,11 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  // 2100 per RPC, a few of which tedious spends on sp_executesql itself.
+  public readonly MaxBindings = 2000;
+
+  public readonly MaxInsertRows = 1000;
+
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
@@ -64,7 +115,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     // The context comes from the base driver; only this driver's `_begin` populates it, so
     // it must be narrowed from ITransactionContext to read `request`.
     const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
-    const req = txContext?.request ?? this._connectionPool.request();
+    const req = txContext ? txContext.transaction.request() : this._connectionPool.request();
 
     // No try/finally here any more: it only ever existed to bracket this driver's own
     // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
@@ -91,6 +142,12 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
+  /** 2627: a primary key or unique constraint; 2601: a unique index. */
+  protected isUniqueViolation(err: unknown): boolean {
+    const n = (err as { number?: unknown })?.number;
+    return n === 2627 || n === 2601;
+  }
+
   public supportedFeatures(): ISupportedFeature {
     return {
       /**
@@ -110,6 +167,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
       // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
       insertIdIsFirstOfBatch: false,
+      nativeJson: false,
     };
   }
 
@@ -124,14 +182,23 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     try {
-      this._connectionPool = await mssql.connect({
+      const options = this.Options.Options ?? {};
+
+      // A pool of its own: `mssql.connect()` hands every caller the one package-global pool.
+      this._connectionPool = new mssql.ConnectionPool({
         user: this.Options.User,
         password: this.Options.Password,
         database: this.Options.Database,
         server: this.Options.Host!,
+        port: this.Options.Port,
+        requestTimeout: options.RequestTimeout,
+        connectionTimeout: options.ConnectionTimeout,
         options: {
-          trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
-          cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
+          trustServerCertificate: (options.TrustServerCertificate as boolean) ?? true,
+          cryptoCredentialsDetails: options.CryptoCredentialsDetails ? options.CryptoCredentialsDetails : {},
+          // set only when configured: an undefined key here would override mssql's own default
+          ...(options.Encrypt !== undefined ? { encrypt: options.Encrypt as boolean } : {}),
+          ...(options.InstanceName ? { instanceName: options.InstanceName as string } : {}),
         },
         pool: {
           max: this.resolvedPoolOptions().Max,
@@ -141,7 +208,9 @@ export class MsSqlOrmDriver extends SqlDriver {
         },
       });
 
-      await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
+      await this._connectionPool.connect();
+
+      await this.executeOnDb(`USE ${msSqlEscapeIdentifier(this.Options.Database!)}`, [], QueryContext.Schema);
 
       return this;
     } catch (err) {
@@ -168,7 +237,8 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
-    this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);
+    this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
+    this.Container.register(MsSqlDefaultValueBuilder).as(DefaultValueBuilder);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
@@ -183,12 +253,15 @@ export class MsSqlOrmDriver extends SqlDriver {
 
     // Brackets, not the backticks this driver used to inherit from the shared layer.
     this.Container.register(BracketIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(MsSqlSqlExpressions).as(SqlExpressions);
+
+    this.Container.register(MsSqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
+    this.Container.register(MsSqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
 
     // `TRUNCATE TABLE` is valid T-SQL, so the shared compiler is claimed explicitly.
-    // `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE`,
-    // `WITH RECURSIVE` and `CURRENT_DATE()` are NOT T-SQL and are left unregistered:
-    // those features now fail with a DI error naming the abstraction instead of
-    // reaching SQL Server as MySQL syntax.
+    // `CREATE TABLE ... LIKE` and `WITH RECURSIVE` are NOT T-SQL and are left
+    // unregistered: the container then instantiates the abstract base, so those
+    // features throw a TypeError instead of reaching SQL Server as MySQL syntax.
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
 
     // No native scheduler in this engine, and nothing is simulated in its place.
@@ -204,26 +277,46 @@ export class MsSqlOrmDriver extends SqlDriver {
     return this;
   }
 
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`SELECT COUNT(*) FROM ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} WITH (TABLOCK, HOLDLOCK)`);
+  }
+
+  /**
+   * @param schema - the database (`TABLE_CATALOG`), which is what the ORM passes; the SQL Server schema comes from `Options.Schema`
+   */
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo[];
+    const tableSchema = this.Options.Options?.Schema as string | undefined;
+    const filter = `${schema ? ' AND TABLE_CATALOG=?' : ''}${tableSchema ? ' AND TABLE_SCHEMA=?' : ''}`;
+    const filterBindings = [name, ...(schema ? [schema] : []), ...(tableSchema ? [tableSchema] : [])];
+
+    const tblInfo = (await this.executeOnDb(
+      `SELECT *, COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA) + '.' + QUOTENAME(TABLE_NAME)), COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=?${filter}`,
+      filterBindings,
+      QueryContext.Select,
+    )) as ITableColumnInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null as any;
     }
 
-    const indexList = (await this.executeOnDb(`select C.COLUMN_NAME,T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND c.TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
+    const indexList = (await this.executeOnDb(
+      `SELECT C.COLUMN_NAME,T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME AND C.CONSTRAINT_SCHEMA=T.CONSTRAINT_SCHEMA WHERE C.TABLE_NAME=?${filter.replace(/TABLE_/g, 'C.TABLE_')}`,
+      filterBindings,
+      QueryContext.Select,
+    )) as IIndexInfo[];
 
     return tblInfo.map((r: ITableColumnInfo) => {
       const isPrimary = indexList.find((c) => c.CONSTRAINT_TYPE === 'PRIMARY KEY' && c.COLUMN_NAME === r.COLUMN_NAME) !== undefined;
       const sUnique = indexList.find((c) => c.CONSTRAINT_TYPE === 'UNIQUE' && c.COLUMN_NAME === r.COLUMN_NAME) !== undefined;
       return {
         Type: r.DATA_TYPE,
-        MaxLength: -1,
+        MaxLength: r.CHARACTER_MAXIMUM_LENGTH ?? -1,
         Comment: '',
         DefaultValue: r.COLUMN_DEFAULT,
         NativeType: r.DATA_TYPE,
         Unsigned: false,
-        Nullable: r.IS_NULLABLE,
+        Nullable: r.IS_NULLABLE === 'YES',
         Virtual: false,
         PrimaryKey: isPrimary,
         Uuid: false,
@@ -231,9 +324,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         IsForeignKey: false,
         ForeignKeyDescription: null as any,
         Aggregate: false,
-
-        // simply assumpt that integer pkeys are autoincement / auto fill  by default
-        AutoIncrement: isPrimary && r.DATA_TYPE === 'int',
+        AutoIncrement: r.IS_IDENTITY === 1,
         Name: r.COLUMN_NAME,
         Converter: null as any,
         Schema: schema ? schema : this.Options.Database,

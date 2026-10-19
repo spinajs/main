@@ -11,7 +11,7 @@
 3. Routes commander's error output to `this.Log.error()` with `configureOutput({ writeErr })` on the program and every command; help and version still go to stdout. Enables `showSuggestionAfterError` everywhere and `showHelpAfterError` on the program.
 4. Builds one commander command per discovered class ([Commands](02-commands.md), [Arguments and options](03-arguments-and-options.md)), passing every description, summary and help text through `translate()`. Calls `exitOverride()` on each, so commander throws instead of calling `process.exit()`.
 5. Assembles the tree by `parent`, then registers a `preSubcommand` hook on the program and every command that resolves the selected command and calls its `onCreation` ([Lifecycle hooks](04-lifecycle-hooks.md)).
-6. Resolves the [argv provider](06-argv-provider.md). With no command arguments it prints the help and returns.
+6. Resolves the [argv provider](06-argv-provider.md), or filters `process.argv` when none is registered. With no command arguments it prints the help and returns.
 7. `await program.parseAsync(argv)`. A `CommanderError` with `exitCode` `0` (help, version) is swallowed; every other error is rethrown to the caller of `DI.resolve(Cli)`.
 
 ## Services and extension points

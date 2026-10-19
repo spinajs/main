@@ -1,5 +1,5 @@
 import { SomeService } from '../../service/SomeService.js';
-import { BasePath, BaseController, Post, Body, Param, Header, Query, Ok, Get, FromDI } from '../../../src/index.js';
+import { BasePath, BaseController, Post, Body, Param, Header, Query, Ok, Get, FromDI, QueryField } from '../../../src/index.js';
 import { SampleModel } from '../../dto/index.js';
 
 @BasePath('params/mixed')
@@ -12,5 +12,10 @@ export class VariousParams extends BaseController {
   @Get('di')
   public di(@FromDI() _: SomeService) {
     return new Ok();
+  }
+
+  @Get('queryField')
+  public queryField(@QueryField() query: unknown) {
+    return new Ok({ query });
   }
 }

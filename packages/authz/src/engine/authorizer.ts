@@ -458,13 +458,14 @@ export class Authorizer {
     const gate = this.principalGate(principal);
     if (gate.kind === 'system') return ALL_PLAN;
     if (gate.kind === 'deny') return nonePlan(gate.reason);
-    const run = this.newRun(false, scope);
+    const fresh = def.consistency === 'fresh';
+    const run: Run = fresh ? { ...this.newRun(false, scope), fresh: true } : this.newRun(false, scope);
     const delegation = this.delegation(gate.principal, undefined, run.delegationBudget);
     if (delegation.denial) return nonePlan(delegation.denial);
     if (delegation.intersect !== undefined) return nonePlan({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey });
-    // Env facts are not in the key, so a call with a caller env is never memoised.
-    const key = env === undefined ? this.planKey(gate.principal, def, type, run) : undefined;
-    const hit = key === undefined || def.consistency === 'fresh' ? undefined : this.cachedPlan(key, run);
+    // Env facts are not in the key, so a call with a caller env is never memoised; a fresh plan is never read back.
+    const key = env === undefined && !fresh ? this.planKey(gate.principal, def, type, run) : undefined;
+    const hit = key === undefined ? undefined : this.cachedPlan(key, run);
     if (hit) return hit;
     const built = await this.buildPlan(delegation, def, type, this.envOf(env, run.instant), run);
     if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
@@ -960,7 +961,7 @@ export class Authorizer {
     const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
     if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
     const runAs = d.principal;
-    const fresh = def.consistency === 'fresh' ? { fresh: true } : {};
+    const fresh = run.fresh === true ? { fresh: true } : {};
     const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
