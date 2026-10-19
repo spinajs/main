@@ -25,7 +25,8 @@ export const DEFAULT_ROLES_KEY = 'authz.rbac.defaultRoles';
 // The AuthzAdmin codes that mean "this role cannot be held here": the caller named a bad role.
 const ROLE_REFUSALS: ReadonlySet<string> = new Set(['unknown_role', 'not_assignable', 'wrong_scope_type']);
 
-async function rootAdmin(): Promise<AuthzAdmin> {
+/** The `AuthzAdmin` of the root container's `AuthzService`. */
+export async function rootAuthzAdmin(): Promise<AuthzAdmin> {
   return ((await DI.resolve(AuthzService)) as AuthzService).admin();
 }
 
@@ -47,7 +48,7 @@ async function execute(commands: AuthzCommand[], opts: RoleWriteOptions): Promis
     return;
   }
 
-  const results = await (await rootAdmin()).execute(opts.actor ?? SYSTEM, commands, { reason: opts.reason, dryRun: opts.dryRun === true });
+  const results = await (await rootAuthzAdmin()).execute(opts.actor ?? SYSTEM, commands, { reason: opts.reason, dryRun: opts.dryRun === true });
 
   for (const r of results) {
     if (r.ok) {

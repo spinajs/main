@@ -1,9 +1,10 @@
 import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo, IFsUploadOptions } from '@spinajs/fs';
 import {
   S3Client,
   S3ClientConfig,
+  S3ServiceException,
   HeadObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -17,7 +18,7 @@ import {
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
 import path, { basename, extname } from 'path';
-import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
 import crypto from 'crypto';
 import { DateTime } from 'luxon';
@@ -369,7 +370,7 @@ export class fsS3 extends fs {
     return result.Metadata['hash'];
   }
 
-  public async upload(srcPath: string, destPath?: string) {
+  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
@@ -399,6 +400,7 @@ export class fsS3 extends fs {
       params: {
         Bucket: this.Options.bucket,
         Key: dPath,
+        IfNoneMatch: options?.exclusive ? '*' : undefined,
         Body: rStream,
         ContentType: fInfo.MimeType,
 
@@ -432,7 +434,15 @@ export class fsS3 extends fs {
       },
     });
 
-    await upload.done();
+    try {
+      await upload.done();
+    } catch (err) {
+      // 412: the key exists; 409: a concurrent write to the key got there first. Either way the key is not ours to clean up
+      if (options?.exclusive && err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0)) {
+        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${dPath} already exists`, err);
+      }
+      throw err;
+    }
   }
 
   /**

@@ -30,7 +30,7 @@ You reach the API in four ways: methods on a provider instance, static methods o
 | `copy(path, dest, dstFs?)` | `Promise<void>` | Copies a file or directory, into `dstFs` when given. |
 | `move(oldPath, newPath, dstFs?)` | `Promise<void>` | Copies, then deletes the source. |
 | `rename(oldPath, newPath)` | `Promise<void>` | Renames within the provider. |
-| `upload(srcPath, destPath?)` | `Promise<void>` | Copies a **local** file or directory into the provider. `destPath` defaults to the source base name. |
+| `upload(srcPath, destPath?, options?)` | `Promise<void>` | Copies a **local** file or directory into the provider. `destPath` defaults to the source base name. With `{ exclusive: true }` an existing `destPath` throws `ResourceDuplicated` instead of being overwritten. |
 | `download(path)` | `Promise<string>` | Local path to the file. Local providers return the resolved path; remote ones download a copy first. |
 | `resolvePath(path)` | `string` | Full local path. |
 | `hash(path, algo?)` | `Promise<string>` | Hex digest from [`FileHasher`](09-file-hashing.md). Algorithm defaults to `fs.hasher.defaultAlgorithm` (`sha256`). |
@@ -114,6 +114,7 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
 - `move()` across devices (`EXDEV`) falls back to copy and delete.
 - `copy()` to another provider uploads the resolved local source path, so the source provider must have local paths.
 - `writeStream(path, readStream)` destroys the write stream when the source stream errors.
+- `upload(..., { exclusive: true })` is atomic in `fsNative` (`COPYFILE_EXCL`, single files only) and `fsS3` (`IfNoneMatch: '*'`). `fsFTP` checks `exists()` first, so two clients can still race. A provider that ignores `options` overwrites.
 
 ## Best practices
 

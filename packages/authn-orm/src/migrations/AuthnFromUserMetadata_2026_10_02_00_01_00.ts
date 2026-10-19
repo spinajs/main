@@ -6,6 +6,7 @@ import { DI } from '@spinajs/di';
 import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { chunk } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
 import { decryptMfaSecret, encryptMfaSecret, mfaKeyFrom } from '../mfa/cipher.js';
@@ -76,8 +77,8 @@ interface Census {
 
 async function inChunks<T>(values: readonly T[], read: (chunk: T[]) => Promise<Row[]>): Promise<Row[]> {
   const rows: Row[] = [];
-  for (let i = 0; i < values.length; i += CHUNK) {
-    rows.push(...(await read(values.slice(i, i + CHUNK))));
+  for (const part of chunk(values, CHUNK)) {
+    rows.push(...(await read(part)));
   }
   return rows;
 }

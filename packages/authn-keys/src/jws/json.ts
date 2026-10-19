@@ -1,3 +1,5 @@
+import { isPlainObject } from '@spinajs/util';
+
 const LONE_SURROGATE = /\p{Surrogate}/u;
 // serde_json refuses the 128th nested array or object (its recursion limit); canvas C8 refuses it on both sides.
 const MAX_DEPTH = 127;
@@ -64,4 +66,5 @@ export function parseStrictJson(bytes: Uint8Array, uintKeys: readonly string[] =
   }
 }
 
-export const isJsonObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** @deprecated Use `isPlainObject` from `@spinajs/util`. */
+export const isJsonObject = isPlainObject;

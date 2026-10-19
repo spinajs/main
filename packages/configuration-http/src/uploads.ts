@@ -4,6 +4,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { _fileHash, FileInfoService, getFs } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { configFileValidatorName, DbConfig, resolveConfigFileValidator } from '@spinajs/configuration-db-source';
 import type { IConfigFileCandidate, IConfigurationFileOptions } from '@spinajs/configuration-db-source';
@@ -120,15 +121,22 @@ export class ConfigFileUploads {
     this.validateStoredName(entry, fileName);
 
     const target = this.fileSystem(entry.Slug, options.fs);
-    // same name within the same second - uploading would overwrite the file the entry points at
+    const duplicated = () => new ConfigFileRejected(`File ${fileName} was uploaded a moment ago, try again`);
+    // same name within the same second - uploading would overwrite the file the entry points at.
+    // Fails fast; the exclusive upload below closes the race, unless the provider ignores `exclusive`
     if (await target.exists(fileName)) {
-      throw new ConfigFileRejected(`File ${fileName} was uploaded a moment ago, try again`);
+      throw duplicated();
     }
 
     const hash = await _fileHash(localPath);
     try {
-      await target.upload(localPath, fileName);
+      await target.upload(localPath, fileName, { exclusive: true });
     } catch (err) {
+      // the file belongs to the upload that won the race - do not remove it
+      if (err instanceof ResourceDuplicated) {
+        throw duplicated();
+      }
+
       // a partial write must not survive as a file the caller cannot discard
       await target
         .rm(fileName)

@@ -6,7 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
-import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
+import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
@@ -20,8 +20,6 @@ const MAX_NAME = 128;
 const TOUCH_INTERVAL_MS = 60_000;
 const MAX_CREATED_BY = 100;
 const CEILING_KEYS = ['roles', 'permissions', 'resources', 'expiresAt', 'reason'];
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const nonEmpty = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
