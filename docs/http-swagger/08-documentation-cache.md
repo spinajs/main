@@ -113,7 +113,7 @@ Cache keys do not change when extractors change. Run `spinajs http:controllers:c
 spinajs http:swagger:cache
 ```
 
-`SwaggerCacheCommand.execute()` resolves `fsService` and `SwaggerDocCache`, lists the controllers in `system.dirs.controllers` with `@ListFromFiles`, and calls `getCache()` for each. Run it in an image build so the first docs request does not parse every controller.
+`SwaggerCacheCommand.execute()` resolves `fsService` and `SwaggerDocCache`, lists the classes in `system.dirs.controllers` with `@ListFromFiles`, and calls `getCache()` for each one that is a controller (extends `BaseController` or carries the route descriptor). Run it in an image build so the first docs request does not parse every controller.
 
 - It writes the same `__fs_controller_cache__` entries as `http:controllers:cache`, which also offers `--rebuild`.
 - `@ListFromFiles` does not create controller instances, so the command reads no policies.

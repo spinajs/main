@@ -1,4 +1,4 @@
-import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
@@ -21,12 +21,22 @@ export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
 export * from './migrations/Queue_2026_10_03_00_00_00.js';
+export * from './migrations/Queue_2026_10_17_00_00_00.js';
 export * from './helpers.js';
 export * from './fp.js';
 
 /** Fallback progress-throttle values used when `queue.progress` is not configured. */
 const DEFAULT_PROGRESS_MIN_DELTA = 5;
 const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 1000;
+
+/** Lengths of the queue_jobs text columns, so a long value cannot fail the row write on a strict-mode DB. */
+const LAST_ERROR_MAX_LENGTH = 1024;
+const PHASE_MAX_LENGTH = 32;
+const MESSAGE_MAX_LENGTH = 512;
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? value.substring(0, max) : value;
+}
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -53,13 +63,15 @@ export class DefaultQueueService extends QueueService {
       }
     }
 
-    this.Connections.forEach(async (val) => {
-      try {
-        await val.dispose();
-      } catch (err) {
-        this.Log.error({ error: err, connection: val.constructor.name }, 'Cannot dispose queue connection ${connection}');
-      }
-    });
+    await Promise.all(
+      [...this.Connections.values()].map(async (val) => {
+        try {
+          await val.dispose();
+        } catch (err) {
+          this.Log.error({ error: err, connection: val.constructor.name }, 'Cannot dispose queue connection ${connection}');
+        }
+      }),
+    );
 
     this.Connections.clear();
   }
@@ -91,7 +103,14 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
-    this.getConnectionsForMessage(event).forEach((c) => this.Connections.get(c)!.unsubscribe(event));
+    for (const c of this.getConnectionsForMessage(event)) {
+      const connection = this.Connections.get(c);
+      if (!connection) {
+        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before unsubscribing from this connection.`);
+      }
+
+      await connection.unsubscribe(event);
+    }
   }
 
   /**
@@ -169,9 +188,14 @@ export class DefaultQueueService extends QueueService {
                 try {
                   const row = jModel;
                   await tracked(() => row.insert());
-                } catch (e) {
+                } catch (insertErr) {
                   // concurrent first-receipt from another worker won the insert; re-read and continue.
-                  jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`)));
+                  // No row means the insert failed for another reason, so that error is the one to surface.
+                  const existing = await tracked(() => JobModel.where({ JobId: ev.JobId }).first());
+                  if (!existing) {
+                    throw insertErr;
+                  }
+                  jModel = existing;
                 }
               }
 
@@ -223,7 +247,10 @@ export class DefaultQueueService extends QueueService {
                 // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
                 const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
-                jModel.LastError = err instanceof Error ? err.message : String(err);
+                if (jModel.Status === 'dead') {
+                  jModel.FinishedAt = DateTime.now();
+                }
+                jModel.LastError = truncate(err instanceof Error ? err.message : String(err), LAST_ERROR_MAX_LENGTH);
 
                 await tracked(() => jModel.update());
 
@@ -250,10 +277,10 @@ export class DefaultQueueService extends QueueService {
 
                 // apply meta eagerly so a phase / message change is never lost to throttling
                 if (meta?.phase !== undefined) {
-                  jModel.Phase = meta.phase;
+                  jModel.Phase = truncate(meta.phase, PHASE_MAX_LENGTH);
                 }
                 if (meta?.message !== undefined) {
-                  jModel.Message = meta.message;
+                  jModel.Message = truncate(meta.message, MESSAGE_MAX_LENGTH);
                 }
 
                 // always persist the final 100% or a meta change; otherwise throttle by delta + time

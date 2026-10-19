@@ -1,5 +1,6 @@
 import { GLOBAL, resourceKey } from '@spinajs/authz';
 import type { AssignmentSubject, ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import { compareStrings, sortedUnique, unique } from '@spinajs/util';
 
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from '../../plan/args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from '../../plan/args.js';
@@ -17,22 +18,20 @@ export const DEFAULT_MAX_PLAN_SUBJECTS = 500;
 export const RELATION_OWNER_OP = 'relation.owner';
 export const RELATION_SELF_OP = 'relation.self';
 
-/** relation.owner / relation.self (overview names table): the row's owner (self) is one of these principals; L4 compiles it. */
+/** relation.owner / relation.self: the row's owner (self) is one of these principals; authz-orm compiles it. */
 export interface RelationPlanArgs {
   readonly principals: readonly { readonly type: string; readonly id: string }[];
 }
 
 type Holders = Pick<RbacAssignmentPlanArgs, 'subjects' | 'membership' | 'memberKeys'>;
 
-const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const unique = (list: readonly string[]): string[] => [...new Set(list)];
 const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.type === GLOBAL.type || (l.scope.type === type && l.scope.id == null);
 
 /**
- * The list plan of design §6.2 from the state after `cap` of the type-level request `{ type }`: `live` holds
+ * The list plan from the state after `cap` of the type-level request `{ type }`: `live` holds
  * the $global and type-level assignments (decided here), `scoped` the others (rbac.assignment terms),
- * `denied` the deny rows. Lane L8 decisions 6-9.
- * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); L2 makes it deny-all model_error
+ * `denied` the deny rows.
+ * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); the engine makes it deny-all model_error
  */
 export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number; readonly membership: boolean }): ModelListPlan {
   const { input, permission } = s;
@@ -103,10 +102,10 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
   }
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
-  const denyRoles = unique(denying.map((l) => l.role)).sort(byCodePoint);
+  const denyRoles = sortedUnique(denying.map((l) => l.role));
   const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true, opts), roles: denyRoles.map((role) => ({ role })), global: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
-  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(byCodePoint).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
+  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
 }
 
@@ -134,7 +133,7 @@ function intersect(a: readonly string[] | undefined, b: readonly string[] | unde
 
 /**
  * The holders of a term: explicit keys while they are few (their membership expiry bounds the plan), else the
- * membership sub-query (decision 2 of the overview). Permits leave out sets no usable membership reaches and,
+ * membership sub-query. Permits leave out sets no usable membership reaches and,
  * under a ceiling, nested sets; denies keep every live set.
  */
 function holders(s: RbacState, deny: boolean, opts: { readonly maxSubjects: number; readonly membership: boolean }, bound?: (until: Date | undefined) => void): Holders {
@@ -160,7 +159,7 @@ function holders(s: RbacState, deny: boolean, opts: { readonly maxSubjects: numb
       base.push(subject);
     }
   }
-  // The resolver never yields a principal whose id is '*' (lane decision 1), so `{ type, id: '*' }` here is the wildcard.
+  // The resolver never yields a principal whose id is '*', so `{ type, id: '*' }` here is the wildcard.
   const baseKeys = unique(base.map((b) => ('set' in b || b.id === WILDCARD_ID ? subjectKeyOf(b) : principalSubjectKey(b))));
   const explicit = unique([...baseKeys, ...sets.map(subjectKeyOf)]);
   if (explicit.length <= max) {

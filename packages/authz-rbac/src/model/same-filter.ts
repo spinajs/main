@@ -21,7 +21,7 @@ const charge = (b: Budget, n: number): void => {
 const EXOTIC: ReadonlyArray<(v: object) => boolean> = [types.isMap, types.isSet, types.isWeakMap, types.isWeakSet, types.isBoxedPrimitive, types.isAnyArrayBuffer, types.isArrayBufferView, types.isPromise, types.isRegExp, types.isNativeError, types.isGeneratorObject, types.isMapIterator, types.isSetIterator, types.isModuleNamespaceObject, types.isArgumentsObject];
 
 /**
- * Whether two filters are the same tree (RFC C3-1), so they select the same rows. Strict: operands
+ * Whether two filters are the same tree, so they select the same rows. Strict: operands
  * compare in order; values (and `native:*` args) compare as primitives by `Object.is`, real Dates by
  * time, and arrays and plain objects by their own enumerable data properties, with equal key sets
  * (`{ x: undefined }` is not `{}`). Anything else (proxies, Map, Set, boxed primitives, typed arrays,

@@ -4,6 +4,7 @@ import { AsyncService, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import './register-schema.js';
 
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { ConcurrencyLimiter } from './limiter.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
 
@@ -48,8 +49,6 @@ interface HasherSettings {
   readonly current: PepperEntry | null;
   readonly peppers: ReadonlyMap<number, PepperEntry>;
 }
-
-const DEFAULT_MAX_CONCURRENT = 8; // The Options seam's own fallback; the configured path takes the schema default.
 
 /**
  * argon2id at the argon2 library defaults (H30, SR-13): no option and no config key sets a cost, so the stored hash starts with
@@ -134,7 +133,7 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   protected get settings(): HasherSettings {
     return (this._settings ??= this.buildSettings(
-      this.Options ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT } : { maxConcurrent: this.MaxConcurrent, pepper: this.Pepper },
+      this.Options ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? AUTHN_LOCAL_DEFAULTS.hasher.maxConcurrent } : { maxConcurrent: this.MaxConcurrent, pepper: this.Pepper },
     ));
   }
 

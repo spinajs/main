@@ -31,7 +31,7 @@ const OTHER_GLOB_META = /[?[]/;
 
 /**
  * Parses one pattern. `where` names the grant (`rbac role 'r' grant 'p'`) and starts every error.
- * This is the one place that reads a pattern's syntax; boot checks on globs (§6.5 rule 11) read `id` and `glob`.
+ * This is the one place that reads a pattern's syntax; boot checks on globs (boot rule 11) read `id` and `glob`.
  * @throws AuthzConfigError for a pattern that is not `{ type, id? }` (unknown keys included), an
  *   empty id, a `?` or `[` outside a template, or a malformed template
  */
@@ -83,7 +83,7 @@ function templatePath(inner: string, id: string, fail: (problem: string) => Erro
  * glob metacharacter, or could step out of its path segment (see `segmentSafe`). Not cached: the
  * result depends on the principal.
  */
-export function patternId(p: CompiledPattern, principal: Principal): string | undefined {
+function patternId(p: CompiledPattern, principal: Principal): string | undefined {
   if (!p.id) return undefined;
   let out = '';
   for (const part of p.id) {
@@ -125,16 +125,15 @@ function principalValue(principal: Principal, path: readonly string[]): string |
 }
 
 /**
- * A request for every row of a type (B06), answered with a row filter. A request on `$global` is
- * not one: GLOBAL has no rows, so only GLOBAL assignments and grants without patterns hold there
- * (B11, B13).
+ * A request for every row of a type, answered with a row filter. A request on `$global` is
+ * not one: GLOBAL has no rows, so only GLOBAL assignments and grants without patterns hold there.
  */
 export function isTypeLevel(resource: ResourceRef): boolean {
   return resource.id == null && resource.type !== GLOBAL.type;
 }
 
 /**
- * The rows of the request one pattern admits (§6.1.2, B16). A type-only pattern admits its type. An
+ * The rows of the request one pattern admits. A type-only pattern admits its type. An
  * exact id admits that node and every resource below it, of any type (`under`). A glob admits the ids
  * of its own type it matches (`cmp glob` on `id`). A concrete request, `$global` included, is decided
  * here, from its id and path.

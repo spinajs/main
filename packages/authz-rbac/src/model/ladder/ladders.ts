@@ -1,16 +1,17 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { Permission, ResourceType } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import type { LadderDef, RoleDef } from '../../contracts.js';
 import type { CompiledGrant, GrantIndex } from '../grants.js';
 import type { RoleEdge, RoleGraph } from '../roles.js';
 
 /*
- * Ladders (design §6.1.1, §6.1.2 "compile"): ranked roles, weakest first, rank = index. Each ladder
+ * Ladders, compiled with the roles: ranked roles, weakest first, rank = index. Each ladder
  * role implicitly extends the role right below it, so it holds the grants (and implies) of every
  * lower role. Membership needs both sides: the role listed in `LadderDef.roles` (the order) and
  * `RoleDef.ladder` naming that ladder. A role that only names a ladder has no rank, and a role that
- * is only listed reads as a typo of the other side, so both are refused at boot (§6.5 rule 9).
+ * is only listed reads as a typo of the other side, so both are refused at boot (boot rule 9).
  */
 
 export interface CompiledLadder {
@@ -46,7 +47,7 @@ const RULE = 'design §6.5 rule 9';
  * @throws AuthzConfigError for a malformed ladder, a ladder naming an unknown role, a role in two
  *   ladders, or a `RoleDef.ladder` that disagrees with `LadderDef.roles`
  */
-export function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
+function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
   const out: CompiledLadder[] = [];
   const listedIn = new Map<string, string>();
   ladders.forEach((def, index) => {
@@ -122,15 +123,13 @@ function validateLadder(def: unknown, index: number, known: readonly CompiledLad
   const at = `rbac ladder '${d.name}'`;
   if (known.some((l) => l.name === d.name)) throw new AuthzConfigError(`${at} is defined twice`);
   const roles = d.roles;
-  if (!isNameList(roles) || roles.length === 0) throw new AuthzConfigError(`${at}: roles must be a non-empty array of role names, weakest first`);
+  if (!isStringArray(roles, { nonEmpty: true }) || roles.length === 0) throw new AuthzConfigError(`${at}: roles must be a non-empty array of role names, weakest first`);
   const twice = roles.find((r, i) => roles.indexOf(r) !== i);
   if (twice !== undefined) throw new AuthzConfigError(`${at} lists role '${twice}' twice`);
-  if (d.resourceTypes !== undefined && !(isNameList(d.resourceTypes) && d.resourceTypes.length > 0)) throw new AuthzConfigError(`${at}: resourceTypes must be a non-empty array of resource types; leave it out to apply the ladder's grants everywhere`);
+  if (d.resourceTypes !== undefined && !(isStringArray(d.resourceTypes, { nonEmpty: true }) && d.resourceTypes.length > 0)) throw new AuthzConfigError(`${at}: resourceTypes must be a non-empty array of resource types; leave it out to apply the ladder's grants everywhere`);
   return Object.freeze({
     name: d.name,
     roles: Object.freeze([...roles]),
     ...(d.resourceTypes ? { resourceTypes: new Set(d.resourceTypes) as ReadonlySet<ResourceType> } : {}),
   });
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');

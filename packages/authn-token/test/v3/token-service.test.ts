@@ -2,9 +2,12 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
@@ -15,6 +18,7 @@ import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, NoTokenProfilesPolicy, TokenOwnerResolver, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
+import { tokenServiceOver } from './services.js';
 
 const TABLE = 'rbac_access_tokens';
 const NOW = new Date('2026-10-03T10:00:00.000Z');
@@ -45,16 +49,10 @@ class ThrowingTokenSink extends AuthnEventSink {
   }
 }
 
-class UnbuildableTokenSink extends AuthnEventSink {
-  public static attempts = 0;
-
-  constructor() {
-    super();
-    UnbuildableTokenSink.attempts++;
-    throw new Error('sink misconfigured');
+class HangingTokenSink extends AuthnEventSink {
+  public publish(_event: AuthnEvent): Promise<void> {
+    return new Promise(() => undefined);
   }
-
-  public async publish(_event: AuthnEvent): Promise<void> {}
 }
 
 class ViewerRoleSource extends RoleSource {
@@ -95,25 +93,20 @@ describe('DbTokenService', function () {
 
   before(async () => {
     await bootV3Db();
-    DI.register(TokenTestSink).as(AuthnEventSink);
     for (const key of ['maxTtlDays', 'agentMaxTtlMinutes', 'prefix', 'length']) {
       savedConfig.set(key, config().get(['authn', 'token', key]));
     }
   });
 
   after(async () => {
-    DI.unregister(TokenTestSink);
-    DI.uncache(TokenTestSink);
-    DI.uncache(Array.ofType(AuthnEventSink));
     await shutdownV3Db();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     identities = new FakeIdentityStore();
     profiles = new StubProfilePolicy();
-    tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities);
-    sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof TokenTestSink) as TokenTestSink;
-    sink.clear();
+    sink = new TokenTestSink();
+    tokens = await build();
   });
 
   afterEach(() => {
@@ -121,6 +114,10 @@ describe('DbTokenService', function () {
       setToken(key, value);
     }
   });
+
+  function build(over: { profiles?: TokenProfilePolicy; auditor?: AuthnAuditor } = {}): Promise<DbTokenService> {
+    return tokenServiceOver({ identities, profiles: over.profiles ?? profiles, auditor: over.auditor ?? AuthnAudit.over([sink]) });
+  }
 
   async function owner(status?: Partial<Omit<IdentityStatus, 'exists'>>): Promise<IdentityRef> {
     const ref = identities.add({ login: randomUUID(), ...(status ? { status } : {}) });
@@ -358,7 +355,7 @@ describe('DbTokenService', function () {
 
     it('allows no profile under the default NoTokenProfilesPolicy', async () => {
       const a = await owner();
-      tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities);
+      tokens = await build({ profiles: new NoTokenProfilesPolicy() });
       await refused(a, { name: 'x', kind: 'pat', profile: 'user', expiresAt: at(DAY) }, 'invalid_scope');
     });
 
@@ -375,14 +372,14 @@ describe('DbTokenService', function () {
       expect(longest.record.name).to.have.length(128);
     });
 
-    it('throws a plain Error for an owner without a users row, or of another type', async () => {
+    it('throws InvalidOperation for an owner without a users row, or of another type', async () => {
       const ghost = identities.add({ login: 'ghost' });
       const service = identities.add({ login: 'svc', type: 'service' });
       const before = await count();
 
       for (const o of [ghost, service]) {
         const err = await create(o, { name: 'x', kind: 'pat', expiresAt: at(DAY) }).catch((e: unknown) => e);
-        expect(err).to.be.instanceOf(Error);
+        expect(err).to.be.instanceOf(InvalidOperation);
         expect(err).to.not.be.instanceOf(InvalidArgument);
       }
       expect(await count()).to.equal(before);
@@ -431,6 +428,7 @@ describe('DbTokenService', function () {
       config().set(servicePath, 'FixedTokenProvider');
 
       try {
+        tokens = await build();
         for (const plaintext of ['spt_short', `xyz_${'a'.repeat(43)}`, `spt_${'a'.repeat(42)}`, `spt_${'+'.repeat(43)}`, `spt_${'a'.repeat(42)}=`]) {
           FixedTokenProvider.plaintext = plaintext;
           const before = await count();
@@ -449,7 +447,21 @@ describe('DbTokenService', function () {
     });
 
     describe('roles against a registered RoleSource', () => {
-      afterEach(() => {
+      let scope: IContainer | undefined;
+
+      // The RoleSource is injected when DI builds the service, so these tests resolve it instead of new-ing it.
+      async function resolveWithRoleSource(): Promise<void> {
+        DI.register(ViewerRoleSource).as(RoleSource);
+        scope = DI.child();
+        scope.register(() => profiles).as(TokenProfilePolicy);
+        scope.register(() => identities).as(IdentityStore);
+        scope.register(DbTokenService).asSelf();
+        tokens = await scope.resolve(DbTokenService);
+      }
+
+      afterEach(async () => {
+        await scope?.dispose();
+        scope = undefined;
         DI.unregister(ViewerRoleSource);
         DI.uncache(ViewerRoleSource);
         DI.uncache(RoleSource);
@@ -457,7 +469,7 @@ describe('DbTokenService', function () {
       });
 
       it('refuses a role the owner does not hold and stores nothing', async () => {
-        DI.register(ViewerRoleSource).as(RoleSource);
+        await resolveWithRoleSource();
         const a = await owner();
 
         await refused(a, { name: 'x', kind: 'pat', roles: ['admin'], expiresAt: at(DAY) }, 'invalid_scope', 'pat admin');
@@ -469,7 +481,7 @@ describe('DbTokenService', function () {
       });
 
       it('accepts roles the owner holds and asks nothing for a token without roles', async () => {
-        DI.register(ViewerRoleSource).as(RoleSource);
+        await resolveWithRoleSource();
         const a = await owner();
 
         expect((await pat(a, { roles: ['viewer'] })).record.roles).to.deep.equal(['viewer']);
@@ -483,6 +495,18 @@ describe('DbTokenService', function () {
         const t = await pat(a, { roles: ['admin'] });
         expect((await row(t.record.id)).Roles).to.deep.equal(['admin']);
         expect(ViewerRoleSource.asked).to.deep.equal([]);
+      });
+
+      it('stores the roles as given when DI injects the bare RoleSource it recorded for an unregistered one', async () => {
+        DI.register(RoleSource).as(RoleSource);
+        try {
+          tokens = await build();
+          const a = await owner();
+          const t = await pat(a, { roles: ['admin'] });
+          expect((await row(t.record.id)).Roles).to.deep.equal(['admin']);
+        } finally {
+          DI.unregister(RoleSource);
+        }
       });
     });
   });
@@ -515,12 +539,12 @@ describe('DbTokenService', function () {
       }
     });
 
-    it('create throws a plain Error and stores nothing', async () => {
+    it('create throws InvalidOperation and stores nothing', async () => {
       const a = await owner();
       for (const [label, now] of bad) {
         const before = await count();
         const err = await create(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, badCtx(now)).catch((e: unknown) => e);
-        expect(err, label).to.be.instanceOf(Error);
+        expect(err, label).to.be.instanceOf(InvalidOperation);
         expect(err, label).to.not.be.instanceOf(InvalidArgument);
         expect(await count(), `${label}: nothing stored`).to.equal(before);
       }
@@ -820,63 +844,41 @@ describe('DbTokenService', function () {
       expect(sink.all()).to.deep.equal([]);
     });
 
-    it('works with no sink registered', async () => {
-      DI.unregister(TokenTestSink);
-      DI.uncache(Array.ofType(AuthnEventSink));
-      try {
-        const a = await owner();
-        const t = await pat(a);
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-      } finally {
-        DI.register(TokenTestSink).as(AuthnEventSink);
-      }
+    it('works with no sink', async () => {
+      tokens = await build({ auditor: AuthnAudit.over([]) });
+      const a = await owner();
+      const t = await pat(a);
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
     });
 
     it('keeps a stored token and a completed revoke when a sink throws', async () => {
-      DI.register(ThrowingTokenSink).as(AuthnEventSink);
-      DI.uncache(Array.ofType(AuthnEventSink));
-      try {
-        const recording = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof TokenTestSink) as TokenTestSink;
-        recording.clear();
-        const a = await owner();
+      tokens = await build({ auditor: AuthnAudit.over([new ThrowingTokenSink(), sink]) });
+      const a = await owner();
 
-        const t = await pat(a);
-        expect(t.plaintext).to.match(/^spt_/);
-        expect((await validate(t.plaintext)).ok).to.equal(true);
+      const t = await pat(a);
+      expect(t.plaintext).to.match(/^spt_/);
+      expect((await validate(t.plaintext)).ok).to.equal(true);
 
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
+      expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
 
-        await pat(a);
-        expect(await tokens.revokeAllFor(a, ctx())).to.equal(1);
+      await pat(a);
+      expect(await tokens.revokeAllFor(a, ctx())).to.equal(1);
 
-        expect(recording.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke', 'token.create', 'token.revoke']);
-      } finally {
-        DI.unregister(ThrowingTokenSink);
-        DI.uncache(ThrowingTokenSink);
-        DI.uncache(Array.ofType(AuthnEventSink));
-      }
+      expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke', 'token.create', 'token.revoke']);
     });
 
-    it('keeps a stored token and a completed revoke when a sink cannot be constructed', async () => {
-      DI.register(UnbuildableTokenSink).as(AuthnEventSink);
-      try {
-        const a = await owner();
-        sink.clear();
+    it('holds a create or a revoke no longer than the audit timeout when a sink hangs', async () => {
+      tokens = await build({ auditor: AuthnAudit.over([new HangingTokenSink(), sink], { sinkTimeoutMs: 50 }) });
+      const a = await owner();
+      const started = Date.now();
 
-        const t = await pat(a);
-        expect(t.plaintext).to.match(/^spt_/);
-        expect((await validate(t.plaintext)).ok).to.equal(true);
-        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
-        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+      const t = await pat(a);
+      expect(t.plaintext).to.match(/^spt_/);
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
 
-        expect(UnbuildableTokenSink.attempts).to.be.greaterThan(0);
-        expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
-      } finally {
-        DI.unregister(UnbuildableTokenSink);
-        DI.uncache(UnbuildableTokenSink);
-        DI.uncache(Array.ofType(AuthnEventSink));
-      }
+      expect(Date.now() - started).to.be.below(2000);
+      expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
     });
   });
 
@@ -892,18 +894,27 @@ describe('DbTokenService', function () {
     });
 
     it('refuses to start when DI has no IdentityStore to inject', async () => {
-      // @spinajs/users registers an IdentityStore once any suite imports it. In the child the key resolves to the bare
-      // abstract class, which is what DI injects when nothing is registered; DbTokenService is registered there too,
-      // because DI builds a type in the container that registered it.
-      const bare = DI.child();
-      bare.register(IdentityStore).as(IdentityStore);
-      bare.register(DbTokenService).as(TokenService);
+      // @spinajs/users registers an IdentityStore once any suite imports it; hidden here for the test.
+      const registered = [...(DI.getRegisteredTypes(IdentityStore) ?? [])];
+      registered.forEach((type) => DI.unregister(type));
+      const child = DI.child();
+      child.register(DbTokenService).as(TokenService);
       try {
-        expect(() => bare.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+        const err = await Promise.resolve()
+          .then(() => child.resolve(TokenService))
+          .catch((e: unknown) => e);
+        expect(err).to.be.instanceOf(Error);
+        expect((err as Error).message).to.match(/IdentityStore/);
       } finally {
-        await bare.dispose();
+        await child.dispose();
+        registered.forEach((type) => DI.register(type).as(IdentityStore));
       }
-      expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(Error, /IdentityStore/);
+    });
+
+    it('publishes through the AuthnAudit of its container', async () => {
+      DI.register(TokenTestIdentityStore).as(IdentityStore);
+      const service = await DI.resolve(TokenService);
+      expect((service as unknown as { Audit: unknown }).Audit).to.equal(await DI.resolve(AuthnAudit));
     });
 
     it('resolves as the TokenService with the default resolver, profile policy and the registered IdentityStore', async () => {

@@ -11,7 +11,6 @@ import authnToken from '../../src/config/authn-token.js';
 import { SecureRandomTokenProvider } from '../../src/generator.js';
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
-import type { TokenService } from '@spinajs/authn/contracts';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA];
@@ -148,7 +147,7 @@ describe('authn.token and authn.jwt through the schema', () => {
         error = e;
       }
       expect(String(error)).to.contain('longer than 1024');
-      const strategy = readingFrom(new TokenStrategy({} as TokenService), child);
+      const strategy = readingFrom(new TokenStrategy(), child);
       let boot1: unknown;
       try {
         await strategy.resolve();

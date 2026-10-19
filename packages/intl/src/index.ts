@@ -177,20 +177,31 @@ export class SpineJsInternationalizationFromJson extends Intl {
       toLocalize = text.phrase;
     }
 
-    if (/%/.test(toLocalize) && (this.Locales as any)[locale]) {
+    if (/%/.test(toLocalize) && (this.Locales as any)[locale] && locTable[toLocalize]) {
       const phrase = locTable[toLocalize];
-      const pluralVerb = (MakePlural as any)[locale](count);
+      const pluralVerb = _pluralRule(locale)?.(count) ?? 'other';
 
-      if (phrase[pluralVerb]) {
-        return util.format(phrase[pluralVerb], count);
+      if (pluralVerb !== 'other' && phrase[pluralVerb]) {
+        return _format(phrase[pluralVerb]);
       } else if (phrase.other) {
-        return util.format(_getInterval(phrase.other, count), count);
+        return _format(_getInterval(phrase.other, count));
       }
 
       return this.__(text, count);
     }
 
     return this.__(text, count);
+
+    // make-plural exports language codes and a few regions as `pt_PT`, never `en-US`
+    function _pluralRule(l: string): ((n: number) => string) | undefined {
+      const rules = MakePlural as any;
+      return rules[l] ?? rules[l.replace('-', '_')] ?? rules[l.split(/[-_]/)[0]];
+    }
+
+    // util.format appends arguments that have no placeholder, e.g. `[0] no files` would end with ` 0`
+    function _format(form: string) {
+      return /%[sdifjoOc]/.test(form) ? util.format(form, count) : util.format(form);
+    }
 
     function _getInterval(text: string, count: number) {
       let toReturn = text;
@@ -216,23 +227,25 @@ export class SpineJsInternationalizationFromJson extends Intl {
        * ]0,3[ - 0 to 3 (excluding, matches: 1, 2)
        * [1]   - 1 (matches: 1)
        * [20,] - all numbers ≥20 (matches: 20, 21, 22, ...)
-       * [,20] - all numbers ≤20 (matches: 20, 21, 22, ...)
+       * [,20] - all numbers ≤20 (matches: ..., 18, 19, 20)
        */
       function _matchInterval(c: number, eq: string) {
         const interval = (intervalParse as any).default ? (intervalParse as any).default(eq) : (intervalParse as any)(eq);
-        if (interval) {
-          if (interval.from.value === c) {
-            return interval.from.included;
-          }
-
-          if (interval.to.value === c) {
-            return interval.from.included;
-          }
-
-          return Math.min(interval.from.value, c) === interval.from.value && Math.max(interval.to.value, c) === interval.to.value;
+        if (!interval) {
+          return false;
         }
 
-        return false;
+        // an open bound is parsed as `value: null`
+        const { from, to } = interval;
+        if (from.value !== null && (c < from.value || (c === from.value && !from.included))) {
+          return false;
+        }
+
+        if (to.value !== null && (c > to.value || (c === to.value && !to.included))) {
+          return false;
+        }
+
+        return true;
       }
     }
   }
@@ -262,7 +275,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
     const extract = _.property(text);
 
-    return Array.from(Object.values(this.Locales)).map((v, locale) => {
+    return Object.entries(this.Locales).map(([locale, v]) => {
       return { [locale]: extract(v) };
     });
   }
@@ -372,9 +385,9 @@ export function guessLanguage(lang?: string) {
 
   }
 
-  return lang ?? DI.get(Configuration)!.get<string>('intl.defaultLocale');
+  return lang ?? DI.get(Configuration)!.get<string>('intl.defaultLocale', 'en');
 }
 
 export function defaultLanguage() {
-  return DI.get(Configuration)!.get<string>('intl.defaultLocale');
+  return DI.get(Configuration)!.get<string>('intl.defaultLocale', 'en');
 }

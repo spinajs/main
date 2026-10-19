@@ -6,7 +6,7 @@ Register several implementations of one abstract service, then let a config valu
 
 | You need | Use | Config value | Injected |
 | --- | --- | --- | --- |
-| One implementation, picked by name, with a default | `@AutoinjectNamedService(path, Type, { default, is })` | `'StripeGateway'` | the instance |
+| One implementation, picked by name, with a default | `@AutoinjectNamedService(path, Type, { default, is, optional })` | `'StripeGateway'` | the instance |
 | An ordered list of implementations, keyed | `@AutoinjectNamedServices(path, Type, { lineage: true, keyBy })` | `[{ name: 'sms', service: 'SmsChannel' }, ...]` | `Map<key, instance>` |
 | Implementations built with per-entry options (connections) | `@AutoinjectService(path, Type)` | `'Name'`, `{ service: 'Name', ...options }` or a list of those | the instance, or `Map<ServiceName, instance>` for a list |
 | The same, from a function | `resolveNamedService()`, `resolveNamedServices()`, `service()`, `_service()` | as above | a promise of the above |
@@ -24,7 +24,7 @@ An implementation's **name** is its class name, or the function name of a factor
    - a string: that name;
    - a subclass of `Type`: its class name;
    - any other function: a picker, called with the registered names, that returns a name or `undefined`.
-   No default, or a picker that returns `undefined`, throws `InvalidOption`.
+   No default, or a picker that returns `undefined`, throws `InvalidOption`; with `optional: true` it gives `undefined` instead (the decorator injects `undefined`). An unknown name still throws.
 5. `container.getRegisteredNames(Type)` lists the names registered across the lineage. A name not in it throws `InvalidOption('<path> "<name>": no <Type> is registered under that name (registered: ...)')`.
 6. `container.resolveNamed(Type, name)` resolves the registration nearest to the container; its lifetime applies.
 7. `options.is(instance)`, when given, must return `true`, or `InvalidOption('<path> "<name>" is not an <Type>')` is thrown.
@@ -41,13 +41,13 @@ An implementation's **name** is its class name, or the function name of a factor
 ### `@AutoinjectService`
 
 1. When the instance is built, the decorator reads `path` from the **resolved** configuration of the nearest container that registers one. Not resolved yet: `InvalidOperation`.
-2. The value becomes service requests: a string `'Name'` is `{ service: 'Name' }`; an object is `{ service: obj.service, options: obj }`; a list maps each object the same way. An empty value logs a warning and leaves the property `undefined`.
+2. The value becomes service requests: a string `'Name'` is `{ service: 'Name' }`; an object is `{ service: obj.service, options: obj }`; a list maps each object the same way. An empty value throws `InvalidOperation` naming `path`; with `{ optional: true }` it logs a warning and leaves the property `undefined`.
 3. DI takes the types registered for `Type` in the nearest container that has any, finds each by class name (`ServiceNotFound` when missing) and resolves it with `options` as the first constructor argument.
 4. A list is injected as a `Map` keyed by each instance's `ServiceName`, or its class name when `ServiceName` is empty.
 
 ### `service()` and `_service()`
 
-`service(path, Type, options?)` reads `cfg(path).service` from the root configuration, finds the registered type of that class name in the root container and resolves it. Resolution errors are wrapped in `ResolveException('Cannot resolve service from <path>: ...')`. `_service()` returns `() => service(...)`.
+`service(path, Type, options?)` reads the service name at `path` (`'Name'` or `{ service: 'Name' }`) from the root configuration, finds the registered type of that class name in the root container and resolves it. Resolution errors are wrapped in `ResolveException('Cannot resolve service from <path>: ...')`. `_service()` returns `() => service(...)`.
 
 ```mermaid
 sequenceDiagram
@@ -70,7 +70,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `@AutoinjectNamedService(path, Type, options?)` | property | `default?: string \| Class<T> \| (registered: readonly string[]) => string \| undefined`; `is?: (instance) => boolean` | Injects the one `Type` named at `path`. Resolve becomes async. |
 | `@AutoinjectNamedServices(path, Type, options)` | property | `lineage: true`; `keyBy: string`, the entry and instance property used as the map key | Injects `Map<string, Type>` in list order. Resolve becomes async. |
-| `@AutoinjectService(path, Type?)` | property | none; `Type` defaults to the property's design type (pass it for maps and arrays) | Injects the instance named at `path`, built with the entry as its constructor options; a `Map` for a list. |
+| `@AutoinjectService(path, Type?, options?)` | property | `optional?: boolean`, tolerate an empty value; `Type` defaults to the property's design type (pass it for maps and arrays) | Injects the instance named at `path`, built with the entry as its constructor options; a `Map` for a list. |
 
 ## Configuration
 
@@ -316,7 +316,7 @@ A factory is called on every resolve and its result is not cached.
 - Names match `name` exactly and are case-sensitive. A minifier that renames classes breaks config names; register named factories in bundled builds.
 - `@AutoinjectNamedServices` passes nothing from the entry to the instance; the instance reads its own settings (with `@Config`). `@AutoinjectService` passes the whole entry, `service` key included.
 - `@AutoinjectNamedServices` checks `instance[keyBy] === entry[keyBy]`. A typo in config fails at resolve with both names in the message.
-- `service()` expects an object `{ service: 'Name' }` at `path`; a plain string is not accepted. It looks in the root container only.
+- `service()` accepts `'Name'` or `{ service: 'Name' }` at `path`. It looks in the root container only.
 - An unknown name fails when the owning class is resolved, not at boot. Resolve such classes in a `Bootstrapper` or at startup to fail early.
 
 ## Best practices

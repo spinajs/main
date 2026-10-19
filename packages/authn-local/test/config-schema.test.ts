@@ -5,6 +5,7 @@ import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthnLocalConfigBootstrapper } from '../src/bootstrap.js';
 
 import authnLocal from '../src/config/authn-local.js';
+import { AUTHN_LOCAL_DEFAULTS } from '../src/defaults.js';
 import { Argon2PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
@@ -51,6 +52,19 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.reset')).to.deep.eq({ ttlSeconds: 3600, url: '', revokeTokens: true });
       expect(configuration.get('authn.local.invite.ttlSeconds')).to.eq(900);
       expect(configuration.get('authn.local.expiration')).to.deep.eq({ enabled: false, maxAgeDays: 31 });
+    });
+
+    it('AUTHN_LOCAL_DEFAULTS, the fallback of the deps and options seams, is what the schema fills', async () => {
+      const { configuration } = await boot(SCHEMAS, LOCAL);
+      const filled = configuration.get<Record<string, Record<string, unknown>>>('authn.local');
+      expect(AUTHN_LOCAL_DEFAULTS).to.deep.eq({
+        hasher: { maxConcurrent: filled.hasher.maxConcurrent },
+        policy: { minLength: filled.policy.minLength, maxLength: filled.policy.maxLength },
+        generator: filled.generator,
+        reset: filled.reset,
+        invite: filled.invite,
+        expiration: filled.expiration,
+      });
     });
 
     it('keeps the shipped package config equal to the schema defaults it repeats', async () => {

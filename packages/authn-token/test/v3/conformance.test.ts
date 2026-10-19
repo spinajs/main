@@ -4,13 +4,14 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { Credentials } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import type { FakeClock, KitKeyPair, StrategySubject } from '@spinajs/authn-testing';
 
 import '../../src/generator.js';
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
-import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
-import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
+import { NoTokenProfilesPolicy } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
+import { tokenServiceOver, tokenStrategyOver } from './services.js';
 
 const DAY_MS = 86_400_000;
 const POOL_SIZE = 4;
@@ -26,8 +27,8 @@ const randomToken = (): string => `spt_${randomBytes(32).toString('base64url')}`
 
 async function tokenSubject({ clock }: { clock: FakeClock }): Promise<StrategySubject> {
   const identities = new FakeIdentityStore();
-  const tokens = new DbTokenService(new UsersTableTokenOwnerResolver(), new NoTokenProfilesPolicy(), identities);
-  const strategy = new TokenStrategy(tokens);
+  const tokens = await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]) });
+  const strategy = tokenStrategyOver(tokens);
   await strategy.resolve();
 
   const owner = identities.add({ login: randomUUID() });

@@ -1,19 +1,19 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
+import { META_OPTION } from '@spinajs/cli';
+import type { IOption } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import type { Orm } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
 
 import { CheckConfigCommand } from '../../src/cli/index.js';
 import { RoleStore } from '../../src/contracts.js';
+import { RbacService } from '../../src/model/service.js';
 import { ConfigRoleStore } from '../../src/stores/index.js';
-import { bootDb } from '../support/db.js';
-import type { TestDb } from '../support/db.js';
 import { capture, fakeAuthz } from './fixture.js';
 import type { Captured } from './fixture.js';
 
@@ -41,6 +41,7 @@ class ObjectConfiguration extends Configuration {
 function command(rbac: unknown): { cmd: CheckConfigCommand; calls: ReturnType<typeof fakeAuthz>['runAs'] } {
   const f = fakeAuthz();
   const cmd = new CheckConfigCommand();
+  cmd.Container = DI.RootContainer;
   cmd.Authz = f.service;
   cmd.Roles = new ConfigRoleStore(new ObjectConfiguration({ authz: { rbac } }));
   return { cmd, calls: f.runAs };
@@ -81,6 +82,10 @@ describe('authz:check-config', () => {
     expect(io.err[0]).to.contain('authz.rbac.roles.viewer');
     expect(io.exitCode()).to.equal(1);
     expect(io.out).to.deep.equal([]);
+  });
+
+  it('declares only --explain-role: the unattended report is authz:audit-unattended in authz-orm', () => {
+    expect((Reflect.getMetadata(META_OPTION, CheckConfigCommand) as IOption[]).map((o) => o.flags)).to.deep.equal(['--explain-role <role>']);
   });
 
   it('prints the boot error of AuthzService and exits 1', async () => {
@@ -163,27 +168,18 @@ describe('authz:check-config', () => {
     });
 
     describe('RbacService registered in DI', () => {
-      const grants = [{ permission: 'doc:read' }];
-      afterEach(() => {
-        DI.unregister('RbacService');
-        DI.uncache('RbacService');
-      });
-
-      it('finds a class registered under the name', async () => {
-        class FakeRbac {
-          grantsOf() {
-            return grants;
-          }
+      class FakeRbac {
+        grantsOf() {
+          return [{ permission: 'doc:read' }];
         }
-        DI.register(FakeRbac).as('RbacService');
-        const { cmd } = command(GOOD);
-        await cmd.execute({ explainRole: 'editor' });
-        expect(io.out).to.include('  doc:read');
-        expect(io.exitCode()).to.equal(undefined);
+      }
+      afterEach(() => {
+        DI.unregister(FakeRbac);
+        DI.uncache(RbacService);
       });
 
-      it('finds a value registered under the name', async () => {
-        DI.register({ grantsOf: () => grants }).asValue('RbacService');
+      it('finds the RbacService the root container registers', async () => {
+        DI.register(FakeRbac).as(RbacService);
         const { cmd } = command(GOOD);
         await cmd.execute({ explainRole: 'editor' });
         expect(io.out).to.include('  doc:read');
@@ -202,64 +198,6 @@ describe('authz:check-config', () => {
       expect(io.err).to.have.length(1);
       expect(io.err[0]).to.contain('RBAC model').and.to.contain('not registered');
       expect(io.exitCode()).to.equal(1);
-    });
-  });
-
-  describe('--unattended', function () {
-    this.timeout(30000);
-    let db: TestDb;
-    before(async function () {
-      // No migrations: the case "table absent" needs a database without authz_audit.
-      db = await bootDb(this, 'sqlite', 'check_config', { migrate: false });
-    });
-    after(async () => {
-      await db?.dispose();
-    });
-
-    const withOrm = (cmd: CheckConfigCommand) => {
-      cmd.Orm = { Connections: new Map([['default', db.driver]]) } as unknown as Orm;
-      cmd.Configuration = new ObjectConfiguration({});
-      return cmd;
-    };
-
-    it('reports that DbDecisionAudit is not enabled when the table is absent', async () => {
-      const { cmd } = command(GOOD);
-      await withOrm(cmd).execute({ unattended: true });
-      expect(io.err).to.have.length(1);
-      expect(io.err[0]).to.contain('DbDecisionAudit').and.to.contain('not enabled');
-      expect(io.exitCode()).to.equal(1);
-    });
-
-    it('counts unattended queries per resource type', async () => {
-      await db.driver.schema().createTable('authz_audit', (t) => {
-        t.string('id', 36).primaryKey().notNull();
-        t.dateTime('at').notNull();
-        t.string('kind', 16).notNull();
-        t.string('principal', 100).notNull();
-        t.string('permission', 160);
-        t.string('resource', 255);
-        t.string('reason', 255);
-        t.text('trace');
-      });
-      const rows: Array<[string, string, string]> = [
-        ['doc:1', 'doc:read', 'unattended'],
-        ['doc:2', 'doc:read', 'unattended'],
-        ['file:9', 'file:read', 'unattended'],
-        ['we%3Aird:1', 'x', 'unattended'],
-        ['project:3', 'project:read', 'no_access'],
-      ];
-      let n = 0;
-      for (const [resource, permission, reason] of rows) {
-        await db.driver
-          .insert()
-          .into('authz_audit')
-          .values({ id: `r${++n}`, at: new Date(), kind: 'deny', principal: 'unattended:unattended', permission, resource, reason });
-      }
-
-      const { cmd } = command(GOOD);
-      await withOrm(cmd).execute({ unattended: true });
-      expect(io.out).to.deep.equal(['OK: 2 role(s), 1 ladder(s)', 'resource types queried without a principal:', '  doc  2', '  file  1', '  we:ird  1']);
-      expect(io.exitCode()).to.equal(undefined);
     });
   });
 });

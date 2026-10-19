@@ -54,7 +54,6 @@
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-http": "3.0.0-alpha.0",
-    "@spinajs/authn-orm": "3.0.0-alpha.0",
     "@spinajs/authn-session": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/configuration-common": "2.0.549",
@@ -66,6 +65,7 @@
     "jose": "^6.1.0"
   },
   "devDependencies": {
+    "@spinajs/authn-orm": "3.0.0-alpha.0",
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/orm": "2.0.549",

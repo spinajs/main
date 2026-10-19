@@ -2,7 +2,7 @@ import { Page, LaunchOptions, ConsoleMessage, HTTPRequest, HTTPResponse } from '
 import { NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates, IRenderOptions, RenderPhase, RenderProgressCallback } from '@spinajs/templates';
 import { IInstanceCheck, LazyInject } from '@spinajs/di';
-import { basename, dirname, join } from 'path';
+import { basename, dirname, extname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
 import * as http from 'http';
 
@@ -28,8 +28,11 @@ export interface IPuppeteerRendererOptions {
    * If provided, overrides args.executablePath.
    */
   executablePath?: string;
-  renderDurationWarning: number;
+  /** Warn when a render takes longer than this (ms). Defaults to 5000. */
+  renderDurationWarning?: number;
+  /** Page navigation timeout (ms). Defaults to 30000; `0` disables it. */
   navigationTimeout?: number;
+  /** Page timeout and render watchdog (ms). Defaults to 30000; `0` disables both. */
   renderTimeout?: number;
 
   /**
@@ -49,7 +52,9 @@ export interface IPuppeteerRendererOptions {
 /** Default navigation/render timeout when none is configured (ms). */
 const DEFAULT_RENDER_TIMEOUT_MS = 30000;
 
-/** Watchdog canceller used when timeouts are disabled (debug mode). */
+const DEFAULT_RENDER_DURATION_WARNING_MS = 5000;
+
+/** Watchdog canceller used when timeouts are disabled. */
 const noop = () => {
   /* nothing to cancel */
 };
@@ -71,7 +76,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
    * created with the same options.
    */
   public __checkInstance__(creationOptions: any): boolean {
-    return JSON.stringify(this.instanceOptions) === JSON.stringify(creationOptions);
+    return JSON.stringify(this.instanceOptions) === JSON.stringify(creationOptions?.[0]);
   }
 
   @Logger('puppeteer-templates')
@@ -110,12 +115,12 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
     await this.renderContentToFile(filePath, { assetBasePath: templateBasePath, onProgress: options?.onProgress }, async (page, httpPort, markLoading) => {
       const compiledTemplate = await this.TemplatingService.render(
-        join(templateBasePath, basename(template, this.Extension)) + '.pug',
+        this.templateSourcePath(template),
         {
           // add template temporary server port so templates can reference local images
           __http_template_port__: httpPort,
           // for convenience add full url to local http server
-          __http_template_address__: `http://localhost:${httpPort}`,
+          __http_template_address__: `http://127.0.0.1:${httpPort}`,
           ...model,
         },
         language,
@@ -125,6 +130,23 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
       markLoading();
       await page.setContent(compiledTemplate);
     });
+  }
+
+  /**
+   * A path ending in an output extension (this renderer's, or another file
+   * renderer's) compiles the sibling `.pug`; a path ending in a string engine's
+   * extension (eg. `invoice.pug`) is compiled as is.
+   */
+  protected templateSourcePath(template: string): string {
+    const ext = extname(template);
+    const engine = ext ? this.TemplatingService.getRendererFor(ext) : undefined;
+
+    if (engine && !(engine instanceof PuppeteerRenderer)) {
+      return template;
+    }
+
+    const isOutputExtension = ext === this.Extension || engine instanceof PuppeteerRenderer;
+    return join(dirname(template), basename(template, isOutputExtension ? ext : '')) + '.pug';
   }
 
   /**
@@ -243,7 +265,8 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
         this.Log.info('Page kept open for debugging (debug.close=false)');
       }
 
-      if (server) {
+      // a kept page may reload local assets
+      if (server && !keepPageOpen) {
         await this.assetServer.close(server);
       }
     }
@@ -251,12 +274,12 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
   /** Effective render timeout: configured value, else the default. */
   protected get renderTimeoutMs(): number {
-    return this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS;
+    return this.Options?.renderTimeout ?? DEFAULT_RENDER_TIMEOUT_MS;
   }
 
   /** Apply the configured (or default) navigation and render timeouts to a page. */
   protected configurePageTimeouts(page: Page): void {
-    page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || DEFAULT_RENDER_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(this.Options?.navigationTimeout ?? DEFAULT_RENDER_TIMEOUT_MS);
     page.setDefaultTimeout(this.renderTimeoutMs);
   }
 
@@ -267,6 +290,10 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
    */
   protected armRenderWatchdog(page: Page): () => void {
     const timeoutMs = this.renderTimeoutMs;
+    if (timeoutMs <= 0) {
+      return noop;
+    }
+
     const handle = setTimeout(() => {
       this.Log.warn({ timeoutMs }, 'Render timeout (${timeoutMs}ms) - closing page');
       page.close().catch(() => { /* page may already be closing */ });
@@ -277,7 +304,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
   /** Warn if a render took longer than the configured warning threshold. */
   protected warnIfSlow(filePath: string, duration: number): void {
-    if (this.Options && duration > this.Options.renderDurationWarning) {
+    if (duration > (this.Options?.renderDurationWarning ?? DEFAULT_RENDER_DURATION_WARNING_MS)) {
       this.Log.warn({ filePath }, 'Rendering to file ${filePath} took too long.');
     }
   }

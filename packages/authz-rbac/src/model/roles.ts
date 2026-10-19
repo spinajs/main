@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef, ResourceType } from '@spinajs/authz';
+import { isStringArray } from '@spinajs/util';
 
 import type { LadderDef, RoleDef } from '../contracts.js';
 
@@ -38,7 +39,7 @@ type OutEdge = Omit<RoleEdge, 'from'>;
 
 const CYCLE_NAMES_SHOWN = 20;
 
-/** @throws AuthzConfigError on a malformed definition, a duplicate name, an edge to an unknown role or a cycle (B12). */
+/** @throws AuthzConfigError on a malformed definition, a duplicate name, an edge to an unknown role or a cycle. */
 export function compileRoles(roles: readonly RoleDef[], ladders: readonly LadderDef[] = [], opts: CompileRolesOptions = {}): RoleGraph {
   if (!Array.isArray(roles)) throw new AuthzConfigError('RBAC roles must be an array of role definitions');
   if (!Array.isArray(ladders)) throw new AuthzConfigError('RBAC ladders must be an array of ladder definitions');
@@ -145,7 +146,7 @@ function refuseCycles(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<str
 
 const DENY_GRANT_KEYS = ['relation', 'on', 'fields', 'requiresTag', 'grantedAt'] as const;
 
-/** Design §4.2: a deny role subtracts plain permissions, and no edge passes grants between deny and permit roles. */
+/** A deny role subtracts plain permissions, and no edge passes grants between deny and permit roles. */
 function refuseDenyMixing(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<string, readonly OutEdge[]>): void {
   const isDeny = (name: string) => defs.get(name)?.deny === true;
   for (const [name, def] of defs) {
@@ -200,14 +201,12 @@ function validateRole(def: unknown, index: number): asserts def is RoleDef {
   if (typeof d.name !== 'string' || d.name === '') throw new AuthzConfigError(`RBAC role #${index} has no name`);
   if (typeof d.source !== 'string') throw new AuthzConfigError(`Role '${d.name}': source must be a string`);
   const at = `Role '${d.name}' (source: ${d.source})`;
-  if (!isNameList(d.extends)) throw new AuthzConfigError(`${at}: extends must be an array of role names`);
+  if (!isStringArray(d.extends, { nonEmpty: true })) throw new AuthzConfigError(`${at}: extends must be an array of role names`);
   if (!Array.isArray(d.grants)) throw new AuthzConfigError(`${at}: grants must be an array`);
   if (d.assignable !== undefined && typeof d.assignable !== 'boolean') throw new AuthzConfigError(`${at}: assignable must be true or false`);
-  if (d.scopeTypes !== undefined && !(isNameList(d.scopeTypes) && d.scopeTypes.length > 0)) throw new AuthzConfigError(`${at}: scopeTypes must be a non-empty array of resource types; leave it out to allow every scope type`);
+  if (d.scopeTypes !== undefined && !(isStringArray(d.scopeTypes, { nonEmpty: true }) && d.scopeTypes.length > 0)) throw new AuthzConfigError(`${at}: scopeTypes must be a non-empty array of resource types; leave it out to allow every scope type`);
   if (d.deny !== undefined && typeof d.deny !== 'boolean') throw new AuthzConfigError(`${at}: deny must be true or false`);
 }
-
-const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
 
 // Stores hand out their own arrays and may change them later; the graph and the grant index must not change with them.
 function frozenCopy<T>(value: T): T {

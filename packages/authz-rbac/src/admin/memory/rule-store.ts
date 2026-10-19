@@ -4,7 +4,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { RuleDef } from '../../contracts.js';
 import { AdminRuleStore } from '../ports.js';
 import type { Page } from '../ports.js';
-import { deepFreeze, isLive, paged, sameRef } from '../rows.js';
+import { deepFreeze, isLiveAt, paged, sameRef } from '../rows.js';
 
 // structuredClone keeps Dates and drops nothing a RuleDef holds (plain data).
 const copy = (r: RuleDef): RuleDef => deepFreeze(structuredClone(r));
@@ -23,7 +23,7 @@ export class MemoryRuleStore extends AdminRuleStore {
 
   async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
     const keys = new Set(path.map(resourceKey));
-    return [...this.rows.values()].filter((r) => keys.has(resourceKey(r.scope)) && isLive(r.expiresAt, at)).map(copy);
+    return [...this.rows.values()].filter((r) => keys.has(resourceKey(r.scope)) && isLiveAt(r.expiresAt, at)).map(copy);
   }
 
   async byId(id: string): Promise<RuleDef | null> {

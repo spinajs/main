@@ -64,7 +64,7 @@ export interface IFilterRequest {
    * and the generated JSON schema marks neither `op` nor `filters` as required.
    */
   op?: FilterableLogicalOperators;
-  filters?: IFilter[];
+  filters?: IFilterEntry[];
 }
 
 export enum FilterableLogicalOperators {

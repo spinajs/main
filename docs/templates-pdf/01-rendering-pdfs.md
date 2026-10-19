@@ -4,8 +4,8 @@
 
 | Entry point | Input | PDF options | Use it when |
 | --- | --- | --- | --- |
-| `Templates.renderToFile(template, model, filePath, language?, options?)` | A path ending in `.pdf`; the sibling `.pug` file is compiled | none: Puppeteer defaults | The app already renders other formats through `Templates` |
-| `Templates.compileToFile(template, 'pdf', model, filePath, language?, options?)` | Same, engine picked by its `Type` | none: Puppeteer defaults | The template path does not end in `.pdf` |
+| `Templates.renderToFile(template, model, filePath, language?, options?)` | A path ending in `.pdf`; the sibling `.pug` file is compiled | `templates.pdf.options` | The app already renders other formats through `Templates` |
+| `Templates.compileToFile(template, 'pdf', model, filePath, language?, options?)` | Same, engine picked by its `Type` | `templates.pdf.options` | The template path does not end in `.pdf` |
 | `PdfRenderer.renderToFile(template, model, filePath, language?, options?)` | Same as `Templates.renderToFile()` | The `PDFOptions` the renderer was resolved with | You need a paper format, margins, header or footer |
 | `PdfRenderer.renderHtmlToFile(html, filePath, options?)` | An HTML string | The `PDFOptions` the renderer was resolved with | The HTML comes from another engine, a CMS or a test fixture |
 
@@ -20,7 +20,7 @@ Template mode, started by `Templates.renderToFile('templates/invoice.pdf', model
 5. `armRenderWatchdog()` and `configurePageTimeouts()` arm the timeouts; `addPageEventListeners()` logs the page's console, errors and responses.
 6. Phase `preparing`: `page.setBypassCSP(true)`, then `Templates.render()` compiles `templates/invoice.pug` with the model plus `__http_template_port__` and `__http_template_address__`.
 7. Phase `loading`: `page.setContent()` loads the compiled HTML and its resources.
-8. Phase `rendering`: `PdfRenderer.performRender()` calls `page.pdf({ path: filePath, ...pdfOptions })`.
+8. Phase `rendering`: `PdfRenderer.performRender()` calls `page.pdf({ ...config options, ...pdfOptions, path: filePath })`; `path` is always the output file.
 9. Phase `done`. The page and the asset server close; the browser stays open for the next render.
 
 An error in steps 3 to 8 is logged, reported as phase `failed` and rethrown. HTML mode (`renderHtmlToFile()`) runs the same steps, but step 6 sets the viewport (when given) and inserts `<base href="http://127.0.0.1:<port>/">` into the HTML instead of compiling a template.
@@ -62,7 +62,7 @@ The renderer reads `templates.pdf`; see [Renderer configuration](02-renderer-con
 
 - The template path names the **output** format: `invoice.pdf` compiles `invoice.pug` from the same directory. The `.pug` extension is hard-coded, so `Templates.compileToFile('invoice.pug', 'pdf', ...)` looks for `invoice.pug.pug`.
 - Template mode compiles only Pug. For Handlebars, MJML or any other engine, compile with `Templates.render()` and pass the HTML to `renderHtmlToFile()`.
-- Through `Templates`, `PdfRenderer` has no `PDFOptions`, so Puppeteer defaults apply: Letter paper, no background colours or images. Resolve the renderer with options when the layout needs A4 or backgrounds; see [Renderer instances and PDF options](03-renderer-instances-and-pdf-options.md).
+- Through `Templates`, `PdfRenderer` has no constructor `PDFOptions`, so only `templates.pdf.options` applies; when it is empty Puppeteer defaults apply (Letter paper, no background colours or images). Set `templates.pdf.options` or resolve the renderer with options when the layout needs A4 or backgrounds; see [Renderer instances and PDF options](03-renderer-instances-and-pdf-options.md).
 - Template mode loads the HTML into `about:blank` without a `<base>`: relative URLs do not resolve. Reference assets with `#{__http_template_address__}/logo.png`.
 - HTML mode adds a `<base href>` unless the HTML already declares `<base ...>`. The asset base defaults to the output file's directory.
 - The asset server serves the whole asset directory to the page, with CORS enabled, on loopback only. Keep templates and their assets in a directory that holds nothing else.

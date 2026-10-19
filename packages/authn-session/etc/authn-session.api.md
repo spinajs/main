@@ -77,7 +77,8 @@ export declare abstract class SessionProvider<T extends ISession = ISession> ext
     abstract truncate(): Promise<void>;
     protected applyInitialExpiration(s: ISession): void;
     protected applyRenewedExpiration(s: ISession): void;
-    protected isExpired(s: ISession): boolean;
+    /** Public so SessionIssuer judges a row the way its store does. */
+    isExpired(s: ISession): boolean;
 }
 ```
 

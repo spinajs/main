@@ -22,7 +22,7 @@ const AUD = 'https://keys.example.test';
 
 async function parts(keys: Record<string, unknown>) {
   const { child, configuration } = await boot(SCHEMAS, { authn: { keys } });
-  const registry = readingFrom(new DefaultKeyRegistry(new MemoryKeyStore(), new MemorySecretStore(), new FakeBackoffThrottle(throttleParams()), []), child);
+  const registry = readingFrom(new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()) }), child);
   return { child, configuration, registry };
 }
 
@@ -139,7 +139,7 @@ describe('authn.keys through the schema', () => {
 
     it('JwsAssertionStrategy and KeyChallengeStrategy fail their boot without an audience', async () => {
       const { child, registry } = await parts({});
-      const assertion = readingFrom(new JwsAssertionStrategy(registry, new StrictJwsVerifier(), new MemoryKeyNonceStore()), child);
+      const assertion = readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child);
       let error: unknown;
       try {
         await assertion.resolve();
@@ -147,7 +147,7 @@ describe('authn.keys through the schema', () => {
         error = e;
       }
       expect(String(error)).to.contain('authn.keys.assertion.audience');
-      const challenge = readingFrom(new KeyChallengeStrategy(registry, new MemorySecretStore()), child);
+      const challenge = readingFrom(new KeyChallengeStrategy({ registry, secrets: new MemorySecretStore() }), child);
       error = undefined;
       try {
         await challenge.resolve();
@@ -159,9 +159,9 @@ describe('authn.keys through the schema', () => {
 
     it('the strategies boot with an audience, and HttpSignatureStrategy needs none', async () => {
       const { child, registry } = await parts({ assertion: { audience: AUD } });
-      await readingFrom(new JwsAssertionStrategy(registry, new StrictJwsVerifier(), new MemoryKeyNonceStore()), child).resolve();
-      await readingFrom(new KeyChallengeStrategy(registry, new MemorySecretStore()), child).resolve();
-      await readingFrom(new HttpSignatureStrategy(registry, new MemoryKeyNonceStore()), child).resolve();
+      await readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child).resolve();
+      await readingFrom(new KeyChallengeStrategy({ registry, secrets: new MemorySecretStore() }), child).resolve();
+      await readingFrom(new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() }), child).resolve();
     });
   });
 });

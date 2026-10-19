@@ -1,17 +1,14 @@
-import { Inject, Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
-import '../register-schema.js';
-import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AuthenticationStrategy, JwsVerifier } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { _is_string, _max_length, _try_check_arg } from '@spinajs/util';
+import { InvalidOption } from '@spinajs/exceptions';
 import { decodeB64url } from '../jwk/base64url.js';
 import { KEY_ALGORITHMS } from '../jwk/keys.js';
-import { dummyVerify } from '../jwk/signature.js';
 import { isJsonObject, parseStrictJson } from '../jws/json.js';
 import { KeyNonceStore, nonceKey } from '../nonce/store.js';
-import { keysOptionsOf } from '../options/options.js';
-import type { KeysConfig, KeysOptions } from '../options/options.js';
-import { MAX_CREDENTIAL_LENGTH, assertionIssuer, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
+import { KeyStrategy, MAX_CREDENTIAL_LENGTH, assertionIssuer, failure, keyThrottleKeys, usableKey } from './keys.js';
+import type { KeyStrategyDeps } from './keys.js';
 
 const MAX_JTI = 128;
 
@@ -29,33 +26,41 @@ function headerOf(jws: unknown): { kid: string | null; alg: KeyAlgorithm } {
   return { kid: isJsonObject(h) && typeof h.kid === 'string' ? h.kid : null, alg };
 }
 
+export interface JwsAssertionStrategyDeps extends KeyStrategyDeps {
+  readonly verifier?: JwsVerifier;
+  readonly nonces?: KeyNonceStore;
+}
+
 /**
  * Machine clients: `Authorization: Bearer <jws>` signed by a registered key (design §22.10, A17). Header typ
  * `authn.keys.assertion.typ`; claims iss = the key owner as `<type>:<id>`, aud = `authn.keys.assertion.audience`,
  * iat, exp (lifetime at most 300 s) and a jti accepted once within its lifetime.
  */
 @Injectable(AuthenticationStrategy)
-@Inject(KeyRegistry, JwsVerifier, KeyNonceStore)
-export class JwsAssertionStrategy extends AuthenticationStrategy {
+export class JwsAssertionStrategy extends KeyStrategy<JwsAssertionStrategyDeps> {
   readonly name = 'keys-jws';
   readonly kinds = ['jws-assertion'];
   readonly interactive = false;
-  @Config('authn.keys')
-  protected KeysConfig: KeysConfig;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly verifier: JwsVerifier, protected readonly nonces: KeyNonceStore, protected readonly Options?: KeysOptions) {
-    super();
+  @Autoinject(JwsVerifier)
+  protected Verifier: JwsVerifier;
+
+  @Autoinject(KeyNonceStore)
+  protected Nonces: KeyNonceStore;
+
+  protected get verifier(): JwsVerifier {
+    return this.Deps?.verifier ?? this.Verifier;
   }
 
-  protected get options(): KeysOptions {
-    return keysOptionsOf(this.Options ?? this.KeysConfig);
+  protected get nonces(): KeyNonceStore {
+    return this.Deps?.nonces ?? this.Nonces;
   }
 
   /** The audience the assertions name; which strategies are listed decides that one is required, so this is a boot check, not a schema rule. */
   protected get audience(): string {
     const audience = this.options.assertion.audience;
     if (audience === null) {
-      throw new Error('authn.keys.assertion.audience must be set to accept JWS assertions');
+      throw new InvalidOption('authn.keys.assertion.audience must be set to accept JWS assertions');
     }
     return audience;
   }
@@ -63,11 +68,6 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
   public async resolve(): Promise<void> {
     void this.audience;
     await super.resolve();
-  }
-
-  /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */
-  protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {
-    dummyVerify(alg, data, signature);
   }
 
   throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
@@ -113,6 +113,6 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
     if (!(await this.nonces.claim(nonceKey('jti', r.key.kid, r.claims.jti), new Date((r.claims.exp + a.skewSeconds) * 1000), ctx.now))) {
       return failure('invalid_credentials');
     }
-    return keySuccess(this.registry, r.key, 'jws', ctx);
+    return this.success(r.key, 'jws', ctx);
   }
 }

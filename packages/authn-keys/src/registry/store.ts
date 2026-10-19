@@ -1,5 +1,5 @@
 import type { Ceiling, IdentityRef, KeyRecord, PrincipalRef } from '@spinajs/authn/contracts';
-import { principalKey } from '@spinajs/authn/contracts';
+import { principalKey, sameRef } from '@spinajs/authn/contracts';
 
 /** authn_key behind DefaultKeyRegistry: MemoryKeyStore, or OrmKeyStore in apps. */
 export abstract class KeyStore {
@@ -11,8 +11,6 @@ export abstract class KeyStore {
   abstract revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'>;
   abstract touch(kid: string, at: Date): Promise<void>;
 }
-
-export const sameOwner = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
 export function encodePrincipalRef(ref: PrincipalRef): string {
   return principalKey(ref);
@@ -51,12 +49,12 @@ export class MemoryKeyStore extends KeyStore {
   }
 
   async listByOwner(owner: IdentityRef): Promise<readonly KeyRecord[]> {
-    return [...this.rows.values()].filter((r) => sameOwner(r.owner, owner));
+    return [...this.rows.values()].filter((r) => sameRef(r.owner, owner));
   }
 
   async revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'> {
     const row = this.rows.get(kid);
-    if (!row || !sameOwner(row.owner, owner)) {
+    if (!row || !sameRef(row.owner, owner)) {
       return 'none';
     }
     if (row.revokedAt) {

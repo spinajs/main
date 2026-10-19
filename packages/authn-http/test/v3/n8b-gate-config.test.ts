@@ -1,7 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { KeyRegistry } from '@spinajs/authn/contracts';
+import { KeyRegistry, MfaEnrolmentService, MfaPolicy } from '@spinajs/authn/contracts';
+import type { MfaStep } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 // The schemas entry, not the package root: the root registers a KeyRegistry, which opens the key routes.
 import { AUTHN_KEYS_CONFIGURATION_SCHEMA } from '@spinajs/authn-keys/schemas';
@@ -10,12 +11,11 @@ import type { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
 
 import '../../src/api.js';
 import { KeyRoutesOn } from '../../src/keys/gate.js';
-import { TOTP_SERVICE, TotpEnrolmentOn } from '../../src/mfa/index.js';
+import { TotpEnrolmentOn } from '../../src/mfa/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const AUDIENCE = 'https://gate-config.example.test';
-const MFA_KEY = 'ab'.repeat(32);
 
 /** `gate` built the way DI builds it from `container`: its Container and the container its `@Config` reads. */
 async function answer(gate: BasePolicy, container: IContainer): Promise<'open' | 'not_found'> {
@@ -57,29 +57,39 @@ describe('the N8b route gates read authn.* through @Config', function () {
     expect(paths).to.include.members(['authn.keys.challenge.audience', 'authn.keys.assertion.audience']);
   });
 
-  it('TotpEnrolmentOn stays off without asking its container anything while the configuration of its container sets no MFA key', async () => {
-    const gateWith = async (values: Record<string, unknown>) => {
-      const { child } = await boot(SCHEMAS, values);
-      child.register({ TotpService: class {} }.TotpService).asSelf();
-      const resolve = sinon.stub(child, 'resolve').rejects(new Error('asked the container'));
-      const resolveNamed = sinon.stub(child, 'resolveNamed').rejects(new Error('asked the container'));
-      const names = sinon.stub(child, 'getRegisteredNames').throws(new Error('asked the container'));
-      return { asked: () => resolve.called || resolveNamed.called || names.called, answer: answer(new TotpEnrolmentOn(), child) };
-    };
-    const steps = [{ name: 'totp', service: 'TotpMfaStep' }];
-    const unset = await gateWith({ authn: { mfa: { steps } } });
-    expect(await unset.answer).to.eq('not_found');
-    expect(unset.asked()).to.eq(false);
-
-    const set = await gateWith({ authn: { mfa: { steps, encryptionKey: { secret: MFA_KEY } } } });
-    let error: unknown;
-    await set.answer.catch((e: unknown) => (error = e));
-    expect((error as Error | undefined)?.message, 'a key set: the gate goes on to the listed steps').to.eq('asked the container');
-    expect(set.asked()).to.eq(true);
-    expect(TOTP_SERVICE).to.eq('TotpService');
+  it('TotpEnrolmentOn stays off without resolving anything while its container registers no MfaEnrolmentService', async () => {
+    const { child } = await boot(SCHEMAS, { authn: { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } });
+    child.register({ TotpService: class {} }.TotpService).asSelf();
+    expect(child.hasRegistered(MfaEnrolmentService as never)).to.eq(false);
+    const resolve = sinon.stub(child, 'resolve').rejects(new Error('asked the container'));
+    const resolveNamed = sinon.stub(child, 'resolveNamed').rejects(new Error('asked the container'));
+    const names = sinon.stub(child, 'getRegisteredNames').throws(new Error('asked the container'));
+    expect(await answer(new TotpEnrolmentOn(), child)).to.eq('not_found');
+    expect(resolve.called || resolveNamed.called || names.called).to.eq(false);
   });
 
-  it('the schema refuses an MFA key that is empty or not 32 bytes, so TotpEnrolmentOn never meets one', async () => {
+  it('TotpEnrolmentOn asks the MfaEnrolmentService of its container over the steps of the policy authn.mfa.policy.service names there', async () => {
+    const step = { name: 'totp' } as MfaStep;
+    const GateSpecMfaPolicy = class {
+      required = async () => [];
+      steps = async () => new Map([['totp', step]]);
+    };
+    const { child } = await boot(SCHEMAS, { authn: { mfa: { policy: { service: 'GateSpecMfaPolicy' } } } });
+    child.register(GateSpecMfaPolicy).as(MfaPolicy as never);
+    const seen: MfaStep[][] = [];
+    let on = false;
+    child.register(
+      class SpecEnrolment {
+        enabled = (steps: Iterable<MfaStep>) => (seen.push([...steps]), on);
+      },
+    ).as(MfaEnrolmentService as never);
+    expect(await answer(new TotpEnrolmentOn(), child)).to.eq('not_found');
+    on = true;
+    expect(await answer(new TotpEnrolmentOn(), child)).to.eq('open');
+    expect(seen).to.deep.eq([[step], [step]]);
+  });
+
+  it('the schema refuses an MFA key that is empty or not 32 bytes, so TotpService.enabled never meets one', async () => {
     for (const secret of ['', 'ab'.repeat(8)]) {
       expect(await violationsOf(SCHEMAS, { authn: { mfa: { encryptionKey: { secret } } } }), JSON.stringify(secret)).to.include('authn.mfa.encryptionKey.secret');
     }

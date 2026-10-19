@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand, UpdateItemCommand, ScanCommand, DescribeTableCommand, CreateTableCommand, UpdateTimeToLiveCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand, UpdateItemCommand, ScanCommand, DescribeTableCommand, DescribeTimeToLiveCommand, CreateTableCommand, UpdateTimeToLiveCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
 import type { AttributeValue, DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DateTime } from 'luxon';
 
@@ -37,6 +37,12 @@ function refOf(key: unknown): IdentityRef | undefined {
   return { type: key.slice(0, at).replace(/%(25|3A)/g, (_, code: string) => (code === '25' ? '%' : ':')), id: key.slice(at + 1) };
 }
 
+/** DynamoDB TTL reads epoch seconds; values at or above this are 2.x epoch milliseconds. */
+const MS_THRESHOLD = 1e11;
+
+/** Fractional seconds keep the millisecond precision the session round-trips. */
+const toTtl = (d: DateTime) => `${d.toMillis() / 1000}`;
+
 const isConditionFailure = (err: unknown) => (err as { name?: string } | null)?.name === 'ConditionalCheckFailedException';
 
 /**
@@ -44,7 +50,7 @@ const isConditionFailure = (err: unknown) => (err as { name?: string } | null)?.
  * `SessionId`.
  *
  * Item attributes: `Subject`, `ImpersonatorId` (principal keys), `State`,
- * `Creation` (ISO), `Expiration` (epoch ms, the TTL attribute), `Data` (the
+ * `Creation` (ISO), `Expiration` (epoch seconds, the TTL attribute; 2.x wrote epoch ms), `Data` (the
  * session codec). An item without `Subject` was written by 2.x (numeric
  * `UserId`, identity in Data) and is adapted on every read.
  *
@@ -81,21 +87,42 @@ export class DynamoDbSessionProvider extends SessionProvider {
   public async resolve() {
     // v3 has no global `AWS.config` / `loadFromPath`: region, endpoint and
     // credentials all go to the client constructor.
+    if (typeof this.Table !== 'string' || this.Table.length === 0) {
+      throw new Error('DynamoDbSessionProvider: config key authn.session.aws.table is required');
+    }
+
     let cfg: DynamoDBClientConfig = {};
 
-    if (this.ConfigPath) {
-      cfg = { ...cfg, ...JSON.parse(readFileSync(this.ConfigPath, 'utf-8')) };
-    } else if (this.AwsConfig) {
+    if (this.AwsConfig) {
       cfg = { ...cfg, ...this.AwsConfig };
+    }
+
+    if (this.ConfigPath) {
+      const file = JSON.parse(readFileSync(this.ConfigPath, 'utf-8'));
+      // 2.x loadFromPath files keep credentials at the top level.
+      const { accessKeyId, secretAccessKey, sessionToken, ...rest } = file;
+      cfg = { ...cfg, ...rest };
+      if (!cfg.credentials && accessKeyId && secretAccessKey) {
+        cfg.credentials = { accessKeyId, secretAccessKey, sessionToken };
+      }
     }
 
     this.DynamoDb = this.createClient(cfg);
 
     const table = await this.checkSessionTable();
     if (!table) {
-      await this.createSessionTable();
+      try {
+        await this.createSessionTable();
+      } catch (err) {
+        // Another instance booting at the same time created it first.
+        if ((err as { name?: string } | null)?.name !== 'ResourceInUseException') {
+          throw err;
+        }
+      }
       // A new table stays CREATING for a while; TTL can only be set once it is ACTIVE.
       await waitUntilTableExists({ client: this.DynamoDb, maxWaitTime: 120 }, { TableName: this.Table });
+      await this.updateTimeToLive();
+    } else if (!(await this.isTimeToLiveEnabled())) {
       await this.updateTimeToLive();
     }
   }
@@ -117,7 +144,13 @@ export class DynamoDbSessionProvider extends SessionProvider {
       return null;
     }
 
-    const session = this.toSession(result.Item);
+    let session: ISession | null;
+    try {
+      session = this.toSession(result.Item);
+    } catch (err) {
+      this.Log.warn(`Session item ${sessionId} has undecodable Data: ${(err as Error).message}`);
+      return null;
+    }
 
     // TTL deletion is eventual: an expired item may still be there.
     if (!session || this.isExpired(session)) {
@@ -145,7 +178,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
     }
 
     if (session.Expiration !== undefined) {
-      item.Expiration = { N: `${session.Expiration.toMillis()}` };
+      item.Expiration = { N: toTtl(session.Expiration) };
     }
 
     await this.DynamoDb.send(
@@ -167,12 +200,12 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
     const values: AttributeMap = {
       ':state': { S: session.State },
-      ':now': { N: `${DateTime.now().toMillis()}` },
+      ':now': { N: toTtl(DateTime.now()) },
       ':data': { S: encodeSessionData(session.Data) },
     };
     let update = 'SET #data = :data REMOVE #exp';
     if (session.Expiration !== undefined) {
-      values[':exp'] = { N: `${session.Expiration.toMillis()}` };
+      values[':exp'] = { N: toTtl(session.Expiration) };
       update = 'SET #exp = :exp, #data = :data';
     }
 
@@ -325,10 +358,13 @@ export class DynamoDbSessionProvider extends SessionProvider {
     return session;
   }
 
-  /** An Expiration that is not an epoch-ms number counts as already passed. */
+  /** An Expiration that is not a number counts as already passed. */
   protected instant(value: AttributeValue): DateTime {
-    const ms = value.N !== undefined ? Number(value.N) : NaN;
-    return DateTime.fromMillis(Number.isFinite(ms) ? ms : 0);
+    const n = value.N !== undefined ? Number(value.N) : NaN;
+    if (!Number.isFinite(n)) {
+      return DateTime.fromMillis(0);
+    }
+    return DateTime.fromMillis(n >= MS_THRESHOLD ? n : Math.round(n * 1000));
   }
 
   protected expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
@@ -336,6 +372,17 @@ export class DynamoDbSessionProvider extends SessionProvider {
       return a === b;
     }
     return a.toMillis() === b.toMillis();
+  }
+
+  protected async isTimeToLiveEnabled(): Promise<boolean> {
+    try {
+      const res = await this.DynamoDb.send(new DescribeTimeToLiveCommand({ TableName: this.Table }));
+      const status = res.TimeToLiveDescription?.TimeToLiveStatus;
+      return status === 'ENABLED' || status === 'ENABLING';
+    } catch (err) {
+      this.Log.warn(`Cannot read TTL setting of ${this.Table}: ${(err as Error).message}`);
+      return true;
+    }
   }
 
   protected updateTimeToLive() {

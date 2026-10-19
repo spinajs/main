@@ -1,3 +1,4 @@
+import type { DateTime } from 'luxon';
 import { Subscriber } from './Subscriber.js';
 import { ModelBase, Connection, Model, BelongsTo, SingleRelation } from '@spinajs/orm';
 import type { Event } from './Event.js';
@@ -15,5 +16,5 @@ export class Queue extends ModelBase {
   @BelongsTo('Subscriber', 'orm_event_transport__subscribers_Id', 'Id')
   public Subscriber: SingleRelation<Subscriber>;
 
-  public Ack: boolean;
+  public Ack: DateTime | null;
 }

@@ -40,8 +40,8 @@ const TEST_CONFIG = {
 
     rules: [{ name: '*', level: 'trace', target: 'Empty' }],
   },
+  // partial on purpose: the missing `connection` must fall back to 'default'
   configuration_db_source: {
-    connection: 'sqlite',
     table: 'configuration',
   },
   db: {
@@ -332,6 +332,22 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     await wait(3000);
 
     expect(c.get('isolated-late-watch')).to.equal('b');
+  });
+
+  it('Should keep the value of a row that is not exposed out of the config on late sync and watch', async () => {
+    const c = await cfg();
+
+    DI.register({
+      path: 'config-hidden',
+      options: {
+        expose: true,
+        exposeOptions: { type: 'string', group: 'db-conf', watch: true },
+      },
+    }).asValue('__configuration_property__');
+
+    await wait(3000);
+
+    expect(c.get('config-hidden')).to.be.undefined;
   });
 
   it('Should refresh metadata of an existing row and keep its Value', async () => {

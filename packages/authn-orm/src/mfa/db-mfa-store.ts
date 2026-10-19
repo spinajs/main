@@ -1,17 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { OrmDriver, RawQuery } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { InvalidArgument, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
+import { IdentifierQuoter, Orm, OrmDriver, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
-import type { Dialect } from '../support/sql.js';
-import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
 const CODES = 'authn_recovery_code';
@@ -22,7 +20,7 @@ const RAW_MAX = 1024;
 
 /** One MFA step of an identity as stored. */
 export interface MfaRecord {
-  /** Cipher text exactly as `put` was given it; this store never encrypts or decrypts. */
+  /** Cipher text exactly as `putPending` was given it; this store never encrypts or decrypts. */
   readonly secretEnc: string;
   readonly keyId: string;
   readonly confirmedAt: Date | null;
@@ -40,21 +38,6 @@ function lastStepOf(value: unknown): number | null {
   return n;
 }
 
-/**
- * `secret_enc = ?` where the plain comparison is wrong: `secret_enc` is TEXT, which SQL Server cannot compare with
- * `=`, and MySQL compares under a case-blind collation by default. Undefined: the plain comparison is exact.
- */
-function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
-  switch (dialect) {
-    case 'mssql':
-      return RawQuery.create('CAST([secret_enc] AS NVARCHAR(MAX)) = ?', [value]);
-    case 'mysql':
-      return RawQuery.create('CAST(`secret_enc` AS BINARY) = ?', [value]);
-    default:
-      return undefined;
-  }
-}
-
 const confirmed = (r: Record<string, unknown>): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
 
 function timeOf(text: string | null): Date | null {
@@ -69,60 +52,39 @@ function timeOf(text: string | null): Date | null {
  * Without transactions (the sqlite driver shares one handle) `replaceRecoveryCodes` deletes and then inserts: two
  * parallel calls for one identity may leave both sets.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable()
 export class DbMfaStore {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly connection: StoreConnection;
 
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
-    this.connection = new StoreConnection('DbMfaStore', driver, options.container);
+  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
+  constructor(driver?: OrmDriver) {
+    this.connection = new StoreConnection('DbMfaStore', driver, () => this.Orm);
   }
 
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const { driver, dialect } = await this.connection.get();
+    const { driver } = await this.connection.get();
     const q = driver.select().from(MFA).select('identity').select('step').select('secret_enc').select('key_id').select('last_step');
-    const rows = (await selectTime(dialect, selectTime(dialect, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
+    const rows = (await selectTime(driver, selectTime(driver, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
     const r = rows.find((x) => x.identity === identity && x.step === name);
     if (!r) return null;
     return {
       secretEnc: String(r.secret_enc),
       keyId: String(r.key_id),
-      confirmedAt: timeOf(columnText(dialect, r, 'confirmed_at', 'confirmed_text')),
+      confirmedAt: timeOf(columnText(r, 'confirmed_text')),
       lastStep: lastStepOf(r.last_step),
-      createdAt: timeOf(columnText(dialect, r, 'created_at', 'created_text')) ?? new Date(NaN),
+      createdAt: timeOf(columnText(r, 'created_text')) ?? new Date(NaN),
     };
   }
 
-  /** Stores (or replaces) the step: unconfirmed, no accepted time step, created now. */
-  public async put(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<void> {
-    const identity = identityKey(id);
-    const name = stepName(step);
-    checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
-    checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.put: the clock'));
-    const { driver } = await this.connection.get();
-
-    const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
-    for (let i = 0; i < MAX_TRIES; i++) {
-      try {
-        await driver
-          .insert()
-          .into(MFA)
-          .values({ identity, step: name, ...fields });
-        return;
-      } catch (err) {
-        if (!isDuplicate(err)) throw err;
-      }
-      if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name)) === 1) return;
-    }
-    throw new UnexpectedServerError(`DbMfaStore.put: the ${name} row kept changing under this call`);
-  }
-
   /**
-   * As `put`, but never overwrites a confirmed step: false means a confirmed row exists and nothing changed. The
+   * Stores the step unconfirmed, with no accepted time step and created now, replacing a pending one. A confirmed
+   * step is never overwritten: false means a confirmed row exists and nothing changed. The
    * replacing update is conditional on `confirmed_at IS NULL`, so a confirmation that lands first always wins.
    */
   public async putPending(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean> {
@@ -142,7 +104,7 @@ export class DbMfaStore {
           .values({ identity, step: name, ...fields });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
       }
       if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')) === 1) return true;
       // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
@@ -160,13 +122,11 @@ export class DbMfaStore {
     const name = stepName(step);
     const t = sqlTime(checkedMs(at, 'DbMfaStore.confirm: at'));
     if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
-    const { driver, dialect } = await this.connection.get();
+    const { driver } = await this.connection.get();
     const q = driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name);
     if (expectedSecretEnc !== undefined) {
-      const exact = exactSecretEnc(dialect, expectedSecretEnc);
-      q.whereNull('confirmed_at');
-      if (exact) q.where(exact);
-      else q.where('secret_enc', expectedSecretEnc);
+      const column = driver.Container.resolve(IdentifierQuoter).quote('secret_enc');
+      q.whereNull('confirmed_at').where(toRawQuery(driver.Container.resolve(SqlExpressions).equalsExactly(column, sql`${expectedSecretEnc}`)));
     }
     return rowsAffected(await q) === 1;
   }

@@ -24,7 +24,7 @@ Message handlers (`execute()`, callbacks) are **not** wrapped; [message hooks](0
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Tracking hook | `QueueTrackingHook`, a list resolved with `Array.ofType(QueueTrackingHook)` on every `tracked()` call; each hook is a singleton | none | `AuthzQueueTrackingHook` (`@spinajs/authz-queue`): runs the queries as `SYSTEM`, so a job running as an ordinary user can still update its own row | `@Injectable(QueueTrackingHook)` on your class, or `DI.register(MyHook).as(QueueTrackingHook)`. Remove one with `DI.unregister(TheirHook)` |
+| Tracking hook | `QueueTrackingHook`, a list resolved with `Array.ofType(QueueTrackingHook)` on every `tracked()` call; each hook is a singleton | none | `AuthzQueueTrackingHook` (`@spinajs/authz-queue/jobs`): runs the queries as `SYSTEM`, so a job running as an ordinary user can still update its own row | `@Injectable(QueueTrackingHook)` on your class, or `DI.register(MyHook).as(QueueTrackingHook)`. Remove one with `DI.unregister(TheirHook)` |
 
 ### Tracking hook: custom implementation
 

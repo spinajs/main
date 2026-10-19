@@ -3,13 +3,17 @@ import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { AUTHN_JWT_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { join, normalize, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 chai.use(chaiAsPromised);
 
+// From this file, not process.cwd(): a runner started outside the package dir would scan no migrations at all.
+const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url));
+
 export function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), 'test', path)));
+  return resolve(PACKAGE_DIR, 'test', path);
 }
 
 /**
@@ -21,7 +25,7 @@ export function dir(path: string) {
  * is discovered ( the `node_modules/@spinajs/<pkg>/lib/mjs/config` glob ) while
  * the package's own tests are running.
  */
-const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'authn-token', 'lib')), normalize(join(process.cwd(), 'lib'))];
+const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'authn-token', 'lib')), normalize(join(PACKAGE_DIR, 'lib'))];
 
 /**
  * Removes this package's compiled dirs from `system.dirs`.

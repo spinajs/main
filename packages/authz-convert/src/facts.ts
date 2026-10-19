@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { isStringArray } from '@spinajs/util';
 
 import { ConversionError } from './findings.js';
 import { isPlain } from './values.js';
@@ -23,7 +24,7 @@ export interface SourceFacts {
 // users.Role and rbac_access_tokens.Roles reach an export as a JSON array, a JSON array in a string, or a comma list.
 function roleList(v: unknown, at: string): string[] {
   if (v === null || v === undefined || v === '') return [];
-  if (Array.isArray(v) && v.every((r) => typeof r === 'string')) return v.map((r) => r.trim()).filter(Boolean);
+  if (isStringArray(v)) return v.map((r) => r.trim()).filter(Boolean);
   if (typeof v === 'string') {
     const s = v.trim();
     if (s.startsWith('[')) {

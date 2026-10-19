@@ -66,7 +66,7 @@ async function enrolmentFindings(container: IContainer, config: AuthnConfigSourc
   }
   const out: AuthnConfigFinding[] = [];
   const unlisted = new Set<string>();
-  for (const source of sources.filter((s) => s?.constructor !== MfaEnrolments)) {
+  for (const source of sources) {
     try {
       for (const name of await source.stepNames()) if (!listed.has(name)) unlisted.add(name);
     } catch (e) {

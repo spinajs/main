@@ -26,7 +26,7 @@ Consuming, from `QueueService.consume(MessageClass, callback?, subscriptionId?, 
 8. `callback(message)`, when given, runs wrapped by every hook's `aroundHandle()`. For a job it runs after `execute()` succeeded.
 9. Errors from `execute()`, `callback` or a hook propagate to the transport, which retries or dead-letters the message.
 
-`QueueService.stopConsuming(MessageClass)` calls `QueueClient.unsubscribe(MessageClass)` on every routed connection.
+`QueueService.stopConsuming(MessageClass)` awaits `QueueClient.unsubscribe(MessageClass)` on every routed connection. An unknown connection throws `ConnectionNotFound`.
 
 ```mermaid
 sequenceDiagram
@@ -95,7 +95,7 @@ Both decorators write the `queue:options` metadata only when the class has none 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Message class | The class itself, built with `DI.resolve(MessageClass)` on every delivery; singleton unless the class is `@NewInstance()` | none | Shipped jobs and events: `EmailSend`, `EmailSent`, `EmailSendFailed` (`@spinajs/email`), `LazyUploadJob` (`@spinajs/http-lazy-file-uploader`), `RenderPdfJob` (`@spinajs/queue-templates-pdf`), `UserEvent` (`@spinajs/users`), `TaskSuccess`, `TaskFailed` (`@spinajs/tasks`) | Extend `QueueJob` or `QueueEvent`. Override `execute()`, `onFailed()` and `hydrate()`; inject services with `@Autoinject` |
+| Message class | The class itself, built with `DI.resolve(MessageClass)` on every delivery; `@Job()` and `@Event()` make it `@NewInstance()` | none | Shipped jobs and events: `EmailSend`, `EmailSent`, `EmailSendFailed` (`@spinajs/email`), `LazyUploadJob` (`@spinajs/http-lazy-file-uploader`), `RenderPdfJob` (`@spinajs/queue-templates-pdf`), `UserEvent` (`@spinajs/users`), `TaskSuccess`, `TaskFailed` (`@spinajs/tasks`) | Extend `QueueJob` or `QueueEvent`. Override `execute()`, `onFailed()` and `hydrate()`; inject services with `@Autoinject` |
 
 ### Message class: custom implementation
 
@@ -105,10 +105,8 @@ Because the consumer builds the message through DI, a job can inject the service
 - `onFailed(err, ctx)`: called after each failed run. Errors it throws are logged and swallowed.
 - `hydrate(payload)`: called with the wire message. Call `super.hydrate(payload)`, then revive fields that JSON flattened, such as dates.
 
-Mark the class `@NewInstance()`: without it, every delivery reuses one cached instance (see [Important behaviour](#important-behaviour)).
-
 ```ts sample
-import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { IJobFailureContext, Job, JobProgressCallback, QueueJob, QueueService } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 
@@ -123,7 +121,6 @@ export class SubscriptionBilling {
   }
 }
 
-@NewInstance()
 @Job()
 export class ChargeSubscription extends QueueJob {
   @Autoinject()
@@ -162,7 +159,7 @@ export async function chargeAtPeriodEnd(customerId: number, amount: number) {
 
 ## Important behaviour
 
-- **One instance per message class.** `consume()` builds each delivery with `DI.resolve(MessageClass)`. A class without a lifetime decorator is a DI singleton, so all deliveries share one object and a field missing from a later message keeps the value of an earlier one, `Initiator` included. Overlapping deliveries also overwrite each other's fields. Mark message classes `@NewInstance()`.
+- **One instance per delivery.** `consume()` builds each delivery with `DI.resolve(MessageClass)`, and `@Job()` and `@Event()` mark the class `@NewInstance()`. A lifetime decorator written above them, such as `@Singleton()`, wins: deliveries then share one object, so a field missing from a later message keeps an earlier message's value, `Initiator` included.
 - **`Persistent` defaults to `true` only in `QueueJob.emit()`.** A job instance passed to `ev()` or `QueueService.emit()` keeps whatever `Persistent` you set.
 - **`emit()` mutates its argument.** `DefaultQueueService.emit()` writes `JobId` onto the message object you pass.
 - **A caller-supplied `JobId` is kept.** Two emits with one `JobId` share one job row; the second is skipped once the first finished (see [deduplication](03-job-tracking.md#important-behaviour)).
@@ -170,7 +167,7 @@ export async function chargeAtPeriodEnd(customerId: number, amount: number) {
 - **`consume()` without a callback succeeds for an event**, but every delivery then throws `InvalidArgument`.
 - **A job's `callback` runs after `execute()`**, outside the tracking flow: its error reaches the transport, but the job row already says `success`.
 - **The static `emit()` takes `options: IMessageOptions`, whose fields are all required.** Put single options such as `ScheduleDelay` into `values` instead.
-- **`QueueMessage`'s constructor sets `Name` and `CreatedAt` after `hydrate(data)`**, so `new MyEvent({ CreatedAt })` does not keep that `CreatedAt`.
+- **`QueueMessage`'s constructor sets `Name` after `hydrate(data)`**, so `new MyEvent({ Name })` keeps the class name. A `CreatedAt` in `data` is kept; without one it is now.
 
 ## Best practices
 
@@ -190,26 +187,14 @@ await SendReminder.emit({ UserId: 7 }, { ScheduleDelay: 60_000 });
 await SendReminder.emit({ UserId: 7, ScheduleDelay: 60_000 });
 ```
 
-```ts
-// Don't: shared singleton, a delivery without Coupon keeps the previous delivery's Coupon
-@Job()
-export class ApplyDiscount extends QueueJob { public Coupon?: string; /* ... */ }
-
-// Do: a fresh instance per delivery
-@NewInstance()
-@Job()
-export class ApplyDiscount extends QueueJob { public Coupon?: string; /* ... */ }
-```
-
 ## Examples
 
 ### Notify other services when a user registers
 
 ```ts sample
-import { DI, NewInstance } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
 
-@NewInstance()
 @Event({ durable: true })
 export class UserRegistered extends QueueEvent {
   public UserId: number;
@@ -235,12 +220,10 @@ export async function stopBillingListener() {
 ### Send a reminder in one hour, in a function pipeline
 
 ```ts sample
-import { NewInstance } from '@spinajs/di';
 import { Job, QueueJob, _ev, ev } from '@spinajs/queue';
 
 const ONE_HOUR = 60 * 60 * 1000;
 
-@NewInstance()
 @Job()
 export class SendCartReminder extends QueueJob {
   public CartId: string;
@@ -271,5 +254,5 @@ export function reminderStep(cartId: string): () => Promise<string | undefined> 
 - [Connections and routing](02-connections-and-routing.md): where an emitted message goes.
 - [Job tracking](03-job-tracking.md): what happens around `execute()`.
 - [Message hooks](06-message-hooks.md): code around every emit and handler, and what reads `runAs`.
-- [Lifetimes](../di/04-lifetimes.md): why message classes need `@NewInstance()`.
+- [Lifetimes](../di/04-lifetimes.md): what the `@NewInstance()` lifetime of message classes means.
 - [`@spinajs/queue-http-progress`](../queue-http-progress/README.md): poll a job by the `JobId` that `emit()` returns.

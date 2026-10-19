@@ -1,10 +1,13 @@
 import 'mocha';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
+import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_TOTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
 import { AuthnTotpConfigBootstrapper } from '../../src/bootstrap.js';
 import { registeredSchemasAfter } from '../support/registered-schemas.js';
+import { FakeMfaStep } from '@spinajs/authn-testing';
+import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import authnTotp from '../../src/config/authn-totp.js';
@@ -118,10 +121,45 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
 
     it('TotpService reads the fresh-auth lifetime and lets deps override it', async () => {
       const { child } = await boot(SCHEMAS, { authn: { freshAuth: { maxAgeSeconds: 120 } } });
-      const service = readingFrom(new TotpService(), child) as unknown as { need(key: string): Promise<unknown> };
-      expect(await service.need('maxAgeSeconds')).to.eq(120);
-      const seam = readingFrom(new TotpService({ maxAgeSeconds: 5 }), child) as unknown as { need(key: string): Promise<unknown> };
-      expect(await seam.need('maxAgeSeconds')).to.eq(5);
+      const service = readingFrom(new TotpService(), child) as unknown as { maxAgeSeconds(): number };
+      expect(service.maxAgeSeconds()).to.eq(120);
+      const seam = readingFrom(new TotpService({ maxAgeSeconds: 5 }), child) as unknown as { maxAgeSeconds(): number };
+      expect(seam.maxAgeSeconds()).to.eq(5);
+    });
+
+    it('TotpService injects its steps and services from the container that resolves it', async () => {
+      const { child } = await boot(SCHEMAS, {});
+      class SpecSessions {}
+      class SpecAuthn {}
+      class SpecThrottle {}
+      class SpecStep extends TotpMfaStep {}
+      class SpecService extends TotpService {}
+      child.register(SpecSessions).as(SessionIssuer);
+      child.register(SpecAuthn).as(AuthnService);
+      child.register(SpecThrottle).as(AuthnThrottle);
+      child.register(SpecStep).as(MfaStep);
+      const service = (await child.resolve(SpecService)) as unknown as { step(): unknown; steps(): readonly unknown[]; sessions(): unknown; authn(): unknown; throttle(): unknown };
+      expect(service.step()).to.be.instanceOf(SpecStep);
+      expect(service.steps()).to.include(service.step());
+      expect(service.sessions()).to.be.instanceOf(SpecSessions);
+      expect(service.authn()).to.be.instanceOf(SpecAuthn);
+      expect(service.throttle()).to.be.instanceOf(SpecThrottle);
+    });
+
+    it('TotpService, the registered MfaEnrolmentService, is enabled while the steps list TotpMfaStep itself and an encryption key is set', async () => {
+      expect(DI.getRegisteredTypes(MfaEnrolmentService)).to.include(TotpService);
+      const step = new TotpMfaStep({ store: new MemoryMfaSecretStore(), identities: null });
+      const subclass = new (class SpecTotpMfaStep extends TotpMfaStep {})({ store: new MemoryMfaSecretStore(), identities: null });
+      const other = new FakeMfaStep({ name: 'totp' });
+      const keyed = readingFrom(new TotpService(), (await boot(SCHEMAS, { authn: { mfa: { encryptionKey: { secret: KEY } } } })).child);
+      expect(keyed).to.be.instanceOf(MfaEnrolmentService);
+      expect(keyed.enabled([other, step]), 'listed').to.eq(true);
+      expect(keyed.enabled(new Map([['totp', step]]).values()), 'an iterator').to.eq(true);
+      expect(keyed.enabled([]), 'no step').to.eq(false);
+      expect(keyed.enabled([other]), 'another step named totp').to.eq(false);
+      expect(keyed.enabled([subclass]), 'a subclass').to.eq(false);
+      const unkeyed = readingFrom(new TotpService(), (await boot(SCHEMAS, {})).child);
+      expect(unkeyed.enabled([step]), 'no key').to.eq(false);
     });
   });
 });

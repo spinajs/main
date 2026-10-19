@@ -1,5 +1,7 @@
 import { CliCommand, Command, Argument, Option } from '@spinajs/cli';
 import { Logger, Log } from '@spinajs/log-common';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { _hash } from '../fp.js';
 import { ensureProviders } from './fs.js';
 
@@ -10,7 +12,7 @@ interface HashOptions {
 @Command('fs-hash', 'Calculates and prints the hash of a file')
 @Argument('fs', true, 'Name of filesystem to use')
 @Argument('path', true, 'Path to file ( relative to selected fs base dir )')
-@Option('-a, --algo <algo>', false, 'Hash algorithm ( default sha256 )')
+@Option('-a, --algo <algo>', false, 'Hash algorithm ( default fs.hasher.defaultAlgorithm, then sha256 )')
 export class FsHashCommand extends CliCommand {
   @Logger('fs')
   protected Log: Log;
@@ -20,9 +22,11 @@ export class FsHashCommand extends CliCommand {
 
     try {
       const hash = await _hash(path, options.algo, fsName);
-      this.Log.info(`${options.algo ?? 'sha256'}(${path}) = ${hash}`);
+      const algo = options.algo || DI.get(Configuration)?.get<string>('fs.hasher.defaultAlgorithm') || 'sha256';
+      this.Log.info(`${algo}(${path}) = ${hash}`);
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot hash ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

@@ -85,9 +85,9 @@ Protected state a subclass can read:
 | --- | --- | --- |
 | `Options` | `QueueClient` (public) | The connection entry, custom keys included |
 | `Client` | `StompQueueClient` | The `stompjs` client, set in `resolve()` |
-| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by channel, replayed on connect |
+| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by channel, each with the handlers of every message class on it, replayed on connect |
 | `PendingEmits` | `StompQueueClient` | Emits buffered while disconnected |
-| `ReadyWaiters` | `StompQueueClient` | Pending `whenReady()` resolvers |
+| `ReadyWaiters` | `StompQueueClient` | Pending `whenReady()` settlers: called with no argument on connect, with an error on `dispose()` |
 | `Disposing` | `StompQueueClient` | `true` once `dispose()` has started |
 | `EmitPipeline` | `StompQueueClient` | The pipeline from `buildEmitPipeline()` |
 | `Log` | `QueueClient`, `@Logger('queue')` | The `queue` logger |

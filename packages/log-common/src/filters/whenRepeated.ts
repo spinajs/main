@@ -32,9 +32,13 @@ interface IRepeatRecord {
  * suppressed-count when logging of that key resumes. This stops a hot loop or a
  * flapping error from flooding console / file / Loki and burying real signal.
  *
+ * The default key includes the level, so each level is tracked separately and
+ * the higher-severity branch in `apply()` only fires for a subclass whose
+ * `keyOf()` leaves the level out.
+ *
  * Known tradeoff: there is no background timer. A residual suppressed count is
- * flushed on the NEXT matching entry ( window expired or higher severity ), NOT
- * when the window simply elapses with no further activity. This keeps the filter
+ * flushed on the NEXT matching entry after the window expired, NOT when the
+ * window simply elapses with no further activity. This keeps the filter
  * dependency-free; the full filter pipeline in a later phase can layer a timed
  * flush on top.
  */

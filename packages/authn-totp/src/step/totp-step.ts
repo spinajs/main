@@ -9,7 +9,7 @@ import { mfaKeyRingFrom } from '../cipher/key-ring.js';
 import type { MfaEncryptionKeyOptions, MfaKeyRing } from '../cipher/key-ring.js';
 import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
-import { identityKey } from '../store/identity.js';
+import { identityKey } from '@spinajs/authn-orm/identity';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from './errors.js';
 import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
 import type { TotpOptions } from './options.js';
@@ -55,18 +55,18 @@ export class TotpMfaStep extends MfaStep {
   @Autoinject(IdentityStore, { optional: true })
   protected IdentityStore: IdentityStore | undefined;
 
-  constructor(private readonly deps: TotpMfaStepDeps = {}) {
+  constructor(private readonly given: TotpMfaStepDeps = {}) {
     super();
   }
 
   async enrolled(id: IdentityRef): Promise<boolean> {
-    const { store } = await this.resolve();
+    const { store } = await this.deps();
     return !!(await store.get(id, this.name))?.confirmedAt;
   }
 
   /** For admin resets and diagnostics; never exposes the secret. */
   async enrolment(id: IdentityRef): Promise<'none' | 'pending' | 'confirmed'> {
-    const { store } = await this.resolve();
+    const { store } = await this.deps();
     const row = await store.get(id, this.name);
     return !row ? 'none' : row.confirmedAt ? 'confirmed' : 'pending';
   }
@@ -74,7 +74,7 @@ export class TotpMfaStep extends MfaStep {
   /** Throws `TotpAlreadyEnrolled` when the identity is enrolled. */
   async beginEnrolment(id: IdentityRef): Promise<{ provisioning: string }> {
     identityKey(id);
-    const { store, keys, options } = await this.resolve();
+    const { store, keys, options } = await this.deps();
     const secret = new OTPAuth.Secret({ size: SECRET_BYTES }).base32;
     const { secretEnc, keyId } = keys.encrypt(id, this.name, secret);
     const totp = this.totp(secret, options, await this.label(id));
@@ -91,7 +91,7 @@ export class TotpMfaStep extends MfaStep {
    * the codes failed, and `TotpEnrolmentChanged` when a begin replaced the secret.
    */
   async confirmEnrolment(id: IdentityRef, response: string): Promise<{ recoveryCodes?: readonly string[] }> {
-    const { store } = await this.resolve();
+    const { store } = await this.deps();
     const row = await store.get(id, this.name);
     if (!row) {
       throw new TotpNotBegun('no pending TOTP enrolment for this identity');
@@ -121,7 +121,7 @@ export class TotpMfaStep extends MfaStep {
   }
 
   async verify(id: IdentityRef, response: string): Promise<boolean> {
-    const { store, options } = await this.resolve();
+    const { store, options } = await this.deps();
     if (this.normalise(response, options) === null) {
       return false;
     }
@@ -135,7 +135,7 @@ export class TotpMfaStep extends MfaStep {
 
   /** Takes a recovery code only; single use. */
   async verifyRecovery(id: IdentityRef, code: string): Promise<boolean> {
-    const { store } = await this.resolve();
+    const { store } = await this.deps();
     const normalised = normaliseRecoveryCode(code);
     if (normalised === null || !(await this.enrolled(id))) {
       return false;
@@ -152,14 +152,14 @@ export class TotpMfaStep extends MfaStep {
   }
 
   async disable(id: IdentityRef): Promise<void> {
-    const { store } = await this.resolve();
+    const { store } = await this.deps();
     await store.remove(id, this.name);
     await store.removeRecoveryCodes(id);
   }
 
   /** Replaces the identity's codes with a fresh set and returns it in the shown form. */
   private async issueRecoveryCodes(id: IdentityRef): Promise<readonly string[]> {
-    const { store, options } = await this.resolve();
+    const { store, options } = await this.deps();
     const codes = newRecoveryCodeSet(options.recoveryCodes);
     await store.replaceRecoveryCodes(id, codes);
     return Object.freeze(codes.map(showRecoveryCode));
@@ -167,7 +167,7 @@ export class TotpMfaStep extends MfaStep {
 
   /** The time step the response belongs to, or null when it matches none inside the window. */
   private async match(id: IdentityRef, row: MfaRecord, response: string): Promise<number | null> {
-    const { keys, options } = await this.resolve();
+    const { keys, options } = await this.deps();
     const token = this.normalise(response, options);
     if (token === null) {
       return null;
@@ -199,23 +199,23 @@ export class TotpMfaStep extends MfaStep {
   }
 
   private async label(id: IdentityRef): Promise<string> {
-    const { identities } = await this.resolve();
+    const { identities } = await this.deps();
     const shown = identities ? await identities.display(id) : null;
     return shown?.email || shown?.name || id.id;
   }
 
-  private async resolve(): Promise<Resolved> {
+  private async deps(): Promise<Resolved> {
     if (this.resolved) {
       return this.resolved;
     }
-    const store = this.deps.store ?? this.MfaSecretStore;
+    const store = this.given.store ?? this.MfaSecretStore;
     if (!store) {
       throw new InvalidOperation('TotpMfaStep: no MfaSecretStore is registered; import "@spinajs/authn-totp/db" (DbMfaSecretStore) or register another MfaSecretStore');
     }
-    const keys = this.deps.keys ?? mfaKeyRingFrom(this.EncryptionKey);
-    const options = this.deps.options ?? this.TotpConfig;
+    const keys = this.given.keys ?? mfaKeyRingFrom(this.EncryptionKey);
+    const options = this.given.options ?? this.TotpConfig;
     assertTotpRange(options);
-    const identities = this.deps.identities !== undefined ? this.deps.identities : (this.IdentityStore ?? null);
+    const identities = this.given.identities !== undefined ? this.given.identities : (this.IdentityStore ?? null);
     this.resolved = { store, keys, options, identities };
     return this.resolved;
   }

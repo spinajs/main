@@ -21,7 +21,7 @@ Type guards that check an untrusted value against an envelope shape, and the rul
 | `isStreamFail(v)` | `StreamFail` | `id` by `isId`, `error` by `isSocketError`. |
 | `isStreamCredit(v)` | `StreamCredit` | `id` by `isId`, `credits` an integer above `0`. |
 | `isErrorCode(v)` | `ErrorCode` | One of `ERROR_CODES`. |
-| `isSocketError(v)` | `SocketError` | `code` by `isErrorCode`, `message` a string, `retryable` a boolean. |
+| `isSocketError(v)` | `SocketError` | `code` by `isErrorCode`, `message` a string, `retryable` a boolean, `retryAfterMs` a finite number when present, `errorId` a string when present. |
 
 Guards check only the fields listed. `payload` and `data` are never inspected: validate them against the command's schema.
 
@@ -87,10 +87,10 @@ export function relay(client: RelaySocket, upstream: RelaySocket, allow: (comman
 
 - `isCommandRequest()` and `isEventFrame()` do not require a `payload` field.
 - `isCommandRequest()` accepts `after` without `idempotencyKey`. The server refuses that combination with `invalid_argument`.
-- `isCommandRequest()` accepts any finite `deadline`, including `0` and negatives; the server ignores those.
+- `isCommandRequest()` accepts any finite `deadline`, including `0` and negatives; the server answers those `deadline_exceeded` at once.
 - Integer checks accept values above `Number.MAX_SAFE_INTEGER` (e.g. `1e300`). Bound `credits` yourself; the server uses its `maxCredits` limit.
 - `isChunk()` accepts a chunk without `data`: an `undefined` stream item travels that way.
-- `isSocketError()` does not check `details`, `retryAfterMs` or `errorId`. Check `typeof err.retryAfterMs === 'number'` before you schedule with it.
+- `isSocketError()` does not check `details`; it is `unknown`.
 - A present field set to `undefined` counts as absent: `{ id, name, credits: undefined }` passes.
 
 ## Best practices

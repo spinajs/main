@@ -36,29 +36,9 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
 
 const join = (separator: string, list: readonly SqlFragment[]): SqlFragment => ({ sql: list.map((f) => f.sql).join(separator), bindings: list.flatMap((f) => f.bindings) });
 
-/** As SqlDatetimeValueConverter writes a datetime on SQLite (local wall clock, no zone): text order is time order. */
-export function sqliteDateTime(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
-
-const nowOf = (row: SqlRowContext): unknown => (row.dialect === 'sqlite' ? sqliteDateTime(row.now) : row.now);
 const live = (alias: string, now: unknown): SqlFragment => sql`(${raw(alias)}.expires_at IS NULL OR ${raw(alias)}.expires_at > ${now})`;
 
-function contains(dialect: SqlRowContext['dialect'], haystack: SqlFragment, needle: string): SqlFragment {
-  switch (dialect) {
-    case 'sqlite':
-      return sql`instr(${haystack}, ${needle}) > 0`;
-    case 'postgres':
-      return sql`strpos(${haystack}, ${needle}) > 0`;
-    case 'mysql':
-      return sql`LOCATE(${needle}, ${haystack}) > 0`;
-    case 'mssql':
-      return sql`CHARINDEX(${needle}, ${haystack}) > 0`;
-  }
-}
-
-/** design §6.2 `<holder>`: the subject keys, or with `membership` also the live sets of `memberKeys`. */
+/** The holder test: the subject keys, or with `membership` also the live sets of `memberKeys`. */
 function holder(alias: string, args: RbacAssignmentPlanArgs, now: unknown): SqlFragment {
   const key = raw(`${alias}.subject_key`);
   const own = args.subjects.length > 0 ? sql`${key} IN (${args.subjects})` : undefined;
@@ -92,7 +72,7 @@ function relationSql(row: SqlRowContext, name: 'owner' | 'self', principals: rea
       principals.map((p) => sql`(${typeColumn} = ${p.type} AND ${column} = ${p.id})`),
     )})`;
   }
-  // Without a type column the relation names user principals only (overview, ResourceEntry.owner).
+  // Without a type column the relation names user principals only (ResourceEntry.owner).
   const ids = [...new Set(principals.filter((p) => p.type === 'user').map((p) => p.id))];
   return ids.length === 0 ? undefined : sql`${column} IN (${ids})`;
 }
@@ -105,7 +85,7 @@ function roleClause(alias: string, roles: readonly RbacPlanRole[], branch: 'dire
   for (const r of usable.filter(qualified)) {
     const conditions = [sql`${raw(alias)}.role = ${r.role}`];
     if (r.scopeTypes) conditions.push(sql`${raw(alias)}.scope_type IN (${r.scopeTypes})`);
-    if (r.tag !== undefined) conditions.push(contains(row.dialect, raw(`${alias}.tags`), `,${r.tag},`));
+    if (r.tag !== undefined) conditions.push(row.expressions.contains(raw(`${alias}.tags`), sql`${`,${r.tag},`}`));
     if (r.relation !== undefined) {
       const relation = relationSql(row, r.relation, principals);
       if (!relation) continue;
@@ -116,17 +96,17 @@ function roleClause(alias: string, roles: readonly RbacPlanRole[], branch: 'dire
   return parts.length === 0 ? undefined : sql`(${join(' OR ', parts)})`;
 }
 
-/** The deny form of design §6.2 (one sub-query); positive here, the plan's consumer negates deny terms. */
+/** The deny form (one sub-query); positive here, the plan's consumer negates deny terms. */
 function denyShape(args: RbacAssignmentPlanArgs, row: SqlRowContext, now: unknown): SqlFragment {
   const id = raw(row.rowId);
   const roles = [...new Set(args.roles.map((r) => r.role))];
   return sql`EXISTS (SELECT 1 FROM ${raw(AUTHZ_ASSIGNMENT_TABLE)} authz_d WHERE ${holder('authz_d', args, now)} AND authz_d.role IN (${roles}) AND ${live('authz_d', now)} AND ((authz_d.scope_type = ${row.type} AND authz_d.scope_id = ${id}) OR EXISTS (SELECT 1 FROM ${raw(row.ancestorTable)} authz_a WHERE authz_a.resource_type = ${row.type} AND authz_a.resource_id = ${id} AND authz_a.ancestor_type = authz_d.scope_type AND authz_a.ancestor_id = authz_d.scope_id) OR authz_d.scope_type = ${GLOBAL_TYPE}))`;
 }
 
-/** The row matches args (lane L8 decision 6): a live assignment of one of the roles, held by the holders, at the row, an ancestor or (global) $global. */
+/** The row matches args: a live assignment of one of the roles, held by the holders, at the row, an ancestor or (global) $global. */
 export function rbacAssignmentSql(args: RbacAssignmentPlanArgs, row: SqlRowContext): SqlFragment {
   if (args.roles.length === 0 || (args.subjects.length === 0 && !(args.membership && args.memberKeys.length > 0))) return FALSE_SQL;
-  const now = nowOf(row);
+  const now = row.now;
   if (args.global && args.roles.every((r) => !qualified(r) && !r.descendantsOnly)) return denyShape(args, row, now);
   const table = raw(AUTHZ_ASSIGNMENT_TABLE);
   const id = raw(row.rowId);

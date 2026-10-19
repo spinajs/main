@@ -1,5 +1,6 @@
 import { AsyncService } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 import './register-schema.js';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
@@ -83,7 +84,7 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
 
   protected applyInitialExpiration(s: ISession): void {
     if (s.State === 'pending') {
-      throw new Error('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
+      throw new InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
     }
     s.Expiration = this.Expiration.initial(s);
   }
@@ -95,7 +96,8 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     s.Expiration = this.Expiration.renew(s);
   }
 
-  protected isExpired(s: ISession): boolean {
+  /** Public so SessionIssuer judges a row the way its store does. */
+  public isExpired(s: ISession): boolean {
     return !!s.Expiration && s.Expiration <= DateTime.now();
   }
 }

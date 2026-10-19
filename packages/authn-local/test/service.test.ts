@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -597,6 +598,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.register(DefaultBackoffThrottle).as(AuthnThrottle);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(DiRecordingMailer).as(PasswordMailer);
+    DI.uncache(AuthnAudit);
     await DI.resolve(Configuration);
   });
 
@@ -615,6 +617,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.uncache(MemorySecretStore);
     DI.uncache(DiRecordingMailer);
     DI.uncache(Configuration);
+    DI.uncache(AuthnAudit);
     DI.uncache(IdentityStore);
     DI.uncache(PasswordCredentialStore);
     DI.uncache(SessionIssuer);
@@ -760,6 +763,25 @@ describe('LocalPasswordService DI wiring', function () {
       DI.uncache(PasswordCredentialStore);
       DI.uncache(PasswordService);
       DI.uncache(LocalPasswordService);
+    }
+  });
+
+  it('takes its collaborators from the container that builds it, not the root', async () => {
+    class ChildIdentityStore extends FakeIdentityStore {}
+    const child = DI.RootContainer.child();
+    try {
+      child.register(ChildIdentityStore).as(IdentityStore);
+      child.register(LocalPasswordService).as(PasswordService);
+      const service = (await child.resolve(PasswordService)) as LocalPasswordService;
+      const mailer = DI.resolve(PasswordMailer) as DiRecordingMailer;
+      const sent = mailer.mails.length;
+      const gail = (child.resolve(IdentityStore) as ChildIdentityStore).add({ login: 'gail@example.com', email: 'gail@example.com' });
+
+      expect(await service.requestReset('gail@example.com', ctx({ purpose: 'request' }))).to.deep.equal({ status: 'accepted' });
+      await service.drain();
+      expect(mailer.mails.slice(sent).map((m) => m.identity)).to.deep.equal([gail]);
+    } finally {
+      await child.dispose();
     }
   });
 });

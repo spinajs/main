@@ -34,7 +34,7 @@ export class DbSessionStore extends SessionProvider {
   protected Log: Log;
 
   @Config('authn.session.db.cleanupInterval', {
-    defaultValue: 100000,
+    defaultValue: 10 * 60 * 1000,
   })
   protected CleanupInterval: number;
 
@@ -45,7 +45,9 @@ export class DbSessionStore extends SessionProvider {
       // An unhandled rejection here would end the process; the next tick retries.
       try {
         const count = await this.cleanupExpired();
-        this.Log.info({ count }, 'Cleaned up expired session, count: ${count}');
+        if (count > 0) {
+          this.Log.info({ count }, 'Cleaned up expired session, count: ${count}');
+        }
       } catch (err) {
         this.Log.error(err as Error, 'Expired session cleanup failed');
       }
@@ -66,17 +68,11 @@ export class DbSessionStore extends SessionProvider {
    * @returns how many sessions were removed
    */
   public async cleanupExpired(): Promise<number> {
-    // destroy() only builds a DELETE bounded by primary keys, so the expired
-    // rows are looked up first.
-    const expired = await DbSession.where('Expiration', '<=', DateTime.now());
+    // One conditional DELETE: a session renewed after a separate SELECT would otherwise still be deleted.
+    const { query } = createQuery(DbSession, DeleteQueryBuilder);
+    query.where('Expiration', '<=', DateTime.now());
 
-    if (expired.length === 0) {
-      return 0;
-    }
-
-    await DbSession.destroy(expired.map((s) => s.SessionId));
-
-    return expired.length;
+    return rowsAffected(await query);
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
