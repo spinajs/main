@@ -1,5 +1,5 @@
 import { Constructor } from '@spinajs/di';
-import { InsertBehaviour, IUpdateResult } from './interfaces.js';
+import { IColumnDescriptor, InsertBehaviour, IUpdateResult } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
 import { NoRowsAffected } from './exceptions.js';
@@ -92,4 +92,19 @@ export async function deleteModel<T extends ModelBase>(model: T): Promise<T> {
   }
 
   return model;
+}
+
+/**
+ * The column of `columns` (a `tableInfo()` result) called `name`: the exact name, else the only one equal
+ * ignoring case. Unquoted SQL names ignore case, so a configured name may differ in case from the table's
+ * spelling; the returned `Name` is the table's own, which also works quoted.
+ */
+export function findColumn(columns: readonly IColumnDescriptor[] | null | undefined, name: string): IColumnDescriptor | undefined {
+  if (!columns) return undefined;
+
+  const exact = columns.find((c) => c.Name === name);
+  if (exact) return exact;
+
+  const folded = columns.filter((c) => c.Name.toLowerCase() === name.toLowerCase());
+  return folded.length === 1 ? folded[0] : undefined;
 }

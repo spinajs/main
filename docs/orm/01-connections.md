@@ -140,7 +140,7 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `ping()` | Abstract. Resolves `false` when the database is unreachable. |
 | `connect()` / `disconnect()` | Abstract. Open and close the connection. |
 | `supportedFeatures()` | Abstract. Returns `ISupportedFeature`. |
-| `tableInfo(name, schema?)` | Abstract. Returns the table's `IColumnDescriptor[]`. |
+| `tableInfo(name, schema?)` | Abstract. Returns the table's `IColumnDescriptor[]`. `findColumn(columns, name)` from `@spinajs/orm` picks one: the exact name, else the only one equal ignoring case, with `Name` spelled as the table spells it. |
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
