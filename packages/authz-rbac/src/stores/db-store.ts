@@ -2,6 +2,7 @@ import { AuthzClock } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
 
 import { storeDomain } from './context.js';
+import { ormReady } from './records.js';
 
 // TypeScript accepts a class as a mixin base only with an `any[]` rest constructor.
 type AbstractClass<T = object> = abstract new (...args: any[]) => T;
@@ -9,6 +10,11 @@ type AbstractClass<T = object> = abstract new (...args: any[]) => T;
 /** What every DB store reads from the container it was resolved in. */
 export abstract class DbRbacStore {
   protected abstract readonly container: IContainer;
+
+  /** Every read and write awaits it before its first record call. */
+  protected ready(): Promise<void> {
+    return ormReady();
+  }
 
   protected domain(): string {
     return storeDomain(this.container);

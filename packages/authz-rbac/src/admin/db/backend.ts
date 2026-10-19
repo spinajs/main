@@ -4,7 +4,7 @@ import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
 import { requireTransaction } from '../../stores/context.js';
-import { VersionRecord, deleteFrom, recordDriver, recordValues, toDateTime } from '../../stores/records.js';
+import { VersionRecord, deleteFrom, ormReady, recordDriver, recordValues, toDateTime } from '../../stores/records.js';
 import { AUTHZ_ADMIN_IDEMPOTENCY_TABLE, AUTHZ_VERSION_TABLE } from '../../stores/tables.js';
 import { bumpVersion } from '../../stores/version.js';
 import { AdminIdempotencyRecord } from './record.js';
@@ -106,6 +106,7 @@ async function lockRow(domain: string): Promise<boolean> {
 export class DbAuthzAdminBackend extends AuthzAdminBackend {
   async transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T> {
     checkDomain(domain);
+    await ormReady();
     const driver = recordDriver(VersionRecord);
     refuseNested(driver);
     // Under REPEATABLE READ or a stricter level, the batch's snapshot would hide what the batch before it committed.
@@ -124,6 +125,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
 
   async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {
     const id = entryKey(domain, actorKey, key);
+    await ormReady();
     const driver = recordDriver(AdminIdempotencyRecord);
     refuseNested(driver);
     await readTable(driver, AUTHZ_ADMIN_IDEMPOTENCY_TABLE, IDEMPOTENCY_MIGRATION, async () => {

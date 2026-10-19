@@ -1,5 +1,6 @@
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
-import { Connection, DateTime as DateTimeColumn, DeleteQueryBuilder, Int64, Json, Model, ModelBase, Primary, SelectQueryBuilder, createQuery } from '@spinajs/orm';
+import { DI } from '@spinajs/di';
+import { Connection, DateTime as DateTimeColumn, DeleteQueryBuilder, Int64, Json, Model, ModelBase, Orm, Primary, SelectQueryBuilder, createQuery } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -205,8 +206,27 @@ export function recordValues<R>(values: RecordValues<R>): Partial<R> {
   return values as Partial<R>;
 }
 
+/** What an Orm registers in the root container once it created its connections, even when it lives in a child container. */
+const ORM_CONNECTIONS = 'OrmConnection';
+
+let resolving: Promise<unknown> | undefined;
+
+/**
+ * Resolves the Orm unless one already created its connections: the record methods exist only once it resolved, and a
+ * cli process boots only its command. Not `@Autoinject(Orm)` on the stores: an async dependency makes their `DI.resolve`
+ * a Promise, which callers do not await.
+ */
+export async function ormReady(): Promise<void> {
+  if (resolving === undefined && DI.check(ORM_CONNECTIONS)) return;
+  resolving ??= Promise.resolve(DI.resolve(Orm)).finally(() => (resolving = undefined));
+  await resolving;
+}
+
 /** The driver `record`'s queries run on; a transaction on it is the one they join. */
 export function recordDriver(record: typeof ModelBase): OrmDriver {
+  if (!DI.check(ORM_CONNECTIONS)) {
+    throw new AuthzConfigError(`${record.name}: the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used`);
+  }
   try {
     return createQuery(record, SelectQueryBuilder).query.Driver;
   } catch (err) {

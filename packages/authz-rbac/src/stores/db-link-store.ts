@@ -77,6 +77,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * engine's clock, which the store does not know.
    */
   async byToken(token: string): Promise<LinkDef | null> {
+    await this.ready();
     const secret = await this.secret();
     if (!isLookupToken(token)) return null;
 
@@ -88,6 +89,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
 
   /** The live or expired link; null when unknown or revoked. */
   async byId(id: string): Promise<LinkDef | null> {
+    await this.ready();
     if (typeof id !== 'string') return null;
     const row = await this.liveRow(id);
     return row ? rowToLink(row) : null;
@@ -95,6 +97,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
 
   /** Writes the link and its assignment (`grant` at `l.scope`, expiring with the link); returns the token once. */
   async create(l: Omit<LinkDef, 'id'>, grant: { role: string; tags?: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<{ link: LinkDef; token: string }> {
+    await this.ready();
     const where = `${this.name}.create`;
     requireTransaction(LinkRecord, tx, where);
     const secret = await this.secret();
@@ -113,6 +116,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
 
   /** Marks the link revoked (the row stays) and deletes its assignments; unknown or revoked id ⇒ `not_found`. */
   async revoke(id: string, _actor: PrincipalRef, tx: AuthzTx): Promise<void> {
+    await this.ready();
     requireTransaction(LinkRecord, tx, `${this.name}.revoke`);
     const { RowsAffected } = await LinkRecord.update(recordValues<LinkRecord>({ revoked_at: toDateTime(this.now()) }))
       .where('id', id)
@@ -124,6 +128,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
 
   /** `link.update`: replaces the expiry (of the link and its assignments) and the attributes given; unknown or revoked id ⇒ `not_found`. */
   async update(id: string, patch: LinkPatch, _actor: PrincipalRef, tx: AuthzTx): Promise<LinkDef> {
+    await this.ready();
     const where = `${this.name}.update`;
     requireTransaction(LinkRecord, tx, where);
     const change: { attributes?: Readonly<Record<string, unknown>>; expires_at?: DateTime | null } = {};
@@ -155,6 +160,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * assignments; returns them. GLOBAL and type-level refs are refused (`wrong_scope_type`).
    */
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly LinkDef[]> {
+    await this.ready();
     const where = `${this.name}.forgetScope`;
     requireScopeNode(scope, where, 'only a scope node can be forgotten');
     requireTransaction(LinkRecord, tx, where);
@@ -183,6 +189,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * `invalid_page`.
    */
   async find(q: LinkQuery, page?: { limit: number; offset: number }): Promise<{ items: readonly LinkDef[]; total: number }> {
+    await this.ready();
     const window = page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined;
 
     const filtered = () => {
