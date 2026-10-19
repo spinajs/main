@@ -709,9 +709,11 @@ Full reference: `packages/authz-orm/README.md`.
   emitted it, rebuilt from the stamp) or `@Job({ runAs: 'system' })` (B30, B09). Every run is wrapped in
   `runAs` with the reason `job:<name>`.
 - The import also registers `QueueChangeBus` as the default `ChangeBus` of every domain without
-  `authz.bus.service`, registers `JobModel` as the `job` resource whose `owner` is the principal that
-  emitted it, and grants `job:read` (relation `owner`) to the `user` role. Install without import adds
-  nothing.
+  `authz.bus.service`. Install without import adds nothing.
+- `import '@spinajs/authz-queue/jobs'` registers `JobModel` as the `job` resource whose `owner` is the
+  principal that emitted it, grants `job:read` (relation `owner`) to the `user` role, and runs the
+  queue's own job-row queries as `SYSTEM`. It needs `@spinajs/authz-orm` (an optional peer
+  dependency); the package root does not load it.
 - The default `InitiatorPrincipalFactory` builds the principal from the stamp alone and warns once.
   `@spinajs/users/queue` registers one that reloads the user. See `packages/authz-queue/README.md`.
 

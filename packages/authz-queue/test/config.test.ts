@@ -7,7 +7,8 @@ import { DI } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { IContainer } from '@spinajs/di';
 
-import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, StampedInitiatorPrincipalFactory } from '../src/index.js';
+import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, QueueChangeBus, StampedInitiatorPrincipalFactory } from '../src/index.js';
+import { AuthzQueueTrackingHook } from '../src/job/index.js';
 
 describe('authz-queue configuration through @Config', () => {
   const children: IContainer[] = [];

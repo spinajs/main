@@ -14,7 +14,7 @@ npm install @spinajs/authz-queue
 import '@spinajs/users/queue';
 ```
 
-The subpath imports authz-queue, which registers its queue hook, change bus and job resource, and grants the `user` role `job:read` on the jobs it started (relation `owner`). Installing authz-queue without an import adds nothing.
+The subpath imports authz-queue, which registers its queue hook and change bus. Installing authz-queue without an import adds nothing. For the `job` resource and the `user` role's `job:read` grant on the jobs it started, also `import '@spinajs/authz-queue/jobs'`.
 
 ## How it works
 
