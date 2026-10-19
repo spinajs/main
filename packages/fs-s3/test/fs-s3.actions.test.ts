@@ -165,4 +165,13 @@ describe('fsS3 – provider hooks', () => {
     expect(unzip.calledOnceWithExactly('/tmp/z.zip', 'out', dst)).to.be.true;
     expect(rm.calledOnceWithExactly('/tmp/z.zip')).to.be.true;
   });
+
+  it('zips and unzips onto the temp fs when no destination fs is given', () => {
+    const { p, internals } = provider();
+    const temp = {} as fs;
+    Object.defineProperty(p, 'TempFs', { value: temp });
+
+    expect(internals.zipDestination()).to.equal(temp);
+    expect(internals.unzipDestination()).to.equal(temp);
+  });
 });

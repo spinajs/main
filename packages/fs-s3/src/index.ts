@@ -755,6 +755,14 @@ export class fsS3 extends fs {
     }
   }
 
+  protected zipDestination(): fs {
+    return this.TempFs;
+  }
+
+  protected unzipDestination(): fs {
+    return this.TempFs;
+  }
+
   /**
    * CopySource must be URL-encoded; the bucket name and the `/` separators stay as they are
    */
