@@ -3,7 +3,7 @@ import type { HostLog } from '@spinajs/authz';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
-import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
+import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns, subjectKeyOf, subjectToColumns } from '../stores/columns.js';
 import { bumpVersion } from '../stores/version.js';
 import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';

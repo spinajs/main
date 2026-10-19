@@ -1,8 +1,7 @@
 import { IdentifierQuoter, OrmDriver } from '@spinajs/orm';
 
 import { transactionDriver } from './context.js';
-
-export const AUTHZ_VERSION_TABLE = 'authz_version';
+import { AUTHZ_VERSION_TABLE } from './tables.js';
 
 /**
  * `authz_version(domain) += 1` inside the caller's transaction, creating the row at 1 (D-L2-3).

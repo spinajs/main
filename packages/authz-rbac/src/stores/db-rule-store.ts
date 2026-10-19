@@ -10,8 +10,9 @@ import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns,
 import type { ScopeRefColumns } from './columns.js';
 import { withDbRbacStore } from './db-store.js';
 import { isUniqueViolation, pageWindow, requireScopeNode, whereLive } from './queries.js';
-import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, toRuleRows } from './rule-rows.js';
+import { toRuleRows } from './rule-rows.js';
 import type { RuleRow, RuleSubjectList, RuleSubjectRow } from './rule-rows.js';
+import { AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE } from './tables.js';
 import { readVersion, bumpVersion } from './version.js';
 
 /** `AuthzAdmin.list({ kind: 'rules' })` without the kind. */

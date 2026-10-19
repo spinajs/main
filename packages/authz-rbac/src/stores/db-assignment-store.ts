@@ -7,11 +7,12 @@ import { randomUUID } from 'node:crypto';
 
 import { AdminAssignmentStore } from '../admin/ports.js';
 import type { AssignmentQuery, Page } from '../admin/ports.js';
-import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
+import { rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
 import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { withDbRbacStore } from './db-store.js';
 import { isUniqueViolation, pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { AUTHZ_ASSIGNMENT_TABLE } from './tables.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 

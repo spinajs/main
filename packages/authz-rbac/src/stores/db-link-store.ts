@@ -12,10 +12,9 @@ import { DbAssignmentStore } from './db-assignment-store.js';
 import { withDbRbacStore } from './db-store.js';
 import { pageWindow, requireScopeNode } from './queries.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
+import { AUTHZ_LINK_TABLE } from './tables.js';
 import { normaliseTags } from './tags.js';
 import { bumpVersion } from './version.js';
-
-export const AUTHZ_LINK_TABLE = 'authz_link';
 
 /** Config key of the HMAC secret for link tokens: a string of at least 32 characters, no default. */
 export const LINK_SECRET_KEY = 'authz.rbac.links.secret';

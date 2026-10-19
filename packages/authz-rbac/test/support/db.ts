@@ -3,7 +3,7 @@ import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { ModelHydrator, Orm, OrmDriver, QueryContext } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
@@ -113,6 +113,8 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
+  // Resolved for the first time from inside an Orm child container, the hydrator list comes back empty and records hydrate nothing.
+  DI.resolve(Array.ofType(ModelHydrator));
 
   const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;

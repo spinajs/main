@@ -2,7 +2,7 @@ import { engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
 import { IdentifierQuoter, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
-import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
+import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { scopeToColumns } from '../stores/columns.js';
 import { configuredUsersColumns, countUsers, hasUsers, inTransaction, matchColumn, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
 

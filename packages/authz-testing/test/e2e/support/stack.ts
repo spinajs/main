@@ -208,6 +208,8 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         activeDb = db;
         const driver = db.driver(kind);
         for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+        // The Orm read the table info before the tables existed.
+        await db.orm.reloadTableInfo();
         lane = new E2eOrm(db, kind);
         await base.beforeAll?.();
       } catch (e) {

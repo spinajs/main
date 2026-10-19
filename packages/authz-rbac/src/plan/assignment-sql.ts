@@ -3,8 +3,7 @@ import type { PrincipalRef, SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
-import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
-import { AUTHZ_SUBJECT_MEMBERSHIP_TABLE } from '../stores/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_SUBJECT_MEMBERSHIP_TABLE } from '../stores/tables.js';
 import { RBAC_ASSIGNMENT_PLAN_OP, parseRbacPlanArgs } from './args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from './args.js';
 

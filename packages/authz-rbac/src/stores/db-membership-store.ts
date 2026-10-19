@@ -8,8 +8,7 @@ import type { MembershipRow } from '../membership/closure.js';
 import { toDate } from './columns.js';
 import { withDbRbacStore } from './db-store.js';
 import { whereLive } from './queries.js';
-
-export const AUTHZ_SUBJECT_MEMBERSHIP_TABLE = 'authz_subject_membership';
+import { AUTHZ_SUBJECT_MEMBERSHIP_TABLE } from './tables.js';
 
 const KEY_BATCH = 500;
 // 4 columns a row: 800 bound parameters, under SQLite's 999.

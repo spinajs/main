@@ -3,8 +3,6 @@ import type { Assignment } from '@spinajs/authz';
 import { parsePrincipalKey, scopeFromColumns, subjectFromColumns, toDate } from './columns.js';
 import { parseTags } from './tags.js';
 
-export const AUTHZ_ASSIGNMENT_TABLE = 'authz_assignment';
-
 /** One `authz_assignment` row as the drivers return it (datetimes are text on SQLite). */
 export interface AssignmentRow {
   id: string;

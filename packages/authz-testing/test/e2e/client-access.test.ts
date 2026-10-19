@@ -59,6 +59,8 @@ async function startClientApp(): Promise<ClientAccessApp> {
   const db = await TestDb.open();
   const driver = db.driver('sqlite');
   for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+  // The Orm read the table info before the tables existed.
+  await db.orm.reloadTableInfo();
   Doc = (await db.define({ name: 'Doc', columns: {}, decorate: (m) => AccessResource('doc')(m) })) as never;
   for (const id of CLIENT_ACCESS_FIXTURE.ids) await runWithPrincipal(SYSTEM, async () => void (await Doc.insert({ id })));
 

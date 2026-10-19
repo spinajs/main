@@ -4,9 +4,6 @@ import type { AssignmentSubject, PrincipalRef, RuleDef } from '@spinajs/authz';
 import { scopeToColumns, subjectToColumns } from './columns.js';
 import type { SubjectColumns } from './columns.js';
 
-export const AUTHZ_RULE_TABLE = 'authz_rule';
-export const AUTHZ_RULE_SUBJECT_TABLE = 'authz_rule_subject';
-
 export type RuleSubjectList = 'allow' | 'refs';
 
 /** The `authz_rule` values of one rule, except `created_*`. */
