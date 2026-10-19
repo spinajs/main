@@ -78,6 +78,7 @@ export class SlowQueryLoggingMsSqlDriver extends MsSqlOrmDriver {
 - **Parameter types are inferred** by `mssql` from the JavaScript value: a `string` binds as `NVARCHAR`, a `number` as `INT` or `FLOAT`, a `Date` as a datetime type.
 - **No retries.** A transport error fails the statement at once. See [the retry example](#retry-statements-after-a-dropped-connection).
 - **`ping()` goes through `executeOnDb()`.** A driver whose pool is closed or `null` reports `false` instead of throwing.
+- **Failed statements are wrapped.** Error numbers `2627` and `2601` throw `UniqueViolation`, `515` throws `ConstraintViolation` of kind `not_null`, `547` one of kind `foreign_key` or `check` (read from the message), anything else `OrmException`. The `mssql` `RequestError` is `inner`: read `err.inner.number`, not `err.number`.
 
 ## Best practices
 

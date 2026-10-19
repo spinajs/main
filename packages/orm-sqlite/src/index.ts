@@ -8,18 +8,19 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 /* eslint-disable prettier/prettier */
 
 export * from './compilers.js';
+export * from './errors.js';
 
 // Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
 // IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement, SqliteInSetStatement } from './statements.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
@@ -110,13 +111,25 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
-    const self = this;
 
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
     const handle = this.handleFor(queryContext);
+    const fail = (reject: (reason: unknown) => void, err: unknown) =>
+      reject(
+        mapSqliteError(
+          err,
+          {
+            Host: this.Options.Host,
+            User: this.Options.User,
+            Name: this.Options.Name,
+          },
+          stmt,
+          params ? params.join(',') : 'none',
+        ),
+      );
 
     return new Promise((resolve, reject) => {
       switch (queryContext) {
@@ -124,19 +137,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Delete:
           handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(
-                new OrmException(
-                  `Failed to execute query`,
-                  {
-                    Host: self.Options.Host,
-                    User: self.Options.User,
-                    Name: self.Options.Name,
-                  },
-                  stmt,
-                  params ? params.join(',') : 'none',
-                  err,
-                ),
-              );
+              fail(reject, err);
               return;
             }
 
@@ -151,19 +152,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.InsertReturning:
           handle.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
-              reject(
-                new OrmException(
-                  `Failed to execute query`,
-                  {
-                    Host: self.Options.Host,
-                    User: self.Options.User,
-                    Name: self.Options.Name,
-                  },
-                  stmt,
-                  params ? params.join(',') : 'none',
-                  err,
-                ),
-              );
+              fail(reject, err);
               return;
             }
 
@@ -184,28 +173,9 @@ export class SqliteOrmDriver extends SqlDriver {
           break;
 
         case QueryContext.Insert:
-          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              if (err.code === 'SQLITE_CONSTRAINT') {
-                reject(new ResourceDuplicated(err));
-              } else {
-                if (err) {
-                  reject(
-                    new OrmException(
-                      `Failed to execute query`,
-                      {
-                        Host: self.Options.Host,
-                        User: self.Options.User,
-                        Name: self.Options.Name,
-                      },
-                      stmt,
-                      params ? params.join(',') : 'none',
-                      err,
-                    ),
-                  );
-                  return;
-                }
-              }
+              fail(reject, err);
               return;
             }
 
@@ -221,7 +191,7 @@ export class SqliteOrmDriver extends SqlDriver {
         default:
           handle.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
             if (err) {
-              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`));
+              fail(reject, err);
               return;
             }
 

@@ -230,6 +230,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 - `ping()` bypasses `withReconnect()`, so a dead server does not turn every probe into a reconnect loop.
 - `OrmException` from a failed statement carries the bindings (`params`). Log it with care when bindings hold personal data.
 - Size `Pool.Max` against the server's `max_connections`: each process and each connection entry opens its own pool.
+- `ER_DUP_ENTRY` (`1062`) throws `UniqueViolation`, with `constraint` (and on MySQL 8 `table`) read from the `for key '...'` part of the message. `1048` and `1364` throw `ConstraintViolation` of kind `not_null`, `1451` and `1452` `foreign_key`, `3819` `check`. Every other error stays `OrmException`. The `mysql2` error is `inner`.
 
 ## Best practices
 

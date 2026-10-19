@@ -80,7 +80,7 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 - `BEGIN` is `DEFERRED`. A transaction holds no lock until its first statement that needs one.
 - `SupportedIsolationLevels` is `['SERIALIZABLE']`: `sqlite3` outside shared-cache mode serializes access to the file. Other levels are rejected, not ignored.
 - DDL is transactional in SQLite: `CREATE TABLE` and `ALTER TABLE` inside a rolled-back transaction are undone.
-- `Transaction` statements that fail lose the `sqlite3` error code (see [Connection and driver](01-connection.md#errors)).
+- A failed `Transaction` statement is an `OrmException` with the `sqlite3` error in `inner` (see [Connection and driver](01-connection.md#errors)).
 - The driver never retries a statement, so the core's rule "no retries inside a transaction" holds trivially.
 
 ## Best practices

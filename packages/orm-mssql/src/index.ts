@@ -9,6 +9,9 @@ import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsS
 import { MssqlModelDehydrator } from './dehydrator.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
+import { mapMsSqlError } from './errors.js';
+
+export * from './errors.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
   transaction: mssql.Transaction;
@@ -66,12 +69,12 @@ export class MsSqlOrmDriver extends SqlDriver {
     const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
     const req = txContext?.request ?? this._connectionPool.request();
 
-    // No try/finally here any more: it only ever existed to bracket this driver's own
-    // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
     finalQuery = toNamedParameters(finalQuery, params?.length ?? 0);
     params?.forEach((value, index) => req.input(`p${index}`, value));
 
-    const result = await req.query(finalQuery);
+    const result = await req.query(finalQuery).catch((err: unknown) => {
+      throw mapMsSqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);
+    });
 
     switch (context) {
       case QueryContext.Update:

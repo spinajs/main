@@ -137,6 +137,8 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 | `OrmException` | Invalid use: a missing descriptor or relation, `destroy()` without keys, `newest()` without `@CreatedAt`, `archive()` without `@Archived`, an array insert with a behaviour. Driver errors carry `driver`, `query`, `bindings` and `inner`. |
 | `OrmNotFoundException` | `getOrFail()`, `fresh()`, `refresh()` and any builder's `firstOrFail()` when no row matches. Extends `OrmException`. |
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
+| `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
+| `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
 
 ## Services and extension points
 

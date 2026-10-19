@@ -207,7 +207,7 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 - `orReplace()` deletes the conflicting row and inserts a new one: its other columns take defaults, and `ON DELETE` actions fire if foreign keys are enforced.
 - `orIgnore()` with `returning()` returns no row for a skipped insert.
 - A multi-row insert whose rows set different columns renders `DEFAULT` and fails with `near "DEFAULT": syntax error`. Batch model inserts hit this when one model leaves a nullable column `undefined` and another sets it.
-- `SQLITE_CONSTRAINT` becomes `ResourceDuplicated` only for `QueryContext.Insert`; `InsertReturning` and `Upsert` raise `OrmException`.
+- A unique or primary key failure is `UniqueViolation` on every path (`Insert`, `InsertReturning`, `Upsert`); other constraint failures are `ConstraintViolation`. See [Connection and driver](01-connection.md#errors).
 
 ## Best practices
 

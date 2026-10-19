@@ -35,10 +35,11 @@
 
 | Context | Error | Notes |
 | --- | --- | --- |
-| `Insert` with `SQLITE_CONSTRAINT` | `ResourceDuplicated` from `@spinajs/exceptions` | Any constraint: `UNIQUE`, `NOT NULL`, `CHECK`, `FOREIGN KEY`. The `sqlite3` error is the exception's message. |
-| `Insert` with any other code | `OrmException('Failed to execute query', ...)` | The `sqlite3` error is in `inner`; `query` and `bindings` are set. |
-| `Select`, `Upsert`, `InsertReturning`, `Update`, `Delete` | `OrmException('Failed to execute query', ...)` | Constraint violations included: no `ResourceDuplicated` here. |
-| `Schema`, `Transaction` | `OrmException('Failed to execute query: <sql>, bindings: <list>')` | The `sqlite3` error and its `code` are not kept. |
+| Any, `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` or `PRIMARY KEY must be unique` | `UniqueViolation` (extends `ResourceDuplicated`) | The `sqlite3` message is the exception's message and the `sqlite3` error is `inner`. `table` and `columns` come from the message; a unique index on expressions sets `constraint` to the index name instead. |
+| Any, other `SQLITE_CONSTRAINT` | `ConstraintViolation` (extends `OrmException`) | `kind` is `not_null` (with `table` and `columns`), `check` (with `constraint`), `foreign_key` or `other`. |
+| Any, other error | `OrmException('Failed to execute query', ...)` | The `sqlite3` error is in `inner`; `query` and `bindings` are set. |
+
+`sqlite3` reports no extended result code, so the kind of constraint is read from the message.
 
 ### Table reflection
 
@@ -228,8 +229,7 @@ await driver.schema().raw('CREATE INDEX audit_note ON audit (Note)');
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { OrmDriver, OrmException } from '@spinajs/orm';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { OrmDriver, UniqueViolation } from '@spinajs/orm';
 
 export async function signUp(email: string): Promise<'created' | 'duplicate'> {
   const driver = DI.resolve<OrmDriver>('OrmConnection', ['main'])!;
@@ -238,13 +238,8 @@ export async function signUp(email: string): Promise<'created' | 'duplicate'> {
     await driver.insert().into('accounts').values({ Email: email });
     return 'created';
   } catch (err) {
-    // plain inserts map SQLITE_CONSTRAINT to ResourceDuplicated
-    if (err instanceof ResourceDuplicated) {
-      return 'duplicate';
-    }
-
-    // RETURNING inserts (model inserts with an auto key) carry the sqlite3 error in inner
-    if (err instanceof OrmException && (err.inner as { code?: string } | undefined)?.code === 'SQLITE_CONSTRAINT') {
+    // plain and RETURNING inserts map a unique failure the same way
+    if (err instanceof UniqueViolation) {
       return 'duplicate';
     }
 

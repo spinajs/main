@@ -11,6 +11,9 @@ import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
 import { MySqlInSetStatement, MySqlLiteralQuoter } from './statements.js';
+import { mapMySqlError } from './errors.js';
+
+export * from './errors.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
@@ -148,8 +151,8 @@ export class MySqlOrmDriver extends SqlDriver {
     return new Promise((resolve, reject) => {
       const fail = (err: unknown) =>
         reject(
-          new OrmException(
-            `Error executing orm command `,
+          mapMySqlError(
+            err,
             {
               Host: self.Options.Host,
               User: self.Options.User,
@@ -157,7 +160,6 @@ export class MySqlOrmDriver extends SqlDriver {
             },
             stmt,
             params,
-            err,
           ),
         );
 
