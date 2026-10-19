@@ -414,7 +414,10 @@ database is recreated, not upgraded. The `users.Role` copy and drop are two more
 in [the migration guide](./migration-guide.md#7-data-migration).
 
 **CLI.** `@spinajs/authz-rbac` ships six commands. They run as `SYSTEM` with the reason `cli`. On
-failure they print one line and set the exit code to 1.
+failure they print one line and set the exit code to 1. The commands of `@spinajs/authz-rbac` and
+`@spinajs/authz-orm` extend `AuthzCliBase` (`@spinajs/authz/cli`), which resolves what a command needs
+from the command's DI container when the command runs, so a failing authz boot is reported as one
+line.
 
 | Command | Does |
 |---|---|
@@ -824,6 +827,14 @@ default backend keeps data in memory.
 **List permissions.** A built-in validator refuses `policy.put` and `rule.put` with
 `not_list_filterable` when the stored policy or rule would make a `list: true` permission depend on
 the row, so `.accessible()` never meets data it cannot honour.
+
+**Writing a handler.** A handler gets the `AdminContext` that `AuthzAdmin` passes.
+`adminContainer(ctx)` and `adminActor(ctx)` read the domain container and the actor.
+`requireAdminService(ctx, Token, who)` resolves a service from that container and throws
+`AuthzConfigError` when the domain registers none; `optionalAdminService(ctx, Token)` returns
+`undefined` instead. The field readers `readId`, `readRef`, `readScope`, `readNode`, `readPrincipal`
+and `readExpiry` copy a command field, or throw `AuthzAdminFailure` `invalid_command` naming the field
+(`invalid(field, message)` builds that failure).
 
 **Teams and deletes.** The RBAC write handlers recompute `authz_subject_membership` in the batch's
 transaction for every member a command touches. Deleting a resource row through the ORM runs the

@@ -1,10 +1,13 @@
-import { AuthzAdminFailure, AuthzWriteHandler } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, invalid, readId, readPrincipal, readScope } from '@spinajs/authz';
 import type { AdminContext, AppliedRow, AuthzCommand, AuthzEvent, AuthzTx, Permission, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { actorRef, assignmentStore, checkGrantable, event, invalid, isLinkSubject, plannedRemovals, quote, readFutureExpiry, readId, readOptionalTags, readPrincipal, readScope, readSubject, readTags, refuseLinkSubject, roleIndex, subjectTag } from './common.js';
-import type { RoleIndex } from './common.js';
+import { actorRef, assignmentStore, event, isLinkSubject, quote, refuseLinkSubject, subjectTag } from './common.js';
+import { checkGrantable, readFutureExpiry, readOptionalTags, readSubject, readTags } from './fields.js';
+import { plannedRemovals } from './removals.js';
+import { roleIndex } from './role-index.js';
+import type { RoleIndex } from './role-index.js';
 import { memberSubjects, refreshMemberships, subjectTags } from './membership.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;

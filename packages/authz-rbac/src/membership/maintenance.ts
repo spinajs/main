@@ -1,7 +1,7 @@
 import type { AuthzTx } from '@spinajs/authz';
 
-import { honoured, setRolesOf } from '../admin/common.js';
-import type { RoleIndex } from '../admin/common.js';
+import { honoured, setRolesOf } from '../admin/role-index.js';
+import type { RoleIndex } from '../admin/role-index.js';
 import { membershipEdges } from '../admin/membership.js';
 import type { AdminAssignmentStore, AdminMembershipStore } from '../admin/ports.js';
 import { isLiveAt } from '../admin/rows.js';

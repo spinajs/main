@@ -2,7 +2,7 @@ import { AuthzConfigError, SYSTEM, isPermission, isPermissionGlob, subtractField
 import type { AdminContext, Decision, FieldSet, Permission, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
-import { grantClosure, grantedPermissions, ladderAppliesAt, permissionRegistry, rankOf, roleClosure, roleIndex } from './common.js';
+import { grantClosure, grantedPermissions, ladderAppliesAt, permissionRegistry, rankOf, roleClosure, roleIndex } from './role-index.js';
 
 /** What DefaultAdminGuard needs to know about the actor. */
 export abstract class RbacAdminFacts {

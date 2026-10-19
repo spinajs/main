@@ -1,8 +1,7 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import type { Configuration } from '@spinajs/configuration';
-import { ResolveType, isFactory } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 
 import { OwnRolesTokenRolePolicy, TokenRolePolicy } from './policy.js';
 import { ROLE_OR_PREFIX } from './role-pattern.js';
@@ -72,8 +71,8 @@ export class TokenRoleRules {
 
 /**
  * Reads `authz.token.excludedRoles` and `authz.token.rolePolicy.service` (AUTHZ_TOKEN_CONFIGURATION_SCHEMA checks
- * them) and resolves the policy from `container`: the TokenRolePolicy registration whose class name is the service name.
- * @throws (rejects) AuthzConfigError for a service no registered TokenRolePolicy class carries
+ * them) and resolves the policy from `container`: the TokenRolePolicy registered under the service name.
+ * @throws (rejects) AuthzConfigError for a service no TokenRolePolicy is registered under
  */
 export async function loadTokenRoleRules(configuration: Pick<Configuration, 'get'>, container: IContainer): Promise<TokenRoleRules> {
   const excluded = configuration.get<readonly string[]>(['authz', 'token', 'excludedRoles'], []);
@@ -89,18 +88,16 @@ export async function loadTokenRoleRules(configuration: Pick<Configuration, 'get
   return new TokenRoleRules(excluded, await resolvePolicy(container, service));
 }
 
+// Not resolveNamedService: that reads the name from the container's own Configuration, while the caller passes the
+// configuration, and outside a host there may be none registered.
 async function resolvePolicy(container: IContainer, service: string): Promise<TokenRolePolicy> {
-  const entry = container.Registry.getTypesChain(TokenRolePolicy)
-    .filter((e) => !isFactory(e.type) && typeof e.type === 'function' && e.type.name === service)
-    .pop();
-  if (!entry) {
+  const registered = container.getRegisteredNames(TokenRolePolicy);
+  if (!registered.includes(service)) {
     // A DI registry reset in a test drops the decorator's registration of the default.
     if (service === DEFAULT_TOKEN_ROLE_POLICY) return new OwnRolesTokenRolePolicy();
-    throw new AuthzConfigError(`${SERVICE_KEY} names ${JSON.stringify(service)}, but no TokenRolePolicy class of that name is registered; is the package that provides it loaded?`);
+    throw new AuthzConfigError(`${SERVICE_KEY} ${JSON.stringify(service)}: no TokenRolePolicy is registered under that name (registered: ${registered.map((n) => JSON.stringify(n)).join(', ') || 'none'}); is the package that provides it loaded?`);
   }
-  const type = entry.type as Class<TokenRolePolicy>;
-  const at = container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? container : entry.container;
-  const policy: unknown = await at.resolve(type);
+  const policy: unknown = await container.resolveNamed(TokenRolePolicy, service);
   if (!(policy instanceof TokenRolePolicy)) throw new AuthzConfigError(`${SERVICE_KEY}: ${JSON.stringify(service)} is not a TokenRolePolicy`);
   return policy;
 }

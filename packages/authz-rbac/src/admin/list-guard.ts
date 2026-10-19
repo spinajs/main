@@ -3,7 +3,8 @@ import type { AdminContext, AuthzCommand, RuleDef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { ruleCanMatch } from '../model/list/support.js';
-import { permissionRegistry, quote } from './common.js';
+import { permissionRegistry } from './role-index.js';
+import { quote } from './common.js';
 
 /** At write time: a stored rule may never reach a `list: true` permission, because list plans cannot follow rules. */
 @Singleton()
