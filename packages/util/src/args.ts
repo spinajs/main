@@ -71,16 +71,16 @@ export function _is_map<K, V>(...checks: ((arg: unknown, name: string) => unknow
 }
 
 export function _contains_key<K, V>(key: K): (arg: unknown, name: string) => Map<K, V> | object {
-  return function (arg: Map<K, V> | object, name: string) {
+  return function (arg: unknown, name: string) {
     if (arg instanceof Map) {
       if (!arg.has(key)) {
         throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
       }
-    } else if (typeof arg === 'object' && !Object.keys(arg).includes(String(key))) {
+    } else if (typeof arg === 'object' && !Object.keys(arg as object).includes(String(key))) {
       throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
     }
 
-    return arg;
+    return arg as Map<K, V> | object;
   };
 }
 

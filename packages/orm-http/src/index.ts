@@ -265,7 +265,8 @@ export function FromModel<T extends typeof ModelBase>(options?: FromModelOptions
 @Injectable(Bootstrapper)
 export class OrmHttpBootstrapper extends Bootstrapper {
   public async bootstrap(): Promise<void> {
-    DI.once('di.resolved.Orm', (_, orm: Orm) => {
+    DI.once('di.resolved.Orm', (_: unknown, arg: unknown) => {
+      const orm = arg as Orm;
       // set default route parameter hydrator for all loaded models
       orm.Models.forEach((m) => {
         if (!Reflect.getMetadata('custom:arg_hydrator', m.type)) {

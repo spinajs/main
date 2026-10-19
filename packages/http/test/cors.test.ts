@@ -27,7 +27,7 @@ async function middleware(cors: unknown) {
 async function app(cors: unknown) {
   const handler = (await middleware(cors)).mw.before();
   const a = express();
-  if (handler) a.use(handler);
+  if (handler) a.use(handler as express.RequestHandler);
   a.all('/probe', (_req, res) => {
     res.json({ ok: true });
   });

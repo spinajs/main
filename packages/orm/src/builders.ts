@@ -1517,7 +1517,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // Everything that is not a string was handled above (constructor / array /
     // object), so the remaining value is a plain relation name.
-    this._getRelationInstance(relation as string).execute(callback);
+    // The relation runs the callback on its relation query, a SelectQueryBuilder.
+    this._getRelationInstance(relation as string).execute(callback as Parameters<IOrmRelation['execute']>[0]);
 
     return this;
   }
@@ -2010,8 +2011,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
         .map((c) => {
           return c.Column;
         })
-        .forEach((c: string) => {
-          binding.push(d[c]);
+        .forEach((c) => {
+          binding.push(d[c as string]);
         });
 
       self._values.push(binding);

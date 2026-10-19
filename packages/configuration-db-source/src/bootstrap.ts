@@ -44,7 +44,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // before ORM is resolved there is no connection - those vars are handled by the
     // di.resolved.Orm handler below, so skip them here to avoid failing db calls.
-    DI.on('di.registered.__configuration_property__', (v: __dbCOnfigOptions) => {
+    DI.on('di.registered.__configuration_property__', (arg: unknown) => {
+      const v = arg as __dbCOnfigOptions;
       if (!v.options || !v.options.expose) {
         return;
       }
@@ -60,7 +61,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     });
 
     // register vals added before orm is resolved eg. at bootstrap phase
-    DI.once('di.resolved.Orm', (container: IContainer) => {
+    DI.once('di.resolved.Orm', (arg: unknown) => {
+      const container = arg as IContainer;
       const vars = container
         .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
         .filter((x) => x.options)
