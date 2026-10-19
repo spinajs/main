@@ -1,17 +1,12 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
+import { timingSafeEqualDigest } from '@spinajs/util/crypto';
 
 import { PrincipalSource } from '../api.js';
 import { servicePrincipals } from '../http-config.js';
 import type { ServiceEntry, ServicePrincipalConfig } from '../http-config.js';
-
-const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
-
-// Equal-length digests, so neither the token's length nor its first differing byte shows in the timing.
-const sameToken = (presented: string, expected: string) => timingSafeEqual(digest(presented), digest(expected));
 
 function servicePrincipal(s: ServicePrincipalConfig): Principal {
   return Object.freeze({ type: 'service', id: s.name, authenticated: true, source: 'service', attributes: s.attributes });
@@ -39,7 +34,7 @@ export class ServicePrincipalSource extends PrincipalSource {
       }
 
       // Every token is compared, matched or not.
-      const matches = service.tokens.map((t) => sameToken(presented, t));
+      const matches = service.tokens.map((t) => timingSafeEqualDigest(presented, t));
       if (matches.includes(true)) {
         return servicePrincipal(service);
       }

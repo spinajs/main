@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
+import { sha256 } from '@spinajs/util/crypto';
 import { DateTime } from 'luxon';
 import { AuthnNonce } from '../models/AuthnNonce.js';
 import { toUtcColumn } from '../models/utc.js';
@@ -11,7 +11,7 @@ export abstract class KeyNonceStore {
 }
 
 /** A fixed-length store key for a value a client chose, scoped to the key that signed it. */
-export const nonceKey = (scope: 'jti' | 'sig', kid: string, value: string): string => `${scope}:${createHash('sha256').update(`${kid}\n${value}`, 'utf8').digest('base64url')}`;
+export const nonceKey = (scope: 'jti' | 'sig', kid: string, value: string): string => `${scope}:${sha256(`${kid}\n${value}`, 'base64url')}`;
 
 const SWEEP_EVERY = 256;
 

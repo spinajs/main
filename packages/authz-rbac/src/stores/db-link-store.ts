@@ -4,7 +4,8 @@ import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqualStr } from '@spinajs/util/crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import { AdminLinkStore } from '../admin/ports.js';
 import { parsePrincipalKey, scopeFromColumns, scopeToColumns, toDate } from './columns.js';
@@ -243,9 +244,7 @@ export class DbLinkStore extends AdminLinkStore {
 
   /** Defence in depth: the row was found by this hash; the keyed hash is what makes the indexed lookup timing-safe. */
   protected hashesEqual(stored: string, computed: string): boolean {
-    const a = Buffer.from(stored, 'utf8');
-    const b = Buffer.from(computed, 'utf8');
-    return a.length === b.length && timingSafeEqual(a, b);
+    return timingSafeEqualStr(stored, computed);
   }
 
   /** Read on every use, so the store can be resolved before the secret is configured. */

@@ -1,14 +1,14 @@
-import { createHash } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { sha256 } from '@spinajs/util/crypto';
 import { identityKey } from './identity.js';
 import { MfaSecretStore } from './store.js';
 import type { MfaRecord } from './store.js';
 
 const MAX_STEP = 32;
 
-const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+const sha256hex = (s: string): string => sha256(s);
 
 function text(value: unknown, what: string, max = Number.MAX_SAFE_INTEGER): string {
   return _check_arg(_is_string(_non_empty(), _max_length(max)))(value, what);

@@ -1,10 +1,11 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
+import { taggedHash } from '@spinajs/util/crypto';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
@@ -19,7 +20,7 @@ import { publicOriginOf } from '../extractors/signature.js';
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
 // Domain-separated and cut short: sha256 of a raw session id is its storage key, which must not reach a log.
-const logHash = (value: string): string => createHash('sha256').update(`authn-http:log\0${value}`).digest('hex').slice(0, 16);
+const logHash = (value: string): string => taggedHash('authn-http:log', value, 16);
 
 function headersOf(req: Request): Record<string, string> {
   // From rawHeaders: req.headers keeps only the first of a repeated Authorization header.

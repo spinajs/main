@@ -1,7 +1,8 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { AuthzAdminFailure, AuthzConfigError, SYSTEM, memoryTx } from '@spinajs/authz';
 import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { sha256 } from '@spinajs/util/crypto';
 
 import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
@@ -14,7 +15,7 @@ interface Row {
   readonly hash: Buffer;
 }
 
-const hashOf = (token: string): Buffer => createHash('sha256').update(token, 'utf8').digest();
+const hashOf = (token: string): Buffer => sha256(token, 'buffer');
 
 function copy(l: LinkDef): LinkDef {
   return deepFreeze({

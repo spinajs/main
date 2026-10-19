@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
+import { parseKeyMaterial } from '@spinajs/util/crypto';
 
 import { identityKey } from '../identity.js';
 
@@ -20,26 +21,13 @@ export interface MfaKey {
   readonly keyId: string;
 }
 
-const HEX = /^[0-9a-fA-F]{64}$/;
-const BASE64 = /^[A-Za-z0-9+/]{43}=?$/;
-const BASE64URL = /^[A-Za-z0-9_-]{43}$/;
-
 /**
  * Reads a 32-byte key given as 64 hex characters, base64 (44, or 43 unpadded) or base64url (43). Anything else
  * throws `InvalidOption`; the message never contains the value.
  */
 export function mfaKeyFrom(secret: string): MfaKey {
-  let key: Buffer | undefined;
-  if (typeof secret === 'string') {
-    if (HEX.test(secret)) {
-      key = Buffer.from(secret, 'hex');
-    } else if (BASE64.test(secret) || BASE64URL.test(secret)) {
-      key = Buffer.from(secret, 'base64');
-      // Unused low bits in the last character would let several texts name one key.
-      if (key.toString('base64url') !== secret.replace(/=$/, '').replace(/\+/g, '-').replace(/\//g, '_')) key = undefined;
-    }
-  }
-  if (!key || key.length !== KEY_BYTES) {
+  const key = parseKeyMaterial(secret, KEY_BYTES);
+  if (!key) {
     throw new InvalidOption('authn.mfa.encryptionKey.secret must be 32 bytes given as 64 hex characters, base64 or base64url');
   }
 

@@ -1,10 +1,11 @@
 // The RFC 8941 structured-field subset RFC 9421 signatures and RFC 9530 digests need, parsed strictly: one canonical
 // text form per value, so the signature base can use the Signature-Input text exactly as sent.
 
+import { decodeBase64Strict } from '@spinajs/util/crypto';
+
 const KEY = /^[a-z*][a-z0-9_\-.*]*$/;
 const MAX_KEY = 64;
 const INTEGER = /^-?[0-9]{1,15}$/;
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 export type ParamValue = number | string;
 
@@ -115,15 +116,6 @@ export function parseSignatureInput(header: unknown): SignatureInput | null {
   return canonical === value ? { label: key.key, components, params, value } : null;
 }
 
-/** RFC 8941 byte sequence in standard base64, canonical (padded, no stray bits). */
-function decodeByteSequence(text: string): Buffer | null {
-  if (!BASE64.test(text) || text.length % 4 !== 0) {
-    return null;
-  }
-  const bytes = Buffer.from(text, 'base64');
-  return bytes.toString('base64') === text ? bytes : null;
-}
-
 /** A dictionary whose members are all byte sequences (`Signature`, `Content-Digest`); null when not exactly that. */
 export function parseByteSequenceDictionary(header: unknown): Map<string, Buffer> | null {
   if (typeof header !== 'string') {
@@ -136,7 +128,7 @@ export function parseByteSequenceDictionary(header: unknown): Map<string, Buffer
     if (!key || out.has(key.key) || m[key.end] !== ':' || !m.endsWith(':') || m.length < key.end + 2) {
       return null;
     }
-    const bytes = decodeByteSequence(m.slice(key.end + 1, -1));
+    const bytes = decodeBase64Strict(m.slice(key.end + 1, -1));
     if (!bytes) {
       return null;
     }

@@ -1,28 +1,13 @@
 import { randomBytes } from 'node:crypto';
+import { base32Encode } from '@spinajs/util/crypto';
 
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 /** 80 bits: the floor for codes stored as unsalted SHA-256. */
 const CODE_BYTES = 10;
 const CODE = /^[A-Z2-7]{16}$/;
 
-function base32(bytes: Buffer): string {
-  let bits = 0;
-  let acc = 0;
-  let out = '';
-  for (const byte of bytes) {
-    acc = (acc << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      bits -= 5;
-      out += BASE32[(acc >> bits) & 31];
-    }
-  }
-  return out;
-}
-
 /** A recovery code as stored and redeemed: 16 base32 chars. */
 export function newRecoveryCode(): string {
-  return base32(randomBytes(CODE_BYTES));
+  return base32Encode(randomBytes(CODE_BYTES));
 }
 
 /** `XXXX-XXXX-XXXX-XXXX`, the form shown to the owner. */
