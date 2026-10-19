@@ -3,6 +3,7 @@ import chaiHttp from 'chai-http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import * as cs from 'cookie-signature';
+import type { AddressInfo } from 'node:net';
 import { join, normalize, resolve } from 'node:path';
 import { inspect } from 'node:util';
 import { Bootstrapper, DI } from '@spinajs/di';
@@ -29,8 +30,15 @@ chai.use(chaiHttp);
  * the only one registered.
  */
 
-export const PORT = 8890;
-export const APP_ORIGIN = `http://localhost:${PORT}`;
+// http.port is 0, so every start binds a free port and parallel runs never collide; startServer() reads it back.
+let port = 0;
+
+export function appPort(): number {
+  if (port === 0) throw new Error('no http server started: call startServer() first');
+  return port;
+}
+
+export const appOrigin = (): string => `http://localhost:${appPort()}`;
 export const COOKIE_SECRET = 'v3-app-' + 'Zq8Lw2Rt'.repeat(6);
 
 export const dir = (path: string) => resolve(normalize(join(process.cwd(), 'test', path)));
@@ -50,7 +58,7 @@ export class V3AppConfiguration extends FrameworkConfiguration {
       system: { dirs: { controllers: [dir('./../src/v3/controllers'), dir('./v3-app/support')] } },
       fs: { defaultProvider: 'fs-temp', providers: [{ service: 'fsNative', name: 'fs-temp', basePath: dir('./files') }] },
       http: {
-        port: PORT,
+        port: 0,
         cookie: { secret: COOKIE_SECRET },
         middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser()],
         AcceptHeaders: 1,
@@ -185,7 +193,9 @@ export async function startServer(): Promise<void> {
     // message, which mocha cannot report (test/lost-rejections.ts); inspect() still prints its diagnostic.
     throw err instanceof Error ? err : new Error(inspect(err));
   }
-  await (await DI.resolve(HttpServer)).start();
+  const server = await DI.resolve(HttpServer);
+  await server.start();
+  port = (server.Server.address() as AddressInfo).port;
 }
 
 /** Controllers take their services when they are built, so a service bound after the server started needs a rebuild. */
@@ -263,10 +273,10 @@ export class Client {
   }
 
   public async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
-    const agent = chai.request(APP_ORIGIN);
+    const agent = chai.request(appOrigin());
     let call = method === 'GET' ? agent.get(path) : method === 'POST' ? agent.post(path) : method === 'PATCH' ? agent.patch(path) : agent.delete(path);
     call = call.set('Accept', 'application/json');
-    if (method !== 'GET') call = call.set('Origin', APP_ORIGIN);
+    if (method !== 'GET') call = call.set('Origin', appOrigin());
     if (this.cookie !== null) call = call.set('Cookie', `${cookieName()}=${encodeURIComponent(this.cookie)}`);
     for (const [k, v] of Object.entries(headers)) call = call.set(k, v);
     const res = body === undefined ? await call : await call.send(body as object);
