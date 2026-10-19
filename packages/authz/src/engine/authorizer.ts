@@ -421,6 +421,14 @@ export class Authorizer {
     return (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision;
   }
 
+  /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
+  async inspect(input: CheckInput, scope?: RequestScope): Promise<Decision> {
+    if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
+    for (const flag of ['fresh', 'explain'] as const) if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new AuthzConfigError(`${this.where}: ${flag} must be a boolean`);
+    const run: Run = { ...this.newRun(false, scope), bypass: true, quiet: true };
+    return (await runAsync(this.pipeline({ ...input, explain: false, fresh: true }, run))).decision;
+  }
+
   /** Every model evaluated, trace attached, caches bypassed. */
   async explain(input: CheckInput, scope?: RequestScope): Promise<Decision> {
     if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
@@ -575,6 +583,13 @@ export class Authorizer {
     } finally {
       limit.clear();
     }
+  }
+
+  /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. */
+  async ancestors(ref: ResourceRef, scope?: RequestScope): Promise<readonly ResourceRef[] | null> {
+    const r = this.requireRef(ref);
+    this.refuseLateType(r.type);
+    return await this.ancestorsOf(r, scope?.cache ?? new Map<string, unknown>());
   }
 
   /**
@@ -953,7 +968,7 @@ export class Authorizer {
   private async modelPlan(model: AuthorizationModel, req: ListPlanRequest, ctx: ModelContext, label: string): Promise<PlanAnswer & { readonly faulted: boolean }> {
     let support: unknown;
     try {
-      support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type) : undefined;
+      support = typeof model.listSupport === 'function' ? model.listSupport(req.permission, req.type, { relation: (type, name) => this.relation(type, name) }) : undefined;
     } catch (e) {
       throw new AuthzConfigError(`${this.where}: model ${quote(model.name)} threw from listSupport() for ${label}: ${describeError(e)}`, { cause: e });
     }

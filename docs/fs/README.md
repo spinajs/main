@@ -20,7 +20,7 @@ npm install @spinajs/fs
 | [Temp file system](04-temp-file-system.md) | `fsTemp`: temp files on any backend provider, deleted by a cleanup strategy |
 | [Temp cleanup strategies](05-temp-cleanup-strategies.md) | `TempCleanupStrategy`: the shipped max-age and cron strategies, and writing your own |
 | [Custom providers](06-custom-providers.md) | Implements the abstract `fs` class for a new storage backend |
-| [Provider decorators](07-provider-decorators.md) | `FsDecorator`: wraps every provider at boot, eg. for access control or read-only mounts |
+| [Middlewares](07-middlewares.md) | `FsMiddleware`: checks or observes every file action, eg. access control or read-only mounts |
 | [Boot service and provider lookup](08-boot-service-and-provider-lookup.md) | Replaces or extends `fsService` and the `__file_provider__` lookup factory |
 | [File hashing](09-file-hashing.md) | `FileHasher`: hashes files, buffers and streams; the default `DefaultFileHasher` and custom hashers |
 | [File metadata](10-file-metadata.md) | `FileInfoService`: image, video and document metadata through `exiftool`, file type checks |
@@ -31,7 +31,7 @@ npm install @spinajs/fs
 | Extension point | DI token and lifetime | Default | Page |
 | --- | --- | --- | --- |
 | File provider | `fs` (string `'fs'`), `PerInstanceCheck` per `name` | `fsNative`, `fsTemp` | [Custom providers](06-custom-providers.md), [Local provider](03-local-provider.md#extending-fsnative) |
-| Provider decorator | `FsDecorator`, resolved as `Array.ofType(FsDecorator)` | none | [Provider decorators](07-provider-decorators.md) |
+| File middleware | `FsMiddleware`, resolved as `Array.ofType(FsMiddleware)` per action | none | [Middlewares](07-middlewares.md) |
 | Temp cleanup strategy | `TempCleanupStrategy`, `NewInstance`, picked by class name | `MaxAgeTempCleanupStrategy` | [Temp cleanup strategies](05-temp-cleanup-strategies.md) |
 | File hasher | `FileHasher`, `PerInstanceCheck` per algorithm | `DefaultFileHasher` | [File hashing](09-file-hashing.md) |
 | File metadata | `FileInfoService`, singleton | `DefaultFileInfo` | [File metadata](10-file-metadata.md) |
@@ -58,10 +58,12 @@ export async function saveInvoice(invoiceNumber: string, pdf: Buffer): Promise<s
 
 Configure the providers first: see [Providers and configuration](01-providers-and-configuration.md).
 
+Every path is normalised before a provider sees it: see [Path normalisation](07-middlewares.md#path-normalisation).
+
 ## Related packages
 
 - `@spinajs/fs-s3`, `@spinajs/fs-ftp`, `@spinajs/fs-onedrive`: remote providers built on the abstract `fs` class.
-- `@spinajs/authz-fs`: an `FsDecorator` that guards providers with authorization rules.
+- `@spinajs/authz-fs`: ships `AuthzFsMiddleware`, which guards providers with authorization rules.
 - `@spinajs/di`: resolves every provider, strategy, hasher and decorator of this package.
 - `@spinajs/configuration`: supplies the `fs.*` keys.
 - `@spinajs/cli`: runs the `fs-*` commands.

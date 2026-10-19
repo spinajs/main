@@ -22,11 +22,12 @@ const residualWorld = (votes: VoteFn, opts: { relations?: readonly RelationSpec[
   lane: { fs: { providers: [{ name: 'uploads', files: { [A]: 'A', [B]: 'B' } }, { name: 'archive' }] } },
 });
 
-const editor = (holds: (id: string) => boolean): RelationSpec[] => ['file', 'dir', 'fs'].map((type) => ({ type, relation: 'editor', holds: (_p, ref) => holds(ref.id ?? '') }));
+// Not an authz.fsAcl relation: FsResourceAdapter serves owner, editor and viewer itself, and a second resolver for one of them fails the boot.
+const reviewer = (holds: (id: string) => boolean): RelationSpec[] => ['file', 'dir', 'fs'].map((type) => ({ type, relation: 'reviewer', holds: (_p, ref) => holds(ref.id ?? '') }));
 
 const idIs = (id: string) => cmp('id', 'eq', id);
 
-/** Entries are compared as names in `dir`: fsS3 lists whole keys (`docs/a.txt`), fsNative names (`a.txt`). */
+/** Entries are compared as names in `dir`: a key store lists whole keys (`docs/a.txt`), fsNative names (`a.txt`). */
 const listed = (fs: string, dir: string, expected: readonly string[]): DoStep => ({
   note: `${fs}.list(${dir}) gives ${expected.join(', ')}`,
   do: async (ctx) => {
@@ -39,12 +40,12 @@ const listed = (fs: string, dir: string, expected: readonly string[]): DoStep =>
 const cases: Case[] = [
   {
     name: 'a relation that does not hold is a denial, never a permit for every file',
-    world: residualWorld(() => permit(relation('editor')), { relations: editor(() => false) }),
+    world: residualWorld(() => permit(relation('reviewer')), { relations: reviewer(() => false) }),
     steps: [as('alice', fsCall('uploads', 'read', [A], DENIED), fsCall('uploads', 'write', [B, 'x'], DENIED))],
   },
   {
     name: 'a relation that holds for one file permits that file only',
-    world: residualWorld(() => permit(relation('editor')), { relations: editor((id) => id === `uploads:${A}`) }),
+    world: residualWorld(() => permit(relation('reviewer')), { relations: reviewer((id) => id === `uploads:${A}`) }),
     steps: [as('alice', fsCall('uploads', 'read', [A], 'resolves'), fsCall('uploads', 'read', [B], DENIED))],
   },
   {
@@ -74,13 +75,13 @@ const cases: Case[] = [
   },
 ];
 
-/** B28.residual: the guard decides with the path's row as the subject and never lets a conditional permit through. */
+/** B28.residual: the middleware decides with the path's row as the subject and never lets a conditional permit through. */
 export const B28Residual = extension('B28', [
   {
     name: 'residual',
     facets: ['engine', 'host', 'fs'],
     lanes: ['L7'],
-    note: "Relation grants and resource.* conditions on fs paths (design §13). 'editor' stands for any relation: FsResourceAdapter serves 'owner' itself (B16.fs-owner).",
+    note: "Relation grants and resource.* conditions on fs paths (design §13). 'reviewer' stands for any relation the kit serves.",
     cases,
   },
 ]);
