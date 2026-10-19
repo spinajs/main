@@ -1,9 +1,9 @@
 import type { ResourceRef } from '@spinajs/authz';
-import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { publishedFs } from '@spinajs/fs';
 import { _check_arg, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
-import { basePathOf, publishedFs, refOf } from '../guard/shared.js';
+import { basePathOf, refOf } from '../guard/shared.js';
 import { normalizeFsPath } from '../refs/index.js';
 
 /**
@@ -23,7 +23,7 @@ export function fromFsPath(fsName: string, param: string): (req: unknown) => Res
   return (req: unknown): ResourceRef => {
     const params: unknown = req !== null && typeof req === 'object' ? (req as { params?: unknown }).params : undefined;
     const value: unknown = params !== null && typeof params === 'object' && Object.hasOwn(params, param) ? (params as Record<string, unknown>)[param] : undefined;
-    return refOf(fsName, normalizeFsPath(pathOf(value, param, fsName), basePathOf(publishedFs(DI.RootContainer, fsName))), 'file');
+    return refOf(fsName, normalizeFsPath(pathOf(value, param, fsName), basePathOf(publishedFs(fsName))), 'file');
   };
 }
 

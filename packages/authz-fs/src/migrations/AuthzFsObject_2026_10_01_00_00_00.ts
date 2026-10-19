@@ -1,7 +1,7 @@
-import { Migration, OrmMigration, extractMigrationDescriptor } from '@spinajs/orm';
+import { Migration, OrmMigration } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { fsMetadataConnection } from '../metadata/connection.js';
+import { FS_METADATA_CONNECTION } from '../metadata/connection.js';
 
 /** A binary collation for the key columns where the driver can declare one, so case variants of a path stay two rows. */
 function binaryKey(connection: OrmDriver): { collation: string; charset?: string } | undefined {
@@ -15,7 +15,7 @@ function binaryKey(connection: OrmDriver): { collation: string; charset?: string
 }
 
 /** fs_object of design §9.1 (OrmFileMetadataStore), plus updated_at. */
-@Migration('default')
+@Migration(FS_METADATA_CONNECTION)
 export class AuthzFsObject_2026_10_01_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     const binary = binaryKey(connection);
@@ -42,6 +42,3 @@ export class AuthzFsObject_2026_10_01_00_00_00 extends OrmMigration {
     await connection.schema().dropTable('fs_object');
   }
 }
-
-// Read when the migrations run, so the table lands on the connection OrmFileMetadataStore uses.
-Object.defineProperty(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)!, 'Connection', { get: () => fsMetadataConnection(), enumerable: true, configurable: true });

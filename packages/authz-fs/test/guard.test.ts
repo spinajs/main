@@ -9,7 +9,7 @@ import type { Principal } from '@spinajs/authz';
 import { userPrincipal } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { fs, fsNative, fsTemp } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fs, fsNative, fsTemp } from '@spinajs/fs';
 import type { IFsLocalOptions, IFsTempOptions } from '@spinajs/fs';
 
 import { AuthzFsDecorator, guardFs, isGuardedFs, parseFsAccessConfig } from '../src/index.js';
@@ -330,8 +330,8 @@ describe('authz-fs guardFs', function () {
       const tempAuthz = new FakeAuthz((p) => p === 'fs:write');
       const fsTempRaw = local('fs-temp');
       const fsTempGuard = guard(fsTempRaw, 'fs-temp', { mode: 'enforce' }, tempAuthz);
-      const hadMap = DI.RootContainer.Cache.has('__file_provider_instance__');
-      DI.register(fsTempGuard).asMapValue('__file_provider_instance__', 'fs-temp');
+      const hadMap = DI.RootContainer.Cache.has(FILE_PROVIDER_INSTANCES);
+      DI.register(fsTempGuard).asMapValue(FILE_PROVIDER_INSTANCES, 'fs-temp');
       try {
         const authz = new FakeAuthz();
         const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', { mode: 'enforce' }, authz);
@@ -341,8 +341,8 @@ describe('authz-fs guardFs', function () {
         expect(tempAuthz.keys()[0]).to.match(/^fs:write file:fs-temp:[0-9a-f-]+\.zip$/);
         expect(result.fs).to.equal(fsTempGuard);
       } finally {
-        (DI.get('__file_provider_instance__') as Map<string, unknown>).delete('fs-temp');
-        if (!hadMap) DI.uncache('__file_provider_instance__');
+        (DI.get(FILE_PROVIDER_INSTANCES) as Map<string, unknown>).delete('fs-temp');
+        if (!hadMap) DI.uncache(FILE_PROVIDER_INSTANCES);
       }
     });
 

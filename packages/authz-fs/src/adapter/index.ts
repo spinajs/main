@@ -2,6 +2,7 @@ import { ResourceAdapter } from '@spinajs/authz';
 import type { Permission, PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { publishedFs } from '@spinajs/fs';
 
 import { FsOwnerRelation } from '../metadata/owner.js';
 import { FS_OPERATIONS, fsOperationPermissions } from '../operations/index.js';
@@ -75,9 +76,7 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
 
   // Read from the published provider instance, so refOf does no IO; a guard proxy passes Options through.
   protected basePathOf(fsName: string): string | undefined {
-    const providers: unknown = this.container.get('__file_provider_instance__');
-    if (!(providers instanceof Map)) return undefined;
-    const basePath: unknown = (providers.get(fsName) as { Options?: { basePath?: unknown } } | undefined)?.Options?.basePath;
+    const basePath: unknown = (publishedFs(fsName, this.container) as { Options?: { basePath?: unknown } } | undefined)?.Options?.basePath;
     return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
   }
 }

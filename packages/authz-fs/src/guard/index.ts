@@ -5,7 +5,7 @@ import { AuthzConfigError, SYSTEM, UNATTENDED, currentPrincipal, engineLog } fro
 import type { Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { fsNative, fsTemp } from '@spinajs/fs';
+import { fsNative, fsTemp, publishedFs } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { _check_arg, _is_object, _is_string, _non_empty, _reg_match } from '@spinajs/util';
 
@@ -21,7 +21,7 @@ import type { FsRow } from '../refs/index.js';
 import { planMetadata } from './metadata.js';
 import type { MetadataPath } from './metadata.js';
 import { rememberRaw } from './raw.js';
-import { basePathOf, decideFs, definite, domainNow, domainService, publishedFs, refOf, validNow, warnDenied } from './shared.js';
+import { basePathOf, decideFs, definite, domainNow, domainService, refOf, validNow, warnDenied } from './shared.js';
 import type { FsGuardLog, FsGuardService } from './shared.js';
 import { SIGNING_METHODS, askedUntil, signingCall, signingUntil } from './signed-url.js';
 
@@ -323,7 +323,7 @@ function providerDestination(guard: Guard, method: string): 'self' | object | un
   if (raw instanceof fsTemp) return 'self';
   if (!(raw instanceof fsNative)) return undefined;
   if (method === 'unzip') return 'self';
-  return publishedFs(guard.env.container, 'fs-temp');
+  return publishedFs('fs-temp', guard.env.container);
 }
 
 function defaultName(spec: NonNullable<FsPathSpec['default']>, args: readonly unknown[], target: Guard): string | undefined {
