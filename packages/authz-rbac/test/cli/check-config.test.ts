@@ -12,6 +12,7 @@ import 'mocha';
 
 import { CheckConfigCommand } from '../../src/cli/index.js';
 import { RoleStore } from '../../src/contracts.js';
+import { RbacService } from '../../src/model/service.js';
 import { ConfigRoleStore } from '../../src/stores/index.js';
 import { capture, fakeAuthz } from './fixture.js';
 import type { Captured } from './fixture.js';
@@ -167,27 +168,18 @@ describe('authz:check-config', () => {
     });
 
     describe('RbacService registered in DI', () => {
-      const grants = [{ permission: 'doc:read' }];
-      afterEach(() => {
-        DI.unregister('RbacService');
-        DI.uncache('RbacService');
-      });
-
-      it('finds a class registered under the name', async () => {
-        class FakeRbac {
-          grantsOf() {
-            return grants;
-          }
+      class FakeRbac {
+        grantsOf() {
+          return [{ permission: 'doc:read' }];
         }
-        DI.register(FakeRbac).as('RbacService');
-        const { cmd } = command(GOOD);
-        await cmd.execute({ explainRole: 'editor' });
-        expect(io.out).to.include('  doc:read');
-        expect(io.exitCode()).to.equal(undefined);
+      }
+      afterEach(() => {
+        DI.unregister(FakeRbac);
+        DI.uncache(RbacService);
       });
 
-      it('finds a value registered under the name', async () => {
-        DI.register({ grantsOf: () => grants }).asValue('RbacService');
+      it('finds the RbacService the root container registers', async () => {
+        DI.register(FakeRbac).as(RbacService);
         const { cmd } = command(GOOD);
         await cmd.execute({ explainRole: 'editor' });
         expect(io.out).to.include('  doc:read');
