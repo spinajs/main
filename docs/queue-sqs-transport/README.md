@@ -14,10 +14,10 @@ npm install @spinajs/queue-sqs-transport
 
 | Feature | What it does |
 | --- | --- |
-| [SQS connection](01-sqs-connection.md) | Connection config, how `queue.connections[].service` selects `SqsQueueClient`, the connection factory, AWS region, endpoint and credentials |
+| [SQS connection](01-sqs-connection.md) | Connection config, how `queue.connections[].service` selects `SqsQueueClient`, one client per connection name, AWS region, endpoint and credentials |
 | [Publishing messages](02-publishing-messages.md) | `emit()`: queue URL routing, the JSON envelope, fan-out to several queues, and what SQS ignores |
 | [Consuming messages](03-consuming-messages.md) | `subscribe()`: the long-poll loop, ack by delete, redelivery and dead-lettering through SQS, receive-error backoff, `unsubscribe()` and `dispose()` |
-| [Extending the SQS client](04-extending-the-sqs-client.md) | DI registration and lifetime, replacing the factory, subclassing `SqsQueueClient` (FIFO send, SNS unwrapping, rotating credentials), writing your own `QueueClient` |
+| [Extending the SQS client](04-extending-the-sqs-client.md) | DI registration and lifetime, registering a factory, subclassing `SqsQueueClient` (FIFO send, SNS unwrapping, rotating credentials), writing your own `QueueClient` |
 
 ## Quick start
 
@@ -67,7 +67,7 @@ export async function requestResize(imageId: string) {
 ## Related packages
 
 - [`@spinajs/queue`](../queue/README.md): `QueueService`, `QueueClient`, events, jobs, routing and job tracking; this package is one of its transports.
-- [`@spinajs/queue-amqp-transport`](../queue-amqp-transport/README.md): the AMQP transport, with the same connection factory shape.
+- [`@spinajs/queue-amqp-transport`](../queue-amqp-transport/README.md): the AMQP transport.
 - [`@spinajs/queue-stomp-transport`](../queue-stomp-transport/README.md): the STOMP transport, for ActiveMQ and similar brokers.
 - [`@spinajs/di`](../di/README.md): `@Injectable`, `@PerInstanceCheck` and factory registrations used to select and replace the client.
 - [`@spinajs/configuration`](../configuration/README.md): `@AutoinjectService`, which builds one client per `queue.connections` entry.

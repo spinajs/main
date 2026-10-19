@@ -21,7 +21,7 @@ Sessions written by `@spinajs/session-provider-redis` 2.x stay valid after the u
 ### The sweep, `sweepLegacy()`
 
 1. `RedisSessionStore.resolve()` calls it once per boot.
-2. `scanSessionKeys()` runs `SCAN` with `MATCH <keyPrefix>session:*`, 500 keys per batch, and strips the prefix from each key.
+2. `scanSessionKeys()` runs `SCAN` with `MATCH <escaped keyPrefix><sessionKey('*')>`, 500 keys per batch, and strips the prefix from each key.
 3. Keys whose id contains `:` (the index sets) are skipped. The rest are read with one `MGET` per batch.
 4. A value whose `Subject` is a string is a 3.0 row and is skipped. Every other value goes through the lenient `toSession()`: an unparseable value, or a 2.x row without `User`, is skipped.
 5. One `MULTI` per batch runs `SADD` to `session:subject:<principalKey>` and, when the row has an impersonator, `session:impersonator:<principalKey>`.
@@ -53,7 +53,7 @@ The sweep has no keys of its own. It scans under `authn.session.redis.keyPrefix`
 - **The sweep does not rewrite rows.** It adds set members only; the 2.x value, key and TTL stay.
 - **Expired 2.x rows are indexed too.** Lookups delete them later and do not count them.
 - **Rolling-upgrade window.** A 2.x node that writes a session after a 3.0 node booted leaves a row no set lists. `deleteBySubject()` returns `0` for it until `sweepLegacy()` runs again.
-- **One bad value does not stop the sweep.** Unparseable values are skipped with a `warn` log.
+- **One bad value does not stop the sweep.** Unparseable values are skipped with a `warn` log that names the session id.
 - **Boot cost.** The sweep reads every `session:*` key under the prefix on every boot, 3.0 rows included, even when no 2.x row is left.
 
 ## Best practices

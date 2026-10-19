@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
   AuthnContext,
-  AuthnEvent,
+  AuthnEventSink,
   IdentityRef,
   IdentityStatus,
   PasswordChangeResult,
@@ -22,7 +24,8 @@ import type {
   ThrottleKey,
 } from '@spinajs/authn/contracts';
 
-import { AuditLog, publishAuthnEvent } from './audit.js';
+import type { AuditLog } from './audit.js';
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
@@ -38,6 +41,7 @@ export interface LocalPasswordServiceDeps {
   readonly throttle: AuthnThrottle;
   /** null: no TokenService, so there are no tokens to revoke. */
   readonly tokens: TokenService | null;
+  /** Published to through `AuthnAudit.over`. */
   readonly sinks: readonly AuthnEventSink[];
   readonly hasher: PasswordHasher;
   readonly policy: LocalPasswordPolicy;
@@ -75,10 +79,7 @@ function reauthKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
   return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
 }
 
-/**
- * Local password flows (A04, A13, A30). Collaborators come from the container on use (D8), so the service can be resolved
- * before them; with `deps` the container is not used at all.
- */
+/** Local password flows (A04, A13, A30). With `deps` the container is not used at all. */
 @Injectable(PasswordService)
 export class LocalPasswordService extends PasswordService {
   @Config('authn.local.reset.revokeTokens')
@@ -96,7 +97,38 @@ export class LocalPasswordService extends PasswordService {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
+  @Autoinject(IdentityStore)
+  protected Identities: IdentityStore;
+
+  @Autoinject(PasswordCredentialStore)
+  protected Passwords: PasswordCredentialStore;
+
+  @Autoinject(SessionIssuer)
+  protected Sessions: SessionIssuer;
+
+  @Autoinject(AuthnThrottle)
+  protected Throttle: AuthnThrottle;
+
+  @Autoinject(PasswordHasher)
+  protected Hasher: PasswordHasher;
+
+  @Autoinject(LocalPasswordPolicy)
+  protected Policy: LocalPasswordPolicy;
+
+  @Autoinject(SecretStore, { optional: true })
+  protected Secrets: SecretStore | undefined;
+
+  @Autoinject(PasswordMailer, { optional: true })
+  protected Mailer: PasswordMailer | undefined;
+
+  @Autoinject(TokenService, { optional: true })
+  protected Tokens: TokenService | undefined;
+
   private _work?: DeferredWork;
+  private _auditor?: AuthnAuditor;
 
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
@@ -348,21 +380,15 @@ export class LocalPasswordService extends PasswordService {
 
   protected async revokeTokensOf(id: IdentityRef, ctx: AuthnContext, actor?: PrincipalRef): Promise<void> {
     // Only an explicit false switches revocation off: a missing or malformed value must not leave a reset's tokens alive.
-    const enabled = this.Deps ? (this.Deps.revokeTokens ?? true) : this.RevokeTokens !== false;
+    const enabled = this.Deps ? (this.Deps.revokeTokens ?? AUTHN_LOCAL_DEFAULTS.reset.revokeTokens) : this.RevokeTokens !== false;
     const tokens = enabled ? await this.tokens() : null;
     if (tokens) {
       await tokens.revokeAllFor(id, ctx, actor ? { actor } : undefined);
     }
   }
 
-  protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = {
-      ...e,
-      at: ctx.now,
-      ...(ctx.ip !== undefined ? { ip: ctx.ip } : {}),
-      ...(ctx.userAgent !== undefined ? { userAgent: ctx.userAgent } : {}),
-    };
-    await publishAuthnEvent(await this.sinks(), event, this.log());
+  protected async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    await this.auditor().publishIn(ctx, e);
   }
 
   protected work(): DeferredWork {
@@ -370,70 +396,59 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected resetTtlSeconds(): number {
-    return this.Deps ? (this.Deps.resetTtlSeconds ?? 3600) : this.ResetTtlSeconds;
+    return this.Deps ? (this.Deps.resetTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.reset.ttlSeconds) : this.ResetTtlSeconds;
   }
 
   protected inviteTtlSeconds(): number {
-    return this.Deps ? (this.Deps.inviteTtlSeconds ?? 900) : this.InviteTtlSeconds;
+    return this.Deps ? (this.Deps.inviteTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.invite.ttlSeconds) : this.InviteTtlSeconds;
   }
 
   protected resetUrl(): string {
-    return this.Deps ? (this.Deps.resetUrl ?? '') : this.ResetUrl;
+    return this.Deps ? (this.Deps.resetUrl ?? AUTHN_LOCAL_DEFAULTS.reset.url) : this.ResetUrl;
   }
 
   protected async identities(): Promise<IdentityStore> {
-    return this.Deps ? this.Deps.identities : await DI.resolve(IdentityStore);
+    return this.Deps ? this.Deps.identities : this.Identities;
   }
 
   protected async secrets(): Promise<SecretStore> {
-    if (this.Deps) {
-      if (!this.Deps.secrets) {
-        throw new InvalidOperation('LocalPasswordService was built without a SecretStore');
-      }
-      return this.Deps.secrets;
+    const secrets = this.Deps ? this.Deps.secrets : this.Secrets;
+    if (!secrets) {
+      throw new InvalidOperation(this.Deps ? 'LocalPasswordService was built without a SecretStore' : 'The reset and invite flows need a SecretStore, and none is registered');
     }
-    return await DI.resolve(SecretStore);
+    return secrets;
   }
 
   protected async mailer(): Promise<PasswordMailer | null> {
-    if (this.Deps) {
-      return this.Deps.mailer ?? null;
-    }
-    return DI.check(PasswordMailer) ? await DI.resolve(PasswordMailer) : null;
+    return (this.Deps ? this.Deps.mailer : this.Mailer) ?? null;
   }
 
   protected policyComponent(): LocalPasswordPolicy {
-    return this.Deps ? this.Deps.policy : DI.resolve(LocalPasswordPolicy);
+    return this.Deps ? this.Deps.policy : this.Policy;
   }
 
   protected sessions(): SessionIssuer {
-    return this.Deps ? this.Deps.sessions : DI.resolve(SessionIssuer);
+    return this.Deps ? this.Deps.sessions : this.Sessions;
   }
 
   protected throttle(): AuthnThrottle {
-    return this.Deps ? this.Deps.throttle : DI.resolve(AuthnThrottle);
+    return this.Deps ? this.Deps.throttle : this.Throttle;
   }
 
   protected async passwords(): Promise<PasswordCredentialStore> {
-    return this.Deps ? this.Deps.passwords : await DI.resolve(PasswordCredentialStore);
+    return this.Deps ? this.Deps.passwords : this.Passwords;
   }
 
   protected async hasher(): Promise<PasswordHasher> {
-    return this.Deps ? this.Deps.hasher : await DI.resolve(PasswordHasher);
+    return this.Deps ? this.Deps.hasher : this.Hasher;
   }
 
   protected async tokens(): Promise<TokenService | null> {
-    if (this.Deps) {
-      return this.Deps.tokens;
-    }
-    return DI.check(TokenService) ? await DI.resolve(TokenService) : null;
+    return (this.Deps ? this.Deps.tokens : this.Tokens) ?? null;
   }
 
-  protected async sinks(): Promise<readonly AuthnEventSink[]> {
-    if (this.Deps) {
-      return this.Deps.sinks;
-    }
-    return DI.check(AuthnEventSink) ? await Promise.resolve(DI.resolve(Array.ofType(AuthnEventSink))) : [];
+  protected auditor(): AuthnAuditor {
+    return this.Deps ? (this._auditor ??= AuthnAudit.over(this.Deps.sinks, { log: this.log() })) : this.Audit;
   }
 
   protected log(): AuditLog {

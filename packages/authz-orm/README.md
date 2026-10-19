@@ -105,7 +105,8 @@ Permission names are compared exactly: `@AccessResource('task')` registers `task
   narrows a list and authorizes nothing: a select still needs `.accessible()`, `.unscoped(reason)` or
   SYSTEM. It works on select, update and delete builders.
 - `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
-  (`authz.audit.unscoped`).
+  (`authz.audit.unscoped`), with the audit and config the domain's service booted with. Before that boot
+  they are read from the configuration and picked the way the host picks them.
 
 ### Plan terms and `PlanTermSql`
 
@@ -136,8 +137,8 @@ export class TenantSql extends PlanTermSql {
 ```
 
 `SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
-`ancestorTable`, the `owner`/`self` relation columns, `now` and the `dialect` (`sqlite`, `postgres`,
-`mysql`, `mssql`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+`ancestorTable`, the `owner`/`self` relation columns, `now` and `expressions`, the connection's SQL for what
+dialects spell differently (`castText`, `contains`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
 guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
 
 ## Per-row access
@@ -221,6 +222,10 @@ widths. A failed write is logged (`authz-audit`) and the record dropped; it neve
    name. Without one the migration is skipped with a warning and every record fails.
 3. Register and select it: `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's
    container), with `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
+
+`authz:audit-unattended` prints the resource types of the rows with the reason `unattended` (queried
+without a principal), with a count, the most frequent first. It reads `authz_audit` on the
+`authz-audit` connection and exits 1 when that connection or the table is missing.
 
 The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
 the last one registered, so loading the module would silently replace the log audit.

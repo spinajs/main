@@ -7,6 +7,7 @@ import { PasswordCredentialStore, PasswordService } from '@spinajs/authn/contrac
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import type { AuditLog } from './audit.js';
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { EXPIRED_PASSWORD_MARKER } from './hasher.js';
 
 const DAY_MS = 86_400_000;
@@ -64,10 +65,10 @@ export class PasswordExpirationJob {
   constructor(protected readonly Deps?: PasswordExpirationJobDeps) {}
 
   public async run(now: Date = new Date()): Promise<PasswordExpirationResult> {
-    if (!(this.Deps ? (this.Deps.enabled ?? false) : this.Enabled)) {
+    if (!(this.Deps ? (this.Deps.enabled ?? AUTHN_LOCAL_DEFAULTS.expiration.enabled) : this.Enabled)) {
       return { idle: 'disabled', expired: 0, skipped: 0, failed: 0 };
     }
-    const maxAgeDays = this.Deps ? (this.Deps.maxAgeDays ?? 31) : this.MaxAgeDays;
+    const maxAgeDays = this.Deps ? (this.Deps.maxAgeDays ?? AUTHN_LOCAL_DEFAULTS.expiration.maxAgeDays) : this.MaxAgeDays;
     // A zero or negative age would expire every password at once (and NaN none), so it must stop the run, not pass the schema's word.
     if (typeof maxAgeDays !== 'number' || !Number.isFinite(maxAgeDays) || maxAgeDays <= 0) {
       throw new InvalidOption(`authn.local.expiration.maxAgeDays must be a positive number of days, got ${String(maxAgeDays)}`);

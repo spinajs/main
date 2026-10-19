@@ -50,10 +50,8 @@ export class AuthzRbacDropUserRole_2026_10_01_00_02_00 extends OrmMigration {
       const q = connection.Container.resolve(IdentifierQuoter);
 
       // blocks writers of users (a 2.x instance still running) between the check and the drop; it
-      // does not block authz_assignment writes. SQLite needs nothing, its single writer is this transaction
-      if (connection.Options.Driver === 'orm-driver-postgres') {
-        await connection.schema().raw(`LOCK TABLE ${q.quote(USERS_TABLE)} IN SHARE MODE`);
-      }
+      // does not block authz_assignment writes
+      await connection.lockTableShared(USERS_TABLE);
 
       const idColumn = matchColumn(names, configured.idColumn);
       if (idColumn) {

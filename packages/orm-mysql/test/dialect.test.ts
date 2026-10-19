@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, WhereBoolean } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { MySqlInSetStatement } from '../src/statements.js';
@@ -82,6 +82,13 @@ describe('mysql dialect', function () {
     it('matches nothing for an empty value list, and everything for its negation', () => {
       expect(statement([]).build().Statements[0]).to.eq('(1 = 0)');
       expect(statement([], true).build().Statements[0]).to.eq('(1 = 1)');
+    });
+
+    it('keeps the OR connector when cloned', () => {
+      const original = statement(['admin']);
+      original.Boolean = WhereBoolean.OR;
+
+      expect(original.clone().Boolean).to.eq(WhereBoolean.OR);
     });
 
     it('refuses a value containing the set delimiter', () => {

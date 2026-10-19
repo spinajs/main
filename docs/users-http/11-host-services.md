@@ -15,7 +15,7 @@ Most services are resolved per call from the root container, not injected at boo
 | Service | DI token and lifetime | Default implementation | Used by | Without it | How to replace or extend |
 | --- | --- | --- | --- | --- | --- |
 | `CredentialAdminGuard` | Abstract class of `@spinajs/authn/contracts`; `hasRegistered()`, then `resolve()` per call | users' `AuthzCredentialAdminGuard` | delete, deactivate, ban, the session routes (`'sessions'`), an `Email` / `Login` change of another account (`'password-reset'`) | every call `403 forbidden` | `@Injectable(CredentialAdminGuard)` on a subclass; see below |
-| `AccountStatusSource` | Abstract class of `@spinajs/authz-rbac`; `DI.getRegisteredTypes()`, then `resolve()` per call | users' `UserAccountStatusSource` | `DefaultAccountGuard` witness search | no witness; the last privileged account stays; one warning | `@Injectable(AccountStatusSource)` on a subclass; see below |
+| `AccountStatusSource` | Abstract class of `@spinajs/authz-rbac`; `DI.getRegisteredTypes()`, then `resolve()` per call | users' `UserAccountStatusSource` | `DefaultAccountGuard` witness search | no witness; the last privileged account stays; one warning per process | `@Injectable(AccountStatusSource)` on a subclass; see below |
 | `SessionIssuer` | Abstract class of `@spinajs/authn/contracts`; `hasRegistered()` per call | authn-session's issuer | `GET` and `DELETE /users/security/sessions/...` | `404 not_found` | Register your issuer; `list(identity)` and `revokeHandle(identity, handle)` are called |
 | `TokenService` | Abstract class of `@spinajs/authn/contracts`; checked by registered types, never resolved | authn-token's | `GET /user/tokens/*` | `404 not_found` | Install authn-token or register your own |
 | `TokenProfilePolicy` | String name `'TokenProfilePolicy'`; resolved per call | authn-token's `NoTokenProfilesPolicy` | `GET /user/tokens/profiles`, `?profile=` of `GET /user/tokens/roles` | `[]` | See [Own account routes](03-own-account.md#tokenprofilepolicy-offer-report-only-tokens) |
@@ -94,7 +94,6 @@ export class HumanAccountStatusSource extends UserAccountStatusSource {
 
 - A `CredentialAdminGuard` answer is trusted only when it is exactly `{ ok: true }`; anything else, including a guard that answers past its types, refuses. An unknown code becomes `forbidden`.
 - `DefaultAccountGuard` trusts only answers that are exactly `true` in a `Map`; a source that returns anything else, or throws, counts no witness.
-- The token routes tell a bare abstract class (recorded by an earlier resolve of an unregistered token) from a real implementation, and ignore the bare one.
 - users-http never imports authn-token: the profile policy is found by name so that loading users-http does not register token strategies.
 
 ## Best practices

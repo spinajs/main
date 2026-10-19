@@ -3,10 +3,10 @@ import { BaseController, BasePath, Get, Ok, Patch, Policy, Post, Req } from '@sp
 import type { Request } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
 
-import { PasswordServiceRegistered, loginField, newPasswordField, oldPasswordField, passwordRejected, resetAck, resetRequestThrottled, secretField, badRequest } from '../../password/index.js';
-import { refused } from '../../policies/v3/errors.js';
+import { PasswordServiceRegistered, loginField, newPasswordField, oldPasswordField, passwordRejected, resetAck, resetRequestThrottled, secretField } from '../../password/index.js';
+import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PASSWORD_HARD_CAP } from '../index.js';
-import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
+import { NO_STORE, authnFailureResponse, authnSessionCookie, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 /**
@@ -37,7 +37,7 @@ export class AuthnPasswordController extends BaseController {
    */
   @Get('auth/password/policy')
   public async policy() {
-    return new Ok({ ...(await this.service()).policy() });
+    return new Ok({ ...this.Passwords!.policy() });
   }
 
   /**
@@ -52,7 +52,7 @@ export class AuthnPasswordController extends BaseController {
     const login = loginField(req);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
     try {
-      const result = await (await this.service()).requestReset(login, contextOf(req, 'login'));
+      const result = await this.Passwords!.requestReset(login, contextOf(req, 'login'));
       if (result.status === 'throttled') return resetRequestThrottled(result.retryAfterSeconds);
     } catch (err) {
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
@@ -77,7 +77,7 @@ export class AuthnPasswordController extends BaseController {
     const secret = secretField(req);
     if (login === null || secret === null) return authnFailureResponse();
 
-    const result = await (await this.service()).redeemReset(login, secret, next.password, contextOf(req, 'login'));
+    const result = await this.Passwords!.redeemReset(login, secret, next.password, contextOf(req, 'login'));
     switch (result.status) {
       case 'reset':
         return resetAck();
@@ -102,14 +102,13 @@ export class AuthnPasswordController extends BaseController {
   @Patch('user/password')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async change(@Req() req: Request) {
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
+    const session = activeSessionOf(req);
     const next = newPasswordField(req);
     if ('answer' in next) return next.answer;
     const old = oldPasswordField(req);
     if (old === null) return authnFailureResponse();
 
-    const result = await (await this.service()).change(session.identity, old, next.password, session.handle, contextOf(req, 'reauth', session.handle));
+    const result = await this.Passwords!.change(session.identity, old, next.password, session.handle, contextOf(req, 'reauth', session.handle));
     switch (result.status) {
       case 'changed':
         return new Ok(null, { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
@@ -118,9 +117,5 @@ export class AuthnPasswordController extends BaseController {
       default:
         return authnFailureResponse();
     }
-  }
-
-  protected async service(): Promise<PasswordService> {
-    return this.Passwords!;
   }
 }

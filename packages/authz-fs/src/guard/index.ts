@@ -1,27 +1,27 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename } from 'node:path';
 
-import { AuthzConfigError, SYSTEM, UNATTENDED, currentPrincipal, engineLog } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, UNATTENDED, currentPrincipal, definite, engineLog } from '@spinajs/authz';
 import type { Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { fsNative, fsTemp } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { _check_arg, _is_object, _is_string, _non_empty, _reg_match } from '@spinajs/util';
+import { _check_arg, _is_object, _is_string } from '@spinajs/util';
 
 import type { FileMetadataStore } from '../api.js';
 import { fsAccessConfig } from '../access-config/index.js';
 import type { FsAccessConfig } from '../access-config/index.js';
 import { FS_UNCHECKED_METHODS, effectiveFsOperations } from '../operations/index.js';
 import type { FsOperation, FsPathSpec } from '../operations/index.js';
-import { FS_NO_OWNER_TYPES } from '../metadata/meta.js';
+import { FS_NO_OWNER_TYPES, checkFsName } from '../metadata/meta.js';
 import { fileMetadataStore } from '../metadata/select.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
 import type { FsRow } from '../refs/index.js';
 import { planMetadata } from './metadata.js';
 import type { MetadataPath } from './metadata.js';
 import { rememberRaw } from './raw.js';
-import { basePathOf, decideFs, definite, domainNow, domainService, publishedFs, refOf, validNow, warnDenied } from './shared.js';
+import { basePathOf, decideFs, domainNow, domainService, publishedFs, refOf, validNow, warnDenied } from './shared.js';
 import type { FsGuardLog, FsGuardService } from './shared.js';
 import { SIGNING_METHODS, askedUntil, signingCall, signingUntil } from './signed-url.js';
 
@@ -155,7 +155,7 @@ export function isGuardedFs(value: unknown): boolean {
 }
 
 function makeGuard(name: string, raw: fs, config: FsAccessConfig, env: Env): Guard {
-  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(name, 'fsName');
+  checkFsName(name);
   let pending: Promise<FsGuardService> | undefined;
   let store: Promise<FileMetadataStore | undefined> | undefined;
   return {

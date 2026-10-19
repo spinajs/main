@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { AsyncService, Autoinject, DI, NewInstance } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, NewInstance, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -864,8 +864,13 @@ describe('MemoryAuthnThrottle', function () {
     class Dep {}
     class AsyncDep extends AsyncService {}
 
-    // @Autoinject gives the subclass its own DI descriptor, a singleton, which hides the inherited @NewInstance.
+    @Singleton()
     class SharedLimiter extends FlowLimiter {
+      @Autoinject(Dep)
+      dep: Dep;
+    }
+
+    class InheritingLimiter extends FlowLimiter {
       @Autoinject(Dep)
       dep: Dep;
     }
@@ -902,6 +907,19 @@ describe('MemoryAuthnThrottle', function () {
         await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), refusesShared, 'and keeps failing');
         await assert.rejects(t.peek(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared);
         for (let i = 0; i < 3; i++) await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()), refusesShared, 'every retry of one flow');
+      }));
+
+    it('gives a subclass that only adds @Autoinject its own instance per flow: it inherits @NewInstance()', () =>
+      withLimiter(InheritingLimiter, async () => {
+        const t = new Probe(DEFAULT_THROTTLE);
+        expectAllowed(await t.attempt(pwKeys(ALICE.login, IP_A), 'login', ctx()));
+        const limiters = FLOWS.map((f) => t.limiterOf(f));
+        assert.strictEqual(new Set(limiters).size, FLOWS.length);
+        for (const [i, f] of FLOWS.entries()) {
+          assert.ok(limiters[i] instanceof InheritingLimiter);
+          assert.strictEqual(limiters[i].flow, f);
+          assert.ok((limiters[i] as InheritingLimiter).dep instanceof Dep);
+        }
       }));
 
     it('gives a subclass that re-declares @NewInstance() its own instance per flow, dependencies injected', () =>

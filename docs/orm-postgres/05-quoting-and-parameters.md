@@ -57,7 +57,7 @@ export class UtcLiteralsPostgresDriver extends PostgresOrmDriver {
 ## Important behaviour
 
 - Quoted identifiers are case-sensitive in PostgreSQL. The ORM quotes every model column, so a column created as `"CreatedAt"` must be read as `"CreatedAt"`; unquoted `CreatedAt` in raw SQL means `createdat`.
-- `toDriverStatement()` counts `?` characters, not placeholders. In a statement that has bindings and also an inlined literal containing `?` before a real placeholder, the literal's `?` becomes `$1` and the last placeholder stays `?`. Statements compiled by the ORM do not mix the two; raw SQL you write can.
+- `toDriverStatement()` skips single-quoted literals, double-quoted identifiers and the jsonb operators `?|` and `?&`. The bare jsonb `?` operator is still indistinguishable from a placeholder; use `jsonb_exists()` in raw SQL that carries bindings.
 - `toPositionalParameters()` rewrites every `?`, including those inside string literals.
 - `PostgresLiteralQuoter.quote()` throws `InvalidArgument` for objects, arrays and invalid dates; bind them instead.
 - The JSON operators `?`, `?|` and `?&` collide with placeholders. In a statement with bindings, the first ones are rewritten as parameters. Use the function forms `jsonb_exists()`, `jsonb_exists_any()` and `jsonb_exists_all()`.

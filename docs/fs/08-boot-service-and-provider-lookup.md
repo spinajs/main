@@ -1,10 +1,10 @@
 # Boot service and provider lookup
 
-Two services hold the package together: `fsService` creates and decorates the providers, and the `'__file_provider__'` factory registered by `FsBootsrapper` finds one by name. Replace or extend them when you need different boot rules or a different lookup, eg. stricter validation or provider aliases.
+Two services hold the package together: `fsService` creates and decorates the providers, and the `'__file_provider__'` factory registered by `FsBootstrapper` finds one by name. Replace or extend them when you need different boot rules or a different lookup, eg. stricter validation or provider aliases.
 
 ## How it works
 
-1. `FsBootsrapper.bootstrap()` registers a factory `(container, name) => fs` under `'__file_provider__'`.
+1. `FsBootstrapper.bootstrap()` registers a factory `(container, name) => fs` under `'__file_provider__'`.
 2. `fsService.resolve()` creates every provider and registers each one with `DI.register(instance).asMapValue('__file_provider_instance__', name)`. The flow is in [Providers and configuration](01-providers-and-configuration.md#how-it-works).
 3. `fsService.decorate(created)` wraps them. See [Provider decorators](07-provider-decorators.md).
 4. `getFs(name)` calls `DI.resolve('__file_provider__', [name])`. The factory reads the `'__file_provider_instance__'` map and returns the entry for `name`.
@@ -19,8 +19,8 @@ Two services hold the package together: `fsService` creates and decorates the pr
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `fsService` | `fsService` class, singleton; an `AsyncService`, so `DI.resolve(fsService)` returns a promise | `fsService` | none | Subclass it and `DI.register(MySubclass).as(fsService)` before the first `DI.resolve(fsService)`. Override `resolve()` (call `super.resolve()`) or the protected `decorate(providers)`. |
-| `FsBootsrapper` | `Bootstrapper`, through `@Injectable(Bootstrapper)` | `FsBootsrapper` | none | Leave it; replace the factory it registers. |
-| Provider lookup | `'__file_provider__'`, a factory; the last registered factory wins | name lookup in `'__file_provider_instance__'` | none | `DI.register(factory).as('__file_provider__')` after `FsBootsrapper.bootstrap()` ran. |
+| `FsBootstrapper` | `Bootstrapper`, through `@Injectable(Bootstrapper)` | `FsBootstrapper` | none | Leave it; replace the factory it registers. |
+| Provider lookup | `'__file_provider__'`, a factory; the last registered factory wins | name lookup in `'__file_provider_instance__'` | none | `DI.register(factory).as('__file_provider__')` after `FsBootstrapper.bootstrap()` ran. |
 | Provider map | `'__file_provider_instance__'`, a `Map<string, fs>` built with `asMapValue()` | filled by `fsService` | none | Read it with `DI.get<Map<string, fs>>('__file_provider_instance__')`, eg. to list providers. Do not write to it outside `fsService`. |
 
 ### `fsService`: custom implementation
@@ -66,7 +66,7 @@ const PROVIDER_ALIASES: Record<string, string> = {
   'pdf-exports': 'exports',
 };
 
-// call after every Bootstrapper ran, so it is registered after FsBootsrapper's factory
+// call after every Bootstrapper ran, so it is registered after FsBootstrapper's factory
 export function registerProviderAliases(): void {
   DI.register((_container: IContainer, name: string) => {
     const providers = DI.get<Map<string, fs>>('__file_provider_instance__');
@@ -79,6 +79,18 @@ export function registerProviderAliases(): void {
     return instance;
   }).as('__file_provider__');
 }
+```
+
+### Reading a published provider
+
+`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { fs, FILE_PROVIDER_INSTANCES, publishedFs } from '@spinajs/fs';
+
+const uploads = publishedFs('uploads');
+const all = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 ```
 
 ## Important behaviour

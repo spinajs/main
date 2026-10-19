@@ -4,9 +4,10 @@ import { AUTHZ_CONFIGURATION_SCHEMA, AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { bindConfiguration, bootConfiguration, testHost, violationPaths } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import type { IContainer } from '@spinajs/di';
 
-import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, QueueChangeBus, StampedInitiatorPrincipalFactory } from '../src/index.js';
+import { AUTHZ_BUS_TOPIC_CONFIGURATION_SCHEMA, AUTHZ_QUEUE_CONFIGURATION_SCHEMA, AuthzQueueConfigBootstrapper, AuthzQueueHook, AuthzQueueTrackingHook, StampedInitiatorPrincipalFactory } from '../src/index.js';
 
 describe('authz-queue configuration through @Config', () => {
   const children: IContainer[] = [];
@@ -30,11 +31,6 @@ describe('authz-queue configuration through @Config', () => {
     expect(read(new AuthzQueueTrackingHook(), await boot({}), 'Domain')).to.equal('root');
   });
 
-  it('QueueChangeBus reads authz.bus.topic, none by default', async () => {
-    expect(read(new QueueChangeBus(), await boot({ bus: { topic: '/topic/authz' } }), 'Topic')).to.equal('/topic/authz');
-    expect(read(new QueueChangeBus(), await boot({}), 'Topic')).to.equal(undefined);
-  });
-
   it('refuses an empty domain or topic at boot', async () => {
     expect(await violationPaths(boot({ queue: { domain: '' } }))).to.include('authz.queue.domain');
     expect(await violationPaths(boot({ bus: { topic: '' } }))).to.include('authz.bus.topic');
@@ -46,7 +42,9 @@ describe('authz-queue configuration through @Config', () => {
       for (const domain of ['', 'nowhere']) {
         const child = await boot({});
         (await child.resolve(Configuration)).set(['authz', 'queue', 'domain'], domain);
-        const hook = bindConfiguration(new AuthzQueueHook(), child) as unknown as { service(): Promise<unknown> };
+        // DI caches the hook in root; a fresh one reads this child's domain.
+        DI.uncache(AuthzQueueHook);
+        const hook = (await child.resolve(AuthzQueueHook)) as unknown as { service(): Promise<unknown> };
         const failure = await hook.service().then(
           () => undefined,
           (e: unknown) => e,
@@ -54,6 +52,7 @@ describe('authz-queue configuration through @Config', () => {
         expect(failure, JSON.stringify(domain)).to.be.instanceOf(AuthzConfigError);
       }
     } finally {
+      DI.uncache(AuthzQueueHook);
       for (const c of children.splice(0)) await c.dispose();
       await testHost.uninstallHost();
     }
@@ -61,17 +60,14 @@ describe('authz-queue configuration through @Config', () => {
 
   describe('authz.queue.stampedInitiatorWarning', () => {
     const warnings = async (factory: StampedInitiatorPrincipalFactory): Promise<number> => {
-      const original = console.warn;
       let count = 0;
-      console.warn = () => {
-        count++;
+      (factory as unknown as { Log: unknown }).Log = {
+        warn: () => {
+          count++;
+        },
       };
-      try {
-        await factory.principalOf({ type: 'user', id: 'u1' });
-        await factory.principalOf({ type: 'user', id: 'u2' });
-      } finally {
-        console.warn = original;
-      }
+      await factory.principalOf({ type: 'user', id: 'u1' });
+      await factory.principalOf({ type: 'user', id: 'u2' });
       return count;
     };
 
@@ -99,19 +95,20 @@ describe('authz-queue configuration through @Config', () => {
       expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory(), child))).to.equal(1);
     });
 
-    it('the constructor option warn: false never reads the config', async () => {
-      const throwing = bindConfiguration(new StampedInitiatorPrincipalFactory({ warn: false }), {
-        get: () => {
-          throw new Error('config was read');
-        },
-      } as unknown as IContainer);
-      expect(await warnings(throwing)).to.equal(0);
+    it('the constructor option warn decides without reading the config', async () => {
+      const throwing = { get: () => expect.fail('config was read') } as unknown as IContainer;
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory({ warn: false }), throwing))).to.equal(0);
+      expect(await warnings(bindConfiguration(new StampedInitiatorPrincipalFactory({ warn: true }), throwing))).to.equal(1);
       expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: false }))).to.equal(0);
     });
 
-    it('a new-built factory with no Configuration to read warns instead of throwing', async () => {
+    it('a new-built factory without the option and with no Configuration to read throws', async () => {
       const lonely = bindConfiguration(new StampedInitiatorPrincipalFactory(), DI.RootContainer.child());
-      expect(await warnings(lonely)).to.equal(1);
+      const failure = await lonely.principalOf({ type: 'user', id: 'u1' }).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(failure).to.be.instanceOf(InvalidOperation);
     });
 
     it('refuses a non-boolean at boot', async () => {

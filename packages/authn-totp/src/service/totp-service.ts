@@ -1,19 +1,19 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
-import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
+import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
-import { registered } from '../support/registered.js';
 
-export type TotpBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
-/** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
-export type TotpConfirmResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_begun' | 'invalid_code' | 'enrolled' | 'throttled'; readonly retryAfterSeconds?: number };
-export type TotpDisableResult = { readonly ok: true } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' | 'invalid_code' | 'throttled'; readonly retryAfterSeconds?: number };
-export type TotpRegenerateResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' };
+export type TotpBeginResult = MfaBeginResult;
+export type TotpConfirmResult = MfaConfirmResult;
+export type TotpDisableResult = MfaDisableResult;
+export type TotpRegenerateResult = MfaRegenerateResult;
 
 /** Left out, a dependency is resolved from DI on first use. */
 export interface TotpServiceDeps {
@@ -23,6 +23,7 @@ export interface TotpServiceDeps {
   readonly sessions?: SessionIssuer;
   readonly authn?: AuthnService;
   readonly throttle?: AuthnThrottle;
+  /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
   readonly sinks?: readonly AuthnEventSink[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
@@ -34,7 +35,7 @@ interface Resolved {
   readonly sessions: SessionIssuer;
   readonly authn: AuthnService;
   readonly throttle: AuthnThrottle;
-  readonly sinks: readonly AuthnEventSink[];
+  readonly audit: AuthnAuditor;
   readonly maxAgeSeconds: number;
 }
 
@@ -54,14 +55,27 @@ interface Current {
  * `adminReset` does not check who may reset whom: the caller applies the target guard (A25, `users:credentials`) first.
  * It never returns a secret (SR-10). No result or event carries a secret, a code or a recovery code (SR-01, A21).
  */
-@Injectable()
-export class TotpService {
+@Injectable(MfaEnrolmentService)
+export class TotpService extends MfaEnrolmentService {
   private readonly cache: { -readonly [K in keyof Resolved]?: Resolved[K] } = {};
 
   @Config('authn.freshAuth.maxAgeSeconds')
   protected MaxAgeSeconds: number;
 
-  constructor(private readonly deps: TotpServiceDeps = {}) {}
+  @Config('authn.mfa.encryptionKey.secret')
+  protected EncryptionKey: string | null | undefined;
+
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
+  constructor(private readonly deps: TotpServiceDeps = {}) {
+    super();
+  }
+
+  /** "Turning TOTP on": the steps list TotpMfaStep itself, not a subclass, and authn.mfa.encryptionKey.secret is set. */
+  enabled(steps: Iterable<MfaStep>): boolean {
+    return !!this.EncryptionKey && [...steps].some((s) => s.constructor === TotpMfaStep);
+  }
 
   async begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<TotpBeginResult> {
     const step = await this.need('step');
@@ -247,15 +261,11 @@ export class TotpService {
     await this.publish(ctx, { ...e, identity: c.identity, ...(c.facts.sessionHandle ? { session: c.facts.sessionHandle } : {}) });
   }
 
-  private async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const sinks = await this.need('sinks');
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of sinks) {
-      await sink.publish(event);
-    }
+  private async publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    await (await this.need('audit')).publishIn(ctx, e);
   }
 
-  /** Resolved on first use, one by one, so `adminReset` (the CLI) needs only the step and the sinks. */
+  /** Resolved on first use, one by one, so `adminReset` (the CLI) needs only the step and the audit. */
   private async need<K extends keyof Resolved>(key: K): Promise<Resolved[K]> {
     const hit = this.cache[key];
     if (hit !== undefined) {
@@ -270,17 +280,17 @@ export class TotpService {
     const d = this.deps;
     switch (key) {
       case 'step':
-        return d.step ?? (registered(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
+        return d.step ?? (DI.hasImplementation(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
       case 'steps':
-        return d.steps ?? (registered(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
+        return d.steps ?? (DI.hasImplementation(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
       case 'sessions':
         return d.sessions ?? (await resolveOne(SessionIssuer)) ?? missing('SessionIssuer');
       case 'authn':
         return d.authn ?? (await resolveOne(AuthnService)) ?? missing('AuthnService');
       case 'throttle':
         return d.throttle ?? (await resolveOne(AuthnThrottle)) ?? missing('AuthnThrottle');
-      case 'sinks':
-        return d.sinks ?? (registered(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
+      case 'audit':
+        return d.sinks ? AuthnAudit.over(d.sinks) : (this.Audit ?? missing('AuthnAudit'));
       case 'maxAgeSeconds':
         return d.maxAgeSeconds ?? this.MaxAgeSeconds;
     }
@@ -292,8 +302,7 @@ function missing(name: string): never {
 }
 
 async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promise<T | null> {
-  const t = type as unknown as new () => T;
-  return registered(type) ? ((await DI.resolve(t)) as T) : null;
+  return DI.hasImplementation(type) ? ((await DI.resolve(type)) as T) : null;
 }
 
 /** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */

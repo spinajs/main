@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { SocketClient, SocketException, type SocketClientOptions, type TypedSocketClient } from '@spinajs/http-socket-client';
 import { notesContract, type Bytes, type NoteEntity, type NotesContract } from './contract.js';
 
@@ -8,7 +9,7 @@ export function connectNotes(url: string, path: string, token: string, options: 
   const client = new SocketClient({
     url,
     path,
-    clientId: `notes-${token}`,
+    clientId: `notes-${randomUUID()}`,
     auth: () => ({ token }),
     io: { transports: ['websocket'] },
     ...options,

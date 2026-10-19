@@ -1,7 +1,7 @@
 const fs = {
     fs: {
         onedrive: {
-            aad_endpoing: "https://login.microsoftonline.com/",
+            aad_endpoint: "https://login.microsoftonline.com/",
             graph_endpoint: "https://graph.microsoft.com/",
         }
     }

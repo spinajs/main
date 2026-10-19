@@ -1,4 +1,4 @@
-import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
+import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import { BadRequestResponse } from './badRequest.js';
 import { AuthenticationFailed,  } from '@spinajs/exceptions';
 import { HandleException } from '../decorators.js';

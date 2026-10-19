@@ -1,12 +1,16 @@
 import { fork, ChildProcess } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { NewInstance } from '@spinajs/di';
 import { QueueJob, Job, JobProgressCallback } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { IRenderRequest, IRenderOutput, WorkerMessage } from './protocol.js';
 
 /** Default max render duration before the worker is force-killed (ms). */
 const DEFAULT_RENDER_TIMEOUT_MS = 120000;
+
+/** Time the worker gets to clean up after SIGTERM before it is SIGKILLed (ms). */
+const KILL_GRACE_MS = 5000;
 
 /**
  * This module's directory, resolved across the dual ESM/CJS build. Under CJS
@@ -30,6 +34,7 @@ function moduleDir(): string {
  * work (Chromium, template compile, fs upload) runs in the forked worker; this
  * class only supervises it.
  */
+@NewInstance()
 @Job()
 export class RenderPdfJob extends QueueJob {
   @Logger('RenderPdfJob')
@@ -57,7 +62,7 @@ export class RenderPdfJob extends QueueJob {
 
   /** Spawn the render worker process. Overridable in tests. */
   protected spawnWorker(): ChildProcess {
-    return fork(join(moduleDir(), 'render-worker.js'));
+    return fork(join(moduleDir(), 'render-worker.js'), process.argv.slice(2));
   }
 
   protected buildRequest(): IRenderRequest {
@@ -75,7 +80,7 @@ export class RenderPdfJob extends QueueJob {
 
   /**
    * Drive one worker to completion: relay progress to the queue, resolve on
-   * `done`, reject on `error` / unexpected exit, and force-kill on timeout.
+   * `done`, reject on `error` / unexpected exit, and terminate the worker on timeout.
    * Every terminal path clears the timer and detaches listeners exactly once.
    */
   protected superviseChild(child: ChildProcess, progress: JobProgressCallback): Promise<IRenderOutput> {
@@ -98,7 +103,13 @@ export class RenderPdfJob extends QueueJob {
 
       const timer = setTimeout(() => {
         settle(() => reject(new Error(`Render worker timed out after ${timeoutMs}ms`)));
-        child.kill('SIGKILL');
+        // SIGTERM first so the worker can remove its temp PDF; SIGKILL if it does not exit
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGKILL');
+          }
+        }, KILL_GRACE_MS).unref();
       }, timeoutMs);
 
       child.on('message', (m: WorkerMessage) => {
