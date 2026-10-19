@@ -41,7 +41,10 @@ export declare abstract class FileAclStore {
     abstract deleteTree(fs: string, path: string): Promise<void>;
     /** The rows at exactly `path`. */
     abstract deletePath(fs: string, path: string): Promise<void>;
-    /** Moves the rows at `from` and under it to `to` on `toFs`; a moved row replaces an equal one there. */
+    /**
+     * Moves the rows at `from` and under it to `to` on `toFs`; a moved row replaces an equal one there. A row whose new
+     * path would be longer than FS_ACL_LIMITS.path is deleted.
+     */
     abstract moveTree(fromFs: string, from: string, toFs: string, to: string): Promise<void>;
     /** Moves the rows at exactly `from` (none under it) to `to` on `toFs`; a moved row replaces an equal one there. */
     abstract movePath(fromFs: string, from: string, toFs: string, to: string): Promise<void>;
