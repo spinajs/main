@@ -12,7 +12,8 @@ describe('authz-fs package layout', () => {
   it('ships nothing but the db.Aliases fragment in src/config or lib/*/config', () => {
     expect(modules(join(process.cwd(), 'src', 'config'))).to.deep.eq(['db.ts']);
     for (const flavour of ['mjs', 'cjs']) {
-      expect(modules(join(process.cwd(), 'lib', flavour, 'config')), `lib/${flavour}/config`).to.satisfy((files: string[]) => files.every((f) => f.startsWith('db.')));
+      const files = modules(join(process.cwd(), 'lib', flavour, 'config'));
+      if (files.length > 0) expect(files, `lib/${flavour}/config`).to.deep.eq(['db.js']);
     }
   });
 });
