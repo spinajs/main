@@ -17,7 +17,7 @@ import {
 
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
-import path, { basename, extname } from 'path';
+import path, { extname } from 'path';
 import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
 import crypto from 'crypto';
@@ -213,7 +213,7 @@ export class fsS3 extends fs {
    *
    * @param path - file to download
    */
-  public async download(path: string): Promise<string> {
+  protected async doDownload(path: string): Promise<string> {
     const tmpName = this.TempFs.tmppath(extname(path));
     const wStream = await this.TempFs.writeStream(tmpName);
 
@@ -238,7 +238,7 @@ export class fsS3 extends fs {
   /**
    * read all content of file
    */
-  public async read(path: string, encoding: BufferEncoding) {
+  protected async doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
     const fLocal = await this.download(path);
     const content = await this.TempFs.read(fLocal, encoding);
 
@@ -253,7 +253,7 @@ export class fsS3 extends fs {
    * @param _encoding
    * @returns
    */
-  public async readStream(path: string, encoding?: BufferEncoding) {
+  protected async doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     const command = new GetObjectCommand({
       Bucket: this.Options.bucket,
       Key: path,
@@ -272,7 +272,7 @@ export class fsS3 extends fs {
   /**
    * Write to file string or buffer
    */
-  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
+  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     // store the same hash metadata as upload() does - otherwise hash() throws
     // for files created via write()
     const shaHash = crypto.createHash('sha256');
@@ -311,7 +311,7 @@ export class fsS3 extends fs {
    * @param data
    * @param encoding
    */
-  public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  protected async doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     /**
      * We cannot append to file in s3 directly,
      * we have to download file first, append locally, then upload again new file
@@ -326,7 +326,7 @@ export class fsS3 extends fs {
     }
   }
 
-  public async metadata(path: string): Promise<IFileInfo> {
+  protected async doMetadata(path: string): Promise<IFileInfo> {
     const command = new HeadObjectCommand({
       Bucket: this.Options.bucket,
       Key: path,
@@ -353,7 +353,7 @@ export class fsS3 extends fs {
    * @param srcPath file to calculate hash
    * @param algo not supported, throws when given
    */
-  public async hash(path: string, algo?: string): Promise<string> {
+  protected async doHash(path: string, algo?: string): Promise<string> {
     if (algo) {
       throw new InvalidArgument(`Hash alghoritm is not supported in s3 filesystem`);
     }
@@ -371,17 +371,14 @@ export class fsS3 extends fs {
     return result.Metadata['hash'];
   }
 
-  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
+  protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
 
-    const dPath = destPath ?? basename(srcPath);
-
-    // calculate from physycal file hash
-    // s3 hash gets from metadata
-    const hash = await super.hash(srcPath, 'md5');
-    const shaHash = await super.hash(srcPath, 'sha256');
+    // srcPath is a local file; the public hash() would read it as a key of this bucket.
+    const hash = await super.doHash(srcPath, 'md5');
+    const shaHash = await super.doHash(srcPath, 'sha256');
 
     let fInfo: Partial<IFileInfo> = {};
 
@@ -400,7 +397,7 @@ export class fsS3 extends fs {
       client: this.S3,
       params: {
         Bucket: this.Options.bucket,
-        Key: dPath,
+        Key: destPath,
         IfNoneMatch: options?.exclusive ? '*' : undefined,
         Body: rStream,
         ContentType: fInfo.MimeType,
@@ -440,7 +437,7 @@ export class fsS3 extends fs {
     } catch (err) {
       // 412: the key exists; 409: a concurrent write to the key got there first. Either way the key is not ours to clean up
       if (options?.exclusive && err instanceof S3ServiceException && [409, 412].includes(err.$metadata?.httpStatusCode ?? 0)) {
-        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${dPath} already exists`, err);
+        throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${destPath} already exists`, err);
       }
       throw err;
     }
@@ -453,15 +450,11 @@ export class fsS3 extends fs {
    * @param path path to file
    * @returns
    */
-  public async getMetadata(path: string) {
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
+  public async getMetadata(path: string): Promise<Record<string, string> | undefined> {
+    return this.runAction('getMetadata', [{ path, kind: 'file', access: ['stat'] }], [], async ([target]) => {
+      const result = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: target.path }));
+      return result.Metadata;
     });
-
-    const result = await this.S3.send(command);
-
-    return result.Metadata;
   }
 
   /**
@@ -469,24 +462,27 @@ export class fsS3 extends fs {
    * S3 cannot edit metadata in place: the object is copied onto itself, so this is limited to objects of up to 5 GB.
    */
   public async setMetadata(path: string, metadata: Record<string, string>): Promise<void> {
-    const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: path }));
+    return this.runAction('setMetadata', [{ path, kind: 'file', access: ['write'] }], [metadata], async ([target], [replacement]) => {
+      const key = target.path;
+      const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: key }));
 
-    await this.S3.send(
-      new CopyObjectCommand({
-        Bucket: this.Options.bucket,
-        Key: path,
-        CopySource: this.copySource(path),
-        MetadataDirective: 'REPLACE',
-        Metadata: metadata,
-        // REPLACE drops every header not given again
-        ContentType: head.ContentType,
-        ContentEncoding: head.ContentEncoding,
-        ContentDisposition: head.ContentDisposition,
-        ContentLanguage: head.ContentLanguage,
-        CacheControl: head.CacheControl,
-        Expires: head.Expires,
-      }),
-    );
+      await this.S3.send(
+        new CopyObjectCommand({
+          Bucket: this.Options.bucket,
+          Key: key,
+          CopySource: this.copySource(key),
+          MetadataDirective: 'REPLACE',
+          Metadata: replacement as Record<string, string>,
+          // REPLACE drops every header not given again
+          ContentType: head.ContentType,
+          ContentEncoding: head.ContentEncoding,
+          ContentDisposition: head.ContentDisposition,
+          ContentLanguage: head.ContentLanguage,
+          CacheControl: head.CacheControl,
+          Expires: head.Expires,
+        }),
+      );
+    });
   }
 
   /**
@@ -501,7 +497,7 @@ export class fsS3 extends fs {
    * @param rStream optional readable stream that will be piped into the upload
    * @param encoding optional stream encoding
    */
-  public async writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<any> {
+  protected async doWriteStream(path: string, rStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<PassThrough> {
     const enc = typeof rStream === 'string' ? rStream : encoding;
 
     // do not auto-emit close on end - we emit it manually when the s3 upload
@@ -538,7 +534,7 @@ export class fsS3 extends fs {
    * Checks if file existst
    * @param path - path to check
    */
-  public async exists(path: string) {
+  protected async doExists(path: string): Promise<boolean> {
     try {
       const command = new HeadObjectCommand({
         Bucket: this.Options.bucket,
@@ -558,7 +554,7 @@ export class fsS3 extends fs {
     return true;
   }
 
-  public async dirExists(): Promise<boolean> {
+  protected async doDirExists(_path: string): Promise<boolean> {
     // always true, s3 does not have concept od directories
     return Promise.resolve(true);
   }
@@ -568,7 +564,7 @@ export class fsS3 extends fs {
    * @param path - src path
    * @param dest - dest path
    */
-  public async copy(path: string, dest: string, dstFs?: fs) {
+  protected async doCopy(path: string, dest: string, dstFs?: fs): Promise<void> {
     // if dest fs is set
     // copy using it
     if (dstFs) {
@@ -593,7 +589,7 @@ export class fsS3 extends fs {
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string, dstFs?: fs) {
+  protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     await this.copy(oldPath, newPath, dstFs);
     await this.rm(oldPath);
   }
@@ -601,8 +597,8 @@ export class fsS3 extends fs {
   /**
    * Change name of a file
    */
-  public async rename(oldPath: string, newPath: string) {
-    return this.move(oldPath, newPath);
+  protected async doRename(oldPath: string, newPath: string): Promise<void> {
+    await this.move(oldPath, newPath);
   }
 
   /**
@@ -611,10 +607,10 @@ export class fsS3 extends fs {
    *
    * @param path - dir to remove
    */
-  public async rm(_path: string) {
+  protected async doRm(path: string): Promise<void> {
     const command = new DeleteObjectCommand({
       Bucket: this.Options.bucket,
-      Key: _path,
+      Key: path,
     });
 
     await this.S3.send(command);
@@ -625,13 +621,13 @@ export class fsS3 extends fs {
    * Creates directory, recursively
    *
    */
-  public async mkdir() {
+  protected async doMkdir(_path: string): Promise<void> {
     // some users makes dir if not exists in fs
     // as s3 does not make use of directories always return true
     return Promise.resolve();
   }
 
-  public async isDir(_path: string): Promise<boolean> {
+  protected async doIsDir(_path: string): Promise<boolean> {
     // some users makes dir if not exists in fs
     // as s3 does not make use of directories always return false for simplicity
     return Promise.resolve(false);
@@ -640,7 +636,7 @@ export class fsS3 extends fs {
   /**
    * Returns file statistics, not all fields may be accesible
    */
-  public async stat(path: string): Promise<IStat> {
+  protected async doStat(path: string): Promise<IStat> {
     const command = new HeadObjectCommand({
       Bucket: this.Options.bucket,
       Key: path,
@@ -667,7 +663,7 @@ export class fsS3 extends fs {
     };
   }
 
-  public async signedUrl(path: string, opts?: { until?: DateTime; disposition?: string }): Promise<string> {
+  protected async doSignedUrl(path: string, opts: { until?: DateTime; disposition?: string }): Promise<string> {
     if (!this.Signer) {
       throw new InvalidOperation(`Cannot sign url for this S3, no signer service configured`);
     }
@@ -678,11 +674,7 @@ export class fsS3 extends fs {
     }
 
     // Neither signer supports a content disposition yet, so opts.disposition is not applied.
-    return this.Signer.sign(path, opts?.until);
-  }
-
-  public async getSignedUrl(path: string, until?: DateTime) {
-    return this.signedUrl(path, { until });
+    return this.Signer.sign(path, opts.until);
   }
 
   public tmppath(): string {
@@ -694,7 +686,7 @@ export class fsS3 extends fs {
    *
    * @param path - path to directory
    */
-  public async list(path: string) {
+  protected async doList(path: string): Promise<string[]> {
     const keys: string[] = [];
     let token: string | undefined;
 
@@ -703,7 +695,8 @@ export class fsS3 extends fs {
         new ListObjectsV2Command({
           Bucket: this.Options.bucket,
           Delimiter: '/',
-          Prefix: path,
+          // normalised paths have no trailing '/'; without it the prefix 'dir' lists the common prefix 'dir/', not its objects
+          Prefix: path ? `${path}/` : '',
           ContinuationToken: token,
         }),
       );
@@ -715,16 +708,28 @@ export class fsS3 extends fs {
     return keys;
   }
 
+  // No Delimiter, unlike doList: a prefix that holds only nested keys (d/sub/a.txt) has entries too.
+  protected async doHasEntries(path: string): Promise<boolean> {
+    const result = await this.S3.send(
+      new ListObjectsV2Command({
+        Bucket: this.Options.bucket,
+        Prefix: path ? `${path}/` : '',
+        MaxKeys: 1,
+      }),
+    );
+    return (result.KeyCount ?? result.Contents?.length ?? 0) > 0;
+  }
+
   /**
    * Downloads the zip to the local temp fs and extracts it there.
    * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -
    * extracting directly onto s3 is not supported.
    */
-  public async unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+  protected async doUnzip(srcPath: string, destPath: string, dstFs: fs): Promise<string> {
     const local = await this.download(srcPath);
 
     try {
-      return await this.TempFs.unzip(local, destPath, dstFs ?? this.TempFs);
+      return await this.TempFs.unzip(local, destPath, dstFs);
     } finally {
       try {
         await this.TempFs.rm(local);
@@ -737,10 +742,10 @@ export class fsS3 extends fs {
   /**
    * Downloads given s3 objects to the local temp fs and zips them there.
    * Result is created on dstFs ( defaults to the temp fs ). Entry names are the
-   * object key basenames.
+   * object keys.
    */
-  public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const paths = Array.isArray(path) ? path : [path];
+  protected async doZip(sources: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult> {
+    const paths = Array.isArray(sources) ? sources : [sources];
     const downloaded: [string, string][] = [];
 
     try {
@@ -751,7 +756,7 @@ export class fsS3 extends fs {
         downloaded.push([local, entryName]);
       }
 
-      return await this.TempFs.zip(downloaded, dstFs ?? this.TempFs, dstFile);
+      return await this.TempFs.zip(downloaded, dstFs, dstFile);
     } finally {
       for (const [local] of downloaded) {
         try {
@@ -761,6 +766,14 @@ export class fsS3 extends fs {
         }
       }
     }
+  }
+
+  protected zipDestination(): fs {
+    return this.TempFs;
+  }
+
+  protected unzipDestination(): fs {
+    return this.TempFs;
   }
 
   /**

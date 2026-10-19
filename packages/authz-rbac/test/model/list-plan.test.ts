@@ -1,5 +1,5 @@
 import { DEFAULT_DENY_PRIORITY, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, EvaluationContext, Principal, RelationResolver, ResourceRef } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
@@ -20,7 +20,7 @@ const alice = userPrincipal('alice');
 const ALICE = ['user:*', 'user:alice'];
 
 const role = (name: string, grants: readonly (string | GrantDef)[] = [], extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', ...extra, grants: grants.map((g) => (typeof g === 'string' ? { permission: g } : g)) });
-const ROLES = [role('viewer', ['doc:read']), role('editor', ['doc:read']), role('pm', [{ permission: 'doc:read', grantedAt: ['project'] }]), role('billing', [{ permission: 'doc:read', requiresTag: 'paid' }]), role('member', [{ permission: 'doc:read', relation: 'owner' }]), role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }), role('org.member', [], { subjectSet: true }), { ...role('blocked', ['doc:read']), deny: true }];
+const ROLES = [role('viewer', ['doc:read']), role('editor', ['doc:read']), role('pm', [{ permission: 'doc:read', grantedAt: ['project'] }]), role('billing', [{ permission: 'doc:read', requiresTag: 'paid' }]), role('member', [{ permission: 'doc:read', relation: 'owner' }]), role('worker', [{ permission: 'doc:read', relation: 'assignee' }]), role('lead', [], { implies: [{ role: 'viewer', at: 'descendants' }] }), role('org.member', [], { subjectSet: true }), { ...role('blocked', ['doc:read']), deny: true }];
 const row = (id: string, roleName: string, scope: ResourceRef = GLOBAL, extra: Partial<Assignment> = {}, subject: AssignmentSubject = { type: 'user', id: 'alice' }): Assignment => ({ id, subject, role: roleName, scope, source: 'test', ...extra });
 
 class Closure extends MembershipStore {
@@ -42,7 +42,8 @@ function registry() {
   return r;
 }
 
-const ctx = (): EvaluationContext => fakeEvaluationContext({ now: NOW });
+const assigneeResolver = { type: 'doc', relation: 'assignee', listable: true, holds: () => true } as unknown as RelationResolver;
+const ctx = (resolvers: readonly RelationResolver[] = [assigneeResolver]): EvaluationContext => fakeEvaluationContext({ now: NOW, relations: resolvers });
 
 class EmptyDbRules extends RuleStore {
   readonly name = 'EmptyDbRules';
@@ -54,12 +55,12 @@ class EmptyDbRules extends RuleStore {
   }
 }
 
-async function plan(rows: readonly Assignment[], opts: { principal?: Principal; config?: Record<string, unknown>; membership?: MembershipStore; rules?: RuleStore } = {}) {
+async function plan(rows: readonly Assignment[], opts: { resolvers?: readonly RelationResolver[]; principal?: Principal; config?: Record<string, unknown>; membership?: MembershipStore; rules?: RuleStore } = {}) {
   const reg = registry();
   const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore(rows), ...(opts.membership ? { membership: opts.membership } : {}), ...(opts.rules ? { rules: opts.rules } : {}), log: { warn: () => undefined } });
   await m.init(fakeModelInitContext({ model: 'rbac', permissions: reg, config: opts.config ?? {} }));
   m.grantIndex();
-  return m.listPlan({ principal: opts.principal ?? alice, permission: reg.require('doc:read'), type: 'doc', env: { now: NOW } }, ctx());
+  return m.listPlan({ principal: opts.principal ?? alice, permission: reg.require('doc:read'), type: 'doc', env: { now: NOW } }, ctx(opts.resolvers));
 }
 
 const assignmentTerm = (roles: readonly object[], over: Record<string, unknown> = {}) => ({ op: 'rbac.assignment', args: { subjects: ALICE, membership: false, memberKeys: [], roles, global: false, ...over } });
@@ -94,6 +95,21 @@ describe('authz-rbac listPlan (design §6.2)', () => {
     expect(await plan([row('m', 'member')])).to.deep.equal({ kind: 'terms', permit: [{ op: 'relation.owner', args: { principals: [{ type: 'user', id: 'alice' }] } }], deny: [] });
     expect(await plan([row('m', 'member', P1)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'member', relation: 'owner' }])], deny: [] });
     expect(await plan([row('m', 'member', P1), row('v', 'viewer', P2)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'member', relation: 'owner' }, { role: 'viewer' }])], deny: [] });
+  });
+
+  it('a column relation from a $global role is a relation.column term; from a scoped one a role entry with relation', async () => {
+    expect(await plan([row('w', 'worker')])).to.deep.equal({ kind: 'terms', permit: [{ op: 'relation.column', args: { relation: 'assignee', principals: [{ type: 'user', id: 'alice' }] } }], deny: [] });
+    expect(await plan([row('w', 'worker', P1)])).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'worker', relation: 'assignee' }])], deny: [] });
+  });
+
+  it('rejects when a grant relation has no listable resolver at plan time', async () => {
+    let error: Error | undefined;
+    try {
+      await plan([row('w', 'worker')], { resolvers: [] });
+    } catch (e) {
+      error = e as Error;
+    }
+    expect(error?.message).to.contain("has the relation 'assignee'");
   });
 
   it('a DB rule store without a matching rule does not block the list', async () => {

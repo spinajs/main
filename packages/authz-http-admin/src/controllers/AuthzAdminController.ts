@@ -9,7 +9,7 @@ import { isPlainObject } from '@spinajs/util';
 
 import '../schemas/provider.js';
 import { decodeCommand, decodeCommands } from '../routes/decode.js';
-import { readAssignmentsQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
+import { readAssignmentsQuery, readHoldersQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
 import type { QueryInput } from '../routes/query.js';
 import { adminErrorStatus, resultsStatus } from '../routes/status.js';
 
@@ -150,6 +150,20 @@ export class AuthzAdminController extends BaseController {
   @Get('assignments')
   public async listAssignments(@Req() req: Request) {
     return this.list(req, () => readAssignmentsQuery(query(req)));
+  }
+
+  /**
+   * List holders
+   * Who holds a permission on a resource through role assignments on it, its ancestors or $global; each principal is verified by a fresh check.
+   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset`.
+   * @response 200 {AuthzAdminPage} One page of holders
+   * @response 400 {AuthzAdminError} invalid_query: a malformed or missing query parameter
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks authz:holders.read at the resource, or the resource is unknown
+   */
+  @Get('holders')
+  public async listHolders(@Req() req: Request) {
+    return this.list(req, () => readHoldersQuery(query(req)));
   }
 
   /**

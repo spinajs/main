@@ -11,8 +11,8 @@ export interface RbacPlanRole {
   readonly tag?: string;
   /** At the row's ancestors only, never at the row (implies with at: 'descendants'). */
   readonly descendantsOnly?: boolean;
-  /** And the row's owner (self) is one of the principals among `subjects` (a relation grant held at a scope). */
-  readonly relation?: 'owner' | 'self';
+  /** And the row's relation (owner, self or a column relation) holds one of the principals among `subjects` (a relation grant held at a scope). */
+  readonly relation?: string;
 }
 
 export interface RbacAssignmentPlanArgs {
@@ -62,8 +62,8 @@ export function parseRbacPlanArgs(args: unknown): RbacAssignmentPlanArgs {
     if (typeof role !== 'string' || role === '') fail(`roles[${i}].role must be a role name`);
     if (tag !== undefined && (typeof tag !== 'string' || tag === '' || tag.includes(','))) fail(`roles[${i}].tag must be a tag`);
     if (descendantsOnly !== undefined && descendantsOnly !== true) fail(`roles[${i}].descendantsOnly must be true when present`);
-    if (relation !== undefined && relation !== 'owner' && relation !== 'self') fail(`roles[${i}].relation must be 'owner' or 'self'`);
-    return { role: role as string, ...(scopeTypes !== undefined ? { scopeTypes: names(scopeTypes, `roles[${i}].scopeTypes`) } : {}), ...(tag !== undefined ? { tag: tag as string } : {}), ...(descendantsOnly ? { descendantsOnly: true } : {}), ...(relation !== undefined ? { relation: relation as 'owner' | 'self' } : {}) };
+    if (relation !== undefined && (typeof relation !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(relation))) fail(`roles[${i}].relation must be a relation name`);
+    return { role: role as string, ...(scopeTypes !== undefined ? { scopeTypes: names(scopeTypes, `roles[${i}].scopeTypes`) } : {}), ...(tag !== undefined ? { tag: tag as string } : {}), ...(descendantsOnly ? { descendantsOnly: true } : {}), ...(relation !== undefined ? { relation: relation as string } : {}) };
   });
   return rbacPlanArgs({ subjects: names(args.subjects, 'subjects'), membership: args.membership as boolean, memberKeys: names(args.memberKeys, 'memberKeys'), roles, global: args.global as boolean });
 }

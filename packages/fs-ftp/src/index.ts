@@ -125,7 +125,7 @@ export class fsFTP extends fs {
    *
    * @param path - file to download
    */
-  public async download(p: string): Promise<string> {
+  protected async doDownload(p: string): Promise<string> {
     const tmpName = this.TempFs.tmppath(path.extname(p));
     const wStream = await this.TempFs.writeStream(tmpName);
 
@@ -141,7 +141,7 @@ export class fsFTP extends fs {
   /**
    * read all content of file
    */
-  public async read(path: string, encoding: BufferEncoding) {
+  protected async doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
     const tmpName = await this.download(path);
 
     try {
@@ -157,7 +157,7 @@ export class fsFTP extends fs {
    * NOTE: basic-ftp runs one command at a time on a single connection - do not
    * issue other operations on this provider until the stream is fully consumed.
    */
-  public async readStream(p: string, encoding?: BufferEncoding): Promise<any> {
+  protected async doReadStream(p: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     const pass = new PassThrough();
 
     if (encoding) {
@@ -177,10 +177,10 @@ export class fsFTP extends fs {
   /**
    * Write to file string or buffer
    */
-  public async write(dstPath: string, data: string | Buffer, encoding?: BufferEncoding) {
+  protected async doWrite(dstPath: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     await this._restoreRootDir();
     await this._ensureDir(dstPath);
-    await this.FtpClient.uploadFrom(Readable.from(data, { encoding }), path.basename(dstPath));
+    await this.FtpClient.uploadFrom(Readable.from(this._bytes(data), { encoding }), path.basename(dstPath));
   }
 
   /**
@@ -188,33 +188,33 @@ export class fsFTP extends fs {
    * @param data
    * @param encoding
    */
-  public async append(dstPath: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+  protected async doAppend(dstPath: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     await this._restoreRootDir();
     await this._ensureDir(dstPath);
 
     // use the FTP APPE command ( appendFrom ) so data is appended to the existing
     // remote file. After _ensureDir the working dir is the file's parent, so the
     // remote target must be the basename.
-    await this.FtpClient.appendFrom(Readable.from(data, { encoding }), path.basename(dstPath));
+    await this.FtpClient.appendFrom(Readable.from(this._bytes(data), { encoding }), path.basename(dstPath));
   }
 
-  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
-    if (!destPath) {
-      destPath = path.basename(srcPath);
-    }
+  // Readable.from emits a string or a Buffer as one chunk but iterates any other Uint8Array byte by byte.
+  protected _bytes(data: string | Uint8Array): string | Buffer {
+    return typeof data === 'string' || Buffer.isBuffer(data) ? data : Buffer.from(data);
+  }
 
+  protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
     // FTP has no create-if-absent: another client can still create the file between this check and the upload
     if (options?.exclusive && (await this.exists(destPath))) {
       throw new ResourceDuplicated(`Cannot upload ${srcPath}, ${destPath} already exists`);
     }
 
     await this._restoreRootDir();
-    
-    await this._ensureDir(destPath!);
+    await this._ensureDir(destPath);
 
     // upload under the destination file name, not the source name. _ensureDir has
     // already switched into destPath's parent directory, so pass the destination basename.
-    await this.FtpClient.uploadFrom(srcPath, path.basename(destPath!));
+    await this.FtpClient.uploadFrom(srcPath, path.basename(destPath));
   }
 
   /**
@@ -225,7 +225,7 @@ export class fsFTP extends fs {
    * @param rStream readable stream, must be provided beforehand
    * @param encoding optional stream encoding
    */
-  public async writeStream(_path: string, _encoding?: BufferEncoding | NodeJS.ReadableStream, _enc?: BufferEncoding): Promise<any> {
+  protected async doWriteStream(_path: string, _readStream?: NodeJS.ReadableStream | BufferEncoding, _encoding?: BufferEncoding): Promise<PassThrough> {
     throw new MethodNotImplemented('fs ftp does not support writing streams');
   }
 
@@ -233,7 +233,7 @@ export class fsFTP extends fs {
    * Checks if file existst
    * @param path - path to check
    */
-  public async exists(p: string) {
+  protected async doExists(p: string): Promise<boolean> {
     try {
       const result = await this.stat(p);
       return result?.IsFile ?? false;
@@ -242,7 +242,7 @@ export class fsFTP extends fs {
     }
   }
 
-  public async dirExists(p: string): Promise<boolean> {
+  protected async doDirExists(p: string): Promise<boolean> {
     try {
       const result = await this.stat(p);
       return !!(result && result.IsDirectory);
@@ -260,7 +260,7 @@ export class fsFTP extends fs {
    * @param dest - dest path
    * @param dstFs - destination file system ( optional )
    */
-  public async copy(path: string, dest: string, dstFs?: fs) {
+  protected async doCopy(path: string, dest: string, dstFs?: fs): Promise<void> {
     let tmpFile = '';
 
     try {
@@ -280,7 +280,7 @@ export class fsFTP extends fs {
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string, dstFs?: fs) {
+  protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     if (dstFs) {
       let tmpFile = '';
       try {
@@ -301,7 +301,7 @@ export class fsFTP extends fs {
   /**
    * Change name of a file
    */
-  public async rename(oldPath: string, newPath: string) {
+  protected async doRename(oldPath: string, newPath: string): Promise<void> {
     await this._restoreRootDir();
     await this.FtpClient.rename(oldPath, newPath);
   }
@@ -312,7 +312,7 @@ export class fsFTP extends fs {
    *
    * @param path - file or dir to remove
    */
-  public async rm(p: string) {
+  protected async doRm(p: string): Promise<void> {
     // stat() leaves the working dir at p's parent
     const stat = await this.stat(p);
 
@@ -328,12 +328,12 @@ export class fsFTP extends fs {
    * Creates directory, recursively
    *
    */
-  public async mkdir(path: string) {
+  protected async doMkdir(dir: string): Promise<void> {
     await this._restoreRootDir();
-    await this.FtpClient.ensureDir(path);
+    await this.FtpClient.ensureDir(dir);
   }
 
-  public async isDir(dir: string): Promise<boolean> {
+  protected async doIsDir(dir: string): Promise<boolean> {
     const stat = await this.stat(dir);
     return stat?.IsDirectory ?? false;
   }
@@ -341,7 +341,7 @@ export class fsFTP extends fs {
   /**
    * Returns file statistics, not all fields may be accesible
    */
-  public async stat(file: string): Promise<IStat> {
+  protected async doStat(file: string): Promise<IStat> {
     await this._restoreRootDir();
     await this._setWorkingDir(file);
 
@@ -372,7 +372,7 @@ export class fsFTP extends fs {
    *
    * @param path - path to directory
    */
-  public async list(dir: string) {
+  protected async doList(dir: string): Promise<string[]> {
     await this._restoreRootDir();
     await this.FtpClient.cd(path.dirname(dir));
     const files = await this.FtpClient.list(path.basename(dir));
@@ -384,11 +384,11 @@ export class fsFTP extends fs {
    * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -
    * extracting directly onto the ftp server is not supported.
    */
-  public async unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+  protected async doUnzip(srcPath: string, destPath: string, dstFs: fs): Promise<string> {
     const local = await this.download(srcPath);
 
     try {
-      return await this.TempFs.unzip(local, destPath, dstFs ?? this.TempFs);
+      return await this.TempFs.unzip(local, destPath, dstFs);
     } finally {
       try {
         await this.TempFs.rm(local);
@@ -401,10 +401,10 @@ export class fsFTP extends fs {
   /**
    * Downloads given remote files to the local temp fs and zips them there.
    * Result is created on dstFs ( defaults to the temp fs ). Entry names are the
-   * remote path basenames.
+   * remote paths.
    */
-  public async zip(p: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const paths = Array.isArray(p) ? p : [p];
+  protected async doZip(sources: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult> {
+    const paths = Array.isArray(sources) ? sources : [sources];
     const downloaded: [string, string][] = [];
 
     try {
@@ -415,7 +415,7 @@ export class fsFTP extends fs {
         downloaded.push([local, entryName]);
       }
 
-      return await this.TempFs.zip(downloaded, dstFs ?? this.TempFs, dstFile);
+      return await this.TempFs.zip(downloaded, dstFs, dstFile);
     } finally {
       for (const [local] of downloaded) {
         try {
@@ -427,7 +427,15 @@ export class fsFTP extends fs {
     }
   }
 
-  public async hash(p: string, algo?: string): Promise<string> {
+  protected zipDestination(): fs {
+    return this.TempFs;
+  }
+
+  protected unzipDestination(): fs {
+    return this.TempFs;
+  }
+
+  protected async doHash(p: string, algo?: string): Promise<string> {
     const local = await this.download(p);
 
     try {
@@ -437,7 +445,7 @@ export class fsFTP extends fs {
     }
   }
 
-  public async metadata(p: string): Promise<IFileInfo> {
+  protected async doMetadata(p: string): Promise<IFileInfo> {
     const local = await this.download(p);
 
     try {

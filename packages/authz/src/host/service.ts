@@ -162,6 +162,11 @@ export class DefaultAuthzService extends AuthzService {
     return s.authorizer.check(this.withPrincipal(req), requestScope());
   }
 
+  async inspect(req: CheckInput): Promise<Decision> {
+    const s = this.state();
+    return s.authorizer.inspect(this.withPrincipal(req), requestScope());
+  }
+
   async can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean> {
     const s = this.state();
     return (await s.authorizer.check(input(principal, permission, resource, subject), requestScope())).allowed;
@@ -201,6 +206,10 @@ export class DefaultAuthzService extends AuthzService {
 
   async summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary> {
     return this.state().authorizer.summary(principal, at, requestScope());
+  }
+
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    return this.state().authorizer.ancestors(ref, requestScope());
   }
 
   async covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean> {
